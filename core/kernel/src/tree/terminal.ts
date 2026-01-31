@@ -486,6 +486,7 @@ export class Terminal extends XTerm implements ITerminal {
       this._resizeObserver.disconnect()
       this._resizeObserver = null
     }
+    ;(this._kernel.dom as any).disableMobileControls()
     super.dispose()
   }
 
@@ -695,6 +696,17 @@ export class Terminal extends XTerm implements ITerminal {
         this._mobileInputElement = null
       }
     }
+
+    ;(this._kernel.dom as any).enableMobileControls((key: string, code: string) => {
+      const fakeEvent = new KeyboardEvent('keydown', {
+        key,
+        code,
+        bubbles: true,
+        cancelable: true
+      })
+      Object.defineProperty(fakeEvent, 'target', { value: mobileInput, enumerable: true })
+      this.keyHandler({ key, domEvent: fakeEvent })
+    })
   }
 
   unlisten() {
@@ -707,6 +719,7 @@ export class Terminal extends XTerm implements ITerminal {
     }
     this._keyListener = undefined
     this._mobileInputListener = null
+    ;(this._kernel.dom as any).disableMobileControls()
     this.events.dispatch<TerminalUnlistenEvent>(TerminalEvents.UNLISTEN, { terminal: this })
   }
 

@@ -225,3 +225,50 @@ body::before {
 .tty-indicator:not(.show) {
   transition: opacity 0.3s ease-in, transform 0.3s ease-in;
 }
+
+.mobile-controls-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.d-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 5px;
+  pointer-events: auto;
+}
+
+.d-pad-btn {
+  width: 50px;
+  height: 50px;
+  background: rgba(40, 40, 40, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 24px;
+  user-select: none;
+  touch-action: manipulation;
+  backdrop-filter: blur(4px);
+  transition: background 0.1s;
+}
+
+.d-pad-btn:active {
+  background: rgba(60, 60, 60, 0.6);
+  transform: scale(0.95);
+}
+
+.btn-up { grid-column: 2; grid-row: 1; }
+.btn-left { grid-column: 1; grid-row: 2; }
+.btn-down { grid-column: 2; grid-row: 2; }
+.btn-right { grid-column: 3; grid-row: 2; }
