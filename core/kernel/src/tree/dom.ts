@@ -65,4 +65,70 @@ export class Dom {
       }, 300)
     }, 1500)
   }
+
+  private _mobileControls: MobileControls | null = null
+
+  enableMobileControls(onKey: (key: string, code: string) => void) {
+    if (this._mobileControls) return
+    this._mobileControls = new MobileControls(onKey)
+    this._mobileControls.mount()
+  }
+
+  disableMobileControls() {
+    if (this._mobileControls) {
+      this._mobileControls.unmount()
+      this._mobileControls = null
+    }
+  }
+}
+
+class MobileControls {
+  private _container: HTMLElement | null = null
+  private _onKey: (key: string, code: string) => void
+
+  constructor(onKey: (key: string, code: string) => void) {
+    this._onKey = onKey
+  }
+
+  mount() {
+    if (this._container) return
+
+    this._container = document.createElement('div')
+    this._container.className = 'mobile-controls-container'
+
+    const dPad = document.createElement('div')
+    dPad.className = 'd-pad'
+
+    dPad.appendChild(this._createButton('▲', 'ArrowUp', 'ArrowUp', 'btn-up'))
+    dPad.appendChild(this._createButton('◀', 'ArrowLeft', 'ArrowLeft', 'btn-left'))
+    dPad.appendChild(this._createButton('▼', 'ArrowDown', 'ArrowDown', 'btn-down'))
+    dPad.appendChild(this._createButton('▶', 'ArrowRight', 'ArrowRight', 'btn-right'))
+
+    this._container.appendChild(dPad)
+    document.body.appendChild(this._container)
+  }
+
+  unmount() {
+    if (this._container) {
+      this._container.remove()
+      this._container = null
+    }
+  }
+
+  private _createButton(label: string, key: string, code: string, className: string): HTMLElement {
+    const btn = document.createElement('div')
+    btn.className = `d-pad-btn ${className}`
+    btn.textContent = label
+
+    const handleTouch = (e: Event) => {
+      e.preventDefault()
+      e.stopPropagation()
+      this._onKey(key, code)
+    }
+
+    btn.addEventListener('touchstart', handleTouch, { passive: false })
+    btn.addEventListener('mousedown', handleTouch) // For testing on desktop
+
+    return btn
+  }
 }
