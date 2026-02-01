@@ -1,0 +1,7 @@
+{
+  "requiresKernel": "Terminal benötigt einen Kernel",
+  "socketConnected": "Verbunden mit Socket bei {{url}}",
+  "socketFailedToOpen": "Fehler beim Öffnen des Sockets",
+  "invalidSpinner": "Ungültiger Spinner",
+  "failedToSaveHistory": "Fehler beim Speichern des Verlaufs"
+}

@@ -214,9 +214,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       // Check if any entry is in /dev directory
       const isDevDirectory = allEntries.some(e => e.fullPath.startsWith('/dev'))
-      const columns = isDevDirectory
-        ? [kernel.i18n.ns.common('Name'), kernel.i18n.ns.common('Mode'), kernel.i18n.ns.common('Owner'), kernel.i18n.ns.common('Info')]
-        : [kernel.i18n.ns.common('Name'), kernel.i18n.ns.common('Size'), kernel.i18n.ns.common('Modified'), kernel.i18n.ns.common('Mode'), kernel.i18n.ns.common('Owner'), kernel.i18n.ns.common('Info')]
+      
+      let columns: string[] = []
+
+      if (terminal.isMobile) {
+        columns = isDevDirectory
+          ? [kernel.i18n.ns.common('Name')]
+          : [kernel.i18n.ns.common('Name'), kernel.i18n.ns.common('Size'), kernel.i18n.ns.common('Modified')]
+      } else {
+        columns = isDevDirectory
+          ? [kernel.i18n.ns.common('Name'), kernel.i18n.ns.common('Mode'), kernel.i18n.ns.common('Owner'), kernel.i18n.ns.common('Info')]
+          : [kernel.i18n.ns.common('Name'), kernel.i18n.ns.common('Size'), kernel.i18n.ns.common('Modified'), kernel.i18n.ns.common('Mode'), kernel.i18n.ns.common('Owner'), kernel.i18n.ns.common('Info')]
+      }
 
       const directoryRows = directories.sort((a, b) => a.name.localeCompare(b.name)).map(directory => {
         const displayName = directory.linkTarget

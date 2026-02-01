@@ -1,0 +1,21 @@
+{
+  "experimental": "EXPERIMENTELL",
+  "madeBy": "Gemacht mit ❤️  von",
+  "knownIssues": "Bekannte Probleme",
+  "tips": "Tipps",
+  "defaultLogin": "Standard-Login",
+  "panic": "Oh oh, Kernel Panic! Überprüfen Sie die Logs für weitere Details.",
+  "permissionNotificationDenied": "Benachrichtigungsberechtigung verweigert",
+  "passkeyAuthenticate": "Bitte verwenden Sie Ihren Passkey zur Authentifizierung...",
+  "passkeyCancelled": "Passkey-Authentifizierung abgebrochen oder fehlgeschlagen. Rückfall auf Passwort...",
+  "passkeyError": "Passkey-Authentifizierungsfehler: {{error}}. Rückfall auf Passwort...",
+  "loginFailed": "Anmeldung fehlgeschlagen",
+  "userNotFound": "Benutzer nicht gefunden",
+  "recommendedApps": "Empfohlene Apps:",
+  "installRecommendedApps": "Möchten Sie die empfohlenen Apps installieren? (Y/n)",
+  "connectionDataFailed": "Fehler beim Abrufen der Verbindungsdaten",
+  "commandNotFound": "Befehl nicht gefunden: {{command}}",
+  "modules": {
+    "blacklisted": "Überspringe blockiertes Modul {{module}}"
+  }
+}
