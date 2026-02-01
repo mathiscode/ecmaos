@@ -139,6 +139,8 @@ export interface Terminal extends XTerm {
   readonly cmd: string
   /** Get current working directory */
   readonly cwd: string
+  /** Get if terminal is running on mobile */
+  readonly isMobile: boolean
   /** Get emoji utilities */
   readonly emojis: any
   /** Get event emitter */

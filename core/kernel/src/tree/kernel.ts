@@ -486,15 +486,16 @@ export class Kernel implements IKernel {
           })
         }
         
-        // Detect browser language and override system locale if they differ
+        // Detect browser language and override default system locale
         const browserLanguage = this.i18n.detectBrowserLanguage()
         const browserLocale = this.i18n.languageToLocale(browserLanguage)
         const systemLanguage = this.i18n.localeToLanguage(systemLocale)
         
         let finalLocale = systemLocale
-        if (browserLanguage !== systemLanguage) {
+        const isDefaultLanguage = browserLanguage === 'en' || browserLanguage.toLowerCase().startsWith('en-')
+        
+        if (!isDefaultLanguage && browserLanguage !== systemLanguage) {
           finalLocale = browserLocale
-          // Update /etc/default/locale to match browser language
           await this.sudo(async () => {
             await this.filesystem.fs.writeFile(localeFilePath, `LANG=${finalLocale}\n`, { mode: 0o644 })
           })
@@ -503,7 +504,6 @@ export class Kernel implements IKernel {
         }
         
         this.i18n.setLanguage(finalLocale)
-        // Get fresh translation function after locale is loaded
         t = this.i18n.i18next.getFixedT(this.i18n.language, 'kernel')
         localeSpan.setAttribute('locale.system', systemLocale)
         localeSpan.setAttribute('locale.final', finalLocale)
@@ -512,7 +512,6 @@ export class Kernel implements IKernel {
         this.log.warn(`Failed to load system locale: ${(error as Error).message}`)
         localeSpan.recordException(error as Error)
         this.i18n.setLanguage('en_US')
-        // Fallback translation function
         t = this.i18n.i18next.getFixedT(this.i18n.language, 'kernel')
       }
       localeSpan.end()
@@ -1223,7 +1222,6 @@ export class Kernel implements IKernel {
         terminal.unlisten()
 
         keyListener = terminal.onKey(({ domEvent }) => {
-          console.log(domEvent.ctrlKey, domEvent.key)
           if (domEvent.ctrlKey && domEvent.key === 'c') {
             domEvent.preventDefault()
             domEvent.stopPropagation()

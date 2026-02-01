@@ -160,6 +160,7 @@ export class Terminal extends XTerm implements ITerminal {
   get commands() { return this._commands }
   get cmd() { return this._cmd }
   get cwd() { return this._shell.cwd }
+  get isMobile() { return this._isMobile }
   get emojis() { return emoji }
   get events() { return this._events }
   get id() { return this._id }
@@ -181,6 +182,8 @@ export class Terminal extends XTerm implements ITerminal {
     super({ ...DefaultTerminalOptions, ...options })
     this._tty = options.tty ?? 0
     globalThis.terminals?.set(this.id, this)
+
+    this._detectMobileSupport()
 
     // Create the primary stdin stream (terminal's own stdin)
     this._stdin = this.createSubscribedInputStream().stream
@@ -387,10 +390,10 @@ export class Terminal extends XTerm implements ITerminal {
       // Silently fail if filesystem isn't ready yet - will initialize on first use
     })
 
-    this._detectMobileSupport()
+
 
     this.events.dispatch<TerminalCreatedEvent>(TerminalEvents.CREATED, { terminal: this })
-    this.element?.setAttribute('enterkeyhint', 'search')
+    this.element?.setAttribute('enterkeyhint', 'send')
   }
 
   mount(element: HTMLElement) {
@@ -567,7 +570,7 @@ export class Terminal extends XTerm implements ITerminal {
     mobileInput.setAttribute('autocapitalize', 'off')
     mobileInput.setAttribute('autocorrect', 'off')
     mobileInput.setAttribute('spellcheck', 'false')
-    mobileInput.setAttribute('enterkeyhint', 'search')
+    mobileInput.setAttribute('enterkeyhint', 'send')
     
     document.body.appendChild(mobileInput)
     this._mobileInputElement = mobileInput
@@ -1671,7 +1674,7 @@ export class Terminal extends XTerm implements ITerminal {
     textInput.setAttribute('autocapitalize', 'off')
     textInput.setAttribute('autocorrect', 'off')
     textInput.setAttribute('spellcheck', 'false')
-    textInput.setAttribute('enterkeyhint', 'search')
+    textInput.setAttribute('enterkeyhint', 'send')
     
     document.body.appendChild(textInput)
     
@@ -1781,7 +1784,7 @@ export class Terminal extends XTerm implements ITerminal {
     passwordInput.setAttribute('autocapitalize', 'off')
     passwordInput.setAttribute('autocorrect', 'off')
     passwordInput.setAttribute('spellcheck', 'false')
-    passwordInput.setAttribute('enterkeyhint', 'search')
+    passwordInput.setAttribute('enterkeyhint', 'send')
     
     document.body.appendChild(passwordInput)
     this._passwordInputElement = passwordInput
