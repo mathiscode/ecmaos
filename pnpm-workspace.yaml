@@ -4,3 +4,8 @@ packages:
   - 'devices/*'
   - 'modules/*'
   - 'utils/*'
+
+minimumReleaseAgeExclude:
+  - '@zenfs/*'
+  - 'kerium'
+  - 'utilium'

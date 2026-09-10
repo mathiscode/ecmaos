@@ -20,17 +20,17 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       '@zenfs/archives':
-        specifier: ^1.3.1
-        version: 1.3.1(@zenfs/core@2.4.4)(kerium@1.3.8)(memium@0.3.11)(utilium@2.5.8)
+        specifier: ^1.5.0
+        version: 1.5.0(@zenfs/core@2.7.2)(kerium@1.4.4)(memium@1.0.1)(utilium@3.6.2)
       '@zenfs/core':
-        specifier: ^2.4.4
-        version: 2.4.4
+        specifier: ^2.7.2
+        version: 2.7.2
       '@zenfs/dom':
-        specifier: ^1.2.5
-        version: 1.2.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)
+        specifier: ^1.2.13
+        version: 1.2.13(@zenfs/core@2.7.2)(kerium@1.4.4)(utilium@3.6.2)
       '@zenfs/emscripten':
-        specifier: ^1.0.5
-        version: 1.0.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)
+        specifier: ^1.0.9
+        version: 1.0.9(@zenfs/core@2.7.2)(kerium@1.4.4)
       chalk:
         specifier: ^5.3.0
         version: 5.3.0
@@ -70,7 +70,7 @@ importers:
         version: 5.6.3
       vite-plugin-node-polyfills:
         specifier: ^0.22.0
-        version: 0.22.0(rollup@4.54.0)(vite@5.4.21(@types/node@24.10.4))
+        version: 0.22.0(rollup@4.54.0)(vite@5.4.21(@types/node@26.4.1))
       winbox:
         specifier: ^0.2.82
         version: 0.2.82
@@ -373,47 +373,43 @@ packages:
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
-  '@types/node@24.10.4':
-    resolution: {integrity: sha512-vnDVpYPMzs4wunl27jHrfmwojOGKya0xyM3sH+UE5iv5uPS6vX7UIoh6m+vQc5LGBq52HBKPIn/zcSZVzeDEZg==}
+  '@types/node@26.4.1':
+    resolution: {integrity: sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==}
 
   '@types/winbox@0.2.5':
     resolution: {integrity: sha512-9GdE6bwyg55eqmUbv4PChLjCp3pz/IS57NYwT5+c9r7EM6/tqi2iXpUoSeTDPgoBKDrq2mzdk5YU/Z9aTBWJfw==}
 
-  '@xterm/xterm@5.5.0':
-    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
-
   '@xterm/xterm@6.0.0':
     resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
-  '@zenfs/archives@1.3.1':
-    resolution: {integrity: sha512-Ot6B2PSjkquFHijjONZresmITQfh4kj5dRpnFbssZs9uIrX6GzzqGnsP3EZ2DiS4qIjvmLk5ed/oIMiIb/ZmCw==}
+  '@zenfs/archives@1.5.0':
+    resolution: {integrity: sha512-va+kHPhQ1EVQAv838BAh+APxyfhOxqJ/KlbIMVANEFxxBKtqB6TWExbGyLI67NpuCGZJLC7l8xvlpVvYKYNWRg==}
     engines: {node: '>= 20'}
     peerDependencies:
-      '@zenfs/core': ^2.4.2
-      kerium: ^1.3.4
-      memium: ^0.3.8
-      utilium: ^2.5.0
+      '@zenfs/core': ^2.6.0
+      kerium: ^1.4.2
+      memium: ^1.0.0
+      utilium: ^3.0.0
 
-  '@zenfs/core@2.4.4':
-    resolution: {integrity: sha512-4ove99nTRyS3WPNlHN6i0AxMMYW85YBo2lVS/aNXU48dYOl78XiM98d4uly/9PwtllGJHEv9GHkomxS2eoOLFw==}
+  '@zenfs/core@2.7.2':
+    resolution: {integrity: sha512-Xm1dVU5AiXvxsd5iZ105V5ER1Si8N5YFRXwY393hqeI5anMxGv1VgV4hh4GjzUL8Njo1ZKWnwbd/wcXLVmArTw==}
     engines: {node: '>= 18'}
     hasBin: true
 
-  '@zenfs/dom@1.2.5':
-    resolution: {integrity: sha512-DdQzmROGvgen3JmBVdovnaIyAexPPlCNJ5Tb0e48N8W9TQJA5IuVsBgohBKGwDiGEDPquEMxzoycFD4RC6kjzA==}
+  '@zenfs/dom@1.2.13':
+    resolution: {integrity: sha512-DEaaG3YTO4ke5k72VB7magyKGaCfcHefob6EM04mkLH1fHjM4/ScL2JcTi/AysaAVi9kaoGY7TnpYd34BHzgRQ==}
     engines: {node: '>= 22'}
     peerDependencies:
-      '@zenfs/core': ^2.3.11
-      kerium: ^1.3.4
-      utilium: ^2.5.0
+      '@zenfs/core': ^2.6.0
+      kerium: ^1.4.2
+      utilium: ^3.0.0
 
-  '@zenfs/emscripten@1.0.5':
-    resolution: {integrity: sha512-pesd+hvOSwUtmSA6/0mCDCx0HmMPJiYZjOzTfIhwX9lX0F126ZoohpHdoAuwY30WFFNw4rKeiKos+aII4RkTjg==}
+  '@zenfs/emscripten@1.0.9':
+    resolution: {integrity: sha512-I1WoXJK5m9Cm/CQ4j1sreAsdzauSGawjaX3OKHI+SpEdWxafhQ/lHrk4JqTe6SihhBCk9k2l8IJVE8yBa0K4jA==}
     engines: {node: '>= 18'}
     peerDependencies:
       '@zenfs/core': ^2.4.2
       kerium: ^1.3.4
-      utilium: ^2.5.0
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -716,8 +712,8 @@ packages:
     resolution: {integrity: sha512-u4sej9B1LPSxTGKB/HiuzvEQnXH0ECYkSVQU39koSwmFAxhlEAFl9RdTvLv4TOTQUgBS5O3O5fwUxk6byBZ+IQ==}
     engines: {node: '>=10'}
 
-  kerium@1.3.8:
-    resolution: {integrity: sha512-tOtOOsTZ85Wt4h8TwV4ItgTi6paj2U1buOC/v9Rdon0ndtqASm5fn/rBRfEsif1czW4+u73T7XPbQAIBUF4tzg==}
+  kerium@1.4.4:
+    resolution: {integrity: sha512-XbfmmVUpMyRO8f1TfqPGW4HRVRfDrTQrWCLTaE3M6Ypexa3/fGorcoSPd+K41jfsv8JxF1cRl/8e0bsA/H3tMQ==}
 
   locate-path@6.0.0:
     resolution: {integrity: sha512-iPZK6eYjbxRu3uB4/WZ3EsEIMJFMqAoopl3R+zuq0UjcAm/MO6KCweDgPfP3elTztoKP3KtnVHxTn2NHBSDVUw==}
@@ -736,8 +732,8 @@ packages:
   md5.js@1.3.5:
     resolution: {integrity: sha512-xitP+WxNPcTTOgnTJcrhM0xvdPepipPSf3I8EIpGKeFLjt3PlJLIDG3u8EX53ZIubkb+5U2+3rELYpEhHhzdkg==}
 
-  memium@0.3.11:
-    resolution: {integrity: sha512-CwmIpLVSG7UToDj2sYAZFDkpco30OPsXpaCnt+7Z7JQaulCjH5UvwJIctTIHmgQdFqk8pliBsPLnH5OZcDLZyQ==}
+  memium@1.0.1:
+    resolution: {integrity: sha512-Ae+Fv7oPRdl7Dr5o32HBspvzAEvJS21ZWcPQv1cIA/aCkvlhYuJR+JF79bWYKQ/d5iBl2ItvjikFA1tUI5QpVQ==}
 
   miller-rabin@4.0.1:
     resolution: {integrity: sha512-115fLhvZVqWwHPbClyntxEVfVDfl9DLLTuJvq3g2O/Oxi8AiNouAHvDSzHS0viUJc+V5vm3eq91Xwqn9dp4jRA==}
@@ -972,8 +968,8 @@ packages:
     resolution: {integrity: sha512-ya4mg/30vm+DOWfBg4YK3j2WD6TWtRkCbasOJr40CseYENzCUby/7rIvXA99JGsQHeNxLbnXdyLLxKSv3tauFw==}
     engines: {node: '>=12.17'}
 
-  undici-types@7.16.0:
-    resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
   url@0.11.4:
     resolution: {integrity: sha512-oCwdVC7mTuWiPyjLUz/COz5TLk6wgp0RCsN+wHZ2Ekneac9w8uuV0njcbbie2ME+Vs+d6duwmYuR3HgQXs1fOg==}
@@ -985,8 +981,8 @@ packages:
   util@0.12.5:
     resolution: {integrity: sha512-kZf/K6hEIrWHI6XqOFUiiMa+79wE/D8Q+NCNAWclkyg3b4d2k7s0QGepNjiABc+aR3N1PAyHL7p6UcLY6LmrnA==}
 
-  utilium@2.5.8:
-    resolution: {integrity: sha512-RNXAYoYH7hefayCW/2LU3SYCwDGQlDc8f4gPCRbMO6dJsYGGlzAhyHqYQGp73ox41JtPKjdqzddAbDhWQ9MrXQ==}
+  utilium@3.6.2:
+    resolution: {integrity: sha512-3xHMPK5WAvooqdOFhkz7HArFPN+9C+dN+kIsqlTpwifukkXf6M4kKAkyY3PgSjSj1Y0+zHtn6ctyfffdPrDctA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -1211,46 +1207,42 @@ snapshots:
 
   '@types/estree@1.0.8': {}
 
-  '@types/node@24.10.4':
+  '@types/node@26.4.1':
     dependencies:
-      undici-types: 7.16.0
+      undici-types: 8.3.0
 
   '@types/winbox@0.2.5': {}
 
-  '@xterm/xterm@5.5.0':
-    optional: true
-
   '@xterm/xterm@6.0.0': {}
 
-  '@zenfs/archives@1.3.1(@zenfs/core@2.4.4)(kerium@1.3.8)(memium@0.3.11)(utilium@2.5.8)':
+  '@zenfs/archives@1.5.0(@zenfs/core@2.7.2)(kerium@1.4.4)(memium@1.0.1)(utilium@3.6.2)':
     dependencies:
-      '@zenfs/core': 2.4.4
+      '@zenfs/core': 2.7.2
       fflate: 0.8.2
-      kerium: 1.3.8
-      memium: 0.3.11
-      utilium: 2.5.8
+      kerium: 1.4.4
+      memium: 1.0.1
+      utilium: 3.6.2
 
-  '@zenfs/core@2.4.4':
+  '@zenfs/core@2.7.2':
     dependencies:
-      '@types/node': 24.10.4
+      '@types/node': 26.4.1
       buffer: 6.0.3
       eventemitter3: 5.0.1
-      kerium: 1.3.8
-      memium: 0.3.11
+      kerium: 1.4.4
+      memium: 1.0.1
       readable-stream: 4.7.0
-      utilium: 2.5.8
+      utilium: 3.6.2
 
-  '@zenfs/dom@1.2.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)':
+  '@zenfs/dom@1.2.13(@zenfs/core@2.7.2)(kerium@1.4.4)(utilium@3.6.2)':
     dependencies:
-      '@zenfs/core': 2.4.4
-      kerium: 1.3.8
-      utilium: 2.5.8
+      '@zenfs/core': 2.7.2
+      kerium: 1.4.4
+      utilium: 3.6.2
 
-  '@zenfs/emscripten@1.0.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)':
+  '@zenfs/emscripten@1.0.9(@zenfs/core@2.7.2)(kerium@1.4.4)':
     dependencies:
-      '@zenfs/core': 2.4.4
-      kerium: 1.3.8
-      utilium: 2.5.8
+      '@zenfs/core': 2.7.2
+      kerium: 1.4.4
 
   abort-controller@3.0.0:
     dependencies:
@@ -1639,9 +1631,9 @@ snapshots:
 
   isomorphic-timers-promises@1.0.1: {}
 
-  kerium@1.3.8:
+  kerium@1.4.4:
     dependencies:
-      utilium: 2.5.8
+      utilium: 3.6.2
 
   locate-path@6.0.0:
     dependencies:
@@ -1661,10 +1653,10 @@ snapshots:
       inherits: 2.0.4
       safe-buffer: 5.2.1
 
-  memium@0.3.11:
+  memium@1.0.1:
     dependencies:
-      kerium: 1.3.8
-      utilium: 2.5.8
+      kerium: 1.4.4
+      utilium: 3.6.2
 
   miller-rabin@4.0.1:
     dependencies:
@@ -1978,7 +1970,7 @@ snapshots:
 
   typical@7.3.0: {}
 
-  undici-types@7.16.0: {}
+  undici-types@8.3.0: {}
 
   url@0.11.4:
     dependencies:
@@ -1995,27 +1987,25 @@ snapshots:
       is-typed-array: 1.1.15
       which-typed-array: 1.1.19
 
-  utilium@2.5.8:
+  utilium@3.6.2:
     dependencies:
       eventemitter3: 5.0.1
-    optionalDependencies:
-      '@xterm/xterm': 5.5.0
 
-  vite-plugin-node-polyfills@0.22.0(rollup@4.54.0)(vite@5.4.21(@types/node@24.10.4)):
+  vite-plugin-node-polyfills@0.22.0(rollup@4.54.0)(vite@5.4.21(@types/node@26.4.1)):
     dependencies:
       '@rollup/plugin-inject': 5.0.5(rollup@4.54.0)
       node-stdlib-browser: 1.3.1
-      vite: 5.4.21(@types/node@24.10.4)
+      vite: 5.4.21(@types/node@26.4.1)
     transitivePeerDependencies:
       - rollup
 
-  vite@5.4.21(@types/node@24.10.4):
+  vite@5.4.21(@types/node@26.4.1):
     dependencies:
       esbuild: 0.21.5
       postcss: 8.5.6
       rollup: 4.54.0
     optionalDependencies:
-      '@types/node': 24.10.4
+      '@types/node': 26.4.1
       fsevents: 2.3.3
 
   vm-browserify@1.1.2: {}
