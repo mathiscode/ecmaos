@@ -6,6 +6,9 @@
     "baseUrl": "./",
     "rootDir": "./src",
     "outDir": "./dist",
+    "paths": {
+      "vim-wasm/vimwasm.js": ["../utils/src/types/vim-wasm.d.ts"]
+    },
     "types": [
       "./src/declarations/globalThis.d.ts",
       "./src/declarations/figlet-fonts.d.ts",
