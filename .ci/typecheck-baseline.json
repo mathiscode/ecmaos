@@ -1,0 +1,6 @@
+{
+  "budget": 108,
+  "recorded": "2026-09-10",
+  "measuredAfter": "pnpm build",
+  "note": "Pre-existing typecheck errors carried into the feat/1.0.0 overhaul, measured by scripts/typecheck-ratchet.mjs after `pnpm build` has populated dist/ for the packages that build. Breakdown at record time: commands/crypto.ts 26, commands/mount.ts 18, third-party vim-wasm 16, commands/ls.ts 15, commands/git.ts 15, tree/device.ts 14, and 4 single-error command files. Most are the dual @zenfs/core drift that feat/1.0.0-dep-hygiene removes; vim-wasm is raw .ts pulled into the program. Ratchet: this number may fall, never rise. See CONTRIBUTING.md."
+}

@@ -53,6 +53,26 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 * Add tests for new functionality
 * Update documentation for changes
 
+## Typecheck error-budget ratchet
+
+The `feat/1.0.0` overhaul carries a body of pre-existing `tsc` errors (dual
+`@zenfs/core` copies across the workspace, plus third-party `vim-wasm` sources
+pulled into the program). Fixing them all up front is not a prerequisite for the
+overhaul, but the count must not grow while it is in progress.
+
+CI enforces this with `scripts/typecheck-ratchet.mjs`, which runs
+`tsc --noEmit` in `core/kernel` **after `pnpm build`**, counts diagnostics, and
+compares against the budget in `.ci/typecheck-baseline.json`. Run it after a
+build locally too — several packages resolve their types from `dist/`, so the
+count is only stable once `dist/` is populated.
+
+* **More errors than the budget** — CI fails. Fix the new errors.
+* **Fewer errors than the budget** — CI passes with a warning. Run
+  `node scripts/typecheck-ratchet.mjs --write` and commit the updated
+  `.ci/typecheck-baseline.json` so the improvement is locked in.
+
+The number only ever ratchets down.
+
 ## License
 
 By contributing to ecmaOS, you agree that your contributions will be licensed under its MIT license.
