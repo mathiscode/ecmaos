@@ -97,6 +97,9 @@ importers:
       '@webcontainer/api':
         specifier: ^1.5.1
         version: 1.5.1
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -112,21 +115,27 @@ importers:
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
+      '@xterm/addon-unicode11':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@xterm/addon-webgl':
+        specifier: ^0.19.0
+        version: 0.19.0
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
       '@zenfs/archives':
-        specifier: ^1.3.1
-        version: 1.3.1(@zenfs/core@2.4.4)(kerium@1.3.8)(memium@0.3.11)(utilium@2.5.8)
+        specifier: ^1.5.0
+        version: 1.5.0(@zenfs/core@2.7.2)(kerium@1.4.4)(memium@1.0.1)(utilium@3.6.2)
       '@zenfs/core':
-        specifier: ^2.4.4
-        version: 2.4.4
+        specifier: ^2.7.2
+        version: 2.7.2
       '@zenfs/dom':
-        specifier: ^1.2.5
-        version: 1.2.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)
+        specifier: ^1.2.13
+        version: 1.2.13(@zenfs/core@2.7.2)(kerium@1.4.4)(utilium@3.6.2)
       '@zenfs/emscripten':
-        specifier: ^1.0.5
-        version: 1.0.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)
+        specifier: ^1.0.9
+        version: 1.0.9(@zenfs/core@2.7.2)(kerium@1.4.4)
       '@zip.js/zip.js':
         specifier: ^2.7.52
         version: 2.7.53
@@ -291,11 +300,11 @@ importers:
         specifier: ^0.1.51
         version: 0.1.51
       '@xterm/addon-attach':
-        specifier: ^0.11.0
-        version: 0.11.0(@xterm/xterm@6.0.0)
+        specifier: ^0.12.0
+        version: 0.12.0
       '@xterm/addon-web-links':
-        specifier: ^0.11.0
-        version: 0.11.0(@xterm/xterm@6.0.0)
+        specifier: ^0.12.0
+        version: 0.12.0
       canvas:
         specifier: ^2.11.2
         version: 2.11.2
@@ -1499,8 +1508,8 @@ packages:
   '@types/node@22.9.1':
     resolution: {integrity: sha512-p8Yy/8sw1caA8CdRIQBG5tiLHmxtQKObCijiAa9Ez+d4+PRffM4054xbju0msf+cvhJpnFEeNjxmVT/0ipktrg==}
 
-  '@types/node@24.10.9':
-    resolution: {integrity: sha512-ne4A0IpG3+2ETuREInjPNhUGis1SFjv1d5asp8MzEAGtOZeTeHVDOYqOgqfhvseqg/iXty2hjBf1zAOb7RNiNw==}
+  '@types/node@26.4.1':
+    resolution: {integrity: sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==}
 
   '@types/pako@2.0.3':
     resolution: {integrity: sha512-bq0hMV9opAcrmE0Byyo0fY3Ew4tgOevJmQ9grUhpXQhYfyLJ1Kqg3P33JT5fdbT2AjeAjR51zqqVjAL/HMkx7Q==}
@@ -1633,6 +1642,7 @@ packages:
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   '@vitest/browser@2.1.9':
     resolution: {integrity: sha512-AHDanTP4Ed6J5R6wRBcWRQ+AxgMnNJxsbaa229nFQz5KOMFZqlW11QkIDoLgCjBOpQ1+c78lTN5jVxO8ME+S4w==}
@@ -1733,10 +1743,11 @@ packages:
   '@webgpu/types@0.1.51':
     resolution: {integrity: sha512-ktR3u64NPjwIViNCck+z9QeyN0iPkQCUOQ07ZCV1RzlkfP+olLTeEZ95O1QHS+v4w9vJeY9xj/uJuSphsHy5rQ==}
 
-  '@xterm/addon-attach@0.11.0':
-    resolution: {integrity: sha512-JboCN0QAY6ZLY/SSB/Zl2cQ5zW1Eh4X3fH7BnuR1NB7xGRhzbqU2Npmpiw/3zFlxDaU88vtKzok44JKi2L2V2Q==}
-    peerDependencies:
-      '@xterm/xterm': ^5.0.0
+  '@xterm/addon-attach@0.12.0':
+    resolution: {integrity: sha512-1lxvXM4JYSm60lbFmE8WMOy2oF2ip3Ye8jWorSAmwy7x8FiC53netEJ5RguL8+FSRj79MUQsNCb2hprY2QA2ig==}
+
+  '@xterm/addon-clipboard@0.2.0':
+    resolution: {integrity: sha512-Dl31BCtBhLaUEECUbEiVcCLvLBbaeGYdT7NofB8OJkGTD3MWgBsaLjXvfGAD4tQNHhm6mbKyYkR7XD8kiZsdNg==}
 
   '@xterm/addon-fit@0.11.0':
     resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
@@ -1753,13 +1764,14 @@ packages:
   '@xterm/addon-serialize@0.14.0':
     resolution: {integrity: sha512-uteyTU1EkrQa2Ux6P/uFl2fzmXI46jy5uoQMKEOM0fKTyiW7cSn0WrFenHm5vO5uEXX/GpwW/FgILvv3r0WbkA==}
 
-  '@xterm/addon-web-links@0.11.0':
-    resolution: {integrity: sha512-nIHQ38pQI+a5kXnRaTgwqSHnX7KE6+4SVoceompgHL26unAxdfP6IPqUTSYPQgSwM56hsElfoNrrW5V7BUED/Q==}
-    peerDependencies:
-      '@xterm/xterm': ^5.0.0
+  '@xterm/addon-unicode11@0.9.0':
+    resolution: {integrity: sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw==}
 
-  '@xterm/xterm@5.5.0':
-    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
+  '@xterm/addon-web-links@0.12.0':
+    resolution: {integrity: sha512-4Smom3RPyVp7ZMYOYDoC/9eGJJJqYhnPLGGqJ6wOBfB8VxPViJNSKdgRYb8NpaM6YSelEKbA2SStD7lGyqaobw==}
+
+  '@xterm/addon-webgl@0.19.0':
+    resolution: {integrity: sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A==}
 
   '@xterm/xterm@6.0.0':
     resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
@@ -1767,35 +1779,34 @@ packages:
   '@zeit/schemas@2.36.0':
     resolution: {integrity: sha512-7kjMwcChYEzMKjeex9ZFXkt1AyNov9R5HZtjBKVsmVpw7pa7ZtlCGvCBC2vnnXctaYN+aRI61HjIqeetZW5ROg==}
 
-  '@zenfs/archives@1.3.1':
-    resolution: {integrity: sha512-Ot6B2PSjkquFHijjONZresmITQfh4kj5dRpnFbssZs9uIrX6GzzqGnsP3EZ2DiS4qIjvmLk5ed/oIMiIb/ZmCw==}
+  '@zenfs/archives@1.5.0':
+    resolution: {integrity: sha512-va+kHPhQ1EVQAv838BAh+APxyfhOxqJ/KlbIMVANEFxxBKtqB6TWExbGyLI67NpuCGZJLC7l8xvlpVvYKYNWRg==}
     engines: {node: '>= 20'}
     peerDependencies:
-      '@zenfs/core': ^2.4.2
-      kerium: ^1.3.4
-      memium: ^0.3.8
-      utilium: ^2.5.0
+      '@zenfs/core': ^2.6.0
+      kerium: ^1.4.2
+      memium: ^1.0.0
+      utilium: ^3.0.0
 
-  '@zenfs/core@2.4.4':
-    resolution: {integrity: sha512-4ove99nTRyS3WPNlHN6i0AxMMYW85YBo2lVS/aNXU48dYOl78XiM98d4uly/9PwtllGJHEv9GHkomxS2eoOLFw==}
+  '@zenfs/core@2.7.2':
+    resolution: {integrity: sha512-Xm1dVU5AiXvxsd5iZ105V5ER1Si8N5YFRXwY393hqeI5anMxGv1VgV4hh4GjzUL8Njo1ZKWnwbd/wcXLVmArTw==}
     engines: {node: '>= 18'}
     hasBin: true
 
-  '@zenfs/dom@1.2.5':
-    resolution: {integrity: sha512-DdQzmROGvgen3JmBVdovnaIyAexPPlCNJ5Tb0e48N8W9TQJA5IuVsBgohBKGwDiGEDPquEMxzoycFD4RC6kjzA==}
+  '@zenfs/dom@1.2.13':
+    resolution: {integrity: sha512-DEaaG3YTO4ke5k72VB7magyKGaCfcHefob6EM04mkLH1fHjM4/ScL2JcTi/AysaAVi9kaoGY7TnpYd34BHzgRQ==}
     engines: {node: '>= 22'}
     peerDependencies:
-      '@zenfs/core': ^2.3.11
-      kerium: ^1.3.4
-      utilium: ^2.5.0
+      '@zenfs/core': ^2.6.0
+      kerium: ^1.4.2
+      utilium: ^3.0.0
 
-  '@zenfs/emscripten@1.0.5':
-    resolution: {integrity: sha512-pesd+hvOSwUtmSA6/0mCDCx0HmMPJiYZjOzTfIhwX9lX0F126ZoohpHdoAuwY30WFFNw4rKeiKos+aII4RkTjg==}
+  '@zenfs/emscripten@1.0.9':
+    resolution: {integrity: sha512-I1WoXJK5m9Cm/CQ4j1sreAsdzauSGawjaX3OKHI+SpEdWxafhQ/lHrk4JqTe6SihhBCk9k2l8IJVE8yBa0K4jA==}
     engines: {node: '>= 18'}
     peerDependencies:
       '@zenfs/core': ^2.4.2
       kerium: ^1.3.4
-      utilium: ^2.5.0
 
   '@zip.js/zip.js@2.7.53':
     resolution: {integrity: sha512-G6Bl5wN9EXXVaTUIox71vIX5Z454zEBe+akKpV4m1tUboIctT5h7ID3QXCJd/Lfy2rSvmkTmZIucf1jGRR4f5A==}
@@ -1921,6 +1932,7 @@ packages:
   are-we-there-yet@2.0.0:
     resolution: {integrity: sha512-Ci/qENmwHnsYo9xKIcUJN5LeDKdJ6R1Z1j9V/J5wyq8nh/mYPEpIKJbBZXtZjG04HiK7zV/p6Vs9952MrMeUIw==}
     engines: {node: '>=10'}
+    deprecated: This package is no longer supported.
 
   arg@5.0.2:
     resolution: {integrity: sha512-PYjyFOLKQ9y57JvQ6QLo8dAgNqswh8M1RMJYdQduT6xbWSgK36P/Z/v+p888pM69jMMfS8Xd8F6I1kQ/I9HUGg==}
@@ -2477,6 +2489,7 @@ packages:
   eslint@9.15.0:
     resolution: {integrity: sha512-7CrWySmIibCgT1Os28lUU6upBshZ+GxybLOrmRzi08kS8MBuO8QA7pXEgYgY5W8vK3e74xv0lpjo9DbaGU9Rkw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -2643,6 +2656,7 @@ packages:
   gauge@3.0.2:
     resolution: {integrity: sha512-+5J6MS/5XksCuXq++uFRsnUd7Ovu1XenbeuIuNRJxYWjgQbPuFhT14lAvsWfqfAmnwluf1OwMjz39HjfLPci0Q==}
     engines: {node: '>=10'}
+    deprecated: This package is no longer supported.
 
   get-caller-file@2.0.5:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
@@ -2674,10 +2688,12 @@ packages:
 
   glob@10.4.5:
     resolution: {integrity: sha512-7Bv8RF0k6xjo7d4A/PxYLbUCfb6c+Vpd2/mB2yRDlew7Jb5hEXiCD9ibfO7wpk8i4sevK6DFny9h7EYbM3/sHg==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   globals@14.0.0:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
@@ -2835,6 +2851,7 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
+    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -2959,6 +2976,9 @@ packages:
   jose@5.9.6:
     resolution: {integrity: sha512-AMlnetc9+CV9asI19zHmrgS/WYsWUwCn2R7RzlbJWD7F9eWYUTGyBmU9o6PxngtLGOiDGPRu+Uc4fhKzbpteZQ==}
 
+  js-base64@3.9.3:
+    resolution: {integrity: sha512-uwYQp+VJ38FVvtim6qNbit6e9uT6dwWQ4Y1+H9TxhW5hcHjpHwoxlR0nMpqUmIFOmu4VqMxwdJA88gIVuZJQ/g==}
+
   js-tiktoken@1.0.7:
     resolution: {integrity: sha512-biba8u/clw7iesNEWLOLwrNGoBP2lA+hTaBLs/D45pJdUPFXyxD6nhcDVtADChghv4GgyAiMKYMiRx7x6h7Biw==}
 
@@ -2993,8 +3013,8 @@ packages:
   jsonfile@4.0.0:
     resolution: {integrity: sha512-m6F1R3z8jjlf2imQHS2Qez5sjKWQzbuuhuJ/FKYFRZvPE3PuHcSMVZzfsLhGVOkfd20obL5SWEBew5ShlquNxg==}
 
-  kerium@1.3.8:
-    resolution: {integrity: sha512-tOtOOsTZ85Wt4h8TwV4ItgTi6paj2U1buOC/v9Rdon0ndtqASm5fn/rBRfEsif1czW4+u73T7XPbQAIBUF4tzg==}
+  kerium@1.4.4:
+    resolution: {integrity: sha512-XbfmmVUpMyRO8f1TfqPGW4HRVRfDrTQrWCLTaE3M6Ypexa3/fGorcoSPd+K41jfsv8JxF1cRl/8e0bsA/H3tMQ==}
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
@@ -3098,8 +3118,8 @@ packages:
   mdurl@2.0.0:
     resolution: {integrity: sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w==}
 
-  memium@0.3.11:
-    resolution: {integrity: sha512-CwmIpLVSG7UToDj2sYAZFDkpco30OPsXpaCnt+7Z7JQaulCjH5UvwJIctTIHmgQdFqk8pliBsPLnH5OZcDLZyQ==}
+  memium@1.0.1:
+    resolution: {integrity: sha512-Ae+Fv7oPRdl7Dr5o32HBspvzAEvJS21ZWcPQv1cIA/aCkvlhYuJR+JF79bWYKQ/d5iBl2ItvjikFA1tUI5QpVQ==}
 
   merge-stream@2.0.0:
     resolution: {integrity: sha512-abv/qOcuPfk3URPfDzmZU1LKmuw8kT+0nIHvKrKgFrwifol/doWcdA4ZqsWQ8ENrFKkd67Mfpo/LovbIUsbt3w==}
@@ -3315,6 +3335,7 @@ packages:
 
   npmlog@5.0.1:
     resolution: {integrity: sha512-AqZtDUWOMKs1G/8lwylVjrdYgqA4d9nu8hc+0gzRxlDb1I10+FHBGMXs6aiQHFdCUUlqH99MUMuLfzWDNDtfxw==}
+    deprecated: This package is no longer supported.
 
   nth-check@2.1.1:
     resolution: {integrity: sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==}
@@ -3648,6 +3669,7 @@ packages:
 
   rimraf@3.0.2:
     resolution: {integrity: sha512-JZkJMZkAGFFPP2YqXZXPbMlMBgsxzE8ILs4lMIX/2o0L9UBw9O/Y3o6wFw/i9YLapcUJWwqbi3kdxIPdC62TIA==}
+    deprecated: Rimraf versions prior to v4 are no longer supported
     hasBin: true
 
   ripemd160@2.0.2:
@@ -4024,6 +4046,7 @@ packages:
   tar@6.2.1:
     resolution: {integrity: sha512-DZ4yORTwrbTj/7MZYq2w+/ZFdI6OZ/f9SFHR+71gIVUZhOQPHzVCLpvRnPgyaMpfWxxk/4ONva3GQSyNIKRv6A==}
     engines: {node: '>=10'}
+    deprecated: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   terser@5.46.0:
     resolution: {integrity: sha512-jTwoImyr/QbOWFFso3YoU3ik0jBBDJ6JTOQiy/J2YxVJdZCc+5u7skhNwiOR3FQIygFqVUPHl7qbbxtjW2K3Qg==}
@@ -4135,6 +4158,7 @@ packages:
   tsconfck@3.1.4:
     resolution: {integrity: sha512-kdqWFGVJqe+KGYvlSO9NIaWn9jT1Ny4oKVzAJsKii5eoE9snzTJzL4+MMVOMn+fikWGFmKEylcXL710V/kIPJQ==}
     engines: {node: ^18 || >=20}
+    deprecated: unmaintained
     hasBin: true
     peerDependencies:
       typescript: ^5.0.0
@@ -4220,8 +4244,8 @@ packages:
   undici-types@6.19.8:
     resolution: {integrity: sha512-ve2KP6f/JnbPBFyobGHuerC9g1FYGn/F8n1LWTwNxCEzd6IfqTwUQcNXgEtmmQ6DlRrC1hrSrBnCZPokRrDHjw==}
 
-  undici-types@7.16.0:
-    resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
   undici@6.21.0:
     resolution: {integrity: sha512-BUgJXc752Kou3oOIuU1i+yZZypyZRqNPW0vqoMPl8VaoalSfeR0D8/t4iAS3yirs79SSMTxTag+ZC86uswv+Cw==}
@@ -4272,8 +4296,8 @@ packages:
   util@0.12.5:
     resolution: {integrity: sha512-kZf/K6hEIrWHI6XqOFUiiMa+79wE/D8Q+NCNAWclkyg3b4d2k7s0QGepNjiABc+aR3N1PAyHL7p6UcLY6LmrnA==}
 
-  utilium@2.5.8:
-    resolution: {integrity: sha512-RNXAYoYH7hefayCW/2LU3SYCwDGQlDc8f4gPCRbMO6dJsYGGlzAhyHqYQGp73ox41JtPKjdqzddAbDhWQ9MrXQ==}
+  utilium@3.6.2:
+    resolution: {integrity: sha512-3xHMPK5WAvooqdOFhkz7HArFPN+9C+dN+kIsqlTpwifukkXf6M4kKAkyY3PgSjSj1Y0+zHtn6ctyfffdPrDctA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -5577,9 +5601,9 @@ snapshots:
     dependencies:
       undici-types: 6.19.8
 
-  '@types/node@24.10.9':
+  '@types/node@26.4.1':
     dependencies:
-      undici-types: 7.16.0
+      undici-types: 8.3.0
 
   '@types/pako@2.0.3': {}
 
@@ -5877,9 +5901,11 @@ snapshots:
 
   '@webgpu/types@0.1.51': {}
 
-  '@xterm/addon-attach@0.11.0(@xterm/xterm@6.0.0)':
+  '@xterm/addon-attach@0.12.0': {}
+
+  '@xterm/addon-clipboard@0.2.0':
     dependencies:
-      '@xterm/xterm': 6.0.0
+      js-base64: 3.9.3
 
   '@xterm/addon-fit@0.11.0': {}
 
@@ -5891,46 +5917,44 @@ snapshots:
 
   '@xterm/addon-serialize@0.14.0': {}
 
-  '@xterm/addon-web-links@0.11.0(@xterm/xterm@6.0.0)':
-    dependencies:
-      '@xterm/xterm': 6.0.0
+  '@xterm/addon-unicode11@0.9.0': {}
 
-  '@xterm/xterm@5.5.0':
-    optional: true
+  '@xterm/addon-web-links@0.12.0': {}
+
+  '@xterm/addon-webgl@0.19.0': {}
 
   '@xterm/xterm@6.0.0': {}
 
   '@zeit/schemas@2.36.0': {}
 
-  '@zenfs/archives@1.3.1(@zenfs/core@2.4.4)(kerium@1.3.8)(memium@0.3.11)(utilium@2.5.8)':
+  '@zenfs/archives@1.5.0(@zenfs/core@2.7.2)(kerium@1.4.4)(memium@1.0.1)(utilium@3.6.2)':
     dependencies:
-      '@zenfs/core': 2.4.4
+      '@zenfs/core': 2.7.2
       fflate: 0.8.2
-      kerium: 1.3.8
-      memium: 0.3.11
-      utilium: 2.5.8
+      kerium: 1.4.4
+      memium: 1.0.1
+      utilium: 3.6.2
 
-  '@zenfs/core@2.4.4':
+  '@zenfs/core@2.7.2':
     dependencies:
-      '@types/node': 24.10.9
+      '@types/node': 26.4.1
       buffer: 6.0.3
       eventemitter3: 5.0.1
-      kerium: 1.3.8
-      memium: 0.3.11
+      kerium: 1.4.4
+      memium: 1.0.1
       readable-stream: 4.7.0
-      utilium: 2.5.8
+      utilium: 3.6.2
 
-  '@zenfs/dom@1.2.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)':
+  '@zenfs/dom@1.2.13(@zenfs/core@2.7.2)(kerium@1.4.4)(utilium@3.6.2)':
     dependencies:
-      '@zenfs/core': 2.4.4
-      kerium: 1.3.8
-      utilium: 2.5.8
+      '@zenfs/core': 2.7.2
+      kerium: 1.4.4
+      utilium: 3.6.2
 
-  '@zenfs/emscripten@1.0.5(@zenfs/core@2.4.4)(kerium@1.3.8)(utilium@2.5.8)':
+  '@zenfs/emscripten@1.0.9(@zenfs/core@2.7.2)(kerium@1.4.4)':
     dependencies:
-      '@zenfs/core': 2.4.4
-      kerium: 1.3.8
-      utilium: 2.5.8
+      '@zenfs/core': 2.7.2
+      kerium: 1.4.4
 
   '@zip.js/zip.js@2.7.53': {}
 
@@ -7184,6 +7208,8 @@ snapshots:
 
   jose@5.9.6: {}
 
+  js-base64@3.9.3: {}
+
   js-tiktoken@1.0.7:
     dependencies:
       base64-js: 1.5.1
@@ -7236,9 +7262,9 @@ snapshots:
     optionalDependencies:
       graceful-fs: 4.2.11
 
-  kerium@1.3.8:
+  kerium@1.4.4:
     dependencies:
-      utilium: 2.5.8
+      utilium: 3.6.2
 
   keyv@4.5.4:
     dependencies:
@@ -7359,10 +7385,10 @@ snapshots:
 
   mdurl@2.0.0: {}
 
-  memium@0.3.11:
+  memium@1.0.1:
     dependencies:
-      kerium: 1.3.8
-      utilium: 2.5.8
+      kerium: 1.4.4
+      utilium: 3.6.2
 
   merge-stream@2.0.0: {}
 
@@ -8511,7 +8537,7 @@ snapshots:
 
   undici-types@6.19.8: {}
 
-  undici-types@7.16.0: {}
+  undici-types@8.3.0: {}
 
   undici@6.21.0: {}
 
@@ -8570,11 +8596,9 @@ snapshots:
       is-typed-array: 1.1.13
       which-typed-array: 1.1.15
 
-  utilium@2.5.8:
+  utilium@3.6.2:
     dependencies:
       eventemitter3: 5.0.1
-    optionalDependencies:
-      '@xterm/xterm': 5.5.0
 
   varint@6.0.0: {}
 
