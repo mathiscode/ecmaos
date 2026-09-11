@@ -1,9 +1,9 @@
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: web [OPTIONS] [URL]
 Open a URL in a new contained window.
 Many sites will block the COR, so this is mostly useful for local/bespoke/credentialless resources.
@@ -17,7 +17,7 @@ Examples:
   web --no-navbar https://example.com  open a URL without navigation bar
   web example.com                      open a URL (https:// will be prepended)
   web http://example.com               open a URL with http protocol`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function normalizeUrl(url: string): string {
@@ -34,13 +34,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -48,7 +48,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let hideNavbar = false
       const urlArgs: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         const trimmedArg = arg.trim()
         if (trimmedArg === '--no-navbar' || trimmedArg === '--hide-navbar') {
           hideNavbar = true
@@ -69,14 +69,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (urlArgs.length === 0) {
-        await writelnStderr(process, terminal, `web: missing URL argument`)
-        await writelnStderr(process, terminal, `Try 'web --help' for more information.`)
+        await io.writelnErr(`web: missing URL argument`)
+        await io.writelnErr(`Try 'web --help' for more information.`)
         return 1
       }
 
       const urlString = urlArgs.join(' ').trim()
       if (!urlString) {
-        await writelnStderr(process, terminal, `web: missing URL argument`)
+        await io.writelnErr(`web: missing URL argument`)
         return 1
       }
 
@@ -86,7 +86,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         // Validate URL
         new URL(url)
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`web: invalid URL: ${urlString}`))
+        await io.writelnErr(chalk.red(`web: invalid URL: ${urlString}`))
         return 1
       }
 

@@ -1,15 +1,15 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: which [COMMAND]...
 Locate a command.
 
   COMMAND  the command(s) to locate
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,29 +19,29 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const commands: string[] = []
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg !== '--help' && arg !== '-h' && !arg.startsWith('-')) {
           commands.push(arg)
         }
       }
 
       if (commands.length === 0) {
-        await writelnStderr(process, terminal, 'which: missing command name')
+        await io.writelnErr('which: missing command name')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
       let exitCode = 0
 
       const resolveCommand = async (command: string): Promise<string | undefined> => {

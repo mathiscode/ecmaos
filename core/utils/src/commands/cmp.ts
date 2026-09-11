@@ -1,17 +1,17 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cmp [OPTION]... FILE1 FILE2
 Compare two files byte by byte.
 
   -l, --verbose          print byte number and differing byte values
   -s, --quiet, --silent  suppress output; return exit status only
   --help                 display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,13 +21,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -35,11 +35,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let quiet = false
       const files: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-l' || arg === '--verbose') {
           verbose = true
@@ -51,8 +51,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('s')) quiet = true
           const invalidFlags = flags.filter(f => !['l', 's'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `cmp: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'cmp --help' for more information.")
+            await io.writelnErr(`cmp: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'cmp --help' for more information.")
             return 1
           }
         } else {
@@ -61,15 +61,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length !== 2) {
-        await writelnStderr(process, terminal, 'cmp: missing operand after')
-        await writelnStderr(process, terminal, "Try 'cmp --help' for more information.")
+        await io.writelnErr('cmp: missing operand after')
+        await io.writelnErr("Try 'cmp --help' for more information.")
         return 1
       }
 
       const file1 = files[0]
       const file2 = files[1]
       if (!file1 || !file2) {
-        await writelnStderr(process, terminal, 'cmp: missing operand')
+        await io.writelnErr('cmp: missing operand')
         return 1
       }
 
@@ -82,7 +82,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       try {
         if (fullPath1.startsWith('/dev') || fullPath2.startsWith('/dev')) {
-          await writelnStderr(process, terminal, 'cmp: cannot compare device files')
+          await io.writelnErr('cmp: cannot compare device files')
           return 1
         }
 
@@ -98,9 +98,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (interrupted) break
           if (bytes1[i] !== bytes2[i]) {
             if (verbose) {
-              await writelnStderr(process, terminal, `${i + 1} ${bytes1[i]} ${bytes2[i]}`)
+              await io.writelnErr(`${i + 1} ${bytes1[i]} ${bytes2[i]}`)
             } else if (!quiet) {
-              await writelnStderr(process, terminal, `${file1} ${file2} differ: byte ${i + 1}, line ${Math.floor(i / 80) + 1}`)
+              await io.writelnErr(`${file1} ${file2} differ: byte ${i + 1}, line ${Math.floor(i / 80) + 1}`)
             }
             return 1
           }
@@ -108,7 +108,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         if (bytes1.length !== bytes2.length) {
           if (!quiet) {
-            await writelnStderr(process, terminal, `cmp: EOF on ${bytes1.length < bytes2.length ? file1 : file2}`)
+            await io.writelnErr(`cmp: EOF on ${bytes1.length < bytes2.length ? file1 : file2}`)
           }
           return 1
         }
@@ -116,7 +116,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return 0
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, `cmp: ${errorMessage}`)
+        await io.writelnErr(`cmp: ${errorMessage}`)
         return 1
       } finally {
         kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)

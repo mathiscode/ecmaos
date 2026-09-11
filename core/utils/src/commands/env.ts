@@ -1,9 +1,9 @@
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writeStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]
 Set each NAME to VALUE in the environment and run COMMAND.
 
@@ -11,7 +11,7 @@ Set each NAME to VALUE in the environment and run COMMAND.
   -u, --unset=NAME          remove variable from the environment
   -0, --null                 end each output line with NUL, not newline
       --help                 display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,11 +21,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -36,8 +35,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let commandStartIndex = -1
 
       let i = 0
-      while (i < argv.length) {
-        const arg = argv[i]
+      while (i < ctx.argv.length) {
+        const arg = ctx.argv[i]
         if (!arg) {
           i++
           continue
@@ -53,9 +52,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             varName = arg.slice(8)
           } else {
             i++
-            varName = argv[i] || ''
+            varName = ctx.argv[i] || ''
             if (!varName) {
-              await writelnStderr(process, terminal, chalk.red('env: option requires an argument -- \'u\''))
+              await io.writelnErr(chalk.red('env: option requires an argument -- \'u\''))
               return 1
             }
           }
@@ -88,20 +87,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         
         for (const [key, value] of entries) {
           const output = `${key}=${value}${separator}`
-          await writeStdout(process, terminal, output)
+          await io.write(output)
         }
         
         if (!nullTerminated && entries.length > 0) {
-          await writeStdout(process, terminal, '\n')
+          await io.write('\n')
         }
         
         return 0
       }
 
-      const commandArgs = argv.slice(commandStartIndex)
+      const commandArgs = ctx.argv.slice(commandStartIndex)
       const command = commandArgs[0]
       if (!command) {
-        await writelnStderr(process, terminal, chalk.red('env: missing command'))
+        await io.writelnErr(chalk.red('env: missing command'))
         return 1
       }
 

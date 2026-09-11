@@ -2,16 +2,16 @@ import path from 'path'
 import chalk from 'chalk'
 import columnify from 'columnify'
 import humanFormat from 'human-format'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: ls [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function truncateInfo(text: string, maxWidth: number = 35): string {
@@ -48,17 +48,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       // Filter out options/flags and get target paths
-      const targets = argv.length > 0 
-        ? argv.filter(arg => !arg.startsWith('-'))
+      const targets = ctx.argv.length > 0 
+        ? ctx.argv.filter(arg => !arg.startsWith('-'))
         : [shell.cwd]
 
       if (targets.length === 0) targets.push(shell.cwd)
@@ -330,7 +329,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           headingTransform: (heading: string) => chalk.bold(heading)
         })
 
-        await writelnStdout(process, terminal, table)
+        await io.writeln(table)
       }
 
       return 0

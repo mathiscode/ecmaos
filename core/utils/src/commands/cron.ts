@@ -1,7 +1,7 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 import { parseCronExpression } from 'cron-schedule'
 import cronstrue from 'cronstrue'
 
@@ -137,7 +137,7 @@ function getHumanReadableDescription(expression: string): string | null {
     }
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cron [COMMAND] [OPTIONS]
   
 Manage scheduled tasks (crontabs).
@@ -174,7 +174,7 @@ Crontab format:
   6-field (extended): second minute hour day month weekday command
     Example: "* * * * * *" runs every second
     Example: "0 */5 * * * *" runs every 5 minutes at :00 seconds`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -184,22 +184,21 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length === 0 || (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h'))) {
-        printUsage(process, terminal)
+      if (ctx.argv.length === 0 || (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h'))) {
+        printUsage(io)
         return 0
       }
 
-      const subcommand = argv[0]
+      const subcommand = ctx.argv[0]
 
       try {
         switch (subcommand) {
           case 'list': {
             const cronJobs = kernel.intervals.listCrons()
             if (cronJobs.length === 0) {
-              await writelnStdout(process, terminal, 'No active cron jobs.')
+              await io.writeln('No active cron jobs.')
               return 0
             }
 
@@ -237,41 +236,41 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               // Ignore errors loading user crontab
             }
 
-            await writelnStdout(process, terminal, 'Active cron jobs:')
+            await io.writeln('Active cron jobs:')
             for (const jobName of cronJobs) {
               const jobInfo = jobExpressions.get(jobName)
               if (jobInfo) {
                 const description = getHumanReadableDescription(jobInfo.expression)
                 if (description) {
-                  await writelnStdout(process, terminal, `  ${jobName}`)
-                  await writelnStdout(process, terminal, `    Schedule: ${jobInfo.expression} (${description})`)
-                  await writelnStdout(process, terminal, `    Command: ${jobInfo.command}`)
+                  await io.writeln(`  ${jobName}`)
+                  await io.writeln(`    Schedule: ${jobInfo.expression} (${description})`)
+                  await io.writeln(`    Command: ${jobInfo.command}`)
                 } else {
-                  await writelnStdout(process, terminal, `  ${jobName}`)
-                  await writelnStdout(process, terminal, `    Schedule: ${jobInfo.expression}`)
-                  await writelnStdout(process, terminal, `    Command: ${jobInfo.command}`)
+                  await io.writeln(`  ${jobName}`)
+                  await io.writeln(`    Schedule: ${jobInfo.expression}`)
+                  await io.writeln(`    Command: ${jobInfo.command}`)
                 }
               } else {
-                await writelnStdout(process, terminal, `  ${jobName}`)
+                await io.writeln(`  ${jobName}`)
               }
             }
             return 0
           }
 
           case 'add': {
-            if (argv.length < 3) {
-              await writelnStderr(process, terminal, 'cron add: missing arguments')
-              await writelnStderr(process, terminal, 'Usage: cron add <schedule> <command>')
+            if (ctx.argv.length < 3) {
+              await io.writelnErr('cron add: missing arguments')
+              await io.writelnErr('Usage: cron add <schedule> <command>')
               return 1
             }
 
-            const schedule = argv[1]
+            const schedule = ctx.argv[1]
             if (!schedule) {
-              await writelnStderr(process, terminal, 'cron add: missing schedule')
-              await writelnStderr(process, terminal, 'Usage: cron add <schedule> <command>')
+              await io.writelnErr('cron add: missing schedule')
+              await io.writelnErr('Usage: cron add <schedule> <command>')
               return 1
             }
-            const command = argv.slice(2).join(' ')
+            const command = ctx.argv.slice(2).join(' ')
 
             // Validate the cron expression
             let humanReadable: string | null = null
@@ -279,7 +278,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               parseCronExpression(schedule)
               humanReadable = getHumanReadableDescription(schedule)
             } catch (error) {
-              await writelnStderr(process, terminal, `cron add: invalid cron expression: ${schedule}`)
+              await io.writelnErr(`cron add: invalid cron expression: ${schedule}`)
               return 1
             }
 
@@ -294,7 +293,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 await shell.context.fs.promises.mkdir(configDir, { recursive: true })
               }
             } catch (error) {
-              await writelnStderr(process, terminal, `cron add: failed to create .config directory: ${error}`)
+              await io.writelnErr(`cron add: failed to create .config directory: ${error}`)
               return 1
             }
 
@@ -319,35 +318,35 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             try {
               await shell.context.fs.promises.writeFile(crontabPath, crontabContent, { encoding: 'utf-8' })
             } catch (error) {
-              await writelnStderr(process, terminal, `cron add: failed to write crontab: ${error}`)
+              await io.writelnErr(`cron add: failed to write crontab: ${error}`)
               return 1
             }
 
-            await writelnStdout(process, terminal, `Added cron job: ${schedule} ${command}`)
+            await io.writeln(`Added cron job: ${schedule} ${command}`)
             if (humanReadable) {
-              await writelnStdout(process, terminal, `  Schedule: ${humanReadable}`)
+              await io.writeln(`  Schedule: ${humanReadable}`)
             }
-            await writelnStdout(process, terminal, 'Run "cron reload" to activate the new job.')
+            await io.writeln('Run "cron reload" to activate the new job.')
             return 0
           }
 
           case 'remove': {
-            if (argv.length < 2) {
-              await writelnStderr(process, terminal, 'cron remove: missing job ID')
-              await writelnStderr(process, terminal, 'Usage: cron remove <id>')
+            if (ctx.argv.length < 2) {
+              await io.writelnErr('cron remove: missing job ID')
+              await io.writelnErr('Usage: cron remove <id>')
               return 1
             }
 
-            const jobId = argv[1]
+            const jobId = ctx.argv[1]
             if (!jobId) {
-              await writelnStderr(process, terminal, 'cron remove: missing job ID')
+              await io.writelnErr('cron remove: missing job ID')
               return 1
             }
 
             const handle = kernel.intervals.getCron(jobId)
             
             if (!handle) {
-              await writelnStderr(process, terminal, `cron remove: job not found: ${jobId}`)
+              await io.writelnErr(`cron remove: job not found: ${jobId}`)
               return 1
             }
 
@@ -381,7 +380,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
             }
 
-            await writelnStdout(process, terminal, `Removed cron job: ${jobId}`)
+            await io.writeln(`Removed cron job: ${jobId}`)
             return 0
           }
 
@@ -398,55 +397,55 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             })
 
             if (result === 0) {
-              await writelnStdout(process, terminal, 'Crontab edited. Run "cron reload" to apply changes.')
+              await io.writeln('Crontab edited. Run "cron reload" to apply changes.')
             }
 
             return result
           }
 
           case 'validate': {
-            if (argv.length < 2) {
-              await writelnStderr(process, terminal, 'cron validate: missing expression')
-              await writelnStderr(process, terminal, 'Usage: cron validate <expression>')
+            if (ctx.argv.length < 2) {
+              await io.writelnErr('cron validate: missing expression')
+              await io.writelnErr('Usage: cron validate <expression>')
               return 1
             }
 
-            const expression = argv[1]
+            const expression = ctx.argv[1]
             if (!expression) {
-              await writelnStderr(process, terminal, 'cron validate: missing expression')
+              await io.writelnErr('cron validate: missing expression')
               return 1
             }
             try {
               parseCronExpression(expression)
               const description = getHumanReadableDescription(expression)
-              await writelnStdout(process, terminal, `Valid cron expression: ${expression}`)
+              await io.writeln(`Valid cron expression: ${expression}`)
               if (description) {
-                await writelnStdout(process, terminal, `  Description: ${description}`)
+                await io.writeln(`  Description: ${description}`)
               }
               return 0
             } catch (error) {
-              await writelnStderr(process, terminal, `Invalid cron expression: ${expression}`)
-              await writelnStderr(process, terminal, `Error: ${error instanceof Error ? error.message : String(error)}`)
+              await io.writelnErr(`Invalid cron expression: ${expression}`)
+              await io.writelnErr(`Error: ${error instanceof Error ? error.message : String(error)}`)
               return 1
             }
           }
 
           case 'next': {
-            if (argv.length < 2) {
-              await writelnStderr(process, terminal, 'cron next: missing expression')
-              await writelnStderr(process, terminal, 'Usage: cron next <expression> [count]')
+            if (ctx.argv.length < 2) {
+              await io.writelnErr('cron next: missing expression')
+              await io.writelnErr('Usage: cron next <expression> [count]')
               return 1
             }
 
-            const expression = argv[1]
+            const expression = ctx.argv[1]
             if (!expression) {
-              await writelnStderr(process, terminal, 'cron next: missing expression')
+              await io.writelnErr('cron next: missing expression')
               return 1
             }
-            const count = argv.length > 2 && argv[2] ? parseInt(argv[2], 10) : 1
+            const count = ctx.argv.length > 2 && ctx.argv[2] ? parseInt(ctx.argv[2], 10) : 1
 
             if (isNaN(count) || count < 1) {
-              await writelnStderr(process, terminal, 'cron next: invalid count (must be >= 1)')
+              await io.writelnErr('cron next: invalid count (must be >= 1)')
               return 1
             }
 
@@ -456,34 +455,34 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const dates = cron.getNextDates(count, now)
               const description = getHumanReadableDescription(expression)
 
-              await writelnStdout(process, terminal, `Next ${count} execution time(s) for "${expression}":`)
+              await io.writeln(`Next ${count} execution time(s) for "${expression}":`)
               if (description) {
-                await writelnStdout(process, terminal, `  Schedule: ${description}`)
+                await io.writeln(`  Schedule: ${description}`)
               }
               for (let i = 0; i < dates.length; i++) {
                 const date = dates[i]
                 if (date) {
-                  await writelnStdout(process, terminal, `  ${i + 1}. ${date.toISOString()}`)
+                  await io.writeln(`  ${i + 1}. ${date.toISOString()}`)
                 }
               }
               return 0
             } catch (error) {
-              await writelnStderr(process, terminal, `Invalid cron expression: ${expression}`)
-              await writelnStderr(process, terminal, `Error: ${error instanceof Error ? error.message : String(error)}`)
+              await io.writelnErr(`Invalid cron expression: ${expression}`)
+              await io.writelnErr(`Error: ${error instanceof Error ? error.message : String(error)}`)
               return 1
             }
           }
 
           case 'test': {
-            if (argv.length < 2) {
-              await writelnStderr(process, terminal, 'cron test: missing expression')
-              await writelnStderr(process, terminal, 'Usage: cron test <expression>')
+            if (ctx.argv.length < 2) {
+              await io.writelnErr('cron test: missing expression')
+              await io.writelnErr('Usage: cron test <expression>')
               return 1
             }
 
-            const expression = argv[1]
+            const expression = ctx.argv[1]
             if (!expression) {
-              await writelnStderr(process, terminal, 'cron test: missing expression')
+              await io.writelnErr('cron test: missing expression')
               return 1
             }
             try {
@@ -493,17 +492,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const description = getHumanReadableDescription(expression)
 
               if (matches) {
-                await writelnStdout(process, terminal, `Expression "${expression}" matches current time: ${now.toISOString()}`)
+                await io.writeln(`Expression "${expression}" matches current time: ${now.toISOString()}`)
               } else {
-                await writelnStdout(process, terminal, `Expression "${expression}" does not match current time: ${now.toISOString()}`)
+                await io.writeln(`Expression "${expression}" does not match current time: ${now.toISOString()}`)
               }
               if (description) {
-                await writelnStdout(process, terminal, `  Schedule: ${description}`)
+                await io.writeln(`  Schedule: ${description}`)
               }
               return 0
             } catch (error) {
-              await writelnStderr(process, terminal, `Invalid cron expression: ${expression}`)
-              await writelnStderr(process, terminal, `Error: ${error instanceof Error ? error.message : String(error)}`)
+              await io.writelnErr(`Invalid cron expression: ${expression}`)
+              await io.writelnErr(`Error: ${error instanceof Error ? error.message : String(error)}`)
               return 1
             }
           }
@@ -573,17 +572,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               kernel.log.warn(`Failed to load user crontab: ${error}`)
             }
 
-            await writelnStdout(process, terminal, 'Crontabs reloaded.')
+            await io.writeln('Crontabs reloaded.')
             return 0
           }
 
           default:
-            await writelnStderr(process, terminal, `cron: unknown command: ${subcommand}`)
-            await writelnStderr(process, terminal, "Try 'cron --help' for more information.")
+            await io.writelnErr(`cron: unknown command: ${subcommand}`)
+            await io.writelnErr("Try 'cron --help' for more information.")
             return 1
         }
       } catch (error) {
-        await writelnStderr(process, terminal, `cron: error: ${error instanceof Error ? error.message : String(error)}`)
+        await io.writelnErr(`cron: error: ${error instanceof Error ? error.message : String(error)}`)
         return 1
       }
     }

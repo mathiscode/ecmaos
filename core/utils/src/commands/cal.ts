@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cal [MONTH] [YEAR]
 Display a calendar.
 
   MONTH   month (1-12)
   YEAR    year
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,11 +19,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -31,15 +30,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let month: number | undefined
       let year: number | undefined
 
-      if (argv.length === 1) {
-        const argStr = argv[0]
+      if (ctx.argv.length === 1) {
+        const argStr = ctx.argv[0]
         if (!argStr) {
           month = now.getMonth() + 1
           year = now.getFullYear()
         } else {
           const arg = parseInt(argStr, 10)
           if (isNaN(arg)) {
-            await writelnStdout(process, terminal, 'cal: invalid argument')
+            await io.writeln('cal: invalid argument')
             return 1
           }
           if (arg >= 1 && arg <= 12) {
@@ -50,17 +49,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             month = now.getMonth() + 1
           }
         }
-      } else if (argv.length === 2) {
-        const monthStr = argv[0]
-        const yearStr = argv[1]
+      } else if (ctx.argv.length === 2) {
+        const monthStr = ctx.argv[0]
+        const yearStr = ctx.argv[1]
         if (!monthStr || !yearStr) {
-          await writelnStdout(process, terminal, 'cal: invalid arguments')
+          await io.writeln('cal: invalid arguments')
           return 1
         }
         month = parseInt(monthStr, 10)
         year = parseInt(yearStr, 10)
         if (isNaN(month) || isNaN(year)) {
-          await writelnStdout(process, terminal, 'cal: invalid arguments')
+          await io.writeln('cal: invalid arguments')
           return 1
         }
       } else {
@@ -69,7 +68,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (month < 1 || month > 12) {
-        await writelnStdout(process, terminal, 'cal: invalid month')
+        await io.writeln('cal: invalid month')
         return 1
       }
 
@@ -104,7 +103,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         isFirstWeek = false
       }
 
-      await writelnStdout(process, terminal, output)
+      await io.writeln(output)
       return 0
     }
   })

@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: id [OPTION]...
 Print user and group IDs.
 
@@ -11,7 +11,7 @@ Print user and group IDs.
   -G, --groups   print all group IDs
   -n, --name     print names instead of numeric IDs
   --help         display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,17 +21,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
       let userOnly = false
       let groupOnly = false
       let groupsOnly = false
       let nameOnly = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-u' || arg === '--user') {
           userOnly = true
@@ -49,7 +48,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('n')) nameOnly = true
           const invalidFlags = flags.filter(f => !['u', 'g', 'G', 'n'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStdout(process, terminal, `id: invalid option -- '${invalidFlags[0]}'`)
+            await io.writeln(`id: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         }
@@ -87,7 +86,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         output = `uid=${uid} gid=${gid} groups=${groupsStr}`
       }
 
-      await writelnStdout(process, terminal, output)
+      await io.writeln(output)
       return 0
     }
   })

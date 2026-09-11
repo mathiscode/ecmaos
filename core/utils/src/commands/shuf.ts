@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: shuf [OPTION]... [FILE]
 Write a random permutation of the input lines to standard output.
 
@@ -12,7 +12,7 @@ Write a random permutation of the input lines to standard output.
   -e, --echo                treat each ARG as an input line
   -i, --input-range=LO-HI   treat each number LO through HI as an input line
   --help                    display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -31,13 +31,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -47,22 +47,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const files: string[] = []
       const echoArgs: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-n' || arg === '--head-count') {
-          if (i + 1 < argv.length) {
-            const countStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const countStr = ctx.argv[++i]
             if (countStr !== undefined) {
               const parsed = parseInt(countStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 headCount = parsed
               } else {
-                await writelnStderr(process, terminal, `shuf: invalid line count: ${countStr}`)
+                await io.writelnErr(`shuf: invalid line count: ${countStr}`)
                 return 1
               }
             }
@@ -73,7 +73,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             headCount = parsed
           } else {
-            await writelnStderr(process, terminal, `shuf: invalid line count: ${countStr}`)
+            await io.writelnErr(`shuf: invalid line count: ${countStr}`)
             return 1
           }
         } else if (arg.startsWith('-n')) {
@@ -83,15 +83,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (!isNaN(parsed) && parsed > 0) {
               headCount = parsed
             } else {
-              await writelnStderr(process, terminal, `shuf: invalid line count: ${countStr}`)
+              await io.writelnErr(`shuf: invalid line count: ${countStr}`)
               return 1
             }
           }
         } else if (arg === '-e' || arg === '--echo') {
           echo = true
         } else if (arg === '-i' || arg === '--input-range') {
-          if (i + 1 < argv.length) {
-            inputRange = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            inputRange = ctx.argv[++i]
           }
         } else if (arg.startsWith('--input-range=')) {
           inputRange = arg.slice(15)
@@ -104,13 +104,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             files.push(arg)
           }
         } else {
-          await writelnStderr(process, terminal, `shuf: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'shuf --help' for more information.")
+          await io.writelnErr(`shuf: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'shuf --help' for more information.")
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let lines: string[] = []
@@ -120,7 +120,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const lo = parseInt(loStr ?? '0', 10)
           const hi = parseInt(hiStr ?? '0', 10)
           if (isNaN(lo) || isNaN(hi) || lo > hi) {
-            await writelnStderr(process, terminal, `shuf: invalid input range: ${inputRange}`)
+            await io.writelnErr(`shuf: invalid input range: ${inputRange}`)
             return 1
           }
           for (let i = lo; i <= hi; i++) {
@@ -129,11 +129,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (echo && echoArgs.length > 0) {
           lines = echoArgs
         } else if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -164,7 +164,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `shuf: ${file}: cannot process device files`)
+                await io.writelnErr(`shuf: ${file}: cannot process device files`)
                 continue
               }
 
@@ -192,7 +192,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               lines.push(...fileLines)
             } catch (error) {
-              await writelnStderr(process, terminal, `shuf: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`shuf: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
             }
@@ -208,7 +208,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `shuf: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`shuf: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

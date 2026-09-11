@@ -1,11 +1,12 @@
 import path from 'path'
 import * as zipjs from '@zip.js/zip.js'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 import chalk from 'chalk'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: unzip [OPTION]... ZIPFILE [FILE]...
 Extract files from a zip archive.
 
@@ -22,7 +23,7 @@ Examples:
   unzip -d /tmp archive.zip
   unzip -l archive.zip
   unzip -x "*.txt" archive.zip`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface UnzipOptions {
@@ -351,19 +352,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      const { options, zipfile, files } = parseArgs(argv)
+      const { options, zipfile, files } = parseArgs(ctx.argv)
 
       if (!zipfile) {
-        await writelnStderr(process, terminal, chalk.red('unzip error: zipfile name required'))
-        await writelnStderr(process, terminal, "Try 'unzip --help' for more information.")
+        await io.writelnErr(chalk.red('unzip error: zipfile name required'))
+        await io.writelnErr("Try 'unzip --help' for more information.")
         return 1
       }
 
@@ -389,13 +390,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const expanded = await expandGlob(zipfile, shell)
         if (expanded.length === 0) {
           // No matches - this is an error
-          await writelnStderr(process, terminal, chalk.red(`unzip error: ${zipfile}: No such file or directory`))
+          await io.writelnErr(chalk.red(`unzip error: ${zipfile}: No such file or directory`))
           return 1
         }
         zipfiles.push(...expanded)
       } else {
         // Doesn't exist and no glob chars - error
-        await writelnStderr(process, terminal, chalk.red(`unzip error: ${zipfile}: No such file or directory`))
+        await io.writelnErr(chalk.red(`unzip error: ${zipfile}: No such file or directory`))
         return 1
       }
       
@@ -414,13 +415,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             // Contains glob chars - expand it
             const expanded = await expandGlob(file, shell)
             if (expanded.length === 0) {
-              await writelnStderr(process, terminal, chalk.red(`unzip error: ${file}: No such file or directory`))
+              await io.writelnErr(chalk.red(`unzip error: ${file}: No such file or directory`))
               // Continue processing other files
             } else {
               zipfiles.push(...expanded)
             }
           } else {
-            await writelnStderr(process, terminal, chalk.red(`unzip error: ${file}: No such file or directory`))
+            await io.writelnErr(chalk.red(`unzip error: ${file}: No such file or directory`))
             // Continue processing other files
           }
         } else {
@@ -430,7 +431,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
       
       if (zipfiles.length === 0) {
-        await writelnStderr(process, terminal, chalk.red(`unzip error: No zip files to process`))
+        await io.writelnErr(chalk.red(`unzip error: No zip files to process`))
         return 1
       }
       
@@ -439,7 +440,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // List mode - only process first zip file
       if (options.list) {
         if (!zipfiles[0]) {
-          await writelnStderr(process, terminal, chalk.red(`unzip error: No zip files to list`))
+          await io.writelnErr(chalk.red(`unzip error: No zip files to list`))
           return 1
         }
 
@@ -447,7 +448,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const exists = await shell.context.fs.promises.exists(zipfilePath)
 
         if (!exists) {
-          await writelnStderr(process, terminal, chalk.red(`unzip error: ${zipfiles[0]}: No such file or directory`))
+          await io.writelnErr(chalk.red(`unzip error: ${zipfiles[0]}: No such file or directory`))
           return 1
         }
 
@@ -465,12 +466,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if (!extractPathStat) {
           await shell.context.fs.promises.mkdir(extractPath, { recursive: true })
         } else if (!extractPathStat.isDirectory()) {
-          await writelnStderr(process, terminal, chalk.red(`unzip error: ${options.directory}: Not a directory`))
+          await io.writelnErr(chalk.red(`unzip error: ${options.directory}: Not a directory`))
           return 1
         }
       } catch (error) {
-        await writelnStderr(process, terminal, 
-          chalk.red(`unzip error: Cannot create directory ${extractPath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(chalk.red(`unzip error: Cannot create directory ${extractPath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
         )
         return 1
       }
@@ -483,7 +483,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const zipfilePath = path.resolve(shell.cwd, zipfileItem)
         const exists = await shell.context.fs.promises.exists(zipfilePath)
         if (!exists) {
-          await writelnStderr(process, terminal, chalk.red(`unzip error: ${zipfileItem}: No such file or directory`))
+          await io.writelnErr(chalk.red(`unzip error: ${zipfileItem}: No such file or directory`))
           hasError = true
           continue
         }
@@ -497,15 +497,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
 
           if (!options.quiet) {
-            await writelnStdout(process, terminal, `\nArchive:  ${path.basename(zipfilePath)}`)
-            await writelnStdout(process, terminal, `  ${result.extractedCount} file${result.extractedCount !== 1 ? 's' : ''} extracted`)
+            await io.writeln(`\nArchive:  ${path.basename(zipfilePath)}`)
+            await io.writeln(`  ${result.extractedCount} file${result.extractedCount !== 1 ? 's' : ''} extracted`)
             if (result.skippedCount > 0) {
-              await writelnStdout(process, terminal, `  ${result.skippedCount} file${result.skippedCount !== 1 ? 's' : ''} skipped`)
+              await io.writeln(`  ${result.skippedCount} file${result.skippedCount !== 1 ? 's' : ''} skipped`)
             }
           }
         } catch (error) {
-          await writelnStderr(process, terminal, 
-            chalk.red(`unzip error: ${zipfileItem}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          await io.writelnErr(chalk.red(`unzip error: ${zipfileItem}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           )
           hasError = true
         }

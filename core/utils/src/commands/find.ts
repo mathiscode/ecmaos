@@ -1,17 +1,17 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: find [PATH]... [OPTION]...
 Search for files in a directory hierarchy.
 
   -name PATTERN  file name matches shell pattern PATTERN
   -type TYPE     file is of type TYPE (f=file, d=directory, l=symlink)
   --help         display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,18 +21,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'find: missing path argument')
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('find: missing path argument')
         return 1
       }
 
@@ -40,36 +40,36 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let namePattern: string | undefined
       let fileType: string | undefined
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === undefined) continue
         
         if (arg === '-name') {
-          if (i + 1 < argv.length) {
+          if (i + 1 < ctx.argv.length) {
             i++
-            const nextArg = argv[i]
+            const nextArg = ctx.argv[i]
             if (nextArg !== undefined && typeof nextArg === 'string' && !nextArg.startsWith('-')) {
               namePattern = nextArg
             } else {
-              await writelnStderr(process, terminal, 'find: missing argument to -name')
+              await io.writelnErr('find: missing argument to -name')
               return 1
             }
           } else {
-            await writelnStderr(process, terminal, 'find: missing argument to -name')
+            await io.writelnErr('find: missing argument to -name')
             return 1
           }
         } else if (arg === '-type') {
-          if (i + 1 < argv.length) {
+          if (i + 1 < ctx.argv.length) {
             i++
-            const nextArg = argv[i]
+            const nextArg = ctx.argv[i]
             if (nextArg !== undefined && typeof nextArg === 'string' && !nextArg.startsWith('-')) {
               fileType = nextArg
             } else {
-              await writelnStderr(process, terminal, 'find: missing argument to -type')
+              await io.writelnErr('find: missing argument to -type')
               return 1
             }
           } else {
-            await writelnStderr(process, terminal, 'find: missing argument to -type')
+            await io.writelnErr('find: missing argument to -type')
             return 1
           }
         } else if (typeof arg === 'string' && !arg.startsWith('-')) {
@@ -81,7 +81,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         startPaths = [shell.cwd]
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       const matchesPattern = (filename: string, pattern: string): boolean => {
         if (!pattern) return false
@@ -165,13 +165,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           try {
             const stat = await shell.context.fs.promises.stat(fullPath)
             if (!stat.isDirectory()) {
-              await writelnStderr(process, terminal, `find: ${startPath}: not a directory`)
+              await io.writelnErr(`find: ${startPath}: not a directory`)
               continue
             }
 
             await searchDirectory(fullPath)
           } catch (error) {
-            await writelnStderr(process, terminal, `find: ${startPath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`find: ${startPath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           }
         }
 

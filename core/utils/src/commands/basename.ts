@@ -1,16 +1,16 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: basename NAME [SUFFIX]
        basename OPTION... NAME...
 Strip directory and suffix from filenames.
 
   -s, --suffix=SUFFIX  remove a trailing SUFFIX
   --help               display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -20,13 +20,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -34,17 +34,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const paths: string[] = []
       let i = 0
 
-      while (i < argv.length) {
-        const arg = argv[i]
+      while (i < ctx.argv.length) {
+        const arg = ctx.argv[i]
         if (!arg) {
           i++
           continue
         }
         if (arg === '-s' || arg === '--suffix') {
-          if (i + 1 < argv.length) {
-            suffix = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            suffix = ctx.argv[++i]
           } else {
-            await writelnStderr(process, terminal, 'basename: option requires an argument -- \'s\'')
+            await io.writelnErr('basename: option requires an argument -- \'s\'')
             return 1
           }
         } else if (arg.startsWith('--suffix=')) {
@@ -58,11 +58,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (paths.length === 0) {
-        await writelnStderr(process, terminal, 'basename: missing operand')
+        await io.writelnErr('basename: missing operand')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         for (const filePath of paths) {

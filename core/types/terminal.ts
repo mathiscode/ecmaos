@@ -8,6 +8,7 @@ import type { TTY } from '@zenfs/linux'
 
 import type { Dom } from './dom.ts'
 import type { Kernel, KernelContext, KernelState } from './kernel.ts'
+import type { Process } from './processes.ts'
 import type { Shell } from './shell.ts'
 import type { Users } from './users.ts'
 
@@ -330,11 +331,53 @@ export interface TerminalCommand {
   stdin?: ReadableStream<Uint8Array>
   stdout?: WritableStream<Uint8Array>
   stderr?: WritableStream<Uint8Array>
-  
+
   /** Get formatted usage string including command description and options (only available when using unified parser) */
   readonly usage?: string
   /** Get formatted usage content string (only available when using unified parser) */
   readonly usageContent?: string
+}
+
+/**
+ * Per-invocation context handed to a coreutils command alongside {@link CommandIO}, replacing the
+ * old pattern of every command re-deriving `kernel.processes.get(pid)` and closing over `kernel`/
+ * `shell`/`terminal` from the outer `createCommand` factory scope.
+ */
+export interface CommandContext {
+  readonly kernel: Kernel
+  readonly shell: Shell
+  readonly terminal: Terminal
+  /** The real process backing this invocation, when one exists (absent in some synchronous/test paths). */
+  readonly process: Process | undefined
+  readonly pid: number
+  readonly argv: string[]
+  readonly cwd: string
+}
+
+/**
+ * Minimal per-invocation I/O handed to a coreutils command, replacing the old pattern of manually
+ * resolving `process` and threading it plus `terminal` through `writelnStdout`/`writelnStderr` on
+ * every call. `stdout`/`stderr`/`stdin` stay available as raw streams for commands that need
+ * byte-level control (e.g. `cat`'s `getWriter()`/`getReader()` usage) -- this is deliberately a
+ * thin wrapper, not a replacement for direct stream access.
+ */
+export interface CommandIO {
+  /** Write raw text to stdout (the process's stdout if attached, else the terminal). */
+  write(text: string): Promise<void>
+  /** Write text followed by a newline to stdout. */
+  writeln(text: string): Promise<void>
+  /** Write raw text to stderr (the process's stderr if attached, else the terminal). */
+  writeErr(text: string): Promise<void>
+  /** Write text followed by a newline to stderr. */
+  writelnErr(text: string): Promise<void>
+  /** Raw stdout stream, when a real process is attached. */
+  readonly stdout?: WritableStream<Uint8Array>
+  /** Raw stderr stream, when a real process is attached. */
+  readonly stderr?: WritableStream<Uint8Array>
+  /** Raw stdin stream, when a real process is attached. */
+  readonly stdin?: ReadableStream<Uint8Array>
+  /** Whether stdout is attached to an interactive TTY vs a pipe/file. */
+  readonly isTTY: boolean
 }
 
 

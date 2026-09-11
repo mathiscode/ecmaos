@@ -1,9 +1,10 @@
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: nc [OPTIONS] <host> [port]
        nc [OPTIONS] -u <url>
 
@@ -19,7 +20,7 @@ Examples:
   nc -p 443 echo.websocket.org
   nc -u wss://echo.websocket.org
   nc -u https://example.com:443`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface ConnectionOptions {
@@ -463,26 +464,26 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'nc: missing host or URL argument')
-        await writelnStderr(process, terminal, 'Try "nc --help" for more information.')
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('nc: missing host or URL argument')
+        await io.writelnErr('Try "nc --help" for more information.')
         return 1
       }
 
-      const connectionOptions = parseUrl(argv)
+      const connectionOptions = parseUrl(ctx.argv)
       if (!connectionOptions) {
-        await writelnStderr(process, terminal, 'nc: invalid arguments')
-        await writelnStderr(process, terminal, 'Try "nc --help" for more information.')
+        await io.writelnErr('nc: invalid arguments')
+        await io.writelnErr('Try "nc --help" for more information.')
         return 1
       }
 
@@ -491,7 +492,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       } else if (connectionOptions.useWebSocket) {
         return await connectWebSocket(connectionOptions.url, process, kernel, terminal)
       } else {
-        await writelnStderr(process, terminal, 'nc: unsupported URL scheme. Use ws://, wss://, or https://')
+        await io.writelnErr('nc: unsupported URL scheme. Use ws://, wss://, or https://')
         return 1
       }
     }

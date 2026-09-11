@@ -1,10 +1,11 @@
 import path from 'path'
 import chalk from 'chalk'
 import type { Kernel, Process, Shell, Terminal, User } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...
    or:  chown [OPTION]... :GROUP FILE...
    or:  chown [OPTION]... --reference=RFILE FILE...
@@ -33,7 +34,7 @@ Examples:
   chown -R root:root /dir         Recursively change owner and group
   chown -v user file              Verbose output while changing owner
   chown -c user file              Report only when changes are made`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface OwnershipSpec {
@@ -239,11 +240,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -252,7 +253,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let changes = false
       const args: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '-R' || arg === '--recursive') {
           recursive = true
         } else if (arg === '-v' || arg === '--verbose') {
@@ -260,20 +261,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg === '-c' || arg === '--changes') {
           changes = true
         } else if (arg === '--reference') {
-          await writelnStderr(process, terminal, chalk.red('chown: --reference option not yet implemented'))
+          await io.writelnErr(chalk.red('chown: --reference option not yet implemented'))
           return 1
         } else if (arg && !arg.startsWith('-')) {
           args.push(arg)
         } else if (arg.startsWith('-')) {
-          await writelnStderr(process, terminal, chalk.red(`chown: invalid option '${arg}'`))
-          await writelnStderr(process, terminal, 'Try \'chown --help\' for more information.')
+          await io.writelnErr(chalk.red(`chown: invalid option '${arg}'`))
+          await io.writelnErr('Try \'chown --help\' for more information.')
           return 1
         }
       }
 
       if (args.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('chown: missing operand'))
-        await writelnStderr(process, terminal, 'Try \'chown --help\' for more information.')
+        await io.writelnErr(chalk.red('chown: missing operand'))
+        await io.writelnErr('Try \'chown --help\' for more information.')
         return 1
       }
 
@@ -281,8 +282,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const targets = args.slice(1)
 
       if (!ownershipSpec || targets.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('chown: missing operand'))
-        await writelnStderr(process, terminal, 'Try \'chown --help\' for more information.')
+        await io.writelnErr(chalk.red('chown: missing operand'))
+        await io.writelnErr('Try \'chown --help\' for more information.')
         return 1
       }
 
@@ -291,7 +292,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         spec = parseOwnershipSpec(ownershipSpec, kernel)
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, chalk.red(`chown: invalid ownership spec '${ownershipSpec}': ${errorMessage}`))
+        await io.writelnErr(chalk.red(`chown: invalid ownership spec '${ownershipSpec}': ${errorMessage}`))
         return 1
       }
 

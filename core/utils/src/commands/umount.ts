@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: umount [OPTIONS] TARGET
        umount [-a|--all]
 
@@ -17,7 +17,7 @@ Options:
 Examples:
   umount /mnt/tmp        unmount filesystem at /mnt/tmp
   umount -a              unmount all filesystems`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -27,19 +27,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       let allMode = false
       const positionalArgs: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '-a' || arg === '--all') {
           allMode = true
         } else if (arg && !arg.startsWith('-')) {
@@ -59,56 +58,56 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           try {
             kernel.filesystem.fsSync.umount(target)
             unmountedCount++
-            await writelnStdout(process, terminal, chalk.green(`Unmounted ${target}`))
+            await io.writeln(chalk.green(`Unmounted ${target}`))
           } catch (error) {
             errorCount++
-            await writelnStderr(process, terminal, chalk.red(`umount: failed to unmount ${target}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+            await io.writelnErr(chalk.red(`umount: failed to unmount ${target}: ${error instanceof Error ? error.message : 'Unknown error'}`))
           }
         }
 
         if (unmountedCount === 0 && errorCount === 0) {
-          await writelnStdout(process, terminal, 'No filesystems to unmount.')
+          await io.writeln('No filesystems to unmount.')
         }
 
         return errorCount > 0 ? 1 : 0
       }
 
       if (positionalArgs.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('umount: missing target argument'))
-        await writelnStderr(process, terminal, 'Try \'umount --help\' for more information.')
+        await io.writelnErr(chalk.red('umount: missing target argument'))
+        await io.writelnErr('Try \'umount --help\' for more information.')
         return 1
       }
 
       if (positionalArgs.length > 1) {
-        await writelnStderr(process, terminal, chalk.red('umount: too many arguments'))
-        await writelnStderr(process, terminal, 'Try \'umount --help\' for more information.')
+        await io.writelnErr(chalk.red('umount: too many arguments'))
+        await io.writelnErr('Try \'umount --help\' for more information.')
         return 1
       }
 
       const targetArg = positionalArgs[0]
       if (!targetArg) {
-        await writelnStderr(process, terminal, chalk.red('umount: missing target argument'))
+        await io.writelnErr(chalk.red('umount: missing target argument'))
         return 1
       }
       const target = path.resolve(shell.cwd, targetArg)
 
       if (target === '/') {
-        await writelnStderr(process, terminal, chalk.red('umount: cannot unmount root filesystem'))
+        await io.writelnErr(chalk.red('umount: cannot unmount root filesystem'))
         return 1
       }
 
       const mountList = Array.from(kernel.filesystem.mounts.keys())
       if (!mountList.includes(target)) {
-        await writelnStderr(process, terminal, chalk.red(`umount: ${target} is not mounted`))
+        await io.writelnErr(chalk.red(`umount: ${target} is not mounted`))
         return 1
       }
 
       try {
         kernel.filesystem.fsSync.umount(target)
-        await writelnStdout(process, terminal, chalk.green(`Unmounted ${target}`))
+        await io.writeln(chalk.green(`Unmounted ${target}`))
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`umount: failed to unmount ${target}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+        await io.writelnErr(chalk.red(`umount: failed to unmount ${target}: ${error instanceof Error ? error.message : 'Unknown error'}`))
         return 1
       }
     }
