@@ -17,6 +17,7 @@ import semver from 'semver'
 import { bindContext, Credentials } from '@zenfs/core'
 import { char_dev, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess } from '@zenfs/linux'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
+import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -159,6 +160,27 @@ export class Kernel implements IKernel {
   public readonly dom: Dom
   /** Map of registered devices and their drivers */
   public readonly devices: Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }> = new Map()
+  /**
+   * A dedicated, kernel-lifetime, never-`execve`'d `@zenfs/linux` `Process` the real pipes
+   * `bridgeStdio` creates live in -- deliberately not a bare `bindContext()` `FSContext` (tried
+   * first; doesn't work) and not any given `Process`'s own context (`Process.exit()` tears that
+   * down on its own timing, which would race the pump loop reading the other end).
+   *
+   * It has to be a real, registered `Process` specifically because `fs/pipe.ts`'s own `write`
+   * throws `EPIPE` unless its `open_ends()` check finds the *other* end of the pipe referenced by
+   * some `Process` in `@zenfs/linux`'s module-level `processes` map -- a bare `FSContext` (even one
+   * whose descriptors genuinely hold the fd) is invisible to that check, confirmed by hand against
+   * the published package before settling on this. This process is never `execve`'d and never
+   * exits; it exists purely as a real fd-table anchor.
+   *
+   * Created lazily since most execution never redirects `execve`'d stdio at all.
+   */
+  private _pipeProcess?: InstanceType<typeof ZenFSProcess>
+  private get pipeProcess(): InstanceType<typeof ZenFSProcess> {
+    this._pipeProcess ??= new ZenFSProcess({ console: '/dev/null' })
+    return this._pipeProcess
+  }
+
   /** Event management system */
   public readonly events: Events
   /** Virtual filesystem */
@@ -1128,12 +1150,11 @@ export class Kernel implements IKernel {
    *
    * Not yet supported, and why: a program that itself imports something. The interpreter has no
    * import-rewriting (the SWAPI mechanism `replaceImports` uses for main-thread apps would need its
-   * own worker-side port -- real scope of its own). Redirected stdio (`>`, `|`) isn't wired either:
-   * `@zenfs/linux`'s `Process` only knows how to open real fds against a `TTY`/console path, and
-   * bridging that to the `ReadableStream`/`WritableStream` a redirect gives `KernelExecuteOptions`
-   * would need a pipe-backed fd -- `@zenfs/linux@0.5.0`'s real `pipe`/`poll` syscalls (U7, resolved
-   * upstream; see `fs/pipe.ts`'s `create_pipe`) are the natural fit for this, once this codepath
-   * grows a real numeric fd to plug into.
+   * own worker-side port -- real scope of its own).
+   *
+   * Redirected stdio (`>`, `|`) IS wired, via `bridgeStdio` below -- `@zenfs/linux@0.5.0`'s real
+   * `create_pipe` (`fs/pipe.ts`) is the fd-backed primitive this needed, and it landed after this
+   * doc comment first recorded the gap.
    *
    * @param options - Execution options containing the file path and shell
    * @returns Exit code of the process
@@ -1151,6 +1172,7 @@ export class Kernel implements IKernel {
     // inside another foreground process's stage -- there is no nesting today, but this is the
     // correct rule regardless -- hands control back up rather than to nobody.
     const previousForeground = tty?.foreground
+    const stopBridges: Array<() => void> = []
 
     try {
       const proc = new ZenFSProcess({
@@ -1164,6 +1186,13 @@ export class Kernel implements IKernel {
       })
 
       if (tty && isForeground) tty.foreground = proc
+
+      // Redirected/piped stdio: only bridge a standard descriptor the caller actually gave a real
+      // stream for and that isn't just the plain console -- the overwhelmingly common case (a
+      // foreground command with no `>`/`|`) needs no bridge at all.
+      if (options.stdin && !options.stdinIsTTY) stopBridges.push(this.bridgeStdio(proc, 0, options.stdin))
+      if (options.stdout && !options.stdoutIsTTY) stopBridges.push(this.bridgeStdio(proc, 1, options.stdout))
+      if (options.stderr) stopBridges.push(this.bridgeStdio(proc, 2, options.stderr))
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)
       // before awaiting completion -- this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
@@ -1183,14 +1212,143 @@ export class Kernel implements IKernel {
       // for a backgrounded stage; a foreground one was already correct (redundant, but harmless).
       if (tty && !isForeground && tty.foreground === proc) tty.foreground = previousForeground
 
-      return await proc.exited
+      const exitCode = await proc.exited
+
+      // Give the stdout/stderr bridges a moment to drain whatever the program wrote right before
+      // exiting -- `bridgeStdio`'s own drain-on-exit path stops promptly on its own, but the
+      // pipeline's next stage (or a redirect target file) should see every byte before this stage
+      // is reported done.
+      await new Promise(resolve => setTimeout(resolve, 15))
+
+      return exitCode
     } catch (error) {
       this.log.error(`Failed to execute ${options.command}: ${error}`)
       terminal?.writeln(chalk.red(error instanceof Error ? error.message : String(error)))
       return -1
     } finally {
+      for (const stop of stopBridges) stop()
       if (tty && isForeground) tty.foreground = previousForeground
     }
+  }
+
+  /**
+   * Replaces `proc`'s fd `stdFd` (0/1/2) with one end of a real `@zenfs/linux` pipe (via
+   * `create_pipe`), and pumps the other end against `stream` on the main thread.
+   *
+   * The pipe is created on `this.pipeProcess`'s context (a dedicated, kernel-lifetime, never-
+   * `execve`'d `Process` -- not any given `Process`'s own context, deliberately: `Process.exit()`
+   * (`fs/process.ts`) closes every descriptor still open in its own context when it exits, which
+   * would otherwise race this pump loop's own close/drain the instant the program exits. It has to
+   * be a real, *registered* `Process` (not a bare `bindContext()` `FSContext`, tried first) because
+   * `fs/pipe.ts`'s own `write` throws `EPIPE` unless `open_ends()` finds the other end referenced
+   * by some `Process` in `@zenfs/linux`'s module-level `processes` map -- confirmed by hand against
+   * the published package. A `Handle` carries its own context reference internally and works
+   * correctly against whichever map holds it, so the program's end is still handed to it by
+   * copying the `Handle` object into `proc.context.descriptors` at the standard slot -- only the
+   * *bridge* end stays on `pipeProcess`'s context, safe from the running program's own exit, and is
+   * this method's own job to close.
+   *
+   * `create_pipe` always hands back the lowest free fd on whichever context it's given (never a
+   * specific one), so the swap onto `stdFd` is done by hand on the descriptor map -- a plain
+   * `Map<number, Handle>` -- rather than through a `dup2` syscall, which only exists worker-side
+   * for a running program to call on itself.
+   *
+   * Reading/writing goes through `pipefs`'s own `read_device`/`write_device`/`_device` (exported
+   * from `fs/pipe.ts` alongside `create_pipe`, despite being marked `@internal`) rather than
+   * `@zenfs/core`'s generic `fs.readSync`/`writeSync` -- confirmed by hand that the generic path
+   * does not special-case a pipe at all (`written` succeeds silently but a same-pipe `read` always
+   * comes back empty); only the syscall table's own `read`/`write` handlers know to route through
+   * `device_of()` to these, and they aren't reachable from outside a real worker's syscall dispatch.
+   *
+   * The pump itself polls: `read_device` is genuinely non-blocking (an empty read returns 0
+   * immediately, confirmed by reading `fs/pipe.ts`'s `pipe_ops.read`/`take`), so there is no risk
+   * of stalling the main thread here -- just of checking more often than necessary, which a short
+   * interval keeps cheap. Reaching the pipe's own `WaitQueue` to await instead of poll would need
+   * `Pipe` internals `@zenfs/linux` does not export; polling is the honest, available option today.
+   */
+  private bridgeStdio(
+    proc: InstanceType<typeof ZenFSProcess>,
+    stdFd: 0 | 1 | 2,
+    stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
+  ): () => void {
+    const pipeProcCtx = this.pipeProcess.context
+
+    const direction = stdFd === 0 ? 'read' : 'write' // fd 0 is the program's stdin: it reads from the pipe we write into
+    const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
+    const programFd = direction === 'read' ? pipeReadFd : pipeWriteFd
+    const bridgeFd = direction === 'read' ? pipeWriteFd : pipeReadFd
+
+    // Copy the program-facing end's Handle onto proc's standard slot, then drop it from
+    // `pipeProcCtx` (not close -- the fd number itself was never meaningful to the program, only
+    // its Handle was worth keeping). The console's original handle at that slot is simply
+    // discarded, uninvolved: the other one or two standard descriptors sharing its dup are
+    // untouched, matching how a real process' fd 0/1/2 dups all point at one open regardless.
+    const programHandle = pipeProcCtx.descriptors.get(programFd)
+    pipeProcCtx.descriptors.delete(programFd)
+    if (programHandle) proc.context.descriptors.set(stdFd, programHandle)
+
+    const bridgeHandle = pipeProcCtx.descriptors.get(bridgeFd)
+    const bridgeFile = bridgeHandle && pipefs._device(bridgeHandle.internalPath)
+    if (!bridgeFile) {
+      this.log.error(`bridgeStdio: could not resolve fd ${stdFd}'s pipe device; leaving it on the console`)
+      return () => {}
+    }
+
+    let stopped = false
+    const stop = () => { stopped = true }
+
+    if (direction === 'write') {
+      // stdout/stderr: drain the pipe's read end into `stream` until the program closes its write
+      // end (proc.exited) and the pipe is empty.
+      const writer = (stream as WritableStream<Uint8Array>).getWriter()
+      void (async () => {
+        try {
+          while (!stopped) {
+            const buffer = new Uint8Array(65536)
+            const n = pipefs.read_device(bridgeFile, buffer, 0, buffer.byteLength)
+            if (n > 0) {
+              await writer.write(buffer.subarray(0, n))
+              continue
+            }
+            if (await Promise.race([proc.exited.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 10))])) {
+              // Program has exited (closing its end); drain whatever is left, then stop.
+              const drain = new Uint8Array(65536)
+              let m: number
+              do { m = pipefs.read_device(bridgeFile, drain, 0, drain.byteLength); if (m > 0) await writer.write(drain.subarray(0, m)) } while (m > 0)
+              break
+            }
+          }
+        } catch (error) {
+          this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
+        } finally {
+          try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
+          try { await writer.close() } catch { /* already closed by the pipeline's next stage */ }
+        }
+      })()
+    } else {
+      // stdin: pump `stream` into the pipe's write end until it's exhausted, then close so the
+      // program's reads see EOF (0), matching a real pipe once its last writer closes.
+      const reader = (stream as ReadableStream<Uint8Array>).getReader()
+      void (async () => {
+        try {
+          while (!stopped) {
+            const { done, value } = await reader.read()
+            if (done) break
+            let offset = 0
+            while (offset < value.byteLength) {
+              const chunk = value.subarray(offset)
+              offset += pipefs.write_device(bridgeFile, chunk, 0)
+            }
+          }
+        } catch (error) {
+          this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
+        } finally {
+          try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
+        }
+      })()
+    }
+
+    return stop
   }
 
   /**
