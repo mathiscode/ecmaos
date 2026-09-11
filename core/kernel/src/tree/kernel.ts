@@ -60,6 +60,7 @@ import {
 import type {
   BootOptions,
   Kernel as IKernel,
+  KernelContext,
   KernelDevice,
   KernelExecuteEvent,
   KernelExecuteOptions,
@@ -215,6 +216,11 @@ export class Kernel implements IKernel {
   get addEventListener() { return this.events.on }
   /** Remove an event listener; alias for `events.off` */
   get removeEventListener() { return this.events.off }
+
+  /** The cross-cutting primitives a subsystem or driver may depend on, with no back-reference to the Kernel itself */
+  get context(): KernelContext {
+    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n }
+  }
 
   constructor(_options: KernelOptions = DefaultKernelOptions) {
     this.options = { ...DefaultKernelOptions, ..._options }
@@ -410,15 +416,15 @@ export class Kernel implements IKernel {
       // Create required filesystem paths (including /etc/default for locale file)
       const filesystemSpan = tracer.startSpan('kernel.boot.filesystem', {}, trace.setSpan(context.active(), bootSpan))
       const requiredPaths = [
-        '/bin', '/sbin', '/boot', '/proc', '/tmp', '/home', '/lib', '/run', '/root', '/opt', '/sys',
+        // /proc and /sys are their own mounted filesystems (ProcFS/SysFS); they are not created here
+        '/bin', '/sbin', '/boot', '/tmp', '/home', '/lib', '/run', '/root', '/opt',
         '/etc', '/etc/default', '/etc/opt',
         '/var', '/var/cache', '/var/lib', '/var/log', '/var/spool', '/var/tmp', '/var/lock', '/var/opt', '/var/games',
         '/usr', '/usr/bin', '/usr/lib', '/usr/sbin', '/usr/share', '/usr/share/docs', '/usr/share/licenses', '/usr/include', '/usr/local'
       ]
 
       const specialPermissions: Record<string, number> = {
-        '/root': 0o700,
-        '/proc': 0o777
+        '/root': 0o700
       }
 
       for (const path of requiredPaths) {
@@ -428,6 +434,23 @@ export class Kernel implements IKernel {
       }
       filesystemSpan.setAttribute('filesystem.paths_created', requiredPaths.length)
       filesystemSpan.end()
+
+      if (!(await this.filesystem.fs.exists('/etc/os-release'))) {
+        const osRelease = [
+          `NAME="${this.name}"`,
+          `VERSION="${this.version}"`,
+          `ID=${this.name.toLowerCase().replace(/\s+/g, '')}`,
+          `VERSION_ID="${this.version}"`,
+          `PRETTY_NAME="${this.name} ${this.version}"`,
+          import.meta.env['HOMEPAGE'] ? `HOME_URL="${import.meta.env['HOMEPAGE']}"` : ''
+        ].filter(Boolean).join('\n') + '\n'
+
+        await this.filesystem.fs.writeFile('/etc/os-release', osRelease, { mode: 0o444 })
+      }
+
+      if (!(await this.filesystem.fs.exists('/etc/hostname'))) {
+        await this.filesystem.fs.writeFile('/etc/hostname', `${location.hostname || 'ecmaos'}\n`, { mode: 0o644 })
+      }
 
       try {
         await this.shell.config.loadSystemConfig()
@@ -653,10 +676,7 @@ export class Kernel implements IKernel {
       await this.registerEvents()
       await this.registerDevices()
       await this.registerCommands()
-      await this.registerProc() // TODO: This will be revamped elsewhere or implemented as a procfs backend
       await this.registerPackages()
-
-      this.intervals.set('/proc', this.registerProc.bind(this), import.meta.env['ECMAOS_KERNEL_INTERVALS_PROC'] ?? 1000)
 
       // Load system crontab
       await this.loadCrontab('/etc/crontab', 'system')
@@ -945,13 +965,6 @@ export class Kernel implements IKernel {
         return -1
       }
 
-      if (options.command.startsWith('/dev/')) {
-        const device = Array.from(this.devices.values())
-          .find(d => d.drivers?.some(driver => driver.name === options.command.replace(/^\/dev\//, '')))
-
-        if (device) return await this.executeDevice(device.device, options.args)
-      }
-
       const header = await this.readFileHeader(options.command, options.shell)
       if (!header) return -1
 
@@ -986,6 +999,13 @@ export class Kernel implements IKernel {
             case 'node': // we'll do what we can to try to make it run, but it may fail
               exitCode = await this.executeNode(options) // TODO: Use WebContainer later if experiments fail
               break
+            case 'device': {
+              if (!header.name) return -1
+              const device = this.devices.get(header.name)
+              if (!device) return -1
+              exitCode = await this.executeDevice(device.device, options.args)
+              break
+            }
           }; break
       }
 
@@ -1435,10 +1455,21 @@ export class Kernel implements IKernel {
     }
 
     const shellContext = shell?.context || this.shell.context
-    
+
     try {
       if (!await shellContext.fs.promises.exists(filePath)) return null
-      
+
+      // A path under /dev backed by a device with a CLI is that device's command, not a file to
+      // sniff: it is a character-device node, and reading its "first bytes" would invoke the
+      // device's own read() handler rather than tell us anything about how to run it.
+      if (filePath.startsWith('/dev/')) {
+        const deviceName = filePath.replace(/^\/dev\//, '')
+        const device = Array.from(this.devices.values())
+          .find(d => d.device.pkg.name === deviceName || d.drivers?.some(driver => driver.name === deviceName))
+
+        if (device?.device.cli) return { type: 'bin', namespace: 'device', name: device.device.pkg.name }
+      }
+
       const magicBytesPatterns: Array<{ bytes: Uint8Array; type: string; offset?: number; checker?: (buf: Uint8Array) => boolean }> = [
         { bytes: new Uint8Array([0x00, 0x61, 0x73, 0x6D]), type: 'wasm' }, // WebAssembly Binary
         { bytes: new Uint8Array([0xFF, 0xD8, 0xFF]), type: 'view' }, // JPEG Image (Start of Image / SOI)
@@ -1593,7 +1624,7 @@ export class Kernel implements IKernel {
    */
   async registerDevices() {
     for (const device of Object.values(this.options.devices || DefaultDevices)) {
-      const drivers = await device.getDrivers(this)
+      const drivers = await device.getDrivers(this.context)
       this.devices.set(device.pkg.name, { device, drivers })
       for (const driver of drivers) {
         driver.singleton = driver.singleton ?? true
@@ -1828,112 +1859,6 @@ export class Kernel implements IKernel {
       this.log.info(`Processed ${entries.length} fstab entry/entries`)
     } catch (error) {
       this.log.warn(`Failed to load fstab: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-
-  /**
-   * Registers the initial /proc entries.
-   * @returns {Promise<void>} A promise that resolves when the proc entries are registered.
-   */
-  async registerProc() {
-    if (!await this.filesystem.fs.exists('/proc')) await this.filesystem.fs.mkdir('/proc')
-
-    const contents = {
-      memory: '?',
-      platform: navigator.userAgentData?.platform || navigator?.platform || navigator.userAgent,
-      querystring: location.search,
-      version: `${import.meta.env['NAME']} ${import.meta.env['VERSION']}`,
-      language: navigator.language,
-      host: location.host,
-      userAgent: navigator.userAgent,
-      userAgentData: navigator.userAgentData ? JSON.stringify(navigator.userAgentData, null, 2) : null,
-      connection: JSON.stringify({
-        downlink: 0,
-        effectiveType: 'unknown',
-        rtt: 0,
-        saveData: false
-      }, null, 2)
-    }
-
-    if ('connection' in navigator) {
-      try {
-        const { downlink, effectiveType, rtt, saveData } = navigator.connection as { downlink: number; effectiveType: string; rtt: number; saveData: boolean }
-        contents.connection = JSON.stringify({ downlink, effectiveType, rtt, saveData }, null, 2)
-      } catch {
-        this.log.warn(this.i18n.ns.kernel('connectionDataFailed'))
-      }
-    }
-
-    if ('deviceMemory' in navigator) contents.memory = `>= ${navigator.deviceMemory}GB`
-
-    for (const [key, value] of Object.entries(contents) as [string, string | null][]) {
-      try {
-        await this.filesystem.fs.writeFile(`/proc/${key}`, value ?? new Uint8Array(), { flag: 'w+', mode: 0o777 })
-      } catch (error) {
-        this.log.warn(`Failed to write proc data: ${key}`, error)
-      }
-    }
-
-    // Create /proc/self directory and entries for process information
-    if (!await this.filesystem.fs.exists('/proc/self')) {
-      await this.filesystem.fs.mkdir('/proc/self', { mode: 0o555 })
-    }
-
-    // Get the most recent process or use PID 1 as default
-    const allProcesses = Array.from(this.processes.all.values())
-    const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
-    const currentPid = lastProcess?.pid || 1
-    const currentProcess = this.processes.get(currentPid) || null
-
-    // /proc/self/stat - process status (format similar to Linux /proc/self/stat)
-    // Fields: pid, comm, state, ppid, pgrp, session, tty_nr, tpgid, flags, minflt, cminflt, majflt, cmajflt, utime, stime, cutime, cstime, priority, nice, num_threads, itrealvalue, starttime, vsize, rss, rsslim, startcode, endcode, startstack, kstkesp, kstkeip, signal, blocked, sigignore, sigcatch, wchan, nswap, cnswap, exit_signal, processor, rt_priority, policy, delayacct_blkio_ticks, guest_time, cguest_time, start_data, end_data, start_brk, arg_start, arg_end, env_start, env_end, exit_code
-    const statFields = [
-      currentPid,                    // 1: pid
-      '(ecmaos)',                    // 2: comm (command name in parentheses)
-      'R',                           // 3: state (R=running)
-      currentProcess?.parent || 0,  // 4: ppid (parent process ID)
-      currentPid,                    // 5: pgrp (process group ID)
-      currentPid,                    // 6: session (session ID)
-      0,                             // 7: tty_nr (controlling terminal)
-      currentPid,                    // 8: tpgid (terminal process group)
-      0,                             // 9: flags
-      0, 0, 0, 0,                    // 10-13: minflt, cminflt, majflt, cmajflt
-      0, 0, 0, 0,                    // 14-17: utime, stime, cutime, cstime
-      0,                             // 18: priority
-      0,                             // 19: nice
-      1,                             // 20: num_threads
-      0,                             // 21: itrealvalue
-      Date.now(),                    // 22: starttime (jiffies since boot - using ms)
-      0,                             // 23: vsize (virtual memory size)
-      0,                             // 24: rss (resident set size)
-      0,                             // 25: rsslim
-      0, 0, 0, 0, 0,                 // 26-30: startcode, endcode, startstack, kstkesp, kstkeip
-      0, 0, 0, 0,                    // 31-34: signal, blocked, sigignore, sigcatch
-      0, 0, 0,                       // 35-37: wchan, nswap, cnswap
-      0,                             // 38: exit_signal
-      0,                             // 39: processor
-      0,                             // 40: rt_priority
-      0,                             // 41: policy
-      0,                             // 42: delayacct_blkio_ticks
-      0, 0,                          // 43-44: guest_time, cguest_time
-      0, 0, 0, 0,                    // 45-48: start_data, end_data, start_brk, arg_start
-      0, 0, 0,                       // 49-51: arg_end, env_start, env_end
-      0                              // 52: exit_code
-    ]
-    const statContent = statFields.join(' ')
-
-    // /proc/self/exe - path to executable (symlink to the command)
-    const exePath = currentProcess?.command || '/bin/ecmaos'
-
-    try {
-      await this.filesystem.fs.writeFile('/proc/self/stat', statContent, { flag: 'w+', mode: 0o444 })
-      // Create symlink for /proc/self/exe
-      if (await this.filesystem.fs.exists('/proc/self/exe')) {
-        await this.filesystem.fs.unlink('/proc/self/exe')
-      }
-      await this.filesystem.fs.symlink(exePath, '/proc/self/exe')
-    } catch (error) {
-      this.log.warn(`Failed to write /proc/self entries:`, error)
     }
   }
 

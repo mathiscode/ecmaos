@@ -1,5 +1,5 @@
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'webgl',
@@ -53,7 +53,7 @@ Commands:
   return 0
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<WebGLDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<WebGLDeviceData>[]> {
   const drivers: DeviceDriver<WebGLDeviceData>[] = []
 
   try {
@@ -81,7 +81,7 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<WebGLDevi
       })
     }
   } catch (error) {
-    kernel.log.error(`Failed to initialize WebGL device: ${error}`)
+    ctx.log.error(`Failed to initialize WebGL device: ${error}`)
   }
 
   return drivers

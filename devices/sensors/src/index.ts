@@ -2,7 +2,7 @@
 
 import ansi from 'ansi-escape-sequences'
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'sensors',
@@ -104,10 +104,10 @@ Commands:
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = [{
     name: 'sensors',
-    init: () => ({ major: 0, minor: 0, data: { kernelId: kernel.id, version: pkg.version } }),
+    init: () => ({ major: 10, minor: 102, data: { kernelId: ctx.id, version: pkg.version } }),
     read: () => 0,
     write: () => 0
   }]

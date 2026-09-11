@@ -2,7 +2,7 @@
 
 import ansi from 'ansi-escape-sequences'
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'hid',
@@ -138,7 +138,7 @@ Commands:
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const deviceMap = new Map<number, HIDDevice>()
   const drivers: DeviceDriver<KernelDeviceData>[] = [{
     name: 'hid',
@@ -146,7 +146,7 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
       major: 13,
       minor: 64,
       data: {
-        kernelId: kernel.id,
+        kernelId: ctx.id,
         version: pkg.version
       }
     }),
@@ -183,7 +183,7 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
           major: 13,
           minor: 64 + drivers.length,
           data: {
-            kernelId: kernel.id,
+            kernelId: ctx.id,
             version: pkg.version
           }
         }),

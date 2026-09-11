@@ -12,6 +12,7 @@
     "types": [
       "./src/declarations/globalThis.d.ts",
       "./src/declarations/figlet-fonts.d.ts",
+      "./src/declarations/hardware-info.d.ts",
       "./src/declarations/keyboard.d.ts",
       "./src/declarations/vite-env.d.ts"
     ],
