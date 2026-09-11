@@ -6,7 +6,7 @@ function printUsage(process: Process | undefined, terminal: Terminal): void {
   const usage = `Usage: tty [TTY_NUMBER]
 Print the current TTY number or switch to a different TTY.
 
-  TTY_NUMBER    switch to the specified TTY (0-9)
+  TTY_NUMBER    switch to the specified TTY (0-7)
   --help        display this help and exit
 
 If no TTY_NUMBER is provided, prints the current TTY number.
@@ -50,8 +50,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return 1
       }
 
-      if (ttyNumber < 0 || ttyNumber > 9) {
-        await writelnStderr(process, terminal, `tty: TTY number must be between 0 and 9`)
+      if (ttyNumber < 0 || ttyNumber > 7) {
+        await writelnStderr(process, terminal, `tty: TTY number must be between 0 and 7`)
         await writelnStderr(process, terminal, "Try 'tty --help' for more information.")
         return 1
       }

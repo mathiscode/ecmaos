@@ -14,6 +14,8 @@ import spinners from 'cli-spinners'
 // import * as textCanvas from '@thi.ng/text-canvas'
 // import * as textFormat from '@thi.ng/text-format'
 import * as emoji from '@thi.ng/emoji'
+import { attach_xterm, detach_xterm } from '@zenfs/linux'
+import type { TTY } from '@zenfs/linux'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
 import { AttachAddon } from '@xterm/addon-attach'
 import { FitAddon } from '@xterm/addon-fit'
@@ -154,6 +156,16 @@ export class Terminal extends XTerm implements ITerminal {
   private _tty: number
   private _ttySwitchHandler: ((event: KeyboardEvent) => void) | null = null
   private _resizeObserver: ResizeObserver | null = null
+  /**
+   * This terminal's `@zenfs/linux` TTY, once attached in `mount()`.
+   *
+   * Attached with `input: false` for now: line discipline, `^C`-as-SIGINT, and job control need a
+   * real Process to signal, which does not exist until the overhaul's process-model phase adopts
+   * `@zenfs/linux`'s `Process`/`Thread`. Until then this only gives the terminal a real
+   * `/dev/xterm<n>` node and SIGWINCH on resize; keystrokes still flow through keyHandler and the
+   * stdin subscriber fan-out below, unchanged.
+   */
+  private _zfsTty: TTY | undefined
 
   get addons() { return this._addons as Map<string, ITerminalAddon> }
   get ansi() { return this._ansi }
@@ -170,6 +182,8 @@ export class Terminal extends XTerm implements ITerminal {
   get stdout() { return this._stdout }
   get stderr() { return this._stderr }
   get tty() { return this._tty }
+  /** The `@zenfs/linux` TTY this terminal is attached to, once `mount()` has run */
+  get zfsTty() { return this._zfsTty }
 
   get promptTemplate() { return this._promptTemplate }
   set promptTemplate(value: string) { this._promptTemplate = value }
@@ -399,6 +413,14 @@ export class Terminal extends XTerm implements ITerminal {
   mount(element: HTMLElement) {
     this.open(element)
     if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+
+    if (!this._zfsTty) {
+      try {
+        this._zfsTty = attach_xterm(this, { index: this._tty, input: false })
+      } catch (error) {
+        this._kernel.log.warn(`Failed to attach TTY ${this._tty} to @zenfs/linux: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     
     const textarea = element.querySelector('textarea')
     if (textarea) {
@@ -477,6 +499,10 @@ export class Terminal extends XTerm implements ITerminal {
 
   dispose() {
     this._cleanupViewportListeners()
+    if (this._zfsTty) {
+      detach_xterm(this._zfsTty)
+      this._zfsTty = undefined
+    }
     if (this._resizeTimeout) {
       clearTimeout(this._resizeTimeout)
       this._resizeTimeout = null
@@ -525,7 +551,8 @@ export class Terminal extends XTerm implements ITerminal {
       if (this.element) {
         this._ttySwitchHandler = async (event: KeyboardEvent) => {
           if (event.ctrlKey && event.shiftKey) {
-            const codeMatch = event.code.match(/^Digit([0-9])$/)
+            // Only TTYs 0-7 exist, matching xterm_driver's fixed lines: 8
+            const codeMatch = event.code.match(/^Digit([0-7])$/)
             if (codeMatch && codeMatch[1]) {
               event.preventDefault()
               event.stopPropagation()
