@@ -3,7 +3,7 @@
  */
 
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 declare global {
   interface Navigator {
@@ -67,7 +67,7 @@ Commands:
   return 0
 }
 
-export async function getDrivers(): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(_ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = []
 
   if ('presentation' in navigator) {
