@@ -49,6 +49,7 @@ import { createCommand as createJoin } from './commands/join.js'
 import { createCommand as createLess } from './commands/less.js'
 import { createCommand as createLn } from './commands/ln.js'
 import { createCommand as createLoadCrontab } from './commands/load-crontab.js'
+import { createCommand as createLocal } from './commands/local.js'
 import { createCommand as createLs } from './commands/ls.js'
 import { createCommand as createMan } from './commands/man.js'
 import { createCommand as createMkdir } from './commands/mkdir.js'
@@ -74,6 +75,7 @@ import { createCommand as createRmdir } from './commands/rmdir.js'
 import { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 import { createCommand as createSeq } from './commands/seq.js'
 import { createCommand as createSed } from './commands/sed.js'
+import { createCommand as createSet } from './commands/set.js'
 import { createCommand as createShuf } from './commands/shuf.js'
 import { createCommand as createSleep } from './commands/sleep.js'
 import { createCommand as createSockets } from './commands/sockets.js'
@@ -144,6 +146,7 @@ export { createCommand as createHistory } from './commands/history.js'
 export { createCommand as createLess } from './commands/less.js'
 export { createCommand as createLn } from './commands/ln.js'
 export { createCommand as createLoadCrontab } from './commands/load-crontab.js'
+export { createCommand as createLocal } from './commands/local.js'
 export { createCommand as createLs } from './commands/ls.js'
 export { createCommand as createMan } from './commands/man.js'
 export { createCommand as createMkdir } from './commands/mkdir.js'
@@ -163,6 +166,7 @@ export { createCommand as createRm } from './commands/rm.js'
 export { createCommand as createRmdir } from './commands/rmdir.js'
 export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createSed } from './commands/sed.js'
+export { createCommand as createSet } from './commands/set.js'
 export { createCommand as createShuf } from './commands/shuf.js'
 export { createCommand as createSleep } from './commands/sleep.js'
 export { createCommand as createSockets } from './commands/sockets.js'
@@ -242,6 +246,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     less: createLess(kernel, shell, terminal),
     ln: createLn(kernel, shell, terminal),
     'load-crontab': createLoadCrontab(kernel, shell, terminal),
+    local: createLocal(kernel, shell, terminal),
     ls: createLs(kernel, shell, terminal),
     man: createMan(kernel, shell, terminal),
     mkdir: createMkdir(kernel, shell, terminal),
@@ -267,6 +272,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     'screensaver-daemon': createScreensaverDaemon(kernel, shell, terminal),
     sed: createSed(kernel, shell, terminal),
     seq: createSeq(kernel, shell, terminal),
+    set: createSet(kernel, shell, terminal),
     shuf: createShuf(kernel, shell, terminal),
     sleep: createSleep(kernel, shell, terminal),
     sockets: createSockets(kernel, shell, terminal),
