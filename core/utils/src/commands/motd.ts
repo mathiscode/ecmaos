@@ -1,0 +1,35 @@
+import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import { TerminalCommand } from '../shared/terminal-command.js'
+import { writelnStdout, writelnStderr } from '../shared/helpers.js'
+
+function printUsage(process: Process | undefined, terminal: Terminal): void {
+  const usage = `Usage: motd
+Print the message of the day (/etc/motd), if one exists.
+
+  --help  display this help and exit`
+  writelnStderr(process, terminal, usage)
+}
+
+export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'motd',
+    description: 'Print the message of the day',
+    kernel,
+    shell,
+    terminal,
+    run: async (pid: number, argv: string[]) => {
+      const process = kernel.processes.get(pid) as Process | undefined
+
+      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
+        printUsage(process, terminal)
+        return 0
+      }
+
+      if (!await kernel.filesystem.fs.exists('/etc/motd')) return 0
+
+      const motd = await kernel.filesystem.fs.readFile('/etc/motd', 'utf-8')
+      if (motd) await writelnStdout(process, terminal, motd)
+      return 0
+    }
+  })
+}
