@@ -877,7 +877,8 @@ export class Shell implements IShell {
           stdout,
           stdoutIsTTY,
           stderr,
-          onProcess: job ? (process => { job.processes.push(process) }) : undefined
+          onProcess: job ? (process => { job.processes.push(process) }) : undefined,
+          foreground: job ? !job.background : true
         })
       ))
 
@@ -954,6 +955,10 @@ export class Shell implements IShell {
       job.status = 'running'
     }
 
+    // Reclaim the controlling terminal for this job's real process(es) -- it gave it up (or never
+    // had it) while backgrounded/stopped; see `JobProcessHandle.setForeground`'s doc comment.
+    for (const process of job.processes) process.setForeground?.(true)
+
     this._foregroundJob = job
     try {
       const codes = await job.done
@@ -969,6 +974,7 @@ export class Shell implements IShell {
     if (!job || job.status !== 'stopped') return job
 
     for (const process of job.processes) process.kill(Signal.CONT)
+    for (const process of job.processes) process.setForeground?.(false)
     job.status = 'running'
     job.background = true
     this._terminal.writeln(`[${job.id}]+ ${job.commandLine} &`)
