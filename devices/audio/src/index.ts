@@ -1,5 +1,5 @@
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData, Shell } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData, Shell } from '@ecmaos/types'
 
 interface AudioDeviceData extends KernelDeviceData {
   context?: AudioContext
@@ -147,7 +147,7 @@ async function test(kernel: Kernel, shell: Shell) {
   return 0
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<AudioDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<AudioDeviceData>[]> {
   const drivers: DeviceDriver<AudioDeviceData>[] = []
 
   drivers.push({
@@ -155,11 +155,11 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<AudioDevi
     init: () => ({
       major: 14,
       minor: 4,
-      data: { 
+      data: {
         version: pkg.version,
-        kernel: kernel.id,
+        kernel: ctx.id,
         context: new AudioContext()
-      } 
+      }
     }),
     read: (file: Device<AudioDeviceData>, buffer: ArrayBufferView, offset: number, length: number) => {
       const deviceData = file.data

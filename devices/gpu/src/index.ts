@@ -7,7 +7,7 @@ declare global {
 }
 
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'gpu',
@@ -47,7 +47,7 @@ Launch chrome using: google-chrome --enable-unsafe-webgpu --enable-features=Vulk
   return 0
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = []
 
   if ('gpu' in navigator) {
@@ -60,10 +60,10 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
         init: () => ({
           major: adapter.info?.vendor === 'nvidia' ? 195 : 10,
           minor: 0,
-          data: { 
+          data: {
             adapter,
             device,
-            kernelId: kernel.id,
+            kernelId: ctx.id,
             features: Array.from(adapter.features),
             limits: Object.fromEntries(
               Object.entries(adapter.limits).map(([k,v]) => [k, String(v)])
