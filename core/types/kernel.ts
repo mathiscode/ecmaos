@@ -322,6 +322,15 @@ export interface KernelExecuteOptions {
    * `Process` (any coreutil, which runs synchronously in the shell's own tick) never calls this.
    */
   onProcess?: (process: JobProcessHandle) => void
+  /**
+   * Whether this stage belongs to the shell's current foreground job (default `true`) -- a
+   * backgrounded (`&`) pipeline passes `false` so its process never takes over the controlling
+   * terminal. Only `Kernel.executeViaExecve`'s real-`Process` path acts on this: it sets the
+   * attached TTY's `foreground` (`tty->pgrp`, answering `TIOCGPGRP`/`TIOCSPGRP`) to the new process
+   * while it runs, and restores whatever it was beforehand once the process exits. A coreutil stage
+   * has no real `Process` to own the terminal with, so this has no effect there.
+   */
+  foreground?: boolean
 }
 
 /**
@@ -335,6 +344,15 @@ export interface JobProcessHandle {
   readonly stopped: boolean
   readonly exited: Promise<number>
   kill(signal: number | string): boolean
+  /**
+   * Give this process the controlling terminal (`tty->pgrp`, what `TIOCGPGRP`/`TIOCSPGRP` answer)
+   * or take it back, without touching whichever process held it before -- `fg`/`bg` call this to
+   * keep the TTY's notion of the foreground process in step with the shell's own job table once a
+   * job moves between them after it has already started (as opposed to `KernelExecuteOptions.foreground`,
+   * which only covers a stage's initial launch). A stage with no real `Process` behind it (any
+   * coreutil pipeline) has no handle carrying this at all, so `fg`/`bg` call it optionally.
+   */
+  setForeground?: (isForeground: boolean) => void
 }
 
 /**
