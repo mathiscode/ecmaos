@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: tr [OPTION]... SET1 [SET2]
 Translate or delete characters.
 
   -d, --delete    delete characters in SET1
   -s, --squeeze   replace each sequence of a repeated character
   --help          display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,13 +19,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -33,9 +33,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let deleteMode = false
       let squeeze = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-d' || arg === '--delete') {
           deleteMode = true
@@ -47,7 +47,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('s')) squeeze = true
           const invalidFlags = flags.filter(f => !['d', 's'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `tr: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr(`tr: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         } else {
@@ -56,7 +56,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (args.length === 0) {
-        await writelnStderr(process, terminal, 'tr: missing operand')
+        await io.writelnErr('tr: missing operand')
         return 1
       }
 
@@ -64,11 +64,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const set2 = args[1] || ''
 
       if (!deleteMode && !squeeze && !set2) {
-        await writelnStderr(process, terminal, 'tr: missing operand after SET1')
+        await io.writelnErr('tr: missing operand after SET1')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       const expandSet = (set: string): string => {
         let result = ''
@@ -97,11 +97,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       try {
-        if (!process.stdin) {
+        if (!io.stdin) {
           return 0
         }
 
-        const reader = process.stdin.getReader()
+        const reader = io.stdin.getReader()
         const decoder = new TextDecoder()
         let content = ''
 

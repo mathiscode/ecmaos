@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: awk [OPTION]... 'program' [FILE]...
 Pattern scanning and text processing language.
 
@@ -22,7 +22,7 @@ Variables:
   $1, $2, ...  field numbers
   NR    record number (line number)
   NF    number of fields`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface AwkProgram {
@@ -131,13 +131,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -146,24 +146,24 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const args: string[] = []
       let program: string | undefined
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-F' || arg === '--field-separator') {
-          if (i + 1 < argv.length) {
-            fieldSeparator = argv[++i] || ' '
+          if (i + 1 < ctx.argv.length) {
+            fieldSeparator = ctx.argv[++i] || ' '
           }
         } else if (arg.startsWith('--field-separator=')) {
           fieldSeparator = arg.slice(18)
         } else if (arg.startsWith('-F')) {
           fieldSeparator = arg.slice(2) || ' '
         } else if (arg === '-v' || arg === '--assign') {
-          if (i + 1 < argv.length) {
-            const assign = argv[++i] || ''
+          if (i + 1 < ctx.argv.length) {
+            const assign = ctx.argv[++i] || ''
             const [key, ...valueParts] = assign.split('=')
             if (key) {
               variables[key] = valueParts.join('=')
@@ -193,28 +193,28 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (!program) {
-        await writelnStderr(process, terminal, 'awk: program is required')
-        await writelnStderr(process, terminal, "Try 'awk --help' for more information.")
+        await io.writelnErr('awk: program is required')
+        await io.writelnErr("Try 'awk --help' for more information.")
         return 1
       }
 
       const parsedProgram = parseAwkProgram(program)
       if (!parsedProgram) {
-        await writelnStderr(process, terminal, 'awk: invalid program')
+        await io.writelnErr('awk: invalid program')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let lines: string[] = []
 
         if (args.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -245,7 +245,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `awk: ${file}: cannot process device files`)
+                await io.writelnErr(`awk: ${file}: cannot process device files`)
                 continue
               }
 
@@ -273,7 +273,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               lines.push(...fileLines)
             } catch (error) {
-              await writelnStderr(process, terminal, `awk: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`awk: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
             }
@@ -330,7 +330,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `awk: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`awk: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

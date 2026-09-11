@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: comm [OPTION]... FILE1 FILE2
 Compare two sorted files line by line.
 
@@ -12,7 +12,7 @@ Compare two sorted files line by line.
   -2     suppress lines unique to FILE2
   -3     suppress lines that appear in both files
   --help display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -22,13 +22,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -37,9 +37,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let suppress2 = false
       let suppress3 = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-1') {
           suppress1 = true
@@ -55,18 +55,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length !== 2) {
-        await writelnStderr(process, terminal, 'comm: exactly two files must be specified')
+        await io.writelnErr('comm: exactly two files must be specified')
         return 1
       }
 
       const file1 = files[0]
       const file2 = files[1]
       if (!file1 || !file2) {
-        await writelnStderr(process, terminal, 'comm: exactly two files must be specified')
+        await io.writelnErr('comm: exactly two files must be specified')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       const readFileLines = async (filePath: string): Promise<string[]> => {
         if (filePath.startsWith('/dev')) {
@@ -159,7 +159,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `comm: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`comm: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

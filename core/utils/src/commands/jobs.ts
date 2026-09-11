@@ -1,14 +1,13 @@
-import type { Job, Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO, Job, Kernel, Shell, Terminal } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: jobs [-l]
 List the shell's tracked background/foreground jobs.
 
   -l     also show each job's underlying process id(s)
   --help display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 /** bash-style status label: `Running`, `Stopped`, or `Done`. */
@@ -27,15 +26,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
-
-      if (argv.includes('--help') || argv.includes('-h')) {
-        printUsage(process, terminal)
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      if (ctx.argv.includes('--help') || ctx.argv.includes('-h')) {
+        printUsage(io)
         return 0
       }
 
-      const showPids = argv.includes('-l')
+      const showPids = ctx.argv.includes('-l')
       const jobs = shell.listJobs()
       if (jobs.length === 0) return 0
 
@@ -46,7 +43,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const marker = job.id === mostRecentId ? '+' : job.id === previousId ? '-' : ' '
         const pids = showPids && job.processes.length > 0 ? ` (${job.processes.map(p => p.pid).join(', ')})` : ''
         const suffix = job.background ? ' &' : ''
-        await writelnStdout(process, terminal, `[${job.id}]${marker}  ${statusLabel(job).padEnd(24)}${job.commandLine}${suffix}${pids}`)
+        await io.writeln(`[${job.id}]${marker}  ${statusLabel(job).padEnd(24)}${job.commandLine}${suffix}${pids}`)
       }
 
       return 0

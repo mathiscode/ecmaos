@@ -1,17 +1,17 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 import { ThemePresets } from '@ecmaos/types'
 import { parse, stringify } from 'smol-toml'
 import path from 'path'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: theme [OPTION]... [THEME_NAME]
 List or switch themes.
 
   -s, --save    save the theme to ~/.config/shell.toml
   -h, --help    display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,15 +21,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
       let save = false
       let themeName: string | undefined
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '--save' || arg === '-s') {
           save = true
@@ -41,7 +40,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // List themes if no theme name provided
       if (!themeName) {
         const themes = Object.keys(ThemePresets).sort().join('\n')
-        await writelnStdout(process, terminal, themes)
+        await io.writeln(themes)
         return 0
       }
 
@@ -53,7 +52,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if (match) {
           themeName = match
         } else {
-          await writelnStderr(process, terminal, `Theme '${themeName}' not found`)
+          await io.writelnErr(`Theme '${themeName}' not found`)
           return 1
         }
       }
@@ -61,9 +60,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // Apply theme
       try {
         shell.config.setTheme(themeName)
-        await writelnStdout(process, terminal, `Switched to theme: ${themeName}`)
+        await io.writeln(`Switched to theme: ${themeName}`)
       } catch (error) {
-        await writelnStderr(process, terminal, `Failed to switch theme: ${error}`)
+        await io.writelnErr(`Failed to switch theme: ${error}`)
         return 1
       }
 
@@ -72,7 +71,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           const home = shell.env.get('HOME')
           if (!home) {
-             await writelnStderr(process, terminal, 'HOME environment variable not set, cannot save config')
+             await io.writelnErr('HOME environment variable not set, cannot save config')
              return 1
           }
 
@@ -89,7 +88,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             try {
               config = parse(content)
             } catch (e) {
-              await writelnStderr(process, terminal, `Warning: Failed to parse existing config, creating new one`)
+              await io.writelnErr(`Warning: Failed to parse existing config, creating new one`)
             }
           }
 
@@ -104,10 +103,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const newContent = stringify(config)
           await shell.context.fs.promises.writeFile(configPath, newContent)
           
-          await writelnStdout(process, terminal, `Theme saved to ${configPath}`)
+          await io.writeln(`Theme saved to ${configPath}`)
 
         } catch (error) {
-           await writelnStderr(process, terminal, `Failed to save config: ${error}`)
+           await io.writelnErr(`Failed to save config: ${error}`)
            return 1
         }
       }

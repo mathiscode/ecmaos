@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: mkdir [OPTION]... DIRECTORY...
 Create the DIRECTORY(ies), if they do not already exist.
 
@@ -13,7 +13,7 @@ Mandatory arguments to long options are mandatory for short options too.
                     with their file modes unaffected by any -m option.
   -v, --verbose     print a message for each created directory
       --help        display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function parseNumericMode(mode: string): number | null {
@@ -33,11 +33,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -47,8 +46,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const directories: string[] = []
 
       let i = 0
-      while (i < argv.length) {
-        const arg = argv[i]
+      while (i < ctx.argv.length) {
+        const arg = ctx.argv[i]
         if (!arg) {
           i++
           continue
@@ -56,8 +55,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         if (arg === '--') {
           i++
-          while (i < argv.length) {
-            const dirArg = argv[i]
+          while (i < ctx.argv.length) {
+            const dirArg = ctx.argv[i]
             if (dirArg) {
               directories.push(dirArg)
             }
@@ -75,16 +74,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const modeStr = arg.slice(7)
             const parsedMode = parseNumericMode(modeStr)
             if (parsedMode === null) {
-              await writelnStderr(process, terminal, `mkdir: invalid mode '${modeStr}'`)
+              await io.writelnErr(`mkdir: invalid mode '${modeStr}'`)
               return 1
             }
             mode = parsedMode
           } else if (arg === '--help' || arg === '-h') {
-            printUsage(process, terminal)
+            printUsage(io)
             return 0
           } else {
-            await writelnStderr(process, terminal, `mkdir: unrecognized option '${arg}'`)
-            await writelnStderr(process, terminal, "Try 'mkdir --help' for more information.")
+            await io.writelnErr(`mkdir: unrecognized option '${arg}'`)
+            await io.writelnErr("Try 'mkdir --help' for more information.")
             return 1
           }
         } else if (arg.startsWith('-') && arg.length > 1) {
@@ -101,34 +100,34 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 const modeStr = arg.slice(j + 1)
                 const parsedMode = parseNumericMode(modeStr)
                 if (parsedMode === null) {
-                  await writelnStderr(process, terminal, `mkdir: invalid mode '${modeStr}'`)
+                  await io.writelnErr(`mkdir: invalid mode '${modeStr}'`)
                   return 1
                 }
                 mode = parsedMode
                 break
-              } else if (i + 1 < argv.length) {
-                const modeStr = argv[i + 1]
+              } else if (i + 1 < ctx.argv.length) {
+                const modeStr = ctx.argv[i + 1]
                 if (!modeStr) {
-                  await writelnStderr(process, terminal, "mkdir: option requires an argument -- 'm'")
-                  await writelnStderr(process, terminal, "Try 'mkdir --help' for more information.")
+                  await io.writelnErr("mkdir: option requires an argument -- 'm'")
+                  await io.writelnErr("Try 'mkdir --help' for more information.")
                   return 1
                 }
                 const parsedMode = parseNumericMode(modeStr)
                 if (parsedMode === null) {
-                  await writelnStderr(process, terminal, `mkdir: invalid mode '${modeStr}'`)
+                  await io.writelnErr(`mkdir: invalid mode '${modeStr}'`)
                   return 1
                 }
                 mode = parsedMode
                 i++
                 break
               } else {
-                await writelnStderr(process, terminal, "mkdir: option requires an argument -- 'm'")
-                await writelnStderr(process, terminal, "Try 'mkdir --help' for more information.")
+                await io.writelnErr("mkdir: option requires an argument -- 'm'")
+                await io.writelnErr("Try 'mkdir --help' for more information.")
                 return 1
               }
             } else {
-              await writelnStderr(process, terminal, `mkdir: invalid option -- '${flag}'`)
-              await writelnStderr(process, terminal, "Try 'mkdir --help' for more information.")
+              await io.writelnErr(`mkdir: invalid option -- '${flag}'`)
+              await io.writelnErr("Try 'mkdir --help' for more information.")
               return 1
             }
           }
@@ -139,8 +138,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (directories.length === 0) {
-        await writelnStderr(process, terminal, 'mkdir: missing operand')
-        await writelnStderr(process, terminal, "Try 'mkdir --help' for more information.")
+        await io.writelnErr('mkdir: missing operand')
+        await io.writelnErr("Try 'mkdir --help' for more information.")
         return 1
       }
 
@@ -174,7 +173,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           if (verbose && !existedBefore) {
             const relativePath = path.relative(shell.cwd, fullPath) || target
-            await writelnStdout(process, terminal, `mkdir: created directory '${relativePath}'`)
+            await io.writeln(`mkdir: created directory '${relativePath}'`)
           }
         } catch (error) {
           const err = error as { code?: string; message?: string }
@@ -182,7 +181,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             continue
           } else {
             const errorMessage = error instanceof Error ? error.message : String(error)
-            await writelnStderr(process, terminal, `mkdir: ${target}: ${errorMessage}`)
+            await io.writelnErr(`mkdir: ${target}: ${errorMessage}`)
             hasError = true
           }
         }

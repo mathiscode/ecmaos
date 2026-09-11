@@ -7,9 +7,9 @@ import { IndexedDB, WebStorage, WebAccess, /* XML */ } from '@zenfs/dom'
 import { Iso, Zip } from '@zenfs/archives'
 import { Dropbox, /* S3Bucket, */ GoogleDrive } from '@zenfs/cloud'
 
-import type { Kernel, Process, Shell, Terminal, FstabEntry } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal, FstabEntry } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
 /**
  * Parse a single fstab line
@@ -71,7 +71,7 @@ function parseFstabFile(content: string): FstabEntry[] {
   return entries
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: mount [OPTIONS] [SOURCE] TARGET
        mount [-a|--all]
        mount [-l|--list]
@@ -124,7 +124,7 @@ Examples:
   mount -t iso /tmp/image.iso /mnt/iso
   mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY # readonly/public
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -134,11 +134,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -148,26 +147,26 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let options: string | undefined
       const positionalArgs: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '-l' || arg === '--list') {
           listMode = true
         } else if (arg === '-a' || arg === '--all') {
           allMode = true
         } else if (arg === '-t' || arg === '--type') {
-          if (i + 1 < argv.length) {
-            type = argv[i + 1]
+          if (i + 1 < ctx.argv.length) {
+            type = ctx.argv[i + 1]
             i++
           } else {
-            await writelnStderr(process, terminal, chalk.red('mount: option requires an argument -- \'t\''))
+            await io.writelnErr(chalk.red('mount: option requires an argument -- \'t\''))
             return 1
           }
         } else if (arg === '-o' || arg === '--options') {
-          if (i + 1 < argv.length) {
-            options = argv[i + 1]
+          if (i + 1 < ctx.argv.length) {
+            options = ctx.argv[i + 1]
             i++
           } else {
-            await writelnStderr(process, terminal, chalk.red('mount: option requires an argument -- \'o\''))
+            await io.writelnErr(chalk.red('mount: option requires an argument -- \'o\''))
             return 1
           }
         } else if (arg && !arg.startsWith('-')) {
@@ -175,11 +174,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      if (listMode || (argv.length === 0 && !allMode)) {
+      if (listMode || (ctx.argv.length === 0 && !allMode)) {
         const mountList = Array.from(kernel.filesystem.mounts.entries())
         
         if (mountList.length === 0) {
-          await writelnStdout(process, terminal, 'No filesystems mounted.')
+          await io.writeln('No filesystems mounted.')
           return 0
         }
 
@@ -197,7 +196,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         })
         
         for (const row of mountRows) {
-          await writelnStdout(process, terminal, `${row.target.padEnd(30)} ${row.name}`)
+          await io.writeln(`${row.target.padEnd(30)} ${row.name}`)
         }
 
         return 0
@@ -207,7 +206,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           const fstabPath = '/etc/fstab'
           if (!(await shell.context.fs.promises.exists(fstabPath))) {
-            await writelnStderr(process, terminal, chalk.yellow(`mount: ${fstabPath} not found`))
+            await io.writelnErr(chalk.yellow(`mount: ${fstabPath} not found`))
             return 1
           }
 
@@ -215,11 +214,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const entries = parseFstabFile(content)
           
           if (entries.length === 0) {
-            await writelnStdout(process, terminal, 'No entries found in /etc/fstab')
+            await io.writeln('No entries found in /etc/fstab')
             return 0
           }
 
-          await writelnStdout(process, terminal, `Mounting ${entries.length} filesystem(s) from /etc/fstab...`)
+          await io.writeln(`Mounting ${entries.length} filesystem(s) from /etc/fstab...`)
           
           let successCount = 0
           let failCount = 0
@@ -233,13 +232,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
               // Validate entry
               if (!entryType) {
-                await writelnStderr(process, terminal, chalk.yellow(`mount: skipping entry for ${entryTarget}: missing type`))
+                await io.writelnErr(chalk.yellow(`mount: skipping entry for ${entryTarget}: missing type`))
                 failCount++
                 continue
               }
 
               if (!entryTarget) {
-                await writelnStderr(process, terminal, chalk.yellow(`mount: skipping entry: missing target`))
+                await io.writelnErr(chalk.yellow(`mount: skipping entry: missing target`))
                 failCount++
                 continue
               }
@@ -247,13 +246,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               // Check if filesystem type doesn't require source but one is provided
               const noSourceTypes = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
               if (entrySource && noSourceTypes.includes(entryType.toLowerCase())) {
-                await writelnStderr(process, terminal, chalk.yellow(`mount: ${entryType} filesystem does not require a source, ignoring source for ${entryTarget}`))
+                await io.writelnErr(chalk.yellow(`mount: ${entryType} filesystem does not require a source, ignoring source for ${entryTarget}`))
               }
 
               // Check if filesystem type requires source but none is provided
               const requiresSourceTypes = ['zip', 'iso', 'fetch', 'indexeddb']
               if (!entrySource && requiresSourceTypes.includes(entryType.toLowerCase())) {
-                await writelnStderr(process, terminal, chalk.yellow(`mount: skipping ${entryTarget}: ${entryType} filesystem requires a source`))
+                await io.writelnErr(chalk.yellow(`mount: skipping ${entryTarget}: ${entryType} filesystem requires a source`))
                 failCount++
                 continue
               }
@@ -351,7 +350,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   }
                   
                   // For fstab, we can't interactively pick a directory, so skip
-                  await writelnStderr(process, terminal, chalk.yellow(`mount: skipping ${entryTarget}: webaccess requires interactive directory selection`))
+                  await io.writelnErr(chalk.yellow(`mount: skipping ${entryTarget}: webaccess requires interactive directory selection`))
                   failCount++
                   continue
                 }
@@ -508,7 +507,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
                   // Google Drive mounting is complex and requires interactive auth
                   // For fstab, we'll skip it with a warning
-                  await writelnStderr(process, terminal, chalk.yellow(`mount: skipping ${entryTarget}: googledrive requires interactive authentication`))
+                  await io.writelnErr(chalk.yellow(`mount: skipping ${entryTarget}: googledrive requires interactive authentication`))
                   failCount++
                   continue
                 }
@@ -519,38 +518,38 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const successMessage = entrySource
                 ? chalk.green(`Mounted ${entryType} filesystem from ${entrySource} to ${entryTarget}`)
                 : chalk.green(`Mounted ${entryType} filesystem at ${entryTarget}`)
-              await writelnStdout(process, terminal, successMessage)
+              await io.writeln(successMessage)
               successCount++
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-              await writelnStderr(process, terminal, chalk.red(`mount: failed to mount ${entry.target}: ${errorMessage}`))
+              await io.writelnErr(chalk.red(`mount: failed to mount ${entry.target}: ${errorMessage}`))
               failCount++
             }
           }
 
-          await writelnStdout(process, terminal, `\nMount summary: ${successCount} succeeded, ${failCount} failed`)
+          await io.writeln(`\nMount summary: ${successCount} succeeded, ${failCount} failed`)
           return failCount > 0 ? 1 : 0
         } catch (error) {
-          await writelnStderr(process, terminal, chalk.red(`mount: failed to process /etc/fstab: ${error instanceof Error ? error.message : 'Unknown error'}`))
+          await io.writelnErr(chalk.red(`mount: failed to process /etc/fstab: ${error instanceof Error ? error.message : 'Unknown error'}`))
           return 1
         }
       }
 
       if (positionalArgs.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('mount: missing target argument'))
-        await writelnStderr(process, terminal, 'Try \'mount --help\' for more information.')
+        await io.writelnErr(chalk.red('mount: missing target argument'))
+        await io.writelnErr('Try \'mount --help\' for more information.')
         return 1
       }
 
       if (positionalArgs.length > 2) {
-        await writelnStderr(process, terminal, chalk.red('mount: too many arguments'))
-        await writelnStderr(process, terminal, 'Try \'mount --help\' for more information.')
+        await io.writelnErr(chalk.red('mount: too many arguments'))
+        await io.writelnErr('Try \'mount --help\' for more information.')
         return 1
       }
 
       if (!type) {
-        await writelnStderr(process, terminal, chalk.red('mount: filesystem type must be specified'))
-        await writelnStderr(process, terminal, 'Try \'mount --help\' for more information.')
+        await io.writelnErr(chalk.red('mount: filesystem type must be specified'))
+        await io.writelnErr('Try \'mount --help\' for more information.')
         return 1
       }
 
@@ -558,21 +557,21 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const targetArg = positionalArgs[positionalArgs.length - 1]
       
       if (!targetArg) {
-        await writelnStderr(process, terminal, chalk.red('mount: missing target argument'))
+        await io.writelnErr(chalk.red('mount: missing target argument'))
         return 1
       }
 
       const target = path.resolve(shell.cwd, targetArg)
 
       if (positionalArgs.length === 2 && (type.toLowerCase() === 'memory' || type.toLowerCase() === 'singlebuffer' || type.toLowerCase() === 'webstorage' || type.toLowerCase() === 'webaccess' || type.toLowerCase() === 'opfs' || type.toLowerCase() === 'xml' || type.toLowerCase() === 'dropbox' /* || type.toLowerCase() === 's3' */ || type.toLowerCase() === 'googledrive')) {
-        await writelnStderr(process, terminal, chalk.yellow(`mount: ${type.toLowerCase()} filesystem does not require a source`))
-        await writelnStderr(process, terminal, `Usage: mount -t ${type.toLowerCase()} TARGET`)
+        await io.writelnErr(chalk.yellow(`mount: ${type.toLowerCase()} filesystem does not require a source`))
+        await io.writelnErr(`Usage: mount -t ${type.toLowerCase()} TARGET`)
         return 1
       }
 
       if (positionalArgs.length === 1 && (type.toLowerCase() === 'zip' || type.toLowerCase() === 'iso')) {
-        await writelnStderr(process, terminal, chalk.red(`mount: ${type.toLowerCase()} filesystem requires a source file or URL`))
-        await writelnStderr(process, terminal, `Usage: mount -t ${type.toLowerCase()} SOURCE TARGET`)
+        await io.writelnErr(chalk.red(`mount: ${type.toLowerCase()} filesystem requires a source file or URL`))
+        await io.writelnErr(`Usage: mount -t ${type.toLowerCase()} SOURCE TARGET`)
         return 1
       }
 
@@ -631,18 +630,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             
             if (storageType === 'sessionstorage') {
               if (typeof sessionStorage === 'undefined') {
-                await writelnStderr(process, terminal, chalk.red('mount: sessionStorage is not available in this environment'))
+                await io.writelnErr(chalk.red('mount: sessionStorage is not available in this environment'))
                 return 1
               }
               storage = sessionStorage
             } else if (storageType === 'localstorage') {
               if (typeof localStorage === 'undefined') {
-                await writelnStderr(process, terminal, chalk.red('mount: localStorage is not available in this environment'))
+                await io.writelnErr(chalk.red('mount: localStorage is not available in this environment'))
                 return 1
               }
               storage = localStorage
             } else {
-              await writelnStderr(process, terminal, chalk.red(`mount: invalid storage type '${storageType}'. Use 'localStorage' or 'sessionStorage'`))
+              await io.writelnErr(chalk.red(`mount: invalid storage type '${storageType}'. Use 'localStorage' or 'sessionStorage'`))
               return 1
             }
             
@@ -657,13 +656,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           case 'webaccess': {
             if (typeof window === 'undefined') {
-              await writelnStderr(process, terminal, chalk.red('mount: File System Access API is not available in this environment'))
+              await io.writelnErr(chalk.red('mount: File System Access API is not available in this environment'))
               return 1
             }
             
             const win = window as unknown as { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle> }
             if (!win.showDirectoryPicker) {
-              await writelnStderr(process, terminal, chalk.red('mount: File System Access API is not available in this environment'))
+              await io.writelnErr(chalk.red('mount: File System Access API is not available in this environment'))
               return 1
             }
             
@@ -679,7 +678,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               )
             } catch (error) {
               if (error instanceof Error && error.name === 'AbortError') {
-                await writelnStderr(process, terminal, chalk.yellow('mount: directory selection cancelled'))
+                await io.writelnErr(chalk.yellow('mount: directory selection cancelled'))
                 return 1
               }
               throw error
@@ -688,7 +687,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           case 'opfs': {
             if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) {
-              await writelnStderr(process, terminal, chalk.red('mount: Origin Private File System is not available in this environment'))
+              await io.writelnErr(chalk.red('mount: Origin Private File System is not available in this environment'))
               return 1
             }
 
@@ -706,7 +705,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           // TODO: Some more work needs to be done with the XML backend
           // case 'xml': {
           //   if (typeof document === 'undefined') {
-          //     await writelnStderr(process, terminal, chalk.red('mount: XML backend requires DOM APIs (document) which are not available in this environment'))
+          //     await io.writelnErr(chalk.red('mount: XML backend requires DOM APIs (document) which are not available in this environment'))
           //     return 1
           //   }
             
@@ -716,7 +715,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           //     const rootSelector = mountOptions.root
           //     const element = document.querySelector(rootSelector)
           //     if (!element) {
-          //       await writelnStderr(process, terminal, chalk.yellow(`mount: root element '${rootSelector}' not found, creating new element`))
+          //       await io.writelnErr(chalk.yellow(`mount: root element '${rootSelector}' not found, creating new element`))
           //       root = new DOMParser().parseFromString('<fs></fs>', 'application/xml').documentElement
           //       root.setAttribute('id', 'xmlfs-' + Math.random().toString(36).substring(2, 15))
           //       root.setAttribute('style', 'display: none')
@@ -752,9 +751,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           //     await kernel.filesystem.fsSync.mount(target, mountConfig)
           //   } catch (error) {
           //     const errorMessage = error instanceof Error ? error.message : String(error)
-          //     await writelnStderr(process, terminal, chalk.red(`mount: failed to mount XML filesystem: ${errorMessage}`))
+          //     await io.writelnErr(chalk.red(`mount: failed to mount XML filesystem: ${errorMessage}`))
           //     if (error instanceof Error && error.stack) {
-          //       await writelnStderr(process, terminal, chalk.gray(`Stack: ${error.stack}`))
+          //       await io.writelnErr(chalk.gray(`Stack: ${error.stack}`))
           //     }
           //     return 1
           //   }
@@ -774,7 +773,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               : 1048576
             
             if (isNaN(bufferSize) || bufferSize <= 0) {
-              await writelnStderr(process, terminal, chalk.red('mount: invalid buffer size for singlebuffer type'))
+              await io.writelnErr(chalk.red('mount: invalid buffer size for singlebuffer type'))
               return 1
             }
 
@@ -796,27 +795,27 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           case 'zip': {
             if (!source) {
-              await writelnStderr(process, terminal, chalk.red('mount: zip filesystem requires a source file or URL'))
+              await io.writelnErr(chalk.red('mount: zip filesystem requires a source file or URL'))
               return 1
             }
 
             let arrayBuffer: ArrayBuffer
 
             if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(source)) {
-              await writelnStdout(process, terminal, chalk.gray(`Fetching archive from ${source}...`))
+              await io.writeln(chalk.gray(`Fetching archive from ${source}...`))
               const response = await fetch(source)
               if (!response.ok) {
-                await writelnStderr(process, terminal, chalk.red(`mount: failed to fetch archive: ${response.status} ${response.statusText}`))
+                await io.writelnErr(chalk.red(`mount: failed to fetch archive: ${response.status} ${response.statusText}`))
                 return 1
               }
               arrayBuffer = await response.arrayBuffer()
             } else {
               const sourcePath = path.resolve(shell.cwd, source)
               if (!(await shell.context.fs.promises.exists(sourcePath))) {
-                await writelnStderr(process, terminal, chalk.red(`mount: archive file not found: ${sourcePath}`))
+                await io.writelnErr(chalk.red(`mount: archive file not found: ${sourcePath}`))
                 return 1
               }
-              await writelnStdout(process, terminal, chalk.gray(`Reading archive from ${sourcePath}...`))
+              await io.writeln(chalk.gray(`Reading archive from ${sourcePath}...`))
               const fileData = await shell.context.fs.promises.readFile(sourcePath)
               arrayBuffer = new Uint8Array(fileData).buffer
             }
@@ -832,17 +831,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           case 'iso': {
             if (!source) {
-              await writelnStderr(process, terminal, chalk.red('mount: iso filesystem requires a source file or URL'))
+              await io.writelnErr(chalk.red('mount: iso filesystem requires a source file or URL'))
               return 1
             }
 
             let uint8Array: Uint8Array
 
             if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(source)) {
-              await writelnStdout(process, terminal, chalk.gray(`Fetching ISO image from ${source}...`))
+              await io.writeln(chalk.gray(`Fetching ISO image from ${source}...`))
               const response = await fetch(source)
               if (!response.ok) {
-                await writelnStderr(process, terminal, chalk.red(`mount: failed to fetch ISO image: ${response.status} ${response.statusText}`))
+                await io.writelnErr(chalk.red(`mount: failed to fetch ISO image: ${response.status} ${response.statusText}`))
                 return 1
               }
               const arrayBuffer = await response.arrayBuffer()
@@ -850,10 +849,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             } else {
               const sourcePath = path.resolve(shell.cwd, source)
               if (!(await shell.context.fs.promises.exists(sourcePath))) {
-                await writelnStderr(process, terminal, chalk.red(`mount: ISO image file not found: ${sourcePath}`))
+                await io.writelnErr(chalk.red(`mount: ISO image file not found: ${sourcePath}`))
                 return 1
               }
-              await writelnStdout(process, terminal, chalk.gray(`Reading ISO image from ${sourcePath}...`))
+              await io.writeln(chalk.gray(`Reading ISO image from ${sourcePath}...`))
               uint8Array = await shell.context.fs.promises.readFile(sourcePath)
             }
 
@@ -868,8 +867,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           case 'dropbox': {
             if (!mountOptions.client) {
-              await writelnStderr(process, terminal, chalk.red('mount: dropbox filesystem requires client configuration'))
-              await writelnStderr(process, terminal, 'Usage: mount -t dropbox TARGET -o client=\'{"accessToken":"..."}\'')
+              await io.writelnErr(chalk.red('mount: dropbox filesystem requires client configuration'))
+              await io.writelnErr('Usage: mount -t dropbox TARGET -o client=\'{"accessToken":"..."}\'')
               return 1
             }
 
@@ -878,12 +877,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               try {
                 clientConfig = JSON.parse(mountOptions.client)
               } catch {
-                await writelnStderr(process, terminal, chalk.red('mount: invalid JSON in client option'))
+                await io.writelnErr(chalk.red('mount: invalid JSON in client option'))
                 return 1
               }
 
               if (!clientConfig.accessToken) {
-                await writelnStderr(process, terminal, chalk.red('mount: client configuration must include accessToken'))
+                await io.writelnErr(chalk.red('mount: client configuration must include accessToken'))
                 return 1
               }
 
@@ -901,15 +900,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 })
               )
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.red(`mount: failed to mount dropbox filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
+              await io.writelnErr(chalk.red(`mount: failed to mount dropbox filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
               return 1
             }
             break
           }
           /* case 's3': {
             if (!mountOptions.bucket) {
-              await writelnStderr(process, terminal, chalk.red('mount: s3 filesystem requires bucket option'))
-              await writelnStderr(process, terminal, 'Usage: mount -t s3 TARGET -o bucket=my-bucket')
+              await io.writelnErr(chalk.red('mount: s3 filesystem requires bucket option'))
+              await io.writelnErr('Usage: mount -t s3 TARGET -o bucket=my-bucket')
               return 1
             }
 
@@ -922,7 +921,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 try {
                   clientConfigRaw = JSON.parse(mountOptions.client)
                 } catch {
-                  await writelnStderr(process, terminal, chalk.red('mount: invalid JSON in client option'))
+                  await io.writelnErr(chalk.red('mount: invalid JSON in client option'))
                   return 1
                 }
               }
@@ -948,8 +947,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               } else {
                 // Validate credentials if provided
                 if (!clientConfigRaw.credentials.accessKeyId || !clientConfigRaw.credentials.secretAccessKey) {
-                  await writelnStderr(process, terminal, chalk.yellow('mount: credentials object should include both accessKeyId and secretAccessKey'))
-                  await writelnStderr(process, terminal, 'Note: If credentials are not provided, AWS SDK will use default credential chain (env vars, IAM role, etc.)')
+                  await io.writelnErr(chalk.yellow('mount: credentials object should include both accessKeyId and secretAccessKey'))
+                  await io.writelnErr('Note: If credentials are not provided, AWS SDK will use default credential chain (env vars, IAM role, etc.)')
                 }
               }
 
@@ -984,25 +983,25 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               } catch (mountError) {
                 const errorMessage = mountError instanceof Error ? mountError.message : String(mountError)
                 // Provide helpful guidance for common S3 errors
-                await writelnStderr(process, terminal, chalk.red(`mount: failed to mount s3 filesystem: ${errorMessage}`))
-                await writelnStderr(process, terminal, chalk.yellow('\nS3 CORS configuration may be required:'))
-                await writelnStderr(process, terminal, 'For browser access, your S3 bucket needs CORS configuration:')
-                await writelnStderr(process, terminal, '  {')
-                await writelnStderr(process, terminal, '    "CORSRules": [{')
-                await writelnStderr(process, terminal, '      "AllowedOrigins": ["*"],')
-                await writelnStderr(process, terminal, '      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],')
-                await writelnStderr(process, terminal, '      "AllowedHeaders": ["*"],')
-                await writelnStderr(process, terminal, '      "ExposeHeaders": ["ETag"],')
-                await writelnStderr(process, terminal, '      "MaxAgeSeconds": 3000')
-                await writelnStderr(process, terminal, '    }]')
-                await writelnStderr(process, terminal, '  }')
-                await writelnStderr(process, terminal, chalk.gray('\nAlso ensure your bucket policy allows the required operations.'))
+                await io.writelnErr(chalk.red(`mount: failed to mount s3 filesystem: ${errorMessage}`))
+                await io.writelnErr(chalk.yellow('\nS3 CORS configuration may be required:'))
+                await io.writelnErr('For browser access, your S3 bucket needs CORS configuration:')
+                await io.writelnErr('  {')
+                await io.writelnErr('    "CORSRules": [{')
+                await io.writelnErr('      "AllowedOrigins": ["*"],')
+                await io.writelnErr('      "AllowedMethods": ["GET", "PUT", "POST", "DELETE", "HEAD"],')
+                await io.writelnErr('      "AllowedHeaders": ["*"],')
+                await io.writelnErr('      "ExposeHeaders": ["ETag"],')
+                await io.writelnErr('      "MaxAgeSeconds": 3000')
+                await io.writelnErr('    }]')
+                await io.writelnErr('  }')
+                await io.writelnErr(chalk.gray('\nAlso ensure your bucket policy allows the required operations.'))
                 throw mountError
               }
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.red(`mount: failed to mount s3 filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
+              await io.writelnErr(chalk.red(`mount: failed to mount s3 filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
               if (error instanceof Error && error.stack) {
-                await writelnStderr(process, terminal, chalk.gray(error.stack))
+                await io.writelnErr(chalk.gray(error.stack))
               }
               return 1
             }
@@ -1011,13 +1010,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           case 'googledrive': {
             try {
               if (typeof window === 'undefined') {
-                await writelnStderr(process, terminal, chalk.red('mount: Google Drive API requires a browser environment'))
+                await io.writelnErr(chalk.red('mount: Google Drive API requires a browser environment'))
                 return 1
               }
 
               // if (!mountOptions.apiKey) {
-              //   await writelnStderr(process, terminal, chalk.red('mount: googledrive filesystem requires apiKey option'))
-              //   await writelnStderr(process, terminal, 'Usage: mount -t googledrive TARGET -o apiKey=YOUR_API_KEY')
+              //   await io.writelnErr(chalk.red('mount: googledrive filesystem requires apiKey option'))
+              //   await io.writelnErr('Usage: mount -t googledrive TARGET -o apiKey=YOUR_API_KEY')
               //   return 1
               // }
 
@@ -1047,7 +1046,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
               // Load Google Identity Services library if not already loaded
               if (!win.google?.accounts) {
-                await writelnStdout(process, terminal, chalk.gray('Loading Google Identity Services library...'))
+                await io.writeln(chalk.gray('Loading Google Identity Services library...'))
                 
                 await new Promise<void>((resolve, reject) => {
                   const script = document.createElement('script')
@@ -1068,13 +1067,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               if (!win.google?.accounts) {
-                await writelnStderr(process, terminal, chalk.red('mount: Failed to load Google Identity Services library'))
+                await io.writelnErr(chalk.red('mount: Failed to load Google Identity Services library'))
                 return 1
               }
 
               // Load Google API script if not already loaded
               if (!win.gapi) {
-                await writelnStdout(process, terminal, chalk.gray('Loading Google API client library...'))
+                await io.writeln(chalk.gray('Loading Google API client library...'))
                 
                 await new Promise<void>((resolve, reject) => {
                   const script = document.createElement('script')
@@ -1093,12 +1092,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               if (!win.gapi) {
-                await writelnStderr(process, terminal, chalk.red('mount: Failed to load Google API client library'))
+                await io.writelnErr(chalk.red('mount: Failed to load Google API client library'))
                 return 1
               }
 
               if (!win.gapi.client || !win.gapi.client.drive) {
-                await writelnStdout(process, terminal, chalk.gray('Initializing Google API client...'))
+                await io.writeln(chalk.gray('Initializing Google API client...'))
 
                 const initConfig: { 
                   apiKey: string
@@ -1169,19 +1168,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               if (!win.gapi?.client?.drive) {
-                await writelnStderr(process, terminal, chalk.red('mount: Google Drive API is not available'))
-                await writelnStderr(process, terminal, chalk.yellow('Troubleshooting steps:'))
-                await writelnStderr(process, terminal, '  1. Check the browser console for network errors (502 Bad Gateway suggests a network/server issue)')
-                await writelnStderr(process, terminal, '  2. Verify your API key is valid and has the Drive API enabled')
-                await writelnStderr(process, terminal, '  3. Ensure the Drive API is enabled in your Google Cloud project')
-                await writelnStderr(process, terminal, '  4. Check if there are any API key restrictions (HTTP referrers, IP addresses, etc.)')
-                await writelnStderr(process, terminal, '  5. Try refreshing the page and mounting again')
+                await io.writelnErr(chalk.red('mount: Google Drive API is not available'))
+                await io.writelnErr(chalk.yellow('Troubleshooting steps:'))
+                await io.writelnErr('  1. Check the browser console for network errors (502 Bad Gateway suggests a network/server issue)')
+                await io.writelnErr('  2. Verify your API key is valid and has the Drive API enabled')
+                await io.writelnErr('  3. Ensure the Drive API is enabled in your Google Cloud project')
+                await io.writelnErr('  4. Check if there are any API key restrictions (HTTP referrers, IP addresses, etc.)')
+                await io.writelnErr('  5. Try refreshing the page and mounting again')
                 return 1
               }
 
               // Handle OAuth authentication if clientId is provided
               if (mountOptions.clientId) {
-                await writelnStdout(process, terminal, chalk.gray('Checking authentication status...'))
+                await io.writeln(chalk.gray('Checking authentication status...'))
                 
                 const driveScope = mountOptions.scope || 'https://www.googleapis.com/auth/drive'
                 
@@ -1195,7 +1194,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   }
                 } catch (error) {
                   // User needs to authenticate using Google Identity Services
-                  await writelnStdout(process, terminal, chalk.gray('Authentication required. Please sign in to Google...'))
+                  await io.writeln(chalk.gray('Authentication required. Please sign in to Google...'))
                   
                   try {
                     if (!win.google?.accounts?.oauth2) {
@@ -1262,40 +1261,40 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 errorMessage = String(error)
               }
               
-              await writelnStderr(process, terminal, chalk.red(`mount: failed to mount googledrive filesystem: ${errorMessage}`))
+              await io.writelnErr(chalk.red(`mount: failed to mount googledrive filesystem: ${errorMessage}`))
               
               // Provide specific guidance for common errors
               const lowerMessage = errorMessage.toLowerCase()
               if (lowerMessage.includes('popup') || lowerMessage.includes('blocked')) {
-                await writelnStderr(process, terminal, chalk.yellow('\nOAuth popup was blocked. Common causes:'))
-                await writelnStderr(process, terminal, '  • Browser popup blocker is enabled')
-                await writelnStderr(process, terminal, '  • Browser security restrictions')
-                await writelnStderr(process, terminal, chalk.gray('\nTo fix this:'))
-                await writelnStderr(process, terminal, '  1. Allow popups for this site in your browser settings')
-                await writelnStderr(process, terminal, '  2. Try the mount command again')
+                await io.writelnErr(chalk.yellow('\nOAuth popup was blocked. Common causes:'))
+                await io.writelnErr('  • Browser popup blocker is enabled')
+                await io.writelnErr('  • Browser security restrictions')
+                await io.writelnErr(chalk.gray('\nTo fix this:'))
+                await io.writelnErr('  1. Allow popups for this site in your browser settings')
+                await io.writelnErr('  2. Try the mount command again')
               } else if (lowerMessage.includes('origin') || lowerMessage.includes('authorized')) {
-                await writelnStderr(process, terminal, chalk.yellow('\nOAuth authentication failed. Common causes:'))
-                await writelnStderr(process, terminal, '  • Your domain/origin is not authorized in Google Cloud Console')
-                await writelnStderr(process, terminal, '  • Invalid or incorrect OAuth client ID')
-                await writelnStderr(process, terminal, chalk.gray('\nTo fix this:'))
-                await writelnStderr(process, terminal, '  1. Go to Google Cloud Console > APIs & Services > Credentials')
-                await writelnStderr(process, terminal, '  2. Find your OAuth 2.0 Client ID')
-                await writelnStderr(process, terminal, '  3. Add your current origin to "Authorized JavaScript origins"')
-                await writelnStderr(process, terminal, '     (e.g., http://localhost:30443 or your domain)')
-                await writelnStderr(process, terminal, '  4. If you only need read-only access, try mounting without clientId:')
-                await writelnStderr(process, terminal, '     mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY')
+                await io.writelnErr(chalk.yellow('\nOAuth authentication failed. Common causes:'))
+                await io.writelnErr('  • Your domain/origin is not authorized in Google Cloud Console')
+                await io.writelnErr('  • Invalid or incorrect OAuth client ID')
+                await io.writelnErr(chalk.gray('\nTo fix this:'))
+                await io.writelnErr('  1. Go to Google Cloud Console > APIs & Services > Credentials')
+                await io.writelnErr('  2. Find your OAuth 2.0 Client ID')
+                await io.writelnErr('  3. Add your current origin to "Authorized JavaScript origins"')
+                await io.writelnErr('     (e.g., http://localhost:30443 or your domain)')
+                await io.writelnErr('  4. If you only need read-only access, try mounting without clientId:')
+                await io.writelnErr('     mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY')
               } else if (lowerMessage.includes('discovery') || lowerMessage.includes('api discovery') || lowerMessage.includes('required fields')) {
-                await writelnStderr(process, terminal, chalk.yellow('\nThe Drive API discovery document failed to load. Common causes:'))
-                await writelnStderr(process, terminal, '  • Network connectivity issues (check for 502 Bad Gateway in console)')
-                await writelnStderr(process, terminal, '  • Invalid or restricted API key')
-                await writelnStderr(process, terminal, '  • Drive API not enabled in Google Cloud project')
-                await writelnStderr(process, terminal, '  • CORS or browser security restrictions')
-                await writelnStderr(process, terminal, chalk.gray('\nCheck the browser console for detailed network error messages.'))
+                await io.writelnErr(chalk.yellow('\nThe Drive API discovery document failed to load. Common causes:'))
+                await io.writelnErr('  • Network connectivity issues (check for 502 Bad Gateway in console)')
+                await io.writelnErr('  • Invalid or restricted API key')
+                await io.writelnErr('  • Drive API not enabled in Google Cloud project')
+                await io.writelnErr('  • CORS or browser security restrictions')
+                await io.writelnErr(chalk.gray('\nCheck the browser console for detailed network error messages.'))
               } else if (lowerMessage.includes('network') || lowerMessage.includes('fetch') || lowerMessage.includes('502') || lowerMessage.includes('bad gateway')) {
-                await writelnStderr(process, terminal, chalk.yellow('\nNetwork error detected. This may be a temporary issue with Google\'s servers.'))
-                await writelnStderr(process, terminal, '  • Wait a few moments and try again')
-                await writelnStderr(process, terminal, '  • Check your internet connection')
-                await writelnStderr(process, terminal, '  • Verify the API key is correct')
+                await io.writelnErr(chalk.yellow('\nNetwork error detected. This may be a temporary issue with Google\'s servers.'))
+                await io.writelnErr('  • Wait a few moments and try again')
+                await io.writelnErr('  • Check your internet connection')
+                await io.writelnErr('  • Verify the API key is correct')
               }
               
               // Show full error details if it's an object (for debugging)
@@ -1303,7 +1302,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 try {
                   const errorStr = JSON.stringify(error, null, 2)
                   if (errorStr !== '{}' && errorStr.length < 500) {
-                    await writelnStderr(process, terminal, chalk.gray(`\nError details:\n${errorStr}`))
+                    await io.writelnErr(chalk.gray(`\nError details:\n${errorStr}`))
                   }
                 } catch {
                   // Ignore JSON stringify errors
@@ -1311,25 +1310,25 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               
               if (error instanceof Error && error.stack && !lowerMessage.includes('discovery') && !lowerMessage.includes('network')) {
-                await writelnStderr(process, terminal, chalk.gray(`\nStack trace:\n${error.stack}`))
+                await io.writelnErr(chalk.gray(`\nStack trace:\n${error.stack}`))
               }
               return 1
             }
             break
           }
           default:
-            await writelnStderr(process, terminal, chalk.red(`mount: unknown filesystem type '${type}'`))
-            await writelnStderr(process, terminal, 'Supported types: fetch, indexeddb, webstorage, webaccess, opfs, memory, singlebuffer, zip, iso, dropbox, s3, googledrive')
+            await io.writelnErr(chalk.red(`mount: unknown filesystem type '${type}'`))
+            await io.writelnErr('Supported types: fetch, indexeddb, webstorage, webaccess, opfs, memory, singlebuffer, zip, iso, dropbox, s3, googledrive')
             return 1
         }
 
         const successMessage = source
           ? chalk.green(`Mounted ${type} filesystem from ${source} to ${target}`)
           : chalk.green(`Mounted ${type} filesystem at ${target}`)
-        await writelnStdout(process, terminal, successMessage)
+        await io.writeln(successMessage)
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`mount: failed to mount filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
+        await io.writelnErr(chalk.red(`mount: failed to mount filesystem: ${error instanceof Error ? error.message : 'Unknown error'}`))
         return 1
       }
     }

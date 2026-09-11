@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: chmod [OPTION]... MODE[,MODE]... FILE...
    or:  chmod [OPTION]... OCTAL-MODE FILE...
 Change the mode of each FILE to MODE.
@@ -69,7 +69,7 @@ Examples:
 
 Multiple modes can be specified separated by commas:
   chmod u+x,g-w file          Add execute for user, remove write for group`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function parseNumericMode(mode: string): number | null {
@@ -157,24 +157,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const args: string[] = []
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg && !arg.startsWith('-')) {
           args.push(arg)
         }
       }
 
       if (args.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('chmod: missing operand'))
-        await writelnStderr(process, terminal, 'Try \'chmod --help\' for more information.')
+        await io.writelnErr(chalk.red('chmod: missing operand'))
+        await io.writelnErr('Try \'chmod --help\' for more information.')
         return 1
       }
 
@@ -182,8 +181,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const targets = args.slice(1)
 
       if (!mode || targets.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('chmod: missing operand'))
-        await writelnStderr(process, terminal, 'Try \'chmod --help\' for more information.')
+        await io.writelnErr(chalk.red('chmod: missing operand'))
+        await io.writelnErr('Try \'chmod --help\' for more information.')
         return 1
       }
 
@@ -197,7 +196,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           await shell.context.fs.promises.chmod(fullPath, numericMode)
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          await writelnStderr(process, terminal, `chmod: ${target}: ${errorMessage}`)
+          await io.writelnErr(`chmod: ${target}: ${errorMessage}`)
           hasError = true
         }
       }

@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: fetch [OPTION]... URL
 Fetch a resource from the network.
 
@@ -18,7 +18,7 @@ Examples:
   fetch https://example.com              fetch and output to stdout
   fetch -o file.txt https://example.com  fetch and save to file.txt
   fetch -X POST -d "data" https://api.example.com  POST request with body`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -28,13 +28,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -45,17 +45,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const headers: Record<string, string> = {}
 
       // Parse arguments
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === undefined) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-o' || arg === '--output') {
-          const fileArg = argv[i + 1]
+          const fileArg = ctx.argv[i + 1]
           if (!fileArg) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- '${arg === '-o' ? 'o' : 'output'}'`)
+            await io.writelnErr(`fetch: option requires an argument -- '${arg === '-o' ? 'o' : 'output'}'`)
             return 1
           }
           outputFile = fileArg
@@ -63,14 +63,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('--output=')) {
           const outputValue = arg.split('=')[1]
           if (!outputValue) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- 'output'`)
+            await io.writelnErr(`fetch: option requires an argument -- 'output'`)
             return 1
           }
           outputFile = outputValue
         } else if (arg === '-X' || arg === '--method') {
-          const methodArg = argv[i + 1]
+          const methodArg = ctx.argv[i + 1]
           if (!methodArg) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- '${arg === '-X' ? 'X' : 'method'}'`)
+            await io.writelnErr(`fetch: option requires an argument -- '${arg === '-X' ? 'X' : 'method'}'`)
             return 1
           }
           method = methodArg.toUpperCase()
@@ -78,14 +78,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('--method=')) {
           const methodValue = arg.split('=')[1]
           if (!methodValue) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- 'method'`)
+            await io.writelnErr(`fetch: option requires an argument -- 'method'`)
             return 1
           }
           method = methodValue.toUpperCase()
         } else if (arg === '-d' || arg === '--data') {
-          const dataArg = argv[i + 1]
+          const dataArg = ctx.argv[i + 1]
           if (!dataArg) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- '${arg === '-d' ? 'd' : 'data'}'`)
+            await io.writelnErr(`fetch: option requires an argument -- '${arg === '-d' ? 'd' : 'data'}'`)
             return 1
           }
           body = dataArg
@@ -93,19 +93,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('--data=')) {
           const dataValue = arg.split('=')[1]
           if (!dataValue) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- 'data'`)
+            await io.writelnErr(`fetch: option requires an argument -- 'data'`)
             return 1
           }
           body = dataValue
         } else if (arg === '-H' || arg === '--header') {
-          const headerArg = argv[i + 1]
+          const headerArg = ctx.argv[i + 1]
           if (!headerArg) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- '${arg === '-H' ? 'H' : 'header'}'`)
+            await io.writelnErr(`fetch: option requires an argument -- '${arg === '-H' ? 'H' : 'header'}'`)
             return 1
           }
           const [name, ...valueParts] = headerArg.split(':')
           if (!name || valueParts.length === 0) {
-            await writelnStderr(process, terminal, `fetch: invalid header format. Expected "Name: Value"`)
+            await io.writelnErr(`fetch: invalid header format. Expected "Name: Value"`)
             return 1
           }
           headers[name.trim()] = valueParts.join(':').trim()
@@ -113,12 +113,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('--header=')) {
           const headerValue = arg.split('=')[1]
           if (!headerValue) {
-            await writelnStderr(process, terminal, `fetch: option requires an argument -- 'header'`)
+            await io.writelnErr(`fetch: option requires an argument -- 'header'`)
             return 1
           }
           const [name, ...valueParts] = headerValue.split(':')
           if (!name || valueParts.length === 0) {
-            await writelnStderr(process, terminal, `fetch: invalid header format. Expected "Name: Value"`)
+            await io.writelnErr(`fetch: invalid header format. Expected "Name: Value"`)
             return 1
           }
           headers[name.trim()] = valueParts.join(':').trim()
@@ -127,19 +127,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!url) {
             url = arg
           } else {
-            await writelnStderr(process, terminal, `fetch: unexpected argument: ${arg}`)
+            await io.writelnErr(`fetch: unexpected argument: ${arg}`)
             return 1
           }
         } else {
-          await writelnStderr(process, terminal, `fetch: invalid option -- '${arg.replace(/^-+/, '')}'`)
-          await writelnStderr(process, terminal, `Try 'fetch --help' for more information.`)
+          await io.writelnErr(`fetch: invalid option -- '${arg.replace(/^-+/, '')}'`)
+          await io.writelnErr(`Try 'fetch --help' for more information.`)
           return 1
         }
       }
 
       if (!url) {
-        await writelnStderr(process, terminal, `fetch: URL is required`)
-        await writelnStderr(process, terminal, `Try 'fetch --help' for more information.`)
+        await io.writelnErr(`fetch: URL is required`)
+        await io.writelnErr(`Try 'fetch --help' for more information.`)
         return 1
       }
 
@@ -151,13 +151,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const response = await globalThis.fetch(url, fetchOptions)
         
         if (!response.ok) {
-          await writelnStderr(process, terminal, chalk.red(`fetch: HTTP error! status: ${response.status} ${response.statusText}`))
+          await io.writelnErr(chalk.red(`fetch: HTTP error! status: ${response.status} ${response.statusText}`))
           return 1
         }
 
         const reader = response.body?.getReader()
         if (!reader) {
-          await writelnStderr(process, terminal, chalk.red(`fetch: No response body`))
+          await io.writelnErr(chalk.red(`fetch: No response body`))
           return 1
         }
 
@@ -177,11 +177,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
         } else {
           // Write to stdout
-          if (!process.stdout) {
-            await writelnStderr(process, terminal, chalk.red(`fetch: No stdout available`))
+          if (!io.stdout) {
+            await io.writelnErr(chalk.red(`fetch: No stdout available`))
             return 1
           }
-          writer = process.stdout.getWriter()
+          writer = io.stdout.getWriter()
         }
 
         try {
@@ -197,7 +197,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`fetch: ${error instanceof Error ? error.message : 'Unknown error'}`))
+        await io.writelnErr(chalk.red(`fetch: ${error instanceof Error ? error.message : 'Unknown error'}`))
         return 1
       }
     }

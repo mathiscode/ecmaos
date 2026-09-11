@@ -3,12 +3,13 @@ import chalk from 'chalk'
 import * as git from 'isomorphic-git'
 import http from 'isomorphic-git/http/web'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
 const CORS_PROXY = 'https://cors.isomorphic-git.org'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: git [COMMAND] [OPTIONS] [ARGS...]
 
 Common Git commands:
@@ -29,7 +30,7 @@ Common Git commands:
   remote            Manage remotes
 
   --help            display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function findGitDir(fs: typeof import('@zenfs/core').fs.promises, startDir: string): Promise<string | null> {
@@ -785,16 +786,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
       
-      if (argv.length === 0 || (argv.length === 1 && (argv[0] === '--help' || argv[0] === '-h'))) {
-        printUsage(process, terminal)
+      if (ctx.argv.length === 0 || (ctx.argv.length === 1 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h'))) {
+        printUsage(io)
         return 0
       }
       
-      const subcommand = argv[0]
-      const args = argv.slice(1)
+      const subcommand = ctx.argv[0]
+      const args = ctx.argv.slice(1)
       const fs = shell.context.fs.promises
       
       try {
@@ -830,12 +831,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           case 'remote':
             return await handleRemote(fs, shell, terminal, process, args)
           default:
-            await writelnStderr(process, terminal, `git: '${subcommand}' is not a git command. See 'git --help'.`)
+            await io.writelnErr(`git: '${subcommand}' is not a git command. See 'git --help'.`)
             return 1
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, `fatal: ${errorMessage}`)
+        await io.writelnErr(`fatal: ${errorMessage}`)
         return 1
       }
     }

@@ -1,15 +1,15 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cd [DIRECTORY]
 Change the shell working directory.
 
   DIRECTORY  the directory to change to (default: $HOME)
   --help     display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,15 +19,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      const destination = argv.length > 0 && argv[0] && !argv[0].startsWith('-') ? argv[0] : shell.cwd
+      const destination = ctx.argv.length > 0 && ctx.argv[0] && !ctx.argv[0].startsWith('-') ? ctx.argv[0] : shell.cwd
       const fullPath = destination ? path.resolve(shell.cwd, destination) : shell.cwd
       
       try {
@@ -38,7 +38,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         if (process) {
-          const writer = process.stderr.getWriter()
+          const writer = io.stderr!.getWriter()
           try {
             await writer.write(new TextEncoder().encode(`cd: ${destination}: ${errorMessage}\n`))
           } finally {

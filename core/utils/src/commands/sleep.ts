@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: sleep NUMBER[SUFFIX]...
 Pause for NUMBER seconds.  SUFFIX may be 's' for seconds (the default),
 'm' for minutes, 'h' for hours or 'd' for days.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function parseDuration(value: string): number {
@@ -41,38 +41,38 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'sleep: missing operand')
-        await writelnStderr(process, terminal, "Try 'sleep --help' for more information.")
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('sleep: missing operand')
+        await io.writelnErr("Try 'sleep --help' for more information.")
         return 1
       }
 
       let totalDuration = 0
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg.startsWith('-')) {
-          await writelnStderr(process, terminal, `sleep: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'sleep --help' for more information.")
+          await io.writelnErr(`sleep: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'sleep --help' for more information.")
           return 1
         } else {
           const duration = parseDuration(arg)
           if (isNaN(duration)) {
-            await writelnStderr(process, terminal, `sleep: invalid time interval '${arg}'`)
+            await io.writelnErr(`sleep: invalid time interval '${arg}'`)
             return 1
           }
           totalDuration += duration
@@ -96,7 +96,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         })
       } catch (error) {
         if (!interrupted) {
-          await writelnStderr(process, terminal, `sleep: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          await io.writelnErr(`sleep: ${error instanceof Error ? error.message : 'Unknown error'}`)
           return 1
         }
       } finally {

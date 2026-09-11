@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: od [OPTION]... [FILE]...
 Dump files in octal and other formats.
 
@@ -12,7 +12,7 @@ Dump files in octal and other formats.
   -N, --read-bytes=BYTES     limit number of bytes to read
   -j, --skip-bytes=BYTES     skip bytes before reading
   --help                     display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function formatAddress(offset: number, radix: string): string {
@@ -112,13 +112,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -128,20 +128,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let skipBytes = 0
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-A' || arg === '--address-radix') {
-          if (i + 1 < argv.length) {
-            const radix = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const radix = ctx.argv[++i]
             if (radix && ['d', 'o', 'x', 'n'].includes(radix)) {
               addressRadix = radix
             } else {
-              await writelnStderr(process, terminal, `od: invalid address radix: ${radix}`)
+              await io.writelnErr(`od: invalid address radix: ${radix}`)
               return 1
             }
           }
@@ -150,7 +150,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (['d', 'o', 'x', 'n'].includes(radix)) {
             addressRadix = radix
           } else {
-            await writelnStderr(process, terminal, `od: invalid address radix: ${radix}`)
+            await io.writelnErr(`od: invalid address radix: ${radix}`)
             return 1
           }
         } else if (arg.startsWith('-A')) {
@@ -158,12 +158,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (['d', 'o', 'x', 'n'].includes(radix)) {
             addressRadix = radix
           } else {
-            await writelnStderr(process, terminal, `od: invalid address radix: ${radix}`)
+            await io.writelnErr(`od: invalid address radix: ${radix}`)
             return 1
           }
         } else if (arg === '-t' || arg === '--format') {
-          if (i + 1 < argv.length) {
-            const fmt = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const fmt = ctx.argv[++i]
             if (fmt) {
               format = fmt
             }
@@ -173,14 +173,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('-t')) {
           format = arg.slice(2) || 'o1'
         } else if (arg === '-N' || arg === '--read-bytes') {
-          if (i + 1 < argv.length) {
-            const bytesStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const bytesStr = ctx.argv[++i]
             if (bytesStr !== undefined) {
               const parsed = parseInt(bytesStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 readBytes = parsed
               } else {
-                await writelnStderr(process, terminal, `od: invalid byte count: ${bytesStr}`)
+                await io.writelnErr(`od: invalid byte count: ${bytesStr}`)
                 return 1
               }
             }
@@ -191,7 +191,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             readBytes = parsed
           } else {
-            await writelnStderr(process, terminal, `od: invalid byte count: ${bytesStr}`)
+            await io.writelnErr(`od: invalid byte count: ${bytesStr}`)
             return 1
           }
         } else if (arg.startsWith('-N')) {
@@ -200,18 +200,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             readBytes = parsed
           } else {
-            await writelnStderr(process, terminal, `od: invalid byte count: ${bytesStr}`)
+            await io.writelnErr(`od: invalid byte count: ${bytesStr}`)
             return 1
           }
         } else if (arg === '-j' || arg === '--skip-bytes') {
-          if (i + 1 < argv.length) {
-            const bytesStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const bytesStr = ctx.argv[++i]
             if (bytesStr !== undefined) {
               const parsed = parseInt(bytesStr, 10)
               if (!isNaN(parsed) && parsed >= 0) {
                 skipBytes = parsed
               } else {
-                await writelnStderr(process, terminal, `od: invalid skip count: ${bytesStr}`)
+                await io.writelnErr(`od: invalid skip count: ${bytesStr}`)
                 return 1
               }
             }
@@ -222,7 +222,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed >= 0) {
             skipBytes = parsed
           } else {
-            await writelnStderr(process, terminal, `od: invalid skip count: ${bytesStr}`)
+            await io.writelnErr(`od: invalid skip count: ${bytesStr}`)
             return 1
           }
         } else if (arg.startsWith('-j')) {
@@ -231,29 +231,29 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed >= 0) {
             skipBytes = parsed
           } else {
-            await writelnStderr(process, terminal, `od: invalid skip count: ${bytesStr}`)
+            await io.writelnErr(`od: invalid skip count: ${bytesStr}`)
             return 1
           }
         } else if (!arg.startsWith('-')) {
           files.push(arg)
         } else {
-          await writelnStderr(process, terminal, `od: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'od --help' for more information.")
+          await io.writelnErr(`od: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'od --help' for more information.")
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let data: Uint8Array
 
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const chunks: Uint8Array[] = []
 
           try {
@@ -282,14 +282,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           try {
             if (fullPath.startsWith('/dev')) {
-              await writelnStderr(process, terminal, `od: ${file}: cannot process device files`)
+              await io.writelnErr(`od: ${file}: cannot process device files`)
               return 1
             }
 
             const fileData = await shell.context.fs.promises.readFile(fullPath)
             data = new Uint8Array(fileData)
           } catch (error) {
-            await writelnStderr(process, terminal, `od: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`od: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             return 1
           }
         }
@@ -317,7 +317,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `od: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`od: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

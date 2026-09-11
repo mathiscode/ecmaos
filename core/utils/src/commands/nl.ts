@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: nl [OPTION]... [FILE]...
 Number lines of files.
 
@@ -14,7 +14,7 @@ Number lines of files.
   -w, --width=NUMBER          use NUMBER columns for line numbers (default: 6)
   -s, --separator=STRING      add STRING after (possible) line number (default: TAB)
   --help                      display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -24,13 +24,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -41,16 +41,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let width = 6
       let separator = '\t'
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-v' || arg === '--starting-line') {
-          if (i + 1 < argv.length) {
-            const nextArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const nextArg = ctx.argv[++i]
             if (nextArg !== undefined) {
               const num = parseInt(nextArg, 10)
               if (!isNaN(num)) startLine = num
@@ -60,8 +60,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const num = parseInt(arg.slice(16), 10)
           if (!isNaN(num)) startLine = num
         } else if (arg === '-i' || arg === '--increment') {
-          if (i + 1 < argv.length) {
-            const nextArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const nextArg = ctx.argv[++i]
             if (nextArg !== undefined) {
               const num = parseInt(nextArg, 10)
               if (!isNaN(num)) increment = num
@@ -71,14 +71,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const num = parseInt(arg.slice(12), 10)
           if (!isNaN(num)) increment = num
         } else if (arg === '-n' || arg === '--format') {
-          if (i + 1 < argv.length) {
-            format = argv[++i] || 'rn'
+          if (i + 1 < ctx.argv.length) {
+            format = ctx.argv[++i] || 'rn'
           }
         } else if (arg.startsWith('--format=')) {
           format = arg.slice(9) || 'rn'
         } else if (arg === '-w' || arg === '--width') {
-          if (i + 1 < argv.length) {
-            const nextArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const nextArg = ctx.argv[++i]
             if (nextArg !== undefined) {
               const num = parseInt(nextArg, 10)
               if (!isNaN(num)) width = num
@@ -88,8 +88,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const num = parseInt(arg.slice(8), 10)
           if (!isNaN(num)) width = num
         } else if (arg === '-s' || arg === '--separator') {
-          if (i + 1 < argv.length) {
-            separator = argv[++i] || '\t'
+          if (i + 1 < ctx.argv.length) {
+            separator = ctx.argv[++i] || '\t'
           }
         } else if (arg.startsWith('--separator=')) {
           separator = arg.slice(12) || '\t'
@@ -98,7 +98,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       const formatNumber = (num: number): string => {
         const numStr = num.toString()
@@ -115,11 +115,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         let lines: string[] = []
 
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -150,7 +150,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `nl: ${file}: cannot number device files`)
+                await io.writelnErr(`nl: ${file}: cannot number device files`)
                 continue
               }
 
@@ -178,7 +178,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               lines.push(...fileLines)
             } catch (error) {
-              await writelnStderr(process, terminal, `nl: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`nl: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
             }

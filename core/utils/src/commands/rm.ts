@@ -1,16 +1,16 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: rm [OPTION]... FILE...
 Remove (unlink) the FILE(s).
 
   -f, --force     ignore nonexistent files and arguments, never prompt
   -r, -R, --recursive   remove directories and their contents recursively
   --help          display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -20,17 +20,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'rm: missing operand')
-        await writelnStderr(process, terminal, "Try 'rm --help' for more information.")
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('rm: missing operand')
+        await io.writelnErr("Try 'rm --help' for more information.")
         return 1
       }
 
-      if (argv[0] === '--help' || argv[0] === '-h') {
-        printUsage(process, terminal)
+      if (ctx.argv[0] === '--help' || ctx.argv[0] === '-h') {
+        printUsage(io)
         return 0
       }
 
@@ -38,7 +37,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let force = false
       const pathArray: string[] = []
       
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg.startsWith('-') && arg !== '--') {
           // Handle combined flags like -rf, -fr, -rR, etc.
           if (arg === '--recursive' || arg === '-R') {
@@ -54,14 +53,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               } else if (flag === 'f') {
                 force = true
               } else {
-                await writelnStderr(process, terminal, `rm: invalid option -- '${flag}'`)
-                await writelnStderr(process, terminal, "Try 'rm --help' for more information.")
+                await io.writelnErr(`rm: invalid option -- '${flag}'`)
+                await io.writelnErr("Try 'rm --help' for more information.")
                 return 1
               }
             }
           } else {
-            await writelnStderr(process, terminal, `rm: invalid option -- '${arg.slice(1)}'`)
-            await writelnStderr(process, terminal, "Try 'rm --help' for more information.")
+            await io.writelnErr(`rm: invalid option -- '${arg.slice(1)}'`)
+            await io.writelnErr("Try 'rm --help' for more information.")
             return 1
           }
         } else {
@@ -70,8 +69,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (pathArray.length === 0) {
-        await writelnStderr(process, terminal, 'rm: missing operand')
-        await writelnStderr(process, terminal, "Try 'rm --help' for more information.")
+        await io.writelnErr('rm: missing operand')
+        await io.writelnErr("Try 'rm --help' for more information.")
         return 1
       }
 
@@ -119,8 +118,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (expandedPaths.length === 0) {
-        await writelnStderr(process, terminal, 'rm: missing operand')
-        await writelnStderr(process, terminal, "Try 'rm --help' for more information.")
+        await io.writelnErr('rm: missing operand')
+        await io.writelnErr("Try 'rm --help' for more information.")
         return 1
       }
 
@@ -129,7 +128,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       for (const target of expandedPaths) {
         if (!target || typeof target !== 'string') {
           if (!force) {
-            await writelnStderr(process, terminal, `rm: ${String(target)}: No such file or directory`)
+            await io.writelnErr(`rm: ${String(target)}: No such file or directory`)
             hasError = true
           }
           continue
@@ -142,7 +141,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           try {
             const stat = await shell.context.fs.promises.stat(fullPath)
             if (stat.isDirectory() && !recursive) {
-              await writelnStderr(process, terminal, `rm: ${target}: is a directory`)
+              await io.writelnErr(`rm: ${target}: is a directory`)
               hasError = true
               continue
             }
@@ -161,7 +160,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           // If force is enabled, ignore errors
           if (!force) {
             const errorMessage = error instanceof Error ? error.message : String(error)
-            await writelnStderr(process, terminal, `rm: ${target}: ${errorMessage}`)
+            await io.writelnErr(`rm: ${target}: ${errorMessage}`)
             hasError = true
           }
         }

@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: ln [OPTION]... [-T] TARGET LINK_NAME
    or:  ln [OPTION]... TARGET
    or:  ln [OPTION]... TARGET... DIRECTORY
@@ -14,7 +14,7 @@ Create links between files.
   -f, --force     remove existing destination files
   -v, --verbose   print name of each linked file
   --help          display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -24,11 +24,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -37,9 +36,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let force = false
       let verbose = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-s' || arg === '--symbolic') {
           symbolic = true
@@ -54,7 +53,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('v')) verbose = true
           const invalidFlags = flags.filter(f => !['s', 'f', 'v'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `ln: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr(`ln: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         } else {
@@ -63,14 +62,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (args.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('ln: missing file operand'))
-        await writelnStderr(process, terminal, 'Try \'ln --help\' for more information.')
+        await io.writelnErr(chalk.red('ln: missing file operand'))
+        await io.writelnErr('Try \'ln --help\' for more information.')
         return 1
       }
 
       const target = args[0]
       if (!target) {
-        await writelnStderr(process, terminal, chalk.red('ln: missing file operand'))
+        await io.writelnErr(chalk.red('ln: missing file operand'))
         return 1
       }
 
@@ -80,15 +79,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       try {
         targetStats = await shell.context.fs.promises.stat(targetPath)
         if (!targetStats.isFile() && !targetStats.isDirectory()) {
-          await writelnStderr(process, terminal, chalk.red(`ln: ${target}: invalid target`))
+          await io.writelnErr(chalk.red(`ln: ${target}: invalid target`))
           return 1
         }
         if (!symbolic && targetStats.isDirectory()) {
-          await writelnStderr(process, terminal, chalk.red(`ln: ${target}: hard link not allowed for directory`))
+          await io.writelnErr(chalk.red(`ln: ${target}: hard link not allowed for directory`))
           return 1
         }
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`ln: ${target}: No such file or directory`))
+        await io.writelnErr(chalk.red(`ln: ${target}: No such file or directory`))
         return 1
       }
 
@@ -98,7 +97,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       } else {
         const linkNameInput = args[1]
         if (!linkNameInput) {
-          await writelnStderr(process, terminal, chalk.red('ln: missing link name'))
+          await io.writelnErr(chalk.red('ln: missing link name'))
           return 1
         }
         const linkNamePath = path.resolve(shell.cwd, linkNameInput)
@@ -120,7 +119,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               await shell.context.fs.promises.unlink(linkName)
             }
           } else {
-            await writelnStderr(process, terminal, chalk.red(`ln: ${linkName}: File exists`))
+            await io.writelnErr(chalk.red(`ln: ${linkName}: File exists`))
             return 1
           }
         }
@@ -132,12 +131,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
 
         if (verbose) {
-          await writelnStdout(process, terminal, linkName)
+          await io.writeln(linkName)
         }
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`ln: ${(error as Error).message}`))
+        await io.writelnErr(chalk.red(`ln: ${(error as Error).message}`))
         return 1
       }
     }

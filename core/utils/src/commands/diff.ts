@@ -1,17 +1,17 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: diff [OPTION]... FILE1 FILE2
 Compare files line by line.
 
   -u, --unified=NUM   output NUM (default 3) lines of unified context
   -c, --context=NUM   output NUM (default 3) lines of copied context
   --help              display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,13 +21,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -38,16 +38,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // @ts-ignore - reserved for future implementation
       let _context = 3
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-u' || arg === '--unified') {
-          if (i + 1 < argv.length) {
-            const nextArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const nextArg = ctx.argv[++i]
             if (nextArg !== undefined) {
               const num = parseInt(nextArg, 10)
               if (!isNaN(num)) _unified = num
@@ -57,8 +57,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const num = parseInt(arg.slice(10), 10)
           if (!isNaN(num)) _unified = num
         } else if (arg === '-c' || arg === '--context') {
-          if (i + 1 < argv.length) {
-            const nextArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const nextArg = ctx.argv[++i]
             if (nextArg !== undefined) {
               const num = parseInt(nextArg, 10)
               if (!isNaN(num)) _context = num
@@ -73,20 +73,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length !== 2) {
-        await writelnStderr(process, terminal, 'diff: exactly two files must be specified')
+        await io.writelnErr('diff: exactly two files must be specified')
         return 1
       }
 
       const file1 = files[0]
       const file2 = files[1]
       if (!file1 || !file2) {
-        await writelnStderr(process, terminal, 'diff: exactly two files must be specified')
+        await io.writelnErr('diff: exactly two files must be specified')
         return 1
       }
       const fullPath1 = path.resolve(shell.cwd || '/', file1)
       const fullPath2 = path.resolve(shell.cwd || '/', file2)
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       const readFile = async (filePath: string): Promise<string> => {
         if (filePath.startsWith('/dev')) {
@@ -194,7 +194,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 1
       } catch (error) {
-        await writelnStderr(process, terminal, `diff: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`diff: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

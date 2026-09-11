@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: dd [OPERAND]...
 Copy a file, converting and formatting according to the operands.
 
@@ -32,7 +32,7 @@ Operands:
                 'progress' show periodic transfer statistics
 
   --help      display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function parseBytes(value: string): number {
@@ -107,13 +107,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -131,11 +131,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let noTrunc = false
       let sync = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg.startsWith('if=')) {
           inputFile = arg.slice(3)
@@ -144,7 +144,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('bs=')) {
           const bytes = parseBytes(arg.slice(3))
           if (isNaN(bytes)) {
-            await writelnStderr(process, terminal, `dd: invalid block size: ${arg.slice(3)}`)
+            await io.writelnErr(`dd: invalid block size: ${arg.slice(3)}`)
             return 1
           }
           blockSize = bytes
@@ -153,35 +153,35 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('ibs=')) {
           const bytes = parseBytes(arg.slice(4))
           if (isNaN(bytes)) {
-            await writelnStderr(process, terminal, `dd: invalid input block size: ${arg.slice(4)}`)
+            await io.writelnErr(`dd: invalid input block size: ${arg.slice(4)}`)
             return 1
           }
           inputBlockSize = bytes
         } else if (arg.startsWith('obs=')) {
           const bytes = parseBytes(arg.slice(4))
           if (isNaN(bytes)) {
-            await writelnStderr(process, terminal, `dd: invalid output block size: ${arg.slice(4)}`)
+            await io.writelnErr(`dd: invalid output block size: ${arg.slice(4)}`)
             return 1
           }
           outputBlockSize = bytes
         } else if (arg.startsWith('count=')) {
           const blocks = parseBlocks(arg.slice(6))
           if (isNaN(blocks)) {
-            await writelnStderr(process, terminal, `dd: invalid count: ${arg.slice(6)}`)
+            await io.writelnErr(`dd: invalid count: ${arg.slice(6)}`)
             return 1
           }
           count = blocks
         } else if (arg.startsWith('skip=')) {
           const blocks = parseBlocks(arg.slice(5))
           if (isNaN(blocks)) {
-            await writelnStderr(process, terminal, `dd: invalid skip: ${arg.slice(5)}`)
+            await io.writelnErr(`dd: invalid skip: ${arg.slice(5)}`)
             return 1
           }
           skip = blocks
         } else if (arg.startsWith('seek=')) {
           const blocks = parseBlocks(arg.slice(5))
           if (isNaN(blocks)) {
-            await writelnStderr(process, terminal, `dd: invalid seek: ${arg.slice(5)}`)
+            await io.writelnErr(`dd: invalid seek: ${arg.slice(5)}`)
             return 1
           }
           seek = blocks
@@ -194,7 +194,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               else if (conv === 'sync') sync = true
               else conversions.push(conv)
             } else {
-              await writelnStderr(process, terminal, `dd: invalid conversion: ${conv}`)
+              await io.writelnErr(`dd: invalid conversion: ${conv}`)
               return 1
             }
           }
@@ -203,12 +203,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (['none', 'noxfer', 'progress'].includes(level)) {
             status = level as 'none' | 'noxfer' | 'progress'
           } else {
-            await writelnStderr(process, terminal, `dd: invalid status level: ${level}`)
+            await io.writelnErr(`dd: invalid status level: ${level}`)
             return 1
           }
         } else {
-          await writelnStderr(process, terminal, `dd: invalid operand: ${arg}`)
-          await writelnStderr(process, terminal, "Try 'dd --help' for more information.")
+          await io.writelnErr(`dd: invalid operand: ${arg}`)
+          await io.writelnErr("Try 'dd --help' for more information.")
           return 1
         }
       }
@@ -229,11 +229,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const isDevice = inputPath.startsWith('/dev')
           inputFileHandle = await shell.context.fs.promises.open(inputPath, isDevice ? undefined : 'r')
         } else {
-          if (!process.stdin) {
-            await writelnStderr(process, terminal, 'dd: stdin not available')
+          if (!io.stdin) {
+            await io.writelnErr('dd: stdin not available')
             return 1
           }
-          inputReader = process.stdin.getReader()
+          inputReader = io.stdin.getReader()
         }
 
         if (outputFile) {
@@ -262,11 +262,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             }
           }
         } else {
-          if (!process.stdout) {
-            await writelnStderr(process, terminal, 'dd: stdout not available')
+          if (!io.stdout) {
+            await io.writelnErr('dd: stdout not available')
             return 1
           }
-          outputWriter = process.stdout.getWriter()
+          outputWriter = io.stdout.getWriter()
           
           if (seek > 0 && outputWriter) {
             const seekBytes = seek * outputBlockSize
@@ -276,7 +276,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
 
         if (!outputWriter) {
-          await writelnStderr(process, terminal, 'dd: no output writer available')
+          await io.writelnErr('dd: no output writer available')
           return 1
         }
 
@@ -358,7 +358,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               if (status === 'progress' && blocksRead % 100 === 0) {
-                await writelnStderr(process, terminal, `dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
+                await io.writelnErr(`dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
               }
             }
           } else {
@@ -429,7 +429,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               if (status === 'progress' && blocksRead % 100 === 0) {
-                await writelnStderr(process, terminal, `dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
+                await io.writelnErr(`dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
               }
             }
           }
@@ -513,21 +513,21 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             }
 
             if (status === 'progress' && blocksRead % 100 === 0) {
-              await writelnStderr(process, terminal, `dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
+              await io.writelnErr(`dd: ${blocksRead} blocks read, ${blocksWritten} blocks written`)
             }
           }
         }
 
         if (status !== 'none') {
-          await writelnStderr(process, terminal, `${blocksRead}+${Math.floor((totalBytesRead % inputBlockSize) / (inputBlockSize || 1))} records in`)
-          await writelnStderr(process, terminal, `${blocksWritten}+${Math.floor((totalBytesWritten % outputBlockSize) / (outputBlockSize || 1))} records out`)
-          await writelnStderr(process, terminal, `${totalBytesWritten} bytes copied`)
+          await io.writelnErr(`${blocksRead}+${Math.floor((totalBytesRead % inputBlockSize) / (inputBlockSize || 1))} records in`)
+          await io.writelnErr(`${blocksWritten}+${Math.floor((totalBytesWritten % outputBlockSize) / (outputBlockSize || 1))} records out`)
+          await io.writelnErr(`${totalBytesWritten} bytes copied`)
         }
 
         return 0
       } catch (error) {
         if (!noError) {
-          await writelnStderr(process, terminal, `dd: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          await io.writelnErr(`dd: ${error instanceof Error ? error.message : 'Unknown error'}`)
           return 1
         }
         return 0

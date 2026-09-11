@@ -1,15 +1,15 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: mv [OPTION]... SOURCE... DEST
 Rename SOURCE to DEST, or move SOURCE(s) to DIRECTORY.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,23 +19,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const args: string[] = []
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg && !arg.startsWith('-')) {
           args.push(arg)
         }
       }
 
       if (args.length < 2) {
-        await writelnStderr(process, terminal, chalk.red('Usage: mv <source> <destination>'))
+        await io.writelnErr(chalk.red('Usage: mv <source> <destination>'))
         return 1
       }
 
@@ -43,7 +42,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const destinationInput = args[args.length - 1]
 
       if (!sourceInput || !destinationInput) {
-        await writelnStderr(process, terminal, chalk.red('Usage: mv <source> <destination>'))
+        await io.writelnErr(chalk.red('Usage: mv <source> <destination>'))
         return 1
       }
 
@@ -53,7 +52,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       if (source === destination) return 0
       const disallowedPaths = ['/dev', '/proc', '/sys', '/run']
       if (disallowedPaths.some(path => source.startsWith(path) || destination.startsWith(path))) {
-        await writelnStderr(process, terminal, chalk.red('Cannot move disallowed paths'))
+        await io.writelnErr(chalk.red('Cannot move disallowed paths'))
         return 2
       }
 
@@ -61,7 +60,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if ((await shell.context.fs.promises.stat(destination)).isDirectory()) {
           destination = path.resolve(destination, path.basename(source))
         } else {
-          await writelnStderr(process, terminal, chalk.red(`${destination} already exists`))
+          await io.writelnErr(chalk.red(`${destination} already exists`))
           return 1
         }
       }

@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: play [OPTIONS] [FILE...]
 Play an audio file.
 
@@ -22,7 +22,7 @@ Examples:
   play --volume 50 track.mp3      play at 50% volume
   play --quiet background.mp3      play audio in background
   play song1.mp3 song2.mp3        play multiple audio files`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function getMimeType(filePath: string): string {
@@ -85,13 +85,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -112,8 +112,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '--no-autoplay') {
           options.autoplay = false
         } else if (arg === '--loop') {
@@ -122,15 +122,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           options.muted = true
         } else if (arg === '--quiet') {
           options.quiet = true
-        } else if (arg === '--volume' && i + 1 < argv.length) {
-          const volumeArg = argv[i + 1]
+        } else if (arg === '--volume' && i + 1 < ctx.argv.length) {
+          const volumeArg = ctx.argv[i + 1]
           if (!volumeArg) {
-            await writelnStderr(process, terminal, chalk.red(`play: missing volume value`))
+            await io.writelnErr(chalk.red(`play: missing volume value`))
             return 1
           }
           const volume = parseFloat(volumeArg)
           if (isNaN(volume) || volume < 0 || volume > 100) {
-            await writelnStderr(process, terminal, chalk.red(`play: invalid volume: ${volumeArg} (must be 0-100)`))
+            await io.writelnErr(chalk.red(`play: invalid volume: ${volumeArg} (must be 0-100)`))
             return 1
           }
           options.volume = volume
@@ -141,8 +141,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, `play: missing file argument`)
-        await writelnStderr(process, terminal, `Try 'play --help' for more information.`)
+        await io.writelnErr(`play: missing file argument`)
+        await io.writelnErr(`Try 'play --help' for more information.`)
         return 1
       }
 
@@ -153,12 +153,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           // Check if file exists
           if (!(await shell.context.fs.promises.exists(fullPath))) {
-            await writelnStderr(process, terminal, chalk.red(`play: file not found: ${fullPath}`))
+            await io.writelnErr(chalk.red(`play: file not found: ${fullPath}`))
             continue
           }
 
           // Read file
-          await writelnStdout(process, terminal, chalk.blue(`Loading audio: ${file}...`))
+          await io.writeln(chalk.blue(`Loading audio: ${file}...`))
           const fileData = await shell.context.fs.promises.readFile(fullPath)
           const mimeType = getMimeType(fullPath)
           const blob = new Blob([new Uint8Array(fileData)], { type: mimeType })
@@ -175,7 +175,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const metadata = await loadAudioMetadata(audioElement)
             duration = metadata.duration
           } catch (error) {
-            await writelnStderr(process, terminal, chalk.yellow(`play: warning: could not load metadata for ${file}`))
+            await io.writelnErr(chalk.yellow(`play: warning: could not load metadata for ${file}`))
           }
 
           // Set audio properties
@@ -193,9 +193,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             
             if (duration > 0) {
               const durationStr = formatDuration(duration)
-              await writelnStdout(process, terminal, chalk.green(`Playing in background: ${file} (${durationStr})`))
+              await io.writeln(chalk.green(`Playing in background: ${file} (${durationStr})`))
             } else {
-              await writelnStdout(process, terminal, chalk.green(`Playing in background: ${file}`))
+              await io.writeln(chalk.green(`Playing in background: ${file}`))
             }
           } else {
             // Create a simple audio player window
@@ -232,13 +232,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             if (duration > 0) {
               const durationStr = formatDuration(duration)
-              await writelnStdout(process, terminal, chalk.green(`Playing: ${file} (${durationStr})`))
+              await io.writeln(chalk.green(`Playing: ${file} (${durationStr})`))
             } else {
-              await writelnStdout(process, terminal, chalk.green(`Playing: ${file}`))
+              await io.writeln(chalk.green(`Playing: ${file}`))
             }
           }
         } catch (error) {
-          await writelnStderr(process, terminal, chalk.red(`play: error playing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+          await io.writelnErr(chalk.red(`play: error playing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
           return 1
         }
       }

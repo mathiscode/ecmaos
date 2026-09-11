@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: uname [OPTION]...
 Print system information.
 
@@ -16,7 +16,7 @@ Print system information.
   -i, --hardware-platform  print the hardware platform
   -o, --operating-system   print the operating system
   --help                   display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -26,13 +26,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -46,11 +46,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let showHardwarePlatform = false
       let showOperatingSystem = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-a' || arg === '--all') {
           showAll = true
@@ -83,8 +83,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('o')) showOperatingSystem = true
           const invalidFlags = flags.filter(f => !['a', 's', 'n', 'r', 'v', 'm', 'p', 'i', 'o'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `uname: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'uname --help' for more information.")
+            await io.writelnErr(`uname: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'uname --help' for more information.")
             return 1
           }
         }
@@ -110,7 +110,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       if (showAll || (!showKernelName && !showNodename && !showKernelRelease && !showKernelVersion && !showMachine && !showProcessor && !showHardwarePlatform && !showOperatingSystem)) {
         const output = `${kernelName} ${nodename} ${kernelVersion} ${machine} ${processor} ${hardwarePlatform} ${operatingSystem}`
-        await writelnStdout(process, terminal, output)
+        await io.writeln(output)
       } else {
         const parts: string[] = []
         if (showAll || showKernelName) parts.push(kernelName)
@@ -121,7 +121,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if (showAll || showProcessor) parts.push(processor)
         if (showAll || showHardwarePlatform) parts.push(hardwarePlatform)
         if (showAll || showOperatingSystem) parts.push(operatingSystem)
-        await writelnStdout(process, terminal, parts.join(' '))
+        await io.writeln(parts.join(' '))
       }
 
       return 0

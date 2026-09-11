@@ -2,9 +2,9 @@ import path from 'path'
 import chalk from 'chalk'
 import { marked } from 'marked'
 import '@alenaksu/json-viewer'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
 type FileType = 'pdf' | 'image' | 'audio' | 'video' | 'markdown' | 'json' | 'application/octet-stream'
 
@@ -100,7 +100,7 @@ function getMimeType(filePath: string, fileType: FileType): string {
   return 'application/octet-stream'
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: view [OPTIONS] [FILE...]
 View files in a new window. Supports PDF, markdown, JSON, images, audio, and video files.
 
@@ -128,7 +128,7 @@ Examples:
   view --no-autoplay video.mp4         load video without auto-playing
   view --volume 50 track.mp3           play at 50% volume
   view --fullscreen movie.mp4          play video in fullscreen mode`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function loadAudioMetadata(audioElement: HTMLAudioElement): Promise<{ duration: number }> {
@@ -197,13 +197,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -230,8 +230,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '--no-autoplay') {
           options.autoplay = false
         } else if (arg === '--loop') {
@@ -244,41 +244,41 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           options.controls = false
         } else if (arg === '--fullscreen') {
           options.fullscreen = true
-        } else if (arg === '--volume' && i + 1 < argv.length) {
-          const volumeArg = argv[i + 1]
+        } else if (arg === '--volume' && i + 1 < ctx.argv.length) {
+          const volumeArg = ctx.argv[i + 1]
           if (!volumeArg) {
-            await writelnStderr(process, terminal, chalk.red(`view: missing volume value`))
+            await io.writelnErr(chalk.red(`view: missing volume value`))
             return 1
           }
           const volume = parseFloat(volumeArg)
           if (isNaN(volume) || volume < 0 || volume > 100) {
-            await writelnStderr(process, terminal, chalk.red(`view: invalid volume: ${volumeArg} (must be 0-100)`))
+            await io.writelnErr(chalk.red(`view: invalid volume: ${volumeArg} (must be 0-100)`))
             return 1
           }
           options.volume = volume
           i++ // Skip next argument
-        } else if (arg === '--width' && i + 1 < argv.length) {
-          const widthArg = argv[i + 1]
+        } else if (arg === '--width' && i + 1 < ctx.argv.length) {
+          const widthArg = ctx.argv[i + 1]
           if (!widthArg) {
-            await writelnStderr(process, terminal, chalk.red(`view: missing width value`))
+            await io.writelnErr(chalk.red(`view: missing width value`))
             return 1
           }
           const width = parseInt(widthArg, 10)
           if (isNaN(width) || width <= 0) {
-            await writelnStderr(process, terminal, chalk.red(`view: invalid width: ${widthArg}`))
+            await io.writelnErr(chalk.red(`view: invalid width: ${widthArg}`))
             return 1
           }
           options.width = width
           i++ // Skip next argument
-        } else if (arg === '--height' && i + 1 < argv.length) {
-          const heightArg = argv[i + 1]
+        } else if (arg === '--height' && i + 1 < ctx.argv.length) {
+          const heightArg = ctx.argv[i + 1]
           if (!heightArg) {
-            await writelnStderr(process, terminal, chalk.red(`view: missing height value`))
+            await io.writelnErr(chalk.red(`view: missing height value`))
             return 1
           }
           const height = parseInt(heightArg, 10)
           if (isNaN(height) || height <= 0) {
-            await writelnStderr(process, terminal, chalk.red(`view: invalid height: ${heightArg}`))
+            await io.writelnErr(chalk.red(`view: invalid height: ${heightArg}`))
             return 1
           }
           options.height = height
@@ -289,8 +289,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, `view: missing file argument`)
-        await writelnStderr(process, terminal, `Try 'view --help' for more information.`)
+        await io.writelnErr(`view: missing file argument`)
+        await io.writelnErr(`Try 'view --help' for more information.`)
         return 1
       }
 
@@ -301,7 +301,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           // Check if file exists
           if (!(await shell.context.fs.promises.exists(fullPath))) {
-            await writelnStderr(process, terminal, chalk.red(`view: file not found: ${fullPath}`))
+            await io.writelnErr(chalk.red(`view: file not found: ${fullPath}`))
             continue
           }
 
@@ -381,7 +381,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             try {
               jsonData = JSON.parse(jsonText)
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.red(`view: invalid JSON in ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+              await io.writelnErr(chalk.red(`view: invalid JSON in ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
               continue
             }
 
@@ -616,7 +616,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             })
             
             win.mount(container)
-            await writelnStdout(process, terminal, chalk.green(`Viewing: ${file}`))
+            await io.writeln(chalk.green(`Viewing: ${file}`))
           } else if (fileType === 'pdf') {
             // Convert PDF to base64 and display in object tag
             // Use chunked encoding to avoid argument limit issues with large files
@@ -673,7 +673,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             
             win.mount(container)
 
-            await writelnStdout(process, terminal, chalk.green(`Viewing: ${file}`))
+            await io.writeln(chalk.green(`Viewing: ${file}`))
           } else if (fileType === 'image') {
             // Display image directly
             const blob = new Blob([new Uint8Array(fileData)], { type: mimeType })
@@ -711,7 +711,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             
             win.mount(container)
 
-            await writelnStdout(process, terminal, chalk.green(`Viewing: ${file}`))
+            await io.writeln(chalk.green(`Viewing: ${file}`))
           } else if (fileType === 'audio') {
             // Handle audio similar to play command
             const blob = new Blob([new Uint8Array(fileData)], { type: mimeType })
@@ -728,7 +728,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const metadata = await loadAudioMetadata(audioElement)
               duration = metadata.duration
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.yellow(`view: warning: could not load metadata for ${file}`))
+              await io.writelnErr(chalk.yellow(`view: warning: could not load metadata for ${file}`))
             }
 
             // Set audio properties
@@ -746,9 +746,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               
               if (duration > 0) {
                 const durationStr = formatDuration(duration)
-                await writelnStdout(process, terminal, chalk.green(`Playing in background: ${file} (${durationStr})`))
+                await io.writeln(chalk.green(`Playing in background: ${file} (${durationStr})`))
               } else {
-                await writelnStdout(process, terminal, chalk.green(`Playing in background: ${file}`))
+                await io.writeln(chalk.green(`Playing in background: ${file}`))
               }
             } else {
               // Create a simple audio player window
@@ -805,9 +805,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
               if (duration > 0) {
                 const durationStr = formatDuration(duration)
-                await writelnStdout(process, terminal, chalk.green(`Playing: ${file} (${durationStr})`))
+                await io.writeln(chalk.green(`Playing: ${file} (${durationStr})`))
               } else {
-                await writelnStdout(process, terminal, chalk.green(`Playing: ${file}`))
+                await io.writeln(chalk.green(`Playing: ${file}`))
               }
             }
           } else if (fileType === 'video') {
@@ -830,7 +830,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               videoHeight = metadata.height
               duration = metadata.duration
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.yellow(`view: warning: could not load metadata for ${file}, using default size`))
+              await io.writelnErr(chalk.yellow(`view: warning: could not load metadata for ${file}, using default size`))
               videoWidth = 640
               videoHeight = 360
               duration = 0
@@ -896,13 +896,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (duration > 0) {
               const minutes = Math.floor(duration / 60)
               const seconds = Math.floor(duration % 60)
-              await writelnStdout(process, terminal, chalk.green(`Playing: ${file} (${minutes}:${seconds.toString().padStart(2, '0')})`))
+              await io.writeln(chalk.green(`Playing: ${file} (${minutes}:${seconds.toString().padStart(2, '0')})`))
             } else {
-              await writelnStdout(process, terminal, chalk.green(`Playing: ${file}`))
+              await io.writeln(chalk.green(`Playing: ${file}`))
             }
           }
         } catch (error) {
-          await writelnStderr(process, terminal, chalk.red(`view: error viewing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+          await io.writelnErr(chalk.red(`view: error viewing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
           return 1
         }
       }
