@@ -1234,6 +1234,9 @@ export class Terminal extends XTerm implements ITerminal {
           const job = this._shell?.foregroundJob
           if (job) {
             for (const process of job.processes) process.kill(Signal.TSTP)
+            // A stopped job gives up the controlling terminal, same as `bg` -- `fg` is what a
+            // stopped job needs to reclaim it. See `JobProcessHandle.setForeground`'s doc comment.
+            for (const process of job.processes) process.setForeground?.(false)
             job.status = 'stopped'
             this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
           }
