@@ -42,6 +42,30 @@ describe('Terminal', () => {
     })
   })
 
+  describe('wire()', () => {
+    it('gives the terminal a real switchTty bound to the owning Kernel, not a Kernel back-reference', async () => {
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+
+      const tty1Container = document.createElement('div')
+      tty1Container.id = 'terminal-tty1'
+      document.body.appendChild(tty1Container)
+
+      const before = kernel.shells.size
+      await kernel.switchTty(1)
+      expect(kernel.shells.size).toBeGreaterThan(before)
+      expect(kernel.activeTty).toBe(1)
+
+      await kernel.switchTty(0)
+    })
+
+    it('reboot is wired to the real Kernel.reboot function reference', () => {
+      const terminal = kernel.terminal as unknown as { _wiring?: { reboot: () => void } }
+      expect(terminal._wiring).toBeDefined()
+      expect(typeof terminal._wiring?.reboot).toBe('function')
+    })
+  })
+
   describe('renderer', () => {
     it('defaults to webgl, falling back to dom when no WebGL2 context is available (as in this test environment)', () => {
       // jsdom has no real WebGL2 context, so mount() above already exercised and logged the

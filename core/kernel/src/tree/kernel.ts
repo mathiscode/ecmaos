@@ -228,13 +228,14 @@ export class Kernel implements IKernel {
   constructor(_options: KernelOptions = DefaultKernelOptions) {
     this.options = { ...DefaultKernelOptions, ..._options }
 
+    // Tier 0: no dependencies at all. This also establishes `this.context` (id/log/events/i18n),
+    // the cross-cutting primitives every later subsystem takes instead of a back-reference to the
+    // whole Kernel.
     this.auth = new Auth()
     this.channel = new BroadcastChannel(import.meta.env['NAME'] || 'ecmaos')
     this.components = new Components()
-    this.dom = new Dom(this.options.dom)
     this.devices = new Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }>()
     this.events = new Events()
-    this.filesystem = new Filesystem(this)
     this.i18n = new I18n(this.options.i18n)
     this.intervals = new Intervals()
     this.keyboard = navigator.keyboard
@@ -242,21 +243,68 @@ export class Kernel implements IKernel {
     this.memory = new Memory()
     this.modules = new Map()
     this.processes = new ProcessManager()
-    this.protocol = new Protocol({ kernel: this })
-    this.sockets = new Sockets({ kernel: this })
     this.screensavers = new Map()
-    this.service = new Service({ kernel: this, ...this.options.service })
-    this.shell = new Shell({ kernel: this, uid: 0, gid: 0, tty: 0 })
-    this.storage = new Storage({ kernel: this })
-    this.telemetry = new Telemetry({ kernel: this })
-    this.terminal = new Terminal({ kernel: this, socket: this.options.socket, tty: 0 })
-    this.users = new Users({ kernel: this })
     this.windows = new Windows()
-    this.wasm = new Wasm({ kernel: this })
     this.workers = new Workers()
+
+    // Tier 1: context-only.
+    this.dom = new Dom(this.options.dom)
+    this.sockets = new Sockets({ context: this.context })
+    this.storage = new Storage({ context: this.context })
+    this.telemetry = new Telemetry({ context: this.context })
+
+    // Tier 2: context plus narrow, already-constructed dependencies (no cycles).
+    this.filesystem = new Filesystem(this.storage)
+    this.users = new Users({
+      context: this.context,
+      filesystem: this.filesystem,
+      getShellCredentials: () => this.shell.credentials
+    })
+
+    // Tier 3: the Shell/Terminal cycle. `Shell` tolerates a not-yet-real `terminal` (as it always
+    // has -- `attach()` below fixes it up), and `execute` is Kernel's own method, bound so Shell
+    // never needs a `Kernel` reference of its own.
+    this.shell = new Shell({
+      context: this.context,
+      execute: options => this.execute({ ...options, kernel: this }),
+      filesystem: this.filesystem,
+      users: this.users,
+      uid: 0,
+      gid: 0,
+      tty: 0
+    })
+
+    this.terminal = new Terminal({
+      context: this.context,
+      dom: this.dom,
+      kernel: this, // only for TerminalCommands -- see TerminalOptions.kernel's doc comment
+      shell: this.shell,
+      socket: this.options.socket,
+      users: this.users,
+      tty: 0
+    })
 
     this.shell.attach(this.terminal)
     this._shells.set(0, this.shell)
+
+    // Tier 4: subsystems whose real dependencies (terminal, shell) only exist now. Constructed
+    // with context alone, then wired.
+    this.protocol = new Protocol({})
+    this.protocol.wire({ terminal: this.terminal })
+
+    this.service = new Service({ context: this.context, filesystem: this.filesystem, ...this.options.service })
+    this.service.wire({ shell: this.shell, terminal: this.terminal })
+
+    this.terminal.wire({
+      switchTty: (tty: number) => this.switchTty(tty),
+      reboot: () => this.reboot(),
+      getState: () => this.state
+    })
+
+    // Still Kernel-shaped: Wasm's WASI Preview 1 bindings take a full Kernel throughout, and
+    // narrowing that is the `wasm` branch's job (deleting most of preview1.ts), not this one's.
+    this.wasm = new Wasm({ kernel: this })
+
     // createBIOS().then((biosModule: BIOSModule) => {
     //   this.bios = biosModule
     //   resolveMountConfig({ backend: Emscripten, FS: biosModule.FS })
@@ -628,6 +676,9 @@ export class Kernel implements IKernel {
         if (Notification?.permission === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
 
         this.intervals.set('title-blink', () => {
+          // Guards against firing after a test environment has torn down `document` -- this
+          // interval otherwise outlives the Kernel instance that created it (nothing disposes it).
+          if (!globalThis.document) return
           globalThis.document.title = globalThis.document.title.includes('_') ? 'ecmaos# ' : 'ecmaos# _'
         }, 600)
 
@@ -2197,14 +2248,34 @@ export class Kernel implements IKernel {
       terminalContainer.classList.add('active')
     }
 
-    const terminal = new Terminal({ kernel: this, tty: ttyNumber })
+    const terminal = new Terminal({
+      context: this.context,
+      dom: this.dom,
+      kernel: this,
+      users: this.users,
+      tty: ttyNumber
+    })
+    terminal.wire({
+      switchTty: (tty: number) => this.switchTty(tty),
+      reboot: () => this.reboot(),
+      getState: () => this.state
+    })
     terminal.mount(terminalContainer as HTMLElement)
 
     if (!wasActive && ttyNumber !== this._activeTty) {
       terminalContainer.classList.remove('active')
     }
 
-    const shell = new Shell({ kernel: this, uid: 0, gid: 0, tty: ttyNumber, terminal })
+    const shell = new Shell({
+      context: this.context,
+      execute: options => this.execute({ ...options, kernel: this }),
+      filesystem: this.filesystem,
+      users: this.users,
+      uid: 0,
+      gid: 0,
+      tty: ttyNumber,
+      terminal
+    })
     terminal.attachShell(shell)
 
     this._shells.set(ttyNumber, shell)

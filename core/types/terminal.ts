@@ -5,8 +5,10 @@
 import type { ITerminalAddon, ITerminalOptions, Terminal as XTerm } from '@xterm/xterm'
 import type { OptionDefinition } from 'command-line-args'
 
-import type { Kernel } from './kernel.ts'
+import type { Dom } from './dom.ts'
+import type { Kernel, KernelContext, KernelState } from './kernel.ts'
 import type { Shell } from './shell.ts'
+import type { Users } from './users.ts'
 
 /**
  * Terminal configuration options
@@ -14,8 +16,19 @@ import type { Shell } from './shell.ts'
 export interface TerminalOptions extends ITerminalOptions {
   /** XTerm addons to load */
   addons?: Map<string, ITerminalAddon>
-  /** Reference to kernel instance */
-  kernel?: Kernel
+  /** The cross-cutting kernel primitives (log, events, i18n) */
+  context: KernelContext
+  /** The DOM service, for the topbar and mobile controls */
+  dom: Dom
+  /**
+   * Used only to construct the builtin command set (`TerminalCommands`), which still takes a full
+   * `Kernel` for every command's `TerminalCommand.kernel` field -- narrowing that is the
+   * `coreutils-ctx` branch's job (`(ctx, io)` codemod across ~98 commands), not this one's. Every
+   * other use of `Kernel` in `Terminal` goes through `context`/`dom`/`users`/`wire()` instead.
+   */
+  kernel: Kernel
+  /** The user registry, for resolving the current user's display name/prompt */
+  users: Users
   /** Reference to shell instance */
   shell?: Shell
   /** WebSocket connection */
@@ -26,6 +39,18 @@ export interface TerminalOptions extends ITerminalOptions {
     foreground?: string
     promptColor?: string
   }
+}
+
+/**
+ * What `Terminal` needs from `Kernel` itself that isn't a subsystem -- `switchTty` and `reboot`
+ * are `Kernel` methods, and `getState` reads its boot-lifecycle state -- delivered via `wire()`
+ * once the `Kernel` instance exists (it does from the first line of its own constructor, but
+ * `Terminal` is constructed before `Kernel`'s constructor body finishes, so this is still lazy).
+ */
+export interface TerminalWiring {
+  switchTty: (tty: number) => Promise<void>
+  reboot: () => void
+  getState: () => KernelState
 }
 
 /**
@@ -282,6 +307,13 @@ export interface Terminal extends XTerm {
    * Update terminal configuration from shell config
    */
   updateConfig(): void
+
+  /**
+   * Supply the `Kernel`-level capabilities `Terminal` needs but that don't exist at construction
+   * time; see {@link TerminalWiring}. Must be called before TTY switching (Ctrl+Shift+0-7) or
+   * reboot (Ctrl+Alt+Delete) are used.
+   */
+  wire(wiring: TerminalWiring): void
 }
 
 export interface TerminalCommand {

@@ -271,7 +271,8 @@ export interface KernelOptions {
     fsTranslationsPath?: string
   }
   log?: LogOptions
-  service?: ServiceOptions
+  /** context and filesystem are supplied by Kernel itself when constructing Service */
+  service?: Omit<ServiceOptions, 'context' | 'filesystem'>
   socket?: WebSocket
 }
 

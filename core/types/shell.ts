@@ -3,19 +3,33 @@
  */
 
 import type { BoundContext, Credentials } from '@zenfs/core'
-import type { Kernel } from './kernel.ts'
+import type { Filesystem } from './filesystem.ts'
+import type { KernelContext, KernelExecuteOptions } from './kernel.ts'
 import type { Terminal } from './terminal.ts'
+import type { Users } from './users.ts'
+
+/**
+ * Run a command the way `Kernel.execute` would, minus the `kernel` field -- `Shell` never holds a
+ * `Kernel` reference of its own, so whoever hands it this function closes over `kernel` already.
+ */
+export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Promise<number>
 
 /**
  * Options for configuring the shell
  */
 export interface ShellOptions {
+  /** The cross-cutting kernel primitives (i18n is what Shell uses directly) */
+  context: KernelContext
   /** Current working directory */
   cwd?: string
   /** Environment variables */
   env?: Record<string, string>
-  /** Reference to kernel instance */
-  kernel: Kernel
+  /** Run a command; see {@link ShellExecute} */
+  execute: ShellExecute
+  /** The filesystem, for input-redirection file reads */
+  filesystem: Filesystem
+  /** The user registry, for resolving the current user's username */
+  users: Users
   /** Reference to terminal instance */
   terminal?: Terminal
   /** User ID */

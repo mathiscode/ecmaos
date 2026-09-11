@@ -2,14 +2,14 @@
  * Socket connection types and interfaces
  */
 
-import type { Kernel } from './kernel.ts'
+import type { KernelContext } from './kernel.ts'
 
 /**
  * Options for configuring socket connections
  */
 export interface SocketsOptions {
-  /** Reference to kernel instance */
-  kernel: Kernel
+  /** The cross-cutting kernel primitives (log is the only one Sockets uses) */
+  context: KernelContext
 }
 
 /**
@@ -75,9 +75,6 @@ export type SocketConnection = WebSocketConnection | WebTransportConnection
  * Interface for socket connection management functionality
  */
 export interface Sockets {
-  /** Get the kernel instance */
-  readonly kernel: Kernel
-
   /**
    * Create a new WebSocket connection
    * @param url - WebSocket URL (ws:// or wss://)

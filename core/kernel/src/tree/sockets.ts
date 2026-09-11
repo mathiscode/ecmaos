@@ -1,13 +1,11 @@
-import type { Kernel, SocketsOptions, SocketConnection, WebSocketConnection, WebTransportConnection } from '@ecmaos/types'
+import type { KernelContext, SocketsOptions, SocketConnection, WebSocketConnection, WebTransportConnection } from '@ecmaos/types'
 
 export class Sockets {
-  private _kernel: Kernel
+  private _ctx: KernelContext
   private _connections: Map<string, SocketConnection> = new Map()
 
-  get kernel() { return this._kernel }
-
   constructor(options: SocketsOptions) {
-    this._kernel = options.kernel
+    this._ctx = options.context
   }
 
   /**
@@ -63,7 +61,7 @@ export class Sockets {
         }
 
         socket.onerror = (error) => {
-          this._kernel.log.error(`WebSocket connection error for ${url}: ${error}`)
+          this._ctx.log.error(`WebSocket connection error for ${url}: ${error}`)
           reject(new Error(`WebSocket connection failed: ${url}`))
         }
 
@@ -71,7 +69,7 @@ export class Sockets {
           this._connections.delete(id)
         }
       } catch (error) {
-        this._kernel.log.error(`Failed to create WebSocket: ${error}`)
+        this._ctx.log.error(`Failed to create WebSocket: ${error}`)
         reject(error)
       }
     })
@@ -111,7 +109,7 @@ export class Sockets {
             transport.close()
             transportState = 'closed'
           } catch (error) {
-            this._kernel.log.error(`Error closing WebTransport: ${error}`)
+            this._ctx.log.error(`Error closing WebTransport: ${error}`)
             transportState = 'closed'
           }
           this._connections.delete(id)
@@ -122,13 +120,13 @@ export class Sockets {
 
       transport.closed.catch((error) => {
         transportState = 'closed'
-        this._kernel.log.error(`WebTransport connection closed with error: ${error}`)
+        this._ctx.log.error(`WebTransport connection closed with error: ${error}`)
         this._connections.delete(id)
       })
 
       return connection
     } catch (error) {
-      this._kernel.log.error(`Failed to create WebTransport: ${error}`)
+      this._ctx.log.error(`Failed to create WebTransport: ${error}`)
       throw error
     }
   }

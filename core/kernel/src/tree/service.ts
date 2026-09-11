@@ -1,5 +1,5 @@
 import path from 'path'
-import type { Kernel, Service as IService, ServiceOptions } from '@ecmaos/types'
+import type { Filesystem, KernelContext, Service as IService, ServiceOptions, ServiceWiring, Shell, Terminal } from '@ecmaos/types'
 
 declare global {
   interface BackgroundFetchManager {
@@ -25,14 +25,17 @@ type ExtendedServiceWorkerRegistration = ServiceWorkerRegistration & {
   backgroundFetch: BackgroundFetchManager
 }
 
-export const DefaultServiceOptions: ServiceOptions = {
+export const DefaultServiceOptions: Omit<ServiceOptions, 'context' | 'filesystem'> = {
   path: import.meta.env.SERVICE_WORKER_PATH || '/swapi.js',
   register: import.meta.env.NODE_ENV !== 'test'
 }
 
 export class Service implements IService {
   private _fetches: Record<string, BackgroundFetchRegistration> = {}
-  private _kernel: Kernel
+  private _ctx: KernelContext
+  private _filesystem: Filesystem
+  private _shell?: Shell
+  private _terminal?: Terminal
   private _options: ServiceOptions
   private _registration?: ExtendedServiceWorkerRegistration
   private _messageHandler?: (event: MessageEvent) => void
@@ -43,13 +46,18 @@ export class Service implements IService {
 
   constructor(options: ServiceOptions) {
     options = { ...DefaultServiceOptions, ...options }
-    if (!options.kernel) throw new Error('Kernel is required to initialize a Service Worker.')
-    this._kernel = options.kernel
+    this._ctx = options.context
+    this._filesystem = options.filesystem
     this._options = options
 
-    navigator.serviceWorker?.ready.then(() => this.message(`Kernel ${this._kernel.id} has registered a Service Worker!`))
+    navigator.serviceWorker?.ready.then(() => this.message(`Kernel ${this._ctx.id} has registered a Service Worker!`))
     if (options.register) this.register()
     this.setupMessageHandler()
+  }
+
+  wire(wiring: ServiceWiring) {
+    this._shell = wiring.shell
+    this._terminal = wiring.terminal
   }
 
   private setupMessageHandler() {
@@ -61,10 +69,10 @@ export class Service implements IService {
         event.source?.postMessage({
           type: 'fs',
           file: data.file,
-          data: await this._kernel.filesystem.fs.readFile(data.file)
+          data: await this._filesystem.fs.readFile(data.file)
         })
       } catch (error) {
-        this._kernel.log.error(error instanceof Error ? error.message : 'Unknown error')
+        this._ctx.log.error(error instanceof Error ? error.message : 'Unknown error')
         event.source?.postMessage({
           type: 'fs',
           file: data.file,
@@ -80,10 +88,10 @@ export class Service implements IService {
         try {
           switch (data.type) {
             case 'log':
-              this._kernel.log.info(`[ServiceWorker] ${data.message}`)
+              this._ctx.log.info(`[ServiceWorker] ${data.message}`)
               break
             case 'error':
-              this._kernel.log.error(`[ServiceWorker] ${data.message}`)
+              this._ctx.log.error(`[ServiceWorker] ${data.message}`)
               break
             case 'fs':
               sendFile(event)
@@ -91,7 +99,7 @@ export class Service implements IService {
           }
         } catch (error) {
           if (data.type === 'fs') {
-            this._kernel.log.error(`[ServiceWorker] Error reading file ${data.file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            this._ctx.log.error(`[ServiceWorker] Error reading file ${data.file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             event.source?.postMessage({
               type: 'fs',
               file: data.file,
@@ -133,24 +141,24 @@ export class Service implements IService {
     registration.addEventListener('progress', () => {
       if (!registration.downloadTotal) return
       const percent = Math.round(registration.downloaded / registration.downloadTotal * 100)
-      this._kernel.log.info(`${percent}% of ${urls.length} files downloaded.`)
+      this._ctx.log.info(`${percent}% of ${urls.length} files downloaded.`)
     })
 
     navigator.serviceWorker.addEventListener('message', async e => {
-      const root = this._kernel.shell.cwd || '/tmp'
+      const root = this._shell?.cwd || '/tmp'
       const destination = path.resolve(root, e.data.id)
 
       if (e.data.type === 'backgroundfetchsuccess') {
-        if (!await this._kernel.filesystem.fs.exists(destination)) await this._kernel.filesystem.fs.mkdir(destination)
+        if (!await this._filesystem.fs.exists(destination)) await this._filesystem.fs.mkdir(destination)
 
         for (const url of urls) {
           try {
             const response = await fetch(url)
             const buffer = await response.arrayBuffer()
-            await this._kernel.filesystem.fs.writeFile(`${destination}/${url.split('/').pop()}`, new Uint8Array(buffer))
-            this._kernel.log.info(`Saved ${url} to ${destination}/${url.split('/').pop()}.`)
+            await this._filesystem.fs.writeFile(`${destination}/${url.split('/').pop()}`, new Uint8Array(buffer))
+            this._ctx.log.info(`Saved ${url} to ${destination}/${url.split('/').pop()}.`)
           } catch (error) {
-            this._kernel.log.error(`Failed to fetch ${url}: ${error}`)
+            this._ctx.log.error(`Failed to fetch ${url}: ${error}`)
           }
         }
 
@@ -158,14 +166,14 @@ export class Service implements IService {
       }
 
       if (e.data.type === 'backgroundfetchclick') {
-        this._kernel.terminal.writeln(`\nYour download of ${urls.length} ${urls.length === 1 ? 'file' : 'files'} has completed and is located at ${destination}`)
-        this._kernel.terminal.write(this._kernel.terminal.prompt())
+        this._terminal?.writeln(`\nYour download of ${urls.length} ${urls.length === 1 ? 'file' : 'files'} has completed and is located at ${destination}`)
+        this._terminal?.write(this._terminal.prompt())
       }
 
       // if (e.data.type === 'backgroundfetchfailure' || e.data.type === 'backgroundfetchabort') delete this._fetches[e.data.id]
       if (e.data.type === 'backgroundfetchfailure') {
-        this._kernel.terminal.writeln(`\nYour download of ${urls.length} ${urls.length === 1 ? 'file' : 'files'} failed!`)
-        this._kernel.terminal.write(this._kernel.terminal.prompt())
+        this._terminal?.writeln(`\nYour download of ${urls.length} ${urls.length === 1 ? 'file' : 'files'} failed!`)
+        this._terminal?.write(this._terminal.prompt())
       }
     })
 
@@ -182,7 +190,7 @@ export class Service implements IService {
       this.registration?.active?.postMessage({
         type: 'kernel:message',
         message,
-        kernelId: this._kernel.id
+        kernelId: this._ctx.id
       })
     } else throw new Error('Service Worker API not supported in this browser.')
   }
