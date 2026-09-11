@@ -17,6 +17,7 @@ import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
 import path from 'path'
 import binNodeSource from 'virtual:bin-node'
+import binWaliSource from 'virtual:bin-wali'
 
 import type { ConfigMounts, Configuration } from '@zenfs/core'
 
@@ -115,6 +116,7 @@ export class Filesystem {
     await configureZenFS(options)
     this.registerProcEntries()
     await this.installBinNode()
+    await this.installBinWali()
     const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
@@ -143,6 +145,17 @@ export class Filesystem {
   private async installBinNode() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
     await this.fs.writeFile('/bin/node', binNodeSource, { mode: 0o755 })
+  }
+
+  /**
+   * Writes the real `/bin/wali` interpreter -- the worker-hosted body `@zenfs/linux`'s own default
+   * `binfmt_wasm` already points every `.wasm` file at via `execve` (matched on magic bytes alone,
+   * with no way to tell WALI-format modules from plain WASI-preview1 ones at that layer -- see
+   * `src/bin/wali.mjs`'s doc comment). Rewritten on every boot so it always matches this build.
+   */
+  private async installBinWali() {
+    if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
+    await this.fs.writeFile('/bin/wali', binWaliSource, { mode: 0o755 })
   }
 
   /**

@@ -10,14 +10,13 @@
 import { build } from 'esbuild'
 import type { Plugin } from 'vite'
 
-const virtualModuleId = 'virtual:bin-node'
-const resolvedVirtualModuleId = '\0' + virtualModuleId
-
-export function binNode(): Plugin {
+function binWorkerPlugin(name: string, entryPoint: string): Plugin {
+  const virtualModuleId = `virtual:bin-${name}`
+  const resolvedVirtualModuleId = '\0' + virtualModuleId
   let cached: string | undefined
 
   return {
-    name: 'ecmaos:bin-node',
+    name: `ecmaos:bin-${name}`,
     resolveId(id) {
       if (id === virtualModuleId) return resolvedVirtualModuleId
     },
@@ -26,7 +25,7 @@ export function binNode(): Plugin {
 
       if (!cached) {
         const result = await build({
-          entryPoints: ['src/bin/node.mjs'],
+          entryPoints: [entryPoint],
           bundle: true,
           format: 'esm',
           platform: 'browser',
@@ -35,11 +34,23 @@ export function binNode(): Plugin {
         })
 
         const output = result.outputFiles[0]
-        if (!output) throw new Error('bin-node: esbuild produced no output')
+        if (!output) throw new Error(`bin-${name}: esbuild produced no output`)
         cached = output.text
       }
 
       return `export default ${JSON.stringify(cached)}`
     }
   }
+}
+
+export function binNode(): Plugin {
+  return binWorkerPlugin('node', 'src/bin/node.mjs')
+}
+
+/**
+ * Bundles `src/bin/wali.mjs` -- ecmaOS's `/bin/wali` interpreter for WALI-format WebAssembly
+ * modules -- into `virtual:bin-wali`, the same way `binNode` does for `/bin/node`.
+ */
+export function binWali(): Plugin {
+  return binWorkerPlugin('wali', 'src/bin/wali.mjs')
 }
