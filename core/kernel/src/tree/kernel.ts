@@ -1131,8 +1131,9 @@ export class Kernel implements IKernel {
    * own worker-side port -- real scope of its own). Redirected stdio (`>`, `|`) isn't wired either:
    * `@zenfs/linux`'s `Process` only knows how to open real fds against a `TTY`/console path, and
    * bridging that to the `ReadableStream`/`WritableStream` a redirect gives `KernelExecuteOptions`
-   * would need a pipe-backed fd (the `syscalls-pipe-poll` branch's primitive is the natural fit,
-   * once `processes`' fd-table adoption gives it real numeric fds to plug into).
+   * would need a pipe-backed fd -- `@zenfs/linux@0.5.0`'s real `pipe`/`poll` syscalls (U7, resolved
+   * upstream; see `fs/pipe.ts`'s `create_pipe`) are the natural fit for this, once this codepath
+   * grows a real numeric fd to plug into.
    *
    * @param options - Execution options containing the file path and shell
    * @returns Exit code of the process

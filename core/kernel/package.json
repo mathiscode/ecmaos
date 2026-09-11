@@ -221,7 +221,7 @@
     "tslog": "^4.9.3",
     "wabt": "^1.0.36",
     "winbox": "^0.2.82",
-    "@zenfs/linux": "0.4.0"
+    "@zenfs/linux": "0.5.0"
   },
   "resolutions": {
     "ws": ">=8.17.1"
