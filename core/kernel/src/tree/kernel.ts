@@ -965,13 +965,6 @@ export class Kernel implements IKernel {
         return -1
       }
 
-      if (options.command.startsWith('/dev/')) {
-        const device = Array.from(this.devices.values())
-          .find(d => d.drivers?.some(driver => driver.name === options.command.replace(/^\/dev\//, '')))
-
-        if (device) return await this.executeDevice(device.device, options.args)
-      }
-
       const header = await this.readFileHeader(options.command, options.shell)
       if (!header) return -1
 
@@ -1006,6 +999,13 @@ export class Kernel implements IKernel {
             case 'node': // we'll do what we can to try to make it run, but it may fail
               exitCode = await this.executeNode(options) // TODO: Use WebContainer later if experiments fail
               break
+            case 'device': {
+              if (!header.name) return -1
+              const device = this.devices.get(header.name)
+              if (!device) return -1
+              exitCode = await this.executeDevice(device.device, options.args)
+              break
+            }
           }; break
       }
 
@@ -1455,10 +1455,21 @@ export class Kernel implements IKernel {
     }
 
     const shellContext = shell?.context || this.shell.context
-    
+
     try {
       if (!await shellContext.fs.promises.exists(filePath)) return null
-      
+
+      // A path under /dev backed by a device with a CLI is that device's command, not a file to
+      // sniff: it is a character-device node, and reading its "first bytes" would invoke the
+      // device's own read() handler rather than tell us anything about how to run it.
+      if (filePath.startsWith('/dev/')) {
+        const deviceName = filePath.replace(/^\/dev\//, '')
+        const device = Array.from(this.devices.values())
+          .find(d => d.device.pkg.name === deviceName || d.drivers?.some(driver => driver.name === deviceName))
+
+        if (device?.device.cli) return { type: 'bin', namespace: 'device', name: device.device.pkg.name }
+      }
+
       const magicBytesPatterns: Array<{ bytes: Uint8Array; type: string; offset?: number; checker?: (buf: Uint8Array) => boolean }> = [
         { bytes: new Uint8Array([0x00, 0x61, 0x73, 0x6D]), type: 'wasm' }, // WebAssembly Binary
         { bytes: new Uint8Array([0xFF, 0xD8, 0xFF]), type: 'view' }, // JPEG Image (Start of Image / SOI)
