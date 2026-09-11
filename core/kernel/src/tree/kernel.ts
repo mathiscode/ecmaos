@@ -794,7 +794,13 @@ export class Kernel implements IKernel {
       })
 
       initProcess.keepAlive()
-      initProcess.start()
+      // Awaited: /boot/init's own output (motd, load-crontab, screensaver-daemon, ...) must finish
+      // printing before the recommended-apps prompt below writes its own -- unawaited, the two
+      // raced and could interleave mid-line (e.g. "Do you want to install ... (Y/n)screensaver-
+      // daemon: watching for idle activity" on the same line). keepAlive() only affects whether
+      // init's PID file persists after it exits, not how long it runs -- /boot/init is a normal
+      // script that finishes like any other, so awaiting it here does not hang boot.
+      await initProcess.start()
       initSpan.end()
 
       this._state = KernelState.RUNNING

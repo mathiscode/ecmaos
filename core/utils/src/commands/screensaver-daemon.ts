@@ -36,7 +36,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return 1
       }
 
-      await io.writeln('screensaver-daemon: watching for idle activity')
+      // Quiet on success, like a real Unix daemon -- this runs unconditionally as the last line of
+      // /boot/init on every boot, so a confirmation line here was really just boot noise.
       return 0
     }
   })

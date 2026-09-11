@@ -79,10 +79,24 @@ describe('/boot/init and its script commands', () => {
 
   describe('screensaver-daemon command', () => {
     it('starts successfully for the default (matrix) screensaver', async () => {
+      // Quiet on success like a real daemon (see screensaver-daemon.ts) -- exit code plus the
+      // real Kernel.startScreensaverDaemon() stop-function contract is the actual signal here,
+      // not stdout text, which /boot/init prints on every boot and shouldn't have to carry this.
       const code = await kernel.shell.execute('screensaver-daemon > /tmp/daemon-test.out')
       expect(code).toBe(0)
-      const output = await kernel.filesystem.fs.readFile('/tmp/daemon-test.out', 'utf-8')
-      expect(output).toContain('watching for idle activity')
+      const output = await kernel.filesystem.fs.exists('/tmp/daemon-test.out')
+        ? await kernel.filesystem.fs.readFile('/tmp/daemon-test.out', 'utf-8')
+        : ''
+      expect(output.trim()).toBe('')
+    })
+
+    it('reports failure for an unconfigured screensaver', async () => {
+      kernel.storage.local.setItem('screensaver', 'no-such-screensaver')
+      const code = await kernel.shell.execute('screensaver-daemon 2> /tmp/daemon-test-err.out')
+      expect(code).toBe(1)
+      const output = await kernel.filesystem.fs.readFile('/tmp/daemon-test-err.out', 'utf-8')
+      expect(output).toContain('no such screensaver configured')
+      kernel.storage.local.setItem('screensaver', 'matrix')
     })
   })
 })
