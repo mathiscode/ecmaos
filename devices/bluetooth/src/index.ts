@@ -1,7 +1,7 @@
 /// <reference types="@types/web-bluetooth" />
 
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'bluetooth',
@@ -288,14 +288,14 @@ Commands:
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = [{
     name: 'bluetooth',
     init: () => ({
       major: 216,
       minor: 0,
-      data: { 
-        kernelId: kernel.id,
+      data: {
+        kernelId: ctx.id,
         available: !!navigator?.bluetooth
       }
     }),

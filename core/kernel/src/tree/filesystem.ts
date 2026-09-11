@@ -11,6 +11,8 @@
 import { TFunction } from 'i18next'
 import { configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
 import { IndexedDB } from '@zenfs/dom'
+import { ProcFS, SysFS } from '@zenfs/linux'
+import { proc_root } from '@zenfs/linux/fs/procfs'
 import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
 import path from 'path'
@@ -39,7 +41,8 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
     '/': { backend: IndexedDB, options: { storeName: 'root' } },
     '/media': { backend: InMemory, options: { name: 'media' } },
     '/mnt': { backend: InMemory, options: { name: 'mnt' } },
-    '/proc': { backend: InMemory, options: { name: 'procfs' } },
+    '/proc': new ProcFS(),
+    '/sys': new SysFS(),
     '/tmp': { backend: InMemory, options: { name: 'tmpfs' } }
   },
 }
@@ -112,6 +115,7 @@ export class Filesystem {
     if (!options) return
     this._config = options as Configuration<ConfigMounts>
     await configureZenFS(options)
+    this.registerProcEntries()
     const fsInitialized = await this.kernel.storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
@@ -129,6 +133,50 @@ export class Filesystem {
         console.error(error)
       }
     }
+  }
+
+  /**
+   * Adds ecmaOS's browser-backed entries to ProcFS's `/proc` root.
+   *
+   * `/proc/version` already exists upstream, generated from the real ZenFS/linux version, and is
+   * left alone. `cpuinfo` and `meminfo` are new here, generated on read from `navigator.*` and
+   * `performance.memory`. A field that cannot be populated honestly is omitted rather than
+   * zero-filled or fabricated.
+   */
+  private registerProcEntries() {
+    proc_root.children.set('cpuinfo', {
+      mode: 0o444,
+      show: () => {
+        const cores = navigator.hardwareConcurrency || 1
+        const stanza = (index: number) => [
+          `processor\t: ${index}`,
+          `vendor_id\t: browser`,
+          `model name\t: ${navigator.userAgentData?.platform || navigator.platform || navigator.userAgent}`,
+          ''
+        ].join('\n')
+
+        return Array.from({ length: cores }, (_, i) => stanza(i)).join('\n')
+      }
+    })
+
+    proc_root.children.set('meminfo', {
+      mode: 0o444,
+      show: () => {
+        const lines: string[] = []
+        if ('deviceMemory' in navigator && navigator.deviceMemory) {
+          const totalKb = Math.round(navigator.deviceMemory * 1024 * 1024)
+          lines.push(`MemTotal:       ${totalKb} kB`)
+        }
+
+        if (performance.memory) {
+          const { totalJSHeapSize, usedJSHeapSize, jsHeapSizeLimit } = performance.memory
+          lines.push(`MemFree:        ${Math.round((totalJSHeapSize - usedJSHeapSize) / 1024)} kB`)
+          lines.push(`MemAvailable:   ${Math.round((jsHeapSizeLimit - usedJSHeapSize) / 1024)} kB`)
+        }
+
+        return lines.length ? lines.join('\n') + '\n' : ''
+      }
+    })
   }
 
   /**

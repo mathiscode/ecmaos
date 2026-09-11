@@ -17,7 +17,7 @@ declare global {
 
 import ansi from 'ansi-escape-sequences'
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'battery',
@@ -86,7 +86,7 @@ Commands:
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = []
 
   if ('getBattery' in navigator) {
@@ -98,7 +98,7 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
         major: 10,
         minor: 100,
         data: {
-          kernelId: kernel.id,
+          kernelId: ctx.id,
           charging: battery.charging,
           chargingTime: battery.chargingTime,
           dischargingTime: battery.dischargingTime,
