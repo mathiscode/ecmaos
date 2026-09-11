@@ -89,7 +89,8 @@ Filesystem types:
   fetch               mount a remote filesystem via HTTP fetch
   indexeddb           mount an IndexedDB-backed filesystem
   webstorage          mount a WebStorage-backed filesystem (localStorage or sessionStorage)
-  webaccess           mount a filesystem using the File System Access API
+  webaccess           mount a filesystem using the File System Access API (interactive picker)
+  opfs                mount the browser's Origin Private File System (no picker, sandboxed per-origin)
   memory              mount an in-memory filesystem
   singlebuffer        mount a filesystem backed by a single buffer
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
@@ -112,6 +113,7 @@ Examples:
   mount -t webstorage /mnt/storage            mount WebStorage filesystem using localStorage
   mount -t webstorage /mnt/storage -o storage=sessionStorage
   mount -t webaccess /mnt/access              mount File System Access API filesystem
+  mount -t opfs /mnt/opfs                     mount the Origin Private File System
   mount -t fetch /api /mnt/api                mount fetch filesystem at /mnt/api
   mount -t fetch /api /mnt/api -o baseUrl=https://example.com
   mount -t singlebuffer /mnt/buf              mount singlebuffer filesystem at /mnt/buf
@@ -243,7 +245,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
 
               // Check if filesystem type doesn't require source but one is provided
-              const noSourceTypes = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'xml', 'dropbox', 'googledrive']
+              const noSourceTypes = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
               if (entrySource && noSourceTypes.includes(entryType.toLowerCase())) {
                 await writelnStderr(process, terminal, chalk.yellow(`mount: ${entryType} filesystem does not require a source, ignoring source for ${entryTarget}`))
               }
@@ -352,6 +354,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   await writelnStderr(process, terminal, chalk.yellow(`mount: skipping ${entryTarget}: webaccess requires interactive directory selection`))
                   failCount++
                   continue
+                }
+                case 'opfs': {
+                  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) {
+                    throw new Error('Origin Private File System is not available in this environment')
+                  }
+
+                  const opfsRoot = await navigator.storage.getDirectory()
+
+                  await kernel.filesystem.fsSync.mount(
+                    entryTarget,
+                    await resolveMountConfig({
+                      backend: WebAccess,
+                      handle: opfsRoot
+                    } as { backend: typeof WebAccess; handle: FileSystemDirectoryHandle })
+                  )
+                  break
                 }
                 case 'memory':
                   await kernel.filesystem.fsSync.mount(
@@ -546,7 +564,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const target = path.resolve(shell.cwd, targetArg)
 
-      if (positionalArgs.length === 2 && (type.toLowerCase() === 'memory' || type.toLowerCase() === 'singlebuffer' || type.toLowerCase() === 'webstorage' || type.toLowerCase() === 'webaccess' || type.toLowerCase() === 'xml' || type.toLowerCase() === 'dropbox' /* || type.toLowerCase() === 's3' */ || type.toLowerCase() === 'googledrive')) {
+      if (positionalArgs.length === 2 && (type.toLowerCase() === 'memory' || type.toLowerCase() === 'singlebuffer' || type.toLowerCase() === 'webstorage' || type.toLowerCase() === 'webaccess' || type.toLowerCase() === 'opfs' || type.toLowerCase() === 'xml' || type.toLowerCase() === 'dropbox' /* || type.toLowerCase() === 's3' */ || type.toLowerCase() === 'googledrive')) {
         await writelnStderr(process, terminal, chalk.yellow(`mount: ${type.toLowerCase()} filesystem does not require a source`))
         await writelnStderr(process, terminal, `Usage: mount -t ${type.toLowerCase()} TARGET`)
         return 1
@@ -666,6 +684,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               throw error
             }
+            break
+          }
+          case 'opfs': {
+            if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) {
+              await writelnStderr(process, terminal, chalk.red('mount: Origin Private File System is not available in this environment'))
+              return 1
+            }
+
+            const opfsRoot = await navigator.storage.getDirectory()
+
+            await kernel.filesystem.fsSync.mount(
+              target,
+              await resolveMountConfig({
+                backend: WebAccess,
+                handle: opfsRoot
+              } as { backend: typeof WebAccess; handle: FileSystemDirectoryHandle })
+            )
             break
           }
           // TODO: Some more work needs to be done with the XML backend
@@ -1284,7 +1319,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           default:
             await writelnStderr(process, terminal, chalk.red(`mount: unknown filesystem type '${type}'`))
-            await writelnStderr(process, terminal, 'Supported types: fetch, indexeddb, webstorage, webaccess, memory, singlebuffer, zip, iso, dropbox, s3, googledrive')
+            await writelnStderr(process, terminal, 'Supported types: fetch, indexeddb, webstorage, webaccess, opfs, memory, singlebuffer, zip, iso, dropbox, s3, googledrive')
             return 1
         }
 
