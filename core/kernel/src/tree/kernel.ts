@@ -1141,29 +1141,55 @@ export class Kernel implements IKernel {
   async executeViaExecve(options: KernelExecuteOptions): Promise<number> {
     if (!options.command) return -1
     const terminal = options.terminal || this.terminal
+    const tty = terminal.zfsTty
+    const isForeground = options.foreground ?? true
+
+    // `tty->pgrp`: the process a `TIOCGPGRP`/`TIOCSPGRP` ioctl against this terminal answers with.
+    // Only a foreground stage takes it over, and only for as long as it runs -- a backgrounded (`&`)
+    // pipeline's process must never appear to own the terminal it isn't attached to. Restored to
+    // whatever it was before (not unconditionally cleared) so a foreground process launched from
+    // inside another foreground process's stage -- there is no nesting today, but this is the
+    // correct rule regardless -- hands control back up rather than to nobody.
+    const previousForeground = tty?.foreground
 
     try {
       const proc = new ZenFSProcess({
         argv: [options.command, ...(options.args || [])],
         env: options.shell.envObject,
         cwd: options.shell.cwd,
-        tty: terminal.zfsTty,
+        tty,
         // Process opens stdio against this path, not `tty` directly -- `tty` only sets the
         // foreground-process/signal-delivery side of things.
-        console: terminal.zfsTty ? `/dev/${terminal.zfsTty.name}` : undefined
+        console: tty ? `/dev/${tty.name}` : undefined
       })
+
+      if (tty && isForeground) tty.foreground = proc
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)
       // before awaiting completion -- this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
       // ever gets to signal a real process; see `KernelExecuteOptions.onProcess`'s doc comment.
-      options.onProcess?.(proc)
+      // `setForeground` closes over `tty` so `Shell.fg`/`bg` can move terminal ownership later,
+      // after this stage has already started -- see `JobProcessHandle.setForeground`'s doc comment.
+      options.onProcess?.(tty
+        ? Object.assign(proc, { setForeground: (want: boolean) => { tty.foreground = want ? proc : (tty.foreground === proc ? undefined : tty.foreground) } })
+        : proc)
 
       await zenfsExecve(proc, options.command, [options.command, ...(options.args || [])], options.shell.envObject)
+
+      // `@zenfs/linux`'s own `execve()` unconditionally does `proc.tty.foreground = proc` once the
+      // program actually loads (`fs/exec.ts`), on the assumption that exec-ing is itself a
+      // foreground act -- true for a real shell's fork+exec, not true for ecmaOS's backgrounded (`&`)
+      // stage, which calls this same codepath directly with no fork in between. Put it right back
+      // for a backgrounded stage; a foreground one was already correct (redundant, but harmless).
+      if (tty && !isForeground && tty.foreground === proc) tty.foreground = previousForeground
+
       return await proc.exited
     } catch (error) {
       this.log.error(`Failed to execute ${options.command}: ${error}`)
       terminal?.writeln(chalk.red(error instanceof Error ? error.message : String(error)))
       return -1
+    } finally {
+      if (tty && isForeground) tty.foreground = previousForeground
     }
   }
 

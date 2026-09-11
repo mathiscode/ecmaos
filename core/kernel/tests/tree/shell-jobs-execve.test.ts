@@ -98,4 +98,75 @@ describe('Shell job control — real @zenfs/linux Process handles', () => {
     const code = await promise
     expect(code).toBe(130)
   })
+
+  /**
+   * `@zenfs/linux@0.5.0`'s TTY layer answers `TIOCGPGRP`/`TIOCSPGRP` from `tty.foreground` (`struct
+   * tty_struct`'s `pgrp`), but never sets it itself -- `Kernel.executeViaExecve` has to, or the
+   * ioctl just answers with whatever was there before (nothing, on a fresh terminal). These are the
+   * real-process proof that a foreground execve-backed stage actually takes over the terminal, that
+   * a backgrounded one never does, and that `fg`/`bg` move that ownership as a job crosses between
+   * them -- exactly what a real process would see through `ioctl(fd, TIOCGPGRP)` on its tty.
+   */
+  it('a foreground .js process becomes the tty\'s foreground process, and gives it back on exit', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/job-tty-fg.js', 'await new Promise(r => setTimeout(r, 300))', { mode: 0o755 })
+
+    const promise = kernel.shell.execute('/tmp/job-tty-fg.js')
+    await waitFor(() => kernel.shell.foregroundJob !== undefined && kernel.shell.foregroundJob.processes.length === 1)
+
+    const proc = kernel.shell.foregroundJob!.processes[0]!
+    expect(kernel.terminal.zfsTty?.foreground?.pid).toBe(proc.pid)
+
+    await promise
+    expect(kernel.terminal.zfsTty?.foreground?.pid).not.toBe(proc.pid)
+  })
+
+  it('a backgrounded .js process never takes over the tty\'s foreground', async () => {
+    // Comparing pids, not the `Process` objects themselves -- vitest's pretty-printer chokes on
+    // the struct-backed fields a real `@zenfs/linux` `Process` carries when it has to render one
+    // for a failure diff, which is a test-tooling wrinkle, not something this assertion cares about.
+    const beforePid = kernel.terminal.zfsTty?.foreground?.pid
+
+    await kernel.filesystem.fs.writeFile('/tmp/job-tty-bg.js', 'await new Promise(r => setTimeout(r, 300))', { mode: 0o755 })
+    await kernel.shell.execute('/tmp/job-tty-bg.js &')
+
+    const jobs = kernel.shell.listJobs()
+    const job = jobs[jobs.length - 1]!
+    await waitFor(() => job.processes.length === 1)
+
+    expect(kernel.terminal.zfsTty?.foreground?.pid).toBe(beforePid)
+    await job.done
+  })
+
+  it('fg gives a resumed stopped job the tty back; bg takes it away again', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/job-tty-fgbg.js', 'await new Promise(r => setTimeout(r, 2000))', { mode: 0o755 })
+
+    const promise = kernel.shell.execute('/tmp/job-tty-fgbg.js')
+    await waitFor(() => kernel.shell.foregroundJob !== undefined && kernel.shell.foregroundJob.processes.length === 1)
+
+    const job = kernel.shell.foregroundJob!
+    const proc = job.processes[0]!
+    expect(kernel.terminal.zfsTty?.foreground?.pid).toBe(proc.pid)
+
+    // `^Z`: stops the job and must give the tty back (real tty semantics -- a stopped process
+    // group doesn't own the terminal).
+    await kernel.terminal.keyHandler({
+      key: 'z',
+      domEvent: { key: 'z', ctrlKey: true, shiftKey: false, altKey: false } as KeyboardEvent
+    })
+    expect(job.status).toBe('stopped')
+    expect(kernel.terminal.zfsTty?.foreground?.pid).not.toBe(proc.pid)
+
+    // `bg`: resumes it, but it stays out of the foreground.
+    kernel.shell.bg()
+    expect(kernel.terminal.zfsTty?.foreground?.pid).not.toBe(proc.pid)
+
+    // `fg`: reclaims the terminal.
+    const fgPromise = kernel.shell.fg()
+    await waitFor(() => kernel.terminal.zfsTty?.foreground?.pid === proc.pid)
+    expect(kernel.terminal.zfsTty?.foreground?.pid).toBe(proc.pid)
+
+    proc.kill(9)
+    await fgPromise
+    await promise
+  })
 })
