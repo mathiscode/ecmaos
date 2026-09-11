@@ -18,6 +18,12 @@ Check file types and compare values.
   -z STRING   STRING is empty (zero length)
   STRING1 = STRING2   strings are equal
   STRING1 != STRING2  strings are not equal
+  NUM1 -eq NUM2   NUM1 is equal to NUM2
+  NUM1 -ne NUM2   NUM1 is not equal to NUM2
+  NUM1 -lt NUM2   NUM1 is less than NUM2
+  NUM1 -le NUM2   NUM1 is less than or equal to NUM2
+  NUM1 -gt NUM2   NUM1 is greater than NUM2
+  NUM1 -ge NUM2   NUM1 is greater than or equal to NUM2
   --help      display this help and exit`
   writelnStderr(process, terminal, usage)
 }
@@ -92,21 +98,25 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return (await checkFile(argv[1], 'x')) ? 0 : 1
       }
 
-      if (operator === '-n' && argv[1]) {
-        return argv[1].length > 0 ? 0 : 1
+      if (operator === '-n' && argv.length > 1) {
+        return (argv[1]?.length ?? 0) > 0 ? 0 : 1
       }
 
-      if (operator === '-z' && argv[1]) {
-        return argv[1].length === 0 ? 0 : 1
+      if (operator === '-z' && argv.length > 1) {
+        return (argv[1]?.length ?? 0) === 0 ? 0 : 1
       }
 
       if (argv.length === 3) {
-        const [left, op, right] = argv
-        if (op === '=') {
-          return left === right ? 0 : 1
-        }
-        if (op === '!=') {
-          return left !== right ? 0 : 1
+        const [left, op, right] = argv as [string, string, string]
+        switch (op) {
+          case '=': return left === right ? 0 : 1
+          case '!=': return left !== right ? 0 : 1
+          case '-eq': return Number(left) === Number(right) ? 0 : 1
+          case '-ne': return Number(left) !== Number(right) ? 0 : 1
+          case '-lt': return Number(left) < Number(right) ? 0 : 1
+          case '-le': return Number(left) <= Number(right) ? 0 : 1
+          case '-gt': return Number(left) > Number(right) ? 0 : 1
+          case '-ge': return Number(left) >= Number(right) ? 0 : 1
         }
       }
 

@@ -15,6 +15,13 @@ import { ThemePresets } from '@ecmaos/types'
 
 import { parseScript } from '#lib/shell-parser.ts'
 import type { Command as ParsedCommand, Pipeline, Redirection, Script } from '#lib/shell-parser.ts'
+import { parseStatements } from '#lib/control-flow-parser.ts'
+import type { CaseStatement, ForStatement, IfStatement, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
+import { expandWord } from '#lib/expand-variables.ts'
+
+/** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
+class BreakSignal extends Error {}
+class ContinueSignal extends Error {}
 
 const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin'
 const DefaultShellOptions = {
@@ -47,6 +54,17 @@ export class Shell implements IShell {
   private _tty: number
   private _users: Users
 
+  /** `name() { ... }` / `function name { ... }` bodies registered by `executeStatements`. */
+  private _functions = new Map<string, Statement[]>()
+  /**
+   * `local` overlays pushed per function call: each frame is checked before falling through to
+   * `_env` on read, and `local NAME=VALUE` writes only ever touch the top frame. Empty outside a
+   * function call, so top-level `env.get`/`env.set` behavior is completely unchanged by this.
+   */
+  private _localScopes: Map<string, string>[] = []
+  /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
+  private _shellOptions = { errexit: false, nounset: false, pipefail: false }
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -61,6 +79,41 @@ export class Shell implements IShell {
   get terminal() { return this._terminal }
   get username() { return this._users.get(this.credentials.uid)?.username || 'root' }
   get tty() { return this._tty }
+  get shellOptions() { return this._shellOptions }
+  get functions() { return this._functions }
+
+  /**
+   * Resolve a variable by name the way `local` scoping requires: the innermost active function
+   * frame first, falling through to the shell's real environment. This is what `expandWord`'s
+   * `lookup` is bound to everywhere a word is expanded, so `local`-declared variables shadow outer
+   * ones exactly where a real shell would.
+   */
+  private lookupVariable(name: string): string | undefined {
+    for (let i = this._localScopes.length - 1; i >= 0; i--) {
+      const frame = this._localScopes[i] as Map<string, string>
+      if (frame.has(name)) return frame.get(name)
+    }
+    return this._env.get(name)
+  }
+
+  /** `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env. */
+  setVariable(name: string, value: string): void {
+    const frame = this._localScopes[this._localScopes.length - 1]
+    if (frame) frame.set(name, value)
+    else this._env.set(name, value)
+  }
+
+  /** Declare `name` as local to the current function call, defaulting to '' until assigned. */
+  declareLocal(name: string, value?: string): void {
+    const frame = this._localScopes[this._localScopes.length - 1]
+    if (!frame) throw new Error('local: can only be used inside a function')
+    frame.set(name, value ?? '')
+  }
+
+  /** Apply `set -e` / `-u` / `-o pipefail` style flags. Matches the subset scripts here use. */
+  applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void {
+    this._shellOptions[flag] = enabled
+  }
 
   constructor(_options: ShellOptions & { tty?: number }) {
     const options = { ...DefaultShellOptions, ..._options }
@@ -210,8 +263,11 @@ export class Shell implements IShell {
           inDoubleQuote = !inDoubleQuote
         }
         
-        // Only process substitutions outside single quotes
-        if (!inSingleQuote && char === '$' && result[i + 1] === '(') {
+        // Only process substitutions outside single quotes. `$((` is arithmetic expansion
+        // (`expand-variables.ts`'s job, applied later in `prepareCommand`/`tryExecuteAssignment`),
+        // not command substitution -- without this guard, `$((I + 1))` gets misread as `$(...)`
+        // with body `(I + 1)`, executed as a command, and silently replaced with '' when it fails.
+        if (!inSingleQuote && char === '$' && result[i + 1] === '(' && result[i + 2] !== '(') {
           // Found start of substitution, find matching closing paren
           let depth = 1
           let j = i + 2
@@ -658,12 +714,19 @@ export class Shell implements IShell {
     }
   }
 
-  /** Resolves one pipeline stage's words (substitution, history-bang, tilde, glob) into a runnable command. */
+  /**
+   * Resolves one pipeline stage's words (substitution, history-bang, tilde, variables, arithmetic,
+   * glob) into a runnable command. Single-quoted words are exempt from variable/arithmetic
+   * expansion the same way they are from globbing (`wordsQuoted`, tracked by the parser) --
+   * `echo '$HOME'` must print the literal text, not the expanded path.
+   */
   private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[] }> {
-    const words = await Promise.all(command.words.map(async (word) => {
+    const words = await Promise.all(command.words.map(async (word, index) => {
       let expanded = await this.parseCommandSubstitution(word)
       expanded = await this.expandHistoryBang(expanded)
       expanded = this.expandTilde(expanded)
+      if (!command.wordsQuoted[index]) expanded = expandWord(expanded, (name) => this.lookupVariable(name))
+      if (this._shellOptions.nounset) this.assertNoUnsetReferences(word)
       return expanded
     }))
 
@@ -679,6 +742,22 @@ export class Shell implements IShell {
     }
 
     return { finalCommand, args }
+  }
+
+  /**
+   * `set -u`: throws if `original` referenced a plain `$VAR`/`${VAR}` whose name resolves to
+   * `undefined`. Only plain references count -- `${VAR:-default}`/`${VAR:+alt}` are explicitly
+   * about tolerating an unset variable, so they're exempt, matching bash's own `set -u` semantics.
+   */
+  private assertNoUnsetReferences(original: string): void {
+    const pattern = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(original))) {
+      const name = match[1] ?? match[2]
+      if (name && this.lookupVariable(name) === undefined) {
+        throw new Error(`${name}: unbound variable`)
+      }
+    }
   }
 
   /**
@@ -757,13 +836,80 @@ export class Shell implements IShell {
   }
 
   /**
+   * A pipeline whose sole command names a registered function is dispatched to `callFunction`
+   * instead of `runPipeline`/`_execute` -- functions are shell-local, not real executables, and
+   * have no `finalCommand` a binfmt could resolve. Piping into/out of a function, or calling one
+   * as a non-final pipeline stage, is out of scope here (real shells restrict this too without a
+   * subshell), so only a single-command pipeline qualifies.
+   */
+  private functionNameFor(pipeline: Pipeline): string | undefined {
+    if (pipeline.commands.length !== 1) return undefined
+    const name = pipeline.commands[0]?.words[0]
+    return name && this._functions.has(name) ? name : undefined
+  }
+
+  /** Calls a registered function: its own `local` scope, positional parameters set to `argv`. */
+  private async callFunction(name: string, argv: string[]): Promise<number> {
+    const body = this._functions.get(name)
+    if (!body) throw new Error(`${name}: function not found`)
+
+    const savedPositional = new Map<string, string>()
+    for (const key of this.env.keys()) if (!isNaN(parseInt(key))) savedPositional.set(key, this.env.get(key) as string)
+
+    this._localScopes.push(new Map())
+    // `setPositionalParameters` sets $0 to its first element (matching the device-CLI convention
+    // at Kernel.executeDevice, where $0 is the invoked name and $1.. are the real arguments) -- so
+    // the function's own name goes first, keeping $1 as the caller's first argument like bash.
+    this.setPositionalParameters([name, ...argv])
+    try {
+      return await this.executeStatements(body)
+    } finally {
+      this._localScopes.pop()
+      this.clearPositionalParameters()
+      for (const [key, value] of savedPositional) this.env.set(key, value)
+    }
+  }
+
+  /**
+   * `VAR=value` (and `VAR=` for an empty assignment) as a bare statement -- not `env VAR=value cmd`,
+   * which already works today by other means, but a whole line whose only content is an assignment.
+   * A real shell recognizes this at the parser level (it's not a command at all, and `=` is not an
+   * operator); recognizing it here, at the same point `execute` decides what kind of line this is,
+   * avoids teaching `shell-parser.ts` a whole new statement kind for something that never pipes,
+   * redirects, or chains with `&&`. Returns the exit code if `line` was an assignment, else
+   * `undefined` so `execute` falls through to normal pipeline parsing.
+   */
+  private async tryExecuteAssignment(line: string): Promise<number | undefined> {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
+    if (!match) return undefined
+
+    const [, name, rawValue] = match as unknown as [string, string, string]
+    let value = await this.parseCommandSubstitution(rawValue)
+    value = this.expandTilde(value)
+    value = expandWord(value, (varName) => this.lookupVariable(varName))
+    // Strip one layer of surrounding quotes the way word-splitting elsewhere in this file does --
+    // `X="a b"` should store `a b`, not `"a b"`.
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+
+    this.setVariable(name, value)
+    return 0
+  }
+
+  /**
    * Executes a command line: comment-stripped, parsed into a `Script`, and walked stage by stage
    * honoring `;`, `&&`, `||`, and `&` (background is accepted syntactically; job control is not
-   * implemented yet, so it currently runs like `;`).
+   * implemented yet, so it currently runs like `;`). `set -e` aborts the whole line on the first
+   * stage that fails without being consumed by `&&`/`||`/negation; `set -o pipefail` changes a
+   * pipeline's reported exit code to its last *non-zero* stage rather than strictly its last stage.
    */
   async execute(line: string) {
     const lineWithoutComments = line.split('#')[0]?.trim()
     if (!lineWithoutComments) return 0
+
+    const assignmentExitCode = await this.tryExecuteAssignment(lineWithoutComments)
+    if (assignmentExitCode !== undefined) return assignmentExitCode
 
     const script: Script = parseScript(lineWithoutComments)
     let lastPipelineExit = 0
@@ -773,10 +919,28 @@ export class Shell implements IShell {
       if (skipNext) {
         skipNext = false
       } else {
-        const pipeStatus = await this.runPipeline(stage.pipeline)
-        lastPipelineExit = pipeStatus[pipeStatus.length - 1] ?? 0
+        const fnName = this.functionNameFor(stage.pipeline)
+        let pipeStatus: number[]
+
+        if (fnName) {
+          const command = stage.pipeline.commands[0] as ParsedCommand
+          const args = await this.expandGlobWords(command.words.slice(1), command.wordsQuoted.slice(1))
+          const code = await this.callFunction(fnName, args)
+          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
+        } else {
+          pipeStatus = await this.runPipeline(stage.pipeline)
+        }
+
+        lastPipelineExit = this._shellOptions.pipefail
+          ? ([...pipeStatus].reverse().find(code => code !== 0) ?? 0)
+          : pipeStatus[pipeStatus.length - 1] ?? 0
+
         this.env.set('PIPESTATUS', pipeStatus.join(' '))
         this.env.set('?', String(lastPipelineExit))
+
+        if (this._shellOptions.errexit && lastPipelineExit !== 0 && stage.operator !== '&&' && stage.operator !== '||') {
+          return lastPipelineExit
+        }
       }
 
       // && only runs its next stage on success; || only on failure. A skipped stage's own trailing
@@ -786,6 +950,127 @@ export class Shell implements IShell {
     }
 
     return lastPipelineExit
+  }
+
+  /**
+   * Runs a statement tree (`control-flow-parser.ts`'s output) top to bottom, dispatching plain
+   * lines to `execute()` and interpreting `if`/`while`/`for`/`case`/function-definition nodes
+   * itself. This is what `Kernel.executeScript` walks instead of its old flat `line.split('\n')`,
+   * and what a function body runs through when called.
+   *
+   * `break`/`continue` are implemented as internal control-flow signals (thrown, caught by the
+   * nearest loop) rather than a return-code convention, because a return code can't distinguish
+   * "this command legitimately exited 1" from "please stop the enclosing loop" -- exactly the
+   * ambiguity a real shell avoids by making `break`/`continue` builtins that unwind the interpreter
+   * itself, not the process tree.
+   */
+  async executeStatements(statements: Statement[]): Promise<number> {
+    let lastExit = 0
+
+    for (const statement of statements) {
+      switch (statement.type) {
+        case 'simple': {
+          const trimmed = statement.line.trim()
+          if (trimmed === 'break') throw new BreakSignal()
+          if (trimmed === 'continue') throw new ContinueSignal()
+          lastExit = await this.execute(statement.line)
+          break
+        }
+
+        case 'function': {
+          this._functions.set(statement.name, statement.body)
+          lastExit = 0
+          break
+        }
+
+        case 'if': {
+          lastExit = await this.executeIf(statement)
+          break
+        }
+
+        case 'while': {
+          lastExit = await this.executeWhile(statement)
+          break
+        }
+
+        case 'for': {
+          lastExit = await this.executeFor(statement)
+          break
+        }
+
+        case 'case': {
+          lastExit = await this.executeCase(statement)
+          break
+        }
+      }
+
+      if (this._shellOptions.errexit && lastExit !== 0 && statement.type === 'simple') return lastExit
+    }
+
+    return lastExit
+  }
+
+  private async executeIf(statement: IfStatement): Promise<number> {
+    for (const branch of statement.branches) {
+      if (await this.execute(branch.condition) === 0) return this.executeStatements(branch.body)
+    }
+    if (statement.elseBody) return this.executeStatements(statement.elseBody)
+    return 0
+  }
+
+  private async executeWhile(statement: WhileStatement): Promise<number> {
+    let lastExit = 0
+    while (await this.execute(statement.condition) === 0) {
+      try {
+        lastExit = await this.executeStatements(statement.body)
+      } catch (signal) {
+        if (signal instanceof BreakSignal) break
+        if (signal instanceof ContinueSignal) continue
+        throw signal
+      }
+    }
+    return lastExit
+  }
+
+  private async executeFor(statement: ForStatement): Promise<number> {
+    let lastExit = 0
+    for (const word of statement.words) {
+      this.setVariable(statement.variable, expandWord(word, (name) => this.lookupVariable(name)))
+      try {
+        lastExit = await this.executeStatements(statement.body)
+      } catch (signal) {
+        if (signal instanceof BreakSignal) break
+        if (signal instanceof ContinueSignal) continue
+        throw signal
+      }
+    }
+    return lastExit
+  }
+
+  /** `*` matches anything; other patterns are matched as shell globs (`?` any char, literal else). */
+  private matchesCasePattern(value: string, pattern: string): boolean {
+    if (pattern === '*') return true
+    const regex = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
+    return regex.test(value)
+  }
+
+  private async executeCase(statement: CaseStatement): Promise<number> {
+    const value = expandWord(statement.word, (name) => this.lookupVariable(name))
+    for (const clause of statement.clauses) {
+      if (clause.patterns.some(pattern => this.matchesCasePattern(value, pattern))) {
+        return this.executeStatements(clause.body)
+      }
+    }
+    return 0
+  }
+
+  /**
+   * Runs a full script's text (multiple lines, potentially containing control flow and function
+   * definitions) to completion. This is `Kernel.executeScript`'s entry point.
+   */
+  async executeScriptText(script: string): Promise<number> {
+    const statements = parseStatements(script)
+    return this.executeStatements(statements)
   }
 
   /**
