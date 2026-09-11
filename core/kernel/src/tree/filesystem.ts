@@ -193,6 +193,47 @@ export class Filesystem {
   }
 
   /**
+   * Recursively copy every file and directory under `source` to `destination`, both already
+   * mounted paths within this filesystem (they may be on different backends -- this is plain
+   * `@zenfs/core` file I/O, so it works across mount boundaries the same way `cp -r` does).
+   *
+   * This is the migration primitive for moving a filesystem's contents onto another backend, e.g.
+   * an IndexedDB-backed root's contents onto an `opfs`-mounted directory: mount the destination
+   * somewhere temporary, `copyTree('/', '/mnt/opfs-migration')`, then repoint `/etc/fstab` at it.
+   * There is no automatic root-swap here -- that needs `root=` cmdline parsing, which does not
+   * exist until the overhaul's `init` branch adopts `@zenfs/linux`'s `init()`.
+   *
+   * @returns the number of files copied (directories are not counted)
+   */
+  async copyTree(source: string, destination: string): Promise<number> {
+    const stats = await this.fs.stat(source)
+    if (!stats.isDirectory()) {
+      // Not `this.fs.copyFile()`: it throws "the 'data' argument must be of type string or an
+      // instance of Buffer..." against a mounted (non-root-InMemory) backend in @zenfs/core@2.7.4
+      // -- readFile+writeFile is the same work `copyFile` does internally, without the bug.
+      // The extra `new Uint8Array(...)` guards against `writeFile`'s `instanceof Uint8Array` check
+      // failing across a module-instance boundary (observed under vitest/jsdom) even though the
+      // buffer `readFile` returns is structurally a real Buffer.
+      const contents = await this.fs.readFile(source)
+      await this.fs.writeFile(destination, new Uint8Array(contents))
+      return 1
+    }
+
+    try {
+      await this.fs.mkdir(destination, { recursive: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+
+    let copied = 0
+    for (const entry of await this.fs.readdir(source)) {
+      copied += await this.copyTree(path.join(source, entry), path.join(destination, entry))
+    }
+
+    return copied
+  }
+
+  /**
    * Extracts a tarball to the given path.
    * TODO: Just use the tar coreutil
    * 

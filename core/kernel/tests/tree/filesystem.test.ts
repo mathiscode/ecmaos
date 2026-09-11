@@ -90,4 +90,39 @@ describe('Filesystem', async () => {
     const hostname = await kernel.filesystem.fs.readFile('/etc/hostname', 'utf-8')
     expect(hostname.trim().length).toBeGreaterThan(0)
   })
+
+  describe('copyTree', () => {
+    it('copies a single file', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/copytree-src.txt', 'hello')
+      const copied = await kernel.filesystem.copyTree('/tmp/copytree-src.txt', '/tmp/copytree-dest.txt')
+
+      expect(copied).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/tmp/copytree-dest.txt', 'utf-8')).toBe('hello')
+    })
+
+    it('recursively copies a directory tree, creating destination directories as needed', async () => {
+      await kernel.filesystem.fs.mkdir('/tmp/copytree-src-dir/nested', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/tmp/copytree-src-dir/a.txt', 'a')
+      await kernel.filesystem.fs.writeFile('/tmp/copytree-src-dir/nested/b.txt', 'b')
+
+      const copied = await kernel.filesystem.copyTree('/tmp/copytree-src-dir', '/tmp/copytree-dest-dir')
+
+      expect(copied).toBe(2)
+      expect(await kernel.filesystem.fs.readFile('/tmp/copytree-dest-dir/a.txt', 'utf-8')).toBe('a')
+      expect(await kernel.filesystem.fs.readFile('/tmp/copytree-dest-dir/nested/b.txt', 'utf-8')).toBe('b')
+    })
+
+    it('works across different mounted backends, the same as it would for a migration', async () => {
+      // /tmp is InMemory and / is IndexedDB in DefaultFilesystemOptions -- copying between them
+      // exercises the same cross-backend path an IndexedDB-to-opfs migration would take.
+      await kernel.filesystem.fs.mkdir('/tmp/copytree-cross-backend', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/tmp/copytree-cross-backend/file.txt', 'cross-backend')
+      await kernel.filesystem.fs.mkdir('/mnt/copytree-cross-backend-dest', { recursive: true })
+
+      const copied = await kernel.filesystem.copyTree('/tmp/copytree-cross-backend', '/mnt/copytree-cross-backend-dest')
+
+      expect(copied).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/mnt/copytree-cross-backend-dest/file.txt', 'utf-8')).toBe('cross-backend')
+    })
+  })
 })
