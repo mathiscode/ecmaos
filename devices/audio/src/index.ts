@@ -1,8 +1,8 @@
-import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData, Shell } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions, Shell } from '@ecmaos/types'
 
-interface AudioDeviceData extends KernelDeviceData {
-  context?: AudioContext
+interface AudioDeviceState {
+  context: AudioContext
   sourceNode?: AudioBufferSourceNode
   stream?: MediaStream
   recorder?: MediaRecorder
@@ -147,95 +147,83 @@ async function test(kernel: Kernel, shell: Shell) {
   return 0
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<AudioDeviceData>[]> {
-  const drivers: DeviceDriver<AudioDeviceData>[] = []
+/** `/sys/class/audio` */
+const audio_class = new Class('audio')
 
-  drivers.push({
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const state: AudioDeviceState = { context: new AudioContext() }
+
+  const drivers: KernelCharDevice[] = [{
     name: 'audio',
-    init: () => ({
-      major: 14,
-      minor: 4,
-      data: {
-        version: pkg.version,
-        kernel: ctx.id,
-        context: new AudioContext()
-      }
-    }),
-    read: (file: Device<AudioDeviceData>, buffer: ArrayBufferView, offset: number, length: number) => {
-      const deviceData = file.data
-      if (!deviceData.context) return 0
+    major: 14,
+    minor: 4,
+    class: audio_class,
+    ops: {
+      read: (_file, buffer, start, end) => {
+        try {
+          if (!navigator.mediaDevices?.getUserMedia) return 0
 
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          return 0
-        }
+          if (!state.stream || !state.recorder) {
+            navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+              }
+            }).then(stream => {
+              state.stream = stream
+              state.recorder = new MediaRecorder(stream)
 
-        if (!deviceData.stream || !deviceData.recorder) {
-          navigator.mediaDevices.getUserMedia({ 
-            audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false
-            }
-          }).then(stream => {
-            deviceData.stream = stream
-            deviceData.recorder = new MediaRecorder(stream)
-            
-            deviceData.recorder.ondataavailable = (event) => {
-              event.data.arrayBuffer().then(buffer => {
-                deviceData.latestAudioData = new Uint8Array(buffer)
-              })
-            }
-            
-            deviceData.recorder.start(100)
-          }).catch(err => {
-            console.error('Failed to initialize audio input:', err)
-          })
-          return 0
-        }
+              state.recorder.ondataavailable = (event) => {
+                event.data.arrayBuffer().then(buffer => {
+                  state.latestAudioData = new Uint8Array(buffer)
+                })
+              }
 
-        if (!deviceData.latestAudioData) return 0
-
-        const view = new Uint8Array(buffer.buffer)
-        const bytesToCopy = Math.min(length, deviceData.latestAudioData.length)
-        view.set(deviceData.latestAudioData.subarray(0, bytesToCopy), offset)
-
-        return bytesToCopy
-      } catch (error) {
-        console.error('Audio input error:', error)
-        return 0
-      }
-    },
-    write: (file: Device<AudioDeviceData>, buffer: Uint8Array, offset: number) => {
-      const deviceData = file.data
-      if (!deviceData.context) return 0
-
-      try {
-        const tempBuffer = buffer.slice(offset)
-        const audioData = new ArrayBuffer(tempBuffer.length)
-        new Uint8Array(audioData).set(tempBuffer)
-        
-        deviceData.context.decodeAudioData(audioData, 
-          (audioBuffer) => {
-            if (!deviceData.context) return 0
-            const sourceNode = deviceData.context.createBufferSource()
-            sourceNode.buffer = audioBuffer
-            sourceNode.connect(deviceData.context.destination)
-            
-            deviceData.sourceNode = sourceNode
-            sourceNode.start()
-          },
-          (error) => {
-            console.error('Audio decoding error:', error)
+              state.recorder.start(100)
+            }).catch(err => {
+              console.error('Failed to initialize audio input:', err)
+            })
+            return 0
           }
-        )
-        return audioData.byteLength
-      } catch (error) {
-        console.error('Audio playback error:', error)
-        return 0
+
+          if (!state.latestAudioData) return 0
+
+          const length = end - start
+          const bytesToCopy = Math.min(length, state.latestAudioData.length)
+          buffer.set(state.latestAudioData.subarray(0, bytesToCopy), start)
+
+          return bytesToCopy
+        } catch (error) {
+          console.error('Audio input error:', error)
+          return 0
+        }
+      },
+      write: (_file, buffer, offset) => {
+        try {
+          const tempBuffer = buffer.slice(offset)
+          const audioData = new ArrayBuffer(tempBuffer.length)
+          new Uint8Array(audioData).set(tempBuffer)
+
+          state.context.decodeAudioData(audioData,
+            (audioBuffer) => {
+              const sourceNode = state.context.createBufferSource()
+              sourceNode.buffer = audioBuffer
+              sourceNode.connect(state.context.destination)
+
+              state.sourceNode = sourceNode
+              sourceNode.start()
+            },
+            (error) => {
+              console.error('Audio decoding error:', error)
+            }
+          )
+        } catch (error) {
+          console.error('Audio playback error:', error)
+        }
       }
     }
-  })
+  }]
 
   return drivers
 }
