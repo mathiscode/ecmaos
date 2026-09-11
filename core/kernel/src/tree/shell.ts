@@ -10,7 +10,7 @@ import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
 import type { BoundContext, Credentials } from '@zenfs/core'
-import type { Kernel, Shell as IShell, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal } from '@ecmaos/types' // TODO: Consistency
+import type { Filesystem, KernelContext, Shell as IShell, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
 import { parseScript } from '#lib/shell-parser.ts'
@@ -36,14 +36,17 @@ const DefaultShellOptions = {
   * 
  */
 export class Shell implements IShell {
+  private _ctx: KernelContext
   private _cwd: string
   private _env: Map<string, string>
+  private _execute: ShellExecute
+  private _filesystem: Filesystem
   private _id: string = crypto.randomUUID()
-  private _kernel: Kernel
   private _terminal: ITerminal
   private _terminalWriter?: WritableStreamDefaultWriter<Uint8Array>
   private _tty: number
-  
+  private _users: Users
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -55,21 +58,22 @@ export class Shell implements IShell {
   set env(env: Map<string, string>) { this._env = env; globalThis.process.env = { ...globalThis.process.env, ...Object.fromEntries(env) } }
   get envObject() { return Object.fromEntries(this._env) }
   get id() { return this._id }
-  get kernel() { return this._kernel }
   get terminal() { return this._terminal }
-  get username() { return this._kernel.users.get(this.credentials.uid)?.username || 'root' }
+  get username() { return this._users.get(this.credentials.uid)?.username || 'root' }
   get tty() { return this._tty }
 
   constructor(_options: ShellOptions & { tty?: number }) {
     const options = { ...DefaultShellOptions, ..._options }
-    if (!options.kernel) throw new Error('Kernel is required')
     globalThis.shells?.set(this.id, this)
 
     this._tty = options.tty ?? 0
     this._cwd = options.cwd || localStorage.getItem(`cwd:${this.credentials.uid}`) || DefaultShellOptions.cwd
     this._env = new Map([...Object.entries(DefaultShellOptions.env), ...Object.entries(options.env)])
-    this._kernel = options.kernel
-    this._terminal = options.terminal || options.kernel.terminal
+    this._ctx = options.context
+    this._execute = options.execute
+    this._filesystem = options.filesystem
+    this._users = options.users
+    this._terminal = options.terminal as ITerminal
     this._terminalWriter = this._terminal?.stdout.getWriter() || new WritableStream().getWriter()
     this.config = new ShellConfig(this)
 
@@ -316,10 +320,9 @@ export class Shell implements IShell {
       if (!finalCommand) return ''
       
       // Execute the command
-      await this._kernel.execute({
+      await this._execute({
         command: finalCommand,
         args,
-        kernel: this._kernel,
         shell: this,
         terminal: this._terminal,
         stdin: new ReadableStream<Uint8Array>(),
@@ -666,13 +669,13 @@ export class Shell implements IShell {
 
     const [commandName, ...rawWords] = words
     if (!commandName) {
-      throw new Error(this.kernel.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
+      throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
     }
 
     const args = await this.expandGlobWords(rawWords, command.wordsQuoted.slice(1))
     const finalCommand = await this.resolveCommand(commandName)
     if (!finalCommand) {
-      throw new Error(this.kernel.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
+      throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
     }
 
     return { finalCommand, args }
@@ -711,7 +714,7 @@ export class Shell implements IShell {
           if (!await this.context.fs.promises.exists(sourcePath)) {
             throw new Error(`File not found: ${sourcePath}`)
           }
-          stdin = this.createFileReadStream(sourcePath, this.env, this.kernel)
+          stdin = this.createFileReadStream(sourcePath, this.env, this._filesystem)
         } else if (isFirstCommand) {
           stdin = this._terminal.getInputStream()
           stdinIsTTY = true
@@ -733,10 +736,9 @@ export class Shell implements IShell {
       }
 
       const results = await Promise.all(stages.map(({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }) =>
-        this._kernel.execute({
+        this._execute({
           command: finalCommand,
           args,
-          kernel: this._kernel,
           shell: this,
           terminal: this._terminal,
           stdin,
@@ -790,13 +792,13 @@ export class Shell implements IShell {
    * Creates a ReadableStream that reads from a file
    */
   private createFileReadStream(
-    sourcePath: string, 
-    env: Map<string, string>, 
-    kernel: Kernel
+    sourcePath: string,
+    env: Map<string, string>,
+    filesystem: Filesystem
   ): ReadableStream<Uint8Array> {
     return new ReadableStream({
       async start(controller) {
-        const fileHandle = await kernel.filesystem.fs.open(sourcePath, 'r')
+        const fileHandle = await filesystem.fs.open(sourcePath, 'r')
         const chunkSize = parseInt(
           env.get('SHELL_INPUT_REDIRECTION_CHUNK_SIZE') || 
           import.meta.env.ECMAOS_APP_SHELL_INPUT_REDIRECTION_CHUNK_SIZE || 
