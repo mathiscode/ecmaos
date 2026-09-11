@@ -15,7 +15,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, Device, execve as zenfsExecve, Process as ZenFSProcess } from '@zenfs/linux'
+import { char_dev, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -670,10 +670,24 @@ export class Kernel implements IKernel {
             const mainPath = path.join(pkgPath,  mainFile)
 
             // Importing from a blob objectURL doesn't work for some reason, so use SWAPI
-            const module = await import(/* @vite-ignore */ `/swapi/fs${mainPath}`) as KernelModule
-            const modname = module.name?.value || mod
-            module.init?.(this.id)
-            this.modules.set(modname, module)
+            const loaded = await import(/* @vite-ignore */ `/swapi/fs${mainPath}`) as KernelModule
+            const modname = loaded.name?.value || mod
+
+            // Real @zenfs/linux Module: gets us /sys/module/<name>, refcounting, and dependency
+            // tracking for free, replacing the bespoke enable/disable/cleanup contract this used
+            // to call directly. A loaded package's own init/cleanup, if it has them, still run --
+            // they're just driven by the Module's real init()/dispose() lifecycle now.
+            const zenfsModule = new ZenFSModule({
+              name: modname,
+              version: pkgData.version,
+              description: loaded.description?.value ?? pkgData.description,
+              author: loaded.author?.value ?? (typeof pkgData.author === 'string' ? pkgData.author : undefined),
+              init: async () => { loaded.init?.(this.id) },
+              exit: async () => { loaded.cleanup?.() }
+            })
+
+            await zenfsModule.init()
+            this.modules.set(modname, loaded)
           } catch (error) {
             this.log.error(`Failed to load module ${mod}: ${(error as Error).message}`)
           }
