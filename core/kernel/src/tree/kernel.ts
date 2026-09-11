@@ -1660,9 +1660,25 @@ export class Kernel implements IKernel {
           poll_wait: file => dispatch(file).poll_wait?.(file)
         }
 
-        const major = char_dev.register(requestedMajor, `${device.pkg.name}-${requestedMajor}`, ops)
+        // char_dev majors and device names are process-global in @zenfs/linux, not scoped per
+        // Kernel instance, so a second Kernel booted in the same JS realm (as tests do across
+        // describe blocks) re-requests majors and names the first instance already claimed.
+        // That is not a real conflict -- it is the same driver, offered twice -- so EBUSY/EEXIST
+        // here are swallowed rather than treated as a boot failure.
+        let major: number
+        try {
+          major = char_dev.register(requestedMajor, `${device.pkg.name}-${requestedMajor}`, ops)
+        } catch (error) {
+          this.log.warn(`Device major ${requestedMajor} for ${device.pkg.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
+          continue
+        }
+
         for (const driver of group) {
-          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
+          try {
+            new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
+          } catch (error) {
+            this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
+          }
         }
       }
     }
