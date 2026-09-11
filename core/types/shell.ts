@@ -105,6 +105,13 @@ export interface ShellConfig {
   smoothScrollDuration?: number
   /** Whether Option key on Mac should act as Meta */
   macOptionIsMeta?: boolean
+  /**
+   * Which xterm.js renderer to use. `webgl` is hardware-accelerated and falls back to `dom`
+   * automatically if the WebGL context is lost. `dom` is the escape hatch if WebGL misbehaves
+   * with a particular font/GPU combination.
+   * @default 'webgl'
+   */
+  renderer?: 'dom' | 'webgl'
 }
 
 /**

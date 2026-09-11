@@ -18,11 +18,14 @@ import { attach_xterm, detach_xterm } from '@zenfs/linux'
 import type { TTY } from '@zenfs/linux'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
 import { AttachAddon } from '@xterm/addon-attach'
+import { BrowserClipboardProvider, ClipboardAddon } from '@xterm/addon-clipboard'
 import { FitAddon } from '@xterm/addon-fit'
 import { ImageAddon } from '@xterm/addon-image'
 import { ProgressAddon } from '@xterm/addon-progress'
 import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 
 import '@xterm/xterm/css/xterm.css'
@@ -65,6 +68,10 @@ export const DefaultTerminalOptions: TerminalOptions = {
   cursorBlink: true,
   macOptionIsMeta: true,
   allowProposedApi: true,
+  // Reflow the cursor's own line on resize -- shells normally handle this themselves, but ecmaOS's
+  // built-in line editor (Terminal.keyHandler) is the "shell" here and does not, so without this a
+  // resize can leave the prompt line wrapped incorrectly.
+  reflowCursorLine: true,
   theme: {
     background: '#000000',
     foreground: '#00FF00',
@@ -166,6 +173,13 @@ export class Terminal extends XTerm implements ITerminal {
    * stdin subscriber fan-out below, unchanged.
    */
   private _zfsTty: TTY | undefined
+  /**
+   * The active hardware-accelerated renderer, once loaded in `mount()`. `undefined` when running
+   * the `dom` renderer, either by config or because WebGL's context was lost and this fell back.
+   */
+  private _webglAddon: WebglAddon | undefined
+  /** Set once WebGL's context has been lost this session; see `_applyRenderer`. */
+  private _fellBackFromWebgl: boolean = false
 
   get addons() { return this._addons as Map<string, ITerminalAddon> }
   get ansi() { return this._ansi }
@@ -206,7 +220,7 @@ export class Terminal extends XTerm implements ITerminal {
     this._stdout = new WritableStream({
       write: (chunk) => {
         const text = new TextDecoder().decode(chunk)
-        this.write(text)
+        this._writeSynchronized(text)
       }
     })
 
@@ -214,7 +228,7 @@ export class Terminal extends XTerm implements ITerminal {
     this._stderr = new WritableStream({
       write: (chunk) => {
         const text = new TextDecoder().decode(chunk)
-        this.write(chalk.red(text))
+        this._writeSynchronized(chalk.red(text))
       }
     })
 
@@ -255,10 +269,16 @@ export class Terminal extends XTerm implements ITerminal {
       ['progress', new ProgressAddon()],
       ['search', new SearchAddon()],
       ['serialize', new SerializeAddon()],
-      ['web-links', new WebLinksAddon()]
+      ['web-links', new WebLinksAddon()],
+      // OSC 52: lets a program running in the terminal read/write the system clipboard through an
+      // escape sequence, the same way it would over a real serial line -- rather than requiring
+      // ecmaOS app code to reach for `navigator.clipboard` directly.
+      ['clipboard', new ClipboardAddon(undefined, new BrowserClipboardProvider())],
+      ['unicode11', new Unicode11Addon()]
     ])
 
     for (const addon of this._addons.values()) this.loadAddon(addon)
+    if (this._addons.get('unicode11')) this.unicode.activeVersion = '11'
 
     if (this.addons?.get('progress')) {
       const defaultBarColors = {
@@ -413,6 +433,7 @@ export class Terminal extends XTerm implements ITerminal {
   mount(element: HTMLElement) {
     this.open(element)
     if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+    this._applyRenderer()
 
     if (!this._zfsTty) {
       try {
@@ -487,6 +508,93 @@ export class Terminal extends XTerm implements ITerminal {
     }
 
     if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+    if (this.element) this._applyRenderer()
+  }
+
+  /**
+   * Load or unload the WebGL renderer to match `shell.config.renderer`. `webgl` (the default) is
+   * hardware-accelerated; `dom` is the escape hatch documented in `shell.toml` for a GPU/font
+   * combination that renders incorrectly under WebGL.
+   *
+   * Does nothing once WebGL has already fallen back to `dom` after a context loss this session
+   * (see `onContextLoss` below) -- re-requesting a context that was just lost immediately loses it
+   * again on many drivers, so the fallback for a given terminal is one-way until it is remounted.
+   */
+  private _applyRenderer() {
+    const wantsWebgl = this._shell.config?.renderer !== 'dom' && !this._fellBackFromWebgl
+
+    if (!wantsWebgl) {
+      this._webglAddon?.dispose()
+      this._webglAddon = undefined
+      return
+    }
+
+    if (this._webglAddon) return
+
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => {
+        this._kernel.log.warn(`Terminal ${this._id} lost its WebGL context; falling back to the DOM renderer`)
+        this._fellBackFromWebgl = true
+        this._webglAddon?.dispose()
+        this._webglAddon = undefined
+      })
+
+      this.loadAddon(webgl)
+      this._webglAddon = webgl
+    } catch (error) {
+      this._kernel.log.warn(`Failed to load the WebGL renderer, falling back to the DOM renderer: ${error instanceof Error ? error.message : String(error)}`)
+      this._fellBackFromWebgl = true
+    }
+  }
+
+  /**
+   * Move the cursor to the start of the previous word (`left`) or the start of the next word
+   * (`right`), the readline/shell convention for Option+Arrow (macOS) and Ctrl+Arrow (elsewhere).
+   * Word boundaries follow whitespace, matching bash's default `word-boundary` behavior.
+   */
+  private _wordJump(direction: 'left' | 'right') {
+    const isWordChar = (char: string | undefined) => !!char && !/\s/.test(char)
+    let target = this._cursorPosition
+
+    if (direction === 'left') {
+      while (target > 0 && !isWordChar(this._cmd[target - 1])) target--
+      while (target > 0 && isWordChar(this._cmd[target - 1])) target--
+    } else {
+      while (target < this._cmd.length && isWordChar(this._cmd[target])) target++
+      while (target < this._cmd.length && !isWordChar(this._cmd[target])) target++
+    }
+
+    if (target === this._cursorPosition) return
+
+    const promptText = this.prompt()
+    const promptLen = promptText.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
+    const cols = this.cols
+
+    const fromLine = Math.floor((promptLen + this._cursorPosition) / cols)
+    const toLine = Math.floor((promptLen + target) / cols)
+    const toColumn = (promptLen + target) % cols
+
+    this._cursorPosition = target
+
+    const lineDelta = toLine - fromLine
+    if (lineDelta > 0) this.write(`\x1b[${lineDelta}B`)
+    else if (lineDelta < 0) this.write(`\x1b[${-lineDelta}A`)
+    this.write(`\x1b[${toColumn + 1}G`)
+  }
+
+  /**
+   * Write a chunk of program output atomically, using DEC private mode 2026 (Synchronized Output,
+   * `CSI ? 2026 h` / `l`). A command that writes many lines in one chunk -- `cat` on a large file
+   * is the canonical case -- can otherwise visibly tear as the renderer repaints partway through
+   * the chunk; bracketing it defers the repaint until the whole chunk has been parsed.
+   *
+   * This is unrelated to the `matrix`/`toasters` screensavers: they draw straight to a `<canvas>`
+   * overlay and never go through the terminal's own write path, so synchronized output has nothing
+   * to bracket there.
+   */
+  private _writeSynchronized(text: string) {
+    this.write(`\x1b[?2026h${text}\x1b[?2026l`)
   }
 
   hide() {
@@ -499,6 +607,8 @@ export class Terminal extends XTerm implements ITerminal {
 
   dispose() {
     this._cleanupViewportListeners()
+    this._webglAddon?.dispose()
+    this._webglAddon = undefined
     if (this._zfsTty) {
       detach_xterm(this._zfsTty)
       this._zfsTty = undefined
@@ -1082,6 +1192,13 @@ export class Terminal extends XTerm implements ITerminal {
         case 'Escape':
           return this.write(ansi.erase.display(2) + ansi.cursor.position() + this.prompt())
       }
+    }
+
+    // Option/Alt+Left/Right: word-wise motion. Handled ahead of the plain-arrow cases below so it
+    // takes priority, since `macOptionIsMeta` otherwise leaves Option+Arrow with no built-in
+    // meaning in this line editor beyond the single-character jump.
+    if (domEvent.altKey && (keyName === 'ArrowLeft' || keyName === 'ArrowRight')) {
+      return this._wordJump(keyName === 'ArrowLeft' ? 'left' : 'right')
     }
 
     switch (keyName) {

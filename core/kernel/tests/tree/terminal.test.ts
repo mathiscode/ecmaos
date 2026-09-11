@@ -42,6 +42,99 @@ describe('Terminal', () => {
     })
   })
 
+  describe('renderer', () => {
+    it('defaults to webgl, falling back to dom when no WebGL2 context is available (as in this test environment)', () => {
+      // jsdom has no real WebGL2 context, so mount() above already exercised and logged the
+      // fallback; this just pins the config default and the resulting addon state.
+      expect(kernel.shell.config.renderer).toBe('webgl')
+      const terminal = kernel.terminal as unknown as { _webglAddon: unknown }
+      expect(terminal._webglAddon).toBeUndefined()
+    })
+
+    it('does not attempt to load WebGL again once forced to dom via config', () => {
+      const config = kernel.shell.config as unknown as { _renderer: string }
+      const previous = config._renderer
+      config._renderer = 'dom'
+
+      const terminal = kernel.terminal as unknown as { _applyRenderer: () => void; _webglAddon: unknown }
+      terminal._applyRenderer()
+
+      expect(terminal._webglAddon).toBeUndefined()
+      config._renderer = previous
+    })
+  })
+
+  describe('addons', () => {
+    it('loads the clipboard addon for OSC 52 support', () => {
+      expect(kernel.terminal.addons.get('clipboard')).toBeDefined()
+    })
+
+    it('loads the unicode11 addon and activates version 11', () => {
+      expect(kernel.terminal.addons.get('unicode11')).toBeDefined()
+      expect(kernel.terminal.unicode.activeVersion).toBe('11')
+    })
+  })
+
+  describe('word-wise cursor motion (Option/Alt+Arrow)', () => {
+    it('jumps the cursor to the start of the previous word on Alt+ArrowLeft', async () => {
+      const terminal = kernel.terminal as unknown as { _cmd: string; _cursorPosition: number }
+      terminal._cmd = 'echo hello world'
+      terminal._cursorPosition = terminal._cmd.length
+
+      await kernel.terminal.keyHandler({
+        key: '',
+        domEvent: { key: 'ArrowLeft', altKey: true, ctrlKey: false, shiftKey: false, metaKey: false } as KeyboardEvent
+      })
+
+      expect(terminal._cursorPosition).toBe('echo hello '.length)
+    })
+
+    it('jumps the cursor to the start of the next word on Alt+ArrowRight', async () => {
+      const terminal = kernel.terminal as unknown as { _cmd: string; _cursorPosition: number }
+      terminal._cmd = 'echo hello world'
+      terminal._cursorPosition = 0
+
+      await kernel.terminal.keyHandler({
+        key: '',
+        domEvent: { key: 'ArrowRight', altKey: true, ctrlKey: false, shiftKey: false, metaKey: false } as KeyboardEvent
+      })
+
+      expect(terminal._cursorPosition).toBe('echo '.length)
+    })
+
+    it('does not move past the start or end of the line', async () => {
+      const terminal = kernel.terminal as unknown as { _cmd: string; _cursorPosition: number }
+      terminal._cmd = 'echo hi'
+      terminal._cursorPosition = 0
+
+      await kernel.terminal.keyHandler({
+        key: '',
+        domEvent: { key: 'ArrowLeft', altKey: true, ctrlKey: false, shiftKey: false, metaKey: false } as KeyboardEvent
+      })
+
+      expect(terminal._cursorPosition).toBe(0)
+    })
+  })
+
+  describe('synchronized output on program stdout/stderr', () => {
+    it('brackets a stdout write in DEC 2026 synchronized-output mode', () => {
+      // `_writeSynchronized` is the shared helper both the stdout and stderr WritableStreams call;
+      // exercised directly since Shell already permanently holds stdout's writer lock.
+      const writes: string[] = []
+      const terminal = kernel.terminal as unknown as { _writeSynchronized: (text: string) => void }
+      const original = kernel.terminal.write.bind(kernel.terminal)
+      kernel.terminal.write = ((data: string, callback?: () => void) => {
+        writes.push(typeof data === 'string' ? data : new TextDecoder().decode(data))
+        return original(data, callback)
+      }) as typeof kernel.terminal.write
+
+      terminal._writeSynchronized('hello\n')
+      kernel.terminal.write = original
+
+      expect(writes).toContain('\x1b[?2026hhello\n\x1b[?2026l')
+    })
+  })
+
   describe('stdin subscriber pattern', () => {
     it('should return a ReadableStream from getInputStream()', () => {
       const stream = kernel.terminal.getInputStream()

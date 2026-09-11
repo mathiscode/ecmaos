@@ -948,7 +948,8 @@ export const DefaultConfig: IShellConfig = {
     promptColor: 'green'
   },
   smoothScrollDuration: 100,
-  macOptionIsMeta: true
+  macOptionIsMeta: true,
+  renderer: 'webgl'
 }
 
 export class ShellConfig implements IShellConfig {
@@ -960,7 +961,8 @@ export class ShellConfig implements IShellConfig {
   private _theme: IShellConfig['theme'] = { ...DefaultConfig.theme }
   private _smoothScrollDuration: number = DefaultConfig.smoothScrollDuration!
   private _macOptionIsMeta: boolean = DefaultConfig.macOptionIsMeta!
-  
+  private _renderer: 'dom' | 'webgl' = DefaultConfig.renderer!
+
   private _shell: Shell
 
   get noBell() { return this._noBell }
@@ -971,6 +973,7 @@ export class ShellConfig implements IShellConfig {
   get theme() { return this._theme }
   get smoothScrollDuration() { return this._smoothScrollDuration }
   get macOptionIsMeta() { return this._macOptionIsMeta }
+  get renderer() { return this._renderer }
 
   constructor(shell: Shell) {
     this._shell = shell
@@ -987,6 +990,7 @@ export class ShellConfig implements IShellConfig {
     if (['block', 'underline', 'bar'].includes(config.cursorStyle as string)) this._cursorStyle = config.cursorStyle as 'block' | 'underline' | 'bar'
     if (typeof config.smoothScrollDuration === 'number') this._smoothScrollDuration = config.smoothScrollDuration
     if (typeof config.macOptionIsMeta === 'boolean') this._macOptionIsMeta = config.macOptionIsMeta
+    if (config.renderer === 'dom' || config.renderer === 'webgl') this._renderer = config.renderer
     if (config.theme) {
       if (config.theme.name && ThemePresets[config.theme.name]) {
         this._theme = { ...this._theme, ...ThemePresets[config.theme.name] }
