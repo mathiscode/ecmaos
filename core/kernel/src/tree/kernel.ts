@@ -1557,53 +1557,64 @@ export class Kernel implements IKernel {
    * @returns {Promise<void>} A promise that resolves when the devices are registered.
    */
   async registerDevices() {
+    // `char_dev.register(major, ...)` reserves an entire major (all 256 minors) for one caller --
+    // it is keyed by major alone, not major+name. Linux's real convention is exactly this: many
+    // unrelated drivers share major 10 ("misc") and differentiate only by minor (battery=100,
+    // geo=101, sensors=102, presentation=156, ...). So the grouping-by-major below MUST happen
+    // across every device package's drivers together, not per-package -- grouping per-package (as
+    // an earlier version of this method did) calls char_dev.register(10, ...) once per package
+    // that wants major 10, and every call after the first fails with EBUSY, silently dropping that
+    // package's device node. Collect every driver from every package first, then group globally.
+    const allDrivers: { device: (typeof DefaultDevices)[string]; driver: KernelCharDevice }[] = []
+
     for (const device of Object.values(this.options.devices || DefaultDevices)) {
       const drivers = await device.getDrivers(this.context)
       this.devices.set(device.pkg.name, { device, drivers })
+      for (const driver of drivers) allDrivers.push({ device, driver })
+    }
 
-      const byMajor = new Map<number, KernelCharDevice[]>()
-      for (const driver of drivers) {
-        const group = byMajor.get(driver.major) ?? []
-        group.push(driver)
-        byMajor.set(driver.major, group)
+    const byMajor = new Map<number, typeof allDrivers>()
+    for (const entry of allDrivers) {
+      const group = byMajor.get(entry.driver.major) ?? []
+      group.push(entry)
+      byMajor.set(entry.driver.major, group)
+    }
+
+    for (const [requestedMajor, group] of byMajor) {
+      const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
+        const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
+        if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
+        return entry.driver.ops
       }
 
-      for (const [requestedMajor, group] of byMajor) {
-        const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
-          const entry = group.find(d => d.minor === file.devt.minor)
-          if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
-          return entry.ops
-        }
+      const ops: FileOperations = {
+        open: file => dispatch(file).open?.(file),
+        release: file => dispatch(file).release?.(file),
+        read: (file, buffer, start, end) => dispatch(file).read?.(file, buffer, start, end),
+        write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
+        sync: file => dispatch(file).sync?.(file),
+        poll: file => dispatch(file).poll?.(file) ?? 0,
+        poll_wait: file => dispatch(file).poll_wait?.(file)
+      }
 
-        const ops: FileOperations = {
-          open: file => dispatch(file).open?.(file),
-          release: file => dispatch(file).release?.(file),
-          read: (file, buffer, start, end) => dispatch(file).read?.(file, buffer, start, end),
-          write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
-          sync: file => dispatch(file).sync?.(file),
-          poll: file => dispatch(file).poll?.(file) ?? 0,
-          poll_wait: file => dispatch(file).poll_wait?.(file)
-        }
+      // char_dev majors and device names are process-global in @zenfs/linux, not scoped per
+      // Kernel instance, so a second Kernel booted in the same JS realm (as tests do across
+      // describe blocks) re-requests majors and names the first instance already claimed.
+      // That is not a real conflict -- it is the same set of drivers, offered twice -- so
+      // EBUSY/EEXIST here are swallowed rather than treated as a boot failure.
+      let major: number
+      try {
+        major = char_dev.register(requestedMajor, `major-${requestedMajor}`, ops)
+      } catch (error) {
+        this.log.warn(`Device major ${requestedMajor} already registered: ${error instanceof Error ? error.message : String(error)}`)
+        continue
+      }
 
-        // char_dev majors and device names are process-global in @zenfs/linux, not scoped per
-        // Kernel instance, so a second Kernel booted in the same JS realm (as tests do across
-        // describe blocks) re-requests majors and names the first instance already claimed.
-        // That is not a real conflict -- it is the same driver, offered twice -- so EBUSY/EEXIST
-        // here are swallowed rather than treated as a boot failure.
-        let major: number
+      for (const { driver } of group) {
         try {
-          major = char_dev.register(requestedMajor, `${device.pkg.name}-${requestedMajor}`, ops)
+          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
         } catch (error) {
-          this.log.warn(`Device major ${requestedMajor} for ${device.pkg.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
-          continue
-        }
-
-        for (const driver of group) {
-          try {
-            new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
-          } catch (error) {
-            this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
-          }
+          this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     }
