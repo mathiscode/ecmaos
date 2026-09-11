@@ -2,7 +2,8 @@
  * Process management types and interfaces
  */
 
-import type { Kernel } from './kernel.ts'
+import type { Filesystem } from './filesystem.ts'
+import type { Kernel, KernelContext } from './kernel.ts'
 import type { Shell } from './shell.ts'
 import type { Terminal } from './terminal.ts'
 
@@ -83,12 +84,21 @@ export interface ProcessOptions {
   cwd?: string
   /** Process entry point */
   entry?: (params: ProcessEntryParams) => Promise<number | undefined | void>
-  /** Reference to kernel instance */
-  kernel?: Kernel
+  /** The cross-cutting kernel primitives (log is what Process uses internally) */
+  context: KernelContext
+  /** The filesystem, for PID files and process.open()/close() */
+  filesystem: Filesystem
+  /** The process table this process registers itself in */
+  processes: ProcessManager
+  /**
+   * Only used to populate `ProcessEntryParams.kernel`, which every entry point (apps especially)
+   * may depend on -- narrowing that external-facing surface is out of scope here.
+   */
+  kernel: Kernel
   /** Parent process ID */
   parent?: number
   /** Reference to shell instance */
-  shell?: Shell
+  shell: Shell
   /** Process status */
   status?: ProcessStatus
   /** Standard error stream */
@@ -102,7 +112,7 @@ export interface ProcessOptions {
   /** Whether stdout is a TTY (interactive terminal) vs a file/pipe */
   stdoutIsTTY?: boolean
   /** Reference to terminal instance */
-  terminal?: Terminal
+  terminal: Terminal
 }
 
 /**
