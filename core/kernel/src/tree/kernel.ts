@@ -1139,6 +1139,11 @@ export class Kernel implements IKernel {
         console: terminal.zfsTty ? `/dev/${terminal.zfsTty.name}` : undefined
       })
 
+      // Hand the real Process to the shell's job table (if it's tracking one for this stage)
+      // before awaiting completion -- this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
+      // ever gets to signal a real process; see `KernelExecuteOptions.onProcess`'s doc comment.
+      options.onProcess?.(proc)
+
       await zenfsExecve(proc, options.command, [options.command, ...(options.args || [])], options.shell.envObject)
       return await proc.exited
     } catch (error) {
