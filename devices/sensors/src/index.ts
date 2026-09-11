@@ -1,8 +1,8 @@
 /// <reference types="w3c-generic-sensor" />
 
 import ansi from 'ansi-escape-sequences'
-import type { DeviceDriver } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'sensors',
@@ -104,15 +104,20 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = [{
-    name: 'sensors',
-    init: () => ({ major: 10, minor: 102, data: { kernelId: ctx.id, version: pkg.version } }),
-    read: () => 0,
-    write: () => 0
-  }]
+/** `/sys/class/sensors` */
+const sensors_class = new Class('sensors')
 
-  return drivers
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  return [{
+    name: 'sensors',
+    major: 10,
+    minor: 102,
+    class: sensors_class,
+    ops: {
+      read: () => 0,
+      write: () => {}
+    }
+  }]
 }
 
 const activeSensors = new Map<number, any>()

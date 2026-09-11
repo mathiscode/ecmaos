@@ -1,20 +1,10 @@
-import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'webgl',
   version: '0.1.0',
   description: 'WebGL device driver'
-}
-
-interface WebGLDeviceData extends KernelDeviceData {
-  context: WebGLRenderingContext
-  info: {
-    vendor: string
-    renderer: string
-    version: string
-    extensions: string[]
-  }
 }
 
 export async function cli(options: KernelDeviceCLIOptions) {
@@ -53,8 +43,11 @@ Commands:
   return 0
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<WebGLDeviceData>[]> {
-  const drivers: DeviceDriver<WebGLDeviceData>[] = []
+/** `/sys/class/webgl` */
+const webgl_class = new Class('webgl')
+
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const drivers: KernelCharDevice[] = []
 
   try {
     const canvas = document.createElement('canvas')
@@ -63,21 +56,13 @@ export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<WebGL
     if (context instanceof WebGLRenderingContext) {
       drivers.push({
         name: 'webgl',
-        init: () => ({
-          major: 1,
-          minor: 0,
-          data: {
-            context,
-            info: {
-              vendor: context.getParameter(context.VENDOR),
-              renderer: context.getParameter(context.RENDERER),
-              version: context.getParameter(context.VERSION),
-              extensions: context.getSupportedExtensions() || []
-            }
-          }
-        }),
-        read: () => 0,
-        write: () => 0
+        major: 1,
+        minor: 0,
+        class: webgl_class,
+        ops: {
+          read: () => 0,
+          write: () => {}
+        }
       })
     }
   } catch (error) {

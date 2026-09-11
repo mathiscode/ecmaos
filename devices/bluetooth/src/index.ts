@@ -1,7 +1,7 @@
 /// <reference types="@types/web-bluetooth" />
 
-import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'bluetooth',
@@ -288,24 +288,23 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = [{
+/** `/sys/class/bluetooth` */
+const bluetooth_class = new Class('bluetooth')
+
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const drivers: KernelCharDevice[] = [{
     name: 'bluetooth',
-    init: () => ({
-      major: 216,
-      minor: 0,
-      data: {
-        kernelId: ctx.id,
-        available: !!navigator?.bluetooth
+    major: 216,
+    minor: 0,
+    class: bluetooth_class,
+    ops: {
+      read: () => {
+        // TODO: Implement reading from connected Bluetooth device
+        return 0
+      },
+      write: () => {
+        // TODO: Implement writing to connected Bluetooth device
       }
-    }),
-    read: () => {
-      // TODO: Implement reading from connected Bluetooth device
-      return 0
-    },
-    write: () => {
-      // TODO: Implement writing to connected Bluetooth device
-      return 0
     }
   }]
 

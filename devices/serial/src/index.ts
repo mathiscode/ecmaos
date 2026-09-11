@@ -1,7 +1,7 @@
 /// <reference types="w3c-web-serial" />
 
-import type { DeviceDriver, Device } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 const availablePorts = new Set<SerialPort>()
 
@@ -80,35 +80,37 @@ export async function cli(options: KernelDeviceCLIOptions) {
   }
 }
 
-async function createDriver(name: string): Promise<DeviceDriver<KernelDeviceData>> {
+/** `/sys/class/serial` */
+const serial_class = new Class('serial')
+
+// Dynamically allocated: real Linux major 4 is tty/ttyS, which @zenfs/linux's own xterm_driver
+// (TTYDriver) claims for the console TTYs. WebSerial ports are not that line discipline, so they
+// get their own major rather than colliding with it.
+function createDriver(name: string, minor: number): KernelCharDevice {
   return {
     name,
-    init: () => {
-      return {
-        major: 4,
-        minor: 64
-      }
-    },
-    read: (_: Device<KernelDeviceData>, buffer: ArrayBufferView, offset: number, end: number) => {
-      navigator.serial.getPorts().then((ports) => {
-        const port = ports[offset]
-        if (!port) return
-        port.readable?.getReader().read().then(({ value, done }) => {
-          if (done || !value) return
-          const view = new Uint8Array(buffer.buffer)
-          const bytesToCopy = Math.min(end, value.length)
-          view.set(new Uint8Array(value.buffer, 0, bytesToCopy), offset)
+    major: 0,
+    minor,
+    class: serial_class,
+    ops: {
+      read: (_file, buffer, start, end) => {
+        navigator.serial.getPorts().then((ports) => {
+          const port = ports[start]
+          if (!port) return
+          port.readable?.getReader().read().then(({ value, done }) => {
+            if (done || !value) return
+            const bytesToCopy = Math.min(end - start, value.length)
+            buffer.set(new Uint8Array(value.buffer, 0, bytesToCopy), start)
+          })
         })
-      })
-      return end
-    },
-    write: () => {
-      return 0
+        return end - start
+      },
+      write: () => {}
     }
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   if (typeof navigator === 'undefined' || !navigator.serial) return []
   navigator.serial.addEventListener('connect', async (event) => {
     ctx.events.emit('device:connect', event.target)
@@ -119,8 +121,8 @@ export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<Kerne
     console.log({ availablePorts })
   })
 
-  const drivers: DeviceDriver<KernelDeviceData>[] = [await createDriver('serial')]
+  const drivers: KernelCharDevice[] = [createDriver('serial', 0)]
   const ports = await navigator.serial.getPorts()
-  for (let i = 0; i < ports.length; i++) drivers.push(await createDriver(`ttyS${i}`))
+  ports.forEach((_port, i) => drivers.push(createDriver(`ttyS${i}`, i + 1)))
   return drivers
 }
