@@ -36,10 +36,13 @@ import { Events } from '#events.ts'
 import { TerminalEvents } from '@ecmaos/types'
 
 import type {
+  Dom,
   Kernel,
+  KernelContext,
   Shell,
   Terminal as ITerminal,
   TerminalOptions,
+  TerminalWiring,
   TerminalResizeEvent,
   TerminalMessageEvent,
   TerminalAttachEvent,
@@ -53,14 +56,15 @@ import type {
   TerminalExecuteEvent,
   TerminalWriteEvent,
   TerminalWritelnEvent,
-  TerminalPasteEvent
+  TerminalPasteEvent,
+  Users
 } from '@ecmaos/types'
 
 export enum CommandPath {
   KERNEL = 'kernel'
 }
 
-export const DefaultTerminalOptions: TerminalOptions = {
+export const DefaultTerminalOptions: Omit<TerminalOptions, 'context' | 'dom' | 'users' | 'kernel'> = {
   fontFamily: 'FiraCode Nerd Font Mono, Ubuntu Mono, courier-new, courier, monospace',
   fontSize: 16,
   smoothScrollDuration: 100,
@@ -128,18 +132,29 @@ export class Terminal extends XTerm implements ITerminal {
   private _addons: TerminalOptions['addons'] = new Map()
   private _ansi: typeof ansi = ansi
   private _cmd: string = ''
-  private _commands: { [key: string]: TerminalCommand }
+  private _commands: { [key: string]: TerminalCommand } = {}
   private _cursorPosition: number = 0
   private _events: Events
   private _historyCache: Record<number, string[]> = {}
   private _historyLineCount: Record<number, number> = {}
   private _historyFilePath: Record<number, string> = {}
   private _historyPosition: number = 0
+  private _ctx: KernelContext
+  private _dom: Dom
   private _id: string = crypto.randomUUID()
-  private _kernel: Kernel
+  /** Used only to construct `TerminalCommands` -- see the doc comment on `TerminalOptions.kernel` */
+  private _commandsKernel: Kernel
+  private _users: Users
+  private _wiring?: TerminalWiring
   private _keyListener: IDisposable | undefined
   private _promptTemplate: string = '{user}:{cwd}# '
-  private _shell: Shell
+  /**
+   * Definite-assignment: `Kernel.createShell` constructs `Terminal` before the `Shell` it belongs
+   * to exists (the same order `Kernel`'s own constructor uses), then calls `attachShell()`
+   * synchronously right after -- nothing observes `Terminal` in between, so this is never actually
+   * read while unset even though the constructor may leave it unassigned.
+   */
+  private _shell!: Shell
   private _socket?: WebSocket
   private _socketKey?: JsonWebKey
   private _stdin: ReadableStream<Uint8Array>
@@ -202,12 +217,11 @@ export class Terminal extends XTerm implements ITerminal {
   get promptTemplate() { return this._promptTemplate }
   set promptTemplate(value: string) { this._promptTemplate = value }
 
-  constructor(options: TerminalOptions & { tty?: number } = DefaultTerminalOptions) {
-    if (!options.kernel) {
-      const message = globalThis.kernel?.i18n?.ns.terminal('requiresKernel') || 'Terminal requires a kernel'
-      throw new Error(message)
-    }
+  constructor(options: TerminalOptions & { tty?: number }) {
     super({ ...DefaultTerminalOptions, ...options })
+    this._ctx = options.context
+    this._dom = options.dom
+    this._users = options.users
     this._tty = options.tty ?? 0
     globalThis.terminals?.set(this.id, this)
 
@@ -309,36 +323,36 @@ export class Terminal extends XTerm implements ITerminal {
         console.log('progress', state, value)
         switch (state) {
           case 0: // Remove
-            this._kernel.dom.topbar(false)
-            this._kernel.dom.topbarProgress(0)
+            this._dom.topbar(false)
+            this._dom.topbarProgress(0)
             break
           case 1: // Set
-            this._kernel.dom.topbarConfig({
+            this._dom.topbarConfig({
               autoRun: false,
               barColors: defaultBarColors
             })
-            this._kernel.dom.topbar(true)
-            this._kernel.dom.topbarProgress(value / 100)
+            this._dom.topbar(true)
+            this._dom.topbarProgress(value / 100)
             break
           case 2: // Error
-            this._kernel.dom.topbar(true)
-            this._kernel.dom.topbarProgress(value / 100)
-            this._kernel.dom.topbarConfig({
+            this._dom.topbar(true)
+            this._dom.topbarProgress(value / 100)
+            this._dom.topbarConfig({
               autoRun: false,
               barColors: errorBarColors
             })
             break
           case 3: // Indeterminate
-            this._kernel.dom.topbarConfig({ autoRun: false, barColors: defaultBarColors })
-            this._kernel.dom.topbarProgress(1)
-            this._kernel.dom.topbar(true)
+            this._dom.topbarConfig({ autoRun: false, barColors: defaultBarColors })
+            this._dom.topbarProgress(1)
+            this._dom.topbar(true)
             break
           case 4: // Pause
-            this._kernel.dom.topbarConfig({
+            this._dom.topbarConfig({
               autoRun: false,
               barColors: pauseBarColors
             })
-            this._kernel.dom.topbar(true)
+            this._dom.topbar(true)
             break
         }
       })
@@ -354,12 +368,12 @@ export class Terminal extends XTerm implements ITerminal {
       this._socket = options.socket
 
       this._socket.addEventListener('message', (event) => {
-        this.writeln(this._kernel.i18n.ns.terminal('socketConnected', { url: this._socket!.url }))
-        this._kernel.events.dispatch<TerminalMessageEvent>(TerminalEvents.MESSAGE, { terminal: this, message: event })
+        this.writeln(this._ctx.i18n.ns.terminal('socketConnected', { url: this._socket!.url }))
+        this._ctx.events.dispatch<TerminalMessageEvent>(TerminalEvents.MESSAGE, { terminal: this, message: event })
 
         if (event.data.startsWith('@ecmaos/metal')) {
           const [name, version, id, encodedPublicKey] = event.data.split(':')
-          this._kernel.log.info(`${name}:${version}:${id} connected`)
+          this._ctx.log.info(`${name}:${version}:${id} connected`)
           this._socketKey = JSON.parse(atob(encodedPublicKey))
         }
       })
@@ -385,7 +399,7 @@ export class Terminal extends XTerm implements ITerminal {
                 }
                 const onError = () => {
                   this._socket!.removeEventListener('error', onError)
-                  reject(new Error(this._kernel.i18n.ns.terminal('socketFailedToOpen')))
+                  reject(new Error(this._ctx.i18n.ns.terminal('socketFailedToOpen')))
                 }
 
                 this._socket!.addEventListener('open', onOpen)
@@ -395,7 +409,7 @@ export class Terminal extends XTerm implements ITerminal {
 
             const attachAddon = new AttachAddon(this._socket)
             this.loadAddon(attachAddon)
-            this._kernel.events.dispatch<TerminalAttachEvent>(TerminalEvents.ATTACH, { terminal: this, socket: this._socket })
+            this._ctx.events.dispatch<TerminalAttachEvent>(TerminalEvents.ATTACH, { terminal: this, socket: this._socket })
           } catch (err) {
             console.error(err)
             // TODO: AttachErrorEvent
@@ -409,20 +423,26 @@ export class Terminal extends XTerm implements ITerminal {
     this.onKey(this.shortcutKeyHandler.bind(this))
     if (!this._isMobile) this._keyListener = this.onKey(this.keyHandler.bind(this))
 
-    this._shell = options.shell || options.kernel.shell
-    this._kernel = options.kernel
-    this._commands = TerminalCommands(this._kernel, this._shell, this)
+    this._commandsKernel = options.kernel
 
-    this.updateConfig()
-    
-    const uid = this._shell.credentials.uid
-    this._historyCache[uid] = []
-    this._historyLineCount[uid] = 0
-    this._historyPosition = 0
-    
-    this._initializeHistory(uid).catch(() => {
-      // Silently fail if filesystem isn't ready yet - will initialize on first use
-    })
+    // A shell may not exist yet (Kernel.createShell constructs Terminal first, the same way
+    // Kernel's own constructor does) -- attachShell() does this same setup once a real one is
+    // attached. Building _commands against no shell would be wrong anyway, since TerminalCommands
+    // needs a real Shell to run commands against.
+    if (options.shell) {
+      this._shell = options.shell
+      this._commands = TerminalCommands(this._commandsKernel, this._shell, this)
+      this.updateConfig()
+
+      const uid = this._shell.credentials.uid
+      this._historyCache[uid] = []
+      this._historyLineCount[uid] = 0
+      this._historyPosition = 0
+
+      this._initializeHistory(uid).catch(() => {
+        // Silently fail if filesystem isn't ready yet - will initialize on first use
+      })
+    }
 
 
 
@@ -439,7 +459,7 @@ export class Terminal extends XTerm implements ITerminal {
       try {
         this._zfsTty = attach_xterm(this, { index: this._tty, input: false })
       } catch (error) {
-        this._kernel.log.warn(`Failed to attach TTY ${this._tty} to @zenfs/linux: ${error instanceof Error ? error.message : String(error)}`)
+        this._ctx.log.warn(`Failed to attach TTY ${this._tty} to @zenfs/linux: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
     
@@ -482,7 +502,9 @@ export class Terminal extends XTerm implements ITerminal {
 
   attachShell(shell: Shell) {
     this._shell = shell
-    this._commands = TerminalCommands(this._kernel, this._shell, this)
+    this._commands = TerminalCommands(this._commandsKernel, this._shell, this)
+    this.updateConfig()
+    this._applyRenderer()
     const uid = this._shell.credentials.uid
     if (!this._historyCache[uid]) {
       this._historyCache[uid] = []
@@ -490,6 +512,11 @@ export class Terminal extends XTerm implements ITerminal {
       this._historyPosition = 0
       this._initializeHistory(uid)
     }
+  }
+
+  /** Supply the `Kernel`-level capabilities not available at construction time; see {@link TerminalWiring}. */
+  wire(wiring: TerminalWiring) {
+    this._wiring = wiring
   }
 
   updateConfig() {
@@ -521,7 +548,8 @@ export class Terminal extends XTerm implements ITerminal {
    * again on many drivers, so the fallback for a given terminal is one-way until it is remounted.
    */
   private _applyRenderer() {
-    const wantsWebgl = this._shell.config?.renderer !== 'dom' && !this._fellBackFromWebgl
+    // this._shell may not exist yet -- see the constructor's doc comment on _shell for why.
+    const wantsWebgl = this._shell?.config?.renderer !== 'dom' && !this._fellBackFromWebgl
 
     if (!wantsWebgl) {
       this._webglAddon?.dispose()
@@ -534,7 +562,7 @@ export class Terminal extends XTerm implements ITerminal {
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
-        this._kernel.log.warn(`Terminal ${this._id} lost its WebGL context; falling back to the DOM renderer`)
+        this._ctx.log.warn(`Terminal ${this._id} lost its WebGL context; falling back to the DOM renderer`)
         this._fellBackFromWebgl = true
         this._webglAddon?.dispose()
         this._webglAddon = undefined
@@ -543,7 +571,7 @@ export class Terminal extends XTerm implements ITerminal {
       this.loadAddon(webgl)
       this._webglAddon = webgl
     } catch (error) {
-      this._kernel.log.warn(`Failed to load the WebGL renderer, falling back to the DOM renderer: ${error instanceof Error ? error.message : String(error)}`)
+      this._ctx.log.warn(`Failed to load the WebGL renderer, falling back to the DOM renderer: ${error instanceof Error ? error.message : String(error)}`)
       this._fellBackFromWebgl = true
     }
   }
@@ -625,7 +653,7 @@ export class Terminal extends XTerm implements ITerminal {
       this._resizeObserver.disconnect()
       this._resizeObserver = null
     }
-    ;(this._kernel.dom as any).disableMobileControls()
+    ;(this._dom as any).disableMobileControls()
     super.dispose()
   }
 
@@ -668,9 +696,9 @@ export class Terminal extends XTerm implements ITerminal {
               event.stopPropagation()
               event.stopImmediatePropagation()
               const ttyNumber = parseInt(codeMatch[1])
-              if (this._kernel.switchTty) {
+              if (this._wiring) {
                 try {
-                  await this._kernel.switchTty(ttyNumber)
+                  await this._wiring.switchTty(ttyNumber)
                 } catch (err) {
                   console.error('Failed to switch TTY:', err)
                 }
@@ -837,7 +865,7 @@ export class Terminal extends XTerm implements ITerminal {
       }
     }
 
-    ;(this._kernel.dom as any).enableMobileControls((key: string, code: string) => {
+    ;(this._dom as any).enableMobileControls((key: string, code: string) => {
       const fakeEvent = new KeyboardEvent('keydown', {
         key,
         code,
@@ -859,7 +887,7 @@ export class Terminal extends XTerm implements ITerminal {
     }
     this._keyListener = undefined
     this._mobileInputListener = null
-    ;(this._kernel.dom as any).disableMobileControls()
+    ;(this._dom as any).disableMobileControls()
     this.events.dispatch<TerminalUnlistenEvent>(TerminalEvents.UNLISTEN, { terminal: this })
   }
 
@@ -877,7 +905,7 @@ export class Terminal extends XTerm implements ITerminal {
       switch (domEvent.key) {
         case 'F1': this.listen(); break
         case 'F2': this.unlisten(); break
-        case 'Delete': this._kernel.reboot(); break
+        case 'Delete': this._wiring?.reboot(); break
       }
     }
   }
@@ -994,7 +1022,7 @@ export class Terminal extends XTerm implements ITerminal {
 
   spinner(spinner: keyof typeof spinners, prefix?: string, suffix?: string) {
     const { interval, frames } = spinners[spinner]
-    if (!interval || !frames) throw new Error(this._kernel.i18n.ns.terminal('invalidSpinner'))
+    if (!interval || !frames) throw new Error(this._ctx.i18n.ns.terminal('invalidSpinner'))
 
     return new Spinner(this, interval, frames, prefix, suffix)
   }
@@ -1007,7 +1035,7 @@ export class Terminal extends XTerm implements ITerminal {
    * Supports non-printing sequences: \[...\] for ANSI codes
    */
   private parsePromptFormat(format: string): string {
-    const user = this._kernel.users.get(this._shell.credentials.euid ?? 0)
+    const user = this._users.get(this._shell.credentials.euid ?? 0)
     const username = user?.username || 'root'
     const hostname = globalThis.location?.hostname || 'localhost'
     const shell = this._shell.env.get('SHELL') || 'ecmaos'
@@ -1128,7 +1156,7 @@ export class Terminal extends XTerm implements ITerminal {
 
     // If using old format with {placeholders}, convert to new format
     if (promptFormat.includes('{') && !hasEnvPrompt && !text) {
-      const user = this._kernel.users.get(this._shell.credentials.euid ?? 0)
+      const user = this._users.get(this._shell.credentials.euid ?? 0)
       const promptColor = (this.options.theme as ITheme & { promptColor?: string })?.promptColor || 'green'
       const colorFn = promptColor.startsWith('#') 
         ? chalk.hex(promptColor) 
@@ -1145,7 +1173,7 @@ export class Terminal extends XTerm implements ITerminal {
       return this.parsePromptFormat(promptFormat)
     } catch {
       // Fall back to default if parsing fails
-      const user = this._kernel.users.get(this._shell.credentials.euid ?? 0)
+      const user = this._users.get(this._shell.credentials.euid ?? 0)
       const defaultPrompt = user?.uid === 0 ? '{user}:{cwd}# ' : '{user}:{cwd}$ '
       const promptColor = (this.options.theme as ITheme & { promptColor?: string })?.promptColor || 'green'
       const colorFn = promptColor.startsWith('#') 
@@ -2065,7 +2093,7 @@ export class Terminal extends XTerm implements ITerminal {
       const err = error as { code?: string; message?: string }
       if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        this._kernel.log.error(`${this._kernel.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
+        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
       }
     }
   }
@@ -2086,7 +2114,7 @@ export class Terminal extends XTerm implements ITerminal {
       const err = error as { code?: string; message?: string }
       if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        this._kernel.log.error(`${this._kernel.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
+        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
       }
       return 0
     }
@@ -2128,7 +2156,7 @@ export class Terminal extends XTerm implements ITerminal {
       const err = error as { code?: string; message?: string }
       if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        this._kernel.log.error(`${this._kernel.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
+        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
       }
       return null
     }
@@ -2170,7 +2198,7 @@ export class Terminal extends XTerm implements ITerminal {
       const err = error as { code?: string; message?: string }
       if (!err.message?.includes('No file system')) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        this._kernel.log.error(`${this._kernel.i18n.ns.terminal('failedToSaveHistory')}: ${errorMessage}`)
+        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToSaveHistory')}: ${errorMessage}`)
       }
     }
   }
@@ -2189,7 +2217,7 @@ export class Terminal extends XTerm implements ITerminal {
       this._historyPosition = 0
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      this._kernel.log.error(`Failed to clear history: ${errorMessage}`)
+      this._ctx.log.error(`Failed to clear history: ${errorMessage}`)
     }
   }
 

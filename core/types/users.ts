@@ -2,7 +2,9 @@
  * User management types and interfaces
  */
 
-import type { Kernel } from './kernel.ts'
+import type { Credentials } from '@zenfs/core'
+import type { KernelContext } from './kernel.ts'
+import type { Filesystem } from './filesystem.ts'
 
 /** User ID type */
 export type UID = number
@@ -14,8 +16,16 @@ export type GID = number
  * Options for configuring user management
  */
 export interface UsersOptions {
-  /** Reference to kernel instance */
-  kernel: Kernel
+  /** The cross-cutting kernel primitives (log and i18n are what Users uses) */
+  context: KernelContext
+  /** The filesystem, for reading/writing /etc/passwd, /etc/shadow, and passkey files */
+  filesystem: Filesystem
+  /**
+   * A thunk for the currently active shell's credentials, used only by `password()`. A thunk
+   * rather than a direct reference because `Shell` may not exist yet when `Users` is constructed
+   * -- resolved lazily, at call time, well after boot.
+   */
+  getShellCredentials: () => Credentials
 }
 
 /**

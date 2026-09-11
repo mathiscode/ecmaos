@@ -1,18 +1,17 @@
-import type { Kernel, StorageOptions, StorageProvider } from '@ecmaos/types'
+import type { KernelContext, StorageOptions, StorageProvider } from '@ecmaos/types'
 
 export class Storage implements StorageProvider {
   private _db: IDBDatabase | null = null
-  private _kernel: Kernel
+  private _ctx: KernelContext
 
   get db() { return this._db }
-  get kernel() { return this._kernel }
 
   indexed = globalThis.indexedDB
   local = globalThis.localStorage
   session = globalThis.sessionStorage
 
   constructor(options: StorageOptions) {
-    this._kernel = options.kernel
+    this._ctx = options.context
 
     navigator.storage?.persist?.()
 
@@ -22,16 +21,16 @@ export class Storage implements StorageProvider {
 
       open.onsuccess = () => {
         this._db = open.result
-        this._kernel.log.silly(`IndexedDB connection to ${name} successful`)
+        this._ctx.log.silly(`IndexedDB connection to ${name} successful`)
       }
 
       open.onerror = () => {
-        this._kernel.log.error('IndexedDB connection failed')
+        this._ctx.log.error('IndexedDB connection failed')
       }
 
       open.onupgradeneeded = (event) => {
         const db = open.result
-        db.onerror = event => this._kernel.log.error('IndexedDB connection failed', event)
+        db.onerror = event => this._ctx.log.error('IndexedDB connection failed', event)
         const store = db.createObjectStore('ecmaos:storage', { keyPath: 'id', autoIncrement: true })
 
         switch (event.newVersion) {
@@ -40,7 +39,7 @@ export class Storage implements StorageProvider {
             break
         }
 
-        this._kernel.log.silly(`IndexedDB schema ${event.newVersion === 1 ? 'created' : 'updated to version ${event.newVersion}'}`)
+        this._ctx.log.silly(`IndexedDB schema ${event.newVersion === 1 ? 'created' : 'updated to version ${event.newVersion}'}`)
       }
     }
   }
@@ -51,7 +50,7 @@ export class Storage implements StorageProvider {
       if (!usage) throw new Error('Storage usage not available')
       return usage
     } catch (error) {
-      this._kernel.log.error('Storage usage failed', error)
+      this._ctx.log.error('Storage usage failed', error)
       return null
     }
   }

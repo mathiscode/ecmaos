@@ -2,14 +2,14 @@
  * Storage types and interfaces
  */
 
-import type { Kernel } from './kernel.ts'
+import type { KernelContext } from './kernel.ts'
 
 /**
  * Options for configuring storage
  */
 export interface StorageOptions {
-  /** Reference to kernel instance */
-  kernel: Kernel
+  /** The cross-cutting kernel primitives (log is the only one Storage uses) */
+  context: KernelContext
   /** IndexedDB configuration */
   indexed?: {
     /** Database name */
@@ -25,8 +25,6 @@ export interface StorageOptions {
 export interface StorageProvider {
   /** Get the IndexedDB database instance */
   readonly db: IDBDatabase | null
-  /** Get the kernel instance */
-  readonly kernel: Kernel
 
   /** IndexedDB interface */
   readonly indexed: IDBFactory
