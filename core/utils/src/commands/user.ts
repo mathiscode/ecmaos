@@ -1,9 +1,9 @@
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal, User } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal, User } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: user [COMMAND] [OPTIONS] [USERNAME]
 Manage users on the system.
 
@@ -29,7 +29,7 @@ Options for 'mod':
   -p, --password       Change password (will prompt)
 
   --help               Display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -39,28 +39,27 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       if (shell.credentials.suid !== 0) {
-        await writelnStderr(process, terminal, chalk.red('user: permission denied'))
+        await io.writelnErr(chalk.red('user: permission denied'))
         return 1
       }
 
-      const command = argv.length > 0 && argv[0] !== undefined && !argv[0].startsWith('-') ? argv[0] : 'list'
-      const remainingArgs = command !== 'list' ? argv.slice(1) : argv
+      const command = ctx.argv.length > 0 && ctx.argv[0] !== undefined && !ctx.argv[0].startsWith('-') ? ctx.argv[0] : 'list'
+      const remainingArgs = command !== 'list' ? ctx.argv.slice(1) : ctx.argv
 
       switch (command) {
         case 'list': {
           const users = Array.from(kernel.users.all.values()) as User[]
           
           if (users.length === 0) {
-            await writelnStdout(process, terminal, 'No users found')
+            await io.writeln('No users found')
             return 0
           }
 
@@ -68,7 +67,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           const usernameWidth = Math.max(8, ...users.map(u => u.username.length))
           const gidWidth = Math.max(3, ...users.map(u => u.gid.toString().length))
 
-          await writelnStdout(process, terminal, chalk.bold(
+          await io.writeln(chalk.bold(
             'UID'.padEnd(uidWidth) + '\t' +
             'Username'.padEnd(usernameWidth) + '\t' +
             'GID'.padEnd(gidWidth) + '\t' +
@@ -76,8 +75,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           ))
 
           for (const usr of users) {
-            await writelnStdout(process, terminal,
-              chalk.yellow(usr.uid.toString().padEnd(uidWidth)) + '\t' +
+            await io.writeln(chalk.yellow(usr.uid.toString().padEnd(uidWidth)) + '\t' +
               chalk.green(usr.username.padEnd(usernameWidth)) + '\t' +
               chalk.cyan(usr.gid.toString().padEnd(gidWidth)) + '\t' +
               chalk.blue(usr.groups.join(', ') || '-')
@@ -107,11 +105,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (nextArg) {
                     shellValue = nextArg
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'s\''))
+                    await io.writelnErr(chalk.red('user add: option requires an argument -- \'s\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'s\''))
+                  await io.writelnErr(chalk.red('user add: option requires an argument -- \'s\''))
                   return 1
                 }
               } else if (arg === '-g' || arg === '--gid') {
@@ -120,15 +118,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (gidStr) {
                     gid = parseInt(gidStr, 10)
                     if (isNaN(gid)) {
-                      await writelnStderr(process, terminal, chalk.red(`user add: invalid GID '${gidStr}'`))
+                      await io.writelnErr(chalk.red(`user add: invalid GID '${gidStr}'`))
                       return 1
                     }
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'g\''))
+                    await io.writelnErr(chalk.red('user add: option requires an argument -- \'g\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'g\''))
+                  await io.writelnErr(chalk.red('user add: option requires an argument -- \'g\''))
                   return 1
                 }
               } else if (arg === '-u' || arg === '--uid') {
@@ -137,15 +135,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (uidStr) {
                     uid = parseInt(uidStr, 10)
                     if (isNaN(uid)) {
-                      await writelnStderr(process, terminal, chalk.red(`user add: invalid UID '${uidStr}'`))
+                      await io.writelnErr(chalk.red(`user add: invalid UID '${uidStr}'`))
                       return 1
                     }
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'u\''))
+                    await io.writelnErr(chalk.red('user add: option requires an argument -- \'u\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'u\''))
+                  await io.writelnErr(chalk.red('user add: option requires an argument -- \'u\''))
                   return 1
                 }
               } else if (arg === '-p' || arg === '--password') {
@@ -154,44 +152,44 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (nextArg) {
                     password = nextArg
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'p\''))
+                    await io.writelnErr(chalk.red('user add: option requires an argument -- \'p\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user add: option requires an argument -- \'p\''))
+                  await io.writelnErr(chalk.red('user add: option requires an argument -- \'p\''))
                   return 1
                 }
               } else if (arg === '--help' || arg === '-h') {
-                printUsage(process, terminal)
+                printUsage(io)
                 return 0
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user add: invalid option -- '${arg.replace(/^-+/, '')}'`))
+                await io.writelnErr(chalk.red(`user add: invalid option -- '${arg.replace(/^-+/, '')}'`))
                 return 1
               }
             } else {
               if (!username) {
                 username = arg
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user add: unexpected argument '${arg}'`))
+                await io.writelnErr(chalk.red(`user add: unexpected argument '${arg}'`))
                 return 1
               }
             }
           }
 
           if (!username) {
-            await writelnStderr(process, terminal, chalk.red('user add: username required'))
-            await writelnStdout(process, terminal, 'Try \'user add --help\' for more information.')
+            await io.writelnErr(chalk.red('user add: username required'))
+            await io.writeln('Try \'user add --help\' for more information.')
             return 1
           }
 
           const allUsers = Array.from(kernel.users.all.values()) as User[]
           if (allUsers.some((u: User) => u.username === username)) {
-            await writelnStderr(process, terminal, chalk.red(`user add: user '${username}' already exists`))
+            await io.writelnErr(chalk.red(`user add: user '${username}' already exists`))
             return 1
           }
 
           if (uid !== undefined && kernel.users.all.has(uid)) {
-            await writelnStderr(process, terminal, chalk.red(`user add: UID ${uid} already in use`))
+            await io.writelnErr(chalk.red(`user add: UID ${uid} already in use`))
             return 1
           }
 
@@ -199,7 +197,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             password = await terminal.readline(chalk.cyan(`New password: `), true)
             const confirm = await terminal.readline(chalk.cyan('Retype new password: '), true)
             if (password !== confirm) {
-              await writelnStderr(process, terminal, chalk.red('user add: password mismatch'))
+              await io.writelnErr(chalk.red('user add: password mismatch'))
               return 1
             }
           }
@@ -213,10 +211,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               shell: shellValue,
               home: `/home/${username}`
             }, { noHome: !createHome })
-            await writelnStdout(process, terminal, chalk.green(`user add: user '${username}' created successfully`))
+            await io.writeln(chalk.green(`user add: user '${username}' created successfully`))
             return 0
           } catch (error) {
-            await writelnStderr(process, terminal, chalk.red(`user add: ${error instanceof Error ? error.message : 'Unknown error'}`))
+            await io.writelnErr(chalk.red(`user add: ${error instanceof Error ? error.message : 'Unknown error'}`))
             return 1
           }
         }
@@ -232,37 +230,37 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               if (arg === '-r' || arg === '--remove-home') {
                 removeHome = true
               } else if (arg === '--help' || arg === '-h') {
-                printUsage(process, terminal)
+                printUsage(io)
                 return 0
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user del: invalid option -- '${arg.replace(/^-+/, '')}'`))
+                await io.writelnErr(chalk.red(`user del: invalid option -- '${arg.replace(/^-+/, '')}'`))
                 return 1
               }
             } else {
               if (!username) {
                 username = arg
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user del: unexpected argument '${arg}'`))
+                await io.writelnErr(chalk.red(`user del: unexpected argument '${arg}'`))
                 return 1
               }
             }
           }
 
           if (!username) {
-            await writelnStderr(process, terminal, chalk.red('user del: username required'))
-            await writelnStdout(process, terminal, 'Try \'user del --help\' for more information.')
+            await io.writelnErr(chalk.red('user del: username required'))
+            await io.writeln('Try \'user del --help\' for more information.')
             return 1
           }
 
           const allUsers = Array.from(kernel.users.all.values()) as User[]
           const usr = allUsers.find((u: User) => u.username === username)
           if (!usr) {
-            await writelnStderr(process, terminal, chalk.red(`user del: user '${username}' does not exist`))
+            await io.writelnErr(chalk.red(`user del: user '${username}' does not exist`))
             return 1
           }
 
           if (usr.uid === 0) {
-            await writelnStderr(process, terminal, chalk.red('user del: cannot delete root user'))
+            await io.writelnErr(chalk.red('user del: cannot delete root user'))
             return 1
           }
 
@@ -286,7 +284,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 }
                 await removeDirRecursive(usr.home)
               } catch {
-                await writelnStderr(process, terminal, chalk.yellow(`user del: warning: could not remove home directory '${usr.home}'`))
+                await io.writelnErr(chalk.yellow(`user del: warning: could not remove home directory '${usr.home}'`))
               }
             }
 
@@ -305,10 +303,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 .join('\n')
             )
             
-            await writelnStdout(process, terminal, chalk.green(`user del: user '${username}' deleted successfully`))
+            await io.writeln(chalk.green(`user del: user '${username}' deleted successfully`))
             return 0
           } catch (error) {
-            await writelnStderr(process, terminal, chalk.red(`user del: ${error instanceof Error ? error.message : 'Unknown error'}`))
+            await io.writelnErr(chalk.red(`user del: ${error instanceof Error ? error.message : 'Unknown error'}`))
             return 1
           }
         }
@@ -329,11 +327,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (nextArg) {
                     shellValue = nextArg
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user mod: option requires an argument -- \'s\''))
+                    await io.writelnErr(chalk.red('user mod: option requires an argument -- \'s\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user mod: option requires an argument -- \'s\''))
+                  await io.writelnErr(chalk.red('user mod: option requires an argument -- \'s\''))
                   return 1
                 }
               } else if (arg === '-g' || arg === '--gid') {
@@ -342,46 +340,46 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                   if (gidStr) {
                     gid = parseInt(gidStr, 10)
                     if (isNaN(gid)) {
-                      await writelnStderr(process, terminal, chalk.red(`user mod: invalid GID '${gidStr}'`))
+                      await io.writelnErr(chalk.red(`user mod: invalid GID '${gidStr}'`))
                       return 1
                     }
                   } else {
-                    await writelnStderr(process, terminal, chalk.red('user mod: option requires an argument -- \'g\''))
+                    await io.writelnErr(chalk.red('user mod: option requires an argument -- \'g\''))
                     return 1
                   }
                 } else {
-                  await writelnStderr(process, terminal, chalk.red('user mod: option requires an argument -- \'g\''))
+                  await io.writelnErr(chalk.red('user mod: option requires an argument -- \'g\''))
                   return 1
                 }
               } else if (arg === '-p' || arg === '--password') {
                 changePassword = true
               } else if (arg === '--help' || arg === '-h') {
-                printUsage(process, terminal)
+                printUsage(io)
                 return 0
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user mod: invalid option -- '${arg.replace(/^-+/, '')}'`))
+                await io.writelnErr(chalk.red(`user mod: invalid option -- '${arg.replace(/^-+/, '')}'`))
                 return 1
               }
             } else {
               if (!username) {
                 username = arg
               } else {
-                await writelnStderr(process, terminal, chalk.red(`user mod: unexpected argument '${arg}'`))
+                await io.writelnErr(chalk.red(`user mod: unexpected argument '${arg}'`))
                 return 1
               }
             }
           }
 
           if (!username) {
-            await writelnStderr(process, terminal, chalk.red('user mod: username required'))
-            await writelnStdout(process, terminal, 'Try \'user mod --help\' for more information.')
+            await io.writelnErr(chalk.red('user mod: username required'))
+            await io.writeln('Try \'user mod --help\' for more information.')
             return 1
           }
 
           const allUsers = Array.from(kernel.users.all.values()) as User[]
           const usr = allUsers.find((u: User) => u.username === username)
           if (!usr) {
-            await writelnStderr(process, terminal, chalk.red(`user mod: user '${username}' does not exist`))
+            await io.writelnErr(chalk.red(`user mod: user '${username}' does not exist`))
             return 1
           }
 
@@ -398,7 +396,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const confirm = await terminal.readline(chalk.cyan('Retype new password: '), true)
             
             if (newPassword !== confirm) {
-              await writelnStderr(process, terminal, chalk.red('user mod: password mismatch'))
+              await io.writelnErr(chalk.red('user mod: password mismatch'))
               return 1
             }
 
@@ -406,29 +404,29 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword.trim()))
               updates.password = Array.from(new Uint8Array(hashedPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
             } catch (error) {
-              await writelnStderr(process, terminal, chalk.red(`user mod: failed to hash password: ${error instanceof Error ? error.message : 'Unknown error'}`))
+              await io.writelnErr(chalk.red(`user mod: failed to hash password: ${error instanceof Error ? error.message : 'Unknown error'}`))
               return 1
             }
           }
 
           if (Object.keys(updates).length === 0 && !changePassword) {
-            await writelnStderr(process, terminal, chalk.red('user mod: no changes specified'))
+            await io.writelnErr(chalk.red('user mod: no changes specified'))
             return 1
           }
 
           try {
             await kernel.users.update(usr.uid, updates)
-            await writelnStdout(process, terminal, chalk.green(`user mod: user '${username}' modified successfully`))
+            await io.writeln(chalk.green(`user mod: user '${username}' modified successfully`))
             return 0
           } catch (error) {
-            await writelnStderr(process, terminal, chalk.red(`user mod: ${error instanceof Error ? error.message : 'Unknown error'}`))
+            await io.writelnErr(chalk.red(`user mod: ${error instanceof Error ? error.message : 'Unknown error'}`))
             return 1
           }
         }
 
         default:
-          await writelnStderr(process, terminal, chalk.red(`user: invalid command '${command}'`))
-          await writelnStdout(process, terminal, 'Try \'user --help\' for more information.')
+          await io.writelnErr(chalk.red(`user: invalid command '${command}'`))
+          await io.writeln('Try \'user --help\' for more information.')
           return 1
       }
     }

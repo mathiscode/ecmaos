@@ -1,9 +1,10 @@
 import chalk from 'chalk'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: format [OPTION]...
 Delete all IndexedDB and localStorage data.
 
@@ -14,7 +15,7 @@ Delete all IndexedDB and localStorage data.
 
 By default, deletes all IndexedDB databases and localStorage.
 Requires root privileges and interactive confirmation.`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function emptyIndexedDBDatabases(
@@ -95,16 +96,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       if (shell.credentials.suid !== 0) {
-        await writelnStderr(process, terminal, chalk.red('format: permission denied (requires root)'))
+        await io.writelnErr(chalk.red('format: permission denied (requires root)'))
         return 1
       }
 
@@ -112,8 +113,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let onlyLocalStorage = false
       const keepDatabases: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg || typeof arg !== 'string') continue
 
         if (arg === '-i' || arg === '--indexeddb') {
@@ -121,27 +122,27 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg === '-l' || arg === '--localstorage') {
           onlyLocalStorage = true
         } else if (arg === '-k' || arg === '--keep') {
-          if (i + 1 < argv.length) {
-            const dbName = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const dbName = ctx.argv[++i]
             if (dbName && !dbName.startsWith('-')) {
               keepDatabases.push(dbName)
             } else {
-              await writelnStderr(process, terminal, chalk.red('format: --keep requires a database name'))
+              await io.writelnErr(chalk.red('format: --keep requires a database name'))
               return 1
             }
           } else {
-            await writelnStderr(process, terminal, chalk.red('format: --keep requires a database name'))
+            await io.writelnErr(chalk.red('format: --keep requires a database name'))
             return 1
           }
         } else if (arg.startsWith('-')) {
-          await writelnStderr(process, terminal, chalk.red(`format: invalid option -- '${arg.replace(/^-+/, '')}'`))
-          await writelnStdout(process, terminal, "Try 'format --help' for more information.")
+          await io.writelnErr(chalk.red(`format: invalid option -- '${arg.replace(/^-+/, '')}'`))
+          await io.writeln("Try 'format --help' for more information.")
           return 1
         }
       }
 
       if (onlyIndexedDB && onlyLocalStorage) {
-        await writelnStderr(process, terminal, chalk.red('format: cannot specify both --indexeddb and --localstorage'))
+        await io.writelnErr(chalk.red('format: cannot specify both --indexeddb and --localstorage'))
         return 1
       }
 
@@ -163,12 +164,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       actionDescription += '. This action cannot be undone!'
 
-      await writelnStderr(process, terminal, chalk.red.bold(`⚠️  WARNING: ${actionDescription}`))
-      await writelnStdout(process, terminal, chalk.yellow('Type "yes" to continue, or anything else to cancel: '))
+      await io.writelnErr(chalk.red.bold(`⚠️  WARNING: ${actionDescription}`))
+      await io.writeln(chalk.yellow('Type "yes" to continue, or anything else to cancel: '))
 
       const confirmation = await terminal.readline()
       if (confirmation.trim().toLowerCase() !== 'yes') {
-        await writelnStdout(process, terminal, chalk.yellow('format: Operation cancelled'))
+        await io.writeln(chalk.yellow('format: Operation cancelled'))
         return 0
       }
 
@@ -189,14 +190,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (success) {
-        await writelnStdout(process, terminal, chalk.green.bold('format: Format operation completed successfully'))
-        await writelnStdout(process, terminal, chalk.yellow('format: Rebooting system to complete format...'))
+        await io.writeln(chalk.green.bold('format: Format operation completed successfully'))
+        await io.writeln(chalk.yellow('format: Rebooting system to complete format...'))
         setTimeout(() => {
           kernel.reboot()
         }, 500)
         return 0
       } else {
-        await writelnStderr(process, terminal, chalk.red.bold('format: Format operation completed with errors'))
+        await io.writelnErr(chalk.red.bold('format: Format operation completed with errors'))
         return 1
       }
     }

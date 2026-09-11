@@ -1,13 +1,13 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: uptime
 Print how long the system has been running.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function formatUptime(seconds: number): string {
@@ -44,19 +44,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length > 0 && argv[0] !== '--help' && argv[0] !== '-h') {
-        await writelnStderr(process, terminal, `uptime: extra operand '${argv[0]}'`)
-        await writelnStderr(process, terminal, "Try 'uptime --help' for more information.")
+      if (ctx.argv.length > 0 && ctx.argv[0] !== '--help' && ctx.argv[0] !== '-h') {
+        await io.writelnErr(`uptime: extra operand '${ctx.argv[0]}'`)
+        await io.writelnErr("Try 'uptime --help' for more information.")
         return 1
       }
 
@@ -65,7 +65,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const now = new Date()
       
       const output = ` ${now.toLocaleTimeString()} up ${uptimeString}`
-      await writelnStdout(process, terminal, output)
+      await io.writeln(output)
 
       return 0
     }

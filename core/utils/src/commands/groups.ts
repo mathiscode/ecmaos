@@ -1,13 +1,13 @@
-import type { Kernel, Process, Shell, Terminal, User } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal, User } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: groups [USERNAME]...
 Print the groups a user belongs to.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -17,29 +17,29 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const usernames: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (!arg.startsWith('-')) {
           usernames.push(arg)
         } else {
-          await writelnStderr(process, terminal, `groups: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'groups --help' for more information.")
+          await io.writelnErr(`groups: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'groups --help' for more information.")
           return 1
         }
       }
@@ -52,7 +52,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         )
 
         if (!user) {
-          await writelnStderr(process, terminal, `groups: '${username}': no such user`)
+          await io.writelnErr(`groups: '${username}': no such user`)
           continue
         }
 
@@ -63,7 +63,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         })
 
         const output = `${username} : ${groupNames.join(' ')}`
-        await writelnStdout(process, terminal, output)
+        await io.writeln(output)
       }
 
       return 0

@@ -1,11 +1,12 @@
 import path from 'path'
 import * as zipjs from '@zip.js/zip.js'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 import chalk from 'chalk'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: zip [OPTION]... ZIPFILE FILE...
 Create a zip archive containing the specified files and directories.
 
@@ -18,7 +19,7 @@ Examples:
   zip archive.zip file1.txt file2.txt
   zip -r archive.zip directory/
   zip -l archive.zip`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface ZipOptions {
@@ -201,28 +202,28 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      const { options, zipfile, files } = parseArgs(argv)
+      const { options, zipfile, files } = parseArgs(ctx.argv)
 
       // List mode
       if (options.list) {
         if (!zipfile) {
-          await writelnStderr(process, terminal, chalk.red('zip error: zipfile name required'))
-          await writelnStderr(process, terminal, "Try 'zip --help' for more information.")
+          await io.writelnErr(chalk.red('zip error: zipfile name required'))
+          await io.writelnErr("Try 'zip --help' for more information.")
           return 1
         }
 
         const zipfilePath = path.resolve(shell.cwd, zipfile)
         const exists = await shell.context.fs.promises.exists(zipfilePath)
         if (!exists) {
-          await writelnStderr(process, terminal, chalk.red(`zip error: ${zipfile}: No such file or directory`))
+          await io.writelnErr(chalk.red(`zip error: ${zipfile}: No such file or directory`))
           return 1
         }
 
@@ -231,14 +232,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       // Create mode
       if (!zipfile) {
-        await writelnStderr(process, terminal, chalk.red('zip error: zipfile name required'))
-        await writelnStderr(process, terminal, "Try 'zip --help' for more information.")
+        await io.writelnErr(chalk.red('zip error: zipfile name required'))
+        await io.writelnErr("Try 'zip --help' for more information.")
         return 1
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, chalk.red('zip error: nothing to do'))
-        await writelnStderr(process, terminal, "Try 'zip --help' for more information.")
+        await io.writelnErr(chalk.red('zip error: nothing to do'))
+        await io.writelnErr("Try 'zip --help' for more information.")
         return 1
       }
 
@@ -255,7 +256,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           try {
             const exists = await shell.context.fs.promises.exists(fullPath)
             if (!exists) {
-              await writelnStderr(process, terminal, chalk.red(`zip warning: ${inputPath}: No such file or directory`))
+              await io.writelnErr(chalk.red(`zip warning: ${inputPath}: No such file or directory`))
               hasError = true
               continue
             }
@@ -269,26 +270,25 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               const reader = new zipjs.Uint8ArrayReader(fileData)
               await zipWriter.add(relativePath, reader)
               if (options.verbose) {
-                await writelnStdout(process, terminal, `  adding: ${relativePath}`)
+                await io.writeln(`  adding: ${relativePath}`)
               }
             } else if (fileStat.isDirectory()) {
               if (options.recurse) {
                 // Add directory and contents recursively
                 await addDirectory(zipWriter, fullPath, shell.cwd, shell, terminal, process, options.verbose)
                 if (options.verbose) {
-                  await writelnStdout(process, terminal, `  adding: ${path.relative(shell.cwd, fullPath)}/`)
+                  await io.writeln(`  adding: ${path.relative(shell.cwd, fullPath)}/`)
                 }
               } else {
-                await writelnStderr(process, terminal, chalk.yellow(`zip warning: ${inputPath}: is a directory (not added). Use -r to recurse into directories`))
+                await io.writelnErr(chalk.yellow(`zip warning: ${inputPath}: is a directory (not added). Use -r to recurse into directories`))
                 hasError = true
               }
             } else {
-              await writelnStderr(process, terminal, chalk.red(`zip error: ${inputPath}: Not a file or directory`))
+              await io.writelnErr(chalk.red(`zip error: ${inputPath}: Not a file or directory`))
               hasError = true
             }
           } catch (err: unknown) {
-            await writelnStderr(process, terminal, 
-              chalk.red(`zip error: ${inputPath}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+            await io.writelnErr(chalk.red(`zip error: ${inputPath}: ${err instanceof Error ? err.message : 'Unknown error'}`)
             )
             hasError = true
           }
@@ -300,13 +300,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         await shell.context.fs.promises.writeFile(outputPath, new Uint8Array(await blob.arrayBuffer()))
         
         if (options.verbose) {
-          await writelnStdout(process, terminal, `  zipfile: ${zipfile}`)
+          await io.writeln(`  zipfile: ${zipfile}`)
         }
 
         return hasError ? 1 : 0
       } catch (err: unknown) {
-        await writelnStderr(process, terminal, 
-          chalk.red(`zip error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        await io.writelnErr(chalk.red(`zip error: ${err instanceof Error ? err.message : 'Unknown error'}`)
         )
         return 1
       } finally {

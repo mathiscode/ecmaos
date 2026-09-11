@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: open [FILE|URL]
 Open a file or URL.
 
@@ -15,7 +15,7 @@ Examples:
   open /path/to/file.txt           open a file by absolute path
   open sample-1/sample-5 (1).jpg   open a file with spaces in the name
   open https://example.com         open a URL in a new tab`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -25,26 +25,26 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, `open: missing file or URL argument`)
-        await writelnStderr(process, terminal, `Try 'open --help' for more information.`)
+      if (ctx.argv.length === 0) {
+        await io.writelnErr(`open: missing file or URL argument`)
+        await io.writelnErr(`Try 'open --help' for more information.`)
         return 1
       }
 
-      const filePath = argv.join(' ')
+      const filePath = ctx.argv.join(' ')
 
       if (!filePath) {
-        await writelnStderr(process, terminal, `open: missing file or URL argument`)
+        await io.writelnErr(`open: missing file or URL argument`)
         return 1
       }
 
@@ -62,7 +62,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       try {
         if (!(await shell.context.fs.promises.exists(fullPath))) {
-          await writelnStderr(process, terminal, chalk.red(`open: file not found: ${fullPath}`))
+          await io.writelnErr(chalk.red(`open: file not found: ${fullPath}`))
           return 1
         }
 
@@ -76,7 +76,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         window.URL.revokeObjectURL(url)
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`open: ${error instanceof Error ? error.message : 'Unknown error'}`))
+        await io.writelnErr(chalk.red(`open: ${error instanceof Error ? error.message : 'Unknown error'}`))
         return 1
       }
     }

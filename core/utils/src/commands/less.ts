@@ -1,17 +1,17 @@
 import path from 'path'
 import ansi from 'ansi-escape-sequences'
 import type { IDisposable } from '@xterm/xterm'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: less [OPTION]... FILE
 View file contents interactively.
 
   FILE    the file to view (if omitted, reads from stdin)
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,13 +21,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -38,7 +38,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let linesRendered = 0
 
       try {
-        const filePath = argv.length > 0 && argv[0] !== undefined && !argv[0].startsWith('-') ? argv[0] : undefined
+        const filePath = ctx.argv.length > 0 && ctx.argv[0] !== undefined && !ctx.argv[0].startsWith('-') ? ctx.argv[0] : undefined
 
         if (filePath) {
           const expandedPath = shell.expandTilde(filePath)
@@ -46,25 +46,25 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           const exists = await shell.context.fs.promises.exists(fullPath)
           if (!exists) {
-            await writelnStderr(process, terminal, `less: ${filePath}: No such file or directory`)
+            await io.writelnErr(`less: ${filePath}: No such file or directory`)
             return 1
           }
 
           const stats = await shell.context.fs.promises.stat(fullPath)
           if (stats.isDirectory()) {
-            await writelnStderr(process, terminal, `less: ${filePath}: Is a directory`)
+            await io.writelnErr(`less: ${filePath}: Is a directory`)
             return 1
           }
 
           const content = await shell.context.fs.promises.readFile(fullPath, 'utf-8')
           lines = content.split('\n')
         } else {
-          if (!process.stdin) {
-            await writelnStderr(process, terminal, 'less: No input provided')
+          if (!io.stdin) {
+            await io.writelnErr('less: No input provided')
             return 1
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           const chunks: string[] = []
 
@@ -245,7 +245,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         terminal.write(ansi.cursor.show)
         terminal.write('\n')
         terminal.listen()
-        await writelnStderr(process, terminal, `less: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`less: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       }
     }

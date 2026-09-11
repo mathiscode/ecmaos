@@ -1,16 +1,16 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cksum [FILE]...
 Print CRC checksum and byte count for each FILE.
 
 If no FILE is specified, or if FILE is -, read standard input.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function calculateCRC32(data: Uint8Array): number {
@@ -40,42 +40,42 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const files: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (!arg.startsWith('-')) {
           files.push(arg)
         } else {
-          await writelnStderr(process, terminal, `cksum: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'cksum --help' for more information.")
+          await io.writelnErr(`cksum: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'cksum --help' for more information.")
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const chunks: Uint8Array[] = []
 
           try {
@@ -108,7 +108,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           try {
             if (fullPath.startsWith('/dev')) {
-              await writelnStderr(process, terminal, `cksum: ${file}: cannot checksum device files`)
+              await io.writelnErr(`cksum: ${file}: cannot checksum device files`)
               continue
             }
 
@@ -117,13 +117,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const crc = calculateCRC32(bytes)
             await writer.write(new TextEncoder().encode(`${crc} ${bytes.length} ${file}\n`))
           } catch (error) {
-            await writelnStderr(process, terminal, `cksum: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`cksum: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           }
         }
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `cksum: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`cksum: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

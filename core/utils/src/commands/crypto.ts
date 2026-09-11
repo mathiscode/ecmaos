@@ -1,6 +1,7 @@
 import path from 'path'
 import chalk from 'chalk'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
@@ -69,7 +70,7 @@ const SUPPORTED_KEY_FORMATS: Record<string, KeyFormat> = {
   'spki': 'spki'
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: crypto <subcommand> [options]
 
 Subcommands:
@@ -102,7 +103,7 @@ Examples:
   # Key format conversion
   crypto import --format jwk --input key.json --output key.pem
   crypto export --format pkcs8 --input key.pem --output key.json`
-  void writelnStderr(process, terminal, usage)
+  void io.writelnErr(usage)
 }
 
 function toArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
@@ -1446,23 +1447,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        printUsage(process, terminal)
+      if (ctx.argv.length === 0) {
+        printUsage(io)
         return 0
       }
 
-      const subcommand = argv[0]?.toLowerCase()
-      const subArgs = argv.slice(1)
+      const subcommand = ctx.argv[0]?.toLowerCase()
+      const subArgs = ctx.argv.slice(1)
 
       try {
         switch (subcommand) {
@@ -1485,12 +1486,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           case 'random':
             return await handleRandom(shell, terminal, process, subArgs)
           default:
-            await writelnStderr(process, terminal, chalk.red(`Error: Unknown subcommand: ${subcommand}`))
-            await writelnStderr(process, terminal, 'Run "crypto --help" for usage information')
+            await io.writelnErr(chalk.red(`Error: Unknown subcommand: ${subcommand}`))
+            await io.writelnErr('Run "crypto --help" for usage information')
             return 1
         }
       } catch (error) {
-        await writelnStderr(process, terminal, chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`))
+        await io.writelnErr(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`))
         return 1
       }
     }

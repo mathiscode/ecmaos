@@ -1,14 +1,14 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: touch [OPTION]... FILE...
 Update the access and modification times of each FILE to the current time.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -18,23 +18,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'touch: missing file operand')
-        await writelnStderr(process, terminal, "Try 'touch --help' for more information.")
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('touch: missing file operand')
+        await io.writelnErr("Try 'touch --help' for more information.")
         return 1
       }
 
       let hasError = false
 
-      for (const target of argv) {
+      for (const target of ctx.argv) {
         if (!target || target.startsWith('-')) continue
 
         const fullPath = target ? path.resolve(shell.cwd, target) : shell.cwd
@@ -43,7 +42,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           await shell.context.fs.promises.appendFile(fullPath, '')
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          await writelnStderr(process, terminal, `touch: ${target}: ${errorMessage}`)
+          await io.writelnErr(`touch: ${target}: ${errorMessage}`)
           hasError = true
         }
       }

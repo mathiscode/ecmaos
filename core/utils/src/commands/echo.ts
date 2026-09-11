@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: echo [OPTION]... [STRING]...
 Echo the STRING(s) to standard output.
 
   -e     enable interpretation of backslash escapes
   -n     do not output the trailing newline
   --help display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function interpretEscapes(text: string): string {
@@ -129,11 +129,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length === 0) {
-        await writelnStdout(process, terminal, '')
+      if (ctx.argv.length === 0) {
+        await io.writeln('')
         return 0
       }
 
@@ -142,14 +142,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const textParts: string[] = []
       let i = 0
 
-      while (i < argv.length) {
-        const arg = argv[i]
+      while (i < ctx.argv.length) {
+        const arg = ctx.argv[i]
         if (!arg) {
           i++
           continue
         }
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-n') {
           noNewline = true
@@ -165,7 +165,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           }
           const invalidFlag = flags.find(f => f !== 'n' && f !== 'e')
           if (invalidFlag) {
-            await writelnStdout(process, terminal, `echo: invalid option -- '${invalidFlag}'`)
+            await io.writeln(`echo: invalid option -- '${invalidFlag}'`)
             return 1
           }
         } else {
@@ -181,7 +181,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const output = noNewline ? text : text + '\n'
 
       if (process) {
-        const writer = process.stdout.getWriter()
+        const writer = io.stdout!.getWriter()
         try {
           await writer.write(new TextEncoder().encode(output))
         } finally {

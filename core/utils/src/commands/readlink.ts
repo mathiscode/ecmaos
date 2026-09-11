@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: readlink [OPTION]... FILE...
 Print value of a symbolic link or canonical file name.
 
@@ -11,7 +11,7 @@ Print value of a symbolic link or canonical file name.
   -e, --canonicalize-existing  canonicalize by following every symlink in every component that exists
   -m, --canonicalize-missing   canonicalize by following every symlink in every component, without requirements on components existence
   --help                  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,13 +21,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -36,11 +36,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let canonicalizeMissing = false
       const files: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-f' || arg === '--canonicalize') {
           canonicalize = true
@@ -55,8 +55,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('m')) canonicalizeMissing = true
           const invalidFlags = flags.filter(f => !['f', 'e', 'm'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `readlink: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'readlink --help' for more information.")
+            await io.writelnErr(`readlink: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'readlink --help' for more information.")
             return 1
           }
         } else {
@@ -65,8 +65,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, 'readlink: missing operand')
-        await writelnStderr(process, terminal, "Try 'readlink --help' for more information.")
+        await io.writelnErr('readlink: missing operand')
+        await io.writelnErr("Try 'readlink --help' for more information.")
         return 1
       }
 
@@ -78,19 +78,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           if (canonicalize || canonicalizeExisting || canonicalizeMissing) {
             const resolved = path.resolve(fullPath)
-            await writelnStdout(process, terminal, resolved)
+            await io.writeln(resolved)
           } else {
             const linkTarget = await shell.context.fs.promises.readlink(fullPath)
-            await writelnStdout(process, terminal, linkTarget)
+            await io.writeln(linkTarget)
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           if (errorMessage.includes('not a symlink') || errorMessage.includes('EINVAL')) {
-            await writelnStderr(process, terminal, `readlink: ${file}: invalid symlink`)
+            await io.writelnErr(`readlink: ${file}: invalid symlink`)
           } else if (errorMessage.includes('ENOENT') || errorMessage.includes('not found')) {
-            await writelnStderr(process, terminal, `readlink: ${file}: No such file or directory`)
+            await io.writelnErr(`readlink: ${file}: No such file or directory`)
           } else {
-            await writelnStderr(process, terminal, `readlink: ${file}: ${errorMessage}`)
+            await io.writelnErr(`readlink: ${file}: ${errorMessage}`)
           }
           hasError = true
         }

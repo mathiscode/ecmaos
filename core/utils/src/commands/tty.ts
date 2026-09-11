@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: tty [TTY_NUMBER]
 Print the current TTY number or switch to a different TTY.
 
@@ -11,7 +11,7 @@ Print the current TTY number or switch to a different TTY.
 
 If no TTY_NUMBER is provided, prints the current TTY number.
 If TTY_NUMBER is provided, switches to that TTY.`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,38 +21,38 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStdout(process, terminal, kernel.activeTty.toString())
+      if (ctx.argv.length === 0) {
+        await io.writeln(kernel.activeTty.toString())
         return 0
       }
 
-      if (argv.length > 1) {
-        await writelnStderr(process, terminal, 'tty: too many arguments')
-        await writelnStderr(process, terminal, "Try 'tty --help' for more information.")
+      if (ctx.argv.length > 1) {
+        await io.writelnErr('tty: too many arguments')
+        await io.writelnErr("Try 'tty --help' for more information.")
         return 1
       }
 
-      const ttyNumber = parseInt(argv[0] ?? '0', 10)
+      const ttyNumber = parseInt(ctx.argv[0] ?? '0', 10)
 
       if (isNaN(ttyNumber)) {
-        await writelnStderr(process, terminal, `tty: invalid TTY number '${argv[0]}'`)
-        await writelnStderr(process, terminal, "Try 'tty --help' for more information.")
+        await io.writelnErr(`tty: invalid TTY number '${ctx.argv[0]}'`)
+        await io.writelnErr("Try 'tty --help' for more information.")
         return 1
       }
 
       if (ttyNumber < 0 || ttyNumber > 7) {
-        await writelnStderr(process, terminal, `tty: TTY number must be between 0 and 7`)
-        await writelnStderr(process, terminal, "Try 'tty --help' for more information.")
+        await io.writelnErr(`tty: TTY number must be between 0 and 7`)
+        await io.writelnErr("Try 'tty --help' for more information.")
         return 1
       }
 
@@ -60,7 +60,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         await kernel.switchTty(ttyNumber)
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `tty: failed to switch to TTY ${ttyNumber}: ${error instanceof Error ? error.message : String(error)}`)
+        await io.writelnErr(`tty: failed to switch to TTY ${ttyNumber}: ${error instanceof Error ? error.message : String(error)}`)
         return 1
       }
     }

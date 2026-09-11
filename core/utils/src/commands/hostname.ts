@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: hostname [OPTION]
 Print the system hostname.
 
   -f, --fqdn              print the FQDN (Fully Qualified Domain Name)
   -s, --short             print the short hostname
   --help                  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,13 +19,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -33,11 +33,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let showShort = false
       const args: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-f' || arg === '--fqdn') {
           showFqdn = true
@@ -49,8 +49,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('s')) showShort = true
           const invalidFlags = flags.filter(f => !['f', 's'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `hostname: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'hostname --help' for more information.")
+            await io.writelnErr(`hostname: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'hostname --help' for more information.")
             return 1
           }
         } else {
@@ -59,20 +59,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (args.length > 0) {
-        await writelnStderr(process, terminal, 'hostname: invalid argument')
-        await writelnStderr(process, terminal, "Try 'hostname --help' for more information.")
+        await io.writelnErr('hostname: invalid argument')
+        await io.writelnErr("Try 'hostname --help' for more information.")
         return 1
       }
 
       const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
 
       if (showFqdn) {
-        await writelnStdout(process, terminal, hostname)
+        await io.writeln(hostname)
       } else if (showShort) {
         const shortName = hostname.split('.')[0]
-        await writelnStdout(process, terminal, shortName ?? hostname)
+        await io.writeln(shortName ?? hostname)
       } else {
-        await writelnStdout(process, terminal, hostname)
+        await io.writeln(hostname)
       }
 
       return 0

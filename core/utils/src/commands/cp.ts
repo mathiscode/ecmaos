@@ -1,16 +1,17 @@
 import path from 'path'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
+import { writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
 
   -r, -R, --recursive   copy directories recursively
   -v, --verbose         explain what is being done
   --help                display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function copyRecursive(
@@ -54,11 +55,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -66,7 +67,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let verbose = false
       const args: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg.startsWith('-') && arg !== '--') {
           if (arg === '--recursive') {
             recursive = true
@@ -80,8 +81,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               } else if (flag === 'v') {
                 verbose = true
               } else {
-                await writelnStderr(process, terminal, `cp: invalid option -- '${flag}'`)
-                await writelnStderr(process, terminal, "Try 'cp --help' for more information.")
+                await io.writelnErr(`cp: invalid option -- '${flag}'`)
+                await io.writelnErr("Try 'cp --help' for more information.")
                 return 1
               }
             }
@@ -92,8 +93,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (args.length < 2) {
-        await writelnStderr(process, terminal, 'cp: missing file operand')
-        await writelnStderr(process, terminal, "Try 'cp --help' for more information.")
+        await io.writelnErr('cp: missing file operand')
+        await io.writelnErr("Try 'cp --help' for more information.")
         return 1
       }
 
@@ -101,7 +102,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const destination = args[args.length - 1]
 
       if (!destination) {
-        await writelnStderr(process, terminal, 'cp: missing destination file operand')
+        await io.writelnErr('cp: missing destination file operand')
         return 1
       }
 
@@ -112,7 +113,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const isDestinationDir = destinationStats?.isDirectory()
 
         if (sources.length > 1 && !isDestinationDir) {
-          await writelnStderr(process, terminal, `cp: target '${destination}' is not a directory`)
+          await io.writelnErr(`cp: target '${destination}' is not a directory`)
           return 1
         }
 
@@ -129,7 +130,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             if (sourceStats.isDirectory()) {
               if (!recursive) {
-                await writelnStderr(process, terminal, `cp: -r not specified; omitting directory '${source}'`)
+                await io.writelnErr(`cp: -r not specified; omitting directory '${source}'`)
                 hasError = true
                 continue
               }
@@ -154,18 +155,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 const relativeDest = isDestinationDir 
                   ? path.join(destination, path.basename(source))
                   : destination
-                await writelnStdout(process, terminal, `'${relativeSource}' -> '${relativeDest}'`)
+                await io.writeln(`'${relativeSource}' -> '${relativeDest}'`)
               }
             }
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error)
-            await writelnStderr(process, terminal, `cp: ${source}: ${errorMessage}`)
+            await io.writelnErr(`cp: ${source}: ${errorMessage}`)
             hasError = true
           }
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, `cp: ${errorMessage}`)
+        await io.writelnErr(`cp: ${errorMessage}`)
         hasError = true
       }
 

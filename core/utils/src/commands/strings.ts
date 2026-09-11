@@ -1,15 +1,15 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: strings [OPTION]... [FILE]...
 Print the sequences of printable characters in files.
 
   -n, --bytes=MIN_LEN    print sequences of at least MIN_LEN characters (default: 4)
   --help                 display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function extractStrings(data: Uint8Array, minLen: number): string[] {
@@ -44,35 +44,35 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       let minLen = 4
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-n' || arg === '--bytes') {
-          if (i + 1 < argv.length) {
-            const lenStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const lenStr = ctx.argv[++i]
             if (lenStr !== undefined) {
               const parsed = parseInt(lenStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 minLen = parsed
               } else {
-                await writelnStderr(process, terminal, `strings: invalid minimum length: ${lenStr}`)
+                await io.writelnErr(`strings: invalid minimum length: ${lenStr}`)
                 return 1
               }
             }
@@ -83,7 +83,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             minLen = parsed
           } else {
-            await writelnStderr(process, terminal, `strings: invalid minimum length: ${lenStr}`)
+            await io.writelnErr(`strings: invalid minimum length: ${lenStr}`)
             return 1
           }
         } else if (arg.startsWith('-n')) {
@@ -93,28 +93,28 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (!isNaN(parsed) && parsed > 0) {
               minLen = parsed
             } else {
-              await writelnStderr(process, terminal, `strings: invalid minimum length: ${lenStr}`)
+              await io.writelnErr(`strings: invalid minimum length: ${lenStr}`)
               return 1
             }
           }
         } else if (!arg.startsWith('-')) {
           files.push(arg)
         } else {
-          await writelnStderr(process, terminal, `strings: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'strings --help' for more information.")
+          await io.writelnErr(`strings: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'strings --help' for more information.")
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const chunks: Uint8Array[] = []
 
           try {
@@ -150,7 +150,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           try {
             if (fullPath.startsWith('/dev')) {
-              await writelnStderr(process, terminal, `strings: ${file}: cannot process device files`)
+              await io.writelnErr(`strings: ${file}: cannot process device files`)
               continue
             }
 
@@ -160,13 +160,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               await writer.write(new TextEncoder().encode(str + '\n'))
             }
           } catch (error) {
-            await writelnStderr(process, terminal, `strings: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`strings: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           }
         }
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `strings: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`strings: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

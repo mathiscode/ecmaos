@@ -1,17 +1,17 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: grep [OPTION]... PATTERN [FILE]...
 Search for PATTERN in each FILE.
 
   -i, --ignore-case   ignore case distinctions
   -n, --line-number   print line number with output lines
   --help              display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,13 +21,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -35,9 +35,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let showLineNumbers = false
       const args: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-i' || arg === '--ignore-case') {
           ignoreCase = true
@@ -49,7 +49,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('n')) showLineNumbers = true
           const invalidFlags = flags.filter(f => !['i', 'n'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `grep: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr(`grep: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         } else {
@@ -58,7 +58,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (args.length === 0 || !args[0]) {
-        await writelnStderr(process, terminal, 'grep: pattern is required')
+        await io.writelnErr('grep: pattern is required')
         return 1
       }
 
@@ -70,21 +70,21 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       try {
         regex = new RegExp(pattern, flags)
       } catch (error) {
-        await writelnStderr(process, terminal, `grep: invalid pattern: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`grep: invalid pattern: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
       let exitCode = 0
 
       try {
         if (files.length === 0) {
-          if (!process.stdin) {
-            await writelnStderr(process, terminal, 'grep: No input provided')
+          if (!io.stdin) {
+            await io.writelnErr('grep: No input provided')
             return 1
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           let currentLineNumber = 1
           let buffer = ''
 
@@ -125,7 +125,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `grep: ${file}: cannot search device files`)
+                await io.writelnErr(`grep: ${file}: cannot search device files`)
                 exitCode = 1
                 continue
               }
@@ -170,7 +170,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 await writer.write(new TextEncoder().encode(output))
               }
             } catch (error) {
-              await writelnStderr(process, terminal, `grep: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`grep: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
               exitCode = 1
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)

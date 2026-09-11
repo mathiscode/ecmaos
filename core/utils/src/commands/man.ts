@@ -1,11 +1,11 @@
 import ansi from 'ansi-escape-sequences'
 import path from 'path'
 
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import type { IDisposable } from '@xterm/xterm'
 
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
 interface PackagePath {
   scope?: string
@@ -17,7 +17,7 @@ interface Metadata {
   [key: string]: unknown
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: man [OPTION]... [@scope/]package[/topic[/subtopic...]]
 Display manual pages.
 
@@ -31,7 +31,7 @@ Examples:
   man -l @scope/package          list topics for @scope/package
   man package-name/topic         display topic from package-name
   man @scope/package/docs        display docs/index from @scope/package`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function resolveManPath(shell: Shell, whereArg?: string): string[] {
@@ -510,13 +510,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -524,16 +524,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let topicPath: string | undefined
       let listTopicsFlag = false
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === undefined) continue
 
         if (arg === '--where') {
-          if (i + 1 < argv.length) {
+          if (i + 1 < ctx.argv.length) {
             i++
-            whereArg = argv[i]
+            whereArg = ctx.argv[i]
           } else {
-            await writelnStderr(process, terminal, 'man: missing argument to --where')
+            await io.writelnErr('man: missing argument to --where')
             return 1
           }
         } else if (arg === '--list' || arg === '-l') {
@@ -557,7 +557,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const pkgPath = parsePackagePath(topicPath)
       if (!pkgPath) {
-        await writelnStderr(process, terminal, `man: invalid package path: ${topicPath}`)
+        await io.writelnErr(`man: invalid package path: ${topicPath}`)
         return 1
       }
 
@@ -642,12 +642,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           await displayManPage(terminal, processedContent, documentName)
           return 0
         } catch (error) {
-          await writelnStderr(process, terminal, `man: error reading document: ${error instanceof Error ? error.message : 'Unknown error'}`)
+          await io.writelnErr(`man: error reading document: ${error instanceof Error ? error.message : 'Unknown error'}`)
           return 1
         }
       }
 
-      await writelnStderr(process, terminal, `man: no manual entry for ${topicPath}`)
+      await io.writelnErr(`man: no manual entry for ${topicPath}`)
       return 1
     }
   })

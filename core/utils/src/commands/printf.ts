@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: printf FORMAT [ARGUMENT]...
 Format and print ARGUMENT(s) according to FORMAT.
 
@@ -35,7 +35,7 @@ Conversion specifiers:
   %%      a single %
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function interpretEscapes(text: string): string {
@@ -198,24 +198,24 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0) {
-        await writelnStderr(process, terminal, 'printf: missing format string')
-        await writelnStderr(process, terminal, "Try 'printf --help' for more information.")
+      if (ctx.argv.length === 0) {
+        await io.writelnErr('printf: missing format string')
+        await io.writelnErr("Try 'printf --help' for more information.")
         return 1
       }
 
-      const format = argv[0] || ''
-      const args = argv.slice(1)
+      const format = ctx.argv[0] || ''
+      const args = ctx.argv.slice(1)
 
       let result = ''
       let argIndex = 0
@@ -254,8 +254,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      if (process.stdout) {
-        const writer = process.stdout.getWriter()
+      if (io.stdout) {
+        const writer = io.stdout.getWriter()
         try {
           await writer.write(new TextEncoder().encode(result))
         } finally {
