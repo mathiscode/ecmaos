@@ -30,6 +30,8 @@ export interface Redirection {
 export interface Command {
   type: 'command'
   words: string[]
+  /** Whether each word in `words` (by index) was fully quoted — an unquoted word may still glob */
+  wordsQuoted: boolean[]
   redirections: Redirection[]
 }
 
@@ -62,6 +64,8 @@ interface Token {
   value: string
   /** For 'redirect' tokens: the fd prefix, if any (e.g. 2 in `2>`) */
   fd?: number
+  /** For 'word' tokens: whether every character came from inside quotes (so it should not glob) */
+  quoted?: boolean
 }
 
 /**
@@ -74,12 +78,15 @@ export function tokenize(line: string): Token[] {
   let i = 0
   let current = ''
   let currentHasContent = false
+  /** True only if every character appended to `current` so far came from inside quotes */
+  let currentAllQuoted = true
 
   const flush = () => {
     if (currentHasContent) {
-      tokens.push({ kind: 'word', value: current })
+      tokens.push({ kind: 'word', value: current, quoted: currentAllQuoted })
       current = ''
       currentHasContent = false
+      currentAllQuoted = true
     }
   }
 
@@ -89,6 +96,7 @@ export function tokenize(line: string): Token[] {
     if (char === '\\' && i + 1 < line.length) {
       current += line[i + 1]
       currentHasContent = true
+      currentAllQuoted = false
       i += 2
       continue
     }
@@ -148,6 +156,7 @@ export function tokenize(line: string): Token[] {
 
     current += char
     currentHasContent = true
+    currentAllQuoted = false
     i++
   }
 
@@ -197,6 +206,7 @@ class Parser {
 
   private parseCommand(): Command {
     const words: string[] = []
+    const wordsQuoted: boolean[] = []
     const redirections: Redirection[] = []
 
     while (!this.atEnd()) {
@@ -216,13 +226,14 @@ class Parser {
 
       this.advance()
       words.push(token.value)
+      wordsQuoted.push(token.quoted ?? false)
     }
 
     if (words.length === 0 && redirections.length === 0) {
       throw new ParseError('Expected a command')
     }
 
-    return { type: 'command', words, redirections }
+    return { type: 'command', words, wordsQuoted, redirections }
   }
 
   private buildRedirection(token: Token, target: string): Redirection {

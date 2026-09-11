@@ -145,6 +145,28 @@ describe('shell-parser', () => {
     })
   })
 
+  describe('parseScript — quote tracking for glob eligibility', () => {
+    it('marks an unquoted word as not quoted, so it remains glob-eligible', () => {
+      const command = firstCommand(parseScript('echo *.txt'))
+      expect(command.wordsQuoted).toEqual([false, false])
+    })
+
+    it('marks a fully quoted word as quoted, so a literal * does not glob', () => {
+      const command = firstCommand(parseScript('echo "*.txt"'))
+      expect(command.wordsQuoted).toEqual([false, true])
+    })
+
+    it('marks a single-quoted word as quoted', () => {
+      const command = firstCommand(parseScript("echo '*.txt'"))
+      expect(command.wordsQuoted).toEqual([false, true])
+    })
+
+    it('marks a backslash-escaped character as making the word not fully quoted', () => {
+      const command = firstCommand(parseScript('echo \\*.txt'))
+      expect(command.wordsQuoted).toEqual([false, false])
+    })
+  })
+
   describe('parseScript — redirection as tokens, not regex over the whole line', () => {
     it('parses a redirection that would corrupt a naive regex-strip if the target looked like an operator', () => {
       const script = parseScript('echo "a > b"')
