@@ -13,6 +13,7 @@ import type {
   UsersOptions
 } from '@ecmaos/types'
 import { createCredentials, Credentials } from '@zenfs/core'
+import { deriveAesKey, fromBase64, generateKeySalt, hashPassword, isLegacyHash, toBase64, verifyPassword } from './lib/credentials.ts'
 
 export class Users {
   private _options: UsersOptions
@@ -47,8 +48,7 @@ export class Users {
     // TODO: validate
     const unhashedPassword = user.password
     if (!options.noHash) {
-      const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(unhashedPassword.trim()))
-      user.password = Array.from(new Uint8Array(hashedPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
+      user.password = await hashPassword(unhashedPassword)
     }
 
     if (!options.noHome) {
@@ -60,18 +60,10 @@ export class Users {
       const privateKey = await crypto.subtle.exportKey('jwk', keyPair.privateKey)
       const publicKey = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
 
-      // Pad password to 32 bytes (256 bits) for AES-256
-      const paddedPassword = new TextEncoder().encode(unhashedPassword.padEnd(32, '\0')).slice(0, 32)
-
+      const keySalt = generateKeySalt()
       let aesKey
       try {
-        aesKey = await crypto.subtle.importKey(
-          'raw',
-          paddedPassword,
-          'AES-GCM',
-          false,
-          ['encrypt', 'decrypt']
-        )
+        aesKey = await deriveAesKey(unhashedPassword, keySalt)
       } catch (err) {
         console.error(err)
         throw err
@@ -84,10 +76,8 @@ export class Users {
         new TextEncoder().encode(JSON.stringify(privateKey))
       )
 
-      const encryptedData = new Uint8Array(iv.length + encryptedPrivateKeyBuffer.byteLength)
-      encryptedData.set(iv)
-      encryptedData.set(new Uint8Array(encryptedPrivateKeyBuffer), iv.length)
-      const encryptedPrivateKey = btoa(String.fromCharCode(...encryptedData))
+      // Store as keySalt:iv:ciphertext, each base64, so unwrapping doesn't need a re-derivation guess
+      const encryptedPrivateKey = `${toBase64(keySalt)}:${toBase64(iv)}:${toBase64(new Uint8Array(encryptedPrivateKeyBuffer))}`
 
       user.keypair = { publicKey }
       if (!options.noWrite) await this.fs.appendFile('/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { encoding: 'utf-8', mode: 0o700 })
@@ -166,9 +156,15 @@ export class Users {
       matchingPasskey.lastUsed = Date.now()
       await this.savePasskeys(user.uid, passkeys)
     } else if (password) {
-      const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password.trim()))
-      if (user.password !== Array.from(new Uint8Array(hashedPassword)).map(b => b.toString(16).padStart(2, '0')).join('')) {
+      if (!(await verifyPassword(password, user.password))) {
         throw new Error('Invalid username or password')
+      }
+
+      // A successful login with a legacy (unsalted SHA-256, or unsalted zero-padded AES key)
+      // credential is the one safe moment to migrate it in place: we have the plaintext
+      // password in hand, and the user has just proven they own the account.
+      if (isLegacyHash(user.password)) {
+        await this.migrateLegacyCredentials(user, password)
       }
     } else {
       throw new Error('Password or passkey required')
@@ -190,16 +186,94 @@ export class Users {
     if (!user) throw new Error(this._options.context.i18n.t('User not found'))
 
     try {
-      const hashedOldPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(oldPassword.trim()))
-      if (user.password !== Array.from(new Uint8Array(hashedOldPassword)).map(b => b.toString(16).padStart(2, '0')).join('')) throw new Error('Invalid password')
+      if (!(await verifyPassword(oldPassword, user.password))) throw new Error('Invalid password')
 
-      const hashedNewPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword.trim()))
-      user.password = Array.from(new Uint8Array(hashedNewPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
+      user.password = await hashPassword(newPassword)
+      await this.rewrapPrivateKey(user, newPassword)
       await this.update(user.uid, user)
+      await this.writeShadowEntry(user)
       await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
     } catch (err) {
       console.error(err)
       throw err
+    }
+  }
+
+  /**
+   * Re-encrypt the given /etc/shadow line for one user with its current in-memory password hash
+   * and keypair, leaving every other user's line untouched.
+   */
+  private async writeShadowEntry(user: User): Promise<void> {
+    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8')
+    const lines = shadow.split('\n').filter((l: string) => l.trim() !== '' && !l.startsWith(`${user.username}:`))
+    const publicKeyB64 = btoa(JSON.stringify(user.keypair?.publicKey))
+    const encryptedPrivateKey = user.keypair?.privateKey ?? ''
+    lines.push(`${user.username}:${user.uid}:${user.gid}:${user.password}:${publicKeyB64}:${encryptedPrivateKey}`)
+    await this.fs.writeFile('/etc/shadow', lines.join('\n') + '\n', { encoding: 'utf-8', mode: 0o700 })
+  }
+
+  /**
+   * Re-wrap a user's ECDSA private key under a freshly derived AES key for a new password.
+   * Requires the private key to already be decryptable with the *old* password -- call this
+   * before overwriting `user.password`'s in-memory value is not required, only that the caller
+   * has already verified the old password and still holds the plaintext new password.
+   */
+  private async rewrapPrivateKey(user: User, newPassword: string, oldPassword?: string): Promise<void> {
+    if (!user.keypair?.privateKey || typeof user.keypair.privateKey !== 'string') return
+
+    const privateKeyJwk = await this.decryptPrivateKey(user.keypair.privateKey, oldPassword ?? newPassword, user)
+    if (!privateKeyJwk) return
+
+    const keySalt = generateKeySalt()
+    const aesKey = await deriveAesKey(newPassword, keySalt)
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, new TextEncoder().encode(JSON.stringify(privateKeyJwk)))
+    user.keypair.privateKey = `${toBase64(keySalt)}:${toBase64(iv)}:${toBase64(new Uint8Array(encrypted))}`
+  }
+
+  /**
+   * Decrypt a wrapped private key, transparently handling both the current keySalt:iv:ciphertext
+   * format and the legacy format (iv+ciphertext only, key derived by zero-padding the password).
+   */
+  private async decryptPrivateKey(wrapped: string, password: string, _user: User): Promise<JsonWebKey | null> {
+    try {
+      const parts = wrapped.split(':')
+      if (parts.length === 3) {
+        const [saltB64, ivB64, dataB64] = parts as [string, string, string]
+        const aesKey = await deriveAesKey(password, fromBase64(saltB64))
+        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(ivB64) as BufferSource }, aesKey, fromBase64(dataB64) as BufferSource)
+        return JSON.parse(new TextDecoder().decode(decrypted))
+      }
+
+      // Legacy format: base64(iv ++ ciphertext), key = password zero-padded to 32 bytes
+      const raw = fromBase64(wrapped)
+      const iv = raw.slice(0, 12)
+      const data = raw.slice(12)
+      const paddedPassword = new TextEncoder().encode(password.padEnd(32, '\0')).slice(0, 32)
+      const aesKey = await crypto.subtle.importKey('raw', paddedPassword as BufferSource, 'AES-GCM', false, ['decrypt'])
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, aesKey, data as BufferSource)
+      return JSON.parse(new TextDecoder().decode(decrypted))
+    } catch (error) {
+      this._options.context.log.warn(`Failed to decrypt private key: ${error}`)
+      return null
+    }
+  }
+
+  /**
+   * Migrate a user's on-disk credentials from the legacy unsalted-SHA-256 password hash and
+   * legacy zero-padded-AES key wrapping to PBKDF2 + salted AES-GCM, in place, using the
+   * plaintext password from the login that just succeeded against the legacy hash.
+   */
+  private async migrateLegacyCredentials(user: User, password: string): Promise<void> {
+    try {
+      user.password = await hashPassword(password)
+      await this.rewrapPrivateKey(user, password, password)
+      this._users.set(user.uid, user)
+      await this.writeShadowEntry(user)
+      this._options.context.log.info(`Migrated legacy credentials for user ${user.username} to PBKDF2`)
+    } catch (error) {
+      // Migration is best-effort: a failure here must not block the login that already succeeded.
+      this._options.context.log.warn(`Failed to migrate legacy credentials for user ${user.username}: ${error}`)
     }
   }
 
