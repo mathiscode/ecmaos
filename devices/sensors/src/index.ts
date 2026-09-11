@@ -107,7 +107,7 @@ Commands:
 export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = [{
     name: 'sensors',
-    init: () => ({ major: 0, minor: 0, data: { kernelId: ctx.id, version: pkg.version } }),
+    init: () => ({ major: 10, minor: 102, data: { kernelId: ctx.id, version: pkg.version } }),
     read: () => 0,
     write: () => 0
   }]
