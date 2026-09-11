@@ -1870,7 +1870,7 @@ export class Kernel implements IKernel {
             }
             
             // Filesystem types that don't require a source
-            const noSourceTypes = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'xml', 'dropbox', 'googledrive']
+            const noSourceTypes = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
             
             // Add source only if provided AND filesystem type requires it
             if (source && !noSourceTypes.includes(type.toLowerCase())) {
