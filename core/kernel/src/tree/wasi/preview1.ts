@@ -2318,9 +2318,51 @@ export default function createWasiPreview1Bindings({
       return 0
     },
 
-    poll_oneoff: (_in: number, _out: number, _nsubscriptions: number, _nevents: number): number => {
-      ignore(_in, _out, _nsubscriptions, _nevents)
-      return 52
+    // WASI `subscription_t` is 48 bytes: an 8-byte userdata tag, then a `subscription_u` union
+    // discriminated by a 1-byte eventtype at offset 8 (0 = clock, 1 = fd_read, 2 = fd_write),
+    // followed by padding to the union's payload at offset 16.
+    //   clock:         8-byte clock_id, 8-byte timeout (ns), 8-byte precision (ns), 2-byte flags
+    //   fd_read/write: 4-byte fd
+    // `event_t` is 32 bytes: 8-byte userdata, 2-byte error (errno), 1-byte eventtype, 5 bytes
+    // padding, then an 8-byte union payload (fd_readwrite: 8-byte nbytes, 2-byte flags).
+    //
+    // This resolves every subscription immediately rather than truly blocking: fd_read/fd_write
+    // report ready right away (this file's fds are regular files or already-buffered stdio, never
+    // genuinely not-yet-ready outside of stdin -- see fd_read's own asyncify-only blocking path),
+    // and a clock subscription with a nonzero timeout is reported ready immediately too, since
+    // nothing here can suspend a non-asyncify module to actually wait out a duration. A module
+    // built with asyncify that wants a real sleep should still get correct behavior from the
+    // unwind/rewind machinery around fd_read, not from this call blocking.
+    poll_oneoff: (subscriptionsPtr: number, eventsPtr: number, nsubscriptions: number, neventsPtr: number): number => {
+      const view = new DataView(activeMemory.buffer)
+      const SUBSCRIPTION_SIZE = 48
+      const EVENT_SIZE = 32
+
+      let eventCount = 0
+      for (let i = 0; i < nsubscriptions; i++) {
+        const subscriptionBase = subscriptionsPtr + i * SUBSCRIPTION_SIZE
+        const userdata = view.getBigUint64(subscriptionBase, true)
+        const type = view.getUint8(subscriptionBase + 8)
+
+        let error = 0
+        if (type === 1 || type === 2) {
+          const fd = view.getUint32(subscriptionBase + 16, true)
+          if (fd !== 0 && !getFileHandle(fd)) error = 8 // EBADF
+        } else if (type !== 0) {
+          error = 28 // EINVAL: unrecognized eventtype
+        }
+
+        const eventBase = eventsPtr + eventCount * EVENT_SIZE
+        view.setBigUint64(eventBase, userdata, true)
+        view.setUint16(eventBase + 8, error, true)
+        view.setUint8(eventBase + 10, type)
+        view.setBigUint64(eventBase + 16, 0n, true) // fd_readwrite.nbytes: unknown, 0 is not an error
+        view.setUint16(eventBase + 24, 0, true) // fd_readwrite.flags
+        eventCount++
+      }
+
+      view.setUint32(neventsPtr, eventCount, true)
+      return 0
     },
 
     fd_prestat_get: (fd: number, buf: number): number => {
