@@ -313,6 +313,28 @@ export interface KernelExecuteOptions {
   stdout?: WritableStream<Uint8Array>
   stdoutIsTTY?: boolean
   stderr?: WritableStream<Uint8Array>
+  /**
+   * Called synchronously once a real `@zenfs/linux` `Process` has been constructed for this stage
+   * (currently only `Kernel.executeViaExecve`'s `js`/`node` binfmt path), before the caller awaits
+   * its completion. This is the only way `Shell`'s job table gets a signalable handle for `^C`/`^Z`/
+   * `fg`/`bg` -- `ShellExecute` otherwise only returns the eventual exit code, too late to attach a
+   * live handle to a `Job` while the stage is still running. A stage that never goes through a real
+   * `Process` (any coreutil, which runs synchronously in the shell's own tick) never calls this.
+   */
+  onProcess?: (process: JobProcessHandle) => void
+}
+
+/**
+ * The minimal slice of `@zenfs/linux`'s `Process` that job control needs: enough to signal it and
+ * to know its status, without `core/types` depending on `@zenfs/linux`'s `Process` class directly
+ * everywhere `KernelExecuteOptions` is used. `core/kernel` passes the real thing; it happens to
+ * satisfy this shape already.
+ */
+export interface JobProcessHandle {
+  readonly pid: number
+  readonly stopped: boolean
+  readonly exited: Promise<number>
+  kill(signal: number | string): boolean
 }
 
 /**

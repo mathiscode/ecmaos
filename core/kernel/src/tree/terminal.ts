@@ -14,7 +14,7 @@ import spinners from 'cli-spinners'
 // import * as textCanvas from '@thi.ng/text-canvas'
 // import * as textFormat from '@thi.ng/text-format'
 import * as emoji from '@thi.ng/emoji'
-import { attach_xterm, detach_xterm } from '@zenfs/linux'
+import { attach_xterm, detach_xterm, Signal } from '@zenfs/linux'
 import type { TTY } from '@zenfs/linux'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
 import { AttachAddon } from '@xterm/addon-attach'
@@ -181,11 +181,14 @@ export class Terminal extends XTerm implements ITerminal {
   /**
    * This terminal's `@zenfs/linux` TTY, once attached in `mount()`.
    *
-   * Attached with `input: false` for now: line discipline, `^C`-as-SIGINT, and job control need a
-   * real Process to signal, which does not exist until the overhaul's process-model phase adopts
-   * `@zenfs/linux`'s `Process`/`Thread`. Until then this only gives the terminal a real
-   * `/dev/xterm<n>` node and SIGWINCH on resize; keystrokes still flow through keyHandler and the
-   * stdin subscriber fan-out below, unchanged.
+   * Attached with `input: false`: real terminal line discipline (kernel-side canonical mode, echo,
+   * etc.) still isn't wired up here -- keystrokes flow through `keyHandler` and the stdin subscriber
+   * fan-out below, unchanged. `^C`-as-SIGINT and `^Z`-as-SIGTSTP *are* now real for a foreground job
+   * backed by an actual `@zenfs/linux` Process (`keyHandler`'s `c`/`z` cases signal
+   * `Shell.foregroundJob`'s process handles directly) -- but only for that case: a coreutil pipeline
+   * stage runs synchronously in the shell's own tick and has no process to signal at all, so `^C`/
+   * `^Z` there only ever reset the line editor, same as before job control existed. This is a
+   * deliberately partial, honestly-scoped step; full line discipline is still out of scope here.
    */
   private _zfsTty: TTY | undefined
   /**
@@ -1205,14 +1208,43 @@ export class Terminal extends XTerm implements ITerminal {
 
     if (domEvent.ctrlKey) {
       switch (keyName) {
-        case 'c':
+        case 'c': {
           this.events.dispatch<TerminalInterruptEvent>(TerminalEvents.INTERRUPT, { terminal: this })
+
+          // Real signal delivery: only a foreground job backed by an actual `@zenfs/linux` Process
+          // (i.e. a stage that went through `Kernel.executeViaExecve` -- the `js`/`node` binfmt
+          // path) can genuinely be interrupted mid-execution. A coreutil pipeline stage runs
+          // synchronously in the shell's own tick and can't be pre-empted by anything JS's
+          // single-threaded model does here; `^C` still resets the line editor below regardless,
+          // which is what actually stops the *prompt* from being stuck, same as before this existed.
+          const job = this._shell?.foregroundJob
+          if (job) for (const process of job.processes) process.kill(Signal.INT)
+
           this._cmd = ''
           this._cursorPosition = 0
           this.unlisten()
           this.write('\n' + this.prompt())
           this.listen()
           return
+        }
+        case 'z': {
+          // `^Z`: SIGTSTP to the foreground job's real process(es), if any, and mark the job
+          // stopped -- same honest scope as `^C` above, nothing more. Returns control to the
+          // prompt exactly like `^C` does; `fg %N` is what resumes a stopped job (SIGCONT).
+          const job = this._shell?.foregroundJob
+          if (job) {
+            for (const process of job.processes) process.kill(Signal.TSTP)
+            job.status = 'stopped'
+            this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
+          }
+
+          this._cmd = ''
+          this._cursorPosition = 0
+          this.unlisten()
+          this.write(this.prompt())
+          this.listen()
+          return
+        }
         case 'l':
           return this.clear()
         case 'v':
