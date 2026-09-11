@@ -4,11 +4,14 @@ import { FDTable } from '#fdtable.ts'
 import { ProcessEvents, ProcessStatus, FileHandle } from '@ecmaos/types'
 
 import type {
+  Filesystem,
   Kernel,
+  KernelContext,
   Shell,
   Terminal,
   Process as IProcess,
   ProcessEntryParams,
+  ProcessManager as IProcessManager,
   ProcessOptions,
   ProcessesMap,
   ProcessExitEvent,
@@ -58,14 +61,18 @@ export class Process implements IProcess {
   private _args: string[]
   private _code?: number
   private _command: string
+  private _ctx: KernelContext
   private _cwd: string
   private _entry: (params: ProcessEntryParams) => Promise<number | undefined | void>
   private _events: Events
   private _fdtable: FDTable
+  private _filesystem: Filesystem
   private _gid: number
+  /** Only used to populate ProcessEntryParams.kernel -- see ProcessOptions.kernel's doc comment */
   private _kernel: Kernel
   private _pid: number
   private _parent?: number
+  private _processes: IProcessManager
   private _shell: Shell
   private _status: ProcessStatus = 'stopped'
   private _stderr: WritableStream<Uint8Array>
@@ -101,28 +108,30 @@ export class Process implements IProcess {
   set parent(parent: number | undefined) { this._parent = parent }
 
   constructor(options: ProcessOptions) {
-    if (!options.kernel) throw new Error('Kernel is required')
     this._args = options.args || []
     this._command = options.command || ''
     this._cwd = options.cwd || options.shell?.cwd || '/'
-    this._entry = options.entry || ((params: ProcessEntryParams) => { options.kernel?.log.silly(params); return Promise.resolve(0) })
+    this._ctx = options.context
+    this._entry = options.entry || ((params: ProcessEntryParams) => { this._ctx.log.silly(params); return Promise.resolve(0) })
     this._events = new Events()
+    this._filesystem = options.filesystem
     this._gid = options.gid
     this._kernel = options.kernel
-    this._pid = this._kernel.processes.pid()
+    this._processes = options.processes
+    this._pid = this._processes.pid()
     this._parent = options.parent
-    this._shell = options.shell || this.kernel.shell
-    this._terminal = options.terminal || this.kernel.terminal
+    this._shell = options.shell
+    this._terminal = options.terminal
     this._uid = options.uid
 
-    this._stdin = options.stdin || this.terminal.getInputStream()
+    this._stdin = options.stdin || this._terminal.getInputStream()
     this._stdinIsTTY = options.stdinIsTTY ?? (options.stdin ? false : true)
-    this._stdout = options.stdout || this.terminal.stdout || new WritableStream()
+    this._stdout = options.stdout || this._terminal.stdout || new WritableStream()
     this._stdoutIsTTY = options.stdoutIsTTY ?? (options.stdout ? false : true)
-    this._stderr = options.stderr || this.terminal.stderr || new WritableStream()
+    this._stderr = options.stderr || this._terminal.stderr || new WritableStream()
     this._fdtable = new FDTable(this._stdin, this._stdout, this._stderr)
 
-    this.kernel.processes.add(this as IProcess)
+    this._processes.add(this as IProcess)
   }
 
   /**
@@ -133,7 +142,7 @@ export class Process implements IProcess {
    * @returns The file handle
    */
   async open(path: string, flags: string = 'r'): Promise<FileHandle> {
-    const handle = await this.kernel.filesystem.fs.open(path, flags)
+    const handle = await this._filesystem.fs.open(path, flags)
     this._fdtable.trackFileHandle(handle as FileHandle)
     return handle as FileHandle
   }
@@ -153,7 +162,7 @@ export class Process implements IProcess {
     }
 
     this.events.clear()
-    this.kernel.processes.remove(this.pid)
+    this._processes.remove(this.pid)
 
     // Close tracked ZenFS file handles (automatically closes any open files)
     await this._fdtable.cleanup()
@@ -204,7 +213,7 @@ export class Process implements IProcess {
   keepAlive() {
     this._keepAlive = true
     this.createPidFile().catch(err => {
-      this.kernel.log.warn(`Failed to create PID file: ${err instanceof Error ? err.message : String(err)}`)
+      this._ctx.log.warn(`Failed to create PID file: ${err instanceof Error ? err.message : String(err)}`)
     })
   }
 
@@ -215,12 +224,12 @@ export class Process implements IProcess {
     const pidFile = `${pidDir}/${this.pid}.pid`
 
     try {
-      if (!(await this.kernel.filesystem.fs.exists(pidDir))) {
-        await this.kernel.filesystem.fs.mkdir(pidDir, { recursive: true, mode: 0o755 })
+      if (!(await this._filesystem.fs.exists(pidDir))) {
+        await this._filesystem.fs.mkdir(pidDir, { recursive: true, mode: 0o755 })
       }
-      await this.kernel.filesystem.fs.writeFile(pidFile, `${this.pid}\n`)
+      await this._filesystem.fs.writeFile(pidFile, `${this.pid}\n`)
     } catch (err) {
-      this.kernel.log.warn(`Could not write PID file ${pidFile}: ${err instanceof Error ? err.message : String(err)}`)
+      this._ctx.log.warn(`Could not write PID file ${pidFile}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -229,17 +238,17 @@ export class Process implements IProcess {
 
     const pidFile = `/run/${this.command}/${this.pid}.pid`
     try {
-      if (await this.kernel.filesystem.fs.exists(pidFile)) {
-        await this.kernel.filesystem.fs.unlink(pidFile)
+      if (await this._filesystem.fs.exists(pidFile)) {
+        await this._filesystem.fs.unlink(pidFile)
 
         const pidDir = `/run/${this.command}`
-        const entries = await this.kernel.filesystem.fs.readdir(pidDir)
+        const entries = await this._filesystem.fs.readdir(pidDir)
         if (entries.length === 0) {
-          await this.kernel.filesystem.fs.rmdir(pidDir)
+          await this._filesystem.fs.rmdir(pidDir)
         }
       }
     } catch (err) {
-      this.kernel.log.warn(`Could not remove PID file ${pidFile}: ${err instanceof Error ? err.message : String(err)}`)
+      this._ctx.log.warn(`Could not remove PID file ${pidFile}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 

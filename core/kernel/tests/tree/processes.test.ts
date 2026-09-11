@@ -33,6 +33,9 @@ describe('Process Manager', () => {
       }),
       uid: 0,
       gid: 0,
+      context: kernel.context,
+      filesystem: kernel.filesystem,
+      processes: kernel.processes,
       kernel,
       shell: kernel.shell,
       terminal: kernel.terminal
@@ -48,6 +51,54 @@ describe('Process Manager', () => {
         if (kernel.processes.get(pid)) return reject('Process was not removed from the manager')
         resolve(code)
       })
+    })
+  })
+
+  describe('constructor dependencies', () => {
+    it('uses the injected filesystem and context directly for PID files, not a Kernel back-reference', async () => {
+      const process = new Process({
+        entry: () => new Promise(resolve => setTimeout(() => resolve(0), 50)),
+        uid: 0,
+        gid: 0,
+        command: 'pidfile-test',
+        context: kernel.context,
+        filesystem: kernel.filesystem,
+        processes: kernel.processes,
+        kernel,
+        shell: kernel.shell,
+        terminal: kernel.terminal
+      })
+
+      process.keepAlive()
+      const started = process.start()
+
+      // keepAlive's PID file write is fire-and-forget; give it a tick to land before the entry
+      // (which resolves after 50ms) finishes. keepAlive means start() never auto-stops, so the
+      // file is expected to persist -- this only proves the write went through kernel.filesystem.
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(await kernel.filesystem.fs.exists(`/run/pidfile-test/${process.pid}.pid`)).toBe(true)
+
+      await started
+      await process.stop()
+      expect(await kernel.filesystem.fs.exists(`/run/pidfile-test/${process.pid}.pid`)).toBe(false)
+    })
+
+    it('only reads options.kernel to populate ProcessEntryParams.kernel for the entry callback', async () => {
+      let receivedKernel: unknown
+      const process = new Process({
+        entry: async params => { receivedKernel = params.kernel; return 0 },
+        uid: 0,
+        gid: 0,
+        context: kernel.context,
+        filesystem: kernel.filesystem,
+        processes: kernel.processes,
+        kernel,
+        shell: kernel.shell,
+        terminal: kernel.terminal
+      })
+
+      await process.start()
+      expect(receivedKernel).toBe(kernel)
     })
   })
 
@@ -74,6 +125,9 @@ describe('Process Manager', () => {
         entry: () => Promise.resolve(0),
         uid: 0,
         gid: 0,
+        context: kernel.context,
+        filesystem: kernel.filesystem,
+        processes: kernel.processes,
         kernel,
         shell: kernel.shell,
         terminal: kernel.terminal,
@@ -100,6 +154,9 @@ describe('Process Manager', () => {
         entry: () => Promise.resolve(0),
         uid: 0,
         gid: 0,
+        context: kernel.context,
+        filesystem: kernel.filesystem,
+        processes: kernel.processes,
         kernel,
         shell: kernel.shell,
         terminal: kernel.terminal
