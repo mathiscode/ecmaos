@@ -22,7 +22,7 @@ import type { ConfigMounts, Configuration } from '@zenfs/core'
 import type {
   FilesystemConfigMounts,
   FilesystemOptions,
-  Kernel
+  StorageProvider
 } from '@ecmaos/types'
 
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
@@ -61,10 +61,10 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
 export class Filesystem {
   private _config: Configuration<ConfigMounts> = DefaultFilesystemOptions
   private _fs: typeof fs = fs
-  private _kernel: Kernel
+  private _storage: StorageProvider
 
-  constructor(kernel: Kernel) {
-    this._kernel = kernel
+  constructor(storage: StorageProvider) {
+    this._storage = storage
   }
 
   /**
@@ -99,11 +99,6 @@ export class Filesystem {
   get fsSync() { return this._fs }
 
   /**
-   * @returns {Kernel} The kernel instance.
-   */
-  get kernel() { return this._kernel }
-
-  /**
    * @returns {ZenFS.mounts} The mounted filesystems.
    */
   get mounts(): typeof mounts { return mounts }
@@ -118,7 +113,7 @@ export class Filesystem {
     this._config = options as Configuration<ConfigMounts>
     await configureZenFS(options)
     this.registerProcEntries()
-    const fsInitialized = await this.kernel.storage.local.getItem('ecmaos:filesystem:initialized')
+    const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
       try {
@@ -129,7 +124,7 @@ export class Filesystem {
         await this.fs.writeFile('/tmp/initfs.tar', new Uint8Array(arrayBuffer))
         await this.extractTarball('/tmp/initfs.tar', '/')
         await this.fs.unlink('/tmp/initfs.tar')
-        await this.kernel.storage.local.setItem('ecmaos:filesystem:initialized', 'true')
+        await this._storage.local.setItem('ecmaos:filesystem:initialized', 'true')
       } catch (error) {
         globalThis.kernel?.log.error(`Failed to fetch ${import.meta.env['ECMAOS_INITFS']}: ${error}`)
         console.error(error)

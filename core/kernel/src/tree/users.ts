@@ -20,6 +20,8 @@ export class Users {
 
   get all() { return this._users }
 
+  private get fs() { return this._options.filesystem.fs }
+
   constructor(options: UsersOptions) {
     this._options = options
   }
@@ -50,7 +52,7 @@ export class Users {
     }
 
     if (!options.noHome) {
-      await this._options.kernel.filesystem.fs.mkdir(user.home, { recursive: true, mode: 0o750 })
+      await this.fs.mkdir(user.home, { recursive: true, mode: 0o750 })
     }
 
     if (!user.keypair) {
@@ -88,14 +90,14 @@ export class Users {
       const encryptedPrivateKey = btoa(String.fromCharCode(...encryptedData))
 
       user.keypair = { publicKey }
-      if (!options.noWrite) await this._options.kernel.filesystem.fs.appendFile('/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { encoding: 'utf-8', mode: 0o700 })
+      if (!options.noWrite) await this.fs.appendFile('/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { encoding: 'utf-8', mode: 0o700 })
     }
 
-    if (!options.noWrite) await this._options.kernel.filesystem.fs.appendFile('/etc/passwd', `${user.username}:${user.uid}:${user.gid}:${user.groups.join(',')}:${user.home}:${user.shell}\n\n`, { encoding: 'utf-8', mode: 0o700 })
+    if (!options.noWrite) await this.fs.appendFile('/etc/passwd', `${user.username}:${user.uid}:${user.gid}:${user.groups.join(',')}:${user.home}:${user.shell}\n\n`, { encoding: 'utf-8', mode: 0o700 })
     this._users.set(user.uid, user as User)
 
     // Fix user home permissions
-    try { await this._options.kernel.filesystem.fs.chown(user.home, user.uid, user.gid) }
+    try { await this.fs.chown(user.home, user.uid, user.gid) }
     catch {}
   }
 
@@ -110,9 +112,9 @@ export class Users {
    * Load users from the filesystem
    */
   async load() {
-    const { kernel } = this._options
-    const passwd = await kernel.filesystem.fs.readFile('/etc/passwd', 'utf-8')
-    const shadow = await kernel.filesystem.fs.readFile('/etc/shadow', 'utf-8')
+    const { context } = this._options
+    const passwd = await this.fs.readFile('/etc/passwd', 'utf-8')
+    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8')
     for (const line of passwd.split('\n')) {
       if (line.trim() === '' || line.trim() === '\n' || line.startsWith('#')) continue
       const [username, uid, gid, groups, home, shell] = line.split(':')
@@ -122,7 +124,7 @@ export class Users {
       if (shadowEntry) {
         const [,,, password, publicKey, encryptedPrivateKey] = shadowEntry.split(':')
         if (!publicKey || !encryptedPrivateKey) {
-          kernel.log.warn(`User ${username} has no keypair`)
+          context.log.warn(`User ${username} has no keypair`)
           continue
         }
 
@@ -138,7 +140,7 @@ export class Users {
           keypair
         }, { noWrite: true, noHome: true, noHash: true })
       } else {
-        kernel.log.warn(`User ${username} not found in /etc/shadow`)
+        context.log.warn(`User ${username} not found in /etc/shadow`)
       }
     }
   }
@@ -184,8 +186,8 @@ export class Users {
   }
 
   async password(oldPassword: string, newPassword: string) {
-    const user = this._users.get(this._options.kernel.shell.credentials.uid)
-    if (!user) throw new Error(this._options.kernel.i18n.t('User not found'))
+    const user = this._users.get(this._options.getShellCredentials().uid)
+    if (!user) throw new Error(this._options.context.i18n.t('User not found'))
 
     try {
       const hashedOldPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(oldPassword.trim()))
@@ -194,7 +196,7 @@ export class Users {
       const hashedNewPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword.trim()))
       user.password = Array.from(new Uint8Array(hashedNewPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
       await this.update(user.uid, user)
-      await this._options.kernel.filesystem.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
+      await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
     } catch (err) {
       console.error(err)
       throw err
@@ -206,7 +208,7 @@ export class Users {
   */
   async remove(uid: number) {
     this._users.delete(uid)
-    await this._options.kernel.filesystem.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
+    await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
     // we leave the home directory behind for the admin to delete manually
   }
 
@@ -217,7 +219,7 @@ export class Users {
     const existingUser = this._users.get(uid);
     if (existingUser) {
       this._users.set(uid, { ...existingUser, ...user });
-      await this._options.kernel.filesystem.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
+      await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
     } else {
       throw new Error(`User with UID ${uid} not found`);
     }
@@ -232,10 +234,10 @@ export class Users {
 
     const passkeysPath = `${user.home}/.passkeys`
     try {
-      const exists = await this._options.kernel.filesystem.fs.exists(passkeysPath)
+      const exists = await this.fs.exists(passkeysPath)
       if (!exists) return []
 
-      const content = await this._options.kernel.filesystem.fs.readFile(passkeysPath, 'utf-8')
+      const content = await this.fs.readFile(passkeysPath, 'utf-8')
       const parsed = JSON.parse(content) as Array<Omit<Passkey, 'publicKey'> & { publicKey: string }>
       
       return parsed.map(pk => {
@@ -246,7 +248,7 @@ export class Users {
         }
       })
     } catch (error) {
-      this._options.kernel.log.warn(`Failed to read passkeys for user ${uid}: ${error}`)
+      this._options.context.log.warn(`Failed to read passkeys for user ${uid}: ${error}`)
       return []
     }
   }
@@ -271,14 +273,14 @@ export class Users {
       }
     })
 
-    await this._options.kernel.filesystem.fs.writeFile(
+    await this.fs.writeFile(
       passkeysPath,
       JSON.stringify(serialized, null, 2),
       { encoding: 'utf-8', mode: 0o600 }
     )
     
     try {
-      await this._options.kernel.filesystem.fs.chown(passkeysPath, uid, user.gid)
+      await this.fs.chown(passkeysPath, uid, user.gid)
     } catch {}
   }
 

@@ -1,4 +1,4 @@
-import type { Kernel, TelemetryOptions } from '@ecmaos/types'
+import type { KernelContext, TelemetryOptions } from '@ecmaos/types'
 import { trace } from '@opentelemetry/api'
 import { WebTracerProvider } from '@opentelemetry/sdk-trace-web'
 import { ZoneContextManager } from '@opentelemetry/context-zone'
@@ -8,22 +8,21 @@ import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
 
 export class Telemetry {
-  private _kernel: Kernel
+  private _ctx: KernelContext
   private _provider?: WebTracerProvider
   private _active: boolean = false
 
-  get kernel() { return this._kernel }
   get active() { return this._active }
 
   constructor(options: TelemetryOptions) {
-    this._kernel = options.kernel
+    this._ctx = options.context
     const endpoint = import.meta.env.ECMAOS_OPENTELEMETRY_ENDPOINT
 
     if (endpoint) {
       try {
         this._initialize(endpoint)
       } catch (error) {
-        this._kernel.log.error(`Failed to initialize OpenTelemetry: ${error}`)
+        this._ctx.log.error(`Failed to initialize OpenTelemetry: ${error}`)
       }
     }
   }
@@ -58,7 +57,7 @@ export class Telemetry {
     })
 
     this._active = true
-    this._kernel.log.info(`OpenTelemetry initialized with endpoint: ${endpoint}`)
+    this._ctx.log.info(`OpenTelemetry initialized with endpoint: ${endpoint}`)
   }
 
   getTracer(name: string, version?: string) {
