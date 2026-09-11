@@ -6,6 +6,8 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import dts from 'vite-plugin-dts'
 import type { ViteDevServer } from 'vite'
 
+import { binNode } from './vite-plugin-bin-node'
+
 import pkg from './package.json'
 
 const xterm = pkg.dependencies['@xterm/xterm']
@@ -102,6 +104,7 @@ const instantiateCore = (source, imports) => {
 export default defineConfig({
   envPrefix: 'ECMAOS_',
   plugins: [
+    binNode(),
     gzipFixPlugin(),
     jcoBrowserFixPlugin(),
     nodePolyfills({

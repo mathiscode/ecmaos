@@ -60,6 +60,16 @@ describe('Filesystem', async () => {
     await expect(kernel.filesystem.fs.readdir('/tmp/test')).rejects.toThrow()
   })
 
+  it('should write a real, executable /bin/node interpreter at boot', async () => {
+    const stat = await kernel.filesystem.fs.stat('/bin/node')
+    expect(stat.isFile()).toBe(true)
+    expect(stat.mode & 0o111).toBeGreaterThan(0) // executable bits set
+
+    const content = await kernel.filesystem.fs.readFile('/bin/node', 'utf-8')
+    expect(content.length).toBeGreaterThan(0)
+    expect(content).not.toMatch(/^import /m) // must stay a single import-free bundle
+  })
+
   it('should mount /proc and /sys as real pseudo-filesystems', async () => {
     const version = await kernel.filesystem.fs.readFile('/proc/version', 'utf-8')
     expect(version).toContain('@zenfs/linux')
