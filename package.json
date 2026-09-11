@@ -73,5 +73,10 @@
   },
   "resolutions": {
     "canvas": "Automattic/node-canvas#master"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/node": "22.20.2"
+    }
   }
 }
