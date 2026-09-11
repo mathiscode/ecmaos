@@ -15,7 +15,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, Device } from '@zenfs/linux'
+import { char_dev, Device, execve as zenfsExecve, Process as ZenFSProcess } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -1031,7 +1031,7 @@ export class Kernel implements IKernel {
           exitCode = await this.executeWasm(options)
           break
         case 'js':
-          exitCode = await this.executeJavaScript(options)
+          exitCode = await this.executeViaExecve(options)
           break
         case 'view':
           exitCode = await this.execute({
@@ -1053,8 +1053,8 @@ export class Kernel implements IKernel {
             case 'script':
               exitCode = await this.executeScript(options)
               break
-            case 'node': // we'll do what we can to try to make it run, but it may fail
-              exitCode = await this.executeNode(options) // TODO: Use WebContainer later if experiments fail
+            case 'node':
+              exitCode = await this.executeViaExecve(options)
               break
             case 'device': {
               if (!header.name) return -1
@@ -1211,64 +1211,49 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * Executes a node script (or tries to)
+   * Runs a plain JS/ESM file as a real, isolated process via `@zenfs/linux`'s `execve` -- the
+   * genuine replacement for both the old main-thread `new Function(code)` eval (`executeJavaScript`)
+   * and the old `executeNode`'s blob-import shim (which patched `globalThis.process` and had no
+   * isolation at all). `@zenfs/linux` already registers a default `binfmt_js` matching any
+   * non-WASM, non-null-byte file and pointing it at `/bin/node` as its interpreter; `Filesystem`
+   * writes that interpreter's real bundled source to `/bin/node` at boot (see `src/bin/node.mjs`).
    *
-   * @remarks
-   * Don't expect it to work; this will help develop further emulation layers
-   * We still need to resolve the IndexedDB/sync issues before sync fs calls will work
+   * Real, working today: a self-contained script (no import/require) run to completion with a real
+   * exit code, on its own real worker thread, with real syscalls for anything it does.
    *
-   * @param options - Execution options containing script path and shell
-   * @returns Exit code of the script
+   * Not yet supported, and why: a program that itself imports something. The interpreter has no
+   * import-rewriting (the SWAPI mechanism `replaceImports` uses for main-thread apps would need its
+   * own worker-side port -- real scope of its own). Redirected stdio (`>`, `|`) isn't wired either:
+   * `@zenfs/linux`'s `Process` only knows how to open real fds against a `TTY`/console path, and
+   * bridging that to the `ReadableStream`/`WritableStream` a redirect gives `KernelExecuteOptions`
+   * would need a pipe-backed fd (the `syscalls-pipe-poll` branch's primitive is the natural fit,
+   * once `processes`' fd-table adoption gives it real numeric fds to plug into).
+   *
+   * @param options - Execution options containing the file path and shell
+   * @returns Exit code of the process
    */
-  async executeNode(options: KernelExecuteOptions): Promise<number> {
+  async executeViaExecve(options: KernelExecuteOptions): Promise<number> {
     if (!options.command) return -1
-    let exitCode = -1
-    let url
+    const terminal = options.terminal || this.terminal
 
     try {
-      const contents = await this.filesystem.fs.readFile(options.command, 'utf-8')
-      if (!contents) return -1
-
-      const binLink = await this.filesystem.fs.readlink(options.command)
-      const filePath = path.dirname(binLink)
-
-      globalThis.process.execPath = '/sbin/ecmanode'
-      globalThis.process.execArgv = []
-      globalThis.process.argv = [globalThis.process.execPath, binLink, ...(options.args || [])]
-      globalThis.process.argv0 = options.command
-
-      // const debugContents = contents.split('\n').map((line, i) => i === 1 ? `debugger\n${line}` : line).join('\n')
-      // const finalContents = debugContents
-      const finalContents = contents
-
-      const code = await this.replaceImports(finalContents, filePath)
-      const blob = new Blob([code], { type: 'text/javascript' })
-      url = URL.createObjectURL(blob)
-      if (!url) throw new Error('Failed to create object URL')
-
-      if (!globalThis.requiremap) globalThis.requiremap = new Map()
-      globalThis.requiremap.set(url, {
-        code,
-        filePath,
-        binLink,
-        command: options.command,
-        argv: [...globalThis.process.argv],
-        argv0: globalThis.process.argv0
+      const proc = new ZenFSProcess({
+        argv: [options.command, ...(options.args || [])],
+        env: options.shell.envObject,
+        cwd: options.shell.cwd,
+        tty: terminal.zfsTty,
+        // Process opens stdio against this path, not `tty` directly -- `tty` only sets the
+        // foreground-process/signal-delivery side of things.
+        console: terminal.zfsTty ? `/dev/${terminal.zfsTty.name}` : undefined
       })
 
-      await import(/* @vite-ignore */ url)
-      exitCode = 0
+      await zenfsExecve(proc, options.command, [options.command, ...(options.args || [])], options.shell.envObject)
+      return await proc.exited
     } catch (error) {
-      this.log.error(`Failed to execute node script: ${error}`)
-      this.terminal.writeln(chalk.red((error as Error).message))
-      console.error(error)
-      exitCode = -1
-      globalThis.requiremap?.delete(url!)
-    } finally {
-      URL.revokeObjectURL(url!)
+      this.log.error(`Failed to execute ${options.command}: ${error}`)
+      terminal?.writeln(chalk.red(error instanceof Error ? error.message : String(error)))
+      return -1
     }
-
-    return exitCode
   }
 
   /**
@@ -1436,29 +1421,6 @@ export class Kernel implements IKernel {
     } else this.log.error(`Script ${options.command} not found`)
 
     return -1
-  }
-
-  /**
-   * Executes a JavaScript file
-   * @param options - Execution options containing JavaScript file path and shell
-   * @returns Exit code of the JavaScript execution
-   */
-  async executeJavaScript(options: KernelExecuteOptions): Promise<number> {
-    try {
-      const code = await options.shell.context.fs.promises.readFile(options.command, 'utf-8')
-      if (!code) {
-        this.log.error(`JavaScript file not found or empty: ${options.command}`)
-        return -1
-      }
-
-      const script = new Function(code)
-      script()
-      return 0
-    } catch (error) {
-      this.log.error(`Failed to execute JavaScript file: ${error}`)
-      options.terminal?.writeln(chalk.red((error as Error).message))
-      return -1
-    }
   }
 
   /**
