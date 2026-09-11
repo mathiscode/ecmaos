@@ -1279,18 +1279,18 @@ export class Kernel implements IKernel {
     const script = await options.shell.context.fs.promises.readFile(options.command, 'utf-8')
     if (script) {
       const terminalCmdBefore = options.terminal?.cmd || ''
-      
-      for (const line of script.split('\n')) {
-        if (line.startsWith('#') || line.trim() === '') continue
-        await options.shell.execute(line)
-      }
+
+      // Multi-line control flow (if/while/for/case), functions, and `set -e/-u/-o pipefail` all
+      // live in the statement tree `executeScriptText` walks -- the old per-line `execute()` loop
+      // here had no way to let a `then`/`do`/`fi` span lines at all.
+      const exitCode = await options.shell.executeScriptText(script)
 
       if (options.terminal && terminalCmdBefore && options.terminal.cmd === terminalCmdBefore) {
         options.terminal.clearCommand()
         options.terminal.write(options.terminal.prompt())
       }
 
-      return 0
+      return exitCode
     } else this.log.error(`Script ${options.command} not found`)
 
     return -1

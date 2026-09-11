@@ -60,6 +60,10 @@ export interface Shell {
   terminal: Terminal
   /** Shell configuration */
   readonly config: ShellConfigManager
+  /** `set -e` / `-u` / `-o pipefail` state; off by default */
+  readonly shellOptions: { errexit: boolean, nounset: boolean, pipefail: boolean }
+  /** Registered `name() { ... }` function bodies, keyed by name */
+  readonly functions: Map<string, unknown[]>
 
   /**
    * Attach terminal to shell
@@ -90,6 +94,26 @@ export interface Shell {
    * @returns String with tilde expanded to HOME directory
    */
   expandTilde(input: string): string
+
+  /**
+   * Runs a full script's text -- potentially spanning multiple lines with `if`/`while`/`for`/
+   * `case`/function definitions -- to completion. Used by `Kernel.executeScript` in place of the
+   * old flat line-by-line runner.
+   * @param script - The script's full text
+   */
+  executeScriptText(script: string): Promise<number>
+
+  /**
+   * Sets a variable, honoring an active `local` scope if one exists (writes to the innermost
+   * function frame rather than the real environment).
+   */
+  setVariable(name: string, value: string): void
+
+  /** Declares `name` as local to the current function call. Throws outside a function call. */
+  declareLocal(name: string, value?: string): void
+
+  /** Applies a `set -e` / `-u` / `-o pipefail` style flag. */
+  applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void
 }
 
 /**
