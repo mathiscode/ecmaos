@@ -15,7 +15,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess } from '@zenfs/linux'
+import { char_dev, console_driver, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, xterm_driver } from '@zenfs/linux'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
@@ -652,6 +652,31 @@ export class Kernel implements IKernel {
       // separate, unrelated set. Real coreutils (dd, and anything reading /dev/urandom) depend on
       // these existing.
       initMemDevices()
+
+      // Publishes xterm_driver's actual char-device operations (open/read/write/ioctl) for
+      // /dev/xterm<n> -- `attach_xterm` (called per-terminal, in Terminal.mount()) only registers
+      // each individual TTY's sysfs entry and DevTmpFS node via TTY.register(); it never calls the
+      // *driver*-level TTYDriver.register() that reserves the major and adds a real CharDevice for
+      // it (`char_dev.register_region` + `CharDevice.add`, done together inside
+      // TTYDriver.register()). Without this, DevTmpFS._device() correctly resolves /dev/xterm0's
+      // rdev to major 4 minor 192 (matching xterm_driver's own minor_start) but char_dev.lookup()
+      // finds no CharDevice there at all, and every read/write on the node throws ENXIO -- caught
+      // live: a real execve'd process writing to its console fd unredirected (the ordinary,
+      // unredirected case, `bridgeStdio` only applies to redirected/piped stdio) hit this every
+      // time; the fixed tests never noticed because they always redirect stdout/stderr somewhere
+      // that never touches /dev/xterm0 as a real file. Registered once here, before any terminal's
+      // first mount() -- `TTYDriver.register()` throws EBUSY on a second call, so this must not
+      // also happen per-terminal.
+      xterm_driver.register()
+
+      // Same fix, for /dev/tty (5:0) and /dev/console (5:1) -- the fallback console path any real
+      // `@zenfs/linux` Process with no explicit tty of its own opens by default (`console:
+      // '/dev/console'`). Also never registered anywhere in ecmaOS; `console_driver.line(index)
+      // .register(name)` is the per-line step (mirroring `@zenfs/linux`'s own `tty` Module init(),
+      // which ecmaOS does not use), needed in addition to the driver-level `register()` above.
+      console_driver.register()
+      for (const [index, name] of ['tty', 'console'].entries()) console_driver.line(index).register(name)
+
       await this.registerDevices()
       await this.registerCommands()
       await this.registerPackages()
