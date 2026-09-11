@@ -421,9 +421,6 @@ importers:
       semver:
         specifier: ^7.6.3
         version: 7.8.5
-      shell-quote:
-        specifier: ^1.8.1
-        version: 1.8.1
       smol-toml:
         specifier: ^1.6.0
         version: 1.8.0
@@ -476,9 +473,6 @@ importers:
       '@types/semver':
         specifier: ^7.5.8
         version: 7.8.0
-      '@types/shell-quote':
-        specifier: ^1.7.5
-        version: 1.7.5
       '@types/w3c-clipboard':
         specifier: ^1.0.0
         version: 1.0.0
@@ -3523,9 +3517,6 @@ packages:
 
   '@types/set-cookie-parser@2.4.10':
     resolution: {integrity: sha512-GGmQVGpQWUe5qglJozEjZV/5dyxbOOZ0LHe/lqyWssB88Y4svNfst0uqBVscdDeIKl5Jy5+aPSvy7mI9tYRguw==}
-
-  '@types/shell-quote@1.7.5':
-    resolution: {integrity: sha512-+UE8GAGRPbJVQDdxi16dgadcBfQ+KG2vgZhV1+3A1XmHbmwcdwhCUwIdy+d3pAGrbvgRoVSjeI9vOWyq376Yzw==}
 
   '@types/statuses@2.0.6':
     resolution: {integrity: sha512-xMAgYwceFhRA2zY+XbEA7mxYbA093wdiW8Vu6gZPGWy9cmOyU9XesH1tNcEWsKFd5Vzrqx5T3D38PWx1FIIXkA==}
@@ -10241,8 +10232,6 @@ snapshots:
   '@types/set-cookie-parser@2.4.10':
     dependencies:
       '@types/node': 22.20.2
-
-  '@types/shell-quote@1.7.5': {}
 
   '@types/statuses@2.0.6': {}
 
