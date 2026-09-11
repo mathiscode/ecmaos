@@ -1,10 +1,22 @@
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData, Shell } from '@ecmaos/types'
+import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData, Shell } from '@ecmaos/types'
+
+// The kernel package registers every live Kernel here, keyed by id, at boot (src/ui.ts).
+// A driver has no business holding the whole Kernel, so getDrivers below takes only a
+// KernelContext; the read/write handlers resolve the Kernel they actually need from the
+// kernelId stashed in the device's own data.
+declare global {
+  var kernels: Map<string, Kernel> | undefined // eslint-disable-line no-var
+}
 
 export const pkg = {
   name: 'tty',
   version: '0.1.0',
   description: 'TTY pseudo-device drivers for /dev/ttyN'
+}
+
+function resolveKernel(kernelId: string | undefined): Kernel | undefined {
+  return kernelId ? globalThis.kernels?.get(kernelId) : undefined
 }
 
 class TTYReadBuffer {
@@ -107,13 +119,13 @@ function setupTTYOutputBuffering(kernel: Kernel, ttyNumber: number): void {
   bufferedTerminals.add(terminal)
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = []
 
   // TODO: support for more than 10 TTYs coming soon
   for (let ttyNumber = 0; ttyNumber <= 9; ttyNumber++) {
     const deviceName = `tty${ttyNumber}`
-    
+
     drivers.push({
       name: deviceName,
       singleton: true,
@@ -123,13 +135,16 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
           minor: ttyNumber,
           data: {
             ttyNumber,
-            kernelId: kernel.id
+            kernelId: ctx.id
           }
         }
       },
       read: (file: Device<KernelDeviceData>, buffer: ArrayBufferView, offset: number, end: number) => {
         const ttyNumber = file.data?.ttyNumber as number | undefined
         if (ttyNumber === undefined) return 0
+
+        const kernel = resolveKernel(file.data?.kernelId as string | undefined)
+        if (!kernel) return 0
 
         const shell = kernel.getShell(ttyNumber)
         if (!shell || !shell.terminal) return 0
@@ -143,10 +158,13 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
         const ttyNumber = file.data?.ttyNumber as number | undefined
         if (ttyNumber === undefined) return 0
 
+        const kernel = resolveKernel(file.data?.kernelId as string | undefined)
+        if (!kernel) return 0
+
         const bufferView = new Uint8Array(buffer.buffer, buffer.byteOffset + offset, buffer.byteLength - offset)
         const text = new TextDecoder().decode(bufferView)
-        
-        let shell = kernel.getShell(ttyNumber)
+
+        const shell = kernel.getShell(ttyNumber)
         if (!shell || !shell.terminal) {
           const terminalContainer = document.getElementById(`terminal-tty${ttyNumber}`)
           if (terminalContainer) {
@@ -159,10 +177,10 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDev
           }
           return bufferView.length
         }
-        
+
         shell.terminal.write(text)
         shell.terminal.dispatchStdin(text)
-        
+
         return bufferView.length
       }
     })
