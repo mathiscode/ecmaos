@@ -6,7 +6,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import dts from 'vite-plugin-dts'
 import type { ViteDevServer } from 'vite'
 
-import { binNode } from './vite-plugin-bin-node'
+import { binNode, binWali } from './vite-plugin-bin-node'
 
 import pkg from './package.json'
 
@@ -51,7 +51,7 @@ const jcoBrowserFixPlugin = () => {
         // Fix base64Compile to always use browser path (atob instead of Buffer)
         // The Buffer polyfill causes issues with WebAssembly.compile
         modified = modified.replace(
-          /const\s+base64Compile\s*=\s*str\s*=>\s*WebAssembly\.compile\(typeof\s+Buffer\s*!==\s*['"]undefined['"]\s*\?\s*Buffer\.from\(str,\s*['"]base64['"]\)\s*:\s*Uint8Array\.from\(atob\(str\),\s*b\s*=>\s*b\.charCodeAt\(0\)\)\);?/g,
+          /const\s+base64Compile\s*=\s*str\s*=>\s*WebAssembly\.compile\(\s*typeof\s+Buffer\s*!==\s*['"]undefined['"]\s*\?\s*Buffer\.from\(str,\s*['"]base64['"]\)\s*:\s*Uint8Array\.from\(atob\(str\),\s*b\s*=>\s*b\.charCodeAt\(0\)\)\s*\);?/g,
           `const base64Compile = str => WebAssembly.compile(Uint8Array.from(atob(str), b => b.charCodeAt(0)));`
         )
         
@@ -105,6 +105,7 @@ export default defineConfig({
   envPrefix: 'ECMAOS_',
   plugins: [
     binNode(),
+    binWali(),
     gzipFixPlugin(),
     jcoBrowserFixPlugin(),
     nodePolyfills({

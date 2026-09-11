@@ -160,8 +160,8 @@
     "vitest-canvas-mock": "^0.3.3"
   },
   "dependencies": {
-    "@bytecodealliance/jco": "^1.15.4",
-    "@bytecodealliance/preview2-shim": "^0.17.6",
+    "@bytecodealliance/jco": "^1.33.0",
+    "@bytecodealliance/preview2-shim": "^0.24.1",
     "@ecmaos-devices/audio": "workspace:^",
     "@ecmaos-devices/battery": "workspace:^",
     "@ecmaos-devices/bluetooth": "workspace:^",

@@ -104,6 +104,7 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
   - `$ rustc --target wasm32-wasip1 -o hello.wasm hello.rs`
   - `$ emcc -o hello.wasm hello.c -sSTANDALONE_WASM`
 - You can also load WASM+JS harnesses manually
+- There is a second, separate `.wasm` execution path, `/bin/wali` ([/core/kernel/src/bin/wali.mjs](/core/kernel/src/bin/wali.mjs)), for **WALI**-format modules -- musl compiled to call `@zenfs/linux`'s real kernel syscalls (`SYS_open`, `SYS_read`, ...) directly, rather than through a WASI ABI. WALI and WASI Preview 1 are different, incompatible module formats (a preview1 binary cannot run under `/bin/wali` or vice versa without recompiling), and `wasm32-wali-linux-musl` is currently a Tier-3 rustc target requiring an out-of-fork LLVM build -- there is no mature toolchain yet to produce real WALI programs with. `/bin/wali` is real and working today, proven against hand-assembled test modules, ready for whenever that toolchain matures.
 
 ### Commands
 
