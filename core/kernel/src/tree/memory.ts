@@ -108,23 +108,25 @@ export class Memory {
   }
 
   search(value: Uint8Array): number {
-    function findPattern(array1: Uint8Array, array2: Uint8Array) {
-      for (let i = 0; i <= array1.length - array2.length; i++) {
-        let match = true
-        for (let j = 0; j < array2.length; j++) {
-          if (array1[i + j] !== array2[j]) { match = false; break }
-        }
-
-        if (match) return true
-      }
-
-      return false
-    }
-
-    for (const [address, memory] of this._memory.heap.entries()) {
-      if (findPattern(memory, new Uint8Array(value))) return address
+    const pattern = new Uint8Array(value)
+    for (const address of this._memory.heap.keys()) {
+      const memory = this._memory.heap.get(address)
+      if (memory && Memory.#findPattern(memory, pattern)) return address
     }
 
     return -1
+  }
+
+  static #findPattern(haystack: Uint8Array, needle: Uint8Array): boolean {
+    for (let i = 0; i <= haystack.length - needle.length; i++) {
+      let match = true
+      for (let j = 0; j < needle.length; j++) {
+        if (haystack[i + j] !== needle[j]) { match = false; break }
+      }
+
+      if (match) return true
+    }
+
+    return false
   }
 }
