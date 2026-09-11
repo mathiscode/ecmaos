@@ -38,13 +38,8 @@ jobs:
       - name: Seed kernel .env from template
         run: cp core/kernel/.env.template core/kernel/.env
 
-      # Advisory until feat/1.0.0-dep-hygiene lands: `pnpm build` currently fails
-      # in @ecmaos/coreutils because core/utils still resolves @zenfs/core 2.4.4
-      # against the kernel's 2.7.2. dep-hygiene removes the drift and drops
-      # `continue-on-error` here.
       - name: Build
         run: pnpm build
-        continue-on-error: true
 
       - name: Typecheck error-budget ratchet
         run: node scripts/typecheck-ratchet.mjs
