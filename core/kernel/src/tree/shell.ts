@@ -7,12 +7,14 @@
  */
 
 import path from 'path'
-import shellQuote from 'shell-quote'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
 import type { BoundContext, Credentials } from '@zenfs/core'
 import type { Kernel, Shell as IShell, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
+
+import { parseScript } from '#lib/shell-parser.ts'
+import type { Command as ParsedCommand, Pipeline, Redirection, Script } from '#lib/shell-parser.ts'
 
 const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin'
 const DefaultShellOptions = {
@@ -304,11 +306,12 @@ export class Shell implements IShell {
     // Execute the command
     try {
       // Parse the command to get command name and args
-      const parsedArgs = shellQuote.parse(command, this.envObject)
-      const [commandName, ...rawArgs] = parsedArgs
-      if (!commandName || typeof commandName !== 'string') return ''
-      
-      const args = await this.expandGlobArgs(rawArgs)
+      const script = parseScript(command)
+      const parsedCommand = script.stages[0]?.pipeline.commands[0]
+      const [commandName, ...rawWords] = parsedCommand?.words ?? []
+      if (!commandName) return ''
+
+      const args = await this.expandGlobWords(rawWords, parsedCommand?.wordsQuoted.slice(1) ?? [])
       const finalCommand = await this.resolveCommand(commandName)
       if (!finalCommand) return ''
       
@@ -452,111 +455,26 @@ export class Shell implements IShell {
   }
 
   /**
-   * Expands glob objects from shell-quote.parse() to actual file paths
-   * @param args - Array of arguments from shell-quote.parse() that may contain glob objects, strings, or comments
-   * @returns Array of strings with glob patterns expanded
+   * Expands glob patterns in a command's words, in place of the file(s) they match.
+   * A word only globs if it is not fully quoted (`echo *.txt` globs; `echo "*.txt"` does not),
+   * matching `parseScript`'s per-word quote tracking.
+   * @param words - The command's words, already quote-stripped by the parser
+   * @param wordsQuoted - Whether each word (by index) was fully quoted
+   * @returns The words with any eligible glob patterns expanded to matching paths
    */
-  private async expandGlobArgs(args: Array<unknown>): Promise<string[]> {
-    const expandedArgs: string[] = []
-    
-    // Group adjacent non-glob, non-comment items to reconstruct arguments that were split
-    // This handles cases where shell-quote splits on special characters like parentheses
-    const groups: Array<Array<unknown>> = []
-    let currentGroup: Array<unknown> = []
-    
-    for (const arg of args) {
-      // Skip comments
-      if (typeof arg === 'object' && arg !== null && 'comment' in arg) {
-        continue
-      }
-      
-      // Check if this is a glob object - globs should be separate
-      if (typeof arg === 'object' && arg !== null && 'op' in arg && (arg as { op: string }).op === 'glob' && 'pattern' in arg) {
-        // Push current group if it has items
-        if (currentGroup.length > 0) {
-          groups.push(currentGroup)
-          currentGroup = []
-        }
-        // Push glob as its own group
-        groups.push([arg])
+  private async expandGlobWords(words: string[], wordsQuoted: boolean[]): Promise<string[]> {
+    const expanded: string[] = []
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i] as string
+      const quoted = wordsQuoted[i] ?? false
+      if (!quoted && (word.includes('*') || word.includes('?'))) {
+        const matches = await this.expandGlob(word)
+        expanded.push(...(matches.length > 0 ? matches : [word]))
       } else {
-        // Add to current group
-        currentGroup.push(arg)
+        expanded.push(word)
       }
     }
-    
-    // Push final group if it has items
-    if (currentGroup.length > 0) {
-      groups.push(currentGroup)
-    }
-    
-    // Process each group
-    for (const group of groups) {
-      if (group.length === 0) continue
-      
-      // If group has a single glob, expand it
-      if (group.length === 1 && typeof group[0] === 'object' && group[0] !== null && 'op' in group[0] && (group[0] as { op: string }).op === 'glob' && 'pattern' in group[0] && typeof (group[0] as { pattern?: string }).pattern === 'string') {
-        const pattern = (group[0] as { pattern: string }).pattern
-        const expanded = await this.expandGlob(pattern)
-        if (expanded.length === 0) {
-          expandedArgs.push(pattern)
-        } else {
-          expandedArgs.push(...expanded)
-        }
-      } else {
-        // Check if all items in the group are plain strings (not objects representing special chars)
-        // If so, they were originally separate arguments and should remain separate
-        const allStrings = group.every(item => typeof item === 'string')
-        
-        if (allStrings && group.length > 1) {
-          // These were separate arguments, push them individually
-          for (const item of group) {
-            if (typeof item === 'string' && item) {
-              expandedArgs.push(item)
-            }
-          }
-        } else {
-          // Reconstruct the argument by joining all parts
-          // This handles cases where shell-quote split on special characters
-          const reconstructed = group.map(item => {
-            if (typeof item === 'string') {
-              return item
-            } else if (typeof item === 'object' && item !== null) {
-              // Try to extract meaningful string from object
-              if ('pattern' in item && typeof (item as { pattern?: string }).pattern === 'string') {
-                return (item as { pattern: string }).pattern
-              }
-              // For other objects, try to find string properties
-              for (const key in item) {
-                const value = (item as Record<string, unknown>)[key]
-                if (typeof value === 'string' && value.length > 0 && key !== 'op') {
-                  return value
-                }
-              }
-              // Fallback: return empty string (object represents a special character we can't reconstruct)
-              return ''
-            }
-            return String(item)
-          }).join('')
-          
-          if (reconstructed) {
-            // Check if it contains glob characters
-            if (reconstructed.includes('*') || reconstructed.includes('?')) {
-              const expanded = await this.expandGlob(reconstructed)
-              if (expanded.length === 0) {
-                expandedArgs.push(reconstructed)
-              } else {
-                expandedArgs.push(...expanded)
-              }
-            } else {
-              expandedArgs.push(reconstructed)
-            }
-          }
-        }
-      }
-    }
-    
-    return expandedArgs
+    return expanded
   }
 
   /**
@@ -670,248 +588,202 @@ export class Shell implements IShell {
   }
 
   /**
-   * Parses redirections from a command line
+   * Builds the (fd -> writable stream) map for one pipeline command, following its redirections in
+   * order so later ones win — the same left-to-right rule real shells apply (`> f 2>&1` and
+   * `2>&1 > f` mean different things, and both are expressible this way).
+   *
+   * fd 1 and fd 2 default to the terminal (or the pipe, mid-pipeline) when nothing redirects them;
+   * any other fd a script names is left for a caller that cares about it — this shell doesn't open
+   * arbitrary fds yet.
    */
-  private parseRedirection(commandLine: string): { 
-    command: string, 
-    redirections: { type: '>' | '>>' | '<' | '2>' | '2>>' | '2>&1' | '&>' | '&>>', target: string }[] 
-  } {
-    const redirections: { type: '>' | '>>' | '<' | '2>' | '2>>' | '2>&1' | '&>' | '&>>', target: string }[] = []
-    let command = commandLine
+  private async buildOutputStreams(
+    redirections: Redirection[],
+    isLastCommand: boolean,
+    pipeWritable: WritableStream<Uint8Array> | undefined
+  ): Promise<{ stdout: WritableStream<Uint8Array>, stderr: WritableStream<Uint8Array> }> {
+    const fdStreams = new Map<number, WritableStream<Uint8Array>>()
+    const fdFiles = new Map<number, { path: string, append: boolean }>()
 
-    // Order matters: check longer patterns first
-    // &>> - append both stdout and stderr to file
-    // &> or >& - redirect both stdout and stderr to file  
-    // 2>&1 - redirect stderr to stdout
-    // 2>> - append stderr to file
-    // 2> - redirect stderr to file
-    // >> - append stdout to file
-    // > - redirect stdout to file
-    // < - redirect stdin from file
-    const redirectionRegex = /(&>>|&>|>&|2>&1|2>>|2>|>>|>|<)\s*(\S+)?/g
-    
-    command = command.replace(redirectionRegex, (_, operator, target) => {
-      // Normalize >& to &>
-      const normalizedOp = operator === '>&' ? '&>' : operator
-      
-      // 2>&1 doesn't have a target file
-      if (normalizedOp === '2>&1') {
-        redirections.push({ type: '2>&1', target: '' })
-      } else if (target) {
-        redirections.push({
-          type: normalizedOp as '>' | '>>' | '<' | '2>' | '2>>' | '&>' | '&>>',
-          target: target.trim()
-        })
-      }
-      return ''
-    }).trim()
+    const defaultFor = (fd: number): WritableStream<Uint8Array> => {
+      const existing = fdStreams.get(fd)
+      if (existing) return existing
+      const created = fd === 1
+        ? (isLastCommand ? this.createTerminalOutputStream() : (pipeWritable as WritableStream<Uint8Array>))
+        : this.createTerminalErrorStream()
+      fdStreams.set(fd, created)
+      return created
+    }
 
-    return { command, redirections }
-  }
-
-  /**
-   * Executes a command line
-   */
-  async execute(line: string) {
-    const lineWithoutComments = line.split('#')[0]?.trim()
-    if (!lineWithoutComments || lineWithoutComments === '') return 0
-
-    const commandGroups = lineWithoutComments.split(';').map(group => group.trim())
-    let finalResult = 0
-
-    for (const group of commandGroups) {
-      if (group === '') continue
-      
-      const conditionalCommands = group.split('&&').map(cmd => cmd.trim())
-      let shouldContinue = true
-
-      for (const conditionalCmd of conditionalCommands) {
-        if (!shouldContinue) break
-
-        const commands = conditionalCmd.split('|').map(cmd => cmd.trim())
-        const currentCmd = this._terminal.cmd
-        
-        try {
-          const pipelineSetup: Array<{
-            finalCommand: string
-            args: string[]
-            inputStream: ReadableStream<Uint8Array>
-            stdinIsTTY: boolean
-            outputStream: WritableStream<Uint8Array>
-            errorStream: WritableStream<Uint8Array>
-            stdoutIsTTY: boolean
-          }> = []
-
-          let prevReadable: ReadableStream<Uint8Array> | undefined
-          const { env, kernel } = this
-
-          for (let i = 0; i < commands.length; i++) {
-            let commandLine = commands[i]
-            if (!commandLine) continue
-
-            commandLine = await this.parseCommandSubstitution(commandLine)
-            commandLine = await this.expandHistoryBang(commandLine)
-            commandLine = this.expandTilde(commandLine)
-
-            const { command, redirections } = this.parseRedirection(commandLine)
-            const parsedArgs = shellQuote.parse(command, this.envObject)
-            const [commandName, ...rawArgs] = parsedArgs
-            if (!commandName || typeof commandName !== 'string') {
-              throw new Error(kernel.i18n.t('commandNotFound', { ns: 'kernel', command: commandLine }))
-            }
-
-            const args = await this.expandGlobArgs(rawArgs)
-            const finalCommand = await this.resolveCommand(commandName)
-            if (!finalCommand) {
-              throw new Error(kernel.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
-            }
-
-            const isFirstCommand = i === 0
-            const isLastCommand = i === commands.length - 1
-
-            let inputStream: ReadableStream<Uint8Array>
-            let stdinIsTTY: boolean = false
-            if (isFirstCommand) {
-              const inputRedirect = redirections.find(r => r.type === '<')
-              if (inputRedirect) {
-                const sourcePath = path.resolve(this.cwd, inputRedirect.target)
-                if (!await this.context.fs.promises.exists(sourcePath)) {
-                  throw new Error(`File not found: ${sourcePath}`)
-                }
-                inputStream = this.createFileReadStream(sourcePath, env, kernel)
-                stdinIsTTY = false
-              } else {
-                inputStream = this._terminal.getInputStream()
-                stdinIsTTY = true
-              }
-            } else {
-              if (!prevReadable) {
-                throw new Error('Pipeline error: missing previous stream')
-              }
-              inputStream = prevReadable
-              stdinIsTTY = false
-            }
-
-            let outputStream: WritableStream<Uint8Array>
-            let errorStream: WritableStream<Uint8Array>
-            
-            const stdoutRedirect = redirections.find(r => r.type === '>' || r.type === '>>')
-            const stderrRedirect = redirections.find(r => r.type === '2>' || r.type === '2>>')
-            const bothRedirect = redirections.find(r => r.type === '&>' || r.type === '&>>')
-            const stderrToStdout = redirections.find(r => r.type === '2>&1')
-            
-            if (isLastCommand) {
-              // Handle &> or &>> (both stdout and stderr to file)
-              if (bothRedirect) {
-                const targetPath = path.resolve(this.cwd, bothRedirect.target)
-                const append = bothRedirect.type === '&>>'
-                const shared = this.createSharedFileStreams(targetPath, append)
-                outputStream = shared.stdout
-                errorStream = shared.stderr
-              } else if (stderrToStdout) {
-                // 2>&1 - stderr goes to same destination as stdout
-                if (stdoutRedirect) {
-                  // stdout > file, stderr 2>&1 -> both to file
-                  const targetPath = path.resolve(this.cwd, stdoutRedirect.target)
-                  const append = stdoutRedirect.type === '>>'
-                  const shared = this.createSharedFileStreams(targetPath, append)
-                  outputStream = shared.stdout
-                  errorStream = shared.stderr
-                } else {
-                  // stdout to terminal, stderr 2>&1 -> both to terminal
-                  const shared = this.createSharedTerminalStreams()
-                  outputStream = shared.stdout
-                  errorStream = shared.stderr
-                }
-              } else {
-                // Handle stdout redirection
-                if (stdoutRedirect) {
-                  const targetPath = path.resolve(this.cwd, stdoutRedirect.target)
-                  const append = stdoutRedirect.type === '>>'
-                  outputStream = this.createFileWriteStream(targetPath, append)
-                } else {
-                  outputStream = this.createTerminalOutputStream()
-                }
-                
-                // Handle stderr redirection
-                if (stderrRedirect) {
-                  const targetPath = path.resolve(this.cwd, stderrRedirect.target)
-                  const append = stderrRedirect.type === '2>>'
-                  errorStream = this.createFileWriteStream(targetPath, append)
-                } else {
-                  errorStream = this.createTerminalErrorStream()
-                }
-              }
-            } else {
-              // Create pipe to next command (only stdout goes through pipe)
-              const pipe = new TransformStream<Uint8Array>()
-              outputStream = pipe.writable
-              prevReadable = pipe.readable
-              
-              // Stderr still goes to terminal or file even in pipeline
-              if (stderrToStdout) {
-                // 2>&1 in pipeline - need to create a second stream that writes to the pipe
-                // We can't share the pipe.writable, so we create a passthrough
-                const pipeWriter = pipe.writable.getWriter()
-                errorStream = new WritableStream<Uint8Array>({
-                  write: async (chunk) => {
-                    await pipeWriter.write(chunk)
-                  },
-                  close: async () => {
-                    pipeWriter.releaseLock()
-                  }
-                })
-                // Re-create outputStream since we took the writer
-                outputStream = new WritableStream<Uint8Array>({
-                  write: async (chunk) => {
-                    await pipeWriter.write(chunk)
-                  }
-                })
-              } else if (stderrRedirect) {
-                const targetPath = path.resolve(this.cwd, stderrRedirect.target)
-                const append = stderrRedirect.type === '2>>'
-                errorStream = this.createFileWriteStream(targetPath, append)
-              } else {
-                errorStream = this.createTerminalErrorStream()
-              }
-            }
-
-            const stdoutIsTTY = !stdoutRedirect && isLastCommand
-            pipelineSetup.push({ finalCommand, args, inputStream, stdinIsTTY, outputStream, errorStream, stdoutIsTTY })
+    for (const redirection of redirections) {
+      if (redirection.type === '>&') {
+        if (redirection.targetIsFd) {
+          const sourceFd = Number(redirection.target)
+          // Resolve what the source fd points to right now, so `2>&1 > f` and `> f 2>&1` differ
+          const sourceFile = fdFiles.get(sourceFd)
+          if (sourceFile) {
+            fdStreams.set(redirection.fd, this.createFileWriteStream(sourceFile.path, sourceFile.append))
+            fdFiles.set(redirection.fd, sourceFile)
+          } else {
+            fdStreams.set(redirection.fd, defaultFor(sourceFd))
+            fdFiles.delete(redirection.fd)
           }
-
-          const commandPromises = pipelineSetup.map(({ finalCommand, args, inputStream, stdinIsTTY, outputStream, errorStream, stdoutIsTTY }) =>
-            this._kernel.execute({
-              command: finalCommand,
-              args,
-              kernel: this._kernel,
-              shell: this,
-              terminal: this._terminal,
-              stdin: inputStream,
-              stdinIsTTY,
-              stdout: outputStream,
-              stdoutIsTTY,
-              stderr: errorStream
-            })
-          )
-
-          const results = await Promise.all(commandPromises)
-          
-          for (const result of results) {
-            if (result !== 0) {
-              finalResult = result
-            }
-          }
-
-          if (finalResult !== 0) shouldContinue = false
-        } catch (error) {
-          this._terminal.restoreCommand(currentCmd)
-          throw error
         }
+        continue
+      }
+
+      if (redirection.type === '>' || redirection.type === '>>') {
+        const targetPath = path.resolve(this.cwd, redirection.target)
+        const append = redirection.type === '>>'
+        fdStreams.set(redirection.fd, this.createFileWriteStream(targetPath, append))
+        fdFiles.set(redirection.fd, { path: targetPath, append })
       }
     }
 
-    return finalResult
+    // Two fds that both resolved to the same underlying file need one shared, serialized writer,
+    // not two independent ones racing each other -- this is what &> and 2>&1 > f actually need.
+    const stdoutFile = fdFiles.get(1)
+    const stderrFile = fdFiles.get(2)
+    if (stdoutFile && stderrFile && stdoutFile.path === stderrFile.path) {
+      const shared = this.createSharedFileStreams(stdoutFile.path, stdoutFile.append || stderrFile.append)
+      fdStreams.set(1, shared.stdout)
+      fdStreams.set(2, shared.stderr)
+    }
+
+    return {
+      stdout: defaultFor(1),
+      stderr: defaultFor(2)
+    }
+  }
+
+  /** Resolves one pipeline stage's words (substitution, history-bang, tilde, glob) into a runnable command. */
+  private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[] }> {
+    const words = await Promise.all(command.words.map(async (word) => {
+      let expanded = await this.parseCommandSubstitution(word)
+      expanded = await this.expandHistoryBang(expanded)
+      expanded = this.expandTilde(expanded)
+      return expanded
+    }))
+
+    const [commandName, ...rawWords] = words
+    if (!commandName) {
+      throw new Error(this.kernel.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
+    }
+
+    const args = await this.expandGlobWords(rawWords, command.wordsQuoted.slice(1))
+    const finalCommand = await this.resolveCommand(commandName)
+    if (!finalCommand) {
+      throw new Error(this.kernel.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
+    }
+
+    return { finalCommand, args }
+  }
+
+  /**
+   * Runs one pipeline (`a | b | c`), wiring each stage's stdout to the next's stdin, and returns
+   * each stage's exit code in order -- `${PIPESTATUS[@]}`, not "last non-zero wins".
+   */
+  private async runPipeline(pipeline: Pipeline): Promise<number[]> {
+    const currentCmd = this._terminal.cmd
+    try {
+      const stages: Array<{
+        finalCommand: string
+        args: string[]
+        stdin: ReadableStream<Uint8Array>
+        stdinIsTTY: boolean
+        stdout: WritableStream<Uint8Array>
+        stdoutIsTTY: boolean
+        stderr: WritableStream<Uint8Array>
+      }> = []
+
+      let prevReadable: ReadableStream<Uint8Array> | undefined
+
+      for (let i = 0; i < pipeline.commands.length; i++) {
+        const command = pipeline.commands[i] as ParsedCommand
+        const { finalCommand, args } = await this.prepareCommand(command)
+        const isFirstCommand = i === 0
+        const isLastCommand = i === pipeline.commands.length - 1
+
+        let stdin: ReadableStream<Uint8Array>
+        let stdinIsTTY = false
+        const inputRedirect = command.redirections.find(r => r.type === '<' && r.fd === 0)
+        if (isFirstCommand && inputRedirect) {
+          const sourcePath = path.resolve(this.cwd, inputRedirect.target)
+          if (!await this.context.fs.promises.exists(sourcePath)) {
+            throw new Error(`File not found: ${sourcePath}`)
+          }
+          stdin = this.createFileReadStream(sourcePath, this.env, this.kernel)
+        } else if (isFirstCommand) {
+          stdin = this._terminal.getInputStream()
+          stdinIsTTY = true
+        } else {
+          if (!prevReadable) throw new Error('Pipeline error: missing previous stream')
+          stdin = prevReadable
+        }
+
+        let pipeWritable: WritableStream<Uint8Array> | undefined
+        if (!isLastCommand) {
+          const pipe = new TransformStream<Uint8Array>()
+          pipeWritable = pipe.writable
+          prevReadable = pipe.readable
+        }
+
+        const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
+        const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
+        stages.push({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr })
+      }
+
+      const results = await Promise.all(stages.map(({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }) =>
+        this._kernel.execute({
+          command: finalCommand,
+          args,
+          kernel: this._kernel,
+          shell: this,
+          terminal: this._terminal,
+          stdin,
+          stdinIsTTY,
+          stdout,
+          stdoutIsTTY,
+          stderr
+        })
+      ))
+
+      return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
+    } catch (error) {
+      this._terminal.restoreCommand(currentCmd)
+      throw error
+    }
+  }
+
+  /**
+   * Executes a command line: comment-stripped, parsed into a `Script`, and walked stage by stage
+   * honoring `;`, `&&`, `||`, and `&` (background is accepted syntactically; job control is not
+   * implemented yet, so it currently runs like `;`).
+   */
+  async execute(line: string) {
+    const lineWithoutComments = line.split('#')[0]?.trim()
+    if (!lineWithoutComments) return 0
+
+    const script: Script = parseScript(lineWithoutComments)
+    let lastPipelineExit = 0
+    let skipNext = false
+
+    for (const stage of script.stages) {
+      if (skipNext) {
+        skipNext = false
+      } else {
+        const pipeStatus = await this.runPipeline(stage.pipeline)
+        lastPipelineExit = pipeStatus[pipeStatus.length - 1] ?? 0
+        this.env.set('PIPESTATUS', pipeStatus.join(' '))
+        this.env.set('?', String(lastPipelineExit))
+      }
+
+      // && only runs its next stage on success; || only on failure. A skipped stage's own trailing
+      // operator still governs what comes after it, so `a && b || c` runs c when a fails too.
+      if (stage.operator === '&&' && lastPipelineExit !== 0) skipNext = true
+      else if (stage.operator === '||' && lastPipelineExit === 0) skipNext = true
+    }
+
+    return lastPipelineExit
   }
 
   /**
@@ -1013,25 +885,6 @@ export class Shell implements IShell {
         const currentWrite = writeQueue.then(() => writeToFile(chunk))
         writeQueue = currentWrite.catch(() => {})
         await currentWrite
-      }
-    })
-    
-    return {
-      stdout: createStream(),
-      stderr: createStream()
-    }
-  }
-
-  /**
-   * Creates a pair of WritableStreams that both write to the terminal.
-   * Used for 2>&1 when stdout goes to terminal.
-   */
-  private createSharedTerminalStreams(): { stdout: WritableStream<Uint8Array>, stderr: WritableStream<Uint8Array> } {
-    const writer = this._terminalWriter
-    
-    const createStream = () => new WritableStream<Uint8Array>({
-      write: async (chunk) => {
-        if (writer) await writer.write(chunk)
       }
     })
     
