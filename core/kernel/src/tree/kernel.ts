@@ -52,6 +52,7 @@ import { Workers } from '#workers.ts'
 import { TerminalCommands } from '#lib/commands/index.js'
 import { parseCrontabFile } from '#lib/crontab.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
+import { installSyscallPolicy } from '#lib/syscall-policy.ts'
 
 import {
   KernelEvents,
@@ -353,6 +354,10 @@ export class Kernel implements IKernel {
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
       await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: Filesystem.options() })
       configureSpan.end()
+
+      // Wrap every registered syscall with a manifest-declared allowlist check, before any
+      // program can execve and start calling them. A program with no manifest is unrestricted.
+      installSyscallPolicy(this.filesystem.fs)
 
       // Create required filesystem paths (including /etc/default for locale file)
       const filesystemSpan = tracer.startSpan('kernel.boot.filesystem', {}, trace.setSpan(context.active(), bootSpan))
