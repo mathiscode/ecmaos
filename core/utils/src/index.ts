@@ -9,6 +9,7 @@ export type { CommandArgs } from './shared/command-args.js'
 // Import command factories
 import { createCommand as createAwk } from './commands/awk.js'
 import { createCommand as createBasename } from './commands/basename.js'
+import { createCommand as createBg } from './commands/bg.js'
 import { createCommand as createCal } from './commands/cal.js'
 import { createCommand as createCat } from './commands/cat.js'
 import { createCommand as createCd } from './commands/cd.js'
@@ -33,6 +34,7 @@ import { createCommand as createExpand } from './commands/expand.js'
 import { createCommand as createFactor } from './commands/factor.js'
 import { createCommand as createFalse } from './commands/false.js'
 import { createCommand as createFetch } from './commands/fetch.js'
+import { createCommand as createFg } from './commands/fg.js'
 import { createCommand as createFind } from './commands/find.js'
 import { createCommand as createFmt } from './commands/fmt.js'
 import { createCommand as createFold } from './commands/fold.js'
@@ -45,6 +47,7 @@ import { createCommand as createHead } from './commands/head.js'
 import { createCommand as createHistory } from './commands/history.js'
 import { createCommand as createHostname } from './commands/hostname.js'
 import { createCommand as createId } from './commands/id.js'
+import { createCommand as createJobs } from './commands/jobs.js'
 import { createCommand as createJoin } from './commands/join.js'
 import { createCommand as createLess } from './commands/less.js'
 import { createCommand as createLn } from './commands/ln.js'
@@ -104,6 +107,7 @@ import { createCommand as createUser } from './commands/user.js'
 import { createCommand as createVim } from './commands/vim.js'
 import { createCommand as createVideo } from './commands/video.js'
 import { createCommand as createView } from './commands/view.js'
+import { createCommand as createWait } from './commands/wait.js'
 import { createCommand as createWc } from './commands/wc.js'
 import { createCommand as createWeb } from './commands/web.js'
 import { createCommand as createWhich } from './commands/which.js'
@@ -114,6 +118,7 @@ import { createCommand as createZip } from './commands/zip.js'
 // Export individual command factories
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createBasename } from './commands/basename.js'
+export { createCommand as createBg } from './commands/bg.js'
 export { createCommand as createCat } from './commands/cat.js'
 export { createCommand as createCd } from './commands/cd.js'
 export { createCommand as createChmod } from './commands/chmod.js'
@@ -134,6 +139,7 @@ export { createCommand as createEnv } from './commands/env.js'
 export { createCommand as createExpand } from './commands/expand.js'
 export { createCommand as createFactor } from './commands/factor.js'
 export { createCommand as createFetch } from './commands/fetch.js'
+export { createCommand as createFg } from './commands/fg.js'
 export { createCommand as createFind } from './commands/find.js'
 export { createCommand as createFmt } from './commands/fmt.js'
 export { createCommand as createFold } from './commands/fold.js'
@@ -143,6 +149,7 @@ export { createCommand as createGrep } from './commands/grep.js'
 export { createCommand as createGroups } from './commands/groups.js'
 export { createCommand as createHash } from './commands/hash.js'
 export { createCommand as createHistory } from './commands/history.js'
+export { createCommand as createJobs } from './commands/jobs.js'
 export { createCommand as createLess } from './commands/less.js'
 export { createCommand as createLn } from './commands/ln.js'
 export { createCommand as createLoadCrontab } from './commands/load-crontab.js'
@@ -192,6 +199,7 @@ export { createCommand as createUser } from './commands/user.js'
 export { createCommand as createVideo } from './commands/video.js'
 export { createCommand as createView } from './commands/view.js'
 export { createCommand as createVim } from './commands/vim.js'
+export { createCommand as createWait } from './commands/wait.js'
 export { createCommand as createWc } from './commands/wc.js'
 export { createCommand as createWeb } from './commands/web.js'
 export { createCommand as createWhich } from './commands/which.js'
@@ -206,6 +214,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
   return {
     awk: createAwk(kernel, shell, terminal),
     basename: createBasename(kernel, shell, terminal),
+    bg: createBg(kernel, shell, terminal),
     cal: createCal(kernel, shell, terminal),
     cat: createCat(kernel, shell, terminal),
     cd: createCd(kernel, shell, terminal),
@@ -230,6 +239,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     factor: createFactor(kernel, shell, terminal),
     false: createFalse(kernel, shell, terminal),
     fetch: createFetch(kernel, shell, terminal),
+    fg: createFg(kernel, shell, terminal),
     find: createFind(kernel, shell, terminal),
     fmt: createFmt(kernel, shell, terminal),
     fold: createFold(kernel, shell, terminal),
@@ -242,6 +252,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     history: createHistory(kernel, shell, terminal),
     hostname: createHostname(kernel, shell, terminal),
     id: createId(kernel, shell, terminal),
+    jobs: createJobs(kernel, shell, terminal),
     join: createJoin(kernel, shell, terminal),
     less: createLess(kernel, shell, terminal),
     ln: createLn(kernel, shell, terminal),
@@ -301,6 +312,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     video: createVideo(kernel, shell, terminal),
     view: createView(kernel, shell, terminal),
     vim: createVim(kernel, shell, terminal),
+    wait: createWait(kernel, shell, terminal),
     wc: createWc(kernel, shell, terminal),
     web: createWeb(kernel, shell, terminal),
     which: createWhich(kernel, shell, terminal),

@@ -10,7 +10,11 @@ import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
 import type { BoundContext, Credentials } from '@zenfs/core'
-import type { Filesystem, KernelContext, Shell as IShell, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users } from '@ecmaos/types' // TODO: Consistency
+import { Signal } from '@zenfs/linux'
+import type {
+  Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
+  Shell as IShell, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
+} from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
 import { parseScript } from '#lib/shell-parser.ts'
@@ -22,6 +26,32 @@ import { expandWord } from '#lib/expand-variables.ts'
 /** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
 class BreakSignal extends Error {}
 class ContinueSignal extends Error {}
+
+/**
+ * A tracked pipeline job. See `@ecmaos/types`' `Job` for the field-by-field contract; this class
+ * only adds the bookkeeping `Shell` needs to resolve `done` once every stage settles and to mark
+ * itself `done` with the right exit codes exactly once.
+ */
+class JobImpl implements Job {
+  id: number
+  commandLine: string
+  status: JobStatus = 'running'
+  exitCodes?: number[]
+  processes: JobProcessHandle[] = []
+  background: boolean
+  /**
+   * Assigned by `Shell.createJob` right after construction, once `runPipeline` has actually been
+   * started against this job -- not in the constructor, so `runPipeline` can close over `this` and
+   * push process handles onto `processes` as they appear while it's still running.
+   */
+  done!: Promise<number[]>
+
+  constructor(id: number, commandLine: string, background: boolean) {
+    this.id = id
+    this.commandLine = commandLine
+    this.background = background
+  }
+}
 
 const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin'
 const DefaultShellOptions = {
@@ -65,6 +95,22 @@ export class Shell implements IShell {
   /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
   private _shellOptions = { errexit: false, nounset: false, pipefail: false }
 
+  /**
+   * All jobs this shell has ever launched, insertion order (oldest first), keyed by job number.
+   * Entries are never removed automatically -- `jobs` in a real shell keeps showing a `Done` job
+   * until the next prompt reaps it; this implementation just keeps it, which `listJobs()` callers
+   * (the `jobs` coreutil) can filter/trim for display if that behavior is ever wanted.
+   */
+  private _jobs: JobImpl[] = []
+  private _nextJobId = 1
+  /**
+   * The job currently occupying the foreground, if any. Simplified single-foreground-process model:
+   * `@zenfs/linux` has no process-group concept, so this is one `Job` reference, not a real pgid.
+   * Set when a pipeline starts running in the foreground (`execute()`'s non-`&` path), cleared when
+   * it finishes; a job moved to the background (via trailing `&`, or `bg`) is never foreground here.
+   */
+  private _foregroundJob: Job | undefined
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -81,6 +127,7 @@ export class Shell implements IShell {
   get tty() { return this._tty }
   get shellOptions() { return this._shellOptions }
   get functions() { return this._functions }
+  get foregroundJob() { return this._foregroundJob }
 
   /**
    * Resolve a variable by name the way `local` scoping requires: the innermost active function
@@ -763,8 +810,13 @@ export class Shell implements IShell {
   /**
    * Runs one pipeline (`a | b | c`), wiring each stage's stdout to the next's stdin, and returns
    * each stage's exit code in order -- `${PIPESTATUS[@]}`, not "last non-zero wins".
+   *
+   * @param job - When given, every stage that produces a real `@zenfs/linux` Process (only the
+   * `js`/`node` binfmt path today) registers its handle on `job.processes` as soon as it exists,
+   * via `onProcess` -- this is how a backgrounded or foregrounded pipeline becomes signalable by
+   * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
-  private async runPipeline(pipeline: Pipeline): Promise<number[]> {
+  private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
     const currentCmd = this._terminal.cmd
     try {
       const stages: Array<{
@@ -824,7 +876,8 @@ export class Shell implements IShell {
           stdinIsTTY,
           stdout,
           stdoutIsTTY,
-          stderr
+          stderr,
+          onProcess: job ? (process => { job.processes.push(process) }) : undefined
         })
       ))
 
@@ -833,6 +886,94 @@ export class Shell implements IShell {
       this._terminal.restoreCommand(currentCmd)
       throw error
     }
+  }
+
+  /** All tracked jobs, oldest first. See `_jobs`'s doc comment for retention behavior. */
+  listJobs(): Job[] {
+    return [...this._jobs]
+  }
+
+  /**
+   * Resolves a job spec the way bash does: `%N`, `%%`/`%+` (current == most recently started),
+   * `%-` (previous), a bare pid (matched against any job's process handles), or no argument at all
+   * (also most-recently-started, matching bare `fg`/`bg`). Returns `undefined` if nothing matches.
+   */
+  getJob(spec?: string): Job | undefined {
+    if (!spec) return this._jobs[this._jobs.length - 1]
+
+    if (spec.startsWith('%')) {
+      const rest = spec.slice(1)
+      if (rest === '' || rest === '%' || rest === '+') return this._jobs[this._jobs.length - 1]
+      if (rest === '-') return this._jobs[this._jobs.length - 2]
+
+      const id = Number(rest)
+      if (!Number.isNaN(id)) return this._jobs.find(job => job.id === id)
+
+      // %name: the most recent job whose command line starts with `name`, e.g. `%sleep`
+      return [...this._jobs].reverse().find(job => job.commandLine.startsWith(rest))
+    }
+
+    const pid = Number(spec)
+    if (!Number.isNaN(pid)) return this._jobs.find(job => job.processes.some(process => process.pid === pid))
+
+    return undefined
+  }
+
+  /**
+   * Resumes a stopped job's real processes with `SIGCONT`, or promotes an already-running
+   * background job to the foreground -- either way, waits for it to finish. A job with no real
+   * process handles (a pure-coreutil pipeline) has nothing to send `SIGCONT` to, but is still
+   * waited on and reported the same way.
+   */
+  async fg(spec?: string): Promise<number | undefined> {
+    const job = this.getJob(spec)
+    if (!job) return undefined
+
+    this._terminal.writeln(job.commandLine)
+
+    if (job.status === 'stopped') {
+      for (const process of job.processes) process.kill(Signal.CONT)
+      job.status = 'running'
+    }
+
+    this._foregroundJob = job
+    try {
+      const codes = await job.done
+      return codes[codes.length - 1]
+    } finally {
+      if (this._foregroundJob === job) this._foregroundJob = undefined
+    }
+  }
+
+  /** Resumes a stopped job with `SIGCONT` in the background, without waiting for it. */
+  bg(spec?: string): Job | undefined {
+    const job = this.getJob(spec)
+    if (!job || job.status !== 'stopped') return job
+
+    for (const process of job.processes) process.kill(Signal.CONT)
+    job.status = 'running'
+    job.background = true
+    this._terminal.writeln(`[${job.id}]+ ${job.commandLine} &`)
+    return job
+  }
+
+  /**
+   * Waits for one job/pid, or (with no argument) every currently-running/stopped background job,
+   * to finish. Mirrors bash's `wait`: the single-target form returns that target's exit code; the
+   * no-argument form waits for all of them and returns `undefined` (bash's `wait` with no args
+   * always exits 0 unless interrupted, which this shell has no equivalent signal for yet).
+   */
+  async wait(spec?: string): Promise<number | undefined> {
+    if (!spec) {
+      await Promise.all(this._jobs.filter(job => job.status !== 'done').map(job => job.done))
+      return undefined
+    }
+
+    const job = this.getJob(spec)
+    if (!job) return undefined
+
+    const codes = await job.done
+    return codes[codes.length - 1]
   }
 
   /**
@@ -899,10 +1040,16 @@ export class Shell implements IShell {
 
   /**
    * Executes a command line: comment-stripped, parsed into a `Script`, and walked stage by stage
-   * honoring `;`, `&&`, `||`, and `&` (background is accepted syntactically; job control is not
-   * implemented yet, so it currently runs like `;`). `set -e` aborts the whole line on the first
+   * honoring `;`, `&&`, `||`, and `&`. A stage whose trailing operator is `&` is registered as a
+   * background `Job` (see `@ecmaos/types`' `Job`) and *not* awaited here -- `execute()` returns to
+   * the caller (the prompt) immediately after printing `[<job-id>] <pid>`, the same way bash reports
+   * a backgrounded pipeline. Every other stage runs in the foreground: tracked as `foregroundJob`
+   * for the duration (so `^C`/`^Z` in `Terminal.keyHandler` have something to signal) and awaited
+   * before the next stage of the line runs. `set -e` aborts the whole line on the first foreground
    * stage that fails without being consumed by `&&`/`||`/negation; `set -o pipefail` changes a
    * pipeline's reported exit code to its last *non-zero* stage rather than strictly its last stage.
+   * A backgrounded stage's exit code never affects `$?`/`errexit`/`&&`/`||` on this line -- exactly
+   * like bash, which reports it only later via `wait`/the "Done" line in `jobs`.
    */
   async execute(line: string) {
     const lineWithoutComments = line.split('#')[0]?.trim()
@@ -918,6 +1065,8 @@ export class Shell implements IShell {
     for (const stage of script.stages) {
       if (skipNext) {
         skipNext = false
+      } else if (stage.operator === '&') {
+        this.runInBackground(stage.pipeline)
       } else {
         const fnName = this.functionNameFor(stage.pipeline)
         let pipeStatus: number[]
@@ -928,7 +1077,7 @@ export class Shell implements IShell {
           const code = await this.callFunction(fnName, args)
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else {
-          pipeStatus = await this.runPipeline(stage.pipeline)
+          pipeStatus = await this.runForeground(stage.pipeline)
         }
 
         lastPipelineExit = this._shellOptions.pipefail
@@ -950,6 +1099,67 @@ export class Shell implements IShell {
     }
 
     return lastPipelineExit
+  }
+
+  /**
+   * Runs a pipeline in the foreground: registered as `foregroundJob` for the duration so `^C`/`^Z`
+   * have a real process to signal, cleared unconditionally once it settles (success, failure, or a
+   * thrown error) so a later `^C` at an idle prompt doesn't find a stale foreground job.
+   */
+  private async runForeground(pipeline: Pipeline): Promise<number[]> {
+    const job = this.createJob(pipeline, false, /* rethrow */ true)
+    this._foregroundJob = job
+    try {
+      return await job.done
+    } finally {
+      if (this._foregroundJob === job) this._foregroundJob = undefined
+    }
+  }
+
+  /**
+   * Launches a pipeline in the background (`&`): registers a `Job`, prints bash's `[<id>] <pid>`
+   * line, and does *not* await it here -- `job.done` is what `wait`/`jobs` observe later.
+   */
+  private runInBackground(pipeline: Pipeline): void {
+    const job = this.createJob(pipeline, true, /* rethrow */ false)
+
+    // Give the pipeline's first stage a tick to construct its real Process (if it has one) before
+    // reporting the job's pid, matching bash's `[1] <pid>` -- falls back to the job id if the stage
+    // never produces a real process handle (an all-coreutils pipeline has nothing to report here).
+    queueMicrotask(() => {
+      const pid = job.processes[0]?.pid
+      this._terminal.writeln(`[${job.id}] ${pid ?? job.id}`)
+    })
+  }
+
+  /**
+   * Registers a new `Job` for `pipeline` and starts `runPipeline` against it as its `done`
+   * executor. `job` is created first (with `processes: []`) specifically so `runPipeline` can push
+   * real process handles onto it as they appear while it runs, rather than only after the fact.
+   *
+   * @param rethrow - Foreground jobs preserve `runPipeline`'s original behavior of propagating a
+   * thrown error to `execute()`'s caller (there's still a caller around to see it). A backgrounded
+   * job has nobody left to catch it once `execute()` has already returned control to the prompt, so
+   * it's reported to the terminal directly and folded into `job.done` as a synthetic failure instead.
+   */
+  private createJob(pipeline: Pipeline, background: boolean, rethrow: boolean): JobImpl {
+    const commandLine = pipeline.commands.map(command => command.words.join(' ')).join(' | ')
+    const job = new JobImpl(this._nextJobId++, commandLine, background)
+    const settle = (codes: number[]) => {
+      job.exitCodes = codes
+      job.status = 'done'
+      return codes
+    }
+
+    job.done = rethrow
+      ? this.runPipeline(pipeline, job).then(settle)
+      : this.runPipeline(pipeline, job).then(settle).catch(error => {
+          this._terminal.writeln(`${this.env.get('SHELL') || 'ecmaos'}: ${error instanceof Error ? error.message : String(error)}`)
+          return settle([-1])
+        })
+
+    this._jobs.push(job)
+    return job
   }
 
   /**
