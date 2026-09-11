@@ -14,7 +14,9 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
-import { addDevice, bindContext, Credentials, DeviceDriver } from '@zenfs/core'
+import { bindContext, Credentials } from '@zenfs/core'
+import { char_dev, Device } from '@zenfs/linux'
+import type { FileOperations } from '@zenfs/linux'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
 import { WebContainer } from '@webcontainer/api'
@@ -61,6 +63,7 @@ import type {
   BootOptions,
   Kernel as IKernel,
   KernelContext,
+  KernelCharDevice,
   KernelDevice,
   KernelExecuteEvent,
   KernelExecuteOptions,
@@ -153,7 +156,7 @@ export class Kernel implements IKernel {
   /** DOM manipulation service */
   public readonly dom: Dom
   /** Map of registered devices and their drivers */
-  public readonly devices: Map<string, { device: KernelDevice, drivers?: DeviceDriver[] }> = new Map()
+  public readonly devices: Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }> = new Map()
   /** Event management system */
   public readonly events: Events
   /** Virtual filesystem */
@@ -229,7 +232,7 @@ export class Kernel implements IKernel {
     this.channel = new BroadcastChannel(import.meta.env['NAME'] || 'ecmaos')
     this.components = new Components()
     this.dom = new Dom(this.options.dom)
-    this.devices = new Map<string, { device: KernelDevice, drivers?: DeviceDriver[] }>()
+    this.devices = new Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }>()
     this.events = new Events()
     this.filesystem = new Filesystem(this)
     this.i18n = new I18n(this.options.i18n)
@@ -1620,15 +1623,47 @@ export class Kernel implements IKernel {
 
   /**
    * Registers the devices.
+   *
+   * `char_dev.register` claims an entire major (all 256 minors) for one `FileOperations` object, so
+   * a package that returns more than one {@link KernelCharDevice} under the same major is registered
+   * once per distinct major, with a dispatcher that routes to the right entry's own `ops` by minor
+   * — the same pattern `@zenfs/linux`'s own `mem.js` uses for `/dev/{null,zero,full,random}`.
+   *
    * @returns {Promise<void>} A promise that resolves when the devices are registered.
    */
   async registerDevices() {
     for (const device of Object.values(this.options.devices || DefaultDevices)) {
       const drivers = await device.getDrivers(this.context)
       this.devices.set(device.pkg.name, { device, drivers })
+
+      const byMajor = new Map<number, KernelCharDevice[]>()
       for (const driver of drivers) {
-        driver.singleton = driver.singleton ?? true
-        addDevice(driver)
+        const group = byMajor.get(driver.major) ?? []
+        group.push(driver)
+        byMajor.set(driver.major, group)
+      }
+
+      for (const [requestedMajor, group] of byMajor) {
+        const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
+          const entry = group.find(d => d.minor === file.devt.minor)
+          if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
+          return entry.ops
+        }
+
+        const ops: FileOperations = {
+          open: file => dispatch(file).open?.(file),
+          release: file => dispatch(file).release?.(file),
+          read: (file, buffer, start, end) => dispatch(file).read?.(file, buffer, start, end),
+          write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
+          sync: file => dispatch(file).sync?.(file),
+          poll: file => dispatch(file).poll?.(file) ?? 0,
+          poll_wait: file => dispatch(file).poll_wait?.(file)
+        }
+
+        const major = char_dev.register(requestedMajor, `${device.pkg.name}-${requestedMajor}`, ops)
+        for (const driver of group) {
+          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
+        }
       }
     }
   }
@@ -2115,7 +2150,7 @@ export class Kernel implements IKernel {
 
   /**
    * Gets a shell by TTY number
-   * @param ttyNumber - TTY number (0-9)
+   * @param ttyNumber - TTY number (0-7)
    * @returns Shell instance or undefined if not found
    */
   getShell(ttyNumber: number): Shell | undefined {
@@ -2124,12 +2159,12 @@ export class Kernel implements IKernel {
 
   /**
    * Creates a new shell and terminal for a TTY
-   * @param ttyNumber - TTY number (0-9)
+   * @param ttyNumber - TTY number (0-7)
    * @returns Created shell instance
    */
   async createShell(ttyNumber: number): Promise<Shell> {
-    if (ttyNumber < 0 || ttyNumber > 9) {
-      throw new Error('TTY number must be between 0 and 9')
+    if (ttyNumber < 0 || ttyNumber > 7) {
+      throw new Error('TTY number must be between 0 and 7')
     }
 
     if (this._shells.has(ttyNumber)) {
@@ -2195,10 +2230,10 @@ export class Kernel implements IKernel {
 
   /**
    * Switches to a different TTY
-   * @param ttyNumber - TTY number to switch to (0-9)
+   * @param ttyNumber - TTY number to switch to (0-7)
    */
   async switchTty(ttyNumber: number): Promise<void> {
-    if (ttyNumber < 0 || ttyNumber > 9) throw new Error('TTY number must be between 0 and 9')
+    if (ttyNumber < 0 || ttyNumber > 7) throw new Error('TTY number must be between 0 and 7')
     if (ttyNumber === this._activeTty) return
 
     const previousTty = this._activeTty

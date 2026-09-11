@@ -11,7 +11,7 @@
 import { TFunction } from 'i18next'
 import { configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
 import { IndexedDB } from '@zenfs/dom'
-import { ProcFS, SysFS } from '@zenfs/linux'
+import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
@@ -28,7 +28,8 @@ import type {
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   uid: 0,
   gid: 0,
-  addDevices: true,
+  // /dev is DevTmpFS, mounted explicitly below; @zenfs/core's legacy DeviceFS is not used
+  addDevices: false,
   defaultDirectories: true,
   disableAccessChecks: false,
   disableAsyncCache: false,
@@ -39,6 +40,7 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   },
   mounts: {
     '/': { backend: IndexedDB, options: { storeName: 'root' } },
+    '/dev': new DevTmpFS(),
     '/media': { backend: InMemory, options: { name: 'media' } },
     '/mnt': { backend: InMemory, options: { name: 'mnt' } },
     '/proc': new ProcFS(),
