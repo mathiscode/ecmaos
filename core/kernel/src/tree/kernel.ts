@@ -16,6 +16,7 @@ import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
 import { char_dev, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess } from '@zenfs/linux'
+import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import type { FileOperations } from '@zenfs/linux'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -623,6 +624,12 @@ export class Kernel implements IKernel {
 
       // Load core kernel features
       await this.registerEvents()
+      // The standard /dev/{null,zero,full,random,urandom} memory devices -- @zenfs/linux ships
+      // these ready-made (mem.js's own char_dev_init()), but nothing mounts them unless a caller
+      // does so explicitly; ecmaOS's own web-capability devices (registerDevices, below) are a
+      // separate, unrelated set. Real coreutils (dd, and anything reading /dev/urandom) depend on
+      // these existing.
+      initMemDevices()
       await this.registerDevices()
       await this.registerCommands()
       await this.registerPackages()

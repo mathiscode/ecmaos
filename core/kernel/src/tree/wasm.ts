@@ -14,6 +14,19 @@ export interface WasiComponentResult {
   exitCode: Promise<number>
 }
 
+/**
+ * Known limitation, confirmed by hand-assembling a real tight-loop `.wasm` module and running it:
+ * `_start` (below, and in `runComponent`/`runWithAsyncify`) is called directly on the main thread
+ * with no yield point unless the module itself was compiled with asyncify. A module with a genuine
+ * infinite loop and no such yield point freezes the tab outright -- `^C` cannot reach it, because
+ * the same main thread that would need to notice the keypress and deliver a signal is the one
+ * spinning inside `_start`. This is not a signal-delivery gap fixable in this class; it would need
+ * WASM execution moved off the main thread entirely (a dedicated Worker), which is a real
+ * re-architecture, not something this class does today despite the overhaul plan predicting it.
+ * The `/bin/wali` interpreter (see `src/bin/wali.mjs`) is a different, real `@zenfs/linux` `Thread`
+ * and IS genuinely interruptible via `Process.kill(Signal.INT)` -- only this preview1/preview2 path
+ * (`Wasm.run`/`runComponent`, the ecmaOS-native `.wasm` loader, not the WALI binfmt) has this gap.
+ */
 export class Wasm implements IWasm {
   private _kernel: Kernel
   private _modules: Map<string, { module: WebAssembly.Module; instance: WebAssembly.Instance }> = new Map()
