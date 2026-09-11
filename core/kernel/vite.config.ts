@@ -114,7 +114,7 @@ export default defineConfig({
       ]
     }),
     i18nextLoader({ namespaceResolution: 'basename', paths: ['locales'] }),
-    dts({ rollupTypes: true, exclude: ['src/ui.ts'] })
+    dts({ exclude: ['src/ui.ts'] })
   ] as ViteUserConfig['plugins'],
   define: {
     'import.meta.env.NAME': JSON.stringify(pkg.name),
