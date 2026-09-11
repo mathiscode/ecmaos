@@ -4,6 +4,7 @@
 
 import type { ITerminalAddon, ITerminalOptions, Terminal as XTerm } from '@xterm/xterm'
 import type { OptionDefinition } from 'command-line-args'
+import type { TTY } from '@zenfs/linux'
 
 import type { Dom } from './dom.ts'
 import type { Kernel, KernelContext, KernelState } from './kernel.ts'
@@ -143,6 +144,8 @@ export interface TerminalWritelnEvent {
  * Interface for terminal functionality
  */
 export interface Terminal extends XTerm {
+  /** The `@zenfs/linux` TTY this terminal is attached to, once `mount()` has run */
+  readonly zfsTty: TTY | undefined
   /** Get terminal addons */
   readonly addons: Map<string, ITerminalAddon>
   /** Get ANSI escape sequences */

@@ -37,27 +37,23 @@ export function parseCrontabLine(line: string): { expression: string, command: s
   let expression: string
   let command: string
 
-  // Try 6-field format first (with seconds)
+  // A field looking like a number/range/step is necessary but not sufficient to tell a real 6th
+  // (seconds) cron field apart from a 5-field expression whose command happens to start with one
+  // that shape (e.g. a literal `5` as the first argument) -- so 6-field is only committed to once
+  // `parseCronExpression` actually accepts it, not just because the field pattern matches.
   if (parts.length >= 7) {
-    // Check if first part looks like seconds (0-59 or */N or range)
-    const firstPart = parts[0]
-    if (!firstPart) return null
-    const isSecondsField = /^(\*|\d+(-\d+)?|\*\/\d+|\d+(-\d+)?\/\d+)$/.test(firstPart)
-    
-    if (isSecondsField) {
-      // 6-field format: second minute hour day month weekday command
-      expression = parts.slice(0, 6).join(' ')
-      command = parts.slice(6).join(' ')
-    } else {
-      // 5-field format: minute hour day month weekday command
-      expression = parts.slice(0, 5).join(' ')
-      command = parts.slice(5).join(' ')
+    const sixField = parts.slice(0, 6).join(' ')
+    try {
+      parseCronExpression(sixField)
+      return { expression: sixField, command: parts.slice(6).join(' ') }
+    } catch {
+      // Fall through to the 5-field interpretation below.
     }
-  } else {
-    // 5-field format: minute hour day month weekday command
-    expression = parts.slice(0, 5).join(' ')
-    command = parts.slice(5).join(' ')
   }
+
+  // 5-field format: minute hour day month weekday command
+  expression = parts.slice(0, 5).join(' ')
+  command = parts.slice(5).join(' ')
 
   // Validate the expression
   try {
