@@ -304,14 +304,6 @@ export class Kernel implements IKernel {
     // Still Kernel-shaped: Wasm's WASI Preview 1 bindings take a full Kernel throughout, and
     // narrowing that is the `wasm` branch's job (deleting most of preview1.ts), not this one's.
     this.wasm = new Wasm({ kernel: this })
-
-    // createBIOS().then((biosModule: BIOSModule) => {
-    //   this.bios = biosModule
-    //   resolveMountConfig({ backend: Emscripten, FS: biosModule.FS })
-    //     .then(config => this.filesystem.fsSync.mount('/bios', config))
-    // })
-
-    // WebContainer.boot().then(container => this.container = container)
   }
 
   /**
@@ -334,111 +326,9 @@ export class Kernel implements IKernel {
     // Translation function will be set after locale is loaded
     let t: ReturnType<typeof this.i18n.i18next.getFixedT>
 
-    // TODO: Remnants of experiments - to clean up or resume later
-    // if (!globalThis.process.nextTick) globalThis.process.nextTick = (fn: () => void) => setTimeout(fn, 0)
-    // if (!globalThis.process.exit) globalThis.process.exit = () => {}
-    // if (!globalThis.process.cwd) globalThis.process.cwd = () => this.shell.cwd
-    // if (!globalThis.process.chdir) globalThis.process.chdir = (dir: string) => {
-    //   this.shell.cwd = dir
-    //   localStorage.setItem(`cwd:${this.shell.credentials.uid}`, dir)
-    // }
-
     try {
       this.dom.topbar()
       this.terminal.unlisten()
-
-      // Setup polyfills and other features for node compatibility
-      // TODO: Customize and synchronize with vite.config.ts to allow slimmer builds
-      // const polyfills = {
-      //   assert: await import('node:assert'),
-      //   child_process: await import('node:child_process'),
-      //   cluster: await import('node:cluster'),
-      //   console: await import('node:console'),
-      //   constants: await import('node:constants'),
-      //   crypto: await import('node:crypto'),
-      //   events: await import('node:events'),
-      //   fs: this.filesystem.fsSync,
-      //   'fs/promises': this.filesystem.fs,
-      //   http: await import('node:http'),
-      //   http2: await import('node:http2'),
-      //   https: await import('node:https'),
-      //   os: await import('node:os'),
-      //   path: await import('node:path'),
-      //   punycode: await import('node:punycode'),
-      //   querystring: await import('node:querystring'),
-      //   stream: await import('node:stream'),
-      //   string_decoder: await import('node:string_decoder'),
-      //   timers: await import('node:timers'),
-      //   timers_promises: await import('node:timers/promises'),
-      //   tty: await import('node:tty'),
-      //   url: await import('node:url'),
-      //   util: await import('node:util'),
-      //   vm: await import('node:vm'),
-      //   zlib: await import('node:zlib')
-      // }
-
-      // // if (polyfills.tty) polyfills.tty.isatty = () => true
-      // globalThis.module = { exports: {} } as NodeModule
-
-      // globalThis.requiremap = new Map()
-      // // @ts-expect-error
-      // globalThis.require = (id: string) => {
-      //   // TODO: One day, I'm sure a more professional solution will be found
-      //   // A lot of this complexity is necessary only because of this unfortunate combination of issues:
-      //   // 1. Using IndexedDB gets unusably slow with lots of files unless disableAsyncCache is true
-      //   // 2. When disabling caching, we lose all synchronous fs methods
-      //   // 3. Require has to be synchronous
-      //   if (id.startsWith('node:')) return polyfills[id.replace('node:', '') as keyof typeof polyfills]
-      //   if (!globalThis.requiremap) globalThis.requiremap = new Map()
-
-      //   const caller = (new Error()).stack?.split("\n")[2]?.trim().split(" ")[1]
-      //   const url = caller?.replace(/:\d+:\d+$/, '')
-      //   if (!id.startsWith('blob:') && url === 'eval' && polyfills[id.includes(':') ? id.split(':')[1] as keyof typeof polyfills : id as keyof typeof polyfills]) {
-      //     return polyfills[id.includes(':') ? id.split(':')[1] as keyof typeof polyfills : id as keyof typeof polyfills]
-      //   }
-
-      //   if (url && (globalThis.requiremap.has(url) || url === 'eval')) {
-      //     const { code } = globalThis.requiremap.get(id)!
-      //     const cleanCode = code.startsWith('#!') ? code.split('\n').slice(1).join('\n') : code
-      //     const func = new Function(cleanCode)
-      //     func.call(globalThis)
-      //     return globalThis.module.exports
-      //   }
-
-      //   const mod = id.split(':').length > 1 ? id.split(':')[1] : id
-      //   return polyfills[mod as keyof typeof polyfills]
-      // }
-
-      // // Hacky, but just an initial experiment with node modules
-      // const originalConsole = globalThis.console
-      // globalThis.console = {
-      //   ...originalConsole,
-      //   log: (...args) => {
-      //     originalConsole.log(...args)
-      //     const caller = (new Error()).stack //?.split("\n")[2]?.trim().split(" ")[1]
-      //     if (caller?.includes('blob:')) this.terminal.writeln(args.join(' '))
-      //   },
-      //   error: (...args) => {
-      //     originalConsole.error(...args)
-      //     const caller = (new Error()).stack //?.split("\n")[2]?.trim().split(" ")[1]
-      //     if (caller?.includes('blob:')) this.terminal.writeln(chalk.red(args.join(' ')))
-      //   },
-      //   warn: (...args) => {
-      //     originalConsole.warn(...args)
-      //     const caller = (new Error()).stack //?.split("\n")[2]?.trim().split(" ")[1]
-      //     if (caller?.includes('blob:')) this.terminal.writeln(chalk.yellow(args.join(' ')))
-      //   },
-      //   info: (...args) => {
-      //     originalConsole.info(...args)
-      //     const caller = (new Error()).stack //?.split("\n")[2]?.trim().split(" ")[1]
-      //     if (caller?.includes('blob:')) this.terminal.writeln(args.join(' '))
-      //   },
-      //   debug: (...args) => {
-      //     originalConsole.debug(...args)
-      //     const caller = (new Error()).stack //?.split("\n")[2]?.trim().split(" ")[1]
-      //     if (caller?.includes('blob:')) this.terminal.writeln(args.join(' '))
-      //   }
-      // }
 
       // Setup kernel logging
       this.log.attachTransport((logObj) => {
@@ -823,13 +713,8 @@ export class Kernel implements IKernel {
       }
       authSpan.end()
 
-      // Display motd if it exists
-      const motd = await this.filesystem.fs.exists('/etc/motd')
-        ? await this.filesystem.fs.readFile('/etc/motd', 'utf-8')
-        : null
-
-      if (motd) this.terminal.writeln('\n' + motd)
-
+      // MOTD display and user-crontab loading both move into /sbin/init's script (via the `motd`
+      // and `load-crontab` commands) -- boot() only needs to get a shell running.
       const user = this.users.get(this.shell.credentials.uid ?? 0)
       if (!user) throw new Error(t('kernel.userNotFound', 'User not found'))
 
@@ -849,37 +734,25 @@ export class Kernel implements IKernel {
         user.uid === 0 ? '/' : (user.home || '/')
       )
 
-      // Load user crontab
-      const userCrontabPath = path.join(user.home || '/root', '.config', 'crontab')
-      await this.loadCrontab(userCrontabPath, 'user')
-
-      // Setup screensavers
-      // TODO: This shouldn't really be a part of the kernel
-      const screensavers = import.meta.glob('./lib/screensavers/*.ts', { eager: true })
-      for (const [key, saver] of Object.entries(screensavers)) {
-        this.screensavers.set(
-          key.replace('./lib/screensavers/', '').replace('.ts', ''),
-          saver as { default: (options: { terminal: ITerminal }) => Promise<void>, exit: () => Promise<void> }
-        )
-      }
-
-      const currentSaver = this.storage.local.getItem('screensaver') || 'matrix'
-      if (currentSaver && this.screensavers.has(currentSaver)) {
-        const saver = this.screensavers.get(currentSaver)
-
-        let idleTimer: Timer
-        const resetIdleTime = () => {
-          clearTimeout(idleTimer)
-          idleTimer = setTimeout(() => saver?.default({ terminal: this.terminal }), parseInt(this.storage.local.getItem('screensaver-timeout') ?? '60000'))
-        }
-
-        resetIdleTime()
-        const events = ['mousemove', 'keydown', 'keyup', 'keypress', 'pointerdown']
-        for (const event of events) globalThis.addEventListener(event, resetIdleTime)
-      }
+      // Registering the available screensavers (an `import.meta.glob`, resolved at build time
+      // relative to this file) must stay here; starting the idle-timeout daemon does not -- see
+      // `startScreensaverDaemon`, invoked from /sbin/init via the `screensaver-daemon` command.
+      this.registerScreensavers()
 
       const initSpan = tracer.startSpan('kernel.boot.init', {}, trace.setSpan(context.active(), bootSpan))
-      if (!await this.filesystem.fs.exists('/boot/init')) await this.filesystem.fs.writeFile('/boot/init', '#!ecmaos:bin:script:init\n\n')
+      if (!await this.filesystem.fs.exists('/boot/init')) {
+        await this.filesystem.fs.writeFile('/boot/init', [
+          '#!ecmaos:bin:script:init',
+          '',
+          '# The real, editable boot script -- everything here used to run unconditionally',
+          '# inside Kernel.boot() itself. What still can\'t move: anything needing a yes/no',
+          '# branch (there is no `if` yet -- see the shell-jobs branch) stays in boot().',
+          'motd',
+          'load-crontab ~/.config/crontab user',
+          'screensaver-daemon',
+          ''
+        ].join('\n'))
+      }
       const initProcess = new Process({
         args: [],
         command: 'init',
@@ -1789,6 +1662,50 @@ export class Kernel implements IKernel {
         }
       }
     } catch {}
+  }
+
+  /**
+   * Discovers the built-in screensavers. An `import.meta.glob` resolved at build time relative to
+   * this file, so it cannot move out of `Kernel` the way `startScreensaverDaemon` did.
+   */
+  registerScreensavers() {
+    const screensavers = import.meta.glob('./lib/screensavers/*.ts', { eager: true })
+    for (const [key, saver] of Object.entries(screensavers)) {
+      this.screensavers.set(
+        key.replace('./lib/screensavers/', '').replace('.ts', ''),
+        saver as { default: (options: { terminal: ITerminal }) => Promise<void>, exit: () => Promise<void> }
+      )
+    }
+  }
+
+  /**
+   * Starts the idle-timeout screensaver daemon: watches for user activity and shows the configured
+   * screensaver (`localStorage['screensaver']`, default `matrix`) after a period of none
+   * (`localStorage['screensaver-timeout']` ms, default 60000). Extracted out of `boot()` so it can
+   * be started from `/sbin/init` (via the `screensaver-daemon` command) instead of unconditionally
+   * on every boot.
+   * @returns a function that stops the daemon and removes its listeners, or undefined if the
+   * configured screensaver isn't a registered one
+   */
+  startScreensaverDaemon(): (() => void) | undefined {
+    const currentSaver = this.storage.local.getItem('screensaver') || 'matrix'
+    const saver = this.screensavers.get(currentSaver)
+    if (!saver) return undefined
+
+    let idleTimer: Timer
+    const resetIdleTime = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => saver.default({ terminal: this.terminal }), parseInt(this.storage.local.getItem('screensaver-timeout') ?? '60000'))
+    }
+
+    resetIdleTime()
+    const events = ['mousemove', 'keydown', 'keyup', 'keypress', 'pointerdown']
+    for (const event of events) globalThis.addEventListener(event, resetIdleTime)
+
+    return () => {
+      clearTimeout(idleTimer)
+      for (const event of events) globalThis.removeEventListener(event, resetIdleTime)
+    }
   }
 
   /**
