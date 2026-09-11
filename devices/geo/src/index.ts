@@ -3,8 +3,8 @@ interface GeoCoordinates extends GeolocationCoordinates {
 }
 
 import ansi from 'ansi-escape-sequences'
-import type { DeviceDriver, Device } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'geo',
@@ -86,63 +86,61 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = []
+/** `/sys/class/geo` */
+const geo_class = new Class('geo')
 
-  if ('geolocation' in navigator) {
-    let lastPosition: GeoCoordinates = {
-      latitude: 0,
-      longitude: 0,
-      accuracy: 0,
-      altitude: null,
-      altitudeAccuracy: null,
-      heading: null,
-      speed: null,
-      toJSON: function() {
-        return JSON.stringify({
-          latitude: this.latitude,
-          longitude: this.longitude,
-          accuracy: this.accuracy,
-          altitude: this.altitude
-        })
-      }
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  if (!('geolocation' in navigator)) return []
+
+  let lastPosition: GeoCoordinates = {
+    latitude: 0,
+    longitude: 0,
+    accuracy: 0,
+    altitude: null,
+    altitudeAccuracy: null,
+    heading: null,
+    speed: null,
+    toJSON: function() {
+      return JSON.stringify({
+        latitude: this.latitude,
+        longitude: this.longitude,
+        accuracy: this.accuracy,
+        altitude: this.altitude
+      })
     }
+  }
 
-    // Only start watching if permission is already granted
-    const permission = await navigator.permissions.query({ name: 'geolocation' })
-    if (permission.state === 'granted') {
-      navigator.geolocation.watchPosition(
-        (position) => {
-          lastPosition = {
-            ...position.coords,
-            toJSON: function() {
-              return JSON.stringify({
-                latitude: this.latitude,
-                longitude: this.longitude,
-                accuracy: this.accuracy,
-                altitude: this.altitude
-              })
-            }
+  // Only start watching if permission is already granted
+  const permission = await navigator.permissions.query({ name: 'geolocation' })
+  if (permission.state === 'granted') {
+    navigator.geolocation.watchPosition(
+      (position) => {
+        lastPosition = {
+          ...position.coords,
+          toJSON: function() {
+            return JSON.stringify({
+              latitude: this.latitude,
+              longitude: this.longitude,
+              accuracy: this.accuracy,
+              altitude: this.altitude
+            })
           }
-        },
-        (error) => {
-          console.warn('Geolocation error:', error)
         }
-      )
-    }
+      },
+      (error) => {
+        console.warn('Geolocation error:', error)
+      }
+    )
+  }
 
-    drivers.push({
-      name: 'geo',
-      init: () => ({
-        major: 10,
-        minor: 101,
-        data: {
-          kernelId: ctx.id,
-          version: pkg.version
-        }
-      }),
-      read: (_: Device<KernelDeviceData>, buffer: ArrayBufferView) => {
-        const view = new Float64Array(buffer.buffer, 0, 4)
+  return [{
+    name: 'geo',
+    major: 10,
+    minor: 101,
+    class: geo_class,
+    ops: {
+      read: (_file, buffer, start, end) => {
+        const view = new Float64Array(buffer.buffer, buffer.byteOffset, 4)
         view.set([
           lastPosition.latitude,
           lastPosition.longitude,
@@ -150,11 +148,9 @@ export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<Kerne
           lastPosition.altitude || 0
         ])
 
-        return 32
+        return Math.min(32, end - start)
       },
-      write: () => 0
-    })
-  }
-
-  return drivers
+      write: () => {}
+    }
+  }]
 }

@@ -16,8 +16,8 @@ declare global {
 }
 
 import ansi from 'ansi-escape-sequences'
-import type { DeviceDriver, Device } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'battery',
@@ -51,7 +51,7 @@ Commands:
   }
 
   const battery = await navigator.getBattery()
-  
+
   try {
     switch(args[0]) {
       case 'status':
@@ -86,33 +86,31 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = []
+/** `/sys/class/battery` */
+const battery_class = new Class('battery')
 
-  if ('getBattery' in navigator) {
-    const battery = await navigator.getBattery()
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  if (!('getBattery' in navigator)) return []
 
-    drivers.push({
-      name: 'battery',
-      init: () => ({
-        major: 10,
-        minor: 100,
-        data: {
-          kernelId: ctx.id,
-          charging: battery.charging,
-          chargingTime: battery.chargingTime,
-          dischargingTime: battery.dischargingTime,
-          level: battery.level
-        }
-      }),
-      read: (_: Device<KernelDeviceData>, buffer: ArrayBufferView) => {
-        const view = new Uint8Array(buffer.buffer, 0, 4)
-        view.set([Math.round(battery.level * 100), Number(battery.charging), battery.chargingTime, battery.dischargingTime])
-        return 4
+  const battery = await navigator.getBattery()
+
+  return [{
+    name: 'battery',
+    major: 10,
+    minor: 100,
+    class: battery_class,
+    ops: {
+      // level as a percentage (0-100), charging as 0/1, then chargingTime and dischargingTime in
+      // seconds as float64s -- Infinity (unknown) round-trips correctly, unlike a single byte each
+      read: (_file, buffer, start, end) => {
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+        view.setUint8(0, Math.round(battery.level * 100))
+        view.setUint8(1, Number(battery.charging))
+        view.setFloat64(2, battery.chargingTime, true)
+        view.setFloat64(10, battery.dischargingTime, true)
+        return Math.min(18, end - start)
       },
-      write: () => 0
-    })
-  }
-
-  return drivers
+      write: () => {}
+    }
+  }]
 }
