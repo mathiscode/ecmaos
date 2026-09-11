@@ -16,6 +16,7 @@ import { proc_root } from '@zenfs/linux/fs/procfs'
 import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
 import path from 'path'
+import binNodeSource from 'virtual:bin-node'
 
 import type { ConfigMounts, Configuration } from '@zenfs/core'
 
@@ -113,6 +114,7 @@ export class Filesystem {
     this._config = options as Configuration<ConfigMounts>
     await configureZenFS(options)
     this.registerProcEntries()
+    await this.installBinNode()
     const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
@@ -130,6 +132,17 @@ export class Filesystem {
         console.error(error)
       }
     }
+  }
+
+  /**
+   * Writes the real `/bin/node` interpreter -- the worker-hosted body `@zenfs/linux`'s own default
+   * `binfmt_js` already points every plain JS/ESM program at via `execve`. Rewritten on every boot
+   * so it always matches this build; see `src/bin/node.mjs` for what it actually does and why it
+   * ships as one bundle with no import statements.
+   */
+  private async installBinNode() {
+    if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
+    await this.fs.writeFile('/bin/node', binNodeSource, { mode: 0o755 })
   }
 
   /**

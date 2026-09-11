@@ -48,10 +48,12 @@ import { createCommand as createId } from './commands/id.js'
 import { createCommand as createJoin } from './commands/join.js'
 import { createCommand as createLess } from './commands/less.js'
 import { createCommand as createLn } from './commands/ln.js'
+import { createCommand as createLoadCrontab } from './commands/load-crontab.js'
 import { createCommand as createLs } from './commands/ls.js'
 import { createCommand as createMan } from './commands/man.js'
 import { createCommand as createMkdir } from './commands/mkdir.js'
 import { createCommand as createMktemp } from './commands/mktemp.js'
+import { createCommand as createMotd } from './commands/motd.js'
 import { createCommand as createMount } from './commands/mount.js'
 import { createCommand as createMv } from './commands/mv.js'
 import { createCommand as createNc } from './commands/nc.js'
@@ -69,6 +71,7 @@ import { createCommand as createRealpath } from './commands/realpath.js'
 import { createCommand as createRev } from './commands/rev.js'
 import { createCommand as createRm } from './commands/rm.js'
 import { createCommand as createRmdir } from './commands/rmdir.js'
+import { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 import { createCommand as createSeq } from './commands/seq.js'
 import { createCommand as createSed } from './commands/sed.js'
 import { createCommand as createShuf } from './commands/shuf.js'
@@ -140,10 +143,12 @@ export { createCommand as createHash } from './commands/hash.js'
 export { createCommand as createHistory } from './commands/history.js'
 export { createCommand as createLess } from './commands/less.js'
 export { createCommand as createLn } from './commands/ln.js'
+export { createCommand as createLoadCrontab } from './commands/load-crontab.js'
 export { createCommand as createLs } from './commands/ls.js'
 export { createCommand as createMan } from './commands/man.js'
 export { createCommand as createMkdir } from './commands/mkdir.js'
 export { createCommand as createMktemp } from './commands/mktemp.js'
+export { createCommand as createMotd } from './commands/motd.js'
 export { createCommand as createMount } from './commands/mount.js'
 export { createCommand as createMv } from './commands/mv.js'
 export { createCommand as createOpen } from './commands/open.js'
@@ -156,6 +161,7 @@ export { createCommand as createRealpath } from './commands/realpath.js'
 export { createCommand as createRev } from './commands/rev.js'
 export { createCommand as createRm } from './commands/rm.js'
 export { createCommand as createRmdir } from './commands/rmdir.js'
+export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createSed } from './commands/sed.js'
 export { createCommand as createShuf } from './commands/shuf.js'
 export { createCommand as createSleep } from './commands/sleep.js'
@@ -235,10 +241,12 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     join: createJoin(kernel, shell, terminal),
     less: createLess(kernel, shell, terminal),
     ln: createLn(kernel, shell, terminal),
+    'load-crontab': createLoadCrontab(kernel, shell, terminal),
     ls: createLs(kernel, shell, terminal),
     man: createMan(kernel, shell, terminal),
     mkdir: createMkdir(kernel, shell, terminal),
     mktemp: createMktemp(kernel, shell, terminal),
+    motd: createMotd(kernel, shell, terminal),
     mount: createMount(kernel, shell, terminal),
     mv: createMv(kernel, shell, terminal),
     nc: createNc(kernel, shell, terminal),
@@ -256,6 +264,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     rev: createRev(kernel, shell, terminal),
     rm: createRm(kernel, shell, terminal),
     rmdir: createRmdir(kernel, shell, terminal),
+    'screensaver-daemon': createScreensaverDaemon(kernel, shell, terminal),
     sed: createSed(kernel, shell, terminal),
     seq: createSeq(kernel, shell, terminal),
     shuf: createShuf(kernel, shell, terminal),
