@@ -17,6 +17,7 @@
     "skipDefaultLibCheck": true,
 
     "types": [
+      "node",
       "./node_modules/user-agent-data-types"
     ],
 
