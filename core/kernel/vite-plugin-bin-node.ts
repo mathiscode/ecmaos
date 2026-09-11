@@ -54,3 +54,11 @@ export function binNode(): Plugin {
 export function binWali(): Plugin {
   return binWorkerPlugin('wali', 'src/bin/wali.mjs')
 }
+
+/**
+ * Bundles `src/bin/pilot-pwd.mjs` -- the real, syscall-only coreutil pilot proving `execve` plus
+ * `Kernel.bridgeStdio` work together -- into `virtual:bin-pilot-pwd`, the same way `binNode` does.
+ */
+export function binPilotPwd(): Plugin {
+  return binWorkerPlugin('pilot-pwd', 'src/bin/pilot-pwd.mjs')
+}

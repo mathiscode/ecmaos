@@ -14,10 +14,21 @@
  * `Kernel.replaceImports` uses for main-thread apps would need its own worker-side port, real
  * scope of its own, not a detail of getting a first program running). A self-contained script,
  * i.e. one with no import/require statements, is what `/bin/node` can run today.
+ *
+ * A loaded program that DOES want real syscalls (`open`/`read`/`write`/`getcwd`/...) has a second,
+ * separate obstacle even once it stops importing anything: it would still need its own bundled
+ * copy of `@zenfs/linux/uapi/*` if it tried to `import` those directly, and that copy's module-
+ * level state (`uapi/base.ts`'s `ready`, the shared-memory syscall channel `@zenfs/linux` sets up
+ * by resolving it when the real `init` message arrives) is private to *this* module instance --
+ * the one that actually received that message, being the real Worker entrypoint. A separately
+ * bundled copy's own `ready` never resolves; confirmed by hand, it hangs forever. So this
+ * interpreter exposes its own already-initialized syscall wrappers on `globalThis.ecmaosSyscalls`
+ * before loading the program below -- the one way a loaded program can make a real syscall today
+ * without a second, unresolvable copy of `uapi`'s init handshake.
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
-import { open, read, close } from '@zenfs/linux/uapi/fs'
+import { open, read, close, write, getcwd } from '@zenfs/linux/uapi/fs'
 
 /** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
 async function readWholeFile(path) {
@@ -56,6 +67,12 @@ function toDataUrl(bytes) {
 }
 
 const init = await ready
+
+// Expose this module's own already-initialized syscall wrappers for the loaded program to use --
+// see the doc comment above for why a program can't get working ones of its own by importing
+// `@zenfs/linux/uapi/*` directly. Deliberately a small, fixed set (not all of `uapi/*`): only what
+// a syscall-only coreutil-shaped program plausibly needs today.
+globalThis.ecmaosSyscalls = { open, read, write, close, getcwd, exit }
 
 try {
   const source = await readWholeFile(init.exe)
