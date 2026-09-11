@@ -60,6 +60,7 @@ import {
 import type {
   BootOptions,
   Kernel as IKernel,
+  KernelContext,
   KernelDevice,
   KernelExecuteEvent,
   KernelExecuteOptions,
@@ -215,6 +216,11 @@ export class Kernel implements IKernel {
   get addEventListener() { return this.events.on }
   /** Remove an event listener; alias for `events.off` */
   get removeEventListener() { return this.events.off }
+
+  /** The cross-cutting primitives a subsystem or driver may depend on, with no back-reference to the Kernel itself */
+  get context(): KernelContext {
+    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n }
+  }
 
   constructor(_options: KernelOptions = DefaultKernelOptions) {
     this.options = { ...DefaultKernelOptions, ..._options }
@@ -1593,7 +1599,7 @@ export class Kernel implements IKernel {
    */
   async registerDevices() {
     for (const device of Object.values(this.options.devices || DefaultDevices)) {
-      const drivers = await device.getDrivers(this)
+      const drivers = await device.getDrivers(this.context)
       this.devices.set(device.pkg.name, { device, drivers })
       for (const driver of drivers) {
         driver.singleton = driver.singleton ?? true

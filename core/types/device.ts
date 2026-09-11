@@ -3,7 +3,7 @@
  */
 
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, Shell, Terminal } from './index.ts'
+import type { Kernel, KernelContext, Shell, Terminal } from './index.ts'
 /**
  * Interface representing a kernel device.
  * This essentially "wraps" one or many zenfs devices
@@ -36,10 +36,10 @@ export interface KernelDevice {
   /**
    * Get device drivers supported by this device
    * This allows the device to declare one or many individual devices in /dev
-   * @param kernel - Kernel instance
+   * @param ctx - The kernel context (id/log/events/i18n); a driver has no need for the whole Kernel
    * @returns Promise resolving to array of device drivers
    */
-  getDrivers(kernel: Kernel): Promise<DeviceDriver[]>
+  getDrivers(ctx: KernelContext): Promise<DeviceDriver[]>
 }
 
 /**
