@@ -62,6 +62,7 @@ import { createCommand as createMount } from './commands/mount.js'
 import { createCommand as createMv } from './commands/mv.js'
 import { createCommand as createNc } from './commands/nc.js'
 import { createCommand as createNl } from './commands/nl.js'
+import { createCommand as createNproc } from './commands/nproc.js'
 import { createCommand as createOd } from './commands/od.js'
 import { createCommand as createOpen } from './commands/open.js'
 import { createCommand as createPasskey } from './commands/passkey.js'
@@ -267,6 +268,7 @@ export function createAllCommands(kernel: Kernel, shell: Shell, terminal: Termin
     mv: createMv(kernel, shell, terminal),
     nc: createNc(kernel, shell, terminal),
     nl: createNl(kernel, shell, terminal),
+    nproc: createNproc(kernel, shell, terminal),
     od: createOd(kernel, shell, terminal),
     open: createOpen(kernel, shell, terminal),
     passkey: createPasskey(kernel, shell, terminal),

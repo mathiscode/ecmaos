@@ -82,26 +82,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       if (totalDuration <= 0) return 0
 
       let interrupted = false
-      const interruptHandler = () => { interrupted = true }
-      terminal.events.on(TerminalEvents.INTERRUPT, interruptHandler)
+      let interruptHandler: () => void = () => {}
 
-      try {
-        await new Promise<void>((resolve) => {
-          const timeoutId = setTimeout(() => resolve(), totalDuration)
+      await new Promise<void>((resolve) => {
+        const timeoutId = setTimeout(() => resolve(), totalDuration)
 
-          if (interrupted) {
-            clearTimeout(timeoutId)
-            resolve()
-          }
-        })
-      } catch (error) {
-        if (!interrupted) {
-          await io.writelnErr(`sleep: ${error instanceof Error ? error.message : 'Unknown error'}`)
-          return 1
+        // The interrupt can arrive at any point during the wait (`^C` is a real async event, not
+        // something checked once) -- the handler itself must cancel the timer and resolve, rather
+        // than just flipping a flag that nothing re-checks once the promise executor has returned.
+        interruptHandler = () => {
+          interrupted = true
+          clearTimeout(timeoutId)
+          resolve()
         }
-      } finally {
-        terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
-      }
+        terminal.events.on(TerminalEvents.INTERRUPT, interruptHandler)
+      })
+
+      terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
 
       return interrupted ? 130 : 0
     }
