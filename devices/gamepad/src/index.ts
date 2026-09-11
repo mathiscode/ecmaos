@@ -1,6 +1,6 @@
 import ansi from 'ansi-escape-sequences'
-import type { DeviceDriver } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'gamepad',
@@ -34,12 +34,12 @@ Commands:
       case 'list':
         const gamepads = navigator.getGamepads()
         const connectedPads = Array.from(gamepads).filter(Boolean)
-        
+
         if (!connectedPads.length) {
           terminal.writeln('No gamepads connected')
           break
         }
-        
+
         terminal.writeln(`${ansi.style.bold}🎮 Connected Gamepads:${ansi.style.reset}`)
         connectedPads.forEach(gamepad => {
           if (!gamepad) return
@@ -60,7 +60,7 @@ Commands:
         const gamepads2 = navigator.getGamepads()
         const index = Number(args[1])
         const gamepad = gamepads2[index]
-        
+
         if (!gamepad) {
           terminal.writeln(`No gamepad found at index ${index}`)
           return 1
@@ -88,17 +88,20 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = [{
-    name: 'gamepad',
-    init: () => ({
-      major: 13,
-      minor: 1,
-      data: { kernelId: ctx.id, version: pkg.version }
-    }),
-    read: () => 0,
-    write: () => 0
-  }]
+/** `/sys/class/gamepad` */
+const gamepad_class = new Class('gamepad')
 
-  return drivers
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  return [{
+    name: 'gamepad',
+    // Dynamically allocated: real Linux major 13 (input) is now hid's alone, since
+    // char_dev.register claims an entire major and the two can no longer share it informally.
+    major: 0,
+    minor: 1,
+    class: gamepad_class,
+    ops: {
+      read: () => 0,
+      write: () => {}
+    }
+  }]
 }
