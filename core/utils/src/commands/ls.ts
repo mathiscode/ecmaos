@@ -85,7 +85,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      const getModeType = (stats: Awaited<ReturnType<typeof shell.context.fs.promises.stat>>) => {
+      const getModeType = (stats: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>>) => {
         let type = '-'
         if (stats.isDirectory()) type = 'd'
         else if (stats.isSymbolicLink()) type = 'l'
@@ -96,7 +96,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return type
       }
 
-      const getModeString = (stats: Awaited<ReturnType<typeof shell.context.fs.promises.stat>>, targetStats?: Awaited<ReturnType<typeof shell.context.fs.promises.stat>>) => {
+      const getModeString = (stats: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>>, targetStats?: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>>) => {
         const type = getModeType(stats)
         const modeStats = targetStats || stats
         const permissions = (Number(modeStats.mode) & parseInt('777', 8)).toString(8).padStart(3, '0')
@@ -127,7 +127,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           return chalk.blue(timestamp.toISOString().slice(0, 19).replace('T', ' '))
       }
 
-      const getOwnerString = (stats: Awaited<ReturnType<typeof shell.context.fs.promises.stat>>) => {
+      const getOwnerString = (stats: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>>) => {
         const owner = kernel.users.all.get(Number(stats.uid)) || kernel.users.all.get(0)
 
         if (owner?.username === shell.username) return chalk.green(`${owner?.username || stats.uid}:${owner?.username || stats.gid}`)
@@ -135,7 +135,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         else return chalk.gray(`${owner?.username || stats.uid}:${owner?.username || stats.gid}`)
       }
 
-      const getLinkInfo = (linkTarget: string | null, linkStats: Awaited<ReturnType<typeof shell.context.fs.promises.stat>> | null, stats: Awaited<ReturnType<typeof shell.context.fs.promises.stat>> | null) => {
+      const getLinkInfo = (linkTarget: string | null, linkStats: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>> | null, stats: NonNullable<Awaited<ReturnType<typeof shell.context.fs.promises.stat>>> | null) => {
         if (linkTarget || (linkStats && linkStats.isSymbolicLink())) return kernel.i18n.t('Symbolic Link')
         if (stats && stats.nlink > 1) return kernel.i18n.t('Hard Link')
         return ''
