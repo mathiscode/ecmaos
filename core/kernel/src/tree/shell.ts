@@ -894,17 +894,35 @@ export class Shell implements IShell {
   }
 
   /**
-   * Resolves a job spec the way bash does: `%N`, `%%`/`%+` (current == most recently started),
-   * `%-` (previous), a bare pid (matched against any job's process handles), or no argument at all
-   * (also most-recently-started, matching bare `fg`/`bg`). Returns `undefined` if nothing matches.
+   * The most recently started job still worth targeting by a bare job spec -- background or
+   * stopped, never a plain foreground command that already ran to completion (`jobs`/`fg`/`bg`
+   * themselves included, since they always run in the foreground). This is what bash calls the
+   * "current job" (`%%`/`%+`), and what bare `fg`/`bg` (no argument) target.
+   */
+  private get currentJob(): Job | undefined {
+    for (let i = this._jobs.length - 1; i >= 0; i--) {
+      const job = this._jobs[i]
+      if (job && (job.background || job.status === 'stopped')) return job
+    }
+    return undefined
+  }
+
+  /**
+   * Resolves a job spec the way bash does: `%N`, `%%`/`%+` (current == most recently started
+   * background/stopped job), `%-` (previous such job), a bare pid (matched against any job's
+   * process handles), or no argument at all (also the current job, matching bare `fg`/`bg`).
+   * Returns `undefined` if nothing matches.
    */
   getJob(spec?: string): Job | undefined {
-    if (!spec) return this._jobs[this._jobs.length - 1]
+    if (!spec) return this.currentJob
 
     if (spec.startsWith('%')) {
       const rest = spec.slice(1)
-      if (rest === '' || rest === '%' || rest === '+') return this._jobs[this._jobs.length - 1]
-      if (rest === '-') return this._jobs[this._jobs.length - 2]
+      if (rest === '' || rest === '%' || rest === '+') return this.currentJob
+      if (rest === '-') {
+        const backgroundable = this._jobs.filter(job => job.background || job.status === 'stopped')
+        return backgroundable[backgroundable.length - 2]
+      }
 
       const id = Number(rest)
       if (!Number.isNaN(id)) return this._jobs.find(job => job.id === id)
