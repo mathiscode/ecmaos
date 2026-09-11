@@ -1,5 +1,5 @@
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 export const pkg = {
   name: 'echo',
@@ -12,15 +12,16 @@ export async function cli(options: KernelDeviceCLIOptions) {
   return 0
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   const drivers: DeviceDriver<KernelDeviceData>[] = [{
     name: 'echo',
-    init: () => ({ major: 5, minor: 1 }),
-    read: (file: Device<KernelDeviceData>, buffer: ArrayBufferView, offset: number, end: number) => 0,
+    init: () => ({ major: 5, minor: 1, data: { kernelId: ctx.id } }),
+    read: (_file: Device<KernelDeviceData>, _buffer: ArrayBufferView, _offset: number, _end: number) => 0,
     write: (file: Device<KernelDeviceData>, buffer: ArrayBufferView, offset: number) => {
-      const data = buffer.buffer.slice(offset, offset + length)
+      const length = buffer.byteLength - offset
+      const data = buffer.buffer.slice(buffer.byteOffset + offset, buffer.byteOffset + offset + length)
       const text = new TextDecoder().decode(data)
-      kernel.terminal?.write(text)
+      ctx.log.debug(`[echo:${file.data?.kernelId}] ${text}`)
       return length
     }
   }]
