@@ -1,7 +1,7 @@
 /// <reference types="w3c-web-serial" />
 
 import type { DeviceDriver, Device } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
 
 const availablePorts = new Set<SerialPort>()
 
@@ -108,10 +108,10 @@ async function createDriver(name: string): Promise<DeviceDriver<KernelDeviceData
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver<KernelDeviceData>[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
   if (typeof navigator === 'undefined' || !navigator.serial) return []
   navigator.serial.addEventListener('connect', async (event) => {
-    kernel.events.emit('device:connect', event.target)
+    ctx.events.emit('device:connect', event.target)
     if (event.target && !availablePorts.has(event.target as SerialPort)) {
       availablePorts.add(event.target as SerialPort)
     }
