@@ -1,7 +1,7 @@
 /// <reference types="w3c-web-usb" />
 
 import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelDeviceCLIOptions } from '@ecmaos/types'
+import type { KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'usb',
@@ -118,14 +118,14 @@ Commands:
   }
 }
 
-export async function getDrivers(kernel: Kernel): Promise<DeviceDriver[]> {
+export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver[]> {
   const drivers: DeviceDriver[] = [
     {
       name: 'usb',
       init: () => ({
         major: 8,
         minor: 0,
-        data: { kernelId: kernel.id }
+        data: { kernelId: ctx.id }
       }),
       read: () => 0,
       write: () => 0
@@ -140,7 +140,7 @@ export async function getDrivers(kernel: Kernel): Promise<DeviceDriver[]> {
         init: () => ({
           major: 8,
           minor: device.vendorId + device.productId,
-          data: { device, kernelId: kernel.id }
+          data: { device, kernelId: ctx.id }
         }),
         read: () => 0,
         write: () => 0
