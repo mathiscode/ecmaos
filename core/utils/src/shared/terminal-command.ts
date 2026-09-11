@@ -2,17 +2,35 @@ import chalk from 'chalk'
 import parseArgs, { CommandLineOptions, OptionDefinition } from 'command-line-args'
 import parseUsage from 'command-line-usage'
 import type { TerminalCommand as ITerminalCommand } from '@ecmaos/types'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
-import { writelnStdout, writelnStderr } from './helpers.js'
+import type { CommandContext, CommandIO, Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import { writeStdout, writelnStdout, writeStderr, writelnStderr } from './helpers.js'
 
 type UnifiedParserRun = (argv: CommandLineOptions, process?: Process, rawArgv?: string[]) => Promise<number | void>
-type RawArgvRun = (pid: number, argv: string[]) => Promise<number | void>
+type RawArgvRun = (ctx: CommandContext, io: CommandIO) => Promise<number | void>
+
+/**
+ * Builds the `CommandIO` handed to a coreutils command's `run`, closing over the resolved
+ * `process`/`terminal` for this invocation so commands stop threading them through every write.
+ */
+function createCommandIO(process: Process | undefined, terminal: Terminal): CommandIO {
+  return {
+    write: (text: string) => writeStdout(process, terminal, text),
+    writeln: (text: string) => writelnStdout(process, terminal, text),
+    writeErr: (text: string) => writeStderr(process, terminal, text),
+    writelnErr: (text: string) => writelnStderr(process, terminal, text),
+    stdout: process?.stdout,
+    stderr: process?.stderr,
+    stdin: process?.stdin,
+    isTTY: process?.stdoutIsTTY ?? false
+  }
+}
 
 /**
  * The TerminalCommand class sets up a common interface for builtin terminal commands
  * Supports two modes:
  * - Unified parser mode: When options are provided, uses command-line-args (for kernel commands)
- * - Raw argv mode: When options are not provided, passes raw argv directly (for coreutils commands)
+ * - Raw argv mode: When options are not provided, passes `(ctx, io)` instead of raw `(pid, argv)`
+ *   (for coreutils commands) -- see `CommandContext`/`CommandIO` in `@ecmaos/types`.
  */
 export class TerminalCommand implements ITerminalCommand {
   command: string = ''
@@ -76,7 +94,18 @@ export class TerminalCommand implements ITerminalCommand {
       const rawRun = run as RawArgvRun
       this.run = async (pid: number, argv: string[]) => {
         if (argv === null) return 1
-        return await rawRun(pid, argv)
+        const process = this.kernel.processes.get(pid) as Process | undefined
+        const ctx: CommandContext = {
+          kernel: this.kernel,
+          shell: this.shell,
+          terminal: this.terminal,
+          process,
+          pid,
+          argv,
+          cwd: this.shell.cwd
+        }
+        const io = createCommandIO(process, this.terminal)
+        return await rawRun(ctx, io)
       }
     }
   }
@@ -106,4 +135,3 @@ export class TerminalCommand implements ITerminalCommand {
     }).join(' ')}`
   }
 }
-
