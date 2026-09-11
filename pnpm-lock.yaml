@@ -248,11 +248,11 @@ importers:
   core/kernel:
     dependencies:
       '@bytecodealliance/jco':
-        specifier: ^1.15.4
+        specifier: ^1.33.0
         version: 1.33.0
       '@bytecodealliance/preview2-shim':
-        specifier: ^0.17.6
-        version: 0.17.9
+        specifier: ^0.24.1
+        version: 0.24.1
       '@ecmaos-devices/audio':
         specifier: workspace:^
         version: link:../../devices/audio
@@ -1445,9 +1445,6 @@ packages:
   '@bytecodealliance/jco@1.33.0':
     resolution: {integrity: sha512-U/iYtLBmTh4Ksreawazou5GWYW0g7ze8fFrNR3ErehXqS16VuFqqkipR3WsjVhf1/95uFCKcL5Ib2jWYdu8hWw==}
     hasBin: true
-
-  '@bytecodealliance/preview2-shim@0.17.9':
-    resolution: {integrity: sha512-i0R3eQBe6PA/o/1EFE3Owe4In2rcccb6QxnjpntM/lPe3/duJ0bRQTVZM2Ufpo99X4eofGeltQUkape1C91FFA==}
 
   '@bytecodealliance/preview2-shim@0.24.1':
     resolution: {integrity: sha512-QGZsKD5M76xBhwu3BzLWqYDEpaMX90QWrrfhkQPn2pN9t378koumtdAVH4lr25mqGCZt10YNXkWvyWkw/vJbLQ==}
@@ -8459,8 +8456,6 @@ snapshots:
       typescript: 7.0.2
       typescript-compiler-api: typescript@6.0.3
       unenv: 2.0.0-rc.24
-
-  '@bytecodealliance/preview2-shim@0.17.9': {}
 
   '@bytecodealliance/preview2-shim@0.24.1':
     dependencies:
