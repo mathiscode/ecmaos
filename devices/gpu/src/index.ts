@@ -6,8 +6,8 @@ declare global {
   }
 }
 
-import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'gpu',
@@ -47,36 +47,29 @@ Launch chrome using: google-chrome --enable-unsafe-webgpu --enable-features=Vulk
   return 0
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = []
+/** `/sys/class/gpu` */
+const gpu_class = new Class('gpu')
 
-  if ('gpu' in navigator) {
-    const adapter = await navigator.gpu.requestAdapter()
-    if (adapter) {
-      const device = await adapter.requestDevice()
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  if (!('gpu' in navigator)) return []
 
-      drivers.push({
-        name: 'gpu',
-        init: () => ({
-          major: adapter.info?.vendor === 'nvidia' ? 195 : 10,
-          minor: 0,
-          data: {
-            adapter,
-            device,
-            kernelId: ctx.id,
-            features: Array.from(adapter.features),
-            limits: Object.fromEntries(
-              Object.entries(adapter.limits).map(([k,v]) => [k, String(v)])
-            )
-          }
-        }),
-        read: () => 0,
-        write: () => 0
-      })
+  const adapter = await navigator.gpu.requestAdapter()
+  if (!adapter) return []
+
+  // Acquiring the device isn't otherwise used here, but requestDevice() has side effects
+  // (it can be what actually initializes the adapter), so keep the call.
+  await adapter.requestDevice()
+
+  return [{
+    name: 'gpu',
+    major: adapter.info?.vendor === 'nvidia' ? 195 : 10,
+    minor: 0,
+    class: gpu_class,
+    ops: {
+      read: () => 0,
+      write: () => {}
     }
-  }
-
-  return drivers
+  }]
 }
 
 async function test(kernel: Kernel) {
