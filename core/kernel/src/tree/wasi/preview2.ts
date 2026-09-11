@@ -133,10 +133,13 @@ export default async function createWasiPreview2Bindings({
     name: 'component',
     wasiShim: false
   })
+  const fileEntries: [string, Uint8Array][] = Array.isArray(files)
+    ? files
+    : Object.entries((files ?? {}) as Record<string, Uint8Array>)
 
   // Find the JS file and WASM files
-  const jsFile = files.find(([name]: [string, Uint8Array]) => name.endsWith('.js'))
-  const wasmFiles = files.filter(([name]: [string, Uint8Array]) => name.endsWith('.wasm'))
+  const jsFile = fileEntries.find(([name]) => name.endsWith('.js'))
+  const wasmFiles = fileEntries.filter(([name]) => name.endsWith('.wasm'))
 
   if (!jsFile) {
     throw new Error('Transpilation did not produce a JS file')

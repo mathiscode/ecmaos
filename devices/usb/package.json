@@ -8,6 +8,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "build": "tsc"
+  },
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",

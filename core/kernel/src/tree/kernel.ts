@@ -540,7 +540,6 @@ export class Kernel implements IKernel {
         try {
           // TODO: A lot of trouble with Figlet fonts; revamp later - default to Poison now
           // const loadedFont = await import(`figlet/importable-fonts/${figletFont}.js`)
-          // @ts-expect-error
           const loadedFont = await import('figlet/importable-fonts/Poison.js')
           figlet.parseFont(figletFont || 'Poison', loadedFont.default)
           logoFiglet = figlet.textSync(import.meta.env['FIGLET_TEXT'] || 'ECMAOS', { font: figletFont as keyof typeof figlet.fonts })
