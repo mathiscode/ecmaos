@@ -1,13 +1,13 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: factor [NUMBER]...
 Print prime factors of each NUMBER.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function factorize(n: number): number[] {
@@ -44,41 +44,41 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
       const numbers: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (!arg.startsWith('-')) {
           numbers.push(arg)
         } else {
-          await writelnStderr(process, terminal, `factor: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'factor --help' for more information.")
+          await io.writelnErr(`factor: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'factor --help' for more information.")
           return 1
         }
       }
 
       if (numbers.length === 0) {
-        if (!process.stdin) {
-          await writelnStderr(process, terminal, 'factor: missing operand')
-          await writelnStderr(process, terminal, "Try 'factor --help' for more information.")
+        if (!io.stdin) {
+          await io.writelnErr('factor: missing operand')
+          await io.writelnErr("Try 'factor --help' for more information.")
           return 1
         }
 
-        if (process.stdinIsTTY) {
+        if (ctx.process?.stdinIsTTY) {
           try {
             while (true) {
               const line = await terminal.readline('', false, true)
@@ -95,7 +95,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             terminal.listen()
           }
         } else {
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -125,8 +125,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (numbers.length === 0) {
-        await writelnStderr(process, terminal, 'factor: missing operand')
-        await writelnStderr(process, terminal, "Try 'factor --help' for more information.")
+        await io.writelnErr('factor: missing operand')
+        await io.writelnErr("Try 'factor --help' for more information.")
         return 1
       }
 
@@ -135,14 +135,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       for (const numStr of numbers) {
         const num = parseInt(numStr, 10)
         if (isNaN(num) || num < 0) {
-          await writelnStderr(process, terminal, `factor: '${numStr}' is not a valid positive integer`)
+          await io.writelnErr(`factor: '${numStr}' is not a valid positive integer`)
           hasError = true
           continue
         }
 
         const factors = factorize(num)
         const output = `${num}: ${factors.join(' ')}`
-        await writelnStdout(process, terminal, output)
+        await io.writeln(output)
       }
 
       return hasError ? 1 : 0

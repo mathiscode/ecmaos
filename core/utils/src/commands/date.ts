@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: date [OPTION]... [+FORMAT]
 Print or set the system date and time.
 
@@ -10,7 +10,7 @@ Print or set the system date and time.
   -R, --rfc-2822              output date and time in RFC 2822 format
   -f, --format=FORMAT         output date/time in specified format (strftime-like)
   --help                      display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -20,11 +20,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -34,22 +33,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let rfc2822 = false
       let format: string | undefined
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-I' || arg === '--iso-8601') {
           iso8601 = true
         } else if (arg === '-R' || arg === '--rfc-2822') {
           rfc2822 = true
         } else if (arg === '-f' || arg === '--format') {
-          if (i + 1 < argv.length) {
-            format = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            format = ctx.argv[++i]
           } else {
-            await writelnStdout(process, terminal, 'date: option requires an argument -- \'f\'')
+            await io.writeln('date: option requires an argument -- \'f\'')
             return 1
           }
         } else if (arg.startsWith('--format=')) {
@@ -90,7 +89,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         output = now.toString()
       }
 
-      await writelnStdout(process, terminal, output)
+      await io.writeln(output)
       return 0
     }
   })

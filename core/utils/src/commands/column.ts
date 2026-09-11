@@ -1,11 +1,11 @@
 import path from 'path'
 import columnify from 'columnify'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: column [OPTION]... [FILE]...
 Format input into columns.
 
@@ -13,7 +13,7 @@ Format input into columns.
   -s, --separator=SEP      specify column separator (default: whitespace)
   -c, --columns=COLS       specify number of columns
   --help                   display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -23,13 +23,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -38,32 +38,32 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let columns: number | undefined
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-t' || arg === '--table') {
           table = true
         } else if (arg === '-s' || arg === '--separator') {
-          if (i + 1 < argv.length) {
-            separator = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            separator = ctx.argv[++i]
           }
         } else if (arg.startsWith('--separator=')) {
           separator = arg.slice(12)
         } else if (arg.startsWith('-s')) {
           separator = arg.slice(2) || undefined
         } else if (arg === '-c' || arg === '--columns') {
-          if (i + 1 < argv.length) {
-            const colsStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const colsStr = ctx.argv[++i]
             if (colsStr !== undefined) {
               const parsed = parseInt(colsStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 columns = parsed
               } else {
-                await writelnStderr(process, terminal, `column: invalid column count: ${colsStr}`)
+                await io.writelnErr(`column: invalid column count: ${colsStr}`)
                 return 1
               }
             }
@@ -74,7 +74,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             columns = parsed
           } else {
-            await writelnStderr(process, terminal, `column: invalid column count: ${colsStr}`)
+            await io.writelnErr(`column: invalid column count: ${colsStr}`)
             return 1
           }
         } else if (arg.startsWith('-c')) {
@@ -84,30 +84,30 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (!isNaN(parsed) && parsed > 0) {
               columns = parsed
             } else {
-              await writelnStderr(process, terminal, `column: invalid column count: ${colsStr}`)
+              await io.writelnErr(`column: invalid column count: ${colsStr}`)
               return 1
             }
           }
         } else if (!arg.startsWith('-')) {
           files.push(arg)
         } else {
-          await writelnStderr(process, terminal, `column: invalid option -- '${arg.slice(1)}'`)
-          await writelnStderr(process, terminal, "Try 'column --help' for more information.")
+          await io.writelnErr(`column: invalid option -- '${arg.slice(1)}'`)
+          await io.writelnErr("Try 'column --help' for more information.")
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let lines: string[] = []
 
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -138,7 +138,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `column: ${file}: cannot process device files`)
+                await io.writelnErr(`column: ${file}: cannot process device files`)
                 continue
               }
 
@@ -166,7 +166,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               lines.push(...fileLines)
             } catch (error) {
-              await writelnStderr(process, terminal, `column: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`column: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
             }
@@ -263,7 +263,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `column: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`column: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

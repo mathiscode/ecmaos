@@ -1,7 +1,7 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
 /**
  * Generate random alphanumeric characters for template replacement
@@ -47,7 +47,7 @@ function replaceTemplate(template: string): string {
   return result
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: mktemp [OPTION]... [TEMPLATE]
 Create a temporary file or directory, safely, and print its name.
 
@@ -72,7 +72,7 @@ Examples:
   mktemp -d                 create a temp directory in /tmp
   mktemp /tmp/file.XXXXXX   create a temp file with template
   mktemp -d /tmp/dir.XXXXXX create a temp directory with template`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -82,13 +82,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -100,12 +100,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let template: string | undefined
 
       // Parse arguments
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-d' || arg === '--directory') {
           createDirectory = true
@@ -117,7 +117,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           useTmpdir = true
         } else if (arg === '-p' || arg === '--tmpdir') {
           useTmpdir = true
-          const dirArg = argv[i + 1]
+          const dirArg = ctx.argv[i + 1]
           if (dirArg && !dirArg.startsWith('-')) {
             tmpdir = dirArg
             i++ // Skip the next argument as it's the directory value
@@ -134,14 +134,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             template = arg
           } else {
             if (!quiet) {
-              await writelnStderr(process, terminal, `mktemp: too many arguments`)
+              await io.writelnErr(`mktemp: too many arguments`)
             }
             return 1
           }
         } else {
           if (!quiet) {
-            await writelnStderr(process, terminal, `mktemp: invalid option -- '${arg.replace(/^-+/, '')}'`)
-            await writelnStderr(process, terminal, `Try 'mktemp --help' for more information.`)
+            await io.writelnErr(`mktemp: invalid option -- '${arg.replace(/^-+/, '')}'`)
+            await io.writelnErr(`Try 'mktemp --help' for more information.`)
           }
           return 1
         }
@@ -172,7 +172,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // If template is absolute and useTmpdir is set, that's an error
       if (useTmpdir && path.isAbsolute(template)) {
         if (!quiet) {
-          await writelnStderr(process, terminal, `mktemp: with -p/--tmpdir, TEMPLATE must not be an absolute name`)
+          await io.writelnErr(`mktemp: with -p/--tmpdir, TEMPLATE must not be an absolute name`)
         }
         return 1
       }
@@ -190,7 +190,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const xCount = (basename.match(/X/g) || []).length
       if (xCount < 3) {
         if (!quiet) {
-          await writelnStderr(process, terminal, `mktemp: too few X's in template ${template}`)
+          await io.writelnErr(`mktemp: too few X's in template ${template}`)
         }
         return 1
       }
@@ -200,7 +200,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       // If dry-run, just print the name
       if (dryRun) {
-        await writelnStdout(process, terminal, finalPath)
+        await io.writeln(finalPath)
         return 0
       }
 
@@ -221,12 +221,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
         
         // Print the created path
-        await writelnStdout(process, terminal, finalPath)
+        await io.writeln(finalPath)
         return 0
       } catch (error) {
         if (!quiet) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          await writelnStderr(process, terminal, `mktemp: ${errorMessage}`)
+          await io.writelnErr(`mktemp: ${errorMessage}`)
         }
         return 1
       }

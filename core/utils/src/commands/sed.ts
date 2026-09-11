@@ -1,7 +1,7 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
 interface SedCommand {
   type: 'substitute' | 'delete' | 'print'
@@ -15,7 +15,7 @@ interface SedCommand {
   }
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...
 
 Stream editor for filtering and transforming text.
@@ -25,7 +25,7 @@ Stream editor for filtering and transforming text.
   -i[SUFFIX], --in-place[=SUFFIX]  edit files in place (makes backup if SUFFIX supplied)
   -q, --quiet               suppress normal output
   --help                    display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function parseSedExpression(expr: string): SedCommand | null {
@@ -215,13 +215,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -244,24 +244,24 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         )
       }
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-e' || arg === '--expression') {
-          if (i + 1 < argv.length) {
-            expressions.push(argv[++i] || '')
+          if (i + 1 < ctx.argv.length) {
+            expressions.push(ctx.argv[++i] || '')
           }
         } else if (arg.startsWith('--expression=')) {
           expressions.push(arg.slice(13))
         } else if (arg.startsWith('-e')) {
           expressions.push(arg.slice(2))
         } else if (arg === '-f' || arg === '--file') {
-          if (i + 1 < argv.length) {
-            scriptFile = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            scriptFile = ctx.argv[++i]
           }
         } else if (arg.startsWith('--file=')) {
           scriptFile = arg.slice(7)
@@ -283,7 +283,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (expressions.length === 0 && !scriptFile) {
-        await writelnStderr(process, terminal, 'sed: No expression provided')
+        await io.writelnErr('sed: No expression provided')
         return 1
       }
 
@@ -293,7 +293,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const scriptPath = path.resolve(shell.cwd, scriptFile)
         const exists = await shell.context.fs.promises.exists(scriptPath)
         if (!exists) {
-          await writelnStderr(process, terminal, `sed: ${scriptFile}: No such file or directory`)
+          await io.writelnErr(`sed: ${scriptFile}: No such file or directory`)
           return 1
         }
 
@@ -311,29 +311,29 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if (cmd) {
           commands.push(cmd)
         } else {
-          await writelnStderr(process, terminal, `sed: Invalid expression: ${expr}`)
+          await io.writelnErr(`sed: Invalid expression: ${expr}`)
           return 1
         }
       }
 
       if (commands.length === 0) {
-        await writelnStderr(process, terminal, 'sed: No valid commands found')
+        await io.writelnErr('sed: No valid commands found')
         return 1
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         const processFile = async (filePath: string): Promise<string[]> => {
           const exists = await shell.context.fs.promises.exists(filePath)
           if (!exists) {
-            await writelnStderr(process, terminal, `sed: ${filePath}: No such file or directory`)
+            await io.writelnErr(`sed: ${filePath}: No such file or directory`)
             return []
           }
 
           const stats = await shell.context.fs.promises.stat(filePath)
           if (stats.isDirectory()) {
-            await writelnStderr(process, terminal, `sed: ${filePath}: Is a directory`)
+            await io.writelnErr(`sed: ${filePath}: Is a directory`)
             return []
           }
 
@@ -401,12 +401,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
             }
           } else {
-            if (!process.stdin) {
-              await writelnStderr(process, terminal, 'sed: No input provided')
+            if (!io.stdin) {
+              await io.writelnErr('sed: No input provided')
               return 1
             }
 
-            const reader = process.stdin.getReader()
+            const reader = io.stdin.getReader()
             const decoder = new TextDecoder()
             const chunks: string[] = []
 
@@ -459,7 +459,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `sed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`sed: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

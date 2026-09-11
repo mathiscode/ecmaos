@@ -1,10 +1,11 @@
 import chalk from 'chalk'
 import columnify from 'columnify'
 import type { Kernel, Process, Shell, Terminal, SocketConnection } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: sockets [COMMAND] [OPTIONS]
 
 Manage socket connections (WebSocket and WebTransport).
@@ -26,7 +27,7 @@ Examples:
   sockets create https://example.com:443 -t webtransport
   sockets close abc-123-def-456
   sockets show abc-123-def-456`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function findConnectionById(kernel: Kernel, id: string): SocketConnection | undefined {
@@ -206,77 +207,77 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0 || argv[0] === 'list' || argv[0] === 'ls') {
+      if (ctx.argv.length === 0 || ctx.argv[0] === 'list' || ctx.argv[0] === 'ls') {
         return await listConnections(process, kernel, terminal)
       }
 
-      const command = argv[0]
+      const command = ctx.argv[0]
       let type: string | undefined
       let protocols: string | undefined
 
-      for (let i = 1; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 1; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '-t' || arg === '--type') {
-          if (i + 1 < argv.length) {
+          if (i + 1 < ctx.argv.length) {
             i++
-            type = argv[i]
+            type = ctx.argv[i]
           } else {
-            await writelnStderr(process, terminal, 'sockets: --type requires a value')
+            await io.writelnErr('sockets: --type requires a value')
             return 1
           }
         } else if (arg === '-p' || arg === '--protocols') {
-          if (i + 1 < argv.length) {
+          if (i + 1 < ctx.argv.length) {
             i++
-            protocols = argv[i]
+            protocols = ctx.argv[i]
           } else {
-            await writelnStderr(process, terminal, 'sockets: --protocols requires a value')
+            await io.writelnErr('sockets: --protocols requires a value')
             return 1
           }
         }
       }
 
       if (command === 'create' || command === 'c') {
-        if (argv.length < 2 || !argv[1] || argv[1].startsWith('-')) {
-          await writelnStderr(process, terminal, 'sockets: create requires a URL')
-          await writelnStderr(process, terminal, 'Try "sockets --help" for more information.')
+        if (ctx.argv.length < 2 || !ctx.argv[1] || ctx.argv[1].startsWith('-')) {
+          await io.writelnErr('sockets: create requires a URL')
+          await io.writelnErr('Try "sockets --help" for more information.')
           return 1
         }
-        const url = argv[1]
+        const url = ctx.argv[1]
         return await createConnection(process, kernel, terminal, url, type, protocols)
       }
 
       if (command === 'close' || command === 'd') {
-        if (argv.length < 2 || !argv[1] || argv[1].startsWith('-')) {
-          await writelnStderr(process, terminal, 'sockets: close requires a connection ID')
-          await writelnStderr(process, terminal, 'Try "sockets --help" for more information.')
+        if (ctx.argv.length < 2 || !ctx.argv[1] || ctx.argv[1].startsWith('-')) {
+          await io.writelnErr('sockets: close requires a connection ID')
+          await io.writelnErr('Try "sockets --help" for more information.')
           return 1
         }
-        const id = argv[1]
+        const id = ctx.argv[1]
         return await closeConnection(process, kernel, terminal, id)
       }
 
       if (command === 'show' || command === 's') {
-        if (argv.length < 2 || !argv[1] || argv[1].startsWith('-')) {
-          await writelnStderr(process, terminal, 'sockets: show requires a connection ID')
-          await writelnStderr(process, terminal, 'Try "sockets --help" for more information.')
+        if (ctx.argv.length < 2 || !ctx.argv[1] || ctx.argv[1].startsWith('-')) {
+          await io.writelnErr('sockets: show requires a connection ID')
+          await io.writelnErr('Try "sockets --help" for more information.')
           return 1
         }
-        const id = argv[1]
+        const id = ctx.argv[1]
         return await showConnection(process, kernel, terminal, id)
       }
 
-      await writelnStderr(process, terminal, `sockets: unknown command: ${command}`)
-      await writelnStderr(process, terminal, 'Try "sockets --help" for more information.')
+      await io.writelnErr(`sockets: unknown command: ${command}`)
+      await io.writelnErr('Try "sockets --help" for more information.')
       return 1
     }
   })

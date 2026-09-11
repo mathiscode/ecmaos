@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: history [OPTION]... [N]
 Display or manipulate the command history.
 
@@ -17,7 +17,7 @@ If N is provided without options, display the last N entries.
 If no arguments are provided, display all history entries.
 
 Note: History is automatically saved on each command execution.`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function readHistoryFile(shell: Shell, kernel: Kernel): Promise<string[]> {
@@ -61,17 +61,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let clearHistory = false
@@ -79,8 +79,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         let readHistory = false
         let numEntries: number | null = null
 
-        for (let i = 0; i < argv.length; i++) {
-          const arg = argv[i]
+        for (let i = 0; i < ctx.argv.length; i++) {
+          const arg = ctx.argv[i]
           if (!arg) continue
 
           if (arg === '-c') {
@@ -88,20 +88,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           } else if (arg === '-r') {
             readHistory = true
           } else if (arg === '-d') {
-            if (i + 1 < argv.length) {
+            if (i + 1 < ctx.argv.length) {
               i++
-              const nextArg = argv[i]
+              const nextArg = ctx.argv[i]
               if (nextArg !== undefined) {
                 const index = parseInt(nextArg, 10)
                 if (!isNaN(index)) {
                   deleteIndex = index
                 } else {
-                  await writelnStderr(process, terminal, `history: invalid history number '${nextArg}'`)
+                  await io.writelnErr(`history: invalid history number '${nextArg}'`)
                   return 1
                 }
               }
             } else {
-              await writelnStderr(process, terminal, 'history: -d requires a history number')
+              await io.writelnErr('history: -d requires a history number')
               return 1
             }
           } else if (!arg.startsWith('-')) {
@@ -121,7 +121,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         if (deleteIndex !== null) {
           const lines = await readHistoryFile(shell, kernel)
           if (deleteIndex < 1 || deleteIndex > lines.length) {
-            await writelnStderr(process, terminal, `history: history number '${deleteIndex}' out of range`)
+            await io.writelnErr(`history: history number '${deleteIndex}' out of range`)
             return 1
           }
           const newLines = lines.filter((_, index) => index !== deleteIndex - 1)
@@ -162,7 +162,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return 0
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, `history: ${errorMessage}`)
+        await io.writelnErr(`history: ${errorMessage}`)
         return 1
       } finally {
         writer.releaseLock()

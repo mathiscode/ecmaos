@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: curl [OPTION]... URL
 Transfer data from or to a server.
 
@@ -16,7 +16,7 @@ Transfer data from or to a server.
   -s, --silent             silent mode (don't show progress)
   -v, --verbose            verbose mode (show request/response headers)
   --help                   display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -26,13 +26,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -45,16 +45,16 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let silent = false
       let verbose = false
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-o' || arg === '--output') {
-          if (i + 1 < argv.length) {
-            outputFile = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            outputFile = ctx.argv[++i]
           }
         } else if (arg.startsWith('--output=')) {
           outputFile = arg.slice(9)
@@ -63,24 +63,24 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg === '-O' || arg === '--remote-name') {
           remoteName = true
         } else if (arg === '-X' || arg === '--request') {
-          if (i + 1 < argv.length) {
-            method = (argv[++i] || 'GET').toUpperCase()
+          if (i + 1 < ctx.argv.length) {
+            method = (ctx.argv[++i] || 'GET').toUpperCase()
           }
         } else if (arg.startsWith('--request=')) {
           method = arg.slice(10).toUpperCase()
         } else if (arg.startsWith('-X')) {
           method = (arg.slice(2) || 'GET').toUpperCase()
         } else if (arg === '-d' || arg === '--data') {
-          if (i + 1 < argv.length) {
-            body = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            body = ctx.argv[++i]
           }
         } else if (arg.startsWith('--data=')) {
           body = arg.slice(7)
         } else if (arg.startsWith('-d')) {
           body = arg.slice(2) || undefined
         } else if (arg === '-H' || arg === '--header') {
-          if (i + 1 < argv.length) {
-            const headerArg = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const headerArg = ctx.argv[++i]
             if (headerArg) {
               const [name, ...valueParts] = headerArg.split(':')
               if (name && valueParts.length > 0) {
@@ -113,23 +113,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('O')) remoteName = true
           const invalidFlags = flags.filter(f => !['s', 'v', 'O'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `curl: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'curl --help' for more information.")
+            await io.writelnErr(`curl: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'curl --help' for more information.")
             return 1
           }
         } else {
           if (!url) {
             url = arg
           } else {
-            await writelnStderr(process, terminal, `curl: unexpected argument: ${arg}`)
+            await io.writelnErr(`curl: unexpected argument: ${arg}`)
             return 1
           }
         }
       }
 
       if (!url) {
-        await writelnStderr(process, terminal, 'curl: URL is required')
-        await writelnStderr(process, terminal, "Try 'curl --help' for more information.")
+        await io.writelnErr('curl: URL is required')
+        await io.writelnErr("Try 'curl --help' for more information.")
         return 1
       }
 
@@ -141,8 +141,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       try {
         if (verbose && !silent) {
-          await writelnStderr(process, terminal, `* Connecting to ${url}`)
-          await writelnStderr(process, terminal, `> ${method} ${url} HTTP/1.1`)
+          await io.writelnErr(`* Connecting to ${url}`)
+          await io.writelnErr(`> ${method} ${url} HTTP/1.1`)
         }
 
         const fetchOptions: RequestInit = { method }
@@ -158,27 +158,27 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         if (verbose && !silent) {
           for (const [name, value] of Object.entries(headers)) {
-            await writelnStderr(process, terminal, `> ${name}: ${value}`)
+            await io.writelnErr(`> ${name}: ${value}`)
           }
         }
 
         const response = await globalThis.fetch(url, fetchOptions)
 
         if (verbose && !silent) {
-          await writelnStderr(process, terminal, `< HTTP/${response.status} ${response.status} ${response.statusText}`)
+          await io.writelnErr(`< HTTP/${response.status} ${response.status} ${response.statusText}`)
           for (const [name, value] of response.headers.entries()) {
-            await writelnStderr(process, terminal, `< ${name}: ${value}`)
+            await io.writelnErr(`< ${name}: ${value}`)
           }
         }
 
         if (!response.ok && !silent) {
-          await writelnStderr(process, terminal, chalk.red(`curl: HTTP error! status: ${response.status}`))
+          await io.writelnErr(chalk.red(`curl: HTTP error! status: ${response.status}`))
         }
 
         const reader = response.body?.getReader()
         if (!reader) {
           if (!silent) {
-            await writelnStderr(process, terminal, chalk.red('curl: No response body'))
+            await io.writelnErr(chalk.red('curl: No response body'))
           }
           return response.ok ? 0 : 1
         }
@@ -197,11 +197,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             }
           }
         } else {
-          if (!process.stdout) {
-            await writelnStderr(process, terminal, chalk.red('curl: No stdout available'))
+          if (!io.stdout) {
+            await io.writelnErr(chalk.red('curl: No stdout available'))
             return 1
           }
-          writer = process.stdout.getWriter()
+          writer = io.stdout.getWriter()
         }
 
         try {
@@ -222,7 +222,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         return response.ok ? 0 : 1
       } catch (error) {
         if (!silent) {
-          await writelnStderr(process, terminal, chalk.red(`curl: ${error instanceof Error ? error.message : 'Unknown error'}`))
+          await io.writelnErr(chalk.red(`curl: ${error instanceof Error ? error.message : 'Unknown error'}`))
         }
         return 1
       }

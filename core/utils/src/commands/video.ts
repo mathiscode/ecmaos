@@ -1,10 +1,10 @@
 import path from 'path'
 import chalk from 'chalk'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: video [OPTIONS] [FILE...]
 Play a video file in a window.
 
@@ -23,7 +23,7 @@ Examples:
   video --no-autoplay video.mp4     load video without auto-playing
   video --fullscreen movie.mp4      play video in fullscreen mode
   video video1.mp4 video2.mp4       play multiple videos`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function getMimeType(filePath: string): string {
@@ -73,13 +73,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -102,8 +102,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === '--no-autoplay') {
           options.autoplay = false
         } else if (arg === '--no-controls') {
@@ -114,28 +114,28 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           options.muted = true
         } else if (arg === '--fullscreen') {
           options.fullscreen = true
-        } else if (arg === '--width' && i + 1 < argv.length) {
-          const widthArg = argv[i + 1]
+        } else if (arg === '--width' && i + 1 < ctx.argv.length) {
+          const widthArg = ctx.argv[i + 1]
           if (!widthArg) {
-            await writelnStderr(process, terminal, chalk.red(`video: missing width value`))
+            await io.writelnErr(chalk.red(`video: missing width value`))
             return 1
           }
           const width = parseInt(widthArg, 10)
           if (isNaN(width) || width <= 0) {
-            await writelnStderr(process, terminal, chalk.red(`video: invalid width: ${widthArg}`))
+            await io.writelnErr(chalk.red(`video: invalid width: ${widthArg}`))
             return 1
           }
           options.width = width
           i++ // Skip next argument
-        } else if (arg === '--height' && i + 1 < argv.length) {
-          const heightArg = argv[i + 1]
+        } else if (arg === '--height' && i + 1 < ctx.argv.length) {
+          const heightArg = ctx.argv[i + 1]
           if (!heightArg) {
-            await writelnStderr(process, terminal, chalk.red(`video: missing height value`))
+            await io.writelnErr(chalk.red(`video: missing height value`))
             return 1
           }
           const height = parseInt(heightArg, 10)
           if (isNaN(height) || height <= 0) {
-            await writelnStderr(process, terminal, chalk.red(`video: invalid height: ${heightArg}`))
+            await io.writelnErr(chalk.red(`video: invalid height: ${heightArg}`))
             return 1
           }
           options.height = height
@@ -146,8 +146,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, `video: missing file argument`)
-        await writelnStderr(process, terminal, `Try 'video --help' for more information.`)
+        await io.writelnErr(`video: missing file argument`)
+        await io.writelnErr(`Try 'video --help' for more information.`)
         return 1
       }
 
@@ -158,12 +158,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           // Check if file exists
           if (!(await shell.context.fs.promises.exists(fullPath))) {
-            await writelnStderr(process, terminal, chalk.red(`video: file not found: ${fullPath}`))
+            await io.writelnErr(chalk.red(`video: file not found: ${fullPath}`))
             continue
           }
 
           // Read file
-          await writelnStdout(process, terminal, chalk.blue(`Loading video: ${file}...`))
+          await io.writeln(chalk.blue(`Loading video: ${file}...`))
           const fileData = await shell.context.fs.promises.readFile(fullPath)
           const mimeType = getMimeType(fullPath)
           const blob = new Blob([new Uint8Array(fileData)], { type: mimeType })
@@ -184,7 +184,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             videoHeight = metadata.height
             duration = metadata.duration
           } catch (error) {
-            await writelnStderr(process, terminal, chalk.yellow(`video: warning: could not load metadata for ${file}, using default size`))
+            await io.writelnErr(chalk.yellow(`video: warning: could not load metadata for ${file}, using default size`))
             videoWidth = 640
             videoHeight = 360
             duration = 0
@@ -251,12 +251,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (duration > 0) {
             const minutes = Math.floor(duration / 60)
             const seconds = Math.floor(duration % 60)
-            await writelnStdout(process, terminal, chalk.green(`Playing: ${file} (${minutes}:${seconds.toString().padStart(2, '0')})`))
+            await io.writeln(chalk.green(`Playing: ${file} (${minutes}:${seconds.toString().padStart(2, '0')})`))
           } else {
-            await writelnStdout(process, terminal, chalk.green(`Playing: ${file}`))
+            await io.writeln(chalk.green(`Playing: ${file}`))
           }
         } catch (error) {
-          await writelnStderr(process, terminal, chalk.red(`video: error playing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
+          await io.writelnErr(chalk.red(`video: error playing ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`))
           return 1
         }
       }

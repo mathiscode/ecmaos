@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: vim [OPTION]... [FILE]...
 Vi IMproved - a text editor.
 
@@ -13,7 +13,7 @@ Vi IMproved - a text editor.
 Examples:
   vim file.txt            edit file.txt
   vim file1.txt file2.txt edit multiple files`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -23,13 +23,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -38,20 +38,20 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         const compatibilityError = checkBrowserCompatibility()
         if (compatibilityError !== undefined) {
-          await writelnStderr(process, terminal, `vim: ${compatibilityError}`)
+          await io.writelnErr(`vim: ${compatibilityError}`)
           return 1
         }
 
         const files: string[] = []
-        for (const arg of argv) {
+        for (const arg of ctx.argv) {
           if (arg && !arg.startsWith('-')) {
             files.push(arg)
           }
         }
 
         if (files.length === 0) {
-          await writelnStderr(process, terminal, 'vim: no file specified')
-          await writelnStderr(process, terminal, "Try 'vim --help' for more information.")
+          await io.writelnErr('vim: no file specified')
+          await io.writelnErr("Try 'vim --help' for more information.")
           return 1
         }
 
@@ -92,7 +92,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (exists) {
             const stats = await shell.context.fs.promises.stat(fullPath)
             if (stats.isDirectory()) {
-              await writelnStderr(process, terminal, `vim: ${file}: Is a directory`)
+              await io.writelnErr(`vim: ${file}: Is a directory`)
               return 1
             }
 
@@ -160,7 +160,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         try {
           workerScriptPath = new URL('vim-wasm/vim.js', import.meta.url).href
         } catch {
-          await writelnStderr(process, terminal, 'vim: failed to resolve worker script path. Please ensure vim-wasm is properly installed.')
+          await io.writelnErr('vim: failed to resolve worker script path. Please ensure vim-wasm is properly installed.')
           win.close()
           return 1
         }
@@ -180,7 +180,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const text = new TextDecoder().decode(contents)
             await shell.context.fs.promises.writeFile(fullpath, text, 'utf-8')
           } catch (error) {
-            await writelnStderr(process, terminal, `vim: error writing file ${fullpath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`vim: error writing file ${fullpath}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           }
         }
 
@@ -198,7 +198,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           console.error('[vim] Error callback triggered:', err)
           console.error('[vim] Error message:', err.message)
           console.error('[vim] Error stack:', err.stack)
-          await writelnStderr(process, terminal, `vim: error: ${err.message}`)
+          await io.writelnErr(`vim: error: ${err.message}`)
           if (!vimExited) {
             exitCode = 1
             if (resizeObserver) {
@@ -277,7 +277,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           vim.start(startOptions)
         } catch (startError) {
           console.error('[vim] Error calling vim.start():', startError)
-          await writelnStderr(process, terminal, `vim: failed to start: ${startError instanceof Error ? startError.message : 'Unknown error'}`)
+          await io.writelnErr(`vim: failed to start: ${startError instanceof Error ? startError.message : 'Unknown error'}`)
           if (startError instanceof Error && startError.stack) {
             console.error('[vim] Start error stack:', startError.stack)
           }
@@ -296,7 +296,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           checkExit()
         })
       } catch (error) {
-        await writelnStderr(process, terminal, `vim: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`vim: ${error instanceof Error ? error.message : 'Unknown error'}`)
         if (error instanceof Error && error.stack) {
           console.error(error.stack)
         }

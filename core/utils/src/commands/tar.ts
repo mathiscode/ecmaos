@@ -1,11 +1,12 @@
 import path from 'path'
 import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
 import { writelnStdout, writelnStderr } from '../shared/helpers.js'
 import { createTarPacker, createTarDecoder } from 'modern-tar'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: tar [OPTION]... [FILE]...
 Create, extract, or list tar archives.
 
@@ -17,7 +18,7 @@ Create, extract, or list tar archives.
   -v, --verbose   verbosely list files processed
   -C, --directory change to directory before extracting
   -h, --help      display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 interface TarOptions {
@@ -677,33 +678,33 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      const { options, files } = parseArgs(argv)
+      const { options, files } = parseArgs(ctx.argv)
 
       // Validate operation mode
       const operationCount = [options.create, options.extract, options.list].filter(Boolean).length
       if (operationCount === 0) {
-        await writelnStderr(process, terminal, 'tar: You must specify one of the -c, -x, or -t options')
-        await writelnStderr(process, terminal, "Try 'tar --help' for more information.")
+        await io.writelnErr('tar: You must specify one of the -c, -x, or -t options')
+        await io.writelnErr("Try 'tar --help' for more information.")
         return 1
       }
 
       if (operationCount > 1) {
-        await writelnStderr(process, terminal, 'tar: You may not specify more than one of -c, -x, or -t')
+        await io.writelnErr('tar: You may not specify more than one of -c, -x, or -t')
         return 1
       }
 
       // Validate file option for create (create always needs a file)
       if (options.create && !options.file) {
-        await writelnStderr(process, terminal, 'tar: option requires an argument -- f')
-        await writelnStderr(process, terminal, "Try 'tar --help' for more information.")
+        await io.writelnErr('tar: option requires an argument -- f')
+        await io.writelnErr("Try 'tar --help' for more information.")
         return 1
       }
 
@@ -764,7 +765,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       // Execute operation
       if (options.create) {
         if (!options.file) {
-          await writelnStderr(process, terminal, 'tar: option requires an argument -- f')
+          await io.writelnErr('tar: option requires an argument -- f')
           return 1
         }
         return await createArchive(shell, terminal, process, options.file, expandedFiles, options)

@@ -1,8 +1,8 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
 type HashAlgorithm = 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'
 
@@ -17,7 +17,7 @@ const SUPPORTED_ALGORITHMS: Record<string, HashAlgorithm> = {
   'sha-512': 'SHA-512'
 }
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: hash [OPTION]... [FILE]...
 Compute and display hash values for files or standard input.
 
@@ -35,7 +35,7 @@ Examples:
   hash file.txt              compute SHA-256 hash of file.txt
   hash -a sha512 file.txt    compute SHA-512 hash of file.txt
   echo "hello" | hash        compute SHA-256 hash of stdin`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function hashData(data: Uint8Array, algorithm: HashAlgorithm): Promise<string> {
@@ -81,13 +81,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -95,23 +95,23 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       const files: string[] = []
 
       // Parse arguments
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (arg === undefined) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-a' || arg === '--algorithm') {
-          const algoArg = argv[i + 1]
+          const algoArg = ctx.argv[i + 1]
           if (!algoArg) {
-            await writelnStderr(process, terminal, `hash: option requires an argument -- '${arg === '-a' ? 'a' : 'algorithm'}'`)
+            await io.writelnErr(`hash: option requires an argument -- '${arg === '-a' ? 'a' : 'algorithm'}'`)
             return 1
           }
           const algoLower = algoArg.toLowerCase()
           const selectedAlgorithm = SUPPORTED_ALGORITHMS[algoLower]
           if (!selectedAlgorithm) {
-            await writelnStderr(process, terminal, `hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}`)
+            await io.writelnErr(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}`)
             return 1
           }
           algorithm = selectedAlgorithm
@@ -119,36 +119,36 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         } else if (arg.startsWith('--algorithm=')) {
           const algoArg = arg.split('=')[1]
           if (!algoArg) {
-            await writelnStderr(process, terminal, `hash: option requires an argument -- 'algorithm'`)
+            await io.writelnErr(`hash: option requires an argument -- 'algorithm'`)
             return 1
           }
           const algoLower = algoArg.toLowerCase()
           const selectedAlgorithm = SUPPORTED_ALGORITHMS[algoLower]
           if (!selectedAlgorithm) {
-            await writelnStderr(process, terminal, `hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}`)
+            await io.writelnErr(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}`)
             return 1
           }
           algorithm = selectedAlgorithm
         } else if (!arg.startsWith('-')) {
           files.push(arg)
         } else {
-          await writelnStderr(process, terminal, `hash: invalid option -- '${arg.replace(/^-+/, '')}'`)
-          await writelnStderr(process, terminal, `Try 'hash --help' for more information.`)
+          await io.writelnErr(`hash: invalid option -- '${arg.replace(/^-+/, '')}'`)
+          await io.writelnErr(`Try 'hash --help' for more information.`)
           return 1
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         // If no files specified, read from stdin
         if (files.length === 0) {
-          if (!process.stdin) {
-            await writelnStderr(process, terminal, 'hash: no input specified')
+          if (!io.stdin) {
+            await io.writelnErr('hash: no input specified')
             return 1
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const data = await readStreamToUint8Array(reader)
           const hash = await hashData(data, algorithm)
           await writer.write(new TextEncoder().encode(hash + '\n'))
@@ -166,7 +166,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           try {
             if (fullPath.startsWith('/dev')) {
-              await writelnStderr(process, terminal, `hash: ${file}: cannot hash device files`)
+              await io.writelnErr(`hash: ${file}: cannot hash device files`)
               hasError = true
               continue
             }
@@ -199,7 +199,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             const hash = await hashData(fileData, algorithm)
             await writer.write(new TextEncoder().encode(`${hash}  ${file}\n`))
           } catch (error) {
-            await writelnStderr(process, terminal, `hash: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`hash: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             hasError = true
           } finally {
             kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)

@@ -1,9 +1,9 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: test EXPRESSION
        test [OPTION]
 Check file types and compare values.
@@ -25,7 +25,7 @@ Check file types and compare values.
   NUM1 -gt NUM2   NUM1 is greater than NUM2
   NUM1 -ge NUM2   NUM1 is greater than or equal to NUM2
   --help      display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -35,11 +35,10 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -68,46 +67,46 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      if (argv.length === 0) {
+      if (ctx.argv.length === 0) {
         return 1
       }
 
-      const operator = argv[0]
+      const operator = ctx.argv[0]
 
-      if (operator === '-f' && argv[1]) {
-        return (await checkFile(argv[1], 'f')) ? 0 : 1
+      if (operator === '-f' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'f')) ? 0 : 1
       }
 
-      if (operator === '-d' && argv[1]) {
-        return (await checkFile(argv[1], 'd')) ? 0 : 1
+      if (operator === '-d' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'd')) ? 0 : 1
       }
 
-      if (operator === '-e' && argv[1]) {
-        return (await checkFile(argv[1], 'e')) ? 0 : 1
+      if (operator === '-e' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'e')) ? 0 : 1
       }
 
-      if (operator === '-r' && argv[1]) {
-        return (await checkFile(argv[1], 'r')) ? 0 : 1
+      if (operator === '-r' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'r')) ? 0 : 1
       }
 
-      if (operator === '-w' && argv[1]) {
-        return (await checkFile(argv[1], 'w')) ? 0 : 1
+      if (operator === '-w' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'w')) ? 0 : 1
       }
 
-      if (operator === '-x' && argv[1]) {
-        return (await checkFile(argv[1], 'x')) ? 0 : 1
+      if (operator === '-x' && ctx.argv[1]) {
+        return (await checkFile(ctx.argv[1], 'x')) ? 0 : 1
       }
 
-      if (operator === '-n' && argv.length > 1) {
-        return (argv[1]?.length ?? 0) > 0 ? 0 : 1
+      if (operator === '-n' && ctx.argv.length > 1) {
+        return (ctx.argv[1]?.length ?? 0) > 0 ? 0 : 1
       }
 
-      if (operator === '-z' && argv.length > 1) {
-        return (argv[1]?.length ?? 0) === 0 ? 0 : 1
+      if (operator === '-z' && ctx.argv.length > 1) {
+        return (ctx.argv[1]?.length ?? 0) === 0 ? 0 : 1
       }
 
-      if (argv.length === 3) {
-        const [left, op, right] = argv as [string, string, string]
+      if (ctx.argv.length === 3) {
+        const [left, op, right] = ctx.argv as [string, string, string]
         switch (op) {
           case '=': return left === right ? 0 : 1
           case '!=': return left !== right ? 0 : 1

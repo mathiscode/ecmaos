@@ -1,16 +1,16 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 import path from 'path'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: time COMMAND [ARG]...
 Run COMMAND and print a summary of the real, user, and system time used.
 
   --help  display this help and exit
 
 Note: This is a simplified version that measures real (wall clock) time.`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function formatTime(seconds: number): string {
@@ -59,28 +59,28 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (argv.length === 0 || !argv[0]) {
-        await writelnStderr(process, terminal, 'time: missing command')
-        await writelnStderr(process, terminal, "Try 'time --help' for more information.")
+      if (ctx.argv.length === 0 || !ctx.argv[0]) {
+        await io.writelnErr('time: missing command')
+        await io.writelnErr("Try 'time --help' for more information.")
         return 1
       }
 
-      const command = argv[0]
-      const commandArgs = argv.slice(1)
+      const command = ctx.argv[0]
+      const commandArgs = ctx.argv.slice(1)
 
       const resolvedCommand = await resolveCommand(shell, command)
       if (!resolvedCommand) {
-        await writelnStderr(process, terminal, `time: command not found: ${command}`)
+        await io.writelnErr(`time: command not found: ${command}`)
         return 127
       }
 
@@ -88,7 +88,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const subcommandStdout = new WritableStream<Uint8Array>({
         write: async (chunk) => {
-          const writer = process.stdout.getWriter()
+          const writer = io.stdout!.getWriter()
           try {
             await writer.write(chunk)
           } finally {
@@ -99,7 +99,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const subcommandStderr = new WritableStream<Uint8Array>({
         write: async (chunk) => {
-          const writer = process.stderr.getWriter()
+          const writer = io.stderr!.getWriter()
           try {
             await writer.write(chunk)
           } finally {
@@ -114,7 +114,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           args: commandArgs,
           shell: shell,
           terminal: terminal,
-          stdin: process.stdin,
+          stdin: io.stdin,
           stdout: subcommandStdout,
           stderr: subcommandStderr
         })
@@ -122,21 +122,21 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         const endTime = performance.now()
         const elapsedSeconds = (endTime - startTime) / 1000
 
-        await writelnStderr(process, terminal, `\nreal    ${formatTime(elapsedSeconds)}`)
-        await writelnStderr(process, terminal, `user    ${formatTime(elapsedSeconds)}`)
-        await writelnStderr(process, terminal, `sys     ${formatTime(0)}`)
+        await io.writelnErr(`\nreal    ${formatTime(elapsedSeconds)}`)
+        await io.writelnErr(`user    ${formatTime(elapsedSeconds)}`)
+        await io.writelnErr(`sys     ${formatTime(0)}`)
 
         return exitCode
       } catch (error) {
         const endTime = performance.now()
         const elapsedSeconds = (endTime - startTime) / 1000
 
-        await writelnStderr(process, terminal, `\nreal    ${formatTime(elapsedSeconds)}`)
-        await writelnStderr(process, terminal, `user    ${formatTime(elapsedSeconds)}`)
-        await writelnStderr(process, terminal, `sys     ${formatTime(0)}`)
+        await io.writelnErr(`\nreal    ${formatTime(elapsedSeconds)}`)
+        await io.writelnErr(`user    ${formatTime(elapsedSeconds)}`)
+        await io.writelnErr(`sys     ${formatTime(0)}`)
 
         const errorMessage = error instanceof Error ? error.message : String(error)
-        await writelnStderr(process, terminal, `time: ${errorMessage}`)
+        await io.writelnErr(`time: ${errorMessage}`)
         return 1
       }
     }

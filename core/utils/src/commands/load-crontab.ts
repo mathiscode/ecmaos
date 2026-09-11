@@ -1,8 +1,8 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: load-crontab PATH SCOPE
 Load and register crontab entries from PATH, replacing any previously loaded from that SCOPE.
 
@@ -13,7 +13,7 @@ Load and register crontab entries from PATH, replacing any previously loaded fro
 Examples:
   load-crontab /etc/crontab system
   load-crontab ~/.config/crontab user`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -23,18 +23,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
-        printUsage(process, terminal)
-        return argv.length === 0 ? 1 : 0
+      if (ctx.argv.length === 0 || ctx.argv[0] === '--help' || ctx.argv[0] === '-h') {
+        printUsage(io)
+        return ctx.argv.length === 0 ? 1 : 0
       }
 
-      const [rawPath, scope] = argv
+      const [rawPath, scope] = ctx.argv
       if (!rawPath || (scope !== 'system' && scope !== 'user')) {
-        await writelnStderr(process, terminal, `load-crontab: SCOPE must be 'system' or 'user'`)
-        printUsage(process, terminal)
+        await io.writelnErr(`load-crontab: SCOPE must be 'system' or 'user'`)
+        printUsage(io)
         return 1
       }
 

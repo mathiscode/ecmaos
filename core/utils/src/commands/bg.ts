@@ -1,15 +1,15 @@
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: bg [%JOBSPEC]
 Resume a stopped job in the background, without waiting for it. JOBSPEC
 may be %N (job N), %% or %+ (most recent), %- (previous), or a name
 prefix (%name). With no argument, resumes the most recently started job.
 
   --help  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -19,23 +19,22 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
 
-      if (argv.includes('--help') || argv.includes('-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.includes('--help') || ctx.argv.includes('-h')) {
+        printUsage(io)
         return 0
       }
 
-      const spec = argv[0]
+      const spec = ctx.argv[0]
       const job = shell.getJob(spec)
       if (!job) {
-        await writelnStderr(process, terminal, spec ? `bg: ${spec}: no such job` : 'bg: no current job')
+        await io.writelnErr(spec ? `bg: ${spec}: no such job` : 'bg: no current job')
         return 1
       }
 
       if (job.status !== 'stopped') {
-        await writelnStderr(process, terminal, `bg: job ${job.id} already in background`)
+        await io.writelnErr(`bg: job ${job.id} already in background`)
         return 1
       }
 

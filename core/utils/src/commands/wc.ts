@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: wc [OPTION]... [FILE]...
 Print newline, word, and byte counts for each FILE.
 
@@ -12,7 +12,7 @@ Print newline, word, and byte counts for each FILE.
   -l, --lines     print the newline counts
   -w, --words     print the word counts
   --help          display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -22,13 +22,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -37,9 +37,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let showLines = false
       let showWords = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-c' || arg === '--bytes') {
           showBytes = true
@@ -54,7 +54,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('w')) showWords = true
           const invalidFlags = flags.filter(f => !['c', 'l', 'w'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `wc: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr(`wc: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         } else {
@@ -64,15 +64,15 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
       const showAll = !showBytes && !showLines && !showWords
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let content = ''
 
@@ -116,7 +116,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
           try {
             if (fullPath.startsWith('/dev')) {
-              await writelnStderr(process, terminal, `wc: ${file}: cannot count device files`)
+              await io.writelnErr(`wc: ${file}: cannot count device files`)
               continue
             }
 
@@ -148,7 +148,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             results.push({ lines, words, bytes, file })
           } catch (error) {
-            await writelnStderr(process, terminal, `wc: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            await io.writelnErr(`wc: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
           } finally {
             kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
           }

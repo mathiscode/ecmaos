@@ -1,16 +1,16 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr, writelnStdout } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: realpath [OPTION]... FILE...
 Print the resolved absolute file name.
 
   -e, --canonicalize-existing  all components of the path must exist
   -q, --quiet                  suppress most error messages
   --help                       display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 async function resolveRealPath(
@@ -48,13 +48,13 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
@@ -62,11 +62,11 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let quiet = false
       const files: string[] = []
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (!arg) continue
 
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-e' || arg === '--canonicalize-existing') {
           canonicalizeExisting = true
@@ -78,8 +78,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('q')) quiet = true
           const invalidFlags = flags.filter(f => !['e', 'q'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `realpath: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'realpath --help' for more information.")
+            await io.writelnErr(`realpath: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'realpath --help' for more information.")
             return 1
           }
         } else {
@@ -88,8 +88,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       if (files.length === 0) {
-        await writelnStderr(process, terminal, 'realpath: missing operand')
-        await writelnStderr(process, terminal, "Try 'realpath --help' for more information.")
+        await io.writelnErr('realpath: missing operand')
+        await io.writelnErr("Try 'realpath --help' for more information.")
         return 1
       }
 
@@ -107,14 +107,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           )
           
           if (resolved !== null) {
-            await writelnStdout(process, terminal, resolved)
+            await io.writeln(resolved)
           } else {
             hasError = true
           }
         } catch (error) {
           if (!quiet) {
             const errorMessage = error instanceof Error ? error.message : String(error)
-            await writelnStderr(process, terminal, `realpath: ${file}: ${errorMessage}`)
+            await io.writelnErr(`realpath: ${file}: ${errorMessage}`)
           }
           hasError = true
         }

@@ -1,17 +1,17 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: tee [OPTION]... [FILE]...
 Read from standard input and write to standard output and files.
 
   -a, --append            append to the given files, do not overwrite
   -i, --ignore-interrupts ignore interrupt signals
   --help                  display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
@@ -21,18 +21,18 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
-      if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-        printUsage(process, terminal)
+      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
+        printUsage(io)
         return 0
       }
 
-      if (!process.stdin) {
-        await writelnStderr(process, terminal, 'tee: No input provided')
+      if (!io.stdin) {
+        await io.writelnErr('tee: No input provided')
         return 1
       }
 
@@ -40,9 +40,9 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let append = false
       let ignoreInterrupts = false
 
-      for (const arg of argv) {
+      for (const arg of ctx.argv) {
         if (arg === '--help' || arg === '-h') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg === '-a' || arg === '--append') {
           append = true
@@ -54,7 +54,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('i')) ignoreInterrupts = true
           const invalidFlags = flags.filter(f => !['a', 'i'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `tee: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr(`tee: invalid option -- '${invalidFlags[0]}'`)
             return 1
           }
         } else {
@@ -62,7 +62,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         const filePaths: Array<{ path: string; fullPath: string }> = []
@@ -74,7 +74,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             try {
               await shell.context.fs.promises.writeFile(fullPath, '')
             } catch (error) {
-              await writelnStderr(process, terminal, `tee: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`tee: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
               return 1
             }
           }
@@ -82,7 +82,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           filePaths.push({ path: file, fullPath })
         }
 
-        const reader = process.stdin.getReader()
+        const reader = io.stdin.getReader()
         let interrupted = false
 
         const interruptHandler = () => { interrupted = true }
@@ -102,7 +102,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               try {
                 await shell.context.fs.promises.appendFile(fileInfo.fullPath, value)
               } catch (error) {
-                await writelnStderr(process, terminal, `tee: ${fileInfo.path}: ${error instanceof Error ? error.message : 'Write error'}`)
+                await io.writelnErr(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : 'Write error'}`)
               }
             }
           }
@@ -115,7 +115,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `tee: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`tee: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()

@@ -1,10 +1,10 @@
 import path from 'path'
-import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { Kernel, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandIO } from '@ecmaos/types'
 import { TerminalEvents } from '@ecmaos/types'
 import { TerminalCommand } from '../shared/terminal-command.js'
-import { writelnStderr } from '../shared/helpers.js'
 
-function printUsage(process: Process | undefined, terminal: Terminal): void {
+function printUsage(io: CommandIO): void {
   const usage = `Usage: pr [OPTION]... [FILE]...
 Paginate or columnate files for printing.
 
@@ -14,7 +14,7 @@ Paginate or columnate files for printing.
   -t, --omit-header      omit page headers and footers
   -n, --number-lines     number lines
   --help                 display this help and exit`
-  writelnStderr(process, terminal, usage)
+  io.writelnErr(usage)
 }
 
 function formatPage(lines: string[], pageLength: number, pageWidth: number, header: string | undefined, omitHeader: boolean, numberLines: boolean, pageNum: number, filename: string): string[] {
@@ -70,8 +70,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
     kernel,
     shell,
     terminal,
-    run: async (pid: number, argv: string[]) => {
-      const process = kernel.processes.get(pid) as Process | undefined
+    run: async (ctx: CommandContext, io: CommandIO) => {
+      const process = ctx.process
 
       if (!process) return 1
 
@@ -82,40 +82,40 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       let numberLines = false
       const files: string[] = []
 
-      for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]
+      for (let i = 0; i < ctx.argv.length; i++) {
+        const arg = ctx.argv[i]
         if (!arg) continue
 
         if (arg === '--help') {
-          printUsage(process, terminal)
+          printUsage(io)
           return 0
         } else if (arg.startsWith('--header=')) {
           header = arg.slice(9)
         } else if (arg === '--header') {
-          if (i + 1 < argv.length) {
-            header = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            header = ctx.argv[++i]
           } else {
-            await writelnStderr(process, terminal, `pr: option '--header' requires an argument`)
+            await io.writelnErr(`pr: option '--header' requires an argument`)
             return 1
           }
         } else if (arg === '-h') {
-          if (i + 1 < argv.length) {
-            header = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            header = ctx.argv[++i]
           } else {
-            printUsage(process, terminal)
+            printUsage(io)
             return 0
           }
         } else if (arg.startsWith('-h') && arg.length > 2) {
           header = arg.slice(2)
         } else if (arg === '-l' || arg === '--length') {
-          if (i + 1 < argv.length) {
-            const lengthStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const lengthStr = ctx.argv[++i]
             if (lengthStr !== undefined) {
               const parsed = parseInt(lengthStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 pageLength = parsed
               } else {
-                await writelnStderr(process, terminal, `pr: invalid page length: ${lengthStr}`)
+                await io.writelnErr(`pr: invalid page length: ${lengthStr}`)
                 return 1
               }
             }
@@ -126,7 +126,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             pageLength = parsed
           } else {
-            await writelnStderr(process, terminal, `pr: invalid page length: ${lengthStr}`)
+            await io.writelnErr(`pr: invalid page length: ${lengthStr}`)
             return 1
           }
         } else if (arg.startsWith('-l')) {
@@ -136,19 +136,19 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (!isNaN(parsed) && parsed > 0) {
               pageLength = parsed
             } else {
-              await writelnStderr(process, terminal, `pr: invalid page length: ${lengthStr}`)
+              await io.writelnErr(`pr: invalid page length: ${lengthStr}`)
               return 1
             }
           }
         } else if (arg === '-w' || arg === '--width') {
-          if (i + 1 < argv.length) {
-            const widthStr = argv[++i]
+          if (i + 1 < ctx.argv.length) {
+            const widthStr = ctx.argv[++i]
             if (widthStr !== undefined) {
               const parsed = parseInt(widthStr, 10)
               if (!isNaN(parsed) && parsed > 0) {
                 pageWidth = parsed
               } else {
-                await writelnStderr(process, terminal, `pr: invalid page width: ${widthStr}`)
+                await io.writelnErr(`pr: invalid page width: ${widthStr}`)
                 return 1
               }
             }
@@ -159,7 +159,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (!isNaN(parsed) && parsed > 0) {
             pageWidth = parsed
           } else {
-            await writelnStderr(process, terminal, `pr: invalid page width: ${widthStr}`)
+            await io.writelnErr(`pr: invalid page width: ${widthStr}`)
             return 1
           }
         } else if (arg.startsWith('-w')) {
@@ -169,7 +169,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
             if (!isNaN(parsed) && parsed > 0) {
               pageWidth = parsed
             } else {
-              await writelnStderr(process, terminal, `pr: invalid page width: ${widthStr}`)
+              await io.writelnErr(`pr: invalid page width: ${widthStr}`)
               return 1
             }
           }
@@ -183,8 +183,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           if (flags.includes('n')) numberLines = true
           const invalidFlags = flags.filter(f => !['t', 'n'].includes(f))
           if (invalidFlags.length > 0) {
-            await writelnStderr(process, terminal, `pr: invalid option -- '${invalidFlags[0]}'`)
-            await writelnStderr(process, terminal, "Try 'pr --help' for more information.")
+            await io.writelnErr(`pr: invalid option -- '${invalidFlags[0]}'`)
+            await io.writelnErr("Try 'pr --help' for more information.")
             return 1
           }
         } else {
@@ -192,17 +192,17 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
         }
       }
 
-      const writer = process.stdout.getWriter()
+      const writer = io.stdout!.getWriter()
 
       try {
         let lines: string[] = []
 
         if (files.length === 0) {
-          if (!process.stdin) {
+          if (!io.stdin) {
             return 0
           }
 
-          const reader = process.stdin.getReader()
+          const reader = io.stdin.getReader()
           const decoder = new TextDecoder()
           let buffer = ''
 
@@ -233,7 +233,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
             try {
               if (fullPath.startsWith('/dev')) {
-                await writelnStderr(process, terminal, `pr: ${file}: cannot process device files`)
+                await io.writelnErr(`pr: ${file}: cannot process device files`)
                 continue
               }
 
@@ -261,7 +261,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
               }
               lines.push(...fileLines)
             } catch (error) {
-              await writelnStderr(process, terminal, `pr: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+              await io.writelnErr(`pr: ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`)
             } finally {
               kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
             }
@@ -281,7 +281,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
 
         return 0
       } catch (error) {
-        await writelnStderr(process, terminal, `pr: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        await io.writelnErr(`pr: ${error instanceof Error ? error.message : 'Unknown error'}`)
         return 1
       } finally {
         writer.releaseLock()
