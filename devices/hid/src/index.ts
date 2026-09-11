@@ -1,8 +1,8 @@
 /// <reference types="w3c-web-hid" />
 
 import ansi from 'ansi-escape-sequences'
-import type { DeviceDriver, Device } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'hid',
@@ -138,24 +138,24 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
+/** `/sys/class/hid` */
+const hid_class = new Class('hid')
+
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
   const deviceMap = new Map<number, HIDDevice>()
-  const drivers: DeviceDriver<KernelDeviceData>[] = [{
+  const drivers: KernelCharDevice[] = [{
     name: 'hid',
-    init: () => ({
-      major: 13,
-      minor: 64,
-      data: {
-        kernelId: ctx.id,
-        version: pkg.version
-      }
-    }),
-    read: (_: Device<KernelDeviceData>, buffer: ArrayBufferView) => {
-      const view = new Uint32Array(buffer.buffer, 0, 1)
-      view[0] = deviceMap.size
-      return 4
-    },
-    write: () => 0
+    major: 13,
+    minor: 64,
+    class: hid_class,
+    ops: {
+      read: (_file, buffer) => {
+        const view = new Uint32Array(buffer.buffer, buffer.byteOffset, 1)
+        view[0] = deviceMap.size
+        return 4
+      },
+      write: () => {}
+    }
   }]
 
   if ('hid' in navigator) {
@@ -176,21 +176,18 @@ export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver<Kerne
       deviceMap.delete(event.device.productId)
     })
 
-    for (const device of deviceMap.values()) {
+    Array.from(deviceMap.values()).forEach((device, index) => {
       drivers.push({
         name: `hid-${device.productName}-${device.vendorId}-${device.productId}`,
-        init: () => ({
-          major: 13,
-          minor: 64 + drivers.length,
-          data: {
-            kernelId: ctx.id,
-            version: pkg.version
-          }
-        }),
-        read: () => 0,
-        write: () => 0
+        major: 13,
+        minor: 65 + index,
+        class: hid_class,
+        ops: {
+          read: () => 0,
+          write: () => {}
+        }
       })
-    }
+    })
   }
 
   return drivers

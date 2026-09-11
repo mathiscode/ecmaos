@@ -2,8 +2,8 @@
  * I'm second-guessing the choice to make this a device rather than a command, but it's fine for now.
  */
 
-import type { DeviceDriver } from '@zenfs/core'
-import type { Kernel, KernelContext, KernelDeviceCLIOptions, KernelDeviceData } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 declare global {
   interface Navigator {
@@ -67,22 +67,22 @@ Commands:
   return 0
 }
 
-export async function getDrivers(_ctx: KernelContext): Promise<DeviceDriver<KernelDeviceData>[]> {
-  const drivers: DeviceDriver<KernelDeviceData>[] = []
+/** `/sys/class/presentation` */
+const presentation_class = new Class('presentation')
 
-  if ('presentation' in navigator) {
-    drivers.push({
-      name: 'presentation',
-      init: () => ({
-        major: 10,
-        minor: 156
-      }),
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  if (!('presentation' in navigator)) return []
+
+  return [{
+    name: 'presentation',
+    major: 10,
+    minor: 156,
+    class: presentation_class,
+    ops: {
       read: () => 0,
-      write: () => 0
-    })
-  }
-
-  return drivers
+      write: () => {}
+    }
+  }]
 }
 
 async function listDisplays(kernel: Kernel, presentationUrl: string) {

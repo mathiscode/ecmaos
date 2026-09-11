@@ -5,15 +5,16 @@ const username = import.meta.env.ECMAOS_AUTOLOGIN_USERNAME
 const password = import.meta.env.ECMAOS_AUTOLOGIN_PASSWORD
 const socket = import.meta.env.ECMAOS_METAL_SOCKET
 
-// Create terminal containers for TTYs 0-9
+// Create terminal containers for TTYs 0-7
+// Capped at 8 lines (not 10) to match @zenfs/linux's xterm_driver, which is fixed at lines: 8
 const terminalContainer = document.getElementById('terminal')
 if (terminalContainer) {
   // Rename the existing terminal div to terminal-tty0
   terminalContainer.id = 'terminal-tty0'
   terminalContainer.classList.add('terminal-container', 'active')
-  
-  // Create containers for TTYs 1-9
-  for (let i = 1; i <= 9; i++) {
+
+  // Create containers for TTYs 1-7
+  for (let i = 1; i <= 7; i++) {
     const ttyContainer = document.createElement('div')
     ttyContainer.id = `terminal-tty${i}`
     ttyContainer.className = 'terminal-container'
@@ -48,7 +49,8 @@ const ttySwitchHandler = async (event: KeyboardEvent) => {
   if (event.ctrlKey && event.shiftKey) {
     // Use event.code instead of event.key because Shift+number produces symbols
     // e.g., Shift+1 produces key='!' but code='Digit1'
-    const codeMatch = event.code.match(/^Digit([0-9])$/)
+    // Digits 8 and 9 are not bound: only TTYs 0-7 exist, matching xterm_driver's fixed lines: 8
+    const codeMatch = event.code.match(/^Digit([0-7])$/)
     if (codeMatch && codeMatch[1]) {
       event.preventDefault()
       event.stopPropagation()

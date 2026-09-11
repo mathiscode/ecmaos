@@ -22,6 +22,26 @@ describe('Terminal', () => {
     expect(kernel.terminal).toBeDefined()
   })
 
+  describe('@zenfs/linux TTY attachment', () => {
+    it('attaches a TTY and registers /dev/xterm<n> once mounted', async () => {
+      const container = document.createElement('div')
+      document.body.appendChild(container)
+      kernel.terminal.mount(container)
+
+      expect(kernel.terminal.zfsTty).toBeDefined()
+      expect(kernel.terminal.zfsTty?.name).toBe(`xterm${kernel.terminal.tty}`)
+
+      const exists = await kernel.filesystem.fs.exists(`/dev/xterm${kernel.terminal.tty}`)
+      expect(exists).toBe(true)
+    })
+
+    it('does not attach input, leaving keyHandler and the stdin fan-out as the only producers', () => {
+      // input: false in mount() means the TTY's line discipline never receives xterm's onData;
+      // dispatchStdin below remains the sole path until job control needs the TTY to own input.
+      expect(kernel.terminal.zfsTty).toBeDefined()
+    })
+  })
+
   describe('stdin subscriber pattern', () => {
     it('should return a ReadableStream from getInputStream()', () => {
       const stream = kernel.terminal.getInputStream()

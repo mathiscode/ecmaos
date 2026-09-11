@@ -1,7 +1,7 @@
 /// <reference types="w3c-web-usb" />
 
-import type { DeviceDriver } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'usb',
@@ -118,34 +118,40 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver[]> {
-  const drivers: DeviceDriver[] = [
+/** `/sys/class/usb` */
+const usb_class = new Class('usb')
+
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const drivers: KernelCharDevice[] = [
     {
       name: 'usb',
-      init: () => ({
-        major: 8,
-        minor: 0,
-        data: { kernelId: ctx.id }
-      }),
-      read: () => 0,
-      write: () => 0
+      major: 8,
+      minor: 0,
+      class: usb_class,
+      ops: {
+        read: () => 0,
+        write: () => {}
+      }
     }
   ]
 
   if (navigator.usb) {
     const devices = await navigator.usb.getDevices()
-    for (const device of devices) {
+    // Minors are enumerated sequentially rather than derived from vendorId + productId, which can
+    // exceed the 256-minor range char_dev.register claims per major, or collide between two
+    // different vendor/product pairs that happen to sum the same.
+    devices.forEach((device, index) => {
       drivers.push({
         name: `usb-${device.productName}-${device.vendorId}-${device.productId}`,
-        init: () => ({
-          major: 8,
-          minor: device.vendorId + device.productId,
-          data: { device, kernelId: ctx.id }
-        }),
-        read: () => 0,
-        write: () => 0
+        major: 8,
+        minor: index + 1,
+        class: usb_class,
+        ops: {
+          read: () => 0,
+          write: () => {}
+        }
       })
-    }
+    })
   }
 
   return drivers

@@ -3,7 +3,6 @@
  */
 
 import type { BIOSModule } from '@ecmaos/bios'
-import type { DeviceDriver } from '@zenfs/core'
 import type { InitOptions } from 'i18next'
 import type Module from 'node:module'
 import type { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -13,6 +12,7 @@ import type {
   Components,
   Dom,
   DomOptions,
+  KernelCharDevice,
   KernelDevice,
   EventCallback,
   Events,
@@ -116,7 +116,7 @@ export interface Kernel {
   readonly dom: Dom
 
   /** Map of registered devices and their drivers */
-  readonly devices: Map<string, { device: KernelDevice, drivers?: DeviceDriver[] }>
+  readonly devices: Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }>
 
   /** Event management system */
   readonly events: Events
