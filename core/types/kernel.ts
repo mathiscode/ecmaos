@@ -42,6 +42,29 @@ import type {
 } from './index.ts'
 
 /**
+ * The cross-cutting primitives every subsystem may depend on, with no
+ * back-reference to the Kernel itself.
+ *
+ * A subsystem that needs another subsystem declares a narrow `deps` interface
+ * alongside this (typically a `Pick<>` of the sibling it actually uses) rather
+ * than growing this type. If a field feels like it belongs here, that is the
+ * signal it is a real dependency and belongs in `deps` instead.
+ */
+export interface KernelContext {
+  /** Unique identifier for this kernel instance */
+  readonly id: string
+
+  /** Logging system */
+  readonly log: Log
+
+  /** Event management system */
+  readonly events: Events
+
+  /** Internationalization service */
+  readonly i18n: I18n
+}
+
+/**
  * @experimental
  * @author Jay Mathis <code@mathis.network> (https://github.com/mathiscode)
  *
