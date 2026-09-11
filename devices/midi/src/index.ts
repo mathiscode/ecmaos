@@ -1,5 +1,5 @@
-import type { DeviceDriver } from '@zenfs/core'
-import type { KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+import { Class } from '@zenfs/linux'
+import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 export const pkg = {
   name: 'midi',
@@ -140,16 +140,19 @@ Commands:
   }
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<DeviceDriver[]> {
-  const drivers: DeviceDriver[] = [{
+/** `/sys/class/midi` */
+const midi_class = new Class('midi')
+
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const drivers: KernelCharDevice[] = [{
     name: 'midi',
-    init: () => ({
-      major: 35,
-      minor: 0,
-      data: { kernelId: ctx.id }
-    }),
-    read: () => 0,
-    write: () => 0
+    major: 35,
+    minor: 0,
+    class: midi_class,
+    ops: {
+      read: () => 0,
+      write: () => {}
+    }
   }]
 
   return drivers
