@@ -29,7 +29,7 @@
     "@schemastore/package": "^0.0.10",
     "@types/command-line-args": "^5.2.3",
     "@types/emscripten": "^1.39.13",
-    "@types/winbox": "^0.2.5",
+    "@types/winbox": "0.2.5",
     "command-line-args": "^6.0.0",
     "tslog": "^4.9.3",
     "typescript": "^5.6.3",
