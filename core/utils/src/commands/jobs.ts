@@ -33,7 +33,12 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
       }
 
       const showPids = ctx.argv.includes('-l')
-      const jobs = shell.listJobs()
+      // Shell.listJobs() returns every pipeline this shell has ever run, including plain foreground
+      // commands that already ran to completion (per its own doc comment, callers are expected to
+      // filter for display) -- a real shell's `jobs` only shows jobs that were backgrounded OR are
+      // currently stopped (a `^Z`-suspended foreground job is very much a job worth listing, even
+      // though it was never launched with `&`), so filter down to those.
+      const jobs = shell.listJobs().filter(job => job.background || job.status === 'stopped')
       if (jobs.length === 0) return 0
 
       const mostRecentId = jobs[jobs.length - 1]?.id

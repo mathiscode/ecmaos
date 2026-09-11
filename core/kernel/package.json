@@ -27,7 +27,6 @@
     "Keyboard is broken on mobile; ecmaOS is not mobile-friendly at this time",
     "Don't expect any sort of POSIX compliance at this stage",
     "Most commands/devices are very basic implementations, not complete reproductions",
-    "CTRL-C will return you to a prompt, but doesn't currently interrupt a process",
     "Lots of unfinished work; watch your step"
   ],
   "tips": [
