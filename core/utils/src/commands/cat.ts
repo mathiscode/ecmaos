@@ -71,6 +71,8 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           return 0
         }
 
+        let hadError = false
+
         for (const file of files) {
           const fullPath = path.resolve(shell.cwd, file)
 
@@ -117,6 +119,14 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
                 }
               } while (bytesRead > 0)
             }
+          } catch (error) {
+            hadError = true
+            const message = error instanceof Error ? error.message : String(error)
+            const reason = message.includes('ENOENT') ? 'No such file or directory'
+              : message.includes('EISDIR') ? 'Is a directory'
+              : message.includes('EACCES') ? 'Permission denied'
+              : message
+            await io.writelnErr(`cat: ${file}: ${reason}`)
           } finally {
             kernel.terminal.events.off(TerminalEvents.INTERRUPT, interruptHandler)
           }
@@ -126,7 +136,7 @@ export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal):
           await writer.write(new Uint8Array([0x0A]))
         }
 
-        return 0
+        return hadError ? 1 : 0
       } finally {
         writer.releaseLock()
       }
