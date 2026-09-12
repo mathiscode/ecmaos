@@ -9,10 +9,10 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 17 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
- *   touch, chmod, cat, head, tail, wc, nl, rev, tac): real files under /bin already resolve them
- *   via `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no
- *   table entry for a real `/bin/ls`.
+ * - The 23 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum):
+ *   real files under /bin already resolve them via `readFileHeader`/`execve` -- they need no entry
+ *   here at all, the same way bash needs no table entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -30,24 +30,20 @@ import type { TerminalCommand } from './terminal-command.js'
 import { meta as metaAwk } from '../commands/awk.js'
 import { meta as metaCal } from '../commands/cal.js'
 import { meta as metaChown } from '../commands/chown.js'
-import { meta as metaCksum } from '../commands/cksum.js'
 import { meta as metaCmp } from '../commands/cmp.js'
 import { meta as metaColumn } from '../commands/column.js'
 import { meta as metaComm } from '../commands/comm.js'
 import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaCrypto } from '../commands/crypto.js'
 import { meta as metaCurl } from '../commands/curl.js'
-import { meta as metaCut } from '../commands/cut.js'
 import { meta as metaDate } from '../commands/date.js'
 import { meta as metaDd } from '../commands/dd.js'
 import { meta as metaDiff } from '../commands/diff.js'
-import { meta as metaExpand } from '../commands/expand.js'
 import { meta as metaFactor } from '../commands/factor.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
 import { meta as metaFind } from '../commands/find.js'
 import { meta as metaFmt } from '../commands/fmt.js'
-import { meta as metaFold } from '../commands/fold.js'
 import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
 import { meta as metaGrep } from '../commands/grep.js'
@@ -97,8 +93,6 @@ import { meta as metaTrue } from '../commands/true.js'
 import { meta as metaTty } from '../commands/tty.js'
 import { meta as metaUmount } from '../commands/umount.js'
 import { meta as metaUname } from '../commands/uname.js'
-import { meta as metaUnexpand } from '../commands/unexpand.js'
-import { meta as metaUniq } from '../commands/uniq.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
 import { meta as metaUptime } from '../commands/uptime.js'
 import { meta as metaUser } from '../commands/user.js'
@@ -114,24 +108,20 @@ import { meta as metaZip } from '../commands/zip.js'
 import { createCommand as createAwk } from '../commands/awk.js'
 import { createCommand as createCal } from '../commands/cal.js'
 import { createCommand as createChown } from '../commands/chown.js'
-import { createCommand as createCksum } from '../commands/cksum.js'
 import { createCommand as createCmp } from '../commands/cmp.js'
 import { createCommand as createColumn } from '../commands/column.js'
 import { createCommand as createComm } from '../commands/comm.js'
 import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createCrypto } from '../commands/crypto.js'
 import { createCommand as createCurl } from '../commands/curl.js'
-import { createCommand as createCut } from '../commands/cut.js'
 import { createCommand as createDate } from '../commands/date.js'
 import { createCommand as createDd } from '../commands/dd.js'
 import { createCommand as createDiff } from '../commands/diff.js'
-import { createCommand as createExpand } from '../commands/expand.js'
 import { createCommand as createFactor } from '../commands/factor.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
 import { createCommand as createFind } from '../commands/find.js'
 import { createCommand as createFmt } from '../commands/fmt.js'
-import { createCommand as createFold } from '../commands/fold.js'
 import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createGrep } from '../commands/grep.js'
@@ -181,8 +171,6 @@ import { createCommand as createTrue } from '../commands/true.js'
 import { createCommand as createTty } from '../commands/tty.js'
 import { createCommand as createUmount } from '../commands/umount.js'
 import { createCommand as createUname } from '../commands/uname.js'
-import { createCommand as createUnexpand } from '../commands/unexpand.js'
-import { createCommand as createUniq } from '../commands/uniq.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
 import { createCommand as createUptime } from '../commands/uptime.js'
 import { createCommand as createUser } from '../commands/user.js'
@@ -209,24 +197,20 @@ function buildLegacyCommands(): LegacyCommands {
   "awk": { description: metaAwk.description, createCommand: createAwk },
   "cal": { description: metaCal.description, createCommand: createCal },
   "chown": { description: metaChown.description, createCommand: createChown },
-  "cksum": { description: metaCksum.description, createCommand: createCksum },
   "cmp": { description: metaCmp.description, createCommand: createCmp },
   "column": { description: metaColumn.description, createCommand: createColumn },
   "comm": { description: metaComm.description, createCommand: createComm },
   "cron": { description: metaCron.description, createCommand: createCron },
   "crypto": { description: metaCrypto.description, createCommand: createCrypto },
   "curl": { description: metaCurl.description, createCommand: createCurl },
-  "cut": { description: metaCut.description, createCommand: createCut },
   "date": { description: metaDate.description, createCommand: createDate },
   "dd": { description: metaDd.description, createCommand: createDd },
   "diff": { description: metaDiff.description, createCommand: createDiff },
-  "expand": { description: metaExpand.description, createCommand: createExpand },
   "factor": { description: metaFactor.description, createCommand: createFactor },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
   "find": { description: metaFind.description, createCommand: createFind },
   "fmt": { description: metaFmt.description, createCommand: createFmt },
-  "fold": { description: metaFold.description, createCommand: createFold },
   "format": { description: metaFormat.description, createCommand: createFormat },
   "git": { description: metaGit.description, createCommand: createGit },
   "grep": { description: metaGrep.description, createCommand: createGrep },
@@ -276,8 +260,6 @@ function buildLegacyCommands(): LegacyCommands {
   "tty": { description: metaTty.description, createCommand: createTty },
   "umount": { description: metaUmount.description, createCommand: createUmount },
   "uname": { description: metaUname.description, createCommand: createUname },
-  "unexpand": { description: metaUnexpand.description, createCommand: createUnexpand },
-  "uniq": { description: metaUniq.description, createCommand: createUniq },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
   "uptime": { description: metaUptime.description, createCommand: createUptime },
   "user": { description: metaUser.description, createCommand: createUser },

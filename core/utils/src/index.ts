@@ -9,31 +9,28 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 17 execve-migrated names (echo, basename,
-// dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac) and the 8 true
-// shell builtins now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs,
-// wait, local, env) -- neither has a createCommand anymore, only meta (see their files).
+// Export individual command factories -- excludes the 23 execve-migrated names (echo, basename,
+// dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
+// expand, unexpand, cksum) and the 8 true shell builtins now living in
+// core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
+// has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createCal } from './commands/cal.js'
 export { createCommand as createChown } from './commands/chown.js'
-export { createCommand as createCksum } from './commands/cksum.js'
 export { createCommand as createCmp } from './commands/cmp.js'
 export { createCommand as createColumn } from './commands/column.js'
 export { createCommand as createComm } from './commands/comm.js'
 export { createCommand as createCron } from './commands/cron.js'
 export { createCommand as createCrypto } from './commands/crypto.js'
 export { createCommand as createCurl } from './commands/curl.js'
-export { createCommand as createCut } from './commands/cut.js'
 export { createCommand as createDate } from './commands/date.js'
 export { createCommand as createDd } from './commands/dd.js'
 export { createCommand as createDiff } from './commands/diff.js'
-export { createCommand as createExpand } from './commands/expand.js'
 export { createCommand as createFactor } from './commands/factor.js'
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createFetch } from './commands/fetch.js'
 export { createCommand as createFind } from './commands/find.js'
 export { createCommand as createFmt } from './commands/fmt.js'
-export { createCommand as createFold } from './commands/fold.js'
 export { createCommand as createFormat } from './commands/format.js'
 export { createCommand as createGit } from './commands/git.js'
 export { createCommand as createGrep } from './commands/grep.js'
@@ -83,8 +80,6 @@ export { createCommand as createTrue } from './commands/true.js'
 export { createCommand as createTty } from './commands/tty.js'
 export { createCommand as createUmount } from './commands/umount.js'
 export { createCommand as createUname } from './commands/uname.js'
-export { createCommand as createUnexpand } from './commands/unexpand.js'
-export { createCommand as createUniq } from './commands/uniq.js'
 export { createCommand as createUnzip } from './commands/unzip.js'
 export { createCommand as createUptime } from './commands/uptime.js'
 export { createCommand as createUser } from './commands/user.js'

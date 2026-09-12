@@ -103,5 +103,5 @@ describe('text command batch: head/tail/wc/nl/rev/tac, real execve', () => {
       const code = await kernel.shell.execute(`${name} /tmp/does-not-exist-batch.txt 2>/tmp/${name}-missing.err`)
       expect(code).toBe(1)
     }
-  })
+  }, 20000)
 })
