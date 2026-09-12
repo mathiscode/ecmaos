@@ -55,6 +55,7 @@ import { TerminalCommands } from '#lib/commands/index.js'
 import { parseCrontabFile } from '#lib/crontab.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
+import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 
 import {
   KernelEvents,
@@ -377,6 +378,10 @@ export class Kernel implements IKernel {
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
       await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: Filesystem.options() })
       configureSpan.end()
+
+      // Register ecmaOS's own custom syscalls (main-thread-only capabilities like DOM window
+      // creation) before wrapping the table, so they get manifest-allowlist coverage too.
+      installMainThreadSyscalls()
 
       // Wrap every registered syscall with a manifest-declared allowlist check, before any
       // program can execve and start calling them. A program with no manifest is unrestricted.
@@ -1209,6 +1214,11 @@ export class Kernel implements IKernel {
         // foreground-process/signal-delivery side of things.
         console: tty ? `/dev/${tty.name}` : undefined
       })
+
+      // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
+      // calling `Process` -- `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
+      // syscall table is module-global, shared across every `Kernel` instance in the page/process.
+      registerProcessKernel(proc, this)
 
       if (tty && isForeground) tty.foreground = proc
 

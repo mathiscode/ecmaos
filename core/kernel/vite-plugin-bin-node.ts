@@ -62,3 +62,11 @@ export function binWali(): Plugin {
 export function binPilotPwd(): Plugin {
   return binWorkerPlugin('pilot-pwd', 'src/bin/pilot-pwd.mjs')
 }
+
+/**
+ * Bundles `src/bin/pilot-window.mjs` -- the pilot proving the `window_create`/`window_write`/
+ * `window_close` main-thread-syscall bridge works end to end -- into `virtual:bin-pilot-window`.
+ */
+export function binPilotWindow(): Plugin {
+  return binWorkerPlugin('pilot-window', 'src/bin/pilot-window.mjs')
+}
