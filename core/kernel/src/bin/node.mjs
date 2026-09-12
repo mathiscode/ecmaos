@@ -30,7 +30,8 @@
 import { ready, exit } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
-  mkdir, rmdir, unlink, rename, chmod, stat, access, getdents
+  mkdir, rmdir, unlink, rename, chmod, stat, access, getdents,
+  link, symlink, readlink
 } from '@zenfs/linux/uapi/fs'
 import { syscall_async } from '@zenfs/linux/uapi/base'
 
@@ -172,6 +173,7 @@ globalThis.ecmaosSyscalls = {
   open, read, write, close, getcwd, exit, custom: syscall_async,
   mkdir, rmdir, unlink, rename, chmod, stat, access,
   readdir, isDirectory, copyFile, rmRecursive,
+  link, symlink, readlink,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
   // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
   // `thread.js`) -- `argv[0]` is the program's own path (real `execve` convention), so a program's
