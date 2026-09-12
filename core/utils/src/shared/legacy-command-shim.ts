@@ -58,7 +58,6 @@ import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSockets } from '../commands/sockets.js'
-import { meta as metaTar } from '../commands/tar.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
@@ -106,7 +105,6 @@ import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
-import { createCommand as createTar } from '../commands/tar.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
@@ -165,7 +163,6 @@ function buildLegacyCommands(): LegacyCommands {
   "pwd": { description: metaPwd.description, createCommand: createPwd },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
-  "tar": { description: metaTar.description, createCommand: createTar },
   "test": { description: metaTest.description, createCommand: createTest },
   "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },

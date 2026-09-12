@@ -9,11 +9,11 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 53 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 54 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
 // expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
 // paste, sleep, mktemp, shuf, split, pr, tee, stat, readlink, realpath, ln, dd, sort, find, diff,
-// grep, sed, awk, ls) and the 8 true shell
+// grep, sed, awk, ls, tar) and the 8 true shell
 // builtins now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait,
 // local, env) -- neither has a createCommand anymore, only meta (see their files).
 export { createCommand as createCal } from './commands/cal.js'
@@ -45,7 +45,6 @@ export { createCommand as createPrintf } from './commands/printf.js'
 export { createCommand as createPwd } from './commands/pwd.js'
 export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createSockets } from './commands/sockets.js'
-export { createCommand as createTar } from './commands/tar.js'
 export { createCommand as createTest } from './commands/test.js'
 export { createCommand as createTheme } from './commands/theme.js'
 export { createCommand as createTime } from './commands/time.js'
