@@ -39,6 +39,9 @@ declare module '@zenfs/linux/uapi/abi' {
     window_create(title: string): number
     window_write(handle: number, text: string): number
     window_close(handle: number): number
+    storage_usage(path: string): number
+    ps_list(path: string): number
+    reboot(): number
   }
 }
 
@@ -97,6 +100,35 @@ export function installMainThreadSyscalls(): void {
     if (!id) return -Errno.EBADF
     kernel.windows.close(id)
     windowHandles.delete(handle)
+    return 0
+  })
+
+  // A syscall's return must be `number | bigint | void` (`dispatch`'s contract, enforced by
+  // `SyscallHandler`'s own type) -- there's no string-returning custom syscall shape available, so
+  // `storage_usage`/`ps_list` write their JSON into a real file under `/tmp` instead (real `/proc` is
+  // `@zenfs/linux`'s synthetic, read-only `ProcFS` -- not a place this can write into): a worker-
+  // hosted `df`/`ps` just `open`+`read`s the file back with the plain filesystem syscalls it already
+  // has, no custom syscall needed on the read side at all. The write-then-signal-length return keeps
+  // the caller from racing a read against an unfinished write.
+  define_syscall('storage_usage', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const usage = await kernel.storage.usage()
+    const text = JSON.stringify(usage ?? {})
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('ps_list', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const list = [...kernel.processes.all.entries()].map(([pid, p]) => ({ pid, command: p.command, status: p.status }))
+    const text = JSON.stringify(list)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('reboot', async (proc: Process) => {
+    const kernel = kernelOf(proc)
+    await kernel.reboot()
     return 0
   })
 }
