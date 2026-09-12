@@ -39,7 +39,6 @@ import { meta as metaDate } from '../commands/date.js'
 import { meta as metaDiff } from '../commands/diff.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
-import { meta as metaFind } from '../commands/find.js'
 import { meta as metaFmt } from '../commands/fmt.js'
 import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
@@ -93,7 +92,6 @@ import { createCommand as createDate } from '../commands/date.js'
 import { createCommand as createDiff } from '../commands/diff.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
-import { createCommand as createFind } from '../commands/find.js'
 import { createCommand as createFmt } from '../commands/fmt.js'
 import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
@@ -158,7 +156,6 @@ function buildLegacyCommands(): LegacyCommands {
   "diff": { description: metaDiff.description, createCommand: createDiff },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
-  "find": { description: metaFind.description, createCommand: createFind },
   "fmt": { description: metaFmt.description, createCommand: createFmt },
   "format": { description: metaFormat.description, createCommand: createFormat },
   "git": { description: metaGit.description, createCommand: createGit },

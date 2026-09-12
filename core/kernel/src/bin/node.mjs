@@ -30,7 +30,7 @@
 import { ready, exit } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
-  mkdir, rmdir, unlink, rename, chmod, stat, access, getdents,
+  mkdir, rmdir, unlink, rename, chmod, stat, lstat, access, getdents,
   link, symlink, readlink
 } from '@zenfs/linux/uapi/fs'
 import { syscall_async } from '@zenfs/linux/uapi/base'
@@ -42,6 +42,7 @@ const O_TRUNC = 0x200
 const O_DIRECTORY = 0x10000
 const S_IFMT = 0xf000
 const S_IFDIR = 0x4000
+const S_IFLNK = 0xa000
 
 /**
  * `readdir`/`copyFile`/recursive `rm` are userspace conveniences over raw syscalls in every real
@@ -79,6 +80,11 @@ function readdir(path) {
 /** `true` if `path` is a directory, via a real `stat`, not a name-based guess. */
 function isDirectory(path) {
   return (stat(path).mode & S_IFMT) === S_IFDIR
+}
+
+/** `true` if `path` is itself a symlink, via a real `lstat` (unlike `stat`, does not follow it). */
+function isSymbolicLink(path) {
+  return (lstat(path).mode & S_IFMT) === S_IFLNK
 }
 
 /** Real file copy: read the source in chunks, write them to a freshly created/truncated destination. */
@@ -171,8 +177,8 @@ const init = await ready
 // resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
 globalThis.ecmaosSyscalls = {
   open, read, write, close, getcwd, exit, custom: syscall_async,
-  mkdir, rmdir, unlink, rename, chmod, stat, access,
-  readdir, isDirectory, copyFile, rmRecursive,
+  mkdir, rmdir, unlink, rename, chmod, stat, lstat, access,
+  readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
   // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
