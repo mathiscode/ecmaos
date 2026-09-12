@@ -119,10 +119,11 @@ function splitLongLines(text: string, width: number): string[] {
   return result
 }
 
+export const meta = { command: 'fmt', description: 'Reformat paragraph text' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'fmt',
-    description: 'Reformat paragraph text',
+    ...meta,
     kernel,
     shell,
     terminal,

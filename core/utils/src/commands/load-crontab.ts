@@ -16,10 +16,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'load-crontab', description: 'Load and register crontab entries from a file' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'load-crontab',
-    description: 'Load and register crontab entries from a file',
+    ...meta,
     kernel,
     shell,
     terminal,

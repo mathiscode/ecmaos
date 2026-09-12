@@ -14,10 +14,11 @@ Compare two files byte by byte.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'cmp', description: 'Compare two files byte by byte' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cmp',
-    description: 'Compare two files byte by byte',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -11,10 +11,11 @@ Remove the DIRECTORY(ies), if they are empty.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'rmdir', description: 'Remove a directory' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'rmdir',
-    description: 'Remove a directory',
+    ...meta,
     kernel,
     shell,
     terminal,

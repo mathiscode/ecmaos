@@ -14,10 +14,11 @@ Merge lines of files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'paste', description: 'Merge lines of files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'paste',
-    description: 'Merge lines of files',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -15,10 +15,11 @@ Remove sections from each line of files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'cut', description: 'Remove sections from each line of files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cut',
-    description: 'Remove sections from each line of files',
+    ...meta,
     kernel,
     shell,
     terminal,

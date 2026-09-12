@@ -15,10 +15,11 @@ Print newline, word, and byte counts for each FILE.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'wc', description: 'Print newline, word, and byte counts for each file' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'wc',
-    description: 'Print newline, word, and byte counts for each file',
+    ...meta,
     kernel,
     shell,
     terminal,

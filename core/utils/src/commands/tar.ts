@@ -671,10 +671,11 @@ async function listArchive(
   }
 }
 
+export const meta = { command: 'tar', description: 'Create, extract, or list tar archives' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'tar',
-    description: 'Create, extract, or list tar archives',
+    ...meta,
     kernel,
     shell,
     terminal,

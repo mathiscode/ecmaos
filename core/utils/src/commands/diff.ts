@@ -14,10 +14,11 @@ Compare files line by line.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'diff', description: 'Compare files line by line' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'diff',
-    description: 'Compare files line by line',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -16,10 +16,11 @@ Subcommands:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'passkey', description: 'Manage passkey credentials for WebAuthn authentication' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'passkey',
-    description: 'Manage passkey credentials for WebAuthn authentication',
+    ...meta,
     kernel,
     shell,
     terminal,

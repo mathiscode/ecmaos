@@ -177,10 +177,11 @@ Crontab format:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'cron', description: 'Manage scheduled tasks (crontabs)' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cron',
-    description: 'Manage scheduled tasks (crontabs)',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -14,10 +14,11 @@ Split INPUT into fixed-size pieces.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'split', description: 'Split a file into pieces' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'split',
-    description: 'Split a file into pieces',
+    ...meta,
     kernel,
     shell,
     terminal,

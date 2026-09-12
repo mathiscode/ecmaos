@@ -13,10 +13,11 @@ Print numbers from FIRST to LAST, in steps of INCREMENT.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'seq', description: 'Print a sequence of numbers' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'seq',
-    description: 'Print a sequence of numbers',
+    ...meta,
     kernel,
     shell,
     terminal,

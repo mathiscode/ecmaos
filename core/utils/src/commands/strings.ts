@@ -37,10 +37,11 @@ function extractStrings(data: Uint8Array, minLen: number): string[] {
   return strings
 }
 
+export const meta = { command: 'strings', description: 'Print the sequences of printable characters in files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'strings',
-    description: 'Print the sequences of printable characters in files',
+    ...meta,
     kernel,
     shell,
     terminal,

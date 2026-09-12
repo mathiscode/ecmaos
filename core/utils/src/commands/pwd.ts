@@ -10,10 +10,11 @@ Print the name of the current working directory.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'pwd', description: 'Print the shell working directory' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'pwd',
-    description: 'Print the shell working directory',
+    ...meta,
     kernel,
     shell,
     terminal,

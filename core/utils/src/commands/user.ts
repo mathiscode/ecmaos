@@ -32,10 +32,11 @@ Options for 'mod':
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'user', description: 'Manage users on the system' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'user',
-    description: 'Manage users on the system',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -14,10 +14,11 @@ Print the first 10 lines of each FILE to standard output.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'head', description: 'Print the first lines of files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'head',
-    description: 'Print the first lines of files',
+    ...meta,
     kernel,
     shell,
     terminal,

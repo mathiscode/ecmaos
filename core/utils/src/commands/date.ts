@@ -13,10 +13,11 @@ Print or set the system date and time.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'date', description: 'Print or set the system date and time' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'date',
-    description: 'Print or set the system date and time',
+    ...meta,
     kernel,
     shell,
     terminal,
