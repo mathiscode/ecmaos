@@ -36,7 +36,6 @@ import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaCrypto } from '../commands/crypto.js'
 import { meta as metaCurl } from '../commands/curl.js'
 import { meta as metaDate } from '../commands/date.js'
-import { meta as metaDd } from '../commands/dd.js'
 import { meta as metaDiff } from '../commands/diff.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
@@ -92,7 +91,6 @@ import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createCrypto } from '../commands/crypto.js'
 import { createCommand as createCurl } from '../commands/curl.js'
 import { createCommand as createDate } from '../commands/date.js'
-import { createCommand as createDd } from '../commands/dd.js'
 import { createCommand as createDiff } from '../commands/diff.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
@@ -159,7 +157,6 @@ function buildLegacyCommands(): LegacyCommands {
   "crypto": { description: metaCrypto.description, createCommand: createCrypto },
   "curl": { description: metaCurl.description, createCommand: createCurl },
   "date": { description: metaDate.description, createCommand: createDate },
-  "dd": { description: metaDd.description, createCommand: createDd },
   "diff": { description: metaDiff.description, createCommand: createDiff },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
