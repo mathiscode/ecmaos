@@ -88,7 +88,8 @@ export function binPilotWindow(): Plugin {
  * adds no new dependency edge, just a second thing consumed from it.
  */
 export const migratedCommands = [
-  'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod', 'cat'
+  'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod', 'cat',
+  'head', 'tail', 'wc', 'nl', 'rev', 'tac'
 ] as const
 
 /**
