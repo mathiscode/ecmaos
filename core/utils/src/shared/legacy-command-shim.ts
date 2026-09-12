@@ -31,11 +31,7 @@ import type { TerminalCommand } from './terminal-command.js'
 
 import { meta as metaChown } from '../commands/chown.js'
 import { meta as metaCron } from '../commands/cron.js'
-import { meta as metaCrypto } from '../commands/crypto.js'
-import { meta as metaCurl } from '../commands/curl.js'
 import { meta as metaFalse } from '../commands/false.js'
-import { meta as metaFetch } from '../commands/fetch.js'
-import { meta as metaFmt } from '../commands/fmt.js'
 import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
 import { meta as metaGroups } from '../commands/groups.js'
@@ -67,11 +63,7 @@ import { meta as metaZip } from '../commands/zip.js'
 
 import { createCommand as createChown } from '../commands/chown.js'
 import { createCommand as createCron } from '../commands/cron.js'
-import { createCommand as createCrypto } from '../commands/crypto.js'
-import { createCommand as createCurl } from '../commands/curl.js'
 import { createCommand as createFalse } from '../commands/false.js'
-import { createCommand as createFetch } from '../commands/fetch.js'
-import { createCommand as createFmt } from '../commands/fmt.js'
 import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createGroups } from '../commands/groups.js'
@@ -114,11 +106,7 @@ function buildLegacyCommands(): LegacyCommands {
   return {
   "chown": { description: metaChown.description, createCommand: createChown },
   "cron": { description: metaCron.description, createCommand: createCron },
-  "crypto": { description: metaCrypto.description, createCommand: createCrypto },
-  "curl": { description: metaCurl.description, createCommand: createCurl },
   "false": { description: metaFalse.description, createCommand: createFalse },
-  "fetch": { description: metaFetch.description, createCommand: createFetch },
-  "fmt": { description: metaFmt.description, createCommand: createFmt },
   "format": { description: metaFormat.description, createCommand: createFormat },
   "git": { description: metaGit.description, createCommand: createGit },
   "groups": { description: metaGroups.description, createCommand: createGroups },
