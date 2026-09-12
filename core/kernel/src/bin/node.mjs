@@ -28,8 +28,90 @@
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
-import { open, read, close, write, getcwd } from '@zenfs/linux/uapi/fs'
+import {
+  open, read, close, write, getcwd,
+  mkdir, rmdir, unlink, rename, chmod, stat, access, getdents
+} from '@zenfs/linux/uapi/fs'
 import { syscall_async } from '@zenfs/linux/uapi/base'
+
+const O_RDONLY = 0
+const O_WRONLY = 1
+const O_CREAT = 0x40
+const O_TRUNC = 0x200
+const O_DIRECTORY = 0x10000
+const S_IFMT = 0xf000
+const S_IFDIR = 0x4000
+
+/**
+ * `readdir`/`copyFile`/recursive `rm` are userspace conveniences over raw syscalls in every real
+ * libc too -- there is no kernel primitive for any of them. Built once here, alongside the syscall
+ * wrappers, rather than duplicated in every coreutil program that needs one (mirrors how `ls`/`cp`/
+ * `rm` all link against the same libc instead of reimplementing `readdir(3)` each time).
+ */
+
+/**
+ * Real directory listing: `open(O_DIRECTORY)` + one `getdents` + `close`.
+ *
+ * Just one call, not a loop -- confirmed by reading `@zenfs/linux`'s own handler (`syscall/fs.js`):
+ * `getdents` re-reads the *entire* directory via `vfs.readdir` on every call and writes as much as
+ * fits in the return region, with no cursor/file-position tracking of its own. A repeat call would
+ * hand back the exact same entries again (not "the rest"), so looping "until empty" never
+ * terminates -- confirmed by hand, `rm -r` on a real directory hung forever until this was fixed to
+ * call it once. A directory whose real listing doesn't fit in one region write is a known limit of
+ * this syscall as `@zenfs/linux` implements it today, not something more looping here can fix.
+ */
+function readdir(path) {
+  const fd = open(path, O_RDONLY | O_DIRECTORY, 0)
+  try {
+    const names = []
+    const entries = getdents(fd)
+    for (const entry of entries) {
+      if (entry.name === '.' || entry.name === '..') continue
+      names.push(entry.name)
+    }
+    return names
+  } finally {
+    close(fd)
+  }
+}
+
+/** `true` if `path` is a directory, via a real `stat`, not a name-based guess. */
+function isDirectory(path) {
+  return (stat(path).mode & S_IFMT) === S_IFDIR
+}
+
+/** Real file copy: read the source in chunks, write them to a freshly created/truncated destination. */
+function copyFile(source, destination) {
+  const srcFd = open(source, O_RDONLY, 0)
+  try {
+    const destFd = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+    try {
+      const chunkSize = 65536
+      while (true) {
+        const buffer = new Uint8Array(chunkSize)
+        const n = read(srcFd, buffer, -1)
+        if (n <= 0) break
+        let offset = 0
+        while (offset < n) offset += write(destFd, buffer.subarray(offset, n), -1)
+        if (n < chunkSize) break
+      }
+    } finally {
+      close(destFd)
+    }
+  } finally {
+    close(srcFd)
+  }
+}
+
+/** Recursively remove a real directory tree: `readdir` + recurse, `unlink` files, `rmdir` on the way back up. */
+function rmRecursive(path) {
+  if (isDirectory(path)) {
+    for (const name of readdir(path)) rmRecursive(`${path}/${name}`)
+    rmdir(path)
+  } else {
+    unlink(path)
+  }
+}
 
 /** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
 async function readWholeFile(path) {
@@ -71,15 +153,33 @@ const init = await ready
 
 // Expose this module's own already-initialized syscall wrappers for the loaded program to use --
 // see the doc comment above for why a program can't get working ones of its own by importing
-// `@zenfs/linux/uapi/*` directly. Deliberately a small, fixed set (not all of `uapi/*`): only what
-// a syscall-only coreutil-shaped program plausibly needs today.
+// `@zenfs/linux/uapi/*` directly. Grows as more coreutils move onto real execve (see the
+// `feat/1.0.0-execve-commands` migration); still deliberately just what's been needed so far, not
+// all of `uapi/*` up front.
+//
+// `readdir`/`isDirectory`/`copyFile`/`rmRecursive` are this interpreter's own userspace helpers
+// (built above from raw syscalls), not `@zenfs/linux` exports -- there is no kernel primitive for
+// any of them in real Linux either; every libc builds them the same way over `getdents`/`open`+
+// `read`+`write`/recursive `unlink`+`rmdir`. Provided once here so migrated coreutils (`cp`, `rm`,
+// `mv`, ...) don't each reimplement directory walking.
 //
 // `custom` is `syscall_async` itself, not `syscall`/`syscall_raw` -- a main-thread-only capability
 // like `window_create` can take arbitrarily long (a real window is created synchronously today, but
 // a future capability like `bt_request_device` waits on a user gesture with no bound at all), and
 // the sync path blocks this whole worker thread via `Atomics.wait` with no timeout. `syscall_async`
 // resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
-globalThis.ecmaosSyscalls = { open, read, write, close, getcwd, exit, custom: syscall_async }
+globalThis.ecmaosSyscalls = {
+  open, read, write, close, getcwd, exit, custom: syscall_async,
+  mkdir, rmdir, unlink, rename, chmod, stat, access,
+  readdir, isDirectory, copyFile, rmRecursive,
+  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
+  // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
+  // `thread.js`) -- `argv[0]` is the program's own path (real `execve` convention), so a program's
+  // real arguments are `argv.slice(1)`. `cwd` is a syscall (`getcwd()`), not `init.cwd`, since the
+  // process may `chdir()` after starting and `getcwd()` always reflects that; `init.cwd` is only
+  // what the shell's cwd was at the moment this program was launched.
+  argv: init.argv, env: init.env
+}
 
 try {
   const source = await readWholeFile(init.exe)

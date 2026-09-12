@@ -70,3 +70,54 @@ export function binPilotPwd(): Plugin {
 export function binPilotWindow(): Plugin {
   return binWorkerPlugin('pilot-window', 'src/bin/pilot-window.mjs')
 }
+
+/**
+ * The coreutils migrated onto real `execve` so far (`feat/1.0.0-execve-commands`) -- each a real,
+ * worker-hosted, syscall-only program (`src/bin/cmd-<name>.mjs`) replacing that command's entry in
+ * `Kernel.executeCommand`'s legacy dispatch. Keyed by the real command name (`/bin/<name>`, not
+ * `/bin/cmd-<name>`) since that's the path `Kernel.registerCommands`/`readFileHeader` resolve.
+ */
+export const migratedCommands = [
+  'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod'
+] as const
+
+/**
+ * Bundles every migrated coreutil's real program (`src/bin/cmd-<name>.mjs`) into one virtual module,
+ * `virtual:bin-commands`, exporting `{ [name]: string }` -- the same shape as `TerminalCommands`'
+ * own name-keyed map, so `Kernel.registerCommands` can look a migrated name up directly.
+ */
+export function binCommands(): Plugin {
+  const virtualModuleId = 'virtual:bin-commands'
+  const resolvedVirtualModuleId = '\0' + virtualModuleId
+  let cached: string | undefined
+
+  return {
+    name: 'ecmaos:bin-commands',
+    resolveId(id) {
+      if (id === virtualModuleId) return resolvedVirtualModuleId
+    },
+    async load(id) {
+      if (id !== resolvedVirtualModuleId) return
+
+      if (!cached) {
+        const entries: Record<string, string> = {}
+        for (const name of migratedCommands) {
+          const result = await build({
+            entryPoints: [`src/bin/cmd-${name}.mjs`],
+            bundle: true,
+            format: 'esm',
+            platform: 'browser',
+            write: false,
+            absWorkingDir: __dirname
+          })
+          const output = result.outputFiles[0]
+          if (!output) throw new Error(`bin-commands: esbuild produced no output for ${name}`)
+          entries[name] = output.text
+        }
+        cached = JSON.stringify(entries)
+      }
+
+      return `export default ${cached}`
+    }
+  }
+}
