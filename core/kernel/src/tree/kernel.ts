@@ -299,7 +299,11 @@ export class Kernel implements IKernel {
       users: this.users,
       uid: 0,
       gid: 0,
-      tty: 0
+      tty: 0,
+      // KERNEL_NAME/KERNEL_VERSION/HOSTNAME: build-time constants a real execve'd worker process
+      // has no other way to see (no `kernel` reference, no `window`) -- threaded through env the same
+      // way HOME/PATH/etc already are, for uname.mjs/hostname.mjs to read via `env` in ecmaosSyscalls.
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
     })
 
     this.terminal = new Terminal({
@@ -2477,7 +2481,8 @@ export class Kernel implements IKernel {
       uid: 0,
       gid: 0,
       tty: ttyNumber,
-      terminal
+      terminal,
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
     })
     terminal.attachShell(shell)
 
