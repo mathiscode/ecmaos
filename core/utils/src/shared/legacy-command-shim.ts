@@ -9,12 +9,12 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 42 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ * - The 45 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
  *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum,
  *   strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join, paste, sleep, mktemp,
- *   shuf, split, pr, tee, stat): real files under /bin already resolve them via
- *   `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no table
- *   entry for a real `/bin/ls`.
+ *   shuf, split, pr, tee, stat, readlink, realpath, ln): real files under /bin already resolve them
+ *   via `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no
+ *   table entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -50,7 +50,6 @@ import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
 import { meta as metaLess } from '../commands/less.js'
-import { meta as metaLn } from '../commands/ln.js'
 import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
 import { meta as metaLs } from '../commands/ls.js'
 import { meta as metaMan } from '../commands/man.js'
@@ -63,8 +62,6 @@ import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
-import { meta as metaReadlink } from '../commands/readlink.js'
-import { meta as metaRealpath } from '../commands/realpath.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSed } from '../commands/sed.js'
 import { meta as metaSockets } from '../commands/sockets.js'
@@ -109,7 +106,6 @@ import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
 import { createCommand as createLess } from '../commands/less.js'
-import { createCommand as createLn } from '../commands/ln.js'
 import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
 import { createCommand as createLs } from '../commands/ls.js'
 import { createCommand as createMan } from '../commands/man.js'
@@ -122,8 +118,6 @@ import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
-import { createCommand as createReadlink } from '../commands/readlink.js'
-import { createCommand as createRealpath } from '../commands/realpath.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSed } from '../commands/sed.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
@@ -179,7 +173,6 @@ function buildLegacyCommands(): LegacyCommands {
   "hostname": { description: metaHostname.description, createCommand: createHostname },
   "id": { description: metaId.description, createCommand: createId },
   "less": { description: metaLess.description, createCommand: createLess },
-  "ln": { description: metaLn.description, createCommand: createLn },
   "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
   "ls": { description: metaLs.description, createCommand: createLs },
   "man": { description: metaMan.description, createCommand: createMan },
@@ -192,8 +185,6 @@ function buildLegacyCommands(): LegacyCommands {
   "play": { description: metaPlay.description, createCommand: createPlay },
   "printf": { description: metaPrintf.description, createCommand: createPrintf },
   "pwd": { description: metaPwd.description, createCommand: createPwd },
-  "readlink": { description: metaReadlink.description, createCommand: createReadlink },
-  "realpath": { description: metaRealpath.description, createCommand: createRealpath },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sed": { description: metaSed.description, createCommand: createSed },
   "sockets": { description: metaSockets.description, createCommand: createSockets },

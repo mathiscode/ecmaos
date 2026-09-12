@@ -92,7 +92,8 @@ export const migratedCommands = [
   'head', 'tail', 'wc', 'nl', 'rev', 'tac', 'uniq', 'cut', 'fold', 'expand', 'unexpand', 'cksum',
   'strings', 'xxd', 'od', 'hash', 'cmp', 'comm', 'column',
   'seq', 'factor', 'rmdir', 'join', 'paste', 'sleep', 'mktemp', 'shuf',
-  'split', 'pr', 'tee', 'stat'
+  'split', 'pr', 'tee', 'stat',
+  'readlink', 'realpath', 'ln'
 ] as const
 
 /**
