@@ -9,11 +9,12 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 30 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 38 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
-// expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column) and the 8 true shell builtins
-// now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env)
-// -- neither has a createCommand anymore, only meta (see their files).
+// expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
+// paste, sleep, mktemp, shuf) and the 8 true shell builtins now living in
+// core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
+// has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createCal } from './commands/cal.js'
 export { createCommand as createChown } from './commands/chown.js'
@@ -23,7 +24,6 @@ export { createCommand as createCurl } from './commands/curl.js'
 export { createCommand as createDate } from './commands/date.js'
 export { createCommand as createDd } from './commands/dd.js'
 export { createCommand as createDiff } from './commands/diff.js'
-export { createCommand as createFactor } from './commands/factor.js'
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createFetch } from './commands/fetch.js'
 export { createCommand as createFind } from './commands/find.js'
@@ -35,32 +35,25 @@ export { createCommand as createGroups } from './commands/groups.js'
 export { createCommand as createHistory } from './commands/history.js'
 export { createCommand as createHostname } from './commands/hostname.js'
 export { createCommand as createId } from './commands/id.js'
-export { createCommand as createJoin } from './commands/join.js'
 export { createCommand as createLess } from './commands/less.js'
 export { createCommand as createLn } from './commands/ln.js'
 export { createCommand as createLoadCrontab } from './commands/load-crontab.js'
 export { createCommand as createLs } from './commands/ls.js'
 export { createCommand as createMan } from './commands/man.js'
-export { createCommand as createMktemp } from './commands/mktemp.js'
 export { createCommand as createMotd } from './commands/motd.js'
 export { createCommand as createMount } from './commands/mount.js'
 export { createCommand as createNc } from './commands/nc.js'
 export { createCommand as createNproc } from './commands/nproc.js'
 export { createCommand as createOpen } from './commands/open.js'
 export { createCommand as createPasskey } from './commands/passkey.js'
-export { createCommand as createPaste } from './commands/paste.js'
 export { createCommand as createPlay } from './commands/play.js'
 export { createCommand as createPr } from './commands/pr.js'
 export { createCommand as createPrintf } from './commands/printf.js'
 export { createCommand as createPwd } from './commands/pwd.js'
 export { createCommand as createReadlink } from './commands/readlink.js'
 export { createCommand as createRealpath } from './commands/realpath.js'
-export { createCommand as createRmdir } from './commands/rmdir.js'
 export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createSed } from './commands/sed.js'
-export { createCommand as createSeq } from './commands/seq.js'
-export { createCommand as createShuf } from './commands/shuf.js'
-export { createCommand as createSleep } from './commands/sleep.js'
 export { createCommand as createSockets } from './commands/sockets.js'
 export { createCommand as createSort } from './commands/sort.js'
 export { createCommand as createSplit } from './commands/split.js'
