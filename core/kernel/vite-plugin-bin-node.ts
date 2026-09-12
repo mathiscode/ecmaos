@@ -96,7 +96,7 @@ export const migratedCommands = [
   'readlink', 'realpath', 'ln',
   'dd', 'sort', 'find',
   'diff', 'grep', 'sed', 'awk',
-  'ls'
+  'ls', 'tar'
 ] as const
 
 /**
