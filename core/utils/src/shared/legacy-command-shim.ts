@@ -64,7 +64,6 @@ import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSed } from '../commands/sed.js'
 import { meta as metaSockets } from '../commands/sockets.js'
-import { meta as metaSort } from '../commands/sort.js'
 import { meta as metaTar } from '../commands/tar.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
@@ -119,7 +118,6 @@ import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSed } from '../commands/sed.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
-import { createCommand as createSort } from '../commands/sort.js'
 import { createCommand as createTar } from '../commands/tar.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
@@ -185,7 +183,6 @@ function buildLegacyCommands(): LegacyCommands {
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sed": { description: metaSed.description, createCommand: createSed },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
-  "sort": { description: metaSort.description, createCommand: createSort },
   "tar": { description: metaTar.description, createCommand: createTar },
   "test": { description: metaTest.description, createCommand: createTest },
   "theme": { description: metaTheme.description, createCommand: createTheme },
