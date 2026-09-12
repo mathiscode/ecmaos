@@ -73,14 +73,40 @@ const install = async ({ kernel, shell, terminal, args }: CommandArgs) => {
   }
 
   const tarballFilename = `${data.name.replace('@', '').replace('/', '-')}-${version}.tar.gz`
-  await kernel.filesystem.fs.writeFile(`/tmp/${tarballFilename}`, new Uint8Array(arrayBuffer))
+  const tarballPath = `/tmp/${tarballFilename}`
+  await kernel.filesystem.fs.writeFile(tarballPath, new Uint8Array(arrayBuffer))
 
   // TODO: Support user packages installed to user's home?
   const extractPath = `/usr/lib/${data.name}/${version}`
 
-  await kernel.filesystem.fs.mkdir(extractPath, { mode: 0o755, recursive: true })
-  await kernel.filesystem.extractTarball(`/tmp/${tarballFilename}`, extractPath)
-  await kernel.filesystem.fs.unlink(`/tmp/${tarballFilename}`)
+  // Extract via the real `tar` coreutil (shell.execute, not kernel.filesystem.extractTarball directly)
+  // so this doesn't keep a second, kernel-only tar-reading path (`@gera2ld/tarjs` + `pako`) alive just
+  // for `install` -- `extractTarball` itself stays put, since it's also used by `Filesystem.init()`'s
+  // boot-time initfs extraction, which runs before any `Shell` exists to `execute` against.
+  //
+  // npm tarballs always wrap their contents in a `package/` directory (real npm behavior) -- `tar`
+  // itself has no npm-specific knowledge of that, so extraction lands in a scratch directory first,
+  // and whatever's inside (the `package/` dir if present, or the scratch dir's own contents
+  // otherwise) is what actually becomes `extractPath`. The scratch directory lives under `/usr/lib`
+  // itself (the same mount `extractPath` is under), not `/tmp` -- `rename` across different mounted
+  // backends fails with a real `EXDEV`, exactly like real Linux's `rename(2)` never crossing devices.
+  const scratchDir = `/usr/lib/.install-${packageName.replace(/[^a-zA-Z0-9._-]/g, '_')}-${version}-${Date.now()}`
+  await kernel.filesystem.fs.mkdir(scratchDir, { mode: 0o755, recursive: true })
+  const tarExitCode = await shell.execute(`tar -xzf ${tarballPath} -C ${scratchDir}`)
+  await kernel.filesystem.fs.unlink(tarballPath)
+
+  if (tarExitCode !== 0) {
+    terminal.writeln(chalk.red(`Failed to extract ${packageName}@${version}`))
+    await kernel.filesystem.fs.rm(scratchDir, { recursive: true, force: true })
+    return 1
+  }
+
+  const packageDirInScratch = path.join(scratchDir, 'package')
+  const extractedDir = await kernel.filesystem.fs.exists(packageDirInScratch) ? packageDirInScratch : scratchDir
+
+  await kernel.filesystem.fs.mkdir(path.dirname(extractPath), { mode: 0o755, recursive: true })
+  await kernel.filesystem.fs.rename(extractedDir, extractPath)
+  await kernel.filesystem.fs.rm(scratchDir, { recursive: true, force: true }).catch(() => {})
   terminal.writeln(chalk.green(`Installed ${data.name} v${version} to ${extractPath}`))
 
   const packageData = await kernel.filesystem.fs.readFile(packagePath, 'utf-8')
