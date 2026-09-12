@@ -9,10 +9,11 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 23 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
- *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum):
- *   real files under /bin already resolve them via `readFileHeader`/`execve` -- they need no entry
- *   here at all, the same way bash needs no table entry for a real `/bin/ls`.
+ * - The 30 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum,
+ *   strings, xxd, od, hash, cmp, comm, column): real files under /bin already resolve them via
+ *   `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no table
+ *   entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -30,9 +31,6 @@ import type { TerminalCommand } from './terminal-command.js'
 import { meta as metaAwk } from '../commands/awk.js'
 import { meta as metaCal } from '../commands/cal.js'
 import { meta as metaChown } from '../commands/chown.js'
-import { meta as metaCmp } from '../commands/cmp.js'
-import { meta as metaColumn } from '../commands/column.js'
-import { meta as metaComm } from '../commands/comm.js'
 import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaCrypto } from '../commands/crypto.js'
 import { meta as metaCurl } from '../commands/curl.js'
@@ -48,7 +46,6 @@ import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
 import { meta as metaGrep } from '../commands/grep.js'
 import { meta as metaGroups } from '../commands/groups.js'
-import { meta as metaHash } from '../commands/hash.js'
 import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
@@ -63,7 +60,6 @@ import { meta as metaMotd } from '../commands/motd.js'
 import { meta as metaMount } from '../commands/mount.js'
 import { meta as metaNc } from '../commands/nc.js'
 import { meta as metaNproc } from '../commands/nproc.js'
-import { meta as metaOd } from '../commands/od.js'
 import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPaste } from '../commands/paste.js'
@@ -83,7 +79,6 @@ import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaSort } from '../commands/sort.js'
 import { meta as metaSplit } from '../commands/split.js'
 import { meta as metaStat } from '../commands/stat.js'
-import { meta as metaStrings } from '../commands/strings.js'
 import { meta as metaTar } from '../commands/tar.js'
 import { meta as metaTee } from '../commands/tee.js'
 import { meta as metaTest } from '../commands/test.js'
@@ -102,15 +97,11 @@ import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
 import { meta as metaWhich } from '../commands/which.js'
 import { meta as metaWhoami } from '../commands/whoami.js'
-import { meta as metaXxd } from '../commands/xxd.js'
 import { meta as metaZip } from '../commands/zip.js'
 
 import { createCommand as createAwk } from '../commands/awk.js'
 import { createCommand as createCal } from '../commands/cal.js'
 import { createCommand as createChown } from '../commands/chown.js'
-import { createCommand as createCmp } from '../commands/cmp.js'
-import { createCommand as createColumn } from '../commands/column.js'
-import { createCommand as createComm } from '../commands/comm.js'
 import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createCrypto } from '../commands/crypto.js'
 import { createCommand as createCurl } from '../commands/curl.js'
@@ -126,7 +117,6 @@ import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createGrep } from '../commands/grep.js'
 import { createCommand as createGroups } from '../commands/groups.js'
-import { createCommand as createHash } from '../commands/hash.js'
 import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
@@ -141,7 +131,6 @@ import { createCommand as createMotd } from '../commands/motd.js'
 import { createCommand as createMount } from '../commands/mount.js'
 import { createCommand as createNc } from '../commands/nc.js'
 import { createCommand as createNproc } from '../commands/nproc.js'
-import { createCommand as createOd } from '../commands/od.js'
 import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPaste } from '../commands/paste.js'
@@ -161,7 +150,6 @@ import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createSort } from '../commands/sort.js'
 import { createCommand as createSplit } from '../commands/split.js'
 import { createCommand as createStat } from '../commands/stat.js'
-import { createCommand as createStrings } from '../commands/strings.js'
 import { createCommand as createTar } from '../commands/tar.js'
 import { createCommand as createTee } from '../commands/tee.js'
 import { createCommand as createTest } from '../commands/test.js'
@@ -180,7 +168,6 @@ import { createCommand as createVim } from '../commands/vim.js'
 import { createCommand as createWeb } from '../commands/web.js'
 import { createCommand as createWhich } from '../commands/which.js'
 import { createCommand as createWhoami } from '../commands/whoami.js'
-import { createCommand as createXxd } from '../commands/xxd.js'
 import { createCommand as createZip } from '../commands/zip.js'
 
 export type CreateCommandFn = (kernel: Kernel, shell: Shell, terminal: Terminal) => TerminalCommand
@@ -197,9 +184,6 @@ function buildLegacyCommands(): LegacyCommands {
   "awk": { description: metaAwk.description, createCommand: createAwk },
   "cal": { description: metaCal.description, createCommand: createCal },
   "chown": { description: metaChown.description, createCommand: createChown },
-  "cmp": { description: metaCmp.description, createCommand: createCmp },
-  "column": { description: metaColumn.description, createCommand: createColumn },
-  "comm": { description: metaComm.description, createCommand: createComm },
   "cron": { description: metaCron.description, createCommand: createCron },
   "crypto": { description: metaCrypto.description, createCommand: createCrypto },
   "curl": { description: metaCurl.description, createCommand: createCurl },
@@ -215,7 +199,6 @@ function buildLegacyCommands(): LegacyCommands {
   "git": { description: metaGit.description, createCommand: createGit },
   "grep": { description: metaGrep.description, createCommand: createGrep },
   "groups": { description: metaGroups.description, createCommand: createGroups },
-  "hash": { description: metaHash.description, createCommand: createHash },
   "history": { description: metaHistory.description, createCommand: createHistory },
   "hostname": { description: metaHostname.description, createCommand: createHostname },
   "id": { description: metaId.description, createCommand: createId },
@@ -230,7 +213,6 @@ function buildLegacyCommands(): LegacyCommands {
   "mount": { description: metaMount.description, createCommand: createMount },
   "nc": { description: metaNc.description, createCommand: createNc },
   "nproc": { description: metaNproc.description, createCommand: createNproc },
-  "od": { description: metaOd.description, createCommand: createOd },
   "open": { description: metaOpen.description, createCommand: createOpen },
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
   "paste": { description: metaPaste.description, createCommand: createPaste },
@@ -250,7 +232,6 @@ function buildLegacyCommands(): LegacyCommands {
   "sort": { description: metaSort.description, createCommand: createSort },
   "split": { description: metaSplit.description, createCommand: createSplit },
   "stat": { description: metaStat.description, createCommand: createStat },
-  "strings": { description: metaStrings.description, createCommand: createStrings },
   "tar": { description: metaTar.description, createCommand: createTar },
   "tee": { description: metaTee.description, createCommand: createTee },
   "test": { description: metaTest.description, createCommand: createTest },
@@ -269,7 +250,6 @@ function buildLegacyCommands(): LegacyCommands {
   "web": { description: metaWeb.description, createCommand: createWeb },
   "which": { description: metaWhich.description, createCommand: createWhich },
   "whoami": { description: metaWhoami.description, createCommand: createWhoami },
-  "xxd": { description: metaXxd.description, createCommand: createXxd },
   "zip": { description: metaZip.description, createCommand: createZip },
   }
 }
