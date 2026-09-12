@@ -89,7 +89,8 @@ export function binPilotWindow(): Plugin {
  */
 export const migratedCommands = [
   'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod', 'cat',
-  'head', 'tail', 'wc', 'nl', 'rev', 'tac', 'uniq', 'cut', 'fold', 'expand', 'unexpand', 'cksum'
+  'head', 'tail', 'wc', 'nl', 'rev', 'tac', 'uniq', 'cut', 'fold', 'expand', 'unexpand', 'cksum',
+  'strings', 'xxd', 'od', 'hash', 'cmp', 'comm', 'column'
 ] as const
 
 /**
