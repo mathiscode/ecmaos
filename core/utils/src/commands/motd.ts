@@ -10,10 +10,11 @@ Print the message of the day (/etc/motd), if one exists.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'motd', description: 'Print the message of the day' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'motd',
-    description: 'Print the message of the day',
+    ...meta,
     kernel,
     shell,
     terminal,

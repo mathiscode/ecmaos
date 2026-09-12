@@ -15,10 +15,11 @@ Sort lines of text files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'sort', description: 'Sort lines of text files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'sort',
-    description: 'Sort lines of text files',
+    ...meta,
     kernel,
     shell,
     terminal,

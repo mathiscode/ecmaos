@@ -100,10 +100,11 @@ function applyConversions(data: Uint8Array, conversions: string[]): Uint8Array {
   return result
 }
 
+export const meta = { command: 'dd', description: 'Copy and convert files with block-level operations' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'dd',
-    description: 'Copy and convert files with block-level operations',
+    ...meta,
     kernel,
     shell,
     terminal,

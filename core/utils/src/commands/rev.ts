@@ -16,10 +16,11 @@ function reverseLine(line: string): string {
   return line.split('').reverse().join('')
 }
 
+export const meta = { command: 'rev', description: 'Reverse the characters of each line' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'rev',
-    description: 'Reverse the characters of each line',
+    ...meta,
     kernel,
     shell,
     terminal,

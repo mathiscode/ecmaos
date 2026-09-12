@@ -78,10 +78,11 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${secs.toString().padStart(2, '0')}`
 }
 
+export const meta = { command: 'play', description: 'Play an audio file' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'play',
-    description: 'Play an audio file',
+    ...meta,
     kernel,
     shell,
     terminal,

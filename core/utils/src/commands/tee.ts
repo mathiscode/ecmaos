@@ -14,10 +14,11 @@ Read from standard input and write to standard output and files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'tee', description: 'Read from standard input and write to standard output and files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'tee',
-    description: 'Read from standard input and write to standard output and files',
+    ...meta,
     kernel,
     shell,
     terminal,

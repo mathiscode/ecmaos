@@ -66,10 +66,11 @@ async function loadVideoMetadata(videoElement: HTMLVideoElement): Promise<{ widt
   })
 }
 
+export const meta = { command: 'video', description: 'Play a video file' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'video',
-    description: 'Play a video file',
+    ...meta,
     kernel,
     shell,
     terminal,

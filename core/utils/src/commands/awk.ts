@@ -124,10 +124,11 @@ function executeAction(action: string, fields: string[], line: string, NR: numbe
   return line
 }
 
+export const meta = { command: 'awk', description: 'Pattern scanning and text processing language' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'awk',
-    description: 'Pattern scanning and text processing language',
+    ...meta,
     kernel,
     shell,
     terminal,

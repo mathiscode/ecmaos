@@ -1440,10 +1440,11 @@ Options:
   }
 }
 
+export const meta = { command: 'crypto', description: 'Cryptographic utilities using the Web Crypto API' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'crypto',
-    description: 'Cryptographic utilities using the Web Crypto API',
+    ...meta,
     kernel,
     shell,
     terminal,

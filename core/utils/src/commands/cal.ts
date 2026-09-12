@@ -12,10 +12,11 @@ Display a calendar.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'cal', description: 'Display a calendar' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cal',
-    description: 'Display a calendar',
+    ...meta,
     kernel,
     shell,
     terminal,

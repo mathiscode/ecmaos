@@ -190,10 +190,11 @@ function generateRandomClass(prefix: string): string {
   return `${prefix}-${randomSuffix}`
 }
 
+export const meta = { command: 'view', description: 'View files in a new window (PDF, images, audio, video)' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'view',
-    description: 'View files in a new window (PDF, images, audio, video)',
+    ...meta,
     kernel,
     shell,
     terminal,

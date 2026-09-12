@@ -14,10 +14,11 @@ List or switch themes.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'theme', description: 'List or switch themes' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'theme',
-    description: 'List or switch themes',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -10,10 +10,11 @@ Print effective user ID.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'whoami', description: 'Print effective user ID' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'whoami',
-    description: 'Print effective user ID',
+    ...meta,
     kernel,
     shell,
     terminal,

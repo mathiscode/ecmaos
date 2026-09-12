@@ -200,10 +200,11 @@ async function closeConnection(
   }
 }
 
+export const meta = { command: 'sockets', description: 'Manage socket connections (WebSocket and WebTransport)' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'sockets',
-    description: 'Manage socket connections (WebSocket and WebTransport)',
+    ...meta,
     kernel,
     shell,
     terminal,

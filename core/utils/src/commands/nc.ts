@@ -457,10 +457,11 @@ async function connectWebTransport(
   }
 }
 
+export const meta = { command: 'nc', description: 'Netcat - network utility for reading from and writing to network connections' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'nc',
-    description: 'Netcat - network utility for reading from and writing to network connections',
+    ...meta,
     kernel,
     shell,
     terminal,

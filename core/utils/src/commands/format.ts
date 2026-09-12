@@ -89,10 +89,11 @@ async function deleteLocalStorage(
   }
 }
 
+export const meta = { command: 'format', description: 'Delete all IndexedDB and localStorage data' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'format',
-    description: 'Delete all IndexedDB and localStorage data',
+    ...meta,
     kernel,
     shell,
     terminal,

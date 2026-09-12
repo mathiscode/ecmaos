@@ -233,10 +233,11 @@ async function processFile(
   }
 }
 
+export const meta = { command: 'chown', description: 'Change file owner and group' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'chown',
-    description: 'Change file owner and group',
+    ...meta,
     kernel,
     shell,
     terminal,
