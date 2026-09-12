@@ -46,7 +46,6 @@ import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
 import { meta as metaLess } from '../commands/less.js'
 import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
-import { meta as metaLs } from '../commands/ls.js'
 import { meta as metaMan } from '../commands/man.js'
 import { meta as metaMotd } from '../commands/motd.js'
 import { meta as metaMount } from '../commands/mount.js'
@@ -95,7 +94,6 @@ import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
 import { createCommand as createLess } from '../commands/less.js'
 import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
-import { createCommand as createLs } from '../commands/ls.js'
 import { createCommand as createMan } from '../commands/man.js'
 import { createCommand as createMotd } from '../commands/motd.js'
 import { createCommand as createMount } from '../commands/mount.js'
@@ -155,7 +153,6 @@ function buildLegacyCommands(): LegacyCommands {
   "id": { description: metaId.description, createCommand: createId },
   "less": { description: metaLess.description, createCommand: createLess },
   "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
-  "ls": { description: metaLs.description, createCommand: createLs },
   "man": { description: metaMan.description, createCommand: createMan },
   "motd": { description: metaMotd.description, createCommand: createMotd },
   "mount": { description: metaMount.description, createCommand: createMount },
