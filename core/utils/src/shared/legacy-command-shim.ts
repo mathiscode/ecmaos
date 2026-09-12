@@ -9,9 +9,10 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 11 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
- *   touch, chmod, cat): real files under /bin already resolve them via `readFileHeader`/`execve` --
- *   they need no entry here at all, the same way bash needs no table entry for a real `/bin/ls`.
+ * - The 17 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ *   touch, chmod, cat, head, tail, wc, nl, rev, tac): real files under /bin already resolve them
+ *   via `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no
+ *   table entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -52,7 +53,6 @@ import { meta as metaGit } from '../commands/git.js'
 import { meta as metaGrep } from '../commands/grep.js'
 import { meta as metaGroups } from '../commands/groups.js'
 import { meta as metaHash } from '../commands/hash.js'
-import { meta as metaHead } from '../commands/head.js'
 import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
@@ -66,7 +66,6 @@ import { meta as metaMktemp } from '../commands/mktemp.js'
 import { meta as metaMotd } from '../commands/motd.js'
 import { meta as metaMount } from '../commands/mount.js'
 import { meta as metaNc } from '../commands/nc.js'
-import { meta as metaNl } from '../commands/nl.js'
 import { meta as metaNproc } from '../commands/nproc.js'
 import { meta as metaOd } from '../commands/od.js'
 import { meta as metaOpen } from '../commands/open.js'
@@ -78,7 +77,6 @@ import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaReadlink } from '../commands/readlink.js'
 import { meta as metaRealpath } from '../commands/realpath.js'
-import { meta as metaRev } from '../commands/rev.js'
 import { meta as metaRmdir } from '../commands/rmdir.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSed } from '../commands/sed.js'
@@ -90,8 +88,6 @@ import { meta as metaSort } from '../commands/sort.js'
 import { meta as metaSplit } from '../commands/split.js'
 import { meta as metaStat } from '../commands/stat.js'
 import { meta as metaStrings } from '../commands/strings.js'
-import { meta as metaTac } from '../commands/tac.js'
-import { meta as metaTail } from '../commands/tail.js'
 import { meta as metaTar } from '../commands/tar.js'
 import { meta as metaTee } from '../commands/tee.js'
 import { meta as metaTest } from '../commands/test.js'
@@ -109,7 +105,6 @@ import { meta as metaUser } from '../commands/user.js'
 import { meta as metaVideo } from '../commands/video.js'
 import { meta as metaView } from '../commands/view.js'
 import { meta as metaVim } from '../commands/vim.js'
-import { meta as metaWc } from '../commands/wc.js'
 import { meta as metaWeb } from '../commands/web.js'
 import { meta as metaWhich } from '../commands/which.js'
 import { meta as metaWhoami } from '../commands/whoami.js'
@@ -142,7 +137,6 @@ import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createGrep } from '../commands/grep.js'
 import { createCommand as createGroups } from '../commands/groups.js'
 import { createCommand as createHash } from '../commands/hash.js'
-import { createCommand as createHead } from '../commands/head.js'
 import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
@@ -156,7 +150,6 @@ import { createCommand as createMktemp } from '../commands/mktemp.js'
 import { createCommand as createMotd } from '../commands/motd.js'
 import { createCommand as createMount } from '../commands/mount.js'
 import { createCommand as createNc } from '../commands/nc.js'
-import { createCommand as createNl } from '../commands/nl.js'
 import { createCommand as createNproc } from '../commands/nproc.js'
 import { createCommand as createOd } from '../commands/od.js'
 import { createCommand as createOpen } from '../commands/open.js'
@@ -168,7 +161,6 @@ import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createReadlink } from '../commands/readlink.js'
 import { createCommand as createRealpath } from '../commands/realpath.js'
-import { createCommand as createRev } from '../commands/rev.js'
 import { createCommand as createRmdir } from '../commands/rmdir.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSed } from '../commands/sed.js'
@@ -180,8 +172,6 @@ import { createCommand as createSort } from '../commands/sort.js'
 import { createCommand as createSplit } from '../commands/split.js'
 import { createCommand as createStat } from '../commands/stat.js'
 import { createCommand as createStrings } from '../commands/strings.js'
-import { createCommand as createTac } from '../commands/tac.js'
-import { createCommand as createTail } from '../commands/tail.js'
 import { createCommand as createTar } from '../commands/tar.js'
 import { createCommand as createTee } from '../commands/tee.js'
 import { createCommand as createTest } from '../commands/test.js'
@@ -199,7 +189,6 @@ import { createCommand as createUser } from '../commands/user.js'
 import { createCommand as createVideo } from '../commands/video.js'
 import { createCommand as createView } from '../commands/view.js'
 import { createCommand as createVim } from '../commands/vim.js'
-import { createCommand as createWc } from '../commands/wc.js'
 import { createCommand as createWeb } from '../commands/web.js'
 import { createCommand as createWhich } from '../commands/which.js'
 import { createCommand as createWhoami } from '../commands/whoami.js'
@@ -243,7 +232,6 @@ function buildLegacyCommands(): LegacyCommands {
   "grep": { description: metaGrep.description, createCommand: createGrep },
   "groups": { description: metaGroups.description, createCommand: createGroups },
   "hash": { description: metaHash.description, createCommand: createHash },
-  "head": { description: metaHead.description, createCommand: createHead },
   "history": { description: metaHistory.description, createCommand: createHistory },
   "hostname": { description: metaHostname.description, createCommand: createHostname },
   "id": { description: metaId.description, createCommand: createId },
@@ -257,7 +245,6 @@ function buildLegacyCommands(): LegacyCommands {
   "motd": { description: metaMotd.description, createCommand: createMotd },
   "mount": { description: metaMount.description, createCommand: createMount },
   "nc": { description: metaNc.description, createCommand: createNc },
-  "nl": { description: metaNl.description, createCommand: createNl },
   "nproc": { description: metaNproc.description, createCommand: createNproc },
   "od": { description: metaOd.description, createCommand: createOd },
   "open": { description: metaOpen.description, createCommand: createOpen },
@@ -269,7 +256,6 @@ function buildLegacyCommands(): LegacyCommands {
   "pwd": { description: metaPwd.description, createCommand: createPwd },
   "readlink": { description: metaReadlink.description, createCommand: createReadlink },
   "realpath": { description: metaRealpath.description, createCommand: createRealpath },
-  "rev": { description: metaRev.description, createCommand: createRev },
   "rmdir": { description: metaRmdir.description, createCommand: createRmdir },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sed": { description: metaSed.description, createCommand: createSed },
@@ -281,8 +267,6 @@ function buildLegacyCommands(): LegacyCommands {
   "split": { description: metaSplit.description, createCommand: createSplit },
   "stat": { description: metaStat.description, createCommand: createStat },
   "strings": { description: metaStrings.description, createCommand: createStrings },
-  "tac": { description: metaTac.description, createCommand: createTac },
-  "tail": { description: metaTail.description, createCommand: createTail },
   "tar": { description: metaTar.description, createCommand: createTar },
   "tee": { description: metaTee.description, createCommand: createTee },
   "test": { description: metaTest.description, createCommand: createTest },
@@ -300,7 +284,6 @@ function buildLegacyCommands(): LegacyCommands {
   "video": { description: metaVideo.description, createCommand: createVideo },
   "view": { description: metaView.description, createCommand: createView },
   "vim": { description: metaVim.description, createCommand: createVim },
-  "wc": { description: metaWc.description, createCommand: createWc },
   "web": { description: metaWeb.description, createCommand: createWeb },
   "which": { description: metaWhich.description, createCommand: createWhich },
   "whoami": { description: metaWhoami.description, createCommand: createWhoami },
