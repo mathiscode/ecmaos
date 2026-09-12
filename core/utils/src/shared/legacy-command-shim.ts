@@ -9,11 +9,11 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 30 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ * - The 38 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
  *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum,
- *   strings, xxd, od, hash, cmp, comm, column): real files under /bin already resolve them via
- *   `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no table
- *   entry for a real `/bin/ls`.
+ *   strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join, paste, sleep, mktemp,
+ *   shuf): real files under /bin already resolve them via `readFileHeader`/`execve` -- they need
+ *   no entry here at all, the same way bash needs no table entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -37,7 +37,6 @@ import { meta as metaCurl } from '../commands/curl.js'
 import { meta as metaDate } from '../commands/date.js'
 import { meta as metaDd } from '../commands/dd.js'
 import { meta as metaDiff } from '../commands/diff.js'
-import { meta as metaFactor } from '../commands/factor.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
 import { meta as metaFind } from '../commands/find.js'
@@ -49,32 +48,25 @@ import { meta as metaGroups } from '../commands/groups.js'
 import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
-import { meta as metaJoin } from '../commands/join.js'
 import { meta as metaLess } from '../commands/less.js'
 import { meta as metaLn } from '../commands/ln.js'
 import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
 import { meta as metaLs } from '../commands/ls.js'
 import { meta as metaMan } from '../commands/man.js'
-import { meta as metaMktemp } from '../commands/mktemp.js'
 import { meta as metaMotd } from '../commands/motd.js'
 import { meta as metaMount } from '../commands/mount.js'
 import { meta as metaNc } from '../commands/nc.js'
 import { meta as metaNproc } from '../commands/nproc.js'
 import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
-import { meta as metaPaste } from '../commands/paste.js'
 import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaPr } from '../commands/pr.js'
 import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaReadlink } from '../commands/readlink.js'
 import { meta as metaRealpath } from '../commands/realpath.js'
-import { meta as metaRmdir } from '../commands/rmdir.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSed } from '../commands/sed.js'
-import { meta as metaSeq } from '../commands/seq.js'
-import { meta as metaShuf } from '../commands/shuf.js'
-import { meta as metaSleep } from '../commands/sleep.js'
 import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaSort } from '../commands/sort.js'
 import { meta as metaSplit } from '../commands/split.js'
@@ -108,7 +100,6 @@ import { createCommand as createCurl } from '../commands/curl.js'
 import { createCommand as createDate } from '../commands/date.js'
 import { createCommand as createDd } from '../commands/dd.js'
 import { createCommand as createDiff } from '../commands/diff.js'
-import { createCommand as createFactor } from '../commands/factor.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
 import { createCommand as createFind } from '../commands/find.js'
@@ -120,32 +111,25 @@ import { createCommand as createGroups } from '../commands/groups.js'
 import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
-import { createCommand as createJoin } from '../commands/join.js'
 import { createCommand as createLess } from '../commands/less.js'
 import { createCommand as createLn } from '../commands/ln.js'
 import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
 import { createCommand as createLs } from '../commands/ls.js'
 import { createCommand as createMan } from '../commands/man.js'
-import { createCommand as createMktemp } from '../commands/mktemp.js'
 import { createCommand as createMotd } from '../commands/motd.js'
 import { createCommand as createMount } from '../commands/mount.js'
 import { createCommand as createNc } from '../commands/nc.js'
 import { createCommand as createNproc } from '../commands/nproc.js'
 import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
-import { createCommand as createPaste } from '../commands/paste.js'
 import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createPr } from '../commands/pr.js'
 import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createReadlink } from '../commands/readlink.js'
 import { createCommand as createRealpath } from '../commands/realpath.js'
-import { createCommand as createRmdir } from '../commands/rmdir.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSed } from '../commands/sed.js'
-import { createCommand as createSeq } from '../commands/seq.js'
-import { createCommand as createShuf } from '../commands/shuf.js'
-import { createCommand as createSleep } from '../commands/sleep.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createSort } from '../commands/sort.js'
 import { createCommand as createSplit } from '../commands/split.js'
@@ -190,7 +174,6 @@ function buildLegacyCommands(): LegacyCommands {
   "date": { description: metaDate.description, createCommand: createDate },
   "dd": { description: metaDd.description, createCommand: createDd },
   "diff": { description: metaDiff.description, createCommand: createDiff },
-  "factor": { description: metaFactor.description, createCommand: createFactor },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
   "find": { description: metaFind.description, createCommand: createFind },
@@ -202,32 +185,25 @@ function buildLegacyCommands(): LegacyCommands {
   "history": { description: metaHistory.description, createCommand: createHistory },
   "hostname": { description: metaHostname.description, createCommand: createHostname },
   "id": { description: metaId.description, createCommand: createId },
-  "join": { description: metaJoin.description, createCommand: createJoin },
   "less": { description: metaLess.description, createCommand: createLess },
   "ln": { description: metaLn.description, createCommand: createLn },
   "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
   "ls": { description: metaLs.description, createCommand: createLs },
   "man": { description: metaMan.description, createCommand: createMan },
-  "mktemp": { description: metaMktemp.description, createCommand: createMktemp },
   "motd": { description: metaMotd.description, createCommand: createMotd },
   "mount": { description: metaMount.description, createCommand: createMount },
   "nc": { description: metaNc.description, createCommand: createNc },
   "nproc": { description: metaNproc.description, createCommand: createNproc },
   "open": { description: metaOpen.description, createCommand: createOpen },
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
-  "paste": { description: metaPaste.description, createCommand: createPaste },
   "play": { description: metaPlay.description, createCommand: createPlay },
   "pr": { description: metaPr.description, createCommand: createPr },
   "printf": { description: metaPrintf.description, createCommand: createPrintf },
   "pwd": { description: metaPwd.description, createCommand: createPwd },
   "readlink": { description: metaReadlink.description, createCommand: createReadlink },
   "realpath": { description: metaRealpath.description, createCommand: createRealpath },
-  "rmdir": { description: metaRmdir.description, createCommand: createRmdir },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sed": { description: metaSed.description, createCommand: createSed },
-  "seq": { description: metaSeq.description, createCommand: createSeq },
-  "shuf": { description: metaShuf.description, createCommand: createShuf },
-  "sleep": { description: metaSleep.description, createCommand: createSleep },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
   "sort": { description: metaSort.description, createCommand: createSort },
   "split": { description: metaSplit.description, createCommand: createSplit },
