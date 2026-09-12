@@ -29,6 +29,7 @@
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
 import { open, read, close, write, getcwd } from '@zenfs/linux/uapi/fs'
+import { syscall_async } from '@zenfs/linux/uapi/base'
 
 /** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
 async function readWholeFile(path) {
@@ -72,7 +73,13 @@ const init = await ready
 // see the doc comment above for why a program can't get working ones of its own by importing
 // `@zenfs/linux/uapi/*` directly. Deliberately a small, fixed set (not all of `uapi/*`): only what
 // a syscall-only coreutil-shaped program plausibly needs today.
-globalThis.ecmaosSyscalls = { open, read, write, close, getcwd, exit }
+//
+// `custom` is `syscall_async` itself, not `syscall`/`syscall_raw` -- a main-thread-only capability
+// like `window_create` can take arbitrarily long (a real window is created synchronously today, but
+// a future capability like `bt_request_device` waits on a user gesture with no bound at all), and
+// the sync path blocks this whole worker thread via `Atomics.wait` with no timeout. `syscall_async`
+// resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
+globalThis.ecmaosSyscalls = { open, read, write, close, getcwd, exit, custom: syscall_async }
 
 try {
   const source = await readWholeFile(init.exe)

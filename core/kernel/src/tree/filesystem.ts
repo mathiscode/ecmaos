@@ -19,6 +19,7 @@ import path from 'path'
 import binNodeSource from 'virtual:bin-node'
 import binWaliSource from 'virtual:bin-wali'
 import binPilotPwdSource from 'virtual:bin-pilot-pwd'
+import binPilotWindowSource from 'virtual:bin-pilot-window'
 
 import type { ConfigMounts, Configuration } from '@zenfs/core'
 
@@ -119,6 +120,7 @@ export class Filesystem {
     await this.installBinNode()
     await this.installBinWali()
     await this.installPilotPwd()
+    await this.installPilotWindow()
     const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
@@ -174,6 +176,17 @@ export class Filesystem {
   private async installPilotPwd() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
     await this.fs.writeFile('/bin/pilot-pwd.js', binPilotPwdSource, { mode: 0o755 })
+  }
+
+  /**
+   * Writes `/bin/pilot-window.js` -- an experimental, real `execve`'d program proving
+   * `main-thread-syscalls.ts`'s `window_create`/`window_write`/`window_close` syscalls actually work
+   * end to end: a worker-hosted program reaching a real, main-thread-only DOM capability through a
+   * real custom syscall, not a `Process`/DOM fallback. See `src/bin/pilot-window.mjs`'s doc comment.
+   */
+  private async installPilotWindow() {
+    if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
+    await this.fs.writeFile('/bin/pilot-window.js', binPilotWindowSource, { mode: 0o755 })
   }
 
   /**

@@ -47,7 +47,8 @@ export class Windows implements IWindows {
   create(_options: WinBox.Params = DefaultWindowOptions): WinBox {
     const options = { ...DefaultWindowOptions, ..._options }
     const id = options.id || Math.random().toString(36).substring(2, 8)
-    
+    options.id = id
+
     const self = this
     
     const originalOnMinimize = options.onminimize
