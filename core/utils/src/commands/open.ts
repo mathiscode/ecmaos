@@ -18,10 +18,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'open', description: 'Open a file or URL' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'open',
-    description: 'Open a file or URL',
+    ...meta,
     kernel,
     shell,
     terminal,

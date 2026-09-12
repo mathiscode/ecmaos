@@ -17,10 +17,11 @@ Create links between files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'ln', description: 'Create links between files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'ln',
-    description: 'Create links between files',
+    ...meta,
     kernel,
     shell,
     terminal,

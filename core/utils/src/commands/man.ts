@@ -503,10 +503,11 @@ async function displayManPage(
   })
 }
 
+export const meta = { command: 'man', description: 'Display manual pages' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'man',
-    description: 'Display manual pages',
+    ...meta,
     kernel,
     shell,
     terminal,

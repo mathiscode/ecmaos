@@ -14,10 +14,11 @@ Search for files in a directory hierarchy.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'find', description: 'Search for files in a directory hierarchy' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'find',
-    description: 'Search for files in a directory hierarchy',
+    ...meta,
     kernel,
     shell,
     terminal,

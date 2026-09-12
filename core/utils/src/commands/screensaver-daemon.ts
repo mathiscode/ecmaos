@@ -16,10 +16,11 @@ during boot() never needed one either.`
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'screensaver-daemon', description: 'Start the idle-timeout screensaver daemon' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'screensaver-daemon',
-    description: 'Start the idle-timeout screensaver daemon',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -54,10 +54,11 @@ async function writeHistoryFile(shell: Shell, kernel: Kernel, lines: string[]): 
   await kernel.filesystem.fs.writeFile(historyPath, content, 'utf-8')
 }
 
+export const meta = { command: 'history', description: 'Display or manipulate the command history' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'history',
-    description: 'Display or manipulate the command history',
+    ...meta,
     kernel,
     shell,
     terminal,

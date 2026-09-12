@@ -51,7 +51,8 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 // import createBIOS, { BIOSModule } from '@ecmaos/bios'
-import { TerminalCommands } from '#lib/commands/index.js'
+import { getKernelLegacyCommands } from '#lib/commands/index.js'
+import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
 import { parseCrontabFile } from '#lib/crontab.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
@@ -1095,7 +1096,14 @@ export class Kernel implements IKernel {
    */
   async executeCommand(options: KernelExecuteOptions): Promise<number> {
     const terminal = options.terminal || this.terminal
-    const command = terminal.commands[options.command as keyof typeof terminal.commands]
+    const shell = options.shell || this.shell
+    const kernel = options.kernel || this
+    // Last-resort legacy shim -- a real, migrated command never reaches this method at all
+    // (`readFileHeader` classifies its unshebanged file as `'js'`, routed through
+    // `executeViaExecve`); this is only reached for a name still on the old in-process path. See
+    // `resolveLegacyCommand`'s own doc comment (`@ecmaos/coreutils`) for the lazy, per-`Terminal`-
+    // cached construction this does instead of `TerminalCommands` eagerly building all of them.
+    const command = resolveLegacyCommand(kernel, shell, terminal, options.command, getKernelLegacyCommands())
     if (!command) return -1
 
     const process = new Process({
@@ -1782,17 +1790,28 @@ export class Kernel implements IKernel {
    */
   async registerCommands() {
     if (!await this.filesystem.fs.exists('/bin')) await this.filesystem.fs.mkdir('/bin')
-    const whitelistedCommands = Object.entries(TerminalCommands(this, this.shell, this.terminal)).filter(([name]) => !this.options.blacklist?.commands?.includes(name))
-    for (const [name] of whitelistedCommands) {
-      if (await this.filesystem.fs.exists(`/bin/${name}`)) continue
 
-      // A migrated command (`feat/1.0.0-execve-commands`) gets its real, worker-hosted program as
-      // `/bin/<name>`'s actual content -- no shebang, matching `readFileHeader`'s own new rule that
-      // an unshebanged file under `/bin` is real JS (see that method's doc comment). Its
-      // `createCommand` factory above is still constructed (cheap, and `TerminalCommands` doesn't
-      // support a partial map), just never reached: `execute()` never calls `executeCommand` for a
-      // name whose `readFileHeader` classifies as `'js'`, only for one still holding the legacy
-      // `#!ecmaos:bin:command:` stub written in the `else` branch below.
+    // Real Linux has no equivalent of this method at all -- `execve`+`$PATH` resolve a command
+    // purely off real files on disk. This exists only for the commands that aren't real files yet:
+    // a name real `execve` already handles gets its actual bundled program written here (no
+    // registry/manifest lookup needed to run it, only to know it needs a file at all); a name still
+    // on the old in-process path gets the legacy `#!ecmaos:bin:command:` stub `readFileHeader`
+    // recognizes to route it through `executeCommand`'s shim. Building only names + this cheap
+    // check (not full `TerminalCommand` construction) is what makes this free regardless of how
+    // many legacy commands remain -- `getLegacyCommands()`/`getKernelLegacyCommands()` hand back
+    // `{ description, createCommand }` pairs, but only `Object.keys(...)` is used here.
+    //
+    // True shell builtins (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) get NO `/bin/<name>`
+    // file at all, matching real bash having no `/bin/cd` -- `Shell.execute` dispatches them before
+    // any file-based resolution is even attempted.
+    const names = [
+      ...Object.keys(migratedCommandSources),
+      ...Object.keys(getLegacyCommands()),
+      ...Object.keys(getKernelLegacyCommands())
+    ].filter(name => !this.options.blacklist?.commands?.includes(name))
+
+    for (const name of names) {
+      if (await this.filesystem.fs.exists(`/bin/${name}`)) continue
       const migratedSource = migratedCommandSources[name]
       if (migratedSource) await this.filesystem.fs.writeFile(`/bin/${name}`, migratedSource, { mode: 0o755 })
       else await this.filesystem.fs.writeFile(`/bin/${name}`, `#!ecmaos:bin:command:${name}`, { mode: 0o755 })

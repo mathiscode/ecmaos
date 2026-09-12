@@ -41,10 +41,11 @@ async function resolveRealPath(
   }
 }
 
+export const meta = { command: 'realpath', description: 'Print the resolved absolute file name' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'realpath',
-    description: 'Print the resolved absolute file name',
+    ...meta,
     kernel,
     shell,
     terminal,

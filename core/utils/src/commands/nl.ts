@@ -17,10 +17,11 @@ Number lines of files.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'nl', description: 'Number lines of files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'nl',
-    description: 'Number lines of files',
+    ...meta,
     kernel,
     shell,
     terminal,

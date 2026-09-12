@@ -23,10 +23,11 @@ export interface TerminalOptions extends ITerminalOptions {
   /** The DOM service, for the topbar and mobile controls */
   dom: Dom
   /**
-   * Used only to construct the builtin command set (`TerminalCommands`), which still takes a full
-   * `Kernel` for every command's `TerminalCommand.kernel` field -- narrowing that is the
-   * `coreutils-ctx` branch's job (`(ctx, io)` codemod across ~98 commands), not this one's. Every
-   * other use of `Kernel` in `Terminal` goes through `context`/`dom`/`users`/`wire()` instead.
+   * Used for a couple of narrow, direct reads (e.g. `kernel.state` while booting) -- most of
+   * `Terminal`'s own `Kernel` needs go through `context`/`dom`/`users`/`wire()` instead. No longer
+   * used to construct a command set at all: command dispatch is real `execve`/`$PATH` resolution
+   * plus a lazily-constructed legacy shim (see `@ecmaos/coreutils`'s `legacy-command-shim.ts`),
+   * neither of which needs a `Kernel` reference cached on `Terminal` itself.
    */
   kernel: Kernel
   /** The user registry, for resolving the current user's display name/prompt */
@@ -162,8 +163,6 @@ export interface Terminal extends XTerm {
       [key: string]: string
     }
   }
-  /** Get terminal commands */
-  readonly commands: Record<string, TerminalCommand>
   /** Get current command */
   readonly cmd: string
   /** Get current working directory */

@@ -12,10 +12,11 @@ Write each FILE to standard output, last line first.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'tac', description: 'Write each FILE to standard output, last line first' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'tac',
-    description: 'Write each FILE to standard output, last line first',
+    ...meta,
     kernel,
     shell,
     terminal,

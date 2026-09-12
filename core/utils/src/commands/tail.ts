@@ -13,10 +13,11 @@ Print the last 10 lines of each FILE to standard output.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'tail', description: 'Print the last lines of files' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'tail',
-    description: 'Print the last lines of files',
+    ...meta,
     kernel,
     shell,
     terminal,

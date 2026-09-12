@@ -1,10 +1,20 @@
 /**
- * This file represents the commands provided by the terminal itself.
+ * Kernel-native legacy commands -- the dozen commands that live in `@ecmaos/kernel` itself rather
+ * than `@ecmaos/coreutils`, because their real logic reaches kernel-only state (`kernel.storage`,
+ * `kernel.processes`, `kernel.screensavers`, `kernel.events`) or real DOM APIs (`download`/`upload`/
+ * `snake`'s `document.createElement`/`FileReader`/`onKey`). None of these are `execve`'d yet -- they
+ * still run as in-process `TerminalCommand` closures, exactly like `@ecmaos/coreutils`'s own legacy
+ * commands, via the same lazy, per-`Terminal`-cached shim (`resolveLegacyCommand`, in
+ * `@ecmaos/coreutils`'s `shared/legacy-command-shim.ts`) -- `getKernelLegacyCommands()` below is
+ * this package's own source list for that shim to draw from.
  *
- * @remarks
- * Essential file/shell operation commands (cat, cd, chmod, cp, echo, ls, mkdir, mv, pwd, rm, rmdir, stat, touch)
- * have been moved to @ecmaos/coreutils package. This file now contains only kernel-specific commands.
- *
+ * `export` and `su` used to live here too, each closing over `kernel`/`shell`/`terminal` the same
+ * way. Both were reclassified as true shell builtins (they mutate the *calling shell's own* live
+ * state -- `shell.env`/`globalThis.process.env` for `export`, `shell.context`/`shell.credentials`
+ * for `su` -- exactly the reason bash keeps these as permanent special builtins, never forked). Their
+ * real implementations moved to `#lib/shell-builtins.ts`, dispatched directly by `Shell.execute`
+ * before any file-based command resolution happens at all; nothing in this file references them
+ * anymore.
  */
 
 import ansi from 'ansi-escape-sequences'
@@ -13,256 +23,150 @@ import humanFormat from 'human-format'
 import type { CommandLineOptions } from 'command-line-args'
 import path from 'path'
 
-import { bindContext, createCredentials } from '@zenfs/core'
+import { KernelEvents } from '@ecmaos/types'
+import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
 
-import {
-  KernelEvents
-} from '@ecmaos/types'
+import { TerminalCommand, type CommandArgs, type CreateCommandFn, type LegacyCommands, writelnStdout, writelnStderr } from '@ecmaos/coreutils'
 
-import type {
-  Kernel,
-  Process,
-  Shell,
-  Terminal,
-  User
-} from '@ecmaos/types'
+const HelpOption = { name: 'help', type: Boolean, description: 'Display help' }
 
-// Import coreutils commands
-import { createAllCommands as createCoreutilsCommands, TerminalCommand, CommandArgs, writelnStdout, writelnStderr } from '@ecmaos/coreutils'
+function createClear(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'clear', description: 'Clear the terminal screen', kernel, shell, terminal, options: [],
+    run: async () => clear({ kernel, shell, terminal, args: [] })
+  })
+}
 
-/**
- * The TerminalCommands function creates the set of builtin terminal commands.
- * It merges coreutils commands with kernel-specific commands.
- */
-export const TerminalCommands = (kernel: Kernel, shell: Shell, terminal: Terminal): { [key: string]: TerminalCommand } => {
-  const HelpOption = { name: 'help', type: Boolean, description: kernel.i18n.t('Display help') }
+function createDf(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'df', description: 'Display disk space usage', kernel, shell, terminal, options: [],
+    run: async (_argv: CommandLineOptions, process?: Process) => df({ kernel, shell, terminal, process, args: [] })
+  })
+}
 
-  // Get coreutils commands
-  const coreutilsCommands = createCoreutilsCommands(kernel, shell, terminal)
+function createDownload(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'download', description: 'Download a file from the filesystem', kernel, shell, terminal,
+    options: [
+      HelpOption,
+      { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, multiple: true, description: 'The path(s) to the file(s) to download' }
+    ],
+    run: async (argv: CommandLineOptions, process?: Process) => download({ kernel, shell, terminal, process, args: argv.path })
+  })
+}
 
-  // Kernel-specific commands
-  const kernelCommands: { [key: string]: TerminalCommand } = {
-    clear: new TerminalCommand({
-      command: 'clear',
-      description: 'Clear the terminal screen',
-      kernel,
-      shell,
-      terminal,
-      options: [],
-      run: async () => {
-        return await clear({ kernel, shell, terminal, args: [] })
-      }
-    }),
-    df: new TerminalCommand({
-      command: 'df',
-      description: 'Display disk space usage',
-      kernel,
-      shell,
-      terminal,
-      options: [],
-      run: async (_argv: CommandLineOptions, process?: Process) => {
-        return await df({ kernel, shell, terminal, process, args: [] })
-      }
-    }),
-    download: new TerminalCommand({
-      command: 'download',
-      description: 'Download a file from the filesystem',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, multiple: true, description: 'The path(s) to the file(s) to download' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process) => {
-        return await download({ kernel, shell, terminal, process, args: argv.path })
-      }
-    }),
-    install: new TerminalCommand({
-      command: 'install',
-      description: 'Install a package',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'package', type: String, typeLabel: '{underline package}', defaultOption: true, description: 'The package name and optional version (e.g. package@1.0.0)' },
-        { name: 'registry', type: String, description: 'The registry to use', defaultValue: 'https://registry.npmjs.org' },
-        { name: 'reinstall', type: Boolean, description: 'Reinstall the package if it is already installed' }
-      ],
-      run: async (argv: CommandLineOptions) => {
-        const { default: install } = await import('./install')
-        return await install({ kernel, shell, terminal, args: [argv.package, argv.registry, argv.reinstall] })
-      }
-    }),
-    uninstall: new TerminalCommand({
-      command: 'uninstall',
-      description: 'Uninstall a package',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'package', type: String, typeLabel: '{underline package}', defaultOption: true, description: 'The package name and optional version (e.g. package@1.0.0). If no version is specified, all versions will be uninstalled.' }
-      ],
-      run: async (argv: CommandLineOptions) => {
-        const { default: uninstall } = await import('./uninstall')
-        return await uninstall({ kernel, shell, terminal, args: [argv.package] })
-      }
-    }),
-    load: new TerminalCommand({
-      command: 'load',
-      description: 'Load a JavaScript file',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, description: 'The path to the file to load' }
-      ],
-      run: async (argv: CommandLineOptions) => {
-        return await load({ kernel, shell, terminal, args: [argv.path] })
-      }
-    }),
-    passwd: new TerminalCommand({
-      command: 'passwd',
-      description: 'Change user password',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'password', type: String, multiple: true, defaultOption: true, description: 'Old and new passwords (optional - will prompt if not provided)' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process) => {
-        return await passwd({ kernel, shell, terminal, process, args: argv.password })
-      }
-    }),
-    ps: new TerminalCommand({
-      command: 'ps',
-      description: 'List all running processes',
-      kernel,
-      shell,
-      terminal,
-      options: [],
-      run: async (_argv: CommandLineOptions, process?: Process) => {
-        return await ps({ kernel, shell, terminal, process, args: [] })
-      }
-    }),
-    reboot: new TerminalCommand({
-      command: 'reboot',
-      description: 'Reboot the system',
-      kernel,
-      shell,
-      terminal,
-      options: [],
-      run: async () => {
-        return await reboot({ kernel, shell, terminal, args: [] })
-      }
-    }),
-    screensaver: new TerminalCommand({
-      command: 'screensaver',
-      description: 'Start the screensaver',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'screensaver', type: String, typeLabel: '{underline screensaver}', defaultOption: true, description: 'The screensaver to start' },
-        { name: 'set', type: Boolean, description: 'Set the default screensaver' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process) => {
-        return await screensaver({ kernel, shell, terminal, process, args: [argv.screensaver, argv.set] })
-      }
-    }),
-    snake: new TerminalCommand({
-      command: 'snake',
-      description: 'Play a simple snake game',
-      kernel,
-      shell,
-      terminal,
-      options: [],
-      run: async () => {
-        await snake({ kernel, shell, terminal, args: [] })
-      }
-    }),
-    su: new TerminalCommand({
-      command: 'su',
-      description: 'Switch user',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'user', type: String, defaultOption: true, description: 'The user to switch to' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process) => {
-        return await su({ kernel, shell, terminal, process, args: [argv.user] })
-      }
-    }),
-    upload: new TerminalCommand({
-      command: 'upload',
-      description: 'Upload files to the filesystem',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, description: 'The path to store the file' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process) => {
-        return await upload({ kernel, shell, terminal, process, args: argv.path ? [argv.path] : [] })
-      }
-    }),
-    export: new TerminalCommand({
-      command: 'export',
-      description: 'Set environment variables',
-      kernel,
-      shell,
-      terminal,
-      options: [
-        HelpOption,
-        { name: 'unset', alias: 'n', type: Boolean, description: 'Remove the export property from each name' },
-        { name: 'print', alias: 'p', type: Boolean, description: 'Print all exported variables' },
-        { name: 'vars', type: String, multiple: true, defaultOption: true, description: 'Environment variable assignments (e.g., VAR=value) or variable names to unset' }
-      ],
-      run: async (argv: CommandLineOptions, process?: Process, rawArgv?: string[]) => {
-        if (argv.print) {
-          return await exportCmd({ kernel, shell, terminal, process, args: [], printOnly: true })
-        }
-        
-        let assignments: string[] = []
-        
-        if (argv.vars) {
-          const vars = Array.isArray(argv.vars) ? argv.vars : [argv.vars]
-          assignments = vars.filter(v => v && (argv.unset || v.includes('=')))
-        } else if (rawArgv && rawArgv.length > 1) {
-          assignments = rawArgv.slice(1).filter(arg => {
-            if (!arg || arg.startsWith('-')) return false
-            return argv.unset ? true : arg.includes('=')
-          })
-        }
-        
-        if (assignments.length === 0 && !argv.unset && (!rawArgv || rawArgv.length <= 1)) {
-          return await exportCmd({ kernel, shell, terminal, process, args: [], printOnly: true })
-        }
-        
-        return await exportCmd({ kernel, shell, terminal, process, args: assignments, unset: argv.unset })
-      }
-    }),
-  }
+function createInstall(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'install', description: 'Install a package', kernel, shell, terminal,
+    options: [
+      HelpOption,
+      { name: 'package', type: String, typeLabel: '{underline package}', defaultOption: true, description: 'The package name and optional version (e.g. package@1.0.0)' },
+      { name: 'registry', type: String, description: 'The registry to use', defaultValue: 'https://registry.npmjs.org' },
+      { name: 'reinstall', type: Boolean, description: 'Reinstall the package if it is already installed' }
+    ],
+    run: async (argv: CommandLineOptions) => {
+      const { default: install } = await import('./install')
+      return install({ kernel, shell, terminal, args: [argv.package, argv.registry, argv.reinstall] })
+    }
+  })
+}
 
-  // Merge coreutils and kernel commands
-  return {
-    ...coreutilsCommands,
-    ...kernelCommands
-  }
+function createUninstall(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'uninstall', description: 'Uninstall a package', kernel, shell, terminal,
+    options: [
+      HelpOption,
+      { name: 'package', type: String, typeLabel: '{underline package}', defaultOption: true, description: 'The package name and optional version (e.g. package@1.0.0). If no version is specified, all versions will be uninstalled.' }
+    ],
+    run: async (argv: CommandLineOptions) => {
+      const { default: uninstall } = await import('./uninstall')
+      return uninstall({ kernel, shell, terminal, args: [argv.package] })
+    }
+  })
+}
+
+function createLoad(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'load', description: 'Load a JavaScript file', kernel, shell, terminal,
+    options: [HelpOption, { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, description: 'The path to the file to load' }],
+    run: async (argv: CommandLineOptions) => load({ kernel, shell, terminal, args: [argv.path] })
+  })
+}
+
+function createPasswd(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'passwd', description: 'Change user password', kernel, shell, terminal,
+    options: [HelpOption, { name: 'password', type: String, multiple: true, defaultOption: true, description: 'Old and new passwords (optional - will prompt if not provided)' }],
+    run: async (argv: CommandLineOptions, process?: Process) => passwd({ kernel, shell, terminal, process, args: argv.password })
+  })
+}
+
+function createPs(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'ps', description: 'List all running processes', kernel, shell, terminal, options: [],
+    run: async (_argv: CommandLineOptions, process?: Process) => ps({ kernel, shell, terminal, process, args: [] })
+  })
+}
+
+function createReboot(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'reboot', description: 'Reboot the system', kernel, shell, terminal, options: [],
+    run: async () => reboot({ kernel, shell, terminal, args: [] })
+  })
+}
+
+function createScreensaver(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'screensaver', description: 'Start the screensaver', kernel, shell, terminal,
+    options: [
+      HelpOption,
+      { name: 'screensaver', type: String, typeLabel: '{underline screensaver}', defaultOption: true, description: 'The screensaver to start' },
+      { name: 'set', type: Boolean, description: 'Set the default screensaver' }
+    ],
+    run: async (argv: CommandLineOptions, process?: Process) => screensaver({ kernel, shell, terminal, process, args: [argv.screensaver, argv.set] })
+  })
+}
+
+function createSnake(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'snake', description: 'Play a simple snake game', kernel, shell, terminal, options: [],
+    run: async () => { await snake({ kernel, shell, terminal, args: [] }) }
+  })
+}
+
+function createUpload(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
+  return new TerminalCommand({
+    command: 'upload', description: 'Upload files to the filesystem', kernel, shell, terminal,
+    options: [HelpOption, { name: 'path', type: String, typeLabel: '{underline path}', defaultOption: true, description: 'The path to store the file' }],
+    run: async (argv: CommandLineOptions, process?: Process) => upload({ kernel, shell, terminal, process, args: argv.path ? [argv.path] : [] })
+  })
+}
+
+/** This package's own legacy-shim source list -- see module doc comment. Merged with
+ * `@ecmaos/coreutils`'s `getLegacyCommands()` by `Kernel.registerCommands`/`executeCommand`. */
+export function getKernelLegacyCommands(): LegacyCommands {
+  const entries: Array<[string, string, CreateCommandFn]> = [
+    ['clear', 'Clear the terminal screen', createClear],
+    ['df', 'Display disk space usage', createDf],
+    ['download', 'Download a file from the filesystem', createDownload],
+    ['install', 'Install a package', createInstall],
+    ['uninstall', 'Uninstall a package', createUninstall],
+    ['load', 'Load a JavaScript file', createLoad],
+    ['passwd', 'Change user password', createPasswd],
+    ['ps', 'List all running processes', createPs],
+    ['reboot', 'Reboot the system', createReboot],
+    ['screensaver', 'Start the screensaver', createScreensaver],
+    ['snake', 'Play a simple snake game', createSnake],
+    ['upload', 'Upload files to the filesystem', createUpload]
+  ]
+
+  return Object.fromEntries(entries.map(([name, description, createCommand]) => [name, { description, createCommand }]))
 }
 
 // Re-export TerminalCommand and CommandArgs for backward compatibility
 export { TerminalCommand, type CommandArgs } from '@ecmaos/coreutils'
 
-// Kernel-specific command implementations (non-essential commands remain here)
+// Kernel-specific command implementations
 
 export const clear = async ({ terminal }: CommandArgs) => {
   terminal.write('\x1b[2J\x1b[H')
@@ -484,29 +388,10 @@ export const snake = ({ kernel, terminal }: CommandArgs) => {
   })
 }
 
-export const su = async ({ kernel, shell, terminal, process, args }: CommandArgs) => {
-  const username = (args as string[])[0]
-  const currentUser = kernel.users.get(shell.credentials.suid) as User
-  if (!currentUser || shell.credentials.suid !== 0) {
-    await writelnStderr(process, terminal, chalk.red(kernel.i18n.t('Unauthorized')))
-    return 1
-  }
-
-  const user = Array.from(kernel.users.all.values()).find((u): u is User => (u as User).username === username)
-  if (!user) {
-    await writelnStderr(process, terminal, chalk.red(kernel.i18n.t('User not found', { username })))
-    return 1
-  }
-
-  shell.context = bindContext({ root: '/', pwd: '/', credentials: user })
-  shell.credentials = createCredentials({ uid: user.uid, gid: user.gid, suid: currentUser.uid, sgid: currentUser.gid, euid: user.uid, egid: user.gid, groups: user.groups })
-  terminal.promptTemplate = `{user}:{cwd}${user.uid === 0 ? '#' : '$'} `
-}
-
 export const upload = async ({ kernel, shell, terminal, process, args }: CommandArgs) => {
   const destinationPath = (args as string[])[0]
   const baseDestination = destinationPath ? path.resolve(shell.cwd, destinationPath) : shell.cwd
-  
+
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '*'
@@ -548,61 +433,5 @@ export const upload = async ({ kernel, shell, terminal, process, args }: Command
   }
 
   input.click()
-  return 0
-}
-
-export const exportCmd = async ({ shell, terminal, process, args, printOnly, unset }: CommandArgs & { printOnly?: boolean, unset?: boolean }) => {
-  const assignments = args as string[]
-
-  if (printOnly) {
-    const entries = Array.from(shell.env.entries())
-      .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key))
-      .sort(([a], [b]) => a.localeCompare(b))
-    
-    for (const [key, value] of entries) {
-      await writelnStdout(process, terminal, `${key}=${value}`)
-    }
-    return 0
-  }
-
-  if (assignments.length === 0) {
-    return 0
-  }
-
-  for (const assignment of assignments) {
-    if (unset) {
-      const key = assignment.trim()
-      if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) {
-        await writelnStderr(process, terminal, chalk.red(`export: invalid variable name: ${key}`))
-        return 1
-      }
-      shell.env.delete(key)
-      delete globalThis.process.env[key]
-      continue
-    }
-
-    if (!assignment.includes('=')) {
-      await writelnStderr(process, terminal, chalk.red(`export: invalid assignment: ${assignment}`))
-      return 1
-    }
-
-    const equalIndex = assignment.indexOf('=')
-    const key = assignment.slice(0, equalIndex).trim()
-    let value = assignment.slice(equalIndex + 1)
-
-    if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) {
-      await writelnStderr(process, terminal, chalk.red(`export: invalid variable name: ${key}`))
-      return 1
-    }
-
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-
-    shell.env.set(key, value)
-    globalThis.process.env[key] = value
-  }
-
   return 0
 }

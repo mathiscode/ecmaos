@@ -41,10 +41,11 @@ function truncateInfo(text: string, maxWidth: number = 35): string {
   return `${prefixCodes}${truncated}...${resetCode}`
 }
 
+export const meta = { command: 'ls', description: 'List directory contents' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'ls',
-    description: 'List directory contents',
+    ...meta,
     kernel,
     shell,
     terminal,

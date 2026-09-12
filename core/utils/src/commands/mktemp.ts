@@ -75,10 +75,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'mktemp', description: 'Create a temporary file or directory' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'mktemp',
-    description: 'Create a temporary file or directory',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -14,10 +14,11 @@ Print value of a symbolic link or canonical file name.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'readlink', description: 'Print value of a symbolic link or canonical file name' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'readlink',
-    description: 'Print value of a symbolic link or canonical file name',
+    ...meta,
     kernel,
     shell,
     terminal,

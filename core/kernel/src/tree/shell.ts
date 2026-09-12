@@ -22,6 +22,7 @@ import type { Command as ParsedCommand, Pipeline, Redirection, Script } from '#l
 import { parseStatements } from '#lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, IfStatement, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
 import { expandWord } from '#lib/expand-variables.ts'
+import { runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 
 /** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
 class BreakSignal extends Error {}
@@ -128,6 +129,10 @@ export class Shell implements IShell {
   get shellOptions() { return this._shellOptions }
   get functions() { return this._functions }
   get foregroundJob() { return this._foregroundJob }
+  /** The real user registry -- needed by `su` (a true shell builtin, see `lib/shell-builtins.ts`). */
+  get users() { return this._users }
+  /** Translated strings -- needed by `su`'s error messages, the same way `resolveCommand` uses it. */
+  get i18n() { return this._ctx.i18n }
 
   /**
    * Resolve a variable by name the way `local` scoping requires: the innermost active function
@@ -1013,6 +1018,17 @@ export class Shell implements IShell {
     return name && this._functions.has(name) ? name : undefined
   }
 
+  /**
+   * A pipeline whose sole command names a true shell builtin (`cd`, `export`, ... -- see
+   * `lib/shell-builtins.ts`'s own doc comment for why these are permanent, not migration-pending).
+   * Same single-command restriction as `functionNameFor`, for the same reason: piping into/out of
+   * something that mutates this shell's own state isn't meaningful the way it is for a real process.
+   */
+  private trueBuiltinNameFor(pipeline: Pipeline): string | undefined {
+    if (pipeline.commands.length !== 1) return undefined
+    return trueBuiltinNameFor(pipeline.commands[0]?.words[0])
+  }
+
   /** Calls a registered function: its own `local` scope, positional parameters set to `argv`. */
   private async callFunction(name: string, argv: string[]): Promise<number> {
     const body = this._functions.get(name)
@@ -1092,10 +1108,20 @@ export class Shell implements IShell {
       } else if (stage.operator === '&') {
         this.runInBackground(stage.pipeline)
       } else {
-        const fnName = this.functionNameFor(stage.pipeline)
+        const builtinName = this.trueBuiltinNameFor(stage.pipeline)
+        const fnName = builtinName ? undefined : this.functionNameFor(stage.pipeline)
         let pipeStatus: number[]
 
-        if (fnName) {
+        if (builtinName) {
+          // True builtins (see `lib/shell-builtins.ts`'s own doc comment) always win over a
+          // same-named function or real file, the same way bash's POSIX "special builtins"
+          // (cd/export/set/...) can never be shadowed -- checked before `functionNameFor` so a
+          // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
+          const command = stage.pipeline.commands[0] as ParsedCommand
+          const args = await this.expandGlobWords(command.words.slice(1), command.wordsQuoted.slice(1))
+          const code = await runTrueBuiltin(this, builtinName, args)
+          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
+        } else if (fnName) {
           const command = stage.pipeline.commands[0] as ParsedCommand
           const args = await this.expandGlobWords(command.words.slice(1), command.wordsQuoted.slice(1))
           const code = await this.callFunction(fnName, args)

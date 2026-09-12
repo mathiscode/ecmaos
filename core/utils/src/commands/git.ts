@@ -779,10 +779,11 @@ async function handleConfig(
   }
 }
 
+export const meta = { command: 'git', description: 'Git version control system' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'git',
-    description: 'Git version control system',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -127,10 +127,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'mount', description: 'Mount a filesystem' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'mount',
-    description: 'Mount a filesystem',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -14,10 +14,11 @@ Search for PATTERN in each FILE.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'grep', description: 'Search for patterns in files or standard input' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'grep',
-    description: 'Search for patterns in files or standard input',
+    ...meta,
     kernel,
     shell,
     terminal,

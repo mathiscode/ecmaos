@@ -81,10 +81,11 @@ function wrapLine(line: string, width: number, breakAtSpaces: boolean, countByte
   return result.length > 0 ? result : ['']
 }
 
+export const meta = { command: 'fold', description: 'Wrap each input line to fit in specified width' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'fold',
-    description: 'Wrap each input line to fit in specified width',
+    ...meta,
     kernel,
     shell,
     terminal,

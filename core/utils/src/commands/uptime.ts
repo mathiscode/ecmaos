@@ -37,10 +37,11 @@ function getUptimeSeconds(): number {
   return performance.now() / 1000
 }
 
+export const meta = { command: 'uptime', description: 'Print how long the system has been running' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'uptime',
-    description: 'Print how long the system has been running',
+    ...meta,
     kernel,
     shell,
     terminal,

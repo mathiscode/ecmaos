@@ -37,10 +37,11 @@ function factorize(n: number): number[] {
   return factors
 }
 
+export const meta = { command: 'factor', description: 'Print prime factors of numbers' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'factor',
-    description: 'Print prime factors of numbers',
+    ...meta,
     kernel,
     shell,
     terminal,

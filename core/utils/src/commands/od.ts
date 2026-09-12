@@ -105,10 +105,11 @@ function formatLine(data: Uint8Array, offset: number, addressRadix: string, form
   return result
 }
 
+export const meta = { command: 'od', description: 'Dump files in octal and other formats' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'od',
-    description: 'Dump files in octal and other formats',
+    ...meta,
     kernel,
     shell,
     terminal,

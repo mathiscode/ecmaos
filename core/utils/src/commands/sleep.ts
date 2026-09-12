@@ -34,10 +34,11 @@ function parseDuration(value: string): number {
   }
 }
 
+export const meta = { command: 'sleep', description: 'Delay for a specified amount of time' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'sleep',
-    description: 'Delay for a specified amount of time',
+    ...meta,
     kernel,
     shell,
     terminal,

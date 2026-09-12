@@ -208,10 +208,11 @@ function applySedCommand(line: string, lineNum: number, totalLines: number, comm
   return { result: line, shouldPrint: false }
 }
 
+export const meta = { command: 'sed', description: 'Stream editor for filtering and transforming text' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'sed',
-    description: 'Stream editor for filtering and transforming text',
+    ...meta,
     kernel,
     shell,
     terminal,

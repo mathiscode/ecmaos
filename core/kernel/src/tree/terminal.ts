@@ -29,7 +29,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 
 import '@xterm/xterm/css/xterm.css'
-import { TerminalCommand, TerminalCommands } from '#lib/commands/index.js' // TODO: new approach
+import { trueBuiltinNames } from '#lib/shell-builtins.ts'
 
 import { Events } from '#events.ts'
 
@@ -37,7 +37,6 @@ import { TerminalEvents } from '@ecmaos/types'
 
 import type {
   Dom,
-  Kernel,
   KernelContext,
   Shell,
   Terminal as ITerminal,
@@ -132,7 +131,6 @@ export class Terminal extends XTerm implements ITerminal {
   private _addons: TerminalOptions['addons'] = new Map()
   private _ansi: typeof ansi = ansi
   private _cmd: string = ''
-  private _commands: { [key: string]: TerminalCommand } = {}
   private _cursorPosition: number = 0
   private _events: Events
   private _historyCache: Record<number, string[]> = {}
@@ -142,8 +140,6 @@ export class Terminal extends XTerm implements ITerminal {
   private _ctx: KernelContext
   private _dom: Dom
   private _id: string = crypto.randomUUID()
-  /** Used only to construct `TerminalCommands` -- see the doc comment on `TerminalOptions.kernel` */
-  private _commandsKernel: Kernel
   private _users: Users
   private _wiring?: TerminalWiring
   private _keyListener: IDisposable | undefined
@@ -201,7 +197,6 @@ export class Terminal extends XTerm implements ITerminal {
 
   get addons() { return this._addons as Map<string, ITerminalAddon> }
   get ansi() { return this._ansi }
-  get commands() { return this._commands }
   get cmd() { return this._cmd }
   get cwd() { return this._shell.cwd }
   get isMobile() { return this._isMobile }
@@ -426,15 +421,11 @@ export class Terminal extends XTerm implements ITerminal {
     this.onKey(this.shortcutKeyHandler.bind(this))
     if (!this._isMobile) this._keyListener = this.onKey(this.keyHandler.bind(this))
 
-    this._commandsKernel = options.kernel
-
     // A shell may not exist yet (Kernel.createShell constructs Terminal first, the same way
     // Kernel's own constructor does) -- attachShell() does this same setup once a real one is
-    // attached. Building _commands against no shell would be wrong anyway, since TerminalCommands
-    // needs a real Shell to run commands against.
+    // attached.
     if (options.shell) {
       this._shell = options.shell
-      this._commands = TerminalCommands(this._commandsKernel, this._shell, this)
       this.updateConfig()
 
       const uid = this._shell.credentials.uid
@@ -505,7 +496,6 @@ export class Terminal extends XTerm implements ITerminal {
 
   attachShell(shell: Shell) {
     this._shell = shell
-    this._commands = TerminalCommands(this._commandsKernel, this._shell, this)
     this.updateConfig()
     this._applyRenderer()
     const uid = this._shell.credentials.uid
@@ -2274,8 +2264,13 @@ export class Terminal extends XTerm implements ITerminal {
       const pathDirs = (this._shell.env.get('PATH') || '').split(':')
       const matches: string[] = []
       
-      // First check built-in commands
-      const builtinMatches = Object.keys(this._commands).filter(cmd => 
+      // True shell builtins first (cd, export, ... -- see `lib/shell-builtins.ts`) -- these get no
+      // real `/bin/<name>` file at all (matching real bash having no `/bin/cd`), so they'd never
+      // show up in the `$PATH` scan below on their own. Every other command -- migrated to real
+      // `execve` or still on the legacy shim -- already has a real file under `/bin`
+      // (`Kernel.registerCommands`), so the `$PATH` scan alone finds those; no in-memory command
+      // registry is consulted here at all anymore.
+      const builtinMatches = [...trueBuiltinNames].filter(cmd =>
         cmd.toLowerCase().startsWith(lastWord.toLowerCase())
       )
       matches.push(...builtinMatches)

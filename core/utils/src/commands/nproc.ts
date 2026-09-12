@@ -10,10 +10,11 @@ Print the number of processing units available.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'nproc', description: 'Print the number of processing units available' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'nproc',
-    description: 'Print the number of processing units available',
+    ...meta,
     kernel,
     shell,
     terminal,

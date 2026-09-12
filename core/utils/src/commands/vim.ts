@@ -16,10 +16,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'vim', description: 'Vi IMproved - a text editor' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'vim',
-    description: 'Vi IMproved - a text editor',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -14,10 +14,11 @@ View file contents interactively.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'less', description: 'View file contents interactively' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'less',
-    description: 'View file contents interactively',
+    ...meta,
     kernel,
     shell,
     terminal,

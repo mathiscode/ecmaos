@@ -153,10 +153,11 @@ function convertSpacesToTabs(startColumn: number, spaceCount: number, tabStops: 
   return result
 }
 
+export const meta = { command: 'unexpand', description: 'Convert spaces to tabs' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'unexpand',
-    description: 'Convert spaces to tabs',
+    ...meta,
     kernel,
     shell,
     terminal,

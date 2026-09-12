@@ -15,10 +15,11 @@ Compare two sorted files line by line.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'comm', description: 'Compare two sorted files line by line' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'comm',
-    description: 'Compare two sorted files line by line',
+    ...meta,
     kernel,
     shell,
     terminal,

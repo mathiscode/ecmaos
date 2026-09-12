@@ -27,10 +27,11 @@ function normalizeUrl(url: string): string {
   return `https://${url}`
 }
 
+export const meta = { command: 'web', description: 'Open a URL in a browser window' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'web',
-    description: 'Open a URL in a browser window',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -10,10 +10,11 @@ Print the groups a user belongs to.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'groups', description: 'Print the groups a user belongs to' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'groups',
-    description: 'Print the groups a user belongs to',
+    ...meta,
     kernel,
     shell,
     terminal,
