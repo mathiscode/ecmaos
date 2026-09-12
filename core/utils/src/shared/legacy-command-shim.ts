@@ -9,8 +9,8 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 10 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
- *   touch, chmod): real files under /bin already resolve them via `readFileHeader`/`execve` --
+ * - The 11 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ *   touch, chmod, cat): real files under /bin already resolve them via `readFileHeader`/`execve` --
  *   they need no entry here at all, the same way bash needs no table entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
@@ -28,7 +28,6 @@ import type { TerminalCommand } from './terminal-command.js'
 
 import { meta as metaAwk } from '../commands/awk.js'
 import { meta as metaCal } from '../commands/cal.js'
-import { meta as metaCat } from '../commands/cat.js'
 import { meta as metaChown } from '../commands/chown.js'
 import { meta as metaCksum } from '../commands/cksum.js'
 import { meta as metaCmp } from '../commands/cmp.js'
@@ -119,7 +118,6 @@ import { meta as metaZip } from '../commands/zip.js'
 
 import { createCommand as createAwk } from '../commands/awk.js'
 import { createCommand as createCal } from '../commands/cal.js'
-import { createCommand as createCat } from '../commands/cat.js'
 import { createCommand as createChown } from '../commands/chown.js'
 import { createCommand as createCksum } from '../commands/cksum.js'
 import { createCommand as createCmp } from '../commands/cmp.js'
@@ -221,7 +219,6 @@ function buildLegacyCommands(): LegacyCommands {
   return {
   "awk": { description: metaAwk.description, createCommand: createAwk },
   "cal": { description: metaCal.description, createCommand: createCal },
-  "cat": { description: metaCat.description, createCommand: createCat },
   "chown": { description: metaChown.description, createCommand: createChown },
   "cksum": { description: metaCksum.description, createCommand: createCksum },
   "cmp": { description: metaCmp.description, createCommand: createCmp },

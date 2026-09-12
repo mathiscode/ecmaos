@@ -9,13 +9,12 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 10 execve-migrated names (echo, basename,
-// dirname, tr, mkdir, rm, cp, mv, touch, chmod) and the 8 true shell builtins now living in
+// Export individual command factories -- excludes the 11 execve-migrated names (echo, basename,
+// dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat) and the 8 true shell builtins now living in
 // core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
 // has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createCal } from './commands/cal.js'
-export { createCommand as createCat } from './commands/cat.js'
 export { createCommand as createChown } from './commands/chown.js'
 export { createCommand as createCksum } from './commands/cksum.js'
 export { createCommand as createCmp } from './commands/cmp.js'
