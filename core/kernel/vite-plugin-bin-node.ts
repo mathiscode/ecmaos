@@ -91,7 +91,8 @@ export const migratedCommands = [
   'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod', 'cat',
   'head', 'tail', 'wc', 'nl', 'rev', 'tac', 'uniq', 'cut', 'fold', 'expand', 'unexpand', 'cksum',
   'strings', 'xxd', 'od', 'hash', 'cmp', 'comm', 'column',
-  'seq', 'factor', 'rmdir', 'join', 'paste', 'sleep', 'mktemp', 'shuf'
+  'seq', 'factor', 'rmdir', 'join', 'paste', 'sleep', 'mktemp', 'shuf',
+  'split', 'pr', 'tee', 'stat'
 ] as const
 
 /**

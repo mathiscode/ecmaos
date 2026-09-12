@@ -9,11 +9,12 @@
  * it is not meant to be "finished" by growing to cover everything forever.
  *
  * Excludes two categories on purpose:
- * - The 38 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
+ * - The 42 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
  *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum,
  *   strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join, paste, sleep, mktemp,
- *   shuf): real files under /bin already resolve them via `readFileHeader`/`execve` -- they need
- *   no entry here at all, the same way bash needs no table entry for a real `/bin/ls`.
+ *   shuf, split, pr, tee, stat): real files under /bin already resolve them via
+ *   `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no table
+ *   entry for a real `/bin/ls`.
  * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
  *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
  *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
@@ -60,7 +61,6 @@ import { meta as metaNproc } from '../commands/nproc.js'
 import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
-import { meta as metaPr } from '../commands/pr.js'
 import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaReadlink } from '../commands/readlink.js'
@@ -69,10 +69,7 @@ import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js
 import { meta as metaSed } from '../commands/sed.js'
 import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaSort } from '../commands/sort.js'
-import { meta as metaSplit } from '../commands/split.js'
-import { meta as metaStat } from '../commands/stat.js'
 import { meta as metaTar } from '../commands/tar.js'
-import { meta as metaTee } from '../commands/tee.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
@@ -123,7 +120,6 @@ import { createCommand as createNproc } from '../commands/nproc.js'
 import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
-import { createCommand as createPr } from '../commands/pr.js'
 import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createReadlink } from '../commands/readlink.js'
@@ -132,10 +128,7 @@ import { createCommand as createScreensaverDaemon } from '../commands/screensave
 import { createCommand as createSed } from '../commands/sed.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createSort } from '../commands/sort.js'
-import { createCommand as createSplit } from '../commands/split.js'
-import { createCommand as createStat } from '../commands/stat.js'
 import { createCommand as createTar } from '../commands/tar.js'
-import { createCommand as createTee } from '../commands/tee.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
@@ -197,7 +190,6 @@ function buildLegacyCommands(): LegacyCommands {
   "open": { description: metaOpen.description, createCommand: createOpen },
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
   "play": { description: metaPlay.description, createCommand: createPlay },
-  "pr": { description: metaPr.description, createCommand: createPr },
   "printf": { description: metaPrintf.description, createCommand: createPrintf },
   "pwd": { description: metaPwd.description, createCommand: createPwd },
   "readlink": { description: metaReadlink.description, createCommand: createReadlink },
@@ -206,10 +198,7 @@ function buildLegacyCommands(): LegacyCommands {
   "sed": { description: metaSed.description, createCommand: createSed },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
   "sort": { description: metaSort.description, createCommand: createSort },
-  "split": { description: metaSplit.description, createCommand: createSplit },
-  "stat": { description: metaStat.description, createCommand: createStat },
   "tar": { description: metaTar.description, createCommand: createTar },
-  "tee": { description: metaTee.description, createCommand: createTee },
   "test": { description: metaTest.description, createCommand: createTest },
   "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },
