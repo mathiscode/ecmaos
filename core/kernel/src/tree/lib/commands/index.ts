@@ -23,6 +23,13 @@
  * `#lib/main-thread-syscalls.ts` following the exact `window_create` precedent). Their real
  * implementations moved to `src/bin/commands/{clear,df,ps,reboot}.mjs`; nothing in this file
  * references them anymore.
+ *
+ * `uninstall` used to live here too (`./uninstall.ts`). Unlike `install` (still blocked on
+ * `kernel.filesystem.extractTarball` plus recursive `shell.execute()` calls for pre/postinstall
+ * scripts and dependencies), `uninstall` only ever reads a directory, reads/parses one
+ * `package.json`, and unlinks/removes real files -- all plain filesystem syscalls, no kernel-only
+ * state and no custom syscall needed at all. Its real implementation moved to
+ * `src/bin/commands/uninstall.mjs`; nothing in this file references it anymore.
  */
 
 import ansi from 'ansi-escape-sequences'
@@ -60,20 +67,6 @@ function createInstall(kernel: Kernel, shell: Shell, terminal: Terminal): Termin
     run: async (argv: CommandLineOptions) => {
       const { default: install } = await import('./install')
       return install({ kernel, shell, terminal, args: [argv.package, argv.registry, argv.reinstall] })
-    }
-  })
-}
-
-function createUninstall(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    command: 'uninstall', description: 'Uninstall a package', kernel, shell, terminal,
-    options: [
-      HelpOption,
-      { name: 'package', type: String, typeLabel: '{underline package}', defaultOption: true, description: 'The package name and optional version (e.g. package@1.0.0). If no version is specified, all versions will be uninstalled.' }
-    ],
-    run: async (argv: CommandLineOptions) => {
-      const { default: uninstall } = await import('./uninstall')
-      return uninstall({ kernel, shell, terminal, args: [argv.package] })
     }
   })
 }
@@ -127,7 +120,6 @@ export function getKernelLegacyCommands(): LegacyCommands {
   const entries: Array<[string, string, CreateCommandFn]> = [
     ['download', 'Download a file from the filesystem', createDownload],
     ['install', 'Install a package', createInstall],
-    ['uninstall', 'Uninstall a package', createUninstall],
     ['load', 'Load a JavaScript file', createLoad],
     ['passwd', 'Change user password', createPasswd],
     ['screensaver', 'Start the screensaver', createScreensaver],
