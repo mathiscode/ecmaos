@@ -9,10 +9,10 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 38 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 42 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
 // expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
-// paste, sleep, mktemp, shuf) and the 8 true shell builtins now living in
+// paste, sleep, mktemp, shuf, split, pr, tee, stat) and the 8 true shell builtins now living in
 // core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
 // has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
@@ -47,7 +47,6 @@ export { createCommand as createNproc } from './commands/nproc.js'
 export { createCommand as createOpen } from './commands/open.js'
 export { createCommand as createPasskey } from './commands/passkey.js'
 export { createCommand as createPlay } from './commands/play.js'
-export { createCommand as createPr } from './commands/pr.js'
 export { createCommand as createPrintf } from './commands/printf.js'
 export { createCommand as createPwd } from './commands/pwd.js'
 export { createCommand as createReadlink } from './commands/readlink.js'
@@ -56,10 +55,7 @@ export { createCommand as createScreensaverDaemon } from './commands/screensaver
 export { createCommand as createSed } from './commands/sed.js'
 export { createCommand as createSockets } from './commands/sockets.js'
 export { createCommand as createSort } from './commands/sort.js'
-export { createCommand as createSplit } from './commands/split.js'
-export { createCommand as createStat } from './commands/stat.js'
 export { createCommand as createTar } from './commands/tar.js'
-export { createCommand as createTee } from './commands/tee.js'
 export { createCommand as createTest } from './commands/test.js'
 export { createCommand as createTheme } from './commands/theme.js'
 export { createCommand as createTime } from './commands/time.js'
