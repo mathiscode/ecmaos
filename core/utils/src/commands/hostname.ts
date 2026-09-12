@@ -12,10 +12,11 @@ Print the system hostname.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'hostname', description: 'Print the system hostname' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'hostname',
-    description: 'Print the system hostname',
+    ...meta,
     kernel,
     shell,
     terminal,

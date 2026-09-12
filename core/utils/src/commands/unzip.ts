@@ -345,10 +345,11 @@ async function listZipContents(
   }
 }
 
+export const meta = { command: 'unzip', description: 'Extract zip archives' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'unzip',
-    description: 'Extract zip archives',
+    ...meta,
     kernel,
     shell,
     terminal,

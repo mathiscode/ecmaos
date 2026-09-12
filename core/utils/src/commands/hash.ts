@@ -74,10 +74,11 @@ async function readStreamToUint8Array(reader: ReadableStreamDefaultReader<Uint8A
   return result
 }
 
+export const meta = { command: 'hash', description: 'Compute and display hash values for files or standard input' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'hash',
-    description: 'Compute and display hash values for files or standard input',
+    ...meta,
     kernel,
     shell,
     terminal,

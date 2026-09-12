@@ -63,10 +63,11 @@ function expandTabs(line: string, tabStops: number[]): string {
   return result
 }
 
+export const meta = { command: 'expand', description: 'Convert tabs to spaces' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'expand',
-    description: 'Convert tabs to spaces',
+    ...meta,
     kernel,
     shell,
     terminal,

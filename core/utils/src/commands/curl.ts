@@ -19,10 +19,11 @@ Transfer data from or to a server.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'curl', description: 'Transfer data from or to a server' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'curl',
-    description: 'Transfer data from or to a server',
+    ...meta,
     kernel,
     shell,
     terminal,

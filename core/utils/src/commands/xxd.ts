@@ -12,10 +12,11 @@ Display file contents or stdin in hexadecimal format.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'xxd', description: 'Display file contents or stdin in hexadecimal format' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'xxd',
-    description: 'Display file contents or stdin in hexadecimal format',
+    ...meta,
     kernel,
     shell,
     terminal,

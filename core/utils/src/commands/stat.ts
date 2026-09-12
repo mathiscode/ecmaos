@@ -13,10 +13,11 @@ Display file or file system status.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'stat', description: 'Display information about a file or directory' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'stat',
-    description: 'Display information about a file or directory',
+    ...meta,
     kernel,
     shell,
     terminal,

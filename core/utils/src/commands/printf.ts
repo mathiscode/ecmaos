@@ -191,10 +191,11 @@ function formatValue(format: string, value: string): string {
   }
 }
 
+export const meta = { command: 'printf', description: 'Format and print data' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'printf',
-    description: 'Format and print data',
+    ...meta,
     kernel,
     shell,
     terminal,

@@ -15,10 +15,11 @@ Join lines of two files on a common field.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'join', description: 'Join lines of two files on a common field' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'join',
-    description: 'Join lines of two files on a common field',
+    ...meta,
     kernel,
     shell,
     terminal,

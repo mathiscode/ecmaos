@@ -20,10 +20,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'umount', description: 'Unmount a filesystem' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'umount',
-    description: 'Unmount a filesystem',
+    ...meta,
     kernel,
     shell,
     terminal,

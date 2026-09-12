@@ -12,10 +12,11 @@ Concatenate files and print on the standard output.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'cat', description: 'Concatenate files and print on the standard output' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cat',
-    description: 'Concatenate files and print on the standard output',
+    ...meta,
     kernel,
     shell,
     terminal,

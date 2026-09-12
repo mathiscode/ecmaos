@@ -24,10 +24,11 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled
 }
 
+export const meta = { command: 'shuf', description: 'Write a random permutation of the input lines' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'shuf',
-    description: 'Write a random permutation of the input lines',
+    ...meta,
     kernel,
     shell,
     terminal,

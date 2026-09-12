@@ -21,10 +21,11 @@ Examples:
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'fetch', description: 'Fetch a resource from the network' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'fetch',
-    description: 'Fetch a resource from the network',
+    ...meta,
     kernel,
     shell,
     terminal,

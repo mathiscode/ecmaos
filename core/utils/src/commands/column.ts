@@ -16,10 +16,11 @@ Format input into columns.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'column', description: 'Format input into columns' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'column',
-    description: 'Format input into columns',
+    ...meta,
     kernel,
     shell,
     terminal,

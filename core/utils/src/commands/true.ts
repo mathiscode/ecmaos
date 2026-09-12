@@ -10,10 +10,11 @@ Return a successful exit status.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'true', description: 'Return a successful exit status' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'true',
-    description: 'Return a successful exit status',
+    ...meta,
     kernel,
     shell,
     terminal,

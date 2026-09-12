@@ -14,10 +14,11 @@ Print user and group IDs.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'id', description: 'Print user and group IDs' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'id',
-    description: 'Print user and group IDs',
+    ...meta,
     kernel,
     shell,
     terminal,

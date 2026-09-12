@@ -63,10 +63,11 @@ function formatPage(lines: string[], pageLength: number, pageWidth: number, head
   return result
 }
 
+export const meta = { command: 'pr', description: 'Paginate or columnate files for printing' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'pr',
-    description: 'Paginate or columnate files for printing',
+    ...meta,
     kernel,
     shell,
     terminal,

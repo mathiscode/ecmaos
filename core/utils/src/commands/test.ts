@@ -28,10 +28,11 @@ Check file types and compare values.
   io.writelnErr(usage)
 }
 
+export const meta = { command: 'test', description: 'Check file types and compare values' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'test',
-    description: 'Check file types and compare values',
+    ...meta,
     kernel,
     shell,
     terminal,

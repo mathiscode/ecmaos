@@ -33,10 +33,11 @@ function calculateCRC32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0
 }
 
+export const meta = { command: 'cksum', description: 'Print CRC checksum and byte count' } as const
+
 export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
-    command: 'cksum',
-    description: 'Print CRC checksum and byte count',
+    ...meta,
     kernel,
     shell,
     terminal,
