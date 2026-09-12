@@ -24,6 +24,18 @@ describe('Shell job control — & background execution and the job table', () =>
       log: TestLogOptions
     })
     await kernel.boot()
+
+    // A migrated coreutil's stdout (e.g. `echo`, since `feat/1.0.0-execve-commands`) is now a real
+    // device write to `/dev/console`, not a JS method call on a `Terminal` object -- and
+    // `@zenfs/linux`'s own console driver (`drivers/tty/console.js`) genuinely throws `ENXIO` for
+    // that write until some terminal has attached at least once (`console_tty` starts `null`; the
+    // first attached terminal becomes it, matching real Linux). This suite never displays anything
+    // and never mounted one, which was harmless for the old `executeCommand` path (its unredirected
+    // stdout never touched a real device at all) but is a real, correct failure now that `echo`'s
+    // stdout is real I/O -- so a terminal is mounted here purely to give `/dev/console` a target.
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
   })
 
   it('`&` returns to the caller immediately without waiting for the backgrounded pipeline', async () => {
