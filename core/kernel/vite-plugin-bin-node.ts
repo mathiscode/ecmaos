@@ -100,7 +100,7 @@ export const migratedCommands = [
  * worker-hosted, syscall-only program replacing that name's entry in `Kernel.executeCommand`'s
  * legacy dispatch.
  */
-export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot'] as const
+export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'uninstall'] as const
 
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {
