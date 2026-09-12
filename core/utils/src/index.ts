@@ -9,10 +9,10 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 47 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 48 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
 // expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
-// paste, sleep, mktemp, shuf, split, pr, tee, stat, readlink, realpath, ln, dd, sort) and the 8 true shell
+// paste, sleep, mktemp, shuf, split, pr, tee, stat, readlink, realpath, ln, dd, sort, find) and the 8 true shell
 // builtins now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait,
 // local, env) -- neither has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
@@ -25,7 +25,6 @@ export { createCommand as createDate } from './commands/date.js'
 export { createCommand as createDiff } from './commands/diff.js'
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createFetch } from './commands/fetch.js'
-export { createCommand as createFind } from './commands/find.js'
 export { createCommand as createFmt } from './commands/fmt.js'
 export { createCommand as createFormat } from './commands/format.js'
 export { createCommand as createGit } from './commands/git.js'
