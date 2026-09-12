@@ -9,17 +9,14 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 23 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 30 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
-// expand, unexpand, cksum) and the 8 true shell builtins now living in
-// core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
-// has a createCommand anymore, only meta (see their files).
+// expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column) and the 8 true shell builtins
+// now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env)
+// -- neither has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createCal } from './commands/cal.js'
 export { createCommand as createChown } from './commands/chown.js'
-export { createCommand as createCmp } from './commands/cmp.js'
-export { createCommand as createColumn } from './commands/column.js'
-export { createCommand as createComm } from './commands/comm.js'
 export { createCommand as createCron } from './commands/cron.js'
 export { createCommand as createCrypto } from './commands/crypto.js'
 export { createCommand as createCurl } from './commands/curl.js'
@@ -35,7 +32,6 @@ export { createCommand as createFormat } from './commands/format.js'
 export { createCommand as createGit } from './commands/git.js'
 export { createCommand as createGrep } from './commands/grep.js'
 export { createCommand as createGroups } from './commands/groups.js'
-export { createCommand as createHash } from './commands/hash.js'
 export { createCommand as createHistory } from './commands/history.js'
 export { createCommand as createHostname } from './commands/hostname.js'
 export { createCommand as createId } from './commands/id.js'
@@ -50,7 +46,6 @@ export { createCommand as createMotd } from './commands/motd.js'
 export { createCommand as createMount } from './commands/mount.js'
 export { createCommand as createNc } from './commands/nc.js'
 export { createCommand as createNproc } from './commands/nproc.js'
-export { createCommand as createOd } from './commands/od.js'
 export { createCommand as createOpen } from './commands/open.js'
 export { createCommand as createPasskey } from './commands/passkey.js'
 export { createCommand as createPaste } from './commands/paste.js'
@@ -70,7 +65,6 @@ export { createCommand as createSockets } from './commands/sockets.js'
 export { createCommand as createSort } from './commands/sort.js'
 export { createCommand as createSplit } from './commands/split.js'
 export { createCommand as createStat } from './commands/stat.js'
-export { createCommand as createStrings } from './commands/strings.js'
 export { createCommand as createTar } from './commands/tar.js'
 export { createCommand as createTee } from './commands/tee.js'
 export { createCommand as createTest } from './commands/test.js'
@@ -89,5 +83,4 @@ export { createCommand as createVim } from './commands/vim.js'
 export { createCommand as createWeb } from './commands/web.js'
 export { createCommand as createWhich } from './commands/which.js'
 export { createCommand as createWhoami } from './commands/whoami.js'
-export { createCommand as createXxd } from './commands/xxd.js'
 export { createCommand as createZip } from './commands/zip.js'
