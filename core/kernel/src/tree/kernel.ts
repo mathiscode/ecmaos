@@ -56,6 +56,7 @@ import { parseCrontabFile } from '#lib/crontab.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
+import migratedCommandSources from 'virtual:bin-commands'
 
 import {
   KernelEvents,
@@ -1679,6 +1680,15 @@ export class Kernel implements IKernel {
         else if (filePath.endsWith('.md')) return 'view'
         else if (filePath.endsWith('.json')) return 'view'
         else if (filePath.endsWith('.txt')) return 'view'
+        // A file under /bin with no shebang and no magic bytes at all is a real, migrated coreutil
+        // (see `feat/1.0.0-execve-commands`) -- bundled JS, same content shape as any `.js` fixture,
+        // just installed without the extension since it's meant to be run bare (`/bin/<name>`, not
+        // `/bin/<name>.js`). `@zenfs/linux`'s own `binfmt_js` (fs/exec.ts) already accepts this
+        // content unconditionally by matching "not WASM, no null byte" -- this only teaches ecmaOS's
+        // own pre-execve classification (`readFileHeader`) the same rule for this one directory,
+        // rather than requiring every migrated command to keep the legacy `#!ecmaos:bin:command:`
+        // stub just to be found.
+        else if (filePath.startsWith('/bin/')) return 'js'
         else return 'application/octet-stream'
       }
       
@@ -1775,7 +1785,17 @@ export class Kernel implements IKernel {
     const whitelistedCommands = Object.entries(TerminalCommands(this, this.shell, this.terminal)).filter(([name]) => !this.options.blacklist?.commands?.includes(name))
     for (const [name] of whitelistedCommands) {
       if (await this.filesystem.fs.exists(`/bin/${name}`)) continue
-      await this.filesystem.fs.writeFile(`/bin/${name}`, `#!ecmaos:bin:command:${name}`, { mode: 0o755 })
+
+      // A migrated command (`feat/1.0.0-execve-commands`) gets its real, worker-hosted program as
+      // `/bin/<name>`'s actual content -- no shebang, matching `readFileHeader`'s own new rule that
+      // an unshebanged file under `/bin` is real JS (see that method's doc comment). Its
+      // `createCommand` factory above is still constructed (cheap, and `TerminalCommands` doesn't
+      // support a partial map), just never reached: `execute()` never calls `executeCommand` for a
+      // name whose `readFileHeader` classifies as `'js'`, only for one still holding the legacy
+      // `#!ecmaos:bin:command:` stub written in the `else` branch below.
+      const migratedSource = migratedCommandSources[name]
+      if (migratedSource) await this.filesystem.fs.writeFile(`/bin/${name}`, migratedSource, { mode: 0o755 })
+      else await this.filesystem.fs.writeFile(`/bin/${name}`, `#!ecmaos:bin:command:${name}`, { mode: 0o755 })
     }
   }
 
