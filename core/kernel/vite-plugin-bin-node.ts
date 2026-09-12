@@ -91,6 +91,17 @@ export const migratedCommands = [
   'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod'
 ] as const
 
+/**
+ * The kernel-native commands migrated onto real `execve` so far -- unlike `migratedCommands` above,
+ * these live in `@ecmaos/kernel` itself (`src/bin/commands/<name>.mjs`), not `@ecmaos/coreutils`,
+ * because their real logic needs a kernel-only custom syscall (`storage_usage`/`ps_list`/`reboot` --
+ * see `#lib/main-thread-syscalls.ts`) rather than the plain filesystem/stdio syscalls every
+ * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
+ * worker-hosted, syscall-only program replacing that name's entry in `Kernel.executeCommand`'s
+ * legacy dispatch.
+ */
+export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot'] as const
+
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {
   const require = createRequire(import.meta.url)
@@ -134,6 +145,48 @@ export function binCommands(): Plugin {
           })
           const output = result.outputFiles[0]
           if (!output) throw new Error(`bin-commands: esbuild produced no output for ${name}`)
+          entries[name] = output.text
+        }
+        cached = JSON.stringify(entries)
+      }
+
+      return `export default ${cached}`
+    }
+  }
+}
+
+/**
+ * Bundles every migrated kernel-native command's real program (`src/bin/commands/<name>.mjs`) into
+ * one virtual module, `virtual:bin-kernel-commands`, exporting `{ [name]: string }` -- the same shape
+ * `binCommands()` produces for `@ecmaos/coreutils`'s migrated commands, so `Kernel.registerCommands`
+ * can look either up the same way.
+ */
+export function binKernelCommands(): Plugin {
+  const virtualModuleId = 'virtual:bin-kernel-commands'
+  const resolvedVirtualModuleId = '\0' + virtualModuleId
+  let cached: string | undefined
+
+  return {
+    name: 'ecmaos:bin-kernel-commands',
+    resolveId(id) {
+      if (id === virtualModuleId) return resolvedVirtualModuleId
+    },
+    async load(id) {
+      if (id !== resolvedVirtualModuleId) return
+
+      if (!cached) {
+        const entries: Record<string, string> = {}
+        for (const name of migratedKernelCommands) {
+          const result = await build({
+            entryPoints: [path.join(__dirname, 'src', 'bin', 'commands', `${name}.mjs`)],
+            bundle: true,
+            format: 'esm',
+            platform: 'browser',
+            write: false,
+            absWorkingDir: __dirname
+          })
+          const output = result.outputFiles[0]
+          if (!output) throw new Error(`bin-kernel-commands: esbuild produced no output for ${name}`)
           entries[name] = output.text
         }
         cached = JSON.stringify(entries)
