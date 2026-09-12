@@ -9,6 +9,8 @@
 
 import { build } from 'esbuild'
 import type { Plugin } from 'vite'
+import path from 'node:path'
+import { createRequire } from 'node:module'
 
 function binWorkerPlugin(name: string, entryPoint: string): Plugin {
   const virtualModuleId = `virtual:bin-${name}`
@@ -73,18 +75,38 @@ export function binPilotWindow(): Plugin {
 
 /**
  * The coreutils migrated onto real `execve` so far (`feat/1.0.0-execve-commands`) -- each a real,
- * worker-hosted, syscall-only program (`src/bin/cmd-<name>.mjs`) replacing that command's entry in
- * `Kernel.executeCommand`'s legacy dispatch. Keyed by the real command name (`/bin/<name>`, not
- * `/bin/cmd-<name>`) since that's the path `Kernel.registerCommands`/`readFileHeader` resolve.
+ * worker-hosted, syscall-only program living in `@ecmaos/coreutils` (`core/utils/src/commands-
+ * execve/<name>.mjs`), replacing that command's entry in `Kernel.executeCommand`'s legacy dispatch.
+ * Keyed by the real command name (`/bin/<name>`), since that's the path `Kernel.registerCommands`/
+ * `readFileHeader` resolve.
+ *
+ * These live in `@ecmaos/coreutils`, not here, on purpose: they're coreutils content (the actual
+ * `echo`/`rm`/`cp`/... business logic, mirroring `core/utils/src/commands/*.ts`'s existing legacy
+ * versions), and `@ecmaos/kernel` should own only the *mechanism* (esbuild bundling, `execve`,
+ * syscalls) -- not accumulate a second, shadow copy of the coreutils package as more commands
+ * migrate. `@ecmaos/kernel` already depends on `@ecmaos/coreutils` (for `TerminalCommands`), so this
+ * adds no new dependency edge, just a second thing consumed from it.
  */
 export const migratedCommands = [
   'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod'
 ] as const
 
+/** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
+function coreutilsExecveDir(): string {
+  const require = createRequire(import.meta.url)
+  // `@ecmaos/coreutils`'s package.json is the one stable resolution anchor -- resolving straight to
+  // a source file would need every consumer to know its exports map shape; resolving the package
+  // root and joining the known subdirectory works the same whether this is a workspace symlink (as
+  // in this monorepo, via pnpm) or a real installed dependency.
+  const pkgJsonPath = require.resolve('@ecmaos/coreutils/package.json')
+  return path.join(path.dirname(pkgJsonPath), 'src', 'commands-execve')
+}
+
 /**
- * Bundles every migrated coreutil's real program (`src/bin/cmd-<name>.mjs`) into one virtual module,
- * `virtual:bin-commands`, exporting `{ [name]: string }` -- the same shape as `TerminalCommands`'
- * own name-keyed map, so `Kernel.registerCommands` can look a migrated name up directly.
+ * Bundles every migrated coreutil's real program (`@ecmaos/coreutils`'s `commands-execve/<name>.mjs`)
+ * into one virtual module, `virtual:bin-commands`, exporting `{ [name]: string }` -- the same shape
+ * as `TerminalCommands`' own name-keyed map, so `Kernel.registerCommands` can look a migrated name up
+ * directly.
  */
 export function binCommands(): Plugin {
   const virtualModuleId = 'virtual:bin-commands'
@@ -100,15 +122,15 @@ export function binCommands(): Plugin {
       if (id !== resolvedVirtualModuleId) return
 
       if (!cached) {
+        const execveDir = coreutilsExecveDir()
         const entries: Record<string, string> = {}
         for (const name of migratedCommands) {
           const result = await build({
-            entryPoints: [`src/bin/cmd-${name}.mjs`],
+            entryPoints: [path.join(execveDir, `${name}.mjs`)],
             bundle: true,
             format: 'esm',
             platform: 'browser',
-            write: false,
-            absWorkingDir: __dirname
+            write: false
           })
           const output = result.outputFiles[0]
           if (!output) throw new Error(`bin-commands: esbuild produced no output for ${name}`)
