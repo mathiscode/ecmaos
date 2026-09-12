@@ -58,6 +58,7 @@ import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
+import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 
 import {
   KernelEvents,
@@ -1806,13 +1807,14 @@ export class Kernel implements IKernel {
     // any file-based resolution is even attempted.
     const names = [
       ...Object.keys(migratedCommandSources),
+      ...Object.keys(migratedKernelCommandSources),
       ...Object.keys(getLegacyCommands()),
       ...Object.keys(getKernelLegacyCommands())
     ].filter(name => !this.options.blacklist?.commands?.includes(name))
 
     for (const name of names) {
       if (await this.filesystem.fs.exists(`/bin/${name}`)) continue
-      const migratedSource = migratedCommandSources[name]
+      const migratedSource = migratedCommandSources[name] ?? migratedKernelCommandSources[name]
       if (migratedSource) await this.filesystem.fs.writeFile(`/bin/${name}`, migratedSource, { mode: 0o755 })
       else await this.filesystem.fs.writeFile(`/bin/${name}`, `#!ecmaos:bin:command:${name}`, { mode: 0o755 })
     }

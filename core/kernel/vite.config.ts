@@ -6,7 +6,7 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import dts from 'vite-plugin-dts'
 import type { ViteDevServer } from 'vite'
 
-import { binCommands, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node'
+import { binCommands, binKernelCommands, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node'
 
 import pkg from './package.json'
 
@@ -109,6 +109,7 @@ export default defineConfig({
     binPilotPwd(),
     binPilotWindow(),
     binCommands(),
+    binKernelCommands(),
     gzipFixPlugin(),
     jcoBrowserFixPlugin(),
     nodePolyfills({

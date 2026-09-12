@@ -15,11 +15,18 @@
  * real implementations moved to `#lib/shell-builtins.ts`, dispatched directly by `Shell.execute`
  * before any file-based command resolution happens at all; nothing in this file references them
  * anymore.
+ *
+ * `clear`, `df`, `ps`, `reboot` used to live here too. All four turned out to be portable to real
+ * `execve` after all -- each is either pure stdout formatting (`clear`) or a single read-only (or,
+ * for `reboot`, side-effecting-but-argument-less) call into kernel-only state, reachable from a real
+ * worker through a small custom syscall (`storage_usage`/`ps_list`/`reboot`, added to
+ * `#lib/main-thread-syscalls.ts` following the exact `window_create` precedent). Their real
+ * implementations moved to `src/bin/commands/{clear,df,ps,reboot}.mjs`; nothing in this file
+ * references them anymore.
  */
 
 import ansi from 'ansi-escape-sequences'
 import chalk from 'chalk'
-import humanFormat from 'human-format'
 import type { CommandLineOptions } from 'command-line-args'
 import path from 'path'
 
@@ -29,20 +36,6 @@ import type { Kernel, Process, Shell, Terminal } from '@ecmaos/types'
 import { TerminalCommand, type CommandArgs, type CreateCommandFn, type LegacyCommands, writelnStdout, writelnStderr } from '@ecmaos/coreutils'
 
 const HelpOption = { name: 'help', type: Boolean, description: 'Display help' }
-
-function createClear(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    command: 'clear', description: 'Clear the terminal screen', kernel, shell, terminal, options: [],
-    run: async () => clear({ kernel, shell, terminal, args: [] })
-  })
-}
-
-function createDf(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    command: 'df', description: 'Display disk space usage', kernel, shell, terminal, options: [],
-    run: async (_argv: CommandLineOptions, process?: Process) => df({ kernel, shell, terminal, process, args: [] })
-  })
-}
 
 function createDownload(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
@@ -101,20 +94,6 @@ function createPasswd(kernel: Kernel, shell: Shell, terminal: Terminal): Termina
   })
 }
 
-function createPs(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    command: 'ps', description: 'List all running processes', kernel, shell, terminal, options: [],
-    run: async (_argv: CommandLineOptions, process?: Process) => ps({ kernel, shell, terminal, process, args: [] })
-  })
-}
-
-function createReboot(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    command: 'reboot', description: 'Reboot the system', kernel, shell, terminal, options: [],
-    run: async () => reboot({ kernel, shell, terminal, args: [] })
-  })
-}
-
 function createScreensaver(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
   return new TerminalCommand({
     command: 'screensaver', description: 'Start the screensaver', kernel, shell, terminal,
@@ -146,15 +125,11 @@ function createUpload(kernel: Kernel, shell: Shell, terminal: Terminal): Termina
  * `@ecmaos/coreutils`'s `getLegacyCommands()` by `Kernel.registerCommands`/`executeCommand`. */
 export function getKernelLegacyCommands(): LegacyCommands {
   const entries: Array<[string, string, CreateCommandFn]> = [
-    ['clear', 'Clear the terminal screen', createClear],
-    ['df', 'Display disk space usage', createDf],
     ['download', 'Download a file from the filesystem', createDownload],
     ['install', 'Install a package', createInstall],
     ['uninstall', 'Uninstall a package', createUninstall],
     ['load', 'Load a JavaScript file', createLoad],
     ['passwd', 'Change user password', createPasswd],
-    ['ps', 'List all running processes', createPs],
-    ['reboot', 'Reboot the system', createReboot],
     ['screensaver', 'Start the screensaver', createScreensaver],
     ['snake', 'Play a simple snake game', createSnake],
     ['upload', 'Upload files to the filesystem', createUpload]
@@ -167,33 +142,6 @@ export function getKernelLegacyCommands(): LegacyCommands {
 export { TerminalCommand, type CommandArgs } from '@ecmaos/coreutils'
 
 // Kernel-specific command implementations
-
-export const clear = async ({ terminal }: CommandArgs) => {
-  terminal.write('\x1b[2J\x1b[H')
-}
-
-export const df = async ({ kernel, terminal, process }: CommandArgs) => {
-  const usage = await kernel.storage.usage()
-  if (!usage) return 1
-
-  const getData = (usage: StorageEstimate) => {
-    const data: Record<string, string | Record<string, string>> = {}
-    for (const [key, value] of Object.entries(usage)) {
-      if (typeof value === 'object' && value !== null) {
-        data[key] = getData(value as StorageEstimate) as Record<string, string>
-      } else if (typeof value === 'number') {
-        data[key] = humanFormat(value)
-      } else {
-        data[key] = String(value)
-      }
-    }
-    return data
-  }
-
-  const data = getData(usage)
-  await writelnStdout(process, terminal, JSON.stringify(data, null, 2))
-  return 0
-}
 
 export const download = async ({ shell, terminal, process, args }: CommandArgs) => {
   const destination = (args as string[])[0]
@@ -260,17 +208,6 @@ export const passwd = async ({ kernel, terminal, process, args }: CommandArgs) =
     await writelnStderr(process, terminal, chalk.red(`Failed to update password: ${error instanceof Error ? error.message : 'Unknown error'}`))
     return 1
   }
-}
-
-export const ps = async ({ kernel, terminal, process }: CommandArgs) => {
-  await writelnStdout(process, terminal, 'PID\tCOMMAND\t\t\tSTATUS')
-  for (const [pid, proc] of kernel.processes.all.entries()) {
-    await writelnStdout(process, terminal, `${chalk.yellow(pid)}\t${chalk.green(proc.command)}\t\t\t${chalk.blue(proc.status)}`)
-  }
-}
-
-export const reboot = async ({ kernel }: CommandArgs) => {
-  kernel.reboot()
 }
 
 export const screensaver = async ({ kernel, terminal, process, args }: CommandArgs) => {
