@@ -29,20 +29,17 @@
 import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
-import { meta as metaAwk } from '../commands/awk.js'
 import { meta as metaCal } from '../commands/cal.js'
 import { meta as metaChown } from '../commands/chown.js'
 import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaCrypto } from '../commands/crypto.js'
 import { meta as metaCurl } from '../commands/curl.js'
 import { meta as metaDate } from '../commands/date.js'
-import { meta as metaDiff } from '../commands/diff.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
 import { meta as metaFmt } from '../commands/fmt.js'
 import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
-import { meta as metaGrep } from '../commands/grep.js'
 import { meta as metaGroups } from '../commands/groups.js'
 import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaHostname } from '../commands/hostname.js'
@@ -61,7 +58,6 @@ import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaPrintf } from '../commands/printf.js'
 import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
-import { meta as metaSed } from '../commands/sed.js'
 import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaTar } from '../commands/tar.js'
 import { meta as metaTest } from '../commands/test.js'
@@ -82,20 +78,17 @@ import { meta as metaWhich } from '../commands/which.js'
 import { meta as metaWhoami } from '../commands/whoami.js'
 import { meta as metaZip } from '../commands/zip.js'
 
-import { createCommand as createAwk } from '../commands/awk.js'
 import { createCommand as createCal } from '../commands/cal.js'
 import { createCommand as createChown } from '../commands/chown.js'
 import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createCrypto } from '../commands/crypto.js'
 import { createCommand as createCurl } from '../commands/curl.js'
 import { createCommand as createDate } from '../commands/date.js'
-import { createCommand as createDiff } from '../commands/diff.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
 import { createCommand as createFmt } from '../commands/fmt.js'
 import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
-import { createCommand as createGrep } from '../commands/grep.js'
 import { createCommand as createGroups } from '../commands/groups.js'
 import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createHostname } from '../commands/hostname.js'
@@ -114,7 +107,6 @@ import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createPrintf } from '../commands/printf.js'
 import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
-import { createCommand as createSed } from '../commands/sed.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createTar } from '../commands/tar.js'
 import { createCommand as createTest } from '../commands/test.js'
@@ -146,20 +138,17 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 
 function buildLegacyCommands(): LegacyCommands {
   return {
-  "awk": { description: metaAwk.description, createCommand: createAwk },
   "cal": { description: metaCal.description, createCommand: createCal },
   "chown": { description: metaChown.description, createCommand: createChown },
   "cron": { description: metaCron.description, createCommand: createCron },
   "crypto": { description: metaCrypto.description, createCommand: createCrypto },
   "curl": { description: metaCurl.description, createCommand: createCurl },
   "date": { description: metaDate.description, createCommand: createDate },
-  "diff": { description: metaDiff.description, createCommand: createDiff },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
   "fmt": { description: metaFmt.description, createCommand: createFmt },
   "format": { description: metaFormat.description, createCommand: createFormat },
   "git": { description: metaGit.description, createCommand: createGit },
-  "grep": { description: metaGrep.description, createCommand: createGrep },
   "groups": { description: metaGroups.description, createCommand: createGroups },
   "history": { description: metaHistory.description, createCommand: createHistory },
   "hostname": { description: metaHostname.description, createCommand: createHostname },
@@ -178,7 +167,6 @@ function buildLegacyCommands(): LegacyCommands {
   "printf": { description: metaPrintf.description, createCommand: createPrintf },
   "pwd": { description: metaPwd.description, createCommand: createPwd },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
-  "sed": { description: metaSed.description, createCommand: createSed },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
   "tar": { description: metaTar.description, createCommand: createTar },
   "test": { description: metaTest.description, createCommand: createTest },
