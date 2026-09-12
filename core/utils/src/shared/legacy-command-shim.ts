@@ -29,12 +29,10 @@
 import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
-import { meta as metaCal } from '../commands/cal.js'
 import { meta as metaChown } from '../commands/chown.js'
 import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaCrypto } from '../commands/crypto.js'
 import { meta as metaCurl } from '../commands/curl.js'
-import { meta as metaDate } from '../commands/date.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFetch } from '../commands/fetch.js'
 import { meta as metaFmt } from '../commands/fmt.js'
@@ -42,20 +40,15 @@ import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
 import { meta as metaGroups } from '../commands/groups.js'
 import { meta as metaHistory } from '../commands/history.js'
-import { meta as metaHostname } from '../commands/hostname.js'
 import { meta as metaId } from '../commands/id.js'
 import { meta as metaLess } from '../commands/less.js'
 import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
 import { meta as metaMan } from '../commands/man.js'
-import { meta as metaMotd } from '../commands/motd.js'
 import { meta as metaMount } from '../commands/mount.js'
 import { meta as metaNc } from '../commands/nc.js'
-import { meta as metaNproc } from '../commands/nproc.js'
 import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
-import { meta as metaPrintf } from '../commands/printf.js'
-import { meta as metaPwd } from '../commands/pwd.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaTest } from '../commands/test.js'
@@ -64,24 +57,18 @@ import { meta as metaTime } from '../commands/time.js'
 import { meta as metaTrue } from '../commands/true.js'
 import { meta as metaTty } from '../commands/tty.js'
 import { meta as metaUmount } from '../commands/umount.js'
-import { meta as metaUname } from '../commands/uname.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
-import { meta as metaUptime } from '../commands/uptime.js'
 import { meta as metaUser } from '../commands/user.js'
 import { meta as metaVideo } from '../commands/video.js'
 import { meta as metaView } from '../commands/view.js'
 import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
-import { meta as metaWhich } from '../commands/which.js'
-import { meta as metaWhoami } from '../commands/whoami.js'
 import { meta as metaZip } from '../commands/zip.js'
 
-import { createCommand as createCal } from '../commands/cal.js'
 import { createCommand as createChown } from '../commands/chown.js'
 import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createCrypto } from '../commands/crypto.js'
 import { createCommand as createCurl } from '../commands/curl.js'
-import { createCommand as createDate } from '../commands/date.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFetch } from '../commands/fetch.js'
 import { createCommand as createFmt } from '../commands/fmt.js'
@@ -89,20 +76,15 @@ import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createGroups } from '../commands/groups.js'
 import { createCommand as createHistory } from '../commands/history.js'
-import { createCommand as createHostname } from '../commands/hostname.js'
 import { createCommand as createId } from '../commands/id.js'
 import { createCommand as createLess } from '../commands/less.js'
 import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
 import { createCommand as createMan } from '../commands/man.js'
-import { createCommand as createMotd } from '../commands/motd.js'
 import { createCommand as createMount } from '../commands/mount.js'
 import { createCommand as createNc } from '../commands/nc.js'
-import { createCommand as createNproc } from '../commands/nproc.js'
 import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
-import { createCommand as createPrintf } from '../commands/printf.js'
-import { createCommand as createPwd } from '../commands/pwd.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createTest } from '../commands/test.js'
@@ -111,16 +93,12 @@ import { createCommand as createTime } from '../commands/time.js'
 import { createCommand as createTrue } from '../commands/true.js'
 import { createCommand as createTty } from '../commands/tty.js'
 import { createCommand as createUmount } from '../commands/umount.js'
-import { createCommand as createUname } from '../commands/uname.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
-import { createCommand as createUptime } from '../commands/uptime.js'
 import { createCommand as createUser } from '../commands/user.js'
 import { createCommand as createVideo } from '../commands/video.js'
 import { createCommand as createView } from '../commands/view.js'
 import { createCommand as createVim } from '../commands/vim.js'
 import { createCommand as createWeb } from '../commands/web.js'
-import { createCommand as createWhich } from '../commands/which.js'
-import { createCommand as createWhoami } from '../commands/whoami.js'
 import { createCommand as createZip } from '../commands/zip.js'
 
 export type CreateCommandFn = (kernel: Kernel, shell: Shell, terminal: Terminal) => TerminalCommand
@@ -134,12 +112,10 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 
 function buildLegacyCommands(): LegacyCommands {
   return {
-  "cal": { description: metaCal.description, createCommand: createCal },
   "chown": { description: metaChown.description, createCommand: createChown },
   "cron": { description: metaCron.description, createCommand: createCron },
   "crypto": { description: metaCrypto.description, createCommand: createCrypto },
   "curl": { description: metaCurl.description, createCommand: createCurl },
-  "date": { description: metaDate.description, createCommand: createDate },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "fetch": { description: metaFetch.description, createCommand: createFetch },
   "fmt": { description: metaFmt.description, createCommand: createFmt },
@@ -147,20 +123,15 @@ function buildLegacyCommands(): LegacyCommands {
   "git": { description: metaGit.description, createCommand: createGit },
   "groups": { description: metaGroups.description, createCommand: createGroups },
   "history": { description: metaHistory.description, createCommand: createHistory },
-  "hostname": { description: metaHostname.description, createCommand: createHostname },
   "id": { description: metaId.description, createCommand: createId },
   "less": { description: metaLess.description, createCommand: createLess },
   "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
   "man": { description: metaMan.description, createCommand: createMan },
-  "motd": { description: metaMotd.description, createCommand: createMotd },
   "mount": { description: metaMount.description, createCommand: createMount },
   "nc": { description: metaNc.description, createCommand: createNc },
-  "nproc": { description: metaNproc.description, createCommand: createNproc },
   "open": { description: metaOpen.description, createCommand: createOpen },
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
   "play": { description: metaPlay.description, createCommand: createPlay },
-  "printf": { description: metaPrintf.description, createCommand: createPrintf },
-  "pwd": { description: metaPwd.description, createCommand: createPwd },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "sockets": { description: metaSockets.description, createCommand: createSockets },
   "test": { description: metaTest.description, createCommand: createTest },
@@ -169,16 +140,12 @@ function buildLegacyCommands(): LegacyCommands {
   "true": { description: metaTrue.description, createCommand: createTrue },
   "tty": { description: metaTty.description, createCommand: createTty },
   "umount": { description: metaUmount.description, createCommand: createUmount },
-  "uname": { description: metaUname.description, createCommand: createUname },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
-  "uptime": { description: metaUptime.description, createCommand: createUptime },
   "user": { description: metaUser.description, createCommand: createUser },
   "video": { description: metaVideo.description, createCommand: createVideo },
   "view": { description: metaView.description, createCommand: createView },
   "vim": { description: metaVim.description, createCommand: createVim },
   "web": { description: metaWeb.description, createCommand: createWeb },
-  "which": { description: metaWhich.description, createCommand: createWhich },
-  "whoami": { description: metaWhoami.description, createCommand: createWhoami },
   "zip": { description: metaZip.description, createCommand: createZip },
   }
 }
