@@ -106,7 +106,6 @@
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@eslint/js": "^9.12.0",
-    "esbuild": "^0.27.2",
     "@schemastore/package": "^0.0.10",
     "@types/ansi-escape-sequences": "^4.0.4",
     "@types/command-line-args": "^5.2.3",
@@ -139,6 +138,7 @@
     "@xterm/addon-web-links": "^0.12.0",
     "canvas": "^2.11.2",
     "concurrently": "^9.0.1",
+    "esbuild": "^0.27.2",
     "eslint": "^9.12.0",
     "fake-indexeddb": "^6.0.0",
     "globals": "^15.10.0",
@@ -197,9 +197,10 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "@zenfs/archives": "^1.5.0",
-    "@zenfs/core": "^2.7.2",
+    "@zenfs/core": "^2.7.6",
     "@zenfs/dom": "^1.2.13",
     "@zenfs/emscripten": "^1.0.9",
+    "@zenfs/linux": "0.6.1",
     "@zip.js/zip.js": "^2.7.52",
     "ansi-escape-sequences": "^6.2.4",
     "chalk": "^5.3.0",
@@ -220,8 +221,7 @@
     "topbar": "^3.0.0",
     "tslog": "^4.9.3",
     "wabt": "^1.0.36",
-    "winbox": "^0.2.82",
-    "@zenfs/linux": "0.5.0"
+    "winbox": "^0.2.82"
   },
   "resolutions": {
     "ws": ">=8.17.1"
