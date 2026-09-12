@@ -1,35 +1,8 @@
-import type { Kernel, Shell, Terminal } from '@ecmaos/types'
-import type { CommandContext, CommandIO } from '@ecmaos/types'
-import { TerminalCommand } from '../shared/terminal-command.js'
-
-function printUsage(io: CommandIO): void {
-  const usage = `Usage: motd
-Print the message of the day (/etc/motd), if one exists.
-
-  --help  display this help and exit`
-  io.writelnErr(usage)
-}
-
+/**
+ * Metadata only -- `motd`'s real implementation is `core/utils/src/commands-execve/motd.mjs`,
+ * a real, worker-hosted program running via `execve` (see `feat/1.0.0-execve-commands`). This
+ * file's `createCommand`/in-process `run` was deleted once the command-manifest registry
+ * (`feat/1.0.0-command-manifest`) stopped needing it: `meta` is all a `kind: 'execve'` manifest
+ * entry uses, and nothing else references this file anymore.
+ */
 export const meta = { command: 'motd', description: 'Print the message of the day' } as const
-
-export function createCommand(kernel: Kernel, shell: Shell, terminal: Terminal): TerminalCommand {
-  return new TerminalCommand({
-    ...meta,
-    kernel,
-    shell,
-    terminal,
-    run: async (ctx: CommandContext, io: CommandIO) => {
-
-      if (ctx.argv.length > 0 && (ctx.argv[0] === '--help' || ctx.argv[0] === '-h')) {
-        printUsage(io)
-        return 0
-      }
-
-      if (!await kernel.filesystem.fs.exists('/etc/motd')) return 0
-
-      const motd = await kernel.filesystem.fs.readFile('/etc/motd', 'utf-8')
-      if (motd) await io.writeln(motd)
-      return 0
-    }
-  })
-}
