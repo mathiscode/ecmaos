@@ -9,12 +9,12 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories -- excludes the 42 execve-migrated names (echo, basename,
+// Export individual command factories -- excludes the 45 execve-migrated names (echo, basename,
 // dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
 // expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
-// paste, sleep, mktemp, shuf, split, pr, tee, stat) and the 8 true shell builtins now living in
-// core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) -- neither
-// has a createCommand anymore, only meta (see their files).
+// paste, sleep, mktemp, shuf, split, pr, tee, stat, readlink, realpath, ln) and the 8 true shell
+// builtins now living in core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait,
+// local, env) -- neither has a createCommand anymore, only meta (see their files).
 export { createCommand as createAwk } from './commands/awk.js'
 export { createCommand as createCal } from './commands/cal.js'
 export { createCommand as createChown } from './commands/chown.js'
@@ -36,7 +36,6 @@ export { createCommand as createHistory } from './commands/history.js'
 export { createCommand as createHostname } from './commands/hostname.js'
 export { createCommand as createId } from './commands/id.js'
 export { createCommand as createLess } from './commands/less.js'
-export { createCommand as createLn } from './commands/ln.js'
 export { createCommand as createLoadCrontab } from './commands/load-crontab.js'
 export { createCommand as createLs } from './commands/ls.js'
 export { createCommand as createMan } from './commands/man.js'
@@ -49,8 +48,6 @@ export { createCommand as createPasskey } from './commands/passkey.js'
 export { createCommand as createPlay } from './commands/play.js'
 export { createCommand as createPrintf } from './commands/printf.js'
 export { createCommand as createPwd } from './commands/pwd.js'
-export { createCommand as createReadlink } from './commands/readlink.js'
-export { createCommand as createRealpath } from './commands/realpath.js'
 export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createSed } from './commands/sed.js'
 export { createCommand as createSockets } from './commands/sockets.js'
