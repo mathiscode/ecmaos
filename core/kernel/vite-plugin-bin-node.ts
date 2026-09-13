@@ -100,7 +100,8 @@ export const migratedCommands = [
   'cal', 'date', 'printf', 'which',
   'whoami', 'pwd', 'hostname', 'uname', 'nproc', 'uptime', 'motd',
   'fmt', 'crypto', 'curl', 'fetch',
-  'id', 'groups'
+  'id', 'groups',
+  'chown'
 ] as const
 
 /**

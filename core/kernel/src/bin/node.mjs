@@ -30,7 +30,7 @@
 import { ready, exit } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
-  mkdir, rmdir, unlink, rename, chmod, stat, lstat, access, getdents,
+  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
   link, symlink, readlink
 } from '@zenfs/linux/uapi/fs'
 import { syscall_async } from '@zenfs/linux/uapi/base'
@@ -177,7 +177,7 @@ const init = await ready
 // resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
 globalThis.ecmaosSyscalls = {
   open, read, write, close, getcwd, exit, custom: syscall_async,
-  mkdir, rmdir, unlink, rename, chmod, stat, lstat, access,
+  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
