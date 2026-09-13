@@ -34,9 +34,7 @@ import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
-import { meta as metaGroups } from '../commands/groups.js'
 import { meta as metaHistory } from '../commands/history.js'
-import { meta as metaId } from '../commands/id.js'
 import { meta as metaLess } from '../commands/less.js'
 import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
 import { meta as metaMan } from '../commands/man.js'
@@ -66,9 +64,7 @@ import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
-import { createCommand as createGroups } from '../commands/groups.js'
 import { createCommand as createHistory } from '../commands/history.js'
-import { createCommand as createId } from '../commands/id.js'
 import { createCommand as createLess } from '../commands/less.js'
 import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
 import { createCommand as createMan } from '../commands/man.js'
@@ -109,9 +105,7 @@ function buildLegacyCommands(): LegacyCommands {
   "false": { description: metaFalse.description, createCommand: createFalse },
   "format": { description: metaFormat.description, createCommand: createFormat },
   "git": { description: metaGit.description, createCommand: createGit },
-  "groups": { description: metaGroups.description, createCommand: createGroups },
   "history": { description: metaHistory.description, createCommand: createHistory },
-  "id": { description: metaId.description, createCommand: createId },
   "less": { description: metaLess.description, createCommand: createLess },
   "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
   "man": { description: metaMan.description, createCommand: createMan },
