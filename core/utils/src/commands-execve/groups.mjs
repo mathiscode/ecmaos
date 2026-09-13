@@ -10,7 +10,7 @@
  * directly. That's carried over unchanged here, not "fixed," since this is a migration.
  */
 
-const { argv, exit, write, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: groups [USERNAME]...
 Print the groups a user belongs to.
@@ -50,7 +50,7 @@ async function usersLookup(query) {
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -58,12 +58,12 @@ async function main() {
   for (const arg of args) {
     if (!arg) continue
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (!arg.startsWith('-')) {
       usernames.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`groups: invalid option -- '${arg.slice(1)}'\nTry 'groups --help' for more information.\n`))
+      writeAll(2, new TextEncoder().encode(`groups: invalid option -- '${arg.slice(1)}'\nTry 'groups --help' for more information.\n`))
       return 1
     }
   }
@@ -77,7 +77,7 @@ async function main() {
     const user = await usersLookup({ mode: 'byUsername', username })
 
     if (!user) {
-      write(2, new TextEncoder().encode(`groups: '${username}': no such user\n`))
+      writeAll(2, new TextEncoder().encode(`groups: '${username}': no such user\n`))
       continue
     }
 
@@ -90,13 +90,13 @@ async function main() {
     output += `${username} : ${groupNames.join(' ')}\n`
   }
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return 0
 }
 
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`groups: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`groups: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

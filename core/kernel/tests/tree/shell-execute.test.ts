@@ -57,6 +57,30 @@ describe('Shell.execute — real execution over the new parser', () => {
     expect(output.trim()).toBe('CBA')
   })
 
+  /**
+   * Pipeline stage-to-stage joins now go through a real `@zenfs/linux` `create_pipe`-backed stream
+   * (`Kernel.createPipeStream`), not a plain web `TransformStream` -- see that method's own doc
+   * comment for why. This payload is deliberately larger than the pipe bridge's own 65536-byte
+   * poll chunk size, so a correct result here also proves the multi-read/multi-write loop (not
+   * just a single-chunk happy path) actually reassembles the stream correctly.
+   */
+  it('carries a payload larger than one pipe read/write chunk through a pipeline stage', async () => {
+    const path = '/tmp/shell-execute-large-pipeline.txt'
+    const line = 'x'.repeat(100000)
+    await kernel.filesystem.fs.writeFile(path, line + '\n')
+    const { output } = await runCapturing(`cat ${path} | rev`)
+    expect(output.trim()).toBe([...line].reverse().join(''))
+  })
+
+  it('joins pipeline stages correctly whether or not either side has a real Process handle', async () => {
+    // `grep` and `wc` are both real execve'd stages here, but `Kernel.createPipeStream` makes no
+    // such assumption -- it has to work as a plain web ReadableStream/WritableStream pair
+    // regardless of which kind of thing (execve'd Process or legacy in-process coreutil closure)
+    // is on either side of the join, since a legacy stage has no real fd of its own to bridge.
+    const { output } = await runCapturing('printf "a\\nb\\na\\n" | grep a | wc -l')
+    expect(output.trim()).toBe('2')
+  })
+
   it('supports || — the defect the old split-chain could not express at all', async () => {
     const code = await run('false || true')
     expect(code).toBe(0)

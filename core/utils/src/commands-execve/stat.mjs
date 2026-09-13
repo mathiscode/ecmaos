@@ -18,7 +18,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, isDirectory, open, read, close, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, open, read, close, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: stat [OPTION]... FILE...
 Display file or file system status.
@@ -117,7 +117,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -136,7 +136,7 @@ function main() {
       let output = ''
       if (targets.length > 1) output += `${target}:\n`
       output += JSON.stringify(statToPlainObject(s), null, 2) + '\n'
-      write(1, new TextEncoder().encode(output))
+      writeAll(1, new TextEncoder().encode(output))
 
       if (extname(fullPath) === '.zip' && !isDirectory(fullPath)) {
         const bytes = readWholeFile(fullPath)
@@ -144,13 +144,13 @@ function main() {
 
         let zipOutput = '\nZIP Entries:\n'
         for (const entry of entries) zipOutput += `${entry.filename} (${entry.uncompressedSize} bytes)\n`
-        write(1, new TextEncoder().encode(zipOutput))
+        writeAll(1, new TextEncoder().encode(zipOutput))
       }
 
-      if (targets.length > 1) write(1, new TextEncoder().encode('\n'))
+      if (targets.length > 1) writeAll(1, new TextEncoder().encode('\n'))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`stat: ${target}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`stat: ${target}: ${message}\n`))
       hasError = true
     }
   }
@@ -161,6 +161,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`stat: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`stat: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

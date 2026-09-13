@@ -6,7 +6,7 @@
  * `^C` (see `cat.mjs`'s doc comment), so a plain `setTimeout`-based wait is all this needs.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: sleep NUMBER[SUFFIX]...
 Pause for NUMBER seconds.  SUFFIX may be 's' for seconds (the default),
@@ -34,13 +34,13 @@ function parseDuration(value) {
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length === 0) {
-    write(2, new TextEncoder().encode('sleep: missing operand\n'))
-    write(2, new TextEncoder().encode("Try 'sleep --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('sleep: missing operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'sleep --help' for more information.\n"))
     return 1
   }
 
@@ -48,13 +48,13 @@ async function main() {
 
   for (const arg of args) {
     if (arg.startsWith('-')) {
-      write(2, new TextEncoder().encode(`sleep: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'sleep --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`sleep: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'sleep --help' for more information.\n"))
       return 1
     }
     const duration = parseDuration(arg)
     if (isNaN(duration)) {
-      write(2, new TextEncoder().encode(`sleep: invalid time interval '${arg}'\n`))
+      writeAll(2, new TextEncoder().encode(`sleep: invalid time interval '${arg}'\n`))
       return 1
     }
     totalDuration += duration
@@ -68,6 +68,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`sleep: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`sleep: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

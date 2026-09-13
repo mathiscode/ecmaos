@@ -13,7 +13,7 @@ import type { BoundContext, Credentials } from '@zenfs/core'
 import { Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
-  Shell as IShell, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
+  Shell as IShell, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
@@ -74,6 +74,7 @@ const DefaultShellOptions = {
   * 
  */
 export class Shell implements IShell {
+  private _createPipeStream: ShellCreatePipeStream
   private _ctx: KernelContext
   private _cwd: string
   private _env: Map<string, string>
@@ -175,6 +176,7 @@ export class Shell implements IShell {
     this._cwd = options.cwd || localStorage.getItem(`cwd:${this.credentials.uid}`) || DefaultShellOptions.cwd
     this._env = new Map([...Object.entries(DefaultShellOptions.env), ...Object.entries(options.env)])
     this._ctx = options.context
+    this._createPipeStream = options.createPipeStream
     this._execute = options.execute
     this._filesystem = options.filesystem
     this._users = options.users
@@ -861,7 +863,7 @@ export class Shell implements IShell {
 
         let pipeWritable: WritableStream<Uint8Array> | undefined
         if (!isLastCommand) {
-          const pipe = new TransformStream<Uint8Array>()
+          const pipe = this._createPipeStream()
           pipeWritable = pipe.writable
           prevReadable = pipe.readable
         }

@@ -9,7 +9,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, isDirectory, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, isDirectory, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: xxd [FILE]
 Display file contents or stdin in hexadecimal format.
@@ -25,7 +25,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -88,7 +87,7 @@ function formatDump(data) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -96,8 +95,8 @@ function main() {
   let data
 
   const usageError = () => {
-    write(2, new TextEncoder().encode('Usage: xxd <file>\n'))
-    write(2, new TextEncoder().encode('   or: <command> | xxd\n'))
+    writeAll(2, new TextEncoder().encode('Usage: xxd <file>\n'))
+    writeAll(2, new TextEncoder().encode('   or: <command> | xxd\n'))
     return 1
   }
 
@@ -109,19 +108,19 @@ function main() {
       const cwd = getcwd()
       const fullPath = resolve(cwd, filePath)
       if (isDirectory(fullPath)) {
-        write(2, new TextEncoder().encode(`xxd: ${filePath}: Is a directory\n`))
+        writeAll(2, new TextEncoder().encode(`xxd: ${filePath}: Is a directory\n`))
         return 1
       }
       data = readWholeFile(fullPath)
     }
 
-    write(1, new TextEncoder().encode(formatDump(data)))
+    writeAll(1, new TextEncoder().encode(formatDump(data)))
     return 0
   } catch (error) {
     const errorPath = filePath || 'stdin'
     const message = error instanceof Error ? error.message : String(error)
     const reason = message.includes('ENOENT') ? 'No such file or directory' : message
-    write(2, new TextEncoder().encode(`xxd: ${errorPath}: ${reason}\n`))
+    writeAll(2, new TextEncoder().encode(`xxd: ${errorPath}: ${reason}\n`))
     return 1
   }
 }
@@ -129,6 +128,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`xxd: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`xxd: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

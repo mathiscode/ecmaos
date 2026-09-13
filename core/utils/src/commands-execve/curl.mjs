@@ -7,7 +7,7 @@
 
 import { resolve, basename } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, open, close, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, open, close, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: curl [OPTION]... URL
 Transfer data from or to a server.
@@ -25,7 +25,7 @@ async function main() {
   {
     const args = argv.slice(1)
     if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     }
 
@@ -43,7 +43,7 @@ async function main() {
       if (!arg) continue
 
       if (arg === '--help' || arg === '-h') {
-        write(2, new TextEncoder().encode(usage + '\n'))
+        writeAll(2, new TextEncoder().encode(usage + '\n'))
         return 0
       } else if (arg === '-o' || arg === '--output') {
         if (i + 1 < args.length) outputFile = args[++i]
@@ -94,17 +94,17 @@ async function main() {
         if (flags.includes('O')) remoteName = true
         const invalid = flags.find(f => !['s', 'v', 'O'].includes(f))
         if (invalid) {
-          write(2, new TextEncoder().encode(`curl: invalid option -- '${invalid}'\nTry 'curl --help' for more information.\n`))
+          writeAll(2, new TextEncoder().encode(`curl: invalid option -- '${invalid}'\nTry 'curl --help' for more information.\n`))
           return 1
         }
       } else {
         if (!url) url = arg
-        else { write(2, new TextEncoder().encode(`curl: unexpected argument: ${arg}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`curl: unexpected argument: ${arg}\n`)); return 1 }
       }
     }
 
     if (!url) {
-      write(2, new TextEncoder().encode("curl: URL is required\nTry 'curl --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode("curl: URL is required\nTry 'curl --help' for more information.\n"))
       return 1
     }
 
@@ -115,7 +115,7 @@ async function main() {
 
     try {
       if (verbose && !silent) {
-        write(2, new TextEncoder().encode(`* Connecting to ${url}\n> ${method} ${url} HTTP/1.1\n`))
+        writeAll(2, new TextEncoder().encode(`* Connecting to ${url}\n> ${method} ${url} HTTP/1.1\n`))
       }
 
       const fetchOptions = { method }
@@ -127,26 +127,26 @@ async function main() {
 
       if (verbose && !silent) {
         for (const [name, value] of Object.entries(headers)) {
-          write(2, new TextEncoder().encode(`> ${name}: ${value}\n`))
+          writeAll(2, new TextEncoder().encode(`> ${name}: ${value}\n`))
         }
       }
 
       const response = await fetch(url, fetchOptions)
 
       if (verbose && !silent) {
-        write(2, new TextEncoder().encode(`< HTTP/${response.status} ${response.status} ${response.statusText}\n`))
+        writeAll(2, new TextEncoder().encode(`< HTTP/${response.status} ${response.status} ${response.statusText}\n`))
         for (const [name, value] of response.headers.entries()) {
-          write(2, new TextEncoder().encode(`< ${name}: ${value}\n`))
+          writeAll(2, new TextEncoder().encode(`< ${name}: ${value}\n`))
         }
       }
 
       if (!response.ok && !silent) {
-        write(2, new TextEncoder().encode(`curl: HTTP error! status: ${response.status}\n`))
+        writeAll(2, new TextEncoder().encode(`curl: HTTP error! status: ${response.status}\n`))
       }
 
       const reader = response.body?.getReader()
       if (!reader) {
-        if (!silent) write(2, new TextEncoder().encode('curl: No response body\n'))
+        if (!silent) writeAll(2, new TextEncoder().encode('curl: No response body\n'))
         return response.ok ? 0 : 1
       }
 
@@ -159,8 +159,8 @@ async function main() {
           const { done, value } = await reader.read()
           if (done) break
           if (value && value.length > 0) {
-            if (fd !== undefined) write(fd, value)
-            else write(1, value)
+            if (fd !== undefined) writeAll(fd, value)
+            else writeAll(1, value)
           }
         }
       } finally {
@@ -169,7 +169,7 @@ async function main() {
 
       return response.ok ? 0 : 1
     } catch (error) {
-      if (!silent) write(2, new TextEncoder().encode(`curl: ${error instanceof Error ? error.message : String(error)}\n`))
+      if (!silent) writeAll(2, new TextEncoder().encode(`curl: ${error instanceof Error ? error.message : String(error)}\n`))
       return 1
     }
   }
@@ -178,6 +178,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`curl: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`curl: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

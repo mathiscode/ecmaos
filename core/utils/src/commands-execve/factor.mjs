@@ -6,7 +6,7 @@
  * `read(0, ...)` stdin read, which still works for both piped and raw interactive input.
  */
 
-const { argv, exit, write, read } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: factor [NUMBER]...
 Print prime factors of each NUMBER.
@@ -36,7 +36,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -48,7 +47,7 @@ function readAllStdin() {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -58,8 +57,8 @@ function main() {
     if (!arg.startsWith('-')) {
       numbers.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`factor: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'factor --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`factor: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'factor --help' for more information.\n"))
       return 1
     }
   }
@@ -73,8 +72,8 @@ function main() {
   }
 
   if (numbers.length === 0) {
-    write(2, new TextEncoder().encode('factor: missing operand\n'))
-    write(2, new TextEncoder().encode("Try 'factor --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('factor: missing operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'factor --help' for more information.\n"))
     return 1
   }
 
@@ -84,13 +83,13 @@ function main() {
   for (const numStr of numbers) {
     const num = parseInt(numStr, 10)
     if (isNaN(num) || num < 0) {
-      write(2, new TextEncoder().encode(`factor: '${numStr}' is not a valid positive integer\n`))
+      writeAll(2, new TextEncoder().encode(`factor: '${numStr}' is not a valid positive integer\n`))
       hasError = true
       continue
     }
     output += `${num}: ${factorize(num).join(' ')}\n`
   }
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return hasError ? 1 : 0
 }
@@ -98,6 +97,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`factor: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`factor: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

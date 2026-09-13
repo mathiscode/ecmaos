@@ -5,7 +5,7 @@
  * *this worker* started, exactly as imprecise/approximate as the original's main-thread reading was.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: uptime
 Print how long the system has been running.
@@ -30,12 +30,12 @@ function formatUptime(seconds) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length > 0 && args[0] !== '--help' && args[0] !== '-h') {
-    write(2, new TextEncoder().encode(`uptime: extra operand '${args[0]}'\nTry 'uptime --help' for more information.\n`))
+    writeAll(2, new TextEncoder().encode(`uptime: extra operand '${args[0]}'\nTry 'uptime --help' for more information.\n`))
     return 1
   }
 
@@ -43,13 +43,13 @@ function main() {
   const uptimeString = formatUptime(uptimeSeconds)
   const now = new Date()
 
-  write(1, new TextEncoder().encode(` ${now.toLocaleTimeString()} up ${uptimeString}\n`))
+  writeAll(1, new TextEncoder().encode(` ${now.toLocaleTimeString()} up ${uptimeString}\n`))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`uptime: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`uptime: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

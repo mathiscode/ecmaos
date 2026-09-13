@@ -9,7 +9,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: head [OPTION]... [FILE]...
 Print the first 10 lines of each FILE to standard output.
@@ -26,7 +26,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -65,7 +64,7 @@ function firstNLines(bytes, numLines) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -101,7 +100,7 @@ function main() {
   if (files.length === 0) {
     const bytes = readAllStdin()
     const output = numBytes !== null ? bytes.subarray(0, numBytes) : firstNLines(bytes, numLines)
-    write(1, output)
+    writeAll(1, output)
     return 0
   }
 
@@ -115,17 +114,17 @@ function main() {
 
     if (isMultipleFiles) {
       const header = i > 0 ? '\n' : ''
-      write(1, new TextEncoder().encode(`${header}==> ${file} <==\n`))
+      writeAll(1, new TextEncoder().encode(`${header}==> ${file} <==\n`))
     }
 
     try {
       const bytes = readWholeFile(fullPath)
       const output = numBytes !== null ? bytes.subarray(0, Math.min(numBytes, bytes.length)) : firstNLines(bytes, numLines)
-      write(1, output)
+      writeAll(1, output)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const reason = message.includes('ENOENT') ? 'No such file or directory' : message
-      write(2, new TextEncoder().encode(`head: ${file}: ${reason}\n`))
+      writeAll(2, new TextEncoder().encode(`head: ${file}: ${reason}\n`))
       hasError = true
     }
   }
@@ -136,6 +135,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`head: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`head: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

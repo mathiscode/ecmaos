@@ -5,7 +5,7 @@
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, isDirectory, rename } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, rename } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: mv [OPTION]... SOURCE... DEST
 Rename SOURCE to DEST, or move SOURCE(s) to DIRECTORY.
@@ -19,13 +19,13 @@ function exists(path) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   const paths = args.filter(arg => arg && !arg.startsWith('-'))
   if (paths.length < 2) {
-    write(2, new TextEncoder().encode('Usage: mv <source> <destination>\n'))
+    writeAll(2, new TextEncoder().encode('Usage: mv <source> <destination>\n'))
     return 1
   }
 
@@ -37,7 +37,7 @@ function main() {
 
   const disallowed = ['/dev', '/proc', '/sys', '/run']
   if (disallowed.some(p => source.startsWith(p) || destination.startsWith(p))) {
-    write(2, new TextEncoder().encode('Cannot move disallowed paths\n'))
+    writeAll(2, new TextEncoder().encode('Cannot move disallowed paths\n'))
     return 2
   }
 
@@ -45,7 +45,7 @@ function main() {
     if (isDirectory(destination)) {
       destination = join(destination, basename(source))
     } else {
-      write(2, new TextEncoder().encode(`${destination} already exists\n`))
+      writeAll(2, new TextEncoder().encode(`${destination} already exists\n`))
       return 1
     }
   }
@@ -57,6 +57,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`mv: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`mv: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: comm [OPTION]... FILE1 FILE2
 Compare two sorted files line by line.
@@ -41,7 +41,7 @@ function readFileLines(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -58,7 +58,7 @@ function main() {
   }
 
   if (files.length !== 2) {
-    write(2, new TextEncoder().encode('comm: exactly two files must be specified\n'))
+    writeAll(2, new TextEncoder().encode('comm: exactly two files must be specified\n'))
     return 1
   }
 
@@ -99,11 +99,11 @@ function main() {
       }
     }
 
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`comm: ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`comm: ${message}\n`))
     return 1
   }
 }
@@ -111,6 +111,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`comm: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`comm: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

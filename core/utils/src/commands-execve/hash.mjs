@@ -8,7 +8,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const SUPPORTED_ALGORITHMS = {
   'sha1': 'SHA-1', 'sha-1': 'SHA-1',
@@ -38,7 +38,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -69,7 +68,7 @@ function readWholeFile(fullPath) {
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -81,12 +80,12 @@ async function main() {
     if (arg === '-a' || arg === '--algorithm') {
       const algoArg = args[i + 1]
       if (!algoArg) {
-        write(2, new TextEncoder().encode(`hash: option requires an argument -- '${arg === '-a' ? 'a' : 'algorithm'}'\n`))
+        writeAll(2, new TextEncoder().encode(`hash: option requires an argument -- '${arg === '-a' ? 'a' : 'algorithm'}'\n`))
         return 1
       }
       const selected = SUPPORTED_ALGORITHMS[algoArg.toLowerCase()]
       if (!selected) {
-        write(2, new TextEncoder().encode(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}\n`))
+        writeAll(2, new TextEncoder().encode(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}\n`))
         return 1
       }
       algorithm = selected
@@ -94,20 +93,20 @@ async function main() {
     } else if (arg.startsWith('--algorithm=')) {
       const algoArg = arg.split('=')[1]
       if (!algoArg) {
-        write(2, new TextEncoder().encode("hash: option requires an argument -- 'algorithm'\n"))
+        writeAll(2, new TextEncoder().encode("hash: option requires an argument -- 'algorithm'\n"))
         return 1
       }
       const selected = SUPPORTED_ALGORITHMS[algoArg.toLowerCase()]
       if (!selected) {
-        write(2, new TextEncoder().encode(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}\n`))
+        writeAll(2, new TextEncoder().encode(`hash: unsupported algorithm '${algoArg}'\nSupported algorithms: ${Object.keys(SUPPORTED_ALGORITHMS).join(', ')}\n`))
         return 1
       }
       algorithm = selected
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`hash: invalid option -- '${arg.replace(/^-+/, '')}'\n`))
-      write(2, new TextEncoder().encode("Try 'hash --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`hash: invalid option -- '${arg.replace(/^-+/, '')}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'hash --help' for more information.\n"))
       return 1
     }
   }
@@ -115,7 +114,7 @@ async function main() {
   if (files.length === 0) {
     const data = readAllStdin()
     const hash = await hashData(data, algorithm)
-    write(1, new TextEncoder().encode(hash + '\n'))
+    writeAll(1, new TextEncoder().encode(hash + '\n'))
     return 0
   }
 
@@ -127,10 +126,10 @@ async function main() {
     try {
       const data = readWholeFile(fullPath)
       const hash = await hashData(data, algorithm)
-      write(1, new TextEncoder().encode(`${hash}  ${file}\n`))
+      writeAll(1, new TextEncoder().encode(`${hash}  ${file}\n`))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`hash: ${file}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`hash: ${file}: ${message}\n`))
       hasError = true
     }
   }
@@ -141,6 +140,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`hash: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`hash: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, env, open, close, stat, isDirectory, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, env, open, close, stat, isDirectory, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: sed [OPTION]... {script-only-if-no-other-script} [input-file]...
 
@@ -49,7 +49,7 @@ function readWholeFile(fullPath) {
 function writeWholeFile(fullPath, bytes) {
   const fd = open(fullPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
   try {
-    write(fd, bytes)
+    writeAll(fd, bytes)
   } finally {
     close(fd)
   }
@@ -67,7 +67,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -233,7 +232,7 @@ function applySedCommand(line, lineNum, totalLines, command) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -261,7 +260,7 @@ function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-e' || arg === '--expression') {
       if (i + 1 < args.length) expressions.push(args[++i] || '')
@@ -291,7 +290,7 @@ function main() {
   }
 
   if (expressions.length === 0 && !scriptFile) {
-    write(2, new TextEncoder().encode('sed: No expression provided\n'))
+    writeAll(2, new TextEncoder().encode('sed: No expression provided\n'))
     return 1
   }
 
@@ -301,7 +300,7 @@ function main() {
   if (scriptFile) {
     const scriptPath = resolve(cwd, scriptFile)
     if (!exists(scriptPath)) {
-      write(2, new TextEncoder().encode(`sed: ${scriptFile}: No such file or directory\n`))
+      writeAll(2, new TextEncoder().encode(`sed: ${scriptFile}: No such file or directory\n`))
       return 1
     }
 
@@ -319,23 +318,23 @@ function main() {
     if (cmd) {
       commands.push(cmd)
     } else {
-      write(2, new TextEncoder().encode(`sed: Invalid expression: ${expr}\n`))
+      writeAll(2, new TextEncoder().encode(`sed: Invalid expression: ${expr}\n`))
       return 1
     }
   }
 
   if (commands.length === 0) {
-    write(2, new TextEncoder().encode('sed: No valid commands found\n'))
+    writeAll(2, new TextEncoder().encode('sed: No valid commands found\n'))
     return 1
   }
 
   const processFile = (filePath) => {
     if (!exists(filePath)) {
-      write(2, new TextEncoder().encode(`sed: ${filePath}: No such file or directory\n`))
+      writeAll(2, new TextEncoder().encode(`sed: ${filePath}: No such file or directory\n`))
       return []
     }
     if (isDirectory(filePath)) {
-      write(2, new TextEncoder().encode(`sed: ${filePath}: Is a directory\n`))
+      writeAll(2, new TextEncoder().encode(`sed: ${filePath}: Is a directory\n`))
       return []
     }
     const content = new TextDecoder().decode(readWholeFile(filePath))
@@ -400,12 +399,12 @@ function main() {
       }
 
       const outputLines = runLines(inputLines, inputLines.length)
-      write(1, new TextEncoder().encode(outputLines.join('\n')))
+      writeAll(1, new TextEncoder().encode(outputLines.join('\n')))
     }
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`sed: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`sed: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -413,6 +412,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`sed: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`sed: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

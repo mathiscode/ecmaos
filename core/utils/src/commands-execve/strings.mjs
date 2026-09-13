@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: strings [OPTION]... [FILE]...
 Print the sequences of printable characters in files.
@@ -40,7 +40,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -71,7 +70,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -84,25 +83,25 @@ function main() {
       if (i + 1 < args.length) {
         const parsed = parseInt(args[++i], 10)
         if (!isNaN(parsed) && parsed > 0) minLen = parsed
-        else { write(2, new TextEncoder().encode(`strings: invalid minimum length: ${args[i]}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`strings: invalid minimum length: ${args[i]}\n`)); return 1 }
       }
     } else if (arg.startsWith('--bytes=')) {
       const lenStr = arg.slice(8)
       const parsed = parseInt(lenStr, 10)
       if (!isNaN(parsed) && parsed > 0) minLen = parsed
-      else { write(2, new TextEncoder().encode(`strings: invalid minimum length: ${lenStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`strings: invalid minimum length: ${lenStr}\n`)); return 1 }
     } else if (arg.startsWith('-n')) {
       const lenStr = arg.slice(2)
       if (lenStr) {
         const parsed = parseInt(lenStr, 10)
         if (!isNaN(parsed) && parsed > 0) minLen = parsed
-        else { write(2, new TextEncoder().encode(`strings: invalid minimum length: ${lenStr}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`strings: invalid minimum length: ${lenStr}\n`)); return 1 }
       }
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`strings: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'strings --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`strings: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'strings --help' for more information.\n"))
       return 1
     }
   }
@@ -111,7 +110,7 @@ function main() {
     const data = readAllStdin()
     let output = ''
     for (const str of extractStrings(data, minLen)) output += str + '\n'
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
     return 0
   }
 
@@ -124,10 +123,10 @@ function main() {
       const data = readWholeFile(fullPath)
       let output = ''
       for (const str of extractStrings(data, minLen)) output += str + '\n'
-      write(1, new TextEncoder().encode(output))
+      writeAll(1, new TextEncoder().encode(output))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`strings: ${file}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`strings: ${file}: ${message}\n`))
       hasError = true
     }
   }
@@ -138,6 +137,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`strings: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`strings: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

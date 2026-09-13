@@ -9,7 +9,7 @@
 import columnify from 'columnify'
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: column [OPTION]... [FILE]...
 Format input into columns.
@@ -27,7 +27,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -64,7 +63,7 @@ function splitLines(text) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -87,25 +86,25 @@ function main() {
       if (i + 1 < args.length) {
         const parsed = parseInt(args[++i], 10)
         if (!isNaN(parsed) && parsed > 0) columns = parsed
-        else { write(2, new TextEncoder().encode(`column: invalid column count: ${args[i]}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`column: invalid column count: ${args[i]}\n`)); return 1 }
       }
     } else if (arg.startsWith('--columns=')) {
       const colsStr = arg.slice(10)
       const parsed = parseInt(colsStr, 10)
       if (!isNaN(parsed) && parsed > 0) columns = parsed
-      else { write(2, new TextEncoder().encode(`column: invalid column count: ${colsStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`column: invalid column count: ${colsStr}\n`)); return 1 }
     } else if (arg.startsWith('-c')) {
       const colsStr = arg.slice(2)
       if (colsStr) {
         const parsed = parseInt(colsStr, 10)
         if (!isNaN(parsed) && parsed > 0) columns = parsed
-        else { write(2, new TextEncoder().encode(`column: invalid column count: ${colsStr}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`column: invalid column count: ${colsStr}\n`)); return 1 }
       }
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`column: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'column --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`column: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'column --help' for more information.\n"))
       return 1
     }
   }
@@ -123,7 +122,7 @@ function main() {
         lines.push(...splitLines(readWholeFileText(fullPath)))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`column: ${file}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`column: ${file}: ${message}\n`))
         hasError = true
       }
     }
@@ -140,7 +139,7 @@ function main() {
       data.push(row)
     }
     if (data.length > 0) {
-      write(1, new TextEncoder().encode(columnify(data, { columns: Array.from(headers), columnSplitter: '  ', showHeaders: true })))
+      writeAll(1, new TextEncoder().encode(columnify(data, { columns: Array.from(headers), columnSplitter: '  ', showHeaders: true })))
     }
   } else if (table) {
     const data = []
@@ -153,7 +152,7 @@ function main() {
       data.push(row)
     }
     if (data.length > 0) {
-      write(1, new TextEncoder().encode(columnify(data, { columns: Array.from(headers), columnSplitter: '  ', showHeaders: true })))
+      writeAll(1, new TextEncoder().encode(columnify(data, { columns: Array.from(headers), columnSplitter: '  ', showHeaders: true })))
     }
   } else {
     const words = []
@@ -174,7 +173,7 @@ function main() {
       }
 
       if (data.length > 0) {
-        write(1, new TextEncoder().encode(columnify(data, {
+        writeAll(1, new TextEncoder().encode(columnify(data, {
           columns: Array.from({ length: columns }, (_, i) => `col${i + 1}`),
           columnSplitter: '  ',
           showHeaders: false
@@ -183,7 +182,7 @@ function main() {
     } else {
       let output = ''
       for (const word of words) output += word + '\n'
-      write(1, new TextEncoder().encode(output))
+      writeAll(1, new TextEncoder().encode(output))
     }
   }
 
@@ -193,6 +192,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`column: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`column: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

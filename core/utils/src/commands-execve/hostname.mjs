@@ -6,7 +6,7 @@
  * carries that same value, threaded through `Shell`'s env at construction (see `kernel.ts`).
  */
 
-const { argv, exit, write, env } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: hostname [OPTION]
 Print the system hostname.
@@ -18,7 +18,7 @@ Print the system hostname.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -30,7 +30,7 @@ function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-f' || arg === '--fqdn') {
       showFqdn = true
@@ -42,7 +42,7 @@ function main() {
       if (flags.includes('s')) showShort = true
       const invalid = flags.find(f => !['f', 's'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`hostname: invalid option -- '${invalid}'\nTry 'hostname --help' for more information.\n`))
+        writeAll(2, new TextEncoder().encode(`hostname: invalid option -- '${invalid}'\nTry 'hostname --help' for more information.\n`))
         return 1
       }
     } else {
@@ -51,7 +51,7 @@ function main() {
   }
 
   if (positional.length > 0) {
-    write(2, new TextEncoder().encode("hostname: invalid argument\nTry 'hostname --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("hostname: invalid argument\nTry 'hostname --help' for more information.\n"))
     return 1
   }
 
@@ -66,13 +66,13 @@ function main() {
     output = hostname
   }
 
-  write(1, new TextEncoder().encode(output + '\n'))
+  writeAll(1, new TextEncoder().encode(output + '\n'))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`hostname: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`hostname: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

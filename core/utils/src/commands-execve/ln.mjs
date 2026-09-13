@@ -7,7 +7,7 @@
 
 import { resolve, basename, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, isDirectory, unlink, rmdir, symlink, link } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, unlink, rmdir, symlink, link } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: ln [OPTION]... [-T] TARGET LINK_NAME
    or:  ln [OPTION]... TARGET
@@ -26,7 +26,7 @@ function exists(path) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -45,15 +45,15 @@ function main() {
       if (flags.includes('f')) force = true
       if (flags.includes('v')) verbose = true
       const invalid = flags.find(f => !['s', 'f', 'v'].includes(f))
-      if (invalid) { write(2, new TextEncoder().encode(`ln: invalid option -- '${invalid}'\n`)); return 1 }
+      if (invalid) { writeAll(2, new TextEncoder().encode(`ln: invalid option -- '${invalid}'\n`)); return 1 }
     } else {
       positional.push(arg)
     }
   }
 
   if (positional.length === 0) {
-    write(2, new TextEncoder().encode('ln: missing file operand\n'))
-    write(2, new TextEncoder().encode("Try 'ln --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('ln: missing file operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'ln --help' for more information.\n"))
     return 1
   }
 
@@ -63,12 +63,12 @@ function main() {
 
   const targetStats = exists(targetPath)
   if (!targetStats) {
-    write(2, new TextEncoder().encode(`ln: ${target}: No such file or directory\n`))
+    writeAll(2, new TextEncoder().encode(`ln: ${target}: No such file or directory\n`))
     return 1
   }
   const targetIsDir = isDirectory(targetPath)
   if (!symbolic && targetIsDir) {
-    write(2, new TextEncoder().encode(`ln: ${target}: hard link not allowed for directory\n`))
+    writeAll(2, new TextEncoder().encode(`ln: ${target}: hard link not allowed for directory\n`))
     return 1
   }
 
@@ -89,7 +89,7 @@ function main() {
         if (isDirectory(linkName)) rmdir(linkName)
         else unlink(linkName)
       } else {
-        write(2, new TextEncoder().encode(`ln: ${linkName}: File exists\n`))
+        writeAll(2, new TextEncoder().encode(`ln: ${linkName}: File exists\n`))
         return 1
       }
     }
@@ -97,11 +97,11 @@ function main() {
     if (symbolic) symlink(targetPath, linkName)
     else link(targetPath, linkName)
 
-    if (verbose) write(1, new TextEncoder().encode(linkName + '\n'))
+    if (verbose) writeAll(1, new TextEncoder().encode(linkName + '\n'))
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`ln: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`ln: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -109,6 +109,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`ln: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`ln: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

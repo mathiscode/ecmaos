@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tail [OPTION]... [FILE]...
 Print the last 10 lines of each FILE to standard output.
@@ -22,7 +22,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -60,7 +59,7 @@ function lastNLines(text, numLines) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -85,7 +84,7 @@ function main() {
 
   if (files.length === 0) {
     const text = readAllStdin()
-    write(1, new TextEncoder().encode(lastNLines(text, numLines)))
+    writeAll(1, new TextEncoder().encode(lastNLines(text, numLines)))
     return 0
   }
 
@@ -99,16 +98,16 @@ function main() {
 
     if (isMultipleFiles) {
       const header = i > 0 ? '\n' : ''
-      write(1, new TextEncoder().encode(`${header}==> ${file} <==\n`))
+      writeAll(1, new TextEncoder().encode(`${header}==> ${file} <==\n`))
     }
 
     try {
       const text = readWholeFileText(fullPath)
-      write(1, new TextEncoder().encode(lastNLines(text, numLines)))
+      writeAll(1, new TextEncoder().encode(lastNLines(text, numLines)))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const reason = message.includes('ENOENT') ? 'No such file or directory' : message
-      write(2, new TextEncoder().encode(`tail: ${file}: ${reason}\n`))
+      writeAll(2, new TextEncoder().encode(`tail: ${file}: ${reason}\n`))
       hasError = true
     }
   }
@@ -119,6 +118,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`tail: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`tail: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

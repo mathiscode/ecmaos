@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: wc [OPTION]... [FILE]...
 Print newline, word, and byte counts for each FILE.
@@ -24,7 +24,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -53,7 +52,12 @@ function readWholeFileText(fullPath) {
 }
 
 function countText(content) {
-  const lines = content.split('\n').length - (content.endsWith('\n') ? 0 : 1)
+  // GNU wc -l counts newline characters, not "segments" -- `"a\na\n".split('\n')` is `["a","a",""]`
+  // (length 3), which overcounts by exactly one whenever content ends with '\n' (the norm for any
+  // real text file) since the trailing empty segment isn't a line. A content ending without '\n'
+  // has one fewer newline than segments, and its last (partial) line correctly isn't counted at all,
+  // matching real `wc`.
+  const lines = (content.match(/\n/g) || []).length
   const words = content.trim().split(/\s+/).filter(w => w.length > 0).length
   const bytes = new TextEncoder().encode(content).length
   return { lines, words, bytes }
@@ -62,7 +66,7 @@ function countText(content) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -82,7 +86,7 @@ function main() {
       if (flags.includes('w')) showWords = true
       const invalid = flags.find(f => !['c', 'l', 'w'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`wc: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode(`wc: invalid option -- '${invalid}'\n`))
         return 1
       }
     } else {
@@ -103,7 +107,7 @@ function main() {
 
   if (files.length === 0) {
     const content = readAllStdin()
-    write(1, new TextEncoder().encode(formatCounts(countText(content)) + '\n'))
+    writeAll(1, new TextEncoder().encode(formatCounts(countText(content)) + '\n'))
     return 0
   }
 
@@ -121,16 +125,16 @@ function main() {
       totalLines += counts.lines
       totalWords += counts.words
       totalBytes += counts.bytes
-      write(1, new TextEncoder().encode(formatCounts(counts, file) + '\n'))
+      writeAll(1, new TextEncoder().encode(formatCounts(counts, file) + '\n'))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`wc: ${file}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`wc: ${file}: ${message}\n`))
       hasError = true
     }
   }
 
   if (files.length > 1) {
-    write(1, new TextEncoder().encode(formatCounts({ lines: totalLines, words: totalWords, bytes: totalBytes }, 'total') + '\n'))
+    writeAll(1, new TextEncoder().encode(formatCounts({ lines: totalLines, words: totalWords, bytes: totalBytes }, 'total') + '\n'))
   }
 
   return hasError ? 1 : 0
@@ -139,6 +143,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`wc: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`wc: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

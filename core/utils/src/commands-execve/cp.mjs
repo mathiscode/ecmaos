@@ -6,7 +6,7 @@
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, isDirectory, readdir, mkdir, copyFile } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, copyFile } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
@@ -23,21 +23,21 @@ function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDe
   if (isDirectory(sourcePath)) {
     if (!exists(destPath)) {
       mkdir(destPath, 0o777)
-      if (verbose) write(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
+      if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
     }
     for (const entry of readdir(sourcePath)) {
       copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry))
     }
   } else {
     copyFile(sourcePath, destPath)
-    if (verbose) write(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
+    if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
   }
 }
 
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -54,7 +54,7 @@ function main() {
           const flag = arg[i]
           if (flag === 'r' || flag === 'R') recursive = true
           else if (flag === 'v') verbose = true
-          else { write(2, new TextEncoder().encode(`cp: invalid option -- '${flag}'\n`)); return 1 }
+          else { writeAll(2, new TextEncoder().encode(`cp: invalid option -- '${flag}'\n`)); return 1 }
         }
       }
     } else if (arg && !arg.startsWith('-')) {
@@ -63,7 +63,7 @@ function main() {
   }
 
   if (paths.length < 2) {
-    write(2, new TextEncoder().encode("cp: missing file operand\nTry 'cp --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("cp: missing file operand\nTry 'cp --help' for more information.\n"))
     return 1
   }
 
@@ -77,7 +77,7 @@ function main() {
     const isDestDir = exists(destPath) && isDirectory(destPath)
 
     if (sources.length > 1 && !isDestDir) {
-      write(2, new TextEncoder().encode(`cp: target '${destination}' is not a directory\n`))
+      writeAll(2, new TextEncoder().encode(`cp: target '${destination}' is not a directory\n`))
       return 1
     }
 
@@ -88,7 +88,7 @@ function main() {
       try {
         if (isDirectory(sourcePath)) {
           if (!recursive) {
-            write(2, new TextEncoder().encode(`cp: -r not specified; omitting directory '${source}'\n`))
+            writeAll(2, new TextEncoder().encode(`cp: -r not specified; omitting directory '${source}'\n`))
             hasError = true
             continue
           }
@@ -98,18 +98,18 @@ function main() {
           copyFile(sourcePath, finalDest)
           if (verbose) {
             const relativeDest = isDestDir ? join(destination, basename(source)) : destination
-            write(1, new TextEncoder().encode(`'${source}' -> '${relativeDest}'\n`))
+            writeAll(1, new TextEncoder().encode(`'${source}' -> '${relativeDest}'\n`))
           }
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`cp: ${source}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`cp: ${source}: ${message}\n`))
         hasError = true
       }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`cp: ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`cp: ${message}\n`))
     hasError = true
   }
 
@@ -119,6 +119,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`cp: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`cp: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

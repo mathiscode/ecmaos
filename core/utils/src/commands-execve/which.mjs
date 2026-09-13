@@ -7,7 +7,7 @@
 
 import { resolve, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, env, stat } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, env, stat } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: which [COMMAND]...
 Locate a command.
@@ -43,14 +43,14 @@ function resolveCommand(cwd, command) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   const commands = args.filter(arg => arg !== '--help' && arg !== '-h' && !arg.startsWith('-'))
 
   if (commands.length === 0) {
-    write(2, new TextEncoder().encode('which: missing command name\n'))
+    writeAll(2, new TextEncoder().encode('which: missing command name\n'))
     return 1
   }
 
@@ -67,13 +67,13 @@ function main() {
     }
   }
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return exitCode
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`which: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`which: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

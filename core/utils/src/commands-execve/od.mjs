@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: od [OPTION]... [FILE]...
 Dump files in octal and other formats.
@@ -77,7 +77,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -109,7 +108,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -125,16 +124,16 @@ function main() {
       if (i + 1 < args.length) {
         const radix = args[++i]
         if (radix && ['d', 'o', 'x', 'n'].includes(radix)) addressRadix = radix
-        else { write(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
       }
     } else if (arg.startsWith('--address-radix=')) {
       const radix = arg.slice(16)
       if (['d', 'o', 'x', 'n'].includes(radix)) addressRadix = radix
-      else { write(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
     } else if (arg.startsWith('-A')) {
       const radix = arg.slice(2)
       if (['d', 'o', 'x', 'n'].includes(radix)) addressRadix = radix
-      else { write(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid address radix: ${radix}\n`)); return 1 }
     } else if (arg === '-t' || arg === '--format') {
       if (i + 1 < args.length) { const fmt = args[++i]; if (fmt) format = fmt }
     } else if (arg.startsWith('--format=')) {
@@ -145,39 +144,39 @@ function main() {
       if (i + 1 < args.length) {
         const parsed = parseInt(args[++i], 10)
         if (!isNaN(parsed) && parsed > 0) readBytes = parsed
-        else { write(2, new TextEncoder().encode(`od: invalid byte count: ${args[i]}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`od: invalid byte count: ${args[i]}\n`)); return 1 }
       }
     } else if (arg.startsWith('--read-bytes=')) {
       const bytesStr = arg.slice(13)
       const parsed = parseInt(bytesStr, 10)
       if (!isNaN(parsed) && parsed > 0) readBytes = parsed
-      else { write(2, new TextEncoder().encode(`od: invalid byte count: ${bytesStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid byte count: ${bytesStr}\n`)); return 1 }
     } else if (arg.startsWith('-N')) {
       const bytesStr = arg.slice(2)
       const parsed = parseInt(bytesStr, 10)
       if (!isNaN(parsed) && parsed > 0) readBytes = parsed
-      else { write(2, new TextEncoder().encode(`od: invalid byte count: ${bytesStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid byte count: ${bytesStr}\n`)); return 1 }
     } else if (arg === '-j' || arg === '--skip-bytes') {
       if (i + 1 < args.length) {
         const parsed = parseInt(args[++i], 10)
         if (!isNaN(parsed) && parsed >= 0) skipBytes = parsed
-        else { write(2, new TextEncoder().encode(`od: invalid skip count: ${args[i]}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`od: invalid skip count: ${args[i]}\n`)); return 1 }
       }
     } else if (arg.startsWith('--skip-bytes=')) {
       const bytesStr = arg.slice(13)
       const parsed = parseInt(bytesStr, 10)
       if (!isNaN(parsed) && parsed >= 0) skipBytes = parsed
-      else { write(2, new TextEncoder().encode(`od: invalid skip count: ${bytesStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid skip count: ${bytesStr}\n`)); return 1 }
     } else if (arg.startsWith('-j')) {
       const bytesStr = arg.slice(2)
       const parsed = parseInt(bytesStr, 10)
       if (!isNaN(parsed) && parsed >= 0) skipBytes = parsed
-      else { write(2, new TextEncoder().encode(`od: invalid skip count: ${bytesStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`od: invalid skip count: ${bytesStr}\n`)); return 1 }
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`od: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'od --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`od: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'od --help' for more information.\n"))
       return 1
     }
   }
@@ -194,7 +193,7 @@ function main() {
       data = readWholeFile(fullPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`od: ${file}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`od: ${file}: ${message}\n`))
       return 1
     }
   }
@@ -215,7 +214,7 @@ function main() {
     output += formatLine(lineData, offset + skipBytes, addressRadix, format) + '\n'
     offset += lineData.length
   }
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return 0
 }
@@ -223,6 +222,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`od: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`od: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

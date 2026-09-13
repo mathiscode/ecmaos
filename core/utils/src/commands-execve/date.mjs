@@ -4,7 +4,7 @@
  * live kernel/shell/terminal state.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: date [OPTION]... [+FORMAT]
 Print or set the system date and time.
@@ -17,7 +17,7 @@ Print or set the system date and time.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -32,7 +32,7 @@ function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-I' || arg === '--iso-8601') {
       iso8601 = true
@@ -42,7 +42,7 @@ function main() {
       if (i + 1 < args.length) {
         format = args[++i]
       } else {
-        write(1, new TextEncoder().encode("date: option requires an argument -- 'f'\n"))
+        writeAll(1, new TextEncoder().encode("date: option requires an argument -- 'f'\n"))
         return 1
       }
     } else if (arg.startsWith('--format=')) {
@@ -83,13 +83,13 @@ function main() {
     output = now.toString()
   }
 
-  write(1, new TextEncoder().encode(output + '\n'))
+  writeAll(1, new TextEncoder().encode(output + '\n'))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`date: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`date: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

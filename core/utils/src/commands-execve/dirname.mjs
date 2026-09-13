@@ -5,7 +5,7 @@
 
 import { dirname } from './lib/path-utils.mjs'
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: dirname [OPTION] NAME...
 Output each NAME with its last non-slash component and trailing slashes removed.
@@ -15,25 +15,25 @@ Output each NAME with its last non-slash component and trailing slashes removed.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   const paths = args.filter(arg => arg !== '--help' && arg !== '-h' && !arg.startsWith('-'))
   if (paths.length === 0) {
-    write(2, new TextEncoder().encode('dirname: missing operand\n'))
+    writeAll(2, new TextEncoder().encode('dirname: missing operand\n'))
     return 1
   }
 
   let output = ''
   for (const filePath of paths) output += dirname(filePath) + '\n'
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`dirname: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`dirname: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -19,7 +19,7 @@
 
 import { resolve, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, lstat, isDirectory, readdir, chown, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, lstat, isDirectory, readdir, chown, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...
    or:  chown [OPTION]... :GROUP FILE...
@@ -184,7 +184,7 @@ async function processFile(filePath, spec, options, relativePath) {
       const changeInfo = changed
         ? `changed ownership of '${relativePath}' from ${current.uid}:${current.gid} to ${newOwnership.uid}:${newOwnership.gid}`
         : `ownership of '${relativePath}' retained as ${newOwnership.uid}:${newOwnership.gid}`
-      write(1, new TextEncoder().encode(changeInfo + '\n'))
+      writeAll(1, new TextEncoder().encode(changeInfo + '\n'))
     }
 
     if (options.recursive) {
@@ -199,14 +199,14 @@ async function processFile(filePath, spec, options, relativePath) {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`chown: ${relativePath}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`chown: ${relativePath}: ${message}\n`))
       }
     }
 
     return false
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`chown: ${relativePath}: ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`chown: ${relativePath}: ${message}\n`))
     return true
   }
 }
@@ -214,7 +214,7 @@ async function processFile(filePath, spec, options, relativePath) {
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -231,18 +231,18 @@ async function main() {
     } else if (arg === '-c' || arg === '--changes') {
       changes = true
     } else if (arg === '--reference') {
-      write(2, new TextEncoder().encode('chown: --reference option not yet implemented\n'))
+      writeAll(2, new TextEncoder().encode('chown: --reference option not yet implemented\n'))
       return 1
     } else if (arg && !arg.startsWith('-')) {
       positional.push(arg)
     } else if (arg.startsWith('-')) {
-      write(2, new TextEncoder().encode(`chown: invalid option '${arg}'\nTry 'chown --help' for more information.\n`))
+      writeAll(2, new TextEncoder().encode(`chown: invalid option '${arg}'\nTry 'chown --help' for more information.\n`))
       return 1
     }
   }
 
   if (positional.length === 0) {
-    write(2, new TextEncoder().encode("chown: missing operand\nTry 'chown --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("chown: missing operand\nTry 'chown --help' for more information.\n"))
     return 1
   }
 
@@ -250,7 +250,7 @@ async function main() {
   const targets = positional.slice(1)
 
   if (!ownershipSpec || targets.length === 0) {
-    write(2, new TextEncoder().encode("chown: missing operand\nTry 'chown --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("chown: missing operand\nTry 'chown --help' for more information.\n"))
     return 1
   }
 
@@ -259,7 +259,7 @@ async function main() {
     spec = await parseOwnershipSpec(ownershipSpec)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`chown: invalid ownership spec '${ownershipSpec}': ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`chown: invalid ownership spec '${ownershipSpec}': ${message}\n`))
     return 1
   }
 
@@ -279,6 +279,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`chown: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`chown: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

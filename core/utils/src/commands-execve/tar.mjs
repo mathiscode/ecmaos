@@ -19,7 +19,7 @@
 import { resolve, join, dirname } from './lib/path-utils.mjs'
 import { packTar, unpackTar } from 'modern-tar'
 
-const { argv, exit, write, read, getcwd, open, close, stat, isDirectory, readdir, mkdir, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, isDirectory, readdir, mkdir, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tar [OPTION]... [FILE]...
 Create, extract, or list tar archives.
@@ -55,7 +55,7 @@ function readWholeFile(fullPath) {
 function writeWholeFile(fullPath, bytes) {
   const fd = open(fullPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
   try {
-    write(fd, bytes)
+    writeAll(fd, bytes)
   } finally {
     close(fd)
   }
@@ -69,7 +69,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -186,7 +185,7 @@ function collectFiles(cwd, filePaths, basePath = '') {
 
 async function createArchive(cwd, archivePath, filePaths, options) {
   if (filePaths.length === 0) {
-    write(2, new TextEncoder().encode('tar: no files specified\n'))
+    writeAll(2, new TextEncoder().encode('tar: no files specified\n'))
     return 1
   }
 
@@ -195,7 +194,7 @@ async function createArchive(cwd, archivePath, filePaths, options) {
     const filesToArchive = collectFiles(cwd, filePaths)
 
     if (filesToArchive.length === 0) {
-      write(2, new TextEncoder().encode('tar: no files to archive\n'))
+      writeAll(2, new TextEncoder().encode('tar: no files to archive\n'))
       return 1
     }
 
@@ -204,14 +203,14 @@ async function createArchive(cwd, archivePath, filePaths, options) {
       if (file.isDirectory) {
         const dirName = file.path.endsWith('/') ? file.path : file.path + '/'
         entries.push({ header: { name: dirName, type: 'directory', size: 0 } })
-        if (options.verbose) write(1, new TextEncoder().encode(dirName + '\n'))
+        if (options.verbose) writeAll(1, new TextEncoder().encode(dirName + '\n'))
       } else {
         try {
           const content = readWholeFile(file.fullPath)
           entries.push({ header: { name: file.path, type: 'file', size: content.length }, body: content })
-          if (options.verbose) write(1, new TextEncoder().encode(file.path + '\n'))
+          if (options.verbose) writeAll(1, new TextEncoder().encode(file.path + '\n'))
         } catch (error) {
-          write(2, new TextEncoder().encode(`tar: ${file.path}: ${error instanceof Error ? error.message : String(error)}\n`))
+          writeAll(2, new TextEncoder().encode(`tar: ${file.path}: ${error instanceof Error ? error.message : String(error)}\n`))
         }
       }
     }
@@ -222,7 +221,7 @@ async function createArchive(cwd, archivePath, filePaths, options) {
     writeWholeFile(fullArchivePath, archiveBytes)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -234,7 +233,7 @@ async function readArchiveBytes(cwd, archivePath, options) {
     try {
       stat(fullArchivePath)
     } catch {
-      write(2, new TextEncoder().encode(`tar: ${archivePath}: Cannot open: No such file or directory\n`))
+      writeAll(2, new TextEncoder().encode(`tar: ${archivePath}: Cannot open: No such file or directory\n`))
       return null
     }
     bytes = readWholeFile(fullArchivePath)
@@ -256,7 +255,7 @@ async function extractArchive(cwd, archivePath, options) {
     const extractBase = options.directory ? resolve(cwd, options.directory) : cwd
 
     for (const entry of entries) {
-      if (options.verbose) write(1, new TextEncoder().encode(entry.header.name + '\n'))
+      if (options.verbose) writeAll(1, new TextEncoder().encode(entry.header.name + '\n'))
 
       try {
         let entryName = entry.header.name
@@ -266,7 +265,7 @@ async function extractArchive(cwd, archivePath, options) {
         const targetPath = resolve(extractBase, entryName)
         const resolvedBase = resolve(extractBase, '.')
         if (!targetPath.startsWith(resolvedBase + '/') && targetPath !== resolvedBase) {
-          write(2, new TextEncoder().encode(`tar: ${entry.header.name}: path outside extraction directory\n`))
+          writeAll(2, new TextEncoder().encode(`tar: ${entry.header.name}: path outside extraction directory\n`))
           hasError = true
           continue
         }
@@ -279,14 +278,14 @@ async function extractArchive(cwd, archivePath, options) {
           writeWholeFile(targetPath, entry.data || new Uint8Array(0))
         }
       } catch (error) {
-        write(2, new TextEncoder().encode(`tar: ${entry.header.name}: ${error instanceof Error ? error.message : String(error)}\n`))
+        writeAll(2, new TextEncoder().encode(`tar: ${entry.header.name}: ${error instanceof Error ? error.message : String(error)}\n`))
         hasError = true
       }
     }
 
     return hasError ? 1 : 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -299,11 +298,11 @@ async function listArchive(cwd, archivePath, options) {
     const entries = await unpackTar(bytes)
     let output = ''
     for (const entry of entries) output += entry.header.name + '\n'
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -311,7 +310,7 @@ async function listArchive(cwd, archivePath, options) {
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -319,15 +318,15 @@ async function main() {
 
   const operationCount = [options.create, options.extract, options.list].filter(Boolean).length
   if (operationCount === 0) {
-    write(2, new TextEncoder().encode("tar: You must specify one of the -c, -x, or -t options\nTry 'tar --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("tar: You must specify one of the -c, -x, or -t options\nTry 'tar --help' for more information.\n"))
     return 1
   }
   if (operationCount > 1) {
-    write(2, new TextEncoder().encode('tar: You may not specify more than one of -c, -x, or -t\n'))
+    writeAll(2, new TextEncoder().encode('tar: You may not specify more than one of -c, -x, or -t\n'))
     return 1
   }
   if (options.create && !options.file) {
-    write(2, new TextEncoder().encode("tar: option requires an argument -- f\nTry 'tar --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("tar: option requires an argument -- f\nTry 'tar --help' for more information.\n"))
     return 1
   }
 
@@ -376,6 +375,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`tar: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, open, close, O_WRONLY, O_CREAT } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, open, close, O_WRONLY, O_CREAT } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: touch [OPTION]... FILE...
 Update the access and modification times of each FILE to the current time.
@@ -17,11 +17,11 @@ Update the access and modification times of each FILE to the current time.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
   if (args.length === 0) {
-    write(2, new TextEncoder().encode("touch: missing file operand\nTry 'touch --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("touch: missing file operand\nTry 'touch --help' for more information.\n"))
     return 1
   }
 
@@ -35,7 +35,7 @@ function main() {
       close(open(fullPath, O_WRONLY | O_CREAT, 0o644))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`touch: ${target}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`touch: ${target}: ${message}\n`))
       hasError = true
     }
   }
@@ -46,6 +46,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`touch: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`touch: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

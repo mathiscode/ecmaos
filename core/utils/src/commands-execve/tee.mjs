@@ -11,7 +11,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, env, open, close, stat, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, env, open, close, stat, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tee [OPTION]... [FILE]...
 Read from standard input and write to standard output and files.
@@ -31,7 +31,7 @@ function expandTilde(input) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -48,7 +48,7 @@ function main() {
       if (flags.includes('a')) append = true
       const invalid = flags.find(f => !['a', 'i'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`tee: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode(`tee: invalid option -- '${invalid}'\n`))
         return 1
       }
     } else {
@@ -73,7 +73,7 @@ function main() {
         if (append) { try { position = stat(fileInfo.fullPath).size } catch { position = 0 } }
         fds.push({ path: fileInfo.path, fd, position })
       } catch (error) {
-        write(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : String(error)}\n`))
+        writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : String(error)}\n`))
         return 1
       }
     }
@@ -85,14 +85,14 @@ function main() {
       if (n <= 0) break
       const chunk = buffer.subarray(0, n)
 
-      write(1, chunk)
+      writeAll(1, chunk)
 
       for (const fileInfo of fds) {
         try {
-          write(fileInfo.fd, chunk, fileInfo.position)
+          writeAll(fileInfo.fd, chunk, fileInfo.position)
           fileInfo.position += chunk.length
         } catch (error) {
-          write(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : 'Write error'}\n`))
+          writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : 'Write error'}\n`))
         }
       }
     }
@@ -106,6 +106,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`tee: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`tee: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

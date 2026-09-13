@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, chmod } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, chmod } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: chmod [OPTION]... MODE[,MODE]... FILE...
    or:  chmod [OPTION]... OCTAL-MODE FILE...
@@ -65,19 +65,19 @@ function parseMode(mode, filePath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   const positional = args.filter(arg => arg && !arg.startsWith('-'))
   if (positional.length === 0) {
-    write(2, new TextEncoder().encode("chmod: missing operand\nTry 'chmod --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("chmod: missing operand\nTry 'chmod --help' for more information.\n"))
     return 1
   }
 
   const [mode, ...targets] = positional
   if (!mode || targets.length === 0) {
-    write(2, new TextEncoder().encode("chmod: missing operand\nTry 'chmod --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("chmod: missing operand\nTry 'chmod --help' for more information.\n"))
     return 1
   }
 
@@ -90,7 +90,7 @@ function main() {
       chmod(fullPath, parseMode(mode, fullPath))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`chmod: ${target}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`chmod: ${target}: ${message}\n`))
       hasError = true
     }
   }
@@ -101,6 +101,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`chmod: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`chmod: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

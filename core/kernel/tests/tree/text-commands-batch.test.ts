@@ -61,18 +61,22 @@ describe('text command batch: head/tail/wc/nl/rev/tac, real execve', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/tail.out', 'utf-8')).toBe('four\nfive\n')
   })
 
+  // Real `wc` counts newline characters, not text "segments" -- confirmed against a real `wc`:
+  // `printf 'one\ntwo\nthree\nfour\nfive\n' | wc` reports "5 5 24", not "6 5 24". The previous
+  // expected values here (6/6) matched wc.mjs's own prior off-by-one bug rather than real wc
+  // semantics -- fixed alongside that bug (see wc.mjs's countText doc comment).
   it('wc counts lines, words, and bytes', async () => {
     const code = await kernel.shell.execute('wc /tmp/text-batch.txt > /tmp/wc.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/wc.out', 'utf-8')
-    expect(out.trim()).toBe('6 5 24 /tmp/text-batch.txt')
+    expect(out.trim()).toBe('5 5 24 /tmp/text-batch.txt')
   })
 
   it('wc -l shows only the line count', async () => {
     const code = await kernel.shell.execute('wc -l /tmp/text-batch.txt > /tmp/wc-l.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/wc-l.out', 'utf-8')
-    expect(out.trim()).toBe('6 /tmp/text-batch.txt')
+    expect(out.trim()).toBe('5 /tmp/text-batch.txt')
   })
 
   it('nl numbers each line', async () => {

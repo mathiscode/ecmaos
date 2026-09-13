@@ -5,7 +5,7 @@
  * coreutil.
  */
 
-const { argv, exit, write, open, read, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, open, read, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: motd
 Print the message of the day (/etc/motd), if one exists.
@@ -34,7 +34,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -45,13 +45,13 @@ function main() {
     return 0
   }
 
-  if (motd.length > 0) write(1, motd)
+  if (motd.length > 0) writeAll(1, motd)
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`motd: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`motd: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

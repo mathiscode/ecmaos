@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const SUPPORTED_SYMMETRIC_ALGORITHMS = {
   'aes-gcm': 'AES-GCM', 'aes-cbc': 'AES-CBC', 'aes-ctr': 'AES-CTR', 'aes-kw': 'AES-KW'
@@ -92,7 +92,7 @@ function readWholeFile(fullPath) {
 function writeWholeFile(fullPath, bytes) {
   const fd = open(fullPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
   try {
-    write(fd, bytes)
+    writeAll(fd, bytes)
   } finally {
     close(fd)
   }
@@ -106,7 +106,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -130,7 +129,7 @@ function writeOutput(cwd, output, outputData) {
   if (output) {
     writeWholeFile(resolve(cwd, output), outputData)
   } else {
-    write(1, outputData)
+    writeAll(1, outputData)
   }
 }
 
@@ -196,7 +195,7 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const length = parsed.length || parsed.l
@@ -207,14 +206,14 @@ Options:
   const format = (typeof formatValue === 'string' ? formatValue : 'jwk').toLowerCase()
 
   if (!algorithm || typeof algorithm !== 'string') {
-    write(2, new TextEncoder().encode('crypto generate: --algorithm is required\nTry "crypto generate --help" for more information.\n'))
+    writeAll(2, new TextEncoder().encode('crypto generate: --algorithm is required\nTry "crypto generate --help" for more information.\n'))
     return 1
   }
 
   const algoLower = algorithm.toLowerCase()
   const keyFormat = SUPPORTED_KEY_FORMATS[format]
   if (!keyFormat) {
-    write(2, new TextEncoder().encode(`crypto generate: unsupported format '${format}'\n`))
+    writeAll(2, new TextEncoder().encode(`crypto generate: unsupported format '${format}'\n`))
     return 1
   }
 
@@ -227,14 +226,14 @@ Options:
       const keyLength = length ? parseInt(length, 10) : 256
 
       if (![128, 192, 256].includes(keyLength)) {
-        write(2, new TextEncoder().encode('crypto generate: AES key length must be 128, 192, or 256\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: AES key length must be 128, 192, or 256\n'))
         return 1
       }
 
       key = await crypto.subtle.generateKey({ name: symAlgo, length: keyLength }, true, ['encrypt', 'decrypt'])
 
       if (keyFormat === 'pkcs8' || keyFormat === 'spki') {
-        write(2, new TextEncoder().encode('crypto generate: symmetric keys cannot be exported in PKCS8 or SPKI format\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: symmetric keys cannot be exported in PKCS8 or SPKI format\n'))
         return 1
       }
       exportFormat = keyFormat === 'raw' ? 'raw' : 'jwk'
@@ -245,7 +244,7 @@ Options:
       key = await crypto.subtle.generateKey({ name: SUPPORTED_ASYMMETRIC_ALGORITHMS[algoLower], namedCurve: curve }, true, keyUsages)
 
       if (keyFormat === 'raw') {
-        write(2, new TextEncoder().encode('crypto generate: ECDSA/ECDH keys cannot be exported in raw format\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: ECDSA/ECDH keys cannot be exported in raw format\n'))
         return 1
       }
     } else if (SUPPORTED_ASYMMETRIC_ALGORITHMS[algoLower]?.startsWith('RSA')) {
@@ -254,7 +253,7 @@ Options:
       const hashAlgo = hash ? (SUPPORTED_HASH_ALGORITHMS[hash.toLowerCase()] || 'SHA-256') : 'SHA-256'
 
       if (![1024, 2048, 4096].includes(keyLength)) {
-        write(2, new TextEncoder().encode('crypto generate: RSA key length must be 1024, 2048, or 4096\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: RSA key length must be 1024, 2048, or 4096\n'))
         return 1
       }
 
@@ -266,7 +265,7 @@ Options:
       )
 
       if (keyFormat === 'raw') {
-        write(2, new TextEncoder().encode('crypto generate: RSA keys cannot be exported in raw format\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: RSA keys cannot be exported in raw format\n'))
         return 1
       }
     } else if (algoLower === 'hmac') {
@@ -276,12 +275,12 @@ Options:
       key = await crypto.subtle.generateKey({ name: 'HMAC', hash: hashAlgo, length: keyLength }, true, ['sign', 'verify'])
 
       if (keyFormat === 'pkcs8' || keyFormat === 'spki') {
-        write(2, new TextEncoder().encode('crypto generate: HMAC keys cannot be exported in PKCS8 or SPKI format\n'))
+        writeAll(2, new TextEncoder().encode('crypto generate: HMAC keys cannot be exported in PKCS8 or SPKI format\n'))
         return 1
       }
       exportFormat = keyFormat === 'raw' ? 'raw' : 'jwk'
     } else {
-      write(2, new TextEncoder().encode(`crypto generate: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto generate: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
@@ -302,11 +301,11 @@ Options:
     }
 
     writeOutput(cwd, output, outputData)
-    if (output) write(1, new TextEncoder().encode(`Key generated and saved to ${output}\n`))
+    if (output) writeAll(1, new TextEncoder().encode(`Key generated and saved to ${output}\n`))
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto generate: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto generate: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -325,7 +324,7 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const keyFile = parsed['key-file'] || parsed.k
@@ -333,13 +332,13 @@ Options:
   const output = parsed.output || parsed.o
   const ivFile = parsed['iv-file']
 
-  if (!algorithm || typeof algorithm !== 'string') { write(2, new TextEncoder().encode('crypto encrypt: --algorithm is required\n')); return 1 }
-  if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto encrypt: --key-file is required\n')); return 1 }
+  if (!algorithm || typeof algorithm !== 'string') { writeAll(2, new TextEncoder().encode('crypto encrypt: --algorithm is required\n')); return 1 }
+  if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto encrypt: --key-file is required\n')); return 1 }
 
   try {
     const algoLower = algorithm.toLowerCase()
     if (!SUPPORTED_SYMMETRIC_ALGORITHMS[algoLower] && algoLower !== 'rsa-oaep') {
-      write(2, new TextEncoder().encode(`crypto encrypt: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto encrypt: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
@@ -391,15 +390,15 @@ Options:
         const ivParam = encryptParams.iv
         const ivArray = ivParam instanceof Uint8Array ? ivParam : new Uint8Array(ivParam)
         writeWholeFile(resolve(cwd, output + '.iv'), ivArray)
-        write(1, new TextEncoder().encode(`IV saved to ${output}.iv\n`))
+        writeAll(1, new TextEncoder().encode(`IV saved to ${output}.iv\n`))
       }
     } else {
-      write(1, outputData)
+      writeAll(1, outputData)
     }
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto encrypt: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto encrypt: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -418,7 +417,7 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const keyFile = parsed['key-file'] || parsed.k
@@ -426,13 +425,13 @@ Options:
   const output = parsed.output || parsed.o
   const ivFile = parsed['iv-file']
 
-  if (!algorithm || typeof algorithm !== 'string') { write(2, new TextEncoder().encode('crypto decrypt: --algorithm is required\n')); return 1 }
-  if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto decrypt: --key-file is required\n')); return 1 }
+  if (!algorithm || typeof algorithm !== 'string') { writeAll(2, new TextEncoder().encode('crypto decrypt: --algorithm is required\n')); return 1 }
+  if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto decrypt: --key-file is required\n')); return 1 }
 
   try {
     const algoLower = algorithm.toLowerCase()
     if (!SUPPORTED_SYMMETRIC_ALGORITHMS[algoLower] && algoLower !== 'rsa-oaep') {
-      write(2, new TextEncoder().encode(`crypto decrypt: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto decrypt: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
@@ -478,7 +477,7 @@ Options:
     writeOutput(cwd, output, outputData)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto decrypt: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto decrypt: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -496,20 +495,20 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const keyFile = parsed['key-file'] || parsed.k
   const input = parsed.input || parsed.i
   const output = parsed.output || parsed.o
 
-  if (!algorithm || typeof algorithm !== 'string') { write(2, new TextEncoder().encode('crypto sign: --algorithm is required\n')); return 1 }
-  if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto sign: --key-file is required\n')); return 1 }
+  if (!algorithm || typeof algorithm !== 'string') { writeAll(2, new TextEncoder().encode('crypto sign: --algorithm is required\n')); return 1 }
+  if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto sign: --key-file is required\n')); return 1 }
 
   try {
     const algoLower = algorithm.toLowerCase()
     if (!SUPPORTED_SIGN_ALGORITHMS[algoLower]) {
-      write(2, new TextEncoder().encode(`crypto sign: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto sign: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
@@ -544,7 +543,7 @@ Options:
     writeOutput(cwd, output, outputData)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto sign: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto sign: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -562,21 +561,21 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const keyFile = parsed['key-file'] || parsed.k
   const input = parsed.input || parsed.i
   const signatureFile = parsed.signature || parsed.s
 
-  if (!algorithm || typeof algorithm !== 'string') { write(2, new TextEncoder().encode('crypto verify: --algorithm is required\n')); return 1 }
-  if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto verify: --key-file is required\n')); return 1 }
-  if (!signatureFile || typeof signatureFile !== 'string') { write(2, new TextEncoder().encode('crypto verify: --signature is required\n')); return 1 }
+  if (!algorithm || typeof algorithm !== 'string') { writeAll(2, new TextEncoder().encode('crypto verify: --algorithm is required\n')); return 1 }
+  if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto verify: --key-file is required\n')); return 1 }
+  if (!signatureFile || typeof signatureFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto verify: --signature is required\n')); return 1 }
 
   try {
     const algoLower = algorithm.toLowerCase()
     if (!SUPPORTED_SIGN_ALGORITHMS[algoLower]) {
-      write(2, new TextEncoder().encode(`crypto verify: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto verify: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
@@ -628,14 +627,14 @@ Options:
     )
 
     if (isValid) {
-      write(1, new TextEncoder().encode('Signature is valid\n'))
+      writeAll(1, new TextEncoder().encode('Signature is valid\n'))
       return 0
     } else {
-      write(2, new TextEncoder().encode('Signature is invalid\n'))
+      writeAll(2, new TextEncoder().encode('Signature is invalid\n'))
       return 1
     }
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto verify: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto verify: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -654,7 +653,7 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const formatValue = parsed.format || parsed.f || 'jwk'
   const format = (typeof formatValue === 'string' ? formatValue : 'jwk').toLowerCase()
@@ -665,13 +664,13 @@ Options:
   const outputFormat = (typeof outputFormatValue === 'string' ? outputFormatValue : 'jwk').toLowerCase()
 
   const keyFormat = SUPPORTED_KEY_FORMATS[format]
-  if (!keyFormat) { write(2, new TextEncoder().encode(`crypto import: unsupported input format '${format}'\n`)); return 1 }
+  if (!keyFormat) { writeAll(2, new TextEncoder().encode(`crypto import: unsupported input format '${format}'\n`)); return 1 }
 
   const outputKeyFormat = SUPPORTED_KEY_FORMATS[outputFormat]
-  if (!outputKeyFormat) { write(2, new TextEncoder().encode(`crypto import: unsupported output format '${outputFormat}'\n`)); return 1 }
+  if (!outputKeyFormat) { writeAll(2, new TextEncoder().encode(`crypto import: unsupported output format '${outputFormat}'\n`)); return 1 }
 
   if (keyFormat !== 'jwk' && (!algorithm || typeof algorithm !== 'string')) {
-    write(2, new TextEncoder().encode('crypto import: --algorithm is required for non-JWK formats\n'))
+    writeAll(2, new TextEncoder().encode('crypto import: --algorithm is required for non-JWK formats\n'))
     return 1
   }
 
@@ -698,7 +697,7 @@ Options:
         importAlgorithm = { name: 'AES-GCM' }
         keyUsages = ['encrypt', 'decrypt']
       } else {
-        write(2, new TextEncoder().encode('crypto import: unsupported key type in JWK\n'))
+        writeAll(2, new TextEncoder().encode('crypto import: unsupported key type in JWK\n'))
         return 1
       }
     } else {
@@ -718,7 +717,7 @@ Options:
         importAlgorithm = { name: 'HMAC', hash: 'SHA-256' }
         keyUsages = ['sign', 'verify']
       } else {
-        write(2, new TextEncoder().encode(`crypto import: unsupported algorithm '${algorithm}'\n`))
+        writeAll(2, new TextEncoder().encode(`crypto import: unsupported algorithm '${algorithm}'\n`))
         return 1
       }
     }
@@ -732,10 +731,10 @@ Options:
       if (outputKeyFormat === 'spki') exported = await crypto.subtle.exportKey('spki', key.publicKey)
       else if (outputKeyFormat === 'pkcs8') exported = await crypto.subtle.exportKey('pkcs8', key.privateKey)
       else if (outputKeyFormat === 'jwk') exported = await crypto.subtle.exportKey('jwk', key.privateKey)
-      else { write(2, new TextEncoder().encode('crypto import: asymmetric keys cannot be exported in raw format\n')); return 1 }
+      else { writeAll(2, new TextEncoder().encode('crypto import: asymmetric keys cannot be exported in raw format\n')); return 1 }
     } else {
       if (outputKeyFormat === 'pkcs8' || outputKeyFormat === 'spki') {
-        write(2, new TextEncoder().encode(`crypto import: symmetric keys cannot be exported in ${outputKeyFormat} format\n`))
+        writeAll(2, new TextEncoder().encode(`crypto import: symmetric keys cannot be exported in ${outputKeyFormat} format\n`))
         return 1
       }
       exported = await crypto.subtle.exportKey(outputKeyFormat, key)
@@ -748,7 +747,7 @@ Options:
     writeOutput(cwd, output, outputData)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto import: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto import: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -765,17 +764,17 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const keyFile = parsed['key-file'] || parsed.k
   const formatValue = parsed.format || parsed.f || 'jwk'
   const format = (typeof formatValue === 'string' ? formatValue : 'jwk').toLowerCase()
   const output = parsed.output || parsed.o
 
-  if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto export: --key-file is required\n')); return 1 }
+  if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto export: --key-file is required\n')); return 1 }
 
   const keyFormat = SUPPORTED_KEY_FORMATS[format]
-  if (!keyFormat) { write(2, new TextEncoder().encode(`crypto export: unsupported format '${format}'\n`)); return 1 }
+  if (!keyFormat) { writeAll(2, new TextEncoder().encode(`crypto export: unsupported format '${format}'\n`)); return 1 }
 
   try {
     const keyData = readWholeFile(resolve(cwd, keyFile))
@@ -794,7 +793,7 @@ Options:
       importAlgorithm = { name: 'AES-GCM' }
       keyUsages = ['encrypt', 'decrypt']
     } else {
-      write(2, new TextEncoder().encode('crypto export: unsupported key type in JWK\n'))
+      writeAll(2, new TextEncoder().encode('crypto export: unsupported key type in JWK\n'))
       return 1
     }
 
@@ -808,7 +807,7 @@ Options:
     writeOutput(cwd, output, outputData)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto export: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto export: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -829,7 +828,7 @@ Options:
   --help                          Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const algorithm = parsed.algorithm || parsed.a
   const password = parsed.password || parsed.p
@@ -839,19 +838,19 @@ Options:
   const publicKeyFile = parsed['public-key-file']
   const output = parsed.output || parsed.o
 
-  if (!algorithm || typeof algorithm !== 'string') { write(2, new TextEncoder().encode('crypto derive: --algorithm is required\n')); return 1 }
+  if (!algorithm || typeof algorithm !== 'string') { writeAll(2, new TextEncoder().encode('crypto derive: --algorithm is required\n')); return 1 }
 
   try {
     const algoLower = algorithm.toLowerCase()
     if (!SUPPORTED_DERIVE_ALGORITHMS[algoLower]) {
-      write(2, new TextEncoder().encode(`crypto derive: unsupported algorithm '${algorithm}'\n`))
+      writeAll(2, new TextEncoder().encode(`crypto derive: unsupported algorithm '${algorithm}'\n`))
       return 1
     }
 
     let derivedKey
 
     if (algoLower === 'pbkdf2') {
-      if (!password || typeof password !== 'string') { write(2, new TextEncoder().encode('crypto derive: --password is required for PBKDF2\n')); return 1 }
+      if (!password || typeof password !== 'string') { writeAll(2, new TextEncoder().encode('crypto derive: --password is required for PBKDF2\n')); return 1 }
 
       let salt
       if (saltFile && typeof saltFile === 'string') salt = readWholeFile(resolve(cwd, saltFile))
@@ -864,7 +863,7 @@ Options:
         passwordKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
       )
     } else if (algoLower === 'hkdf') {
-      if (!password || typeof password !== 'string') { write(2, new TextEncoder().encode('crypto derive: --password is required for HKDF\n')); return 1 }
+      if (!password || typeof password !== 'string') { writeAll(2, new TextEncoder().encode('crypto derive: --password is required for HKDF\n')); return 1 }
 
       let salt
       if (saltFile && typeof saltFile === 'string') salt = readWholeFile(resolve(cwd, saltFile))
@@ -877,8 +876,8 @@ Options:
         passwordKey, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
       )
     } else {
-      if (!keyFile || typeof keyFile !== 'string') { write(2, new TextEncoder().encode('crypto derive: --key-file is required for ECDH\n')); return 1 }
-      if (!publicKeyFile || typeof publicKeyFile !== 'string') { write(2, new TextEncoder().encode('crypto derive: --public-key-file is required for ECDH\n')); return 1 }
+      if (!keyFile || typeof keyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto derive: --key-file is required for ECDH\n')); return 1 }
+      if (!publicKeyFile || typeof publicKeyFile !== 'string') { writeAll(2, new TextEncoder().encode('crypto derive: --public-key-file is required for ECDH\n')); return 1 }
 
       const privateKeyJson = JSON.parse(new TextDecoder().decode(readWholeFile(resolve(cwd, keyFile))))
       const publicKeyJson = JSON.parse(new TextDecoder().decode(readWholeFile(resolve(cwd, publicKeyFile))))
@@ -895,7 +894,7 @@ Options:
     writeOutput(cwd, output, outputData)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto derive: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto derive: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -911,14 +910,14 @@ Options:
   --help                        Display this help`
 
   const parsed = parseArgs(args)
-  if (parsed.help) { write(2, new TextEncoder().encode(helpText + '\n')); return 0 }
+  if (parsed.help) { writeAll(2, new TextEncoder().encode(helpText + '\n')); return 0 }
 
   const length = parsed.length || parsed.l
   const output = parsed.output || parsed.o
   const byteLength = length ? parseInt(length, 10) : 32
 
   if (isNaN(byteLength) || byteLength <= 0) {
-    write(2, new TextEncoder().encode('crypto random: --length must be a positive number\n'))
+    writeAll(2, new TextEncoder().encode('crypto random: --length must be a positive number\n'))
     return 1
   }
 
@@ -927,7 +926,7 @@ Options:
     writeOutput(cwd, output, randomBytes)
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`crypto random: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`crypto random: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -935,12 +934,12 @@ Options:
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length === 0) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -959,7 +958,7 @@ async function main() {
     case 'derive': return await handleDerive(cwd, subArgs)
     case 'random': return handleRandom(cwd, subArgs)
     default:
-      write(2, new TextEncoder().encode(`Error: Unknown subcommand: ${subcommand}\nRun "crypto --help" for usage information\n`))
+      writeAll(2, new TextEncoder().encode(`Error: Unknown subcommand: ${subcommand}\nRun "crypto --help" for usage information\n`))
       return 1
   }
 }
@@ -967,6 +966,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`crypto: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`crypto: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

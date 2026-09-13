@@ -7,7 +7,7 @@
 
 import { resolve, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, env, mkdir, stat, O_WRONLY, O_CREAT, open, close } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, env, mkdir, stat, O_WRONLY, O_CREAT, open, close } = globalThis.ecmaosSyscalls
 
 function exists(path) {
   try { stat(path); return true } catch { return false }
@@ -89,7 +89,7 @@ function replaceTemplate(template) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -116,11 +116,11 @@ function main() {
       if (dirValue) tmpdir = dirValue
     } else if (!arg.startsWith('-')) {
       if (!template) template = arg
-      else { if (!quiet) write(2, new TextEncoder().encode('mktemp: too many arguments\n')); return 1 }
+      else { if (!quiet) writeAll(2, new TextEncoder().encode('mktemp: too many arguments\n')); return 1 }
     } else {
       if (!quiet) {
-        write(2, new TextEncoder().encode(`mktemp: invalid option -- '${arg.replace(/^-+/, '')}'\n`))
-        write(2, new TextEncoder().encode("Try 'mktemp --help' for more information.\n"))
+        writeAll(2, new TextEncoder().encode(`mktemp: invalid option -- '${arg.replace(/^-+/, '')}'\n`))
+        writeAll(2, new TextEncoder().encode("Try 'mktemp --help' for more information.\n"))
       }
       return 1
     }
@@ -138,7 +138,7 @@ function main() {
   if (!template) template = 'tmp.XXXXXX'
 
   if (useTmpdir && template.startsWith('/')) {
-    if (!quiet) write(2, new TextEncoder().encode('mktemp: with -p/--tmpdir, TEMPLATE must not be an absolute name\n'))
+    if (!quiet) writeAll(2, new TextEncoder().encode('mktemp: with -p/--tmpdir, TEMPLATE must not be an absolute name\n'))
     return 1
   }
 
@@ -147,14 +147,14 @@ function main() {
   const base = basename(fullPath)
   const xCount = (base.match(/X/g) || []).length
   if (xCount < 3) {
-    if (!quiet) write(2, new TextEncoder().encode(`mktemp: too few X's in template ${template}\n`))
+    if (!quiet) writeAll(2, new TextEncoder().encode(`mktemp: too few X's in template ${template}\n`))
     return 1
   }
 
   const finalPath = replaceTemplate(fullPath)
 
   if (dryRun) {
-    write(1, new TextEncoder().encode(finalPath + '\n'))
+    writeAll(1, new TextEncoder().encode(finalPath + '\n'))
     return 0
   }
 
@@ -167,12 +167,12 @@ function main() {
       close(fd)
     }
 
-    write(1, new TextEncoder().encode(finalPath + '\n'))
+    writeAll(1, new TextEncoder().encode(finalPath + '\n'))
     return 0
   } catch (error) {
     if (!quiet) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`mktemp: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`mktemp: ${message}\n`))
     }
     return 1
   }
@@ -181,6 +181,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`mktemp: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`mktemp: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

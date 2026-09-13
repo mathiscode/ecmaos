@@ -10,7 +10,7 @@
 
 import { resolve, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, isDirectory, isSymbolicLink, readdir } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, isSymbolicLink, readdir } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: find [PATH]... [OPTION]...
 Search for files in a directory hierarchy.
@@ -38,12 +38,12 @@ function matchesPattern(filename, pattern) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length === 0) {
-    write(2, new TextEncoder().encode('find: missing path argument\n'))
+    writeAll(2, new TextEncoder().encode('find: missing path argument\n'))
     return 1
   }
 
@@ -56,11 +56,11 @@ function main() {
     if (arg === '-name') {
       const next = args[++i]
       if (next !== undefined && !next.startsWith('-')) namePattern = next
-      else { write(2, new TextEncoder().encode('find: missing argument to -name\n')); return 1 }
+      else { writeAll(2, new TextEncoder().encode('find: missing argument to -name\n')); return 1 }
     } else if (arg === '-type') {
       const next = args[++i]
       if (next !== undefined && !next.startsWith('-')) fileType = next
-      else { write(2, new TextEncoder().encode('find: missing argument to -type\n')); return 1 }
+      else { writeAll(2, new TextEncoder().encode('find: missing argument to -type\n')); return 1 }
     } else if (!arg.startsWith('-')) {
       startPaths.push(arg)
     }
@@ -108,17 +108,17 @@ function main() {
     const fullPath = resolve(cwd, startPath)
     try {
       if (!isDirectory(fullPath)) {
-        write(2, new TextEncoder().encode(`find: ${startPath}: not a directory\n`))
+        writeAll(2, new TextEncoder().encode(`find: ${startPath}: not a directory\n`))
         continue
       }
       searchDirectory(fullPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`find: ${startPath}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`find: ${startPath}: ${message}\n`))
     }
   }
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return 0
 }
@@ -126,6 +126,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`find: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`find: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }
