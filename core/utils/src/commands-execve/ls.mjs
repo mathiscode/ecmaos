@@ -13,7 +13,7 @@
 import { resolve, join, basename, dirname } from './lib/path-utils.mjs'
 import columnify from 'columnify'
 
-const { argv, exit, write, getcwd, stat, lstat, isDirectory, isSymbolicLink, readdir, readlink } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, lstat, isDirectory, isSymbolicLink, readdir, readlink } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: ls [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
@@ -73,7 +73,7 @@ function formatSize(bytes) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -151,7 +151,7 @@ function main() {
 
   if (data.length > 0) {
     const table = columnify(data, { columns, columnSplitter: '  ', showHeaders: true })
-    write(1, new TextEncoder().encode(table + '\n'))
+    writeAll(1, new TextEncoder().encode(table + '\n'))
   }
 
   return 0
@@ -160,6 +160,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`ls: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`ls: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

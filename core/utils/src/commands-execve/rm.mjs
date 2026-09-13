@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, stat, unlink, rmdir, readdir, isDirectory, rmRecursive } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, unlink, rmdir, readdir, isDirectory, rmRecursive } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: rm [OPTION]... FILE...
 Remove (unlink) the FILE(s).
@@ -37,11 +37,11 @@ function expandGlob(cwd, pattern) {
 function main() {
   const args = argv.slice(1)
   if (args.length === 0) {
-    write(2, new TextEncoder().encode("rm: missing operand\nTry 'rm --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("rm: missing operand\nTry 'rm --help' for more information.\n"))
     return 1
   }
   if (args[0] === '--help' || args[0] === '-h') {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -58,10 +58,10 @@ function main() {
           const flag = arg[i]
           if (flag === 'r' || flag === 'R') recursive = true
           else if (flag === 'f') force = true
-          else { write(2, new TextEncoder().encode(`rm: invalid option -- '${flag}'\n`)); return 1 }
+          else { writeAll(2, new TextEncoder().encode(`rm: invalid option -- '${flag}'\n`)); return 1 }
         }
       } else {
-        write(2, new TextEncoder().encode(`rm: invalid option -- '${arg.slice(1)}'\n`))
+        writeAll(2, new TextEncoder().encode(`rm: invalid option -- '${arg.slice(1)}'\n`))
         return 1
       }
     } else {
@@ -70,7 +70,7 @@ function main() {
   }
 
   if (patterns.length === 0) {
-    write(2, new TextEncoder().encode('rm: missing operand\n'))
+    writeAll(2, new TextEncoder().encode('rm: missing operand\n'))
     return 1
   }
 
@@ -88,13 +88,13 @@ function main() {
       let isDir = false
       try { isDir = isDirectory(fullPath) } catch (statError) {
         if (!force) {
-          write(2, new TextEncoder().encode(`rm: ${target}: No such file or directory\n`))
+          writeAll(2, new TextEncoder().encode(`rm: ${target}: No such file or directory\n`))
           hasError = true
         }
         continue
       }
       if (isDir && !recursive) {
-        write(2, new TextEncoder().encode(`rm: ${target}: is a directory\n`))
+        writeAll(2, new TextEncoder().encode(`rm: ${target}: is a directory\n`))
         hasError = true
         continue
       }
@@ -103,7 +103,7 @@ function main() {
     } catch (error) {
       if (!force) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`rm: ${target}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`rm: ${target}: ${message}\n`))
         hasError = true
       }
     }
@@ -115,6 +115,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`rm: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`rm: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

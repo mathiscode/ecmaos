@@ -8,7 +8,7 @@
  * `navigator.userAgentData`/`navigator.platform` still work directly.
  */
 
-const { argv, exit, write, env } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: uname [OPTION]...
 Print system information.
@@ -27,7 +27,7 @@ Print system information.
 async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -45,7 +45,7 @@ async function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-a' || arg === '--all') {
       showAll = true
@@ -78,7 +78,7 @@ async function main() {
       if (flags.includes('o')) showOperatingSystem = true
       const invalid = flags.find(f => !['a', 's', 'n', 'r', 'v', 'm', 'p', 'i', 'o'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`uname: invalid option -- '${invalid}'\nTry 'uname --help' for more information.\n`))
+        writeAll(2, new TextEncoder().encode(`uname: invalid option -- '${invalid}'\nTry 'uname --help' for more information.\n`))
         return 1
       }
     }
@@ -97,7 +97,7 @@ async function main() {
   const operatingSystem = kernelName
 
   if (showAll || (!showKernelName && !showNodename && !showKernelRelease && !showKernelVersion && !showMachine && !showProcessor && !showHardwarePlatform && !showOperatingSystem)) {
-    write(1, new TextEncoder().encode(`${kernelName} ${nodename} ${kernelVersion} ${machine} ${processor} ${hardwarePlatform} ${operatingSystem}\n`))
+    writeAll(1, new TextEncoder().encode(`${kernelName} ${nodename} ${kernelVersion} ${machine} ${processor} ${hardwarePlatform} ${operatingSystem}\n`))
   } else {
     const parts = []
     if (showAll || showKernelName) parts.push(kernelName)
@@ -108,7 +108,7 @@ async function main() {
     if (showAll || showProcessor) parts.push(processor)
     if (showAll || showHardwarePlatform) parts.push(hardwarePlatform)
     if (showAll || showOperatingSystem) parts.push(operatingSystem)
-    write(1, new TextEncoder().encode(parts.join(' ') + '\n'))
+    writeAll(1, new TextEncoder().encode(parts.join(' ') + '\n'))
   }
 
   return 0
@@ -117,6 +117,6 @@ async function main() {
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`uname: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`uname: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

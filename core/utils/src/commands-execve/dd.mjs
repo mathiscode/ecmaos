@@ -11,7 +11,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: dd [OPERAND]...
 Copy a file, converting and formatting according to the operands.
@@ -82,7 +82,7 @@ function applyConversions(data, conversions) {
 }
 
 function writeErr(message) {
-  write(2, new TextEncoder().encode(message + '\n'))
+  writeAll(2, new TextEncoder().encode(message + '\n'))
 }
 
 function main() {
@@ -199,7 +199,7 @@ function main() {
       if (outputFile) {
         outputPosition = seek * outputBlockSize
       } else {
-        write(outputFd, new Uint8Array(seek * outputBlockSize))
+        writeAll(outputFd, new Uint8Array(seek * outputBlockSize))
       }
     }
 
@@ -225,8 +225,8 @@ function main() {
         if (sync && blocksRead > 0) {
           let data = new Uint8Array(inputBlockSize)
           if (conversions.length > 0) data = applyConversions(data, conversions)
-          if (outputFile) { write(outputFd, data, outputPosition); outputPosition += data.length }
-          else write(outputFd, data)
+          if (outputFile) { writeAll(outputFd, data, outputPosition); outputPosition += data.length }
+          else writeAll(outputFd, data)
           totalBytesWritten += data.length
           blocksWritten++
         }
@@ -251,15 +251,15 @@ function main() {
         let offset = 0
         while (offset < data.length) {
           const chunk = data.subarray(offset, offset + outputBlockSize)
-          if (outputFile) { write(outputFd, chunk, outputPosition); outputPosition += chunk.length }
-          else write(outputFd, chunk)
+          if (outputFile) { writeAll(outputFd, chunk, outputPosition); outputPosition += chunk.length }
+          else writeAll(outputFd, chunk)
           totalBytesWritten += chunk.length
           blocksWritten++
           offset += outputBlockSize
         }
       } else {
-        if (outputFile) { write(outputFd, data, outputPosition); outputPosition += data.length }
-        else write(outputFd, data)
+        if (outputFile) { writeAll(outputFd, data, outputPosition); outputPosition += data.length }
+        else writeAll(outputFd, data)
         totalBytesWritten += data.length
         blocksWritten++
       }
@@ -291,6 +291,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`dd: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`dd: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

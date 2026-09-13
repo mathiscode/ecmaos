@@ -9,7 +9,7 @@
  * temp file and read back with plain `open`/`read`/`close`.
  */
 
-const { argv, exit, write, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: id [OPTION]...
 Print user and group IDs.
@@ -60,7 +60,7 @@ async function main() {
 
   for (const arg of args) {
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-u' || arg === '--user') {
       userOnly = true
@@ -78,7 +78,7 @@ async function main() {
       if (flags.includes('n')) nameOnly = true
       const invalid = flags.find(f => !['u', 'g', 'G', 'n'].includes(f))
       if (invalid) {
-        write(1, new TextEncoder().encode(`id: invalid option -- '${invalid}'\n`))
+        writeAll(1, new TextEncoder().encode(`id: invalid option -- '${invalid}'\n`))
         return 1
       }
     }
@@ -111,13 +111,13 @@ async function main() {
     output = `uid=${uidStr} gid=${gidStr} groups=${groupParts.join(',')}`
   }
 
-  write(1, new TextEncoder().encode(output + '\n'))
+  writeAll(1, new TextEncoder().encode(output + '\n'))
   return 0
 }
 
 try {
   exit(await main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`id: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`id: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

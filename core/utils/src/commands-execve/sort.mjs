@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: sort [OPTION]... [FILE]...
 Sort lines of text files.
@@ -43,7 +43,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -58,7 +57,7 @@ function readAllStdin() {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -69,7 +68,7 @@ function main() {
 
   for (const arg of args) {
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-r' || arg === '--reverse') {
       reverse = true
@@ -84,7 +83,7 @@ function main() {
       if (flags.includes('u')) unique = true
       const invalid = flags.find(f => !['r', 'n', 'u'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`sort: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode(`sort: invalid option -- '${invalid}'\n`))
         return 1
       }
     } else {
@@ -110,7 +109,7 @@ function main() {
           lines.push(...fileLines)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          write(2, new TextEncoder().encode(`sort: ${file}: ${message}\n`))
+          writeAll(2, new TextEncoder().encode(`sort: ${file}: ${message}\n`))
         }
       }
     }
@@ -141,11 +140,11 @@ function main() {
 
     let output = ''
     for (const line of lines) output += line + '\n'
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`sort: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`sort: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -153,6 +152,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`sort: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`sort: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

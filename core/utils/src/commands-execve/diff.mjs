@@ -8,7 +8,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: diff [OPTION]... FILE1 FILE2
 Compare files line by line.
@@ -80,7 +80,7 @@ function diffLines(a, b) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -90,7 +90,7 @@ function main() {
     const arg = args[i]
     if (!arg) continue
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-u' || arg === '--unified') {
       if (i + 1 < args.length) i++
@@ -106,7 +106,7 @@ function main() {
   }
 
   if (files.length !== 2) {
-    write(2, new TextEncoder().encode('diff: exactly two files must be specified\n'))
+    writeAll(2, new TextEncoder().encode('diff: exactly two files must be specified\n'))
     return 1
   }
 
@@ -132,11 +132,11 @@ function main() {
 
     let output = `--- ${file1}\n+++ ${file2}\n`
     for (const line of diff) output += line + '\n'
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
 
     return 1
   } catch (error) {
-    write(2, new TextEncoder().encode(`diff: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`diff: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -144,6 +144,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`diff: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`diff: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

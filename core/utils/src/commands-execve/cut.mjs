@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cut OPTION... [FILE]...
 Remove sections from each line of files.
@@ -24,7 +24,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -77,7 +76,7 @@ function parseRange(range) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -106,7 +105,7 @@ function main() {
   }
 
   if (!fields && !characters) {
-    write(2, new TextEncoder().encode('cut: you must specify a list of bytes, characters, or fields\n'))
+    writeAll(2, new TextEncoder().encode('cut: you must specify a list of bytes, characters, or fields\n'))
     return 1
   }
 
@@ -123,7 +122,7 @@ function main() {
         lines.push(...splitLines(readWholeFileText(fullPath)))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`cut: ${file}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`cut: ${file}: ${message}\n`))
         hasError = true
       }
     }
@@ -141,7 +140,7 @@ function main() {
       output += indices.map(i => (parts[i - 1] || '')).join(delimiter) + '\n'
     }
   }
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return hasError ? 1 : 0
 }
@@ -149,6 +148,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`cut: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`cut: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

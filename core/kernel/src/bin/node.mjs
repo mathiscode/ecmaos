@@ -87,6 +87,35 @@ function isSymbolicLink(path) {
   return (lstat(path).mode & S_IFMT) === S_IFLNK
 }
 
+/**
+ * Writes `buffer` in full, looping on a short write instead of assuming one `write()` call always
+ * sends everything. The real `write` syscall (`@zenfs/linux`'s `syscall/fs.js`) is a thin wrapper
+ * over `write_device`/`handle.writeSync` with no retry of its own -- a regular file happens to
+ * always accept a full write, but a pipe (fixed 65536-byte capacity, `fs/pipe.ts`'s `Pipe.put`) can
+ * legitimately accept less than asked and expects the caller to loop, the same way `read` can
+ * legitimately return less than asked. Every `commands-execve/*.mjs` program's `write(1, ...)` used
+ * to call the raw syscall directly and discard its return value -- harmless against the console or
+ * a small buffer, but a real, silent truncation once `Shell.runPipeline` started joining pipeline
+ * stages with a real pipe (`Kernel.createPipeStream`) instead of an unbounded `TransformStream`.
+ *
+ * `position` (default -1, "wherever the descriptor is") is threaded through and advanced by each
+ * partial write, not just passed once -- `dd.mjs`/`tee.mjs -a` write at an explicit, manually
+ * tracked offset (there is no `O_APPEND` in this interpreter's exposed flag set, so both track the
+ * file position themselves rather than relying on the fd's own cursor). A first mechanical pass
+ * that renamed every `write(` call to `writeAll(` dropped this third argument outright on those two
+ * call sites -- confirmed by hand: `tee -a` silently overwrote instead of appending, since every
+ * write landed at position 0 (or the fd's current cursor) instead of the file's real end.
+ */
+function writeAll(fd, data, position = -1) {
+  let offset = 0
+  let pos = position
+  while (offset < data.byteLength) {
+    const n = write(fd, data.subarray(offset), pos)
+    offset += n
+    if (pos >= 0) pos += n
+  }
+}
+
 /** Real file copy: read the source in chunks, write them to a freshly created/truncated destination. */
 function copyFile(source, destination) {
   const srcFd = open(source, O_RDONLY, 0)
@@ -98,9 +127,7 @@ function copyFile(source, destination) {
         const buffer = new Uint8Array(chunkSize)
         const n = read(srcFd, buffer, -1)
         if (n <= 0) break
-        let offset = 0
-        while (offset < n) offset += write(destFd, buffer.subarray(offset, n), -1)
-        if (n < chunkSize) break
+        writeAll(destFd, buffer.subarray(0, n))
       }
     } finally {
       close(destFd)
@@ -176,7 +203,7 @@ const init = await ready
 // the sync path blocks this whole worker thread via `Atomics.wait` with no timeout. `syscall_async`
 // resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
 globalThis.ecmaosSyscalls = {
-  open, read, write, close, getcwd, exit, custom: syscall_async,
+  open, read, write, writeAll, close, getcwd, exit, custom: syscall_async,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,

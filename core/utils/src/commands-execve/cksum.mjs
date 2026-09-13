@@ -8,7 +8,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cksum [FILE]...
 Print CRC checksum and byte count for each FILE.
@@ -41,7 +41,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -72,7 +71,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -81,8 +80,8 @@ function main() {
     if (!arg.startsWith('-')) {
       files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`cksum: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'cksum --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`cksum: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'cksum --help' for more information.\n"))
       return 1
     }
   }
@@ -90,7 +89,7 @@ function main() {
   if (files.length === 0) {
     const data = readAllStdin()
     const crc = calculateCRC32(data)
-    write(1, new TextEncoder().encode(`${crc} ${data.length}\n`))
+    writeAll(1, new TextEncoder().encode(`${crc} ${data.length}\n`))
     return 0
   }
 
@@ -102,10 +101,10 @@ function main() {
     try {
       const bytes = readWholeFile(fullPath)
       const crc = calculateCRC32(bytes)
-      write(1, new TextEncoder().encode(`${crc} ${bytes.length} ${file}\n`))
+      writeAll(1, new TextEncoder().encode(`${crc} ${bytes.length} ${file}\n`))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`cksum: ${file}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`cksum: ${file}: ${message}\n`))
       hasError = true
     }
   }
@@ -116,6 +115,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`cksum: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`cksum: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

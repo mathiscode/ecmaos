@@ -6,7 +6,7 @@
 
 import { resolve, dirname, join } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: split [OPTION]... [INPUT [PREFIX]]
 Split INPUT into fixed-size pieces.
@@ -37,7 +37,7 @@ function readWholeFile(fullPath) {
 function writeWholeFile(fullPath, bytes) {
   const fd = open(fullPath, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
   try {
-    globalThis.ecmaosSyscalls.write(fd, bytes)
+    globalThis.ecmaosSyscalls.writeAll(fd, bytes)
   } finally {
     close(fd)
   }
@@ -52,7 +52,7 @@ function getSuffix(index) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -76,11 +76,11 @@ function main() {
   }
 
   if (!file) {
-    write(2, new TextEncoder().encode('split: missing file operand\n'))
+    writeAll(2, new TextEncoder().encode('split: missing file operand\n'))
     return 1
   }
   if (!lines && !bytes) {
-    write(2, new TextEncoder().encode('split: you must specify -l or -b\n'))
+    writeAll(2, new TextEncoder().encode('split: you must specify -l or -b\n'))
     return 1
   }
 
@@ -113,7 +113,7 @@ function main() {
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`split: ${file}: ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`split: ${file}: ${message}\n`))
     return 1
   }
 }
@@ -121,6 +121,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`split: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`split: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -8,7 +8,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, readlink } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, readlink } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: readlink [OPTION]... FILE...
 Print value of a symbolic link or canonical file name.
@@ -21,7 +21,7 @@ Print value of a symbolic link or canonical file name.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -41,8 +41,8 @@ function main() {
       if (flags.includes('m')) canonicalizeMissing = true
       const invalid = flags.find(f => !['f', 'e', 'm'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`readlink: invalid option -- '${invalid}'\n`))
-        write(2, new TextEncoder().encode("Try 'readlink --help' for more information.\n"))
+        writeAll(2, new TextEncoder().encode(`readlink: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode("Try 'readlink --help' for more information.\n"))
         return 1
       }
     } else {
@@ -51,8 +51,8 @@ function main() {
   }
 
   if (files.length === 0) {
-    write(2, new TextEncoder().encode('readlink: missing operand\n'))
-    write(2, new TextEncoder().encode("Try 'readlink --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('readlink: missing operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'readlink --help' for more information.\n"))
     return 1
   }
 
@@ -73,11 +73,11 @@ function main() {
       const reason = message.includes('EINVAL') ? 'invalid symlink'
         : message.includes('ENOENT') ? 'No such file or directory'
         : message
-      write(2, new TextEncoder().encode(`readlink: ${file}: ${reason}\n`))
+      writeAll(2, new TextEncoder().encode(`readlink: ${file}: ${reason}\n`))
       hasError = true
     }
   }
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return hasError ? 1 : 0
 }
@@ -85,6 +85,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`readlink: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`readlink: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

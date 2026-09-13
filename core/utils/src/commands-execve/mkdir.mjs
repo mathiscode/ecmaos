@@ -8,7 +8,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, mkdir, getcwd, stat } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, mkdir, getcwd, stat } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: mkdir [OPTION]... DIRECTORY...
 Create the DIRECTORY(ies), if they do not already exist.
@@ -45,7 +45,7 @@ function mkdirRecursive(path, mode) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -62,14 +62,14 @@ function main() {
     else if (arg === '--verbose') verbose = true
     else if (arg.startsWith('--mode=')) {
       const parsed = parseNumericMode(arg.slice(7))
-      if (parsed === null) { write(2, new TextEncoder().encode(`mkdir: invalid mode '${arg.slice(7)}'\n`)); return 1 }
+      if (parsed === null) { writeAll(2, new TextEncoder().encode(`mkdir: invalid mode '${arg.slice(7)}'\n`)); return 1 }
       mode = parsed
     } else if (arg.startsWith('-') && arg.length > 1) {
       for (let j = 1; j < arg.length; j++) {
         const flag = arg[j]
         if (flag === 'p') parents = true
         else if (flag === 'v') verbose = true
-        else { write(2, new TextEncoder().encode(`mkdir: invalid option -- '${flag}'\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`mkdir: invalid option -- '${flag}'\n`)); return 1 }
       }
     } else {
       directories.push(arg)
@@ -78,7 +78,7 @@ function main() {
   }
 
   if (directories.length === 0) {
-    write(2, new TextEncoder().encode('mkdir: missing operand\n'))
+    writeAll(2, new TextEncoder().encode('mkdir: missing operand\n'))
     return 1
   }
 
@@ -91,11 +91,11 @@ function main() {
       const existedBefore = parents && exists(fullPath)
       if (parents) mkdirRecursive(fullPath, mode)
       else mkdir(fullPath, mode ?? 0o777)
-      if (verbose && !existedBefore) write(1, new TextEncoder().encode(`mkdir: created directory '${target}'\n`))
+      if (verbose && !existedBefore) writeAll(1, new TextEncoder().encode(`mkdir: created directory '${target}'\n`))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (parents && /EEXIST/.test(message)) continue
-      write(2, new TextEncoder().encode(`mkdir: ${target}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`mkdir: ${target}: ${message}\n`))
       hasError = true
     }
   }
@@ -106,6 +106,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`mkdir: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`mkdir: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

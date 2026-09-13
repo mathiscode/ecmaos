@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: awk [OPTION]... 'program' [FILE]...
 Pattern scanning and text processing language.
@@ -53,7 +53,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -152,7 +151,7 @@ function executeAction(action, fields, line, NR, NF) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -165,7 +164,7 @@ function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-F' || arg === '--field-separator') {
       if (i + 1 < args.length) fieldSeparator = args[++i] || ' '
@@ -189,13 +188,13 @@ function main() {
   }
 
   if (!program) {
-    write(2, new TextEncoder().encode("awk: program is required\nTry 'awk --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("awk: program is required\nTry 'awk --help' for more information.\n"))
     return 1
   }
 
   const parsedProgram = parseAwkProgram(program)
   if (!parsedProgram) {
-    write(2, new TextEncoder().encode('awk: invalid program\n'))
+    writeAll(2, new TextEncoder().encode('awk: invalid program\n'))
     return 1
   }
 
@@ -216,7 +215,7 @@ function main() {
         lines.push(...fileLines)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`awk: ${file}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`awk: ${file}: ${message}\n`))
       }
     }
   }
@@ -264,13 +263,13 @@ function main() {
     }
   }
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`awk: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`awk: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

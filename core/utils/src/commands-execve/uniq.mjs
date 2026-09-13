@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: uniq [OPTION]... [INPUT [OUTPUT]]
 Report or omit repeated lines.
@@ -24,7 +24,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -61,7 +60,7 @@ function splitLines(text) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -81,7 +80,7 @@ function main() {
       if (flags.includes('u')) unique = true
       const invalid = flags.find(f => !['c', 'd', 'u'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`uniq: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode(`uniq: invalid option -- '${invalid}'\n`))
         return 1
       }
     } else {
@@ -102,7 +101,7 @@ function main() {
         lines.push(...splitLines(readWholeFileText(fullPath)))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`uniq: ${file}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`uniq: ${file}: ${message}\n`))
         hasError = true
       }
     }
@@ -136,13 +135,13 @@ function main() {
   }
   if (prevLine !== null) emit(prevLine, countValue)
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return hasError ? 1 : 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`uniq: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`uniq: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

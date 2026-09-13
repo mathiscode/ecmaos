@@ -48,11 +48,23 @@ export interface Job {
 export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Promise<number>
 
 /**
+ * Joins one pipeline stage's stdout to the next stage's stdin. `Shell` never holds a `Kernel`
+ * reference of its own, so whoever constructs it hands over a function already closed over
+ * `kernel` -- same pattern as {@link ShellExecute}. Backed by a real `@zenfs/linux` pipe
+ * (`Kernel.createPipeStream`), not a plain `TransformStream`, so pipeline stage-to-stage joins go
+ * through the same real `pipe` syscall `Kernel.bridgeStdio` already proved out for redirected
+ * single-process stdio.
+ */
+export type ShellCreatePipeStream = () => { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> }
+
+/**
  * Options for configuring the shell
  */
 export interface ShellOptions {
   /** The cross-cutting kernel primitives (i18n is what Shell uses directly) */
   context: KernelContext
+  /** Joins pipeline stages together; see {@link ShellCreatePipeStream} */
+  createPipeStream: ShellCreatePipeStream
   /** Current working directory */
   cwd?: string
   /** Environment variables */

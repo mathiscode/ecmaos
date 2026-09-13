@@ -6,11 +6,11 @@
  * real `argv`/`exit`/`write` syscalls instead of a `ctx`/`io` object closing over live `kernel`/
  * `shell`/`terminal` references.
  *
- * The original's `terminal.write(output)` fallback for `!ctx.process` is dropped: a real `execve`'d
+ * The original's `terminal.writeAll(output)` fallback for `!ctx.process` is dropped: a real `execve`'d
  * program always has a process (there is no other way to reach this file), so that branch never ran.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 function interpretEscapes(text) {
   let result = ''
@@ -64,7 +64,7 @@ function main() {
   const args = argv.slice(1) // argv[0] is the program path itself
 
   if (args.length === 0) {
-    write(1, new TextEncoder().encode('\n'))
+    writeAll(1, new TextEncoder().encode('\n'))
     return 0
   }
 
@@ -74,7 +74,7 @@ function main() {
 
   for (const arg of args) {
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-n') {
       noNewline = true
@@ -86,7 +86,7 @@ function main() {
       if (flags.includes('e')) enableEscapes = true
       const invalidFlag = flags.find(f => f !== 'n' && f !== 'e')
       if (invalidFlag) {
-        write(1, new TextEncoder().encode(`echo: invalid option -- '${invalidFlag}'\n`))
+        writeAll(1, new TextEncoder().encode(`echo: invalid option -- '${invalidFlag}'\n`))
         return 1
       }
     } else {
@@ -98,13 +98,13 @@ function main() {
   if (enableEscapes) text = interpretEscapes(text)
   const output = noNewline ? text : text + '\n'
 
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`echo: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`echo: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

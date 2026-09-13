@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, rmRecursive } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, rmRecursive } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: rmdir [OPTION]... DIRECTORY...
 Remove the DIRECTORY(ies), if they are empty.
@@ -17,13 +17,13 @@ Remove the DIRECTORY(ies), if they are empty.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length === 0) {
-    write(2, new TextEncoder().encode('rmdir: missing operand\n'))
-    write(2, new TextEncoder().encode("Try 'rmdir --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('rmdir: missing operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'rmdir --help' for more information.\n"))
     return 1
   }
 
@@ -37,7 +37,7 @@ function main() {
       rmRecursive(fullPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      write(2, new TextEncoder().encode(`rmdir: ${target}: ${message}\n`))
+      writeAll(2, new TextEncoder().encode(`rmdir: ${target}: ${message}\n`))
       hasError = true
     }
   }
@@ -48,6 +48,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`rmdir: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`rmdir: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

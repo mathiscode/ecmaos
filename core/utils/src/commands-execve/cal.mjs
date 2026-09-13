@@ -4,7 +4,7 @@
  * live kernel/shell/terminal state.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cal [MONTH] [YEAR]
 Display a calendar.
@@ -16,7 +16,7 @@ Display a calendar.
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -27,7 +27,7 @@ function main() {
   if (args.length === 1) {
     const arg = parseInt(args[0], 10)
     if (isNaN(arg)) {
-      write(1, new TextEncoder().encode('cal: invalid argument\n'))
+      writeAll(1, new TextEncoder().encode('cal: invalid argument\n'))
       return 1
     }
     if (arg >= 1 && arg <= 12) {
@@ -41,7 +41,7 @@ function main() {
     month = parseInt(args[0], 10)
     year = parseInt(args[1], 10)
     if (isNaN(month) || isNaN(year)) {
-      write(1, new TextEncoder().encode('cal: invalid arguments\n'))
+      writeAll(1, new TextEncoder().encode('cal: invalid arguments\n'))
       return 1
     }
   } else {
@@ -50,7 +50,7 @@ function main() {
   }
 
   if (month < 1 || month > 12) {
-    write(1, new TextEncoder().encode('cal: invalid month\n'))
+    writeAll(1, new TextEncoder().encode('cal: invalid month\n'))
     return 1
   }
 
@@ -85,13 +85,13 @@ function main() {
     isFirstWeek = false
   }
 
-  write(1, new TextEncoder().encode(output + '\n'))
+  writeAll(1, new TextEncoder().encode(output + '\n'))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`cal: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`cal: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -294,6 +294,7 @@ export class Kernel implements IKernel {
     // never needs a `Kernel` reference of its own.
     this.shell = new Shell({
       context: this.context,
+      createPipeStream: () => this.createPipeStream(),
       execute: options => this.execute({ ...options, kernel: this }),
       filesystem: this.filesystem,
       users: this.users,
@@ -1375,8 +1376,6 @@ export class Kernel implements IKernel {
         }
       })()
     } else {
-      // stdin: pump `stream` into the pipe's write end until it's exhausted, then close so the
-      // program's reads see EOF (0), matching a real pipe once its last writer closes.
       const reader = (stream as ReadableStream<Uint8Array>).getReader()
       void (async () => {
         try {
@@ -1385,8 +1384,9 @@ export class Kernel implements IKernel {
             if (done) break
             let offset = 0
             while (offset < value.byteLength) {
-              const chunk = value.subarray(offset)
-              offset += pipefs.write_device(bridgeFile, chunk, 0)
+              const n = pipefs.write_device(bridgeFile, value.subarray(offset), 0)
+              if (n > 0) { offset += n; continue }
+              await new Promise(resolve => setTimeout(resolve, 10))
             }
           }
         } catch (error) {
@@ -1398,6 +1398,91 @@ export class Kernel implements IKernel {
     }
 
     return stop
+  }
+
+  /**
+   * A real `@zenfs/linux` `create_pipe`-backed drop-in for `new TransformStream()`, used by
+   * `Shell.runPipeline` to join one pipeline stage's stdout to the next stage's stdin -- closing
+   * the plan's last open item (`.docs/overhaul/STATUS_01.md` recommendation #3): pipeline stages
+   * were still joined by a plain web `TransformStream`, never the real `pipe` syscall, even after
+   * `bridgeStdio` proved the primitive itself works.
+   *
+   * Both ends of the real pipe are anchored on `this.pipeProcess`'s context, exactly as
+   * `bridgeStdio` above anchors its own ends and for the identical reason: `fs/pipe.ts`'s `write`
+   * throws `EPIPE` unless `open_ends()` finds the *other* end referenced by some registered
+   * `Process`, and a stage's own `Process` (when it has one at all -- a legacy in-process coreutil
+   * has none) would tear its end down on its own exit timing, racing whichever side is still
+   * draining it. Anchoring both ends on the same kernel-lifetime process sidesteps that regardless
+   * of what kind of thing is on either side of the join (a real `execve`'d `Process`, or a legacy
+   * coreutil closure that only ever sees the returned `readable`/`writable` web streams).
+   *
+   * Reads/writes go through `pipefs`'s own `read_device`/`write_device`, not `@zenfs/core`'s
+   * generic `fs.readSync`/`writeSync` -- confirmed by hand (see `bridgeStdio`'s own doc comment)
+   * that the generic path silently doesn't work on a pipe at all.
+   */
+  private createPipeStream(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> } {
+    const pipeProcCtx = this.pipeProcess.context
+    const [readFd, writeFd] = create_pipe(pipeProcCtx)
+    const readHandle = pipeProcCtx.descriptors.get(readFd)
+    const writeHandle = pipeProcCtx.descriptors.get(writeFd)
+    const readFile = readHandle && pipefs._device(readHandle.internalPath)
+    const writeFile = writeHandle && pipefs._device(writeHandle.internalPath)
+
+    if (!readFile || !writeFile) {
+      this.log.error('createPipeStream: could not resolve a real pipe device; falling back to TransformStream')
+      const fallback = new TransformStream<Uint8Array>()
+      return { readable: fallback.readable, writable: fallback.writable }
+    }
+
+    let writerClosed = false
+    const writable = new WritableStream<Uint8Array>({
+      // `write_device` never blocks -- it's a short write (`Pipe.put`, `fs/pipe.ts`), returning 0
+      // once the pipe's fixed 65536-byte capacity is full, on the assumption that a real blocking
+      // `write(2)` syscall would suspend the calling thread until the reader drains it. There is no
+      // thread to suspend here (this callback runs on the main thread, same as the `pull` below
+      // that would do the draining), so a synchronous retry loop with no `await` would spin forever
+      // without ever giving `pull` a turn -- confirmed by hand: a payload bigger than one pipe's
+      // capacity written in a single chunk hung the test suite before this `await` was added.
+      write: async chunk => {
+        let offset = 0
+        while (offset < chunk.byteLength) {
+          const n = pipefs.write_device(writeFile, chunk.subarray(offset), 0)
+          if (n > 0) { offset += n; continue }
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+      },
+      close: () => {
+        writerClosed = true
+        pipeProcCtx.descriptors.delete(writeFd)
+      },
+      abort: () => {
+        writerClosed = true
+        pipeProcCtx.descriptors.delete(writeFd)
+      }
+    })
+
+    const readable = new ReadableStream<Uint8Array>({
+      pull: async controller => {
+        while (true) {
+          const buffer = new Uint8Array(65536)
+          const n = pipefs.read_device(readFile, buffer, 0, buffer.byteLength)
+          if (n > 0) {
+            controller.enqueue(buffer.subarray(0, n))
+            return
+          }
+          if (writerClosed) {
+            controller.close()
+            return
+          }
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+      },
+      cancel: () => {
+        pipeProcCtx.descriptors.delete(readFd)
+      }
+    })
+
+    return { readable, writable }
   }
 
   /**
@@ -2475,6 +2560,7 @@ export class Kernel implements IKernel {
 
     const shell = new Shell({
       context: this.context,
+      createPipeStream: () => this.createPipeStream(),
       execute: options => this.execute({ ...options, kernel: this }),
       filesystem: this.filesystem,
       users: this.users,

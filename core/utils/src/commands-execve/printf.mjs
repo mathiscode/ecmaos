@@ -4,7 +4,7 @@
  * live kernel/shell/terminal state.
  */
 
-const { argv, exit, write } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: printf FORMAT [ARGUMENT]...
 Format and print ARGUMENT(s) according to FORMAT.
@@ -128,12 +128,12 @@ function formatValue(format, value) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
   if (args.length === 0) {
-    write(2, new TextEncoder().encode("printf: missing format string\nTry 'printf --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode("printf: missing format string\nTry 'printf --help' for more information.\n"))
     return 1
   }
 
@@ -176,13 +176,13 @@ function main() {
     }
   }
 
-  write(1, new TextEncoder().encode(result))
+  writeAll(1, new TextEncoder().encode(result))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`printf: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`printf: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: shuf [OPTION]... [FILE]
 Write a random permutation of the input lines to standard output.
@@ -34,7 +34,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -71,7 +70,7 @@ function splitLines(text) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -87,19 +86,19 @@ function main() {
       if (i + 1 < args.length) {
         const parsed = parseInt(args[++i], 10)
         if (!isNaN(parsed) && parsed > 0) headCount = parsed
-        else { write(2, new TextEncoder().encode(`shuf: invalid line count: ${args[i]}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`shuf: invalid line count: ${args[i]}\n`)); return 1 }
       }
     } else if (arg.startsWith('--head-count=')) {
       const countStr = arg.slice(13)
       const parsed = parseInt(countStr, 10)
       if (!isNaN(parsed) && parsed > 0) headCount = parsed
-      else { write(2, new TextEncoder().encode(`shuf: invalid line count: ${countStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`shuf: invalid line count: ${countStr}\n`)); return 1 }
     } else if (arg.startsWith('-n')) {
       const countStr = arg.slice(2)
       if (countStr) {
         const parsed = parseInt(countStr, 10)
         if (!isNaN(parsed) && parsed > 0) headCount = parsed
-        else { write(2, new TextEncoder().encode(`shuf: invalid line count: ${countStr}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`shuf: invalid line count: ${countStr}\n`)); return 1 }
       }
     } else if (arg === '-e' || arg === '--echo') {
       echo = true
@@ -113,8 +112,8 @@ function main() {
       if (echo) echoArgs.push(arg)
       else files.push(arg)
     } else {
-      write(2, new TextEncoder().encode(`shuf: invalid option -- '${arg.slice(1)}'\n`))
-      write(2, new TextEncoder().encode("Try 'shuf --help' for more information.\n"))
+      writeAll(2, new TextEncoder().encode(`shuf: invalid option -- '${arg.slice(1)}'\n`))
+      writeAll(2, new TextEncoder().encode("Try 'shuf --help' for more information.\n"))
       return 1
     }
   }
@@ -126,7 +125,7 @@ function main() {
     const lo = parseInt(loStr ?? '0', 10)
     const hi = parseInt(hiStr ?? '0', 10)
     if (isNaN(lo) || isNaN(hi) || lo > hi) {
-      write(2, new TextEncoder().encode(`shuf: invalid input range: ${inputRange}\n`))
+      writeAll(2, new TextEncoder().encode(`shuf: invalid input range: ${inputRange}\n`))
       return 1
     }
     for (let i = lo; i <= hi; i++) lines.push(i.toString())
@@ -141,7 +140,7 @@ function main() {
         lines.push(...splitLines(readWholeFileText(resolve(cwd, file))))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        write(2, new TextEncoder().encode(`shuf: ${file}: ${message}\n`))
+        writeAll(2, new TextEncoder().encode(`shuf: ${file}: ${message}\n`))
       }
     }
   }
@@ -151,7 +150,7 @@ function main() {
 
   let text = ''
   for (const line of output) text += line + '\n'
-  write(1, new TextEncoder().encode(text))
+  writeAll(1, new TextEncoder().encode(text))
 
   return 0
 }
@@ -159,6 +158,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`shuf: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`shuf: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

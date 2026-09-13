@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: fmt [OPTION]... [FILE]...
 Reformat paragraph text.
@@ -43,7 +43,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -145,7 +144,7 @@ function formatText(lines, width, splitOnly, uniformSpacing) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -159,26 +158,26 @@ function main() {
     if (!arg) continue
 
     if (arg === '--help' || arg === '-h') {
-      write(2, new TextEncoder().encode(usage + '\n'))
+      writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-w' || arg === '--width') {
       if (i + 1 < args.length) {
         const widthStr = args[++i]
         const parsed = parseInt(widthStr, 10)
         if (!isNaN(parsed) && parsed > 0) width = parsed
-        else { write(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
       }
     } else if (arg.startsWith('--width=')) {
       const widthStr = arg.slice(8)
       const parsed = parseInt(widthStr, 10)
       if (!isNaN(parsed) && parsed > 0) width = parsed
-      else { write(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
+      else { writeAll(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
     } else if (arg.startsWith('-w')) {
       const widthStr = arg.slice(2)
       if (widthStr) {
         const parsed = parseInt(widthStr, 10)
         if (!isNaN(parsed) && parsed > 0) width = parsed
-        else { write(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
+        else { writeAll(2, new TextEncoder().encode(`fmt: invalid width: ${widthStr}\n`)); return 1 }
       }
     } else if (arg === '-s' || arg === '--split-only') {
       splitOnly = true
@@ -190,7 +189,7 @@ function main() {
       if (flags.includes('u')) uniformSpacing = true
       const invalid = flags.find(f => !['s', 'u'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`fmt: invalid option -- '${invalid}'\nTry 'fmt --help' for more information.\n`))
+        writeAll(2, new TextEncoder().encode(`fmt: invalid option -- '${invalid}'\nTry 'fmt --help' for more information.\n`))
         return 1
       }
     } else {
@@ -216,7 +215,7 @@ function main() {
           lines.push(...fileLines)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          write(2, new TextEncoder().encode(`fmt: ${file}: ${message}\n`))
+          writeAll(2, new TextEncoder().encode(`fmt: ${file}: ${message}\n`))
         }
       }
     }
@@ -224,11 +223,11 @@ function main() {
     const formatted = formatText(lines, width, splitOnly, uniformSpacing)
     let output = ''
     for (const line of formatted) output += line + '\n'
-    write(1, new TextEncoder().encode(output))
+    writeAll(1, new TextEncoder().encode(output))
 
     return 0
   } catch (error) {
-    write(2, new TextEncoder().encode(`fmt: ${error instanceof Error ? error.message : String(error)}\n`))
+    writeAll(2, new TextEncoder().encode(`fmt: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
   }
 }
@@ -236,6 +235,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`fmt: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`fmt: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

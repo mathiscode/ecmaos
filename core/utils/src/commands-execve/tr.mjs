@@ -4,7 +4,7 @@
  * real `read()` in a loop the same way `pilot-pwd`'s output side does, just reversed.
  */
 
-const { argv, exit, write, read } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tr [OPTION]... SET1 [SET2]
 Translate or delete characters.
@@ -21,7 +21,6 @@ function readAllStdin() {
     const n = read(0, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
-    if (n < chunkSize) break
   }
   const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
   const bytes = new Uint8Array(total)
@@ -50,7 +49,7 @@ function expandSet(set) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -66,21 +65,21 @@ function main() {
       if (flags.includes('d')) deleteMode = true
       if (flags.includes('s')) squeeze = true
       const invalid = flags.find(f => f !== 'd' && f !== 's')
-      if (invalid) { write(2, new TextEncoder().encode(`tr: invalid option -- '${invalid}'\n`)); return 1 }
+      if (invalid) { writeAll(2, new TextEncoder().encode(`tr: invalid option -- '${invalid}'\n`)); return 1 }
     } else {
       positional.push(arg)
     }
   }
 
   if (positional.length === 0) {
-    write(2, new TextEncoder().encode('tr: missing operand\n'))
+    writeAll(2, new TextEncoder().encode('tr: missing operand\n'))
     return 1
   }
 
   const set1 = positional[0] || ''
   const set2 = positional[1] || ''
   if (!deleteMode && !squeeze && !set2) {
-    write(2, new TextEncoder().encode('tr: missing operand after SET1\n'))
+    writeAll(2, new TextEncoder().encode('tr: missing operand after SET1\n'))
     return 1
   }
 
@@ -113,13 +112,13 @@ function main() {
     result = squeezed
   }
 
-  write(1, new TextEncoder().encode(result))
+  writeAll(1, new TextEncoder().encode(result))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`tr: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`tr: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

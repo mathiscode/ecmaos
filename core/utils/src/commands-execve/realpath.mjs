@@ -7,7 +7,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, getcwd, access } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, access } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: realpath [OPTION]... FILE...
 Print the resolved absolute file name.
@@ -23,7 +23,7 @@ function exists(path) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -40,8 +40,8 @@ function main() {
       if (flags.includes('q')) quiet = true
       const invalid = flags.find(f => !['e', 'q'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`realpath: invalid option -- '${invalid}'\n`))
-        write(2, new TextEncoder().encode("Try 'realpath --help' for more information.\n"))
+        writeAll(2, new TextEncoder().encode(`realpath: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode("Try 'realpath --help' for more information.\n"))
         return 1
       }
     } else {
@@ -50,8 +50,8 @@ function main() {
   }
 
   if (files.length === 0) {
-    write(2, new TextEncoder().encode('realpath: missing operand\n'))
-    write(2, new TextEncoder().encode("Try 'realpath --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('realpath: missing operand\n'))
+    writeAll(2, new TextEncoder().encode("Try 'realpath --help' for more information.\n"))
     return 1
   }
 
@@ -64,14 +64,14 @@ function main() {
     const resolved = resolve(cwd, fullPath)
 
     if (canonicalizeExisting && !exists(resolved)) {
-      if (!quiet) write(2, new TextEncoder().encode(`realpath: ${file}: No such file or directory\n`))
+      if (!quiet) writeAll(2, new TextEncoder().encode(`realpath: ${file}: No such file or directory\n`))
       hasError = true
       continue
     }
 
     output += resolved + '\n'
   }
-  write(1, new TextEncoder().encode(output))
+  writeAll(1, new TextEncoder().encode(output))
 
   return hasError ? 1 : 0
 }
@@ -79,6 +79,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`realpath: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`realpath: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

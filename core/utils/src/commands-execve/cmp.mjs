@@ -6,7 +6,7 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, write, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cmp [OPTION]... FILE1 FILE2
 Compare two files byte by byte.
@@ -37,7 +37,7 @@ function readWholeFile(fullPath) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    write(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(2, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -54,8 +54,8 @@ function main() {
       if (flags.includes('s')) quiet = true
       const invalid = flags.find(f => !['l', 's'].includes(f))
       if (invalid) {
-        write(2, new TextEncoder().encode(`cmp: invalid option -- '${invalid}'\n`))
-        write(2, new TextEncoder().encode("Try 'cmp --help' for more information.\n"))
+        writeAll(2, new TextEncoder().encode(`cmp: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode("Try 'cmp --help' for more information.\n"))
         return 1
       }
     } else {
@@ -64,8 +64,8 @@ function main() {
   }
 
   if (files.length !== 2) {
-    write(2, new TextEncoder().encode('cmp: missing operand after\n'))
-    write(2, new TextEncoder().encode("Try 'cmp --help' for more information.\n"))
+    writeAll(2, new TextEncoder().encode('cmp: missing operand after\n'))
+    writeAll(2, new TextEncoder().encode("Try 'cmp --help' for more information.\n"))
     return 1
   }
 
@@ -81,21 +81,21 @@ function main() {
 
     for (let i = 0; i < minLength; i++) {
       if (bytes1[i] !== bytes2[i]) {
-        if (verbose) write(2, new TextEncoder().encode(`${i + 1} ${bytes1[i]} ${bytes2[i]}\n`))
-        else if (!quiet) write(2, new TextEncoder().encode(`${file1} ${file2} differ: byte ${i + 1}, line ${Math.floor(i / 80) + 1}\n`))
+        if (verbose) writeAll(2, new TextEncoder().encode(`${i + 1} ${bytes1[i]} ${bytes2[i]}\n`))
+        else if (!quiet) writeAll(2, new TextEncoder().encode(`${file1} ${file2} differ: byte ${i + 1}, line ${Math.floor(i / 80) + 1}\n`))
         return 1
       }
     }
 
     if (bytes1.length !== bytes2.length) {
-      if (!quiet) write(2, new TextEncoder().encode(`cmp: EOF on ${bytes1.length < bytes2.length ? file1 : file2}\n`))
+      if (!quiet) writeAll(2, new TextEncoder().encode(`cmp: EOF on ${bytes1.length < bytes2.length ? file1 : file2}\n`))
       return 1
     }
 
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    write(2, new TextEncoder().encode(`cmp: ${message}\n`))
+    writeAll(2, new TextEncoder().encode(`cmp: ${message}\n`))
     return 1
   }
 }
@@ -103,6 +103,6 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  write(2, new TextEncoder().encode(`cmp: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, new TextEncoder().encode(`cmp: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }
