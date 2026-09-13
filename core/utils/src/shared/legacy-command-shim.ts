@@ -29,7 +29,6 @@
 import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
-import { meta as metaChown } from '../commands/chown.js'
 import { meta as metaCron } from '../commands/cron.js'
 import { meta as metaFalse } from '../commands/false.js'
 import { meta as metaFormat } from '../commands/format.js'
@@ -59,7 +58,6 @@ import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
 import { meta as metaZip } from '../commands/zip.js'
 
-import { createCommand as createChown } from '../commands/chown.js'
 import { createCommand as createCron } from '../commands/cron.js'
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createFormat } from '../commands/format.js'
@@ -100,7 +98,6 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 
 function buildLegacyCommands(): LegacyCommands {
   return {
-  "chown": { description: metaChown.description, createCommand: createChown },
   "cron": { description: metaCron.description, createCommand: createCron },
   "false": { description: metaFalse.description, createCommand: createFalse },
   "format": { description: metaFormat.description, createCommand: createFormat },
