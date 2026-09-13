@@ -1232,7 +1232,7 @@ export class Kernel implements IKernel {
       // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
       // calling `Process` -- `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
       // syscall table is module-global, shared across every `Kernel` instance in the page/process.
-      registerProcessKernel(proc, this)
+      registerProcessKernel(proc, this, options.shell)
 
       if (tty && isForeground) tty.foreground = proc
 

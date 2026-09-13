@@ -29,6 +29,7 @@ import { define_syscall, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
+import type { Shell } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) -- the
 // intended extension point for a custom syscall's argument/return shape, matching how `define_syscall`
@@ -42,20 +43,33 @@ declare module '@zenfs/linux/uapi/abi' {
     storage_usage(path: string): number
     ps_list(path: string): number
     reboot(): number
+    users_lookup(query: string, path: string): number
   }
 }
 
 /** Which `Kernel` owns a given real `Process` -- set once, at the one real `execve` call site. */
 const kernelOfProcess = new WeakMap<Process, Kernel>()
 
-export function registerProcessKernel(proc: Process, kernel: Kernel): void {
+/**
+ * Which `Shell` spawned a given real `Process` -- needed alongside `kernelOfProcess` only by
+ * `users_lookup` (see its own doc comment), for the *calling* process's own uid/gid/groups; every
+ * other syscall in this module only ever needs the `Kernel`.
+ */
+const shellOfProcess = new WeakMap<Process, Shell>()
+
+export function registerProcessKernel(proc: Process, kernel: Kernel, shell?: Shell): void {
   kernelOfProcess.set(proc, kernel)
+  if (shell) shellOfProcess.set(proc, shell)
 }
 
 function kernelOf(proc: Process): Kernel {
   const kernel = kernelOfProcess.get(proc)
   if (!kernel) throw Object.assign(new Error('No kernel registered for this process'), { errno: Errno.ENOSYS })
   return kernel
+}
+
+function shellOf(proc: Process): Shell | undefined {
+  return shellOfProcess.get(proc)
 }
 
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
@@ -130,5 +144,56 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     await kernel.reboot()
     return 0
+  })
+
+  // `id`/`groups` need to resolve arbitrary usernames/uids against the live user registry
+  // (`kernel.users`) -- no execve-compatible equivalent exists for that, and `groups` even supports
+  // looking up a user other than the caller's own (`groups someoneelse`), so this can't be
+  // pre-snapshotted into env at spawn time the way `id`/`groups`' *own*-process values could be.
+  // `query` is a small JSON request object; the response (also JSON, written to `path` the same way
+  // `storage_usage`/`ps_list` do, per this module's own doc comment on why a custom syscall can't
+  // just return a string) is a plain array of `{ uid, gid, groups, username }` entries -- password
+  // hashes and keypairs are never included, this is a read-only identity lookup, not a full user
+  // record dump.
+  //
+  // `mode: 'self'` additionally resolves the *calling* process's own uid/gid/groups from
+  // `shellOf(proc)`'s live `Credentials` -- there's no real syscall for "my supplementary groups"
+  // (`getuid`/`geteuid`/`getgid`/`getegid` exist in `@zenfs/linux`, `getgroups` does not), so this one
+  // mode is the only way a worker program can see its own `groups` list at all.
+  define_syscall('users_lookup', async (proc: Process, query: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const request = JSON.parse(query) as
+      | { mode: 'self' }
+      | { mode: 'byUid', uid: number }
+      | { mode: 'byUsername', username: string }
+
+    const toRecord = (uid: number) => {
+      const user = kernel.users.get(uid)
+      return user ? { uid: user.uid, gid: user.gid, groups: user.groups, username: user.username } : null
+    }
+
+    let result: unknown
+    if (request.mode === 'self') {
+      const shell = shellOf(proc)
+      const credentials = shell?.credentials
+      const user = credentials ? kernel.users.get(credentials.uid) : undefined
+      result = {
+        uid: credentials?.uid ?? 0,
+        gid: credentials?.gid ?? 0,
+        euid: credentials?.euid ?? credentials?.uid ?? 0,
+        egid: credentials?.egid ?? credentials?.gid ?? 0,
+        groups: credentials?.groups ?? [],
+        username: user?.username ?? 'root'
+      }
+    } else if (request.mode === 'byUid') {
+      result = toRecord(request.uid)
+    } else {
+      const match = Array.from(kernel.users.all.values()).find(u => u.username === request.username)
+      result = match ? toRecord(match.uid) : null
+    }
+
+    const text = JSON.stringify(result)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
   })
 }
