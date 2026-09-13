@@ -66,10 +66,17 @@ export class Service implements IService {
     const sendFile = async (event: MessageEvent) => {
       const data = event.data
       try {
+        const contents = await this._filesystem.fs.readFile(data.file)
         event.source?.postMessage({
           type: 'fs',
           file: data.file,
-          data: await this._filesystem.fs.readFile(data.file)
+          // A real Uint8Array, not whatever object readFile returned -- zenfs's return value has
+          // been observed to fail `instanceof Uint8Array`/structured-clone across a module-instance
+          // or realm boundary (see filesystem.ts's copyTree, same guard for the vitest/jsdom case;
+          // the service worker is exactly this kind of boundary from the page). Cloning into a
+          // fresh Uint8Array here guarantees postMessage's structured clone -- and the service
+          // worker's later `new Response(fileData, ...)` -- see a normal, unambiguous binary buffer.
+          data: new Uint8Array(contents as ArrayBufferLike)
         })
       } catch (error) {
         this._ctx.log.error(error instanceof Error ? error.message : 'Unknown error')
