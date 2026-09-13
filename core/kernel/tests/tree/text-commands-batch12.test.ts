@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { packTar } from 'modern-tar'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -80,6 +81,28 @@ describe('text command batch 12: tar, real execve', () => {
 
     const content = await kernel.filesystem.fs.readFile('/tmp/tar-gz-dest/tar-gz-src/gz.txt', 'utf-8')
     expect(content).toBe('gzipped content')
+  })
+
+  it('extracts a multi-level nested path with no intermediate directory entries, matching real npm tarballs', async () => {
+    // Reproduces a real regression: extraction's mkdir was a raw single-level mkdir(2) with no
+    // recursive-creation of its own. tar.mjs's own `-c` always emits a directory entry for every
+    // level, so a plain create/extract round trip through this same tar never exposed the bug --
+    // but a real npm package tarball (built by npm's own packer, not this one) commonly emits ONLY
+    // file entries, no directory entries at all, for nested paths like dist/assets/foo.js. This
+    // built the archive by hand via modern-tar's packTar directly, with file-only entries, to match
+    // that real-world layout and actually exercise the ENOENT this fix addresses.
+    const fileBody = new TextEncoder().encode('nested content')
+    const archiveBytes = await packTar([
+      { header: { name: 'pkg/dist/assets/foo.js', type: 'file', size: fileBody.length }, body: fileBody }
+    ])
+    await kernel.filesystem.fs.writeFile('/tmp/tar-nodirs.tar', Buffer.from(archiveBytes))
+
+    await kernel.filesystem.fs.mkdir('/tmp/tar-nodirs-dest', { recursive: true })
+    const extractCode = await kernel.shell.execute('tar -xf /tmp/tar-nodirs.tar -C /tmp/tar-nodirs-dest 2>/tmp/tar-nodirs.err')
+    expect(extractCode).toBe(0)
+
+    const content = await kernel.filesystem.fs.readFile('/tmp/tar-nodirs-dest/pkg/dist/assets/foo.js', 'utf-8')
+    expect(content).toBe('nested content')
   })
 
   it('errors when no operation mode is specified', async () => {
