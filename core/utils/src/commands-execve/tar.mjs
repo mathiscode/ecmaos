@@ -61,6 +61,23 @@ function writeWholeFile(fullPath, bytes) {
   }
 }
 
+/**
+ * `mkdir` (from `globalThis.ecmaosSyscalls`) is the raw single-level `mkdir(2)` syscall -- it has
+ * no `{ recursive: true }` of its own and fails if the parent doesn't already exist. Most npm
+ * tarballs don't emit an explicit directory entry for every intermediate level (e.g. a file at
+ * `dist/assets/foo.js` with no separate entry for `dist/` or `dist/assets/`), so extraction must
+ * create every path segment from the root down itself, exactly like the pre-migration
+ * `fs.promises.mkdir(dirPath, { recursive: true })` this replaced.
+ */
+function mkdirRecursive(targetPath) {
+  const segments = targetPath.split('/').filter(Boolean)
+  let current = ''
+  for (const segment of segments) {
+    current += '/' + segment
+    try { mkdir(current, 0o755) } catch { /* already exists */ }
+  }
+}
+
 function readAllStdin() {
   const chunkSize = 65536
   const chunks = []
@@ -271,10 +288,9 @@ async function extractArchive(cwd, archivePath, options) {
         }
 
         if (entry.header.type === 'directory' || entry.header.name.endsWith('/')) {
-          try { mkdir(targetPath, 0o755) } catch { /* may already exist */ }
+          mkdirRecursive(targetPath)
         } else if (entry.header.type === 'file') {
-          const dirPath = dirname(targetPath)
-          try { mkdir(dirPath, 0o755) } catch { /* may already exist */ }
+          mkdirRecursive(dirname(targetPath))
           writeWholeFile(targetPath, entry.data || new Uint8Array(0))
         }
       } catch (error) {
