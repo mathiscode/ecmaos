@@ -11,6 +11,37 @@ import 'vitest-canvas-mock'
   disconnect() {}
 }
 
+// jsdom's `localStorage`/`sessionStorage` don't reliably surface on `globalThis` under vitest's
+// jsdom environment even with `storageQuota` set (confirmed by hand: `new JSDOM(..., {
+// storageQuota })` gives a working `window.localStorage` directly, but vitest's own
+// `populateGlobal` step -- which copies `window`'s keys onto `globalThis` -- doesn't carry it
+// through). Without this, `Storage.local = globalThis.localStorage` (`tree/storage.ts`) silently
+// becomes `undefined`, and `Filesystem.configure()`'s `await this._storage.local.getItem(...)`
+// (`tree/filesystem.ts`) throws a `TypeError` that `Kernel.boot()`'s outer catch swallows into a
+// silent `PANIC` state -- `boot()` resolves without throwing, but `registerCommands()`/
+// `registerDevices()` never ran, so almost every command-dispatch test fails downstream with
+// "Command not found" for a reason with nothing to do with commands at all. A plain in-memory
+// polyfill, only applied when the real one is missing, is simpler than chasing the jsdom/vitest
+// interaction further.
+class MemoryStorage implements Storage {
+  private _data = new Map<string, string>()
+  get length() { return this._data.size }
+  clear() { this._data.clear() }
+  getItem(key: string) { return this._data.has(key) ? this._data.get(key)! : null }
+  key(index: number) { return Array.from(this._data.keys())[index] ?? null }
+  removeItem(key: string) { this._data.delete(key) }
+  setItem(key: string, value: string) { this._data.set(key, String(value)) }
+}
+
+for (const name of ['localStorage', 'sessionStorage'] as const) {
+  if (!(globalThis as any)[name]) {
+    Object.defineProperty(globalThis, name, { value: new MemoryStorage(), configurable: true, writable: true })
+  }
+  if (!(window as any)[name]) {
+    Object.defineProperty(window, name, { value: (globalThis as any)[name], configurable: true, writable: true })
+  }
+}
+
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
