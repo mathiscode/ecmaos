@@ -29,6 +29,7 @@ import { define_syscall, kill as zenfsKill, processes as zenfsProcesses, spawn a
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
+import { presenters } from './presenters/index.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) -- the
@@ -40,6 +41,7 @@ declare module '@zenfs/linux/uapi/abi' {
     window_create(title: string): number
     window_write(handle: number, text: string): number
     window_close(handle: number): number
+    window_present(kind: string, paramsJson: string, path: string): number
     storage_usage(path: string): number
     ps_list(path: string): number
     reboot(): number
@@ -136,6 +138,39 @@ export function installMainThreadSyscalls(): void {
     const handle = nextWindowHandle++
     windowHandles.set(handle, String(win.id))
     return handle
+  })
+
+  /**
+   * Runs the presenter registered for `kind` (`#lib/presenters/index.ts`) on the main thread and
+   * reports the outcome as `{ result }` or `{ error }` in the scratch file at `path` -- the same convention
+   * as the `sockets_*` handlers, because a thrown `Error` collapses to a bare `-EIO` and loses the
+   * message. `kind` is looked up in a fixed table, never evaluated.
+   */
+  define_syscall('window_present', async (proc: Process, kind: string, paramsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+
+    try {
+      const presenter = Object.hasOwn(presenters, kind) ? presenters[kind] : undefined
+      if (!presenter) throw new Error(`unknown presenter: ${kind}`)
+      const presented = await presenter(kernel, proc, JSON.parse(paramsJson) as Record<string, unknown>, shellOf(proc))
+      let result: unknown = presented?.result ?? null
+
+      if (presented?.closed) {
+        // Hold the program here until what was presented is finished -- or the process itself ends
+        // first (`^C`, `kill`), in which case what it put on screen must go with it.
+        const outcome = await Promise.race([presented.closed.then(value => ({ value })), proc.exited.then(() => undefined)])
+        if (outcome) result = outcome.value
+        else presented.dispose?.()
+      }
+
+      text = JSON.stringify({ result })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
   })
 
   define_syscall('window_write', async (proc: Process, handle: number, text: string) => {

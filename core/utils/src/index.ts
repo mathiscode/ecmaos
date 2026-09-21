@@ -22,13 +22,7 @@ export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shar
 // of an in-process call), a real perf regression for the pattern these three are most used in.
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createMount } from './commands/mount.js'
-export { createCommand as createOpen } from './commands/open.js'
 export { createCommand as createPasskey } from './commands/passkey.js'
-export { createCommand as createPlay } from './commands/play.js'
 export { createCommand as createScreensaverDaemon } from './commands/screensaver-daemon.js'
 export { createCommand as createTest } from './commands/test.js'
 export { createCommand as createTrue } from './commands/true.js'
-export { createCommand as createVideo } from './commands/video.js'
-export { createCommand as createView } from './commands/view.js'
-export { createCommand as createVim } from './commands/vim.js'
-export { createCommand as createWeb } from './commands/web.js'

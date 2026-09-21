@@ -249,6 +249,9 @@ importers:
 
   core/kernel:
     dependencies:
+      '@alenaksu/json-viewer':
+        specifier: ^2.1.2
+        version: 2.1.2
       '@bytecodealliance/jco':
         specifier: ^1.33.0
         version: 1.33.0
@@ -414,6 +417,9 @@ importers:
       jose:
         specifier: ^5.9.6
         version: 5.10.0
+      marked:
+        specifier: ^17.0.1
+        version: 17.0.6
       modelfusion:
         specifier: ^0.137.0
         version: 0.137.0
@@ -435,6 +441,9 @@ importers:
       tslog:
         specifier: ^4.9.3
         version: 4.11.0
+      vim-wasm:
+        specifier: ^0.0.13
+        version: 0.0.13
       wabt:
         specifier: ^1.0.36
         version: 1.0.39
@@ -724,9 +733,6 @@ importers:
 
   core/utils:
     dependencies:
-      '@alenaksu/json-viewer':
-        specifier: ^2.1.2
-        version: 2.1.2
       '@aws-sdk/client-s3':
         specifier: ^3.965.0
         version: 3.1130.0
@@ -781,18 +787,12 @@ importers:
       isomorphic-git:
         specifier: ^1.36.3
         version: 1.42.0
-      marked:
-        specifier: ^17.0.1
-        version: 17.0.6
       modern-tar:
         specifier: ^0.7.3
         version: 0.7.7
       smol-toml:
         specifier: ^1.6.0
         version: 1.8.0
-      vim-wasm:
-        specifier: ^0.0.13
-        version: 0.0.13
     devDependencies:
       '@types/ansi-escape-sequences':
         specifier: ^4.0.4
