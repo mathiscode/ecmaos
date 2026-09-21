@@ -10,7 +10,7 @@
 
 import { TFunction } from 'i18next'
 import { configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
-import { IndexedDB } from '@zenfs/dom'
+import { IndexedDB, IndexedDBStore, IndexedDBTransaction } from '@zenfs/dom'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { TarReader } from '@gera2ld/tarjs'
@@ -28,6 +28,29 @@ import type {
   FilesystemOptions,
   StorageProvider
 } from '@ecmaos/types'
+
+/**
+ * Works around a `@zenfs/dom` 1.2.14 / `@zenfs/core` 2.7.6 mismatch that made every positional read
+ * on an IndexedDB-backed filesystem (the root, so `/bin`) return zeros for any offset above 0.
+ *
+ * `StoreFS.read`/`readSync` slice what the transaction hands back with `subarray(offset, end)`
+ * unless the store declares the `partial` flag, meaning "the transaction already sliced". The
+ * IndexedDB backend's `getSync(id, offset, end)` does slice but never declared the flag, so the
+ * sync path sliced twice (a 64-byte read at offset 1000 became an empty second slice). Its async
+ * `get(id)` ignores `offset`/`end` entirely and returns the whole record. Declaring `partial` fixes
+ * the sync path, so `get` must then slice as well or the async path would overflow the buffer.
+ * Remove both once `@zenfs/dom` is consistent about this itself.
+ */
+if (!(IndexedDBStore.prototype as { flags?: string[] }).flags) {
+  Object.defineProperty(IndexedDBStore.prototype, 'flags', { value: ['partial'], configurable: true })
+
+  const originalGet = IndexedDBTransaction.prototype.get
+  IndexedDBTransaction.prototype.get = async function (this: IndexedDBTransaction, id: number, offset?: number, end?: number) {
+    const data = await originalGet.call(this, id)
+    if (!data || (offset === undefined && end === undefined)) return data
+    return new Uint8Array(data).subarray(offset, end)
+  } as typeof IndexedDBTransaction.prototype.get
+}
 
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   uid: 0,
