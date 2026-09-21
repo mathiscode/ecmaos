@@ -46,6 +46,10 @@ declare module '@zenfs/linux/uapi/abi' {
     users_lookup(query: string, path: string): number
     tty_get(): number
     tty_switch(ttyNumber: number): number
+    sockets_list(path: string): number
+    sockets_create(url: string, type: string, protocols: string, path: string): number
+    sockets_close(id: string, path: string): number
+    sockets_show(id: string, path: string): number
   }
 }
 
@@ -77,6 +81,24 @@ function shellOf(proc: Process): Shell | undefined {
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
 let nextWindowHandle = 1
 const windowHandles = new Map<number, string>() // handle -> Windows' own WindowId
+
+/**
+ * Unlike `Windows`, `kernel.sockets`' own connections are already keyed by a real, structured-
+ * clone-safe string (`crypto.randomUUID()`) -- so the `sockets_*` syscalls below pass that id
+ * straight through as a syscall argument instead of minting a second, handle-based indirection
+ * layer the way `window_*` needs to. This mirrors `sockets.ts`'s own `findConnectionById` (the
+ * legacy in-process command's fuzzy 8-char-prefix match), ported here since only the main thread
+ * can see `kernel.sockets.all()` at all.
+ */
+function findSocketConnection(kernel: Kernel, id: string) {
+  const fullMatch = kernel.sockets.get(id)
+  if (fullMatch) return fullMatch
+
+  for (const [fullId, conn] of kernel.sockets.all().entries()) {
+    if (fullId.startsWith(id) || fullId.substring(0, 8) === id) return conn
+  }
+  return undefined
+}
 
 /**
  * Registers this module's syscalls in `@zenfs/linux`'s module-global `syscalls` table.
@@ -166,6 +188,99 @@ export function installMainThreadSyscalls(): void {
     } catch {
       return -Errno.EINVAL
     }
+  })
+
+  // `kernel.sockets` is a live, main-thread-only registry of real `WebSocket`/`WebTransport`
+  // instances -- reached the same way `storage_usage`/`ps_list` reach other live `Kernel` state,
+  // via the write-JSON-to-a-scratch-file convention (a syscall's return must be `number | bigint |
+  // void`, see that doc comment above).
+  //
+  // `create`/`close`/`show` write `{ error: message }` to the scratch file on failure instead of
+  // throwing -- confirmed by hand against the installed package's `dispatch()` (`syscall/table.js`):
+  // it catches every thrown error, and only preserves it as a real `-errno` when the error carries a
+  // numeric `.errno` property (as `kernelOf`'s own `ENOSYS` throw does); a plain `throw new
+  // Error(message)`, exactly what "connection not found"/"WebTransport is not supported"/etc. are,
+  // gets logged as a "kernel bug" and collapsed into a bare `-EIO` with the real message discarded
+  // entirely -- caught in this session's own tests before it shipped (`sockets show` against an
+  // unknown ID surfaced as `EIO: i/o error`, not the real "connection not found" message). The
+  // scratch file is the one channel that reliably carries a string across this boundary either way,
+  // so failure uses it too, rather than trying to keep two different error-reporting paths working.
+  define_syscall('sockets_list', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const list = Array.from(kernel.sockets.all().values()).map(conn => ({
+      id: conn.id, type: conn.type, state: conn.state, url: conn.url, created: conn.created
+    }))
+    const text = JSON.stringify(list)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('sockets_create', async (proc: Process, url: string, type: string, protocols: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+
+    try {
+      let connection
+      if (type === 'webtransport' || (!type && url.startsWith('https://'))) {
+        if (!('WebTransport' in globalThis)) throw new Error('WebTransport is not supported in this browser')
+        connection = await kernel.sockets.createWebTransport(url)
+      } else if (type === 'websocket' || url.startsWith('ws://') || url.startsWith('wss://')) {
+        const options = protocols ? { protocols: protocols.split(',') } : undefined
+        connection = await kernel.sockets.createWebSocket(url, options)
+      } else {
+        throw new Error('unable to determine connection type. Use -t to specify type or use a URL with ws://, wss://, or https:// scheme')
+      }
+      text = JSON.stringify({ id: connection.id, type: connection.type, url: connection.url, state: connection.state })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('sockets_close', async (proc: Process, id: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const connection = findSocketConnection(kernel, id)
+    let text: string
+
+    if (!connection) {
+      text = JSON.stringify({ error: `connection not found: ${id}` })
+    } else {
+      await kernel.sockets.close(connection.id)
+      text = JSON.stringify({ id: connection.id })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('sockets_show', async (proc: Process, id: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const connection = findSocketConnection(kernel, id)
+    let text: string
+
+    if (!connection) {
+      text = JSON.stringify({ error: `connection not found: ${id}` })
+    } else {
+      const detail: Record<string, unknown> = {
+        id: connection.id, type: connection.type, state: connection.state,
+        url: connection.url, created: connection.created
+      }
+
+      if (connection.type === 'websocket') {
+        const ws = connection.socket
+        detail['protocol'] = ws.protocol || null
+        detail['extensions'] = ws.extensions || null
+        detail['binaryType'] = ws.binaryType
+        detail['readyState'] = ws.readyState
+      }
+
+      text = JSON.stringify(detail)
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
   })
 
   // `id`/`groups` need to resolve arbitrary usernames/uids against the live user registry

@@ -5,12 +5,15 @@
  * syscall (`#lib/main-thread-syscalls.ts`), the same `custom`/`syscall_async` bridge `pilot-window.mjs`
  * proved out for `window_create`. The syscall itself formats nothing -- it hands back the raw
  * `StorageEstimate` as JSON, and this program does the human-readable formatting, exactly like the
- * original in-process version did.
+ * original in-process version did. `readBackAndDelete`/`scratchPath` are `lib/scratch.mjs`'s shared
+ * scratch-file bridge, the same one `ps.mjs`/`sockets.mjs` use.
  */
 
 import humanFormat from 'human-format'
+import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 
-const { exit, write, custom, open, read, close, unlink } = globalThis.ecmaosSyscalls
+const syscalls = globalThis.ecmaosSyscalls
+const { exit, write, custom } = syscalls
 
 function formatUsage(usage) {
   const data = {}
@@ -22,34 +25,10 @@ function formatUsage(usage) {
   return data
 }
 
-/** `kernel.storage.usage()` (a live `Kernel` method) is reached through `storage_usage`, the same
- * `custom`/`syscall_async` bridge `pilot-window.mjs` proved for `window_create`; the syscall itself
- * can only return a `number` (`dispatch`'s contract), so it writes its JSON result into this real
- * scratch file instead, and this program reads it back with the plain filesystem syscalls it
- * already has -- exactly how a real `/proc`-reading `df` gets its numbers as text, not a live struct. */
-async function readBackAndDelete(path) {
-  const fd = open(path, 0)
-  const chunkSize = 65536
-  const chunks = []
-  try {
-    while (true) {
-      const buffer = new Uint8Array(chunkSize)
-      const n = read(fd, buffer, -1)
-      if (n <= 0) break
-      chunks.push(buffer.subarray(0, n))
-      if (n < chunkSize) break
-    }
-  } finally {
-    close(fd)
-    unlink(path)
-  }
-  return new TextDecoder().decode(new Uint8Array(chunks.flatMap(c => [...c])))
-}
-
 async function main() {
-  const path = `/tmp/.df-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const path = scratchPath('df')
   await custom('storage_usage', path)
-  const raw = await readBackAndDelete(path)
+  const raw = await readBackAndDelete(syscalls, path)
   const usage = JSON.parse(raw)
   const data = formatUsage(usage)
   write(1, new TextEncoder().encode(JSON.stringify(data, null, 2) + '\n'))

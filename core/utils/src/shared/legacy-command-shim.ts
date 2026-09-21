@@ -43,7 +43,6 @@ import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
-import { meta as metaSockets } from '../commands/sockets.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
@@ -71,7 +70,6 @@ import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
-import { createCommand as createSockets } from '../commands/sockets.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
@@ -110,7 +108,6 @@ function buildLegacyCommands(): LegacyCommands {
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
   "play": { description: metaPlay.description, createCommand: createPlay },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
-  "sockets": { description: metaSockets.description, createCommand: createSockets },
   "test": { description: metaTest.description, createCommand: createTest },
   "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },
