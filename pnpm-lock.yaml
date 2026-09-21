@@ -751,6 +751,9 @@ importers:
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
+      buffer:
+        specifier: ^6.0.3
+        version: 6.0.3
       chalk:
         specifier: ^5.3.0
         version: 5.6.2
