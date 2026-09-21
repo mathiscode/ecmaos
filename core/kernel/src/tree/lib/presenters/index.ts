@@ -21,6 +21,7 @@ import type { Shell } from '@ecmaos/types'
 
 import type { Kernel } from '#kernel.ts'
 
+import { presentApp } from './app.ts'
 import { presentBrowser } from './browser.ts'
 import { presentDocument } from './document.ts'
 import { presentEditor } from './editor.ts'
@@ -49,5 +50,6 @@ export const presenters: Record<string, Presenter> = {
   audio: presentAudio,
   browser: presentBrowser,
   document: presentDocument,
-  editor: presentEditor
+  editor: presentEditor,
+  app: presentApp
 }

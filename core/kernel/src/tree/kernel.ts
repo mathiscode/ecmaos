@@ -1027,15 +1027,13 @@ export class Kernel implements IKernel {
               exitCode = await this.executeCommand({ ...options, command: header.name })
               break
             case 'program':
+            case 'app':
+              // Both run under /bin/app: a `program` in its worker, an `app` (DOM) via the app presenter
               exitCode = await this.execute({
                 ...options,
                 command: '/bin/app',
                 args: [options.command, ...(options.args || [])]
               })
-              break
-            case 'app':
-              if (!header.name) return -1
-              exitCode = await this.executeApp({ ...options, command: header.name, file: options.command })
               break
             case 'script':
               exitCode = await this.executeScript(options)
@@ -1061,58 +1059,6 @@ export class Kernel implements IKernel {
       console.error(error)
       this.log.error(error)
       options.shell.env.set('?', '-1')
-      return -1
-    }
-  }
-
-  /**
-   * Executes an app
-   * @param options - Execution options containing app path and shell
-   * @returns Exit code of the app
-   */
-  async executeApp(options: KernelExecuteOptions): Promise<number> {
-    try {
-      const contents = await this.filesystem.fs.readFile(options.file!, 'utf-8')
-      const binLink = await this.filesystem.fs.readlink(options.file!)
-      const filePath = path.dirname(binLink)
-
-      const blob = new Blob([await this.replaceImports(contents, filePath)], { type: 'text/javascript' })
-      const url = URL.createObjectURL(blob)
-
-      let exitCode = -1
-
-      try {
-        const module = await import(/* @vite-ignore */ url)
-        const main = module?.main || module?.default
-
-        if (typeof main !== 'function') throw new Error('No main function found in module')
-
-        const process = this.processes.create({
-          args: options.args || [],
-          command: options.command,
-          context: this.context,
-          filesystem: this.filesystem,
-          processes: this.processes,
-          kernel: this,
-          shell: options.shell || this.shell,
-          terminal: options.terminal || this.terminal,
-          uid: options.shell.credentials.uid,
-          gid: options.shell.credentials.gid,
-          entry: async (params) => await main(params),
-          stdin: options.stdin,
-          stdout: options.stdout,
-          stderr: options.stderr
-        })
-
-        exitCode = await process.start()
-      } finally {
-        URL.revokeObjectURL(url)
-      }
-
-      return exitCode
-    } catch (error) {
-      this.log.error(`Failed to execute app: ${error}`)
-      options.terminal?.writeln(chalk.red((error as Error).message))
       return -1
     }
   }
