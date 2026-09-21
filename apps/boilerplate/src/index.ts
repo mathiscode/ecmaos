@@ -1,4 +1,4 @@
-#!ecmaos:bin:app:boilerplate
+#!ecmaos:bin:program:boilerplate
 
 import type { ProcessEntryParams } from '@ecmaos/types'
 

@@ -39,7 +39,7 @@ esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   banner: {
-    js: '#!ecmaos:bin:app:web3'
+    js: '#!ecmaos:bin:program:web3'
   },
   external: [
     '@ecmaos/types',

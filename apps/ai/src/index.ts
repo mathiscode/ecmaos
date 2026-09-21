@@ -1,4 +1,4 @@
-#!ecmaos:bin:app:ai
+#!ecmaos:bin:program:ai
 
 import OpenAI from 'openai'
 import type { ProcessEntryParams, Shell } from '@ecmaos/types'

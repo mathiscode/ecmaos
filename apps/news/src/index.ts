@@ -1,4 +1,4 @@
-#!ecmaos:bin:app:news
+#!ecmaos:bin:program:news
 
 import type { ProcessEntryParams } from '@ecmaos/types'
 
