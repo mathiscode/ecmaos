@@ -57,6 +57,9 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
     shell_exec(command: string): number
+    terminal_clear_history(): number
+    terminal_reload_history(): number
+    system_format(argsJson: string, path: string): number
   }
 }
 
@@ -586,5 +589,114 @@ export function installMainThreadSyscalls(): void {
   define_syscall('shell_exec', async (proc: Process, command: string) => {
     const kernel = kernelOf(proc)
     return await kernel.shell.execute(command)
+  })
+
+  // `shell.terminal.clearHistory()`/`reloadHistory()` mutate/re-read the live, in-memory history
+  // buffer a real `Terminal` keeps for its own up-arrow recall -- `history`'s own file-backed
+  // list/`-d` work stays plain fs syscalls (no kernel state involved), only `-c`/`-r` need this,
+  // exactly the two flags `history.ts` (the legacy command) already routed through `terminal.
+  // clearHistory`/`reloadHistory` rather than touching the file behind the terminal's back. Zero
+  // arguments: the uid is always the calling process's own (`shellOf(proc)`'s live credentials), the
+  // same "self" scoping `users_lookup`'s own `mode: 'self'` uses -- there's no legitimate case for
+  // clearing or reloading another user's history from here.
+  define_syscall('terminal_clear_history', async (proc: Process) => {
+    const shell = shellOf(proc)
+    if (!shell) return -Errno.ENOSYS
+    await shell.terminal.clearHistory(shell.credentials.uid)
+    return 0
+  })
+
+  define_syscall('terminal_reload_history', async (proc: Process) => {
+    const shell = shellOf(proc)
+    if (!shell) return -Errno.ENOSYS
+    await shell.terminal.reloadHistory(shell.credentials.uid)
+    return 0
+  })
+
+  // `format` needs three things no worker can reach on its own: the permission gate (`suid !== 0`,
+  // same convention as `users_manage`), an interactive `shell.terminal.readline()` confirmation
+  // prompt (there is no yes/no confirmation primitive on the worker side, same reasoning as
+  // `users_manage`'s password prompts), and real `indexedDB`/`localStorage` access -- `indexedDB` is
+  // spec'd to exist in a Worker, but `kernel.storage.local` (`globalThis.localStorage`) is main-thread
+  // only, so both live here together rather than splitting the two stores across two different
+  // execution contexts for no benefit.
+  //
+  // Real improvement over the legacy command, not just a port: the old `format.ts` only ever computed
+  // which IndexedDB databases *would* be emptied and printed a "Will empty on reboot" message --
+  // nothing anywhere actually called `indexedDB.deleteDatabase()`, so a real reboot never followed
+  // through on that promise (confirmed by grepping `kernel.ts`'s boot path for any trace of it). This
+  // syscall actually deletes them, synchronously, before it returns -- `format` genuinely formats now.
+  //
+  // Cancellation and per-step failures are written to the scratch file as `{ cancelled: true }` /
+  // `{ error: message }`, matching `sockets_create`'s convention; on success `{ messages: [...] }`
+  // carries the human-readable summary lines the worker prints. Rebooting is deliberately left to the
+  // caller (a plain `custom('reboot')` after this returns, reusing the existing `reboot` syscall)
+  // rather than folded in here -- keeps this syscall's own job to "do the destructive thing safely",
+  // not "and also shut down every subsystem", which `reboot`'s handler already owns end to end.
+  define_syscall('system_format', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    let text: string
+
+    if (!shell || shell.credentials.suid !== 0) {
+      text = JSON.stringify({ error: 'permission denied (requires root)' })
+      await kernel.filesystem.fs.writeFile(path, text)
+      return text.length
+    }
+
+    try {
+      const args = JSON.parse(argsJson) as { indexedDB: boolean, localStorage: boolean, keep: string[] }
+
+      const confirmation = await shell.terminal.readline('Type "yes" to continue, or anything else to cancel: ')
+      if (confirmation.trim().toLowerCase() !== 'yes') {
+        text = JSON.stringify({ cancelled: true })
+        await kernel.filesystem.fs.writeFile(path, text)
+        return text.length
+      }
+
+      if (kernel.storage.db) kernel.storage.db.close()
+
+      const messages: string[] = []
+
+      if (args.indexedDB) {
+        if (!globalThis.indexedDB) {
+          messages.push('IndexedDB is not available')
+        } else if (typeof indexedDB.databases === 'function') {
+          const databases = await indexedDB.databases()
+          const toDelete = databases.filter((db): db is { name: string, version: number } => typeof db.name === 'string' && !args.keep.includes(db.name))
+
+          for (const db of toDelete) {
+            await new Promise<void>((resolve, reject) => {
+              const request = indexedDB.deleteDatabase(db.name)
+              request.onsuccess = () => resolve()
+              request.onerror = () => reject(request.error)
+              // Another open connection is blocking the delete -- nothing left holds one open on
+              // purpose at this point (this kernel's own `storage.db` was just closed above), so
+              // treat this the same as success rather than hang the format indefinitely.
+              request.onblocked = () => resolve()
+            })
+          }
+
+          const kept = databases.filter(db => typeof db.name === 'string' && args.keep.includes(db.name))
+          if (kept.length > 0) messages.push(`Preserved databases: ${kept.map(db => db.name).join(', ')}`)
+          messages.push(`Deleted ${toDelete.length} IndexedDB database(s)`)
+        } else {
+          messages.push('indexedDB.databases() not supported, cannot enumerate databases to delete')
+        }
+      }
+
+      if (args.localStorage) {
+        const count = kernel.storage.local.length
+        kernel.storage.local.clear()
+        messages.push(`Cleared localStorage (${count} item(s))`)
+      }
+
+      text = JSON.stringify({ messages })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
   })
 }
