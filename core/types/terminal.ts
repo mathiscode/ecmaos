@@ -148,6 +148,15 @@ export interface TerminalWritelnEvent {
 export interface Terminal extends XTerm {
   /** The `@zenfs/linux` TTY this terminal is attached to, once `mount()` has run */
   readonly zfsTty: TTY | undefined
+  /**
+   * Routes raw terminal input into the `@zenfs/linux` TTY's line discipline while held, so a
+   * foreground worker program gets real canonical/raw input. Reference-counted; returns an idempotent release.
+   */
+  attachInput(): () => void
+  /** Whether the line discipline currently owns the keyboard */
+  readonly ttyInputAttached: boolean
+  /** Bookkeeping when the foreground job's process was stopped (`^Z`): mark it stopped and return to the prompt */
+  foregroundStopped(): void
   /** Get terminal addons */
   readonly addons: Map<string, ITerminalAddon>
   /** Get ANSI escape sequences */

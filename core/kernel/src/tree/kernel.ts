@@ -872,7 +872,11 @@ export class Kernel implements IKernel {
       // `this.shell`'s `_jobs`), so this never-finishing daemon can't ever show up in a later
       // `jobs`/`wait`. Fire-and-forget: `kernel.execute()`'s own promise only resolves once `crond`
       // itself exits, which is never during a normal run -- awaiting it here would hang boot.
-      void this.execute({ command: '/bin/crond', args: [], shell: this.shell, terminal: this.terminal })
+      //
+      // `foreground: false`: a daemon never owns the terminal. Left at the default it took over
+      // `tty.foreground` (and, with the line discipline attached, the keyboard) for the whole
+      // session, so every later `^C`/keystroke would have been aimed at crond, not the shell.
+      void this.execute({ command: '/bin/crond', args: [], shell: this.shell, terminal: this.terminal, foreground: false })
 
       this._state = KernelState.RUNNING
       this.setupDebugGlobals()
@@ -1248,6 +1252,30 @@ export class Kernel implements IKernel {
 
       if (tty && isForeground) tty.foreground = proc
 
+      // A foreground stage owns the keyboard through the real line discipline (`^C`/`^Z` via ISIG,
+      // canonical or raw reads, echo) for as long as it is the terminal's foreground process --
+      // `Terminal.attachInput` explains why. `fg`/`bg`/`^Z` move that ownership through
+      // `setForeground` below, the same way they move `tty.foreground`.
+      let releaseInput: (() => void) | undefined
+      const grabInput = () => { releaseInput ??= terminal.attachInput() }
+      const dropInput = () => { releaseInput?.(); releaseInput = undefined }
+      if (tty && isForeground) grabInput()
+      stopBridges.push(dropInput)
+
+      // The line discipline raises `^Z` as `SIGTSTP` straight on the process, and `@zenfs/linux`
+      // only flips `proc.stopped` -- it emits nothing -- so observe the transition here, where the
+      // signal lands, to hand the terminal back to the shell.
+      const deliver = proc.kill.bind(proc)
+      proc.kill = (signal) => {
+        const wasStopped = proc.stopped
+        const delivered = deliver(signal)
+        if (!wasStopped && proc.stopped && tty?.foreground === proc) {
+          dropInput()
+          terminal.foregroundStopped()
+        }
+        return delivered
+      }
+
       // Redirected/piped stdio: only bridge a standard descriptor the caller actually gave a real
       // stream for and that isn't just the plain console -- the overwhelmingly common case (a
       // foreground command with no `>`/`|`) needs no bridge at all.
@@ -1261,7 +1289,13 @@ export class Kernel implements IKernel {
       // `setForeground` closes over `tty` so `Shell.fg`/`bg` can move terminal ownership later,
       // after this stage has already started -- see `JobProcessHandle.setForeground`'s doc comment.
       options.onProcess?.(tty
-        ? Object.assign(proc, { setForeground: (want: boolean) => { tty.foreground = want ? proc : (tty.foreground === proc ? undefined : tty.foreground) } })
+        ? Object.assign(proc, {
+          setForeground: (want: boolean) => {
+            tty.foreground = want ? proc : (tty.foreground === proc ? undefined : tty.foreground)
+            if (want) grabInput()
+            else dropInput()
+          }
+        })
         : proc)
 
       await zenfsExecve(proc, options.command, [options.command, ...(options.args || [])], options.shell.envObject)
