@@ -53,6 +53,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
     shell_set_theme(theme: string): number
+    crontab_load(path: string, scope: string): number
   }
 }
 
@@ -514,6 +515,16 @@ export function installMainThreadSyscalls(): void {
     const shell = shellOf(proc)
     if (!shell) return -Errno.ENOSYS
     shell.config.setTheme(theme)
+    return 0
+  })
+
+  // `kernel.loadCrontab()` mutates `kernel.intervals`' live in-memory cron-job registry (setInterval
+  // handles can't cross a worker boundary at all) and, on each job firing, calls `kernel.shell.execute()`
+  // -- both main-thread-only. It never throws (catches internally and only logs), so like
+  // `shell_set_theme` this needs no scratch-file round trip.
+  define_syscall('crontab_load', async (proc: Process, path: string, scope: string) => {
+    const kernel = kernelOf(proc)
+    await kernel.loadCrontab(path, scope as 'system' | 'user')
     return 0
   })
 }
