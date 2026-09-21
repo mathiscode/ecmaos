@@ -1041,7 +1041,7 @@ export class Shell implements IShell {
 
     this._localScopes.push(new Map())
     // `setPositionalParameters` sets $0 to its first element (matching the device-CLI convention
-    // at Kernel.executeDevice, where $0 is the invoked name and $1.. are the real arguments) -- so
+    // for a device command line, where $0 is the invoked name and $1.. are the real arguments) -- so
     // the function's own name goes first, keeping $1 as the caller's first argument like bash.
     this.setPositionalParameters([name, ...argv])
     try {

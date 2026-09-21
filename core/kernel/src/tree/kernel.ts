@@ -1043,9 +1043,12 @@ export class Kernel implements IKernel {
               break
             case 'device': {
               if (!header.name) return -1
-              const device = this.devices.get(header.name)
-              if (!device) return -1
-              exitCode = await this.executeDevice(device.device, options.args)
+              if (!this.devices.get(header.name)?.device.cli) return -1
+              exitCode = await this.execute({
+                ...options,
+                command: '/bin/devcli',
+                args: [header.name, ...(options.args || [])]
+              })
               break
             }
           }; break
@@ -1101,53 +1104,6 @@ export class Kernel implements IKernel {
 
     const exitCode = await process.start()
     return exitCode
-  }
-
-  /**
-   * Executes a device command
-   * @param {KernelDevice} device - Device to execute command on
-   * @param {string[]} args - Command arguments
-   * @param {Shell} shell - Shell instance
-   * @returns {Promise<number>} Exit code of the device command
-   */
-  async executeDevice(device: KernelDevice, args: string[] = [], shell: Shell = this.shell): Promise<number> {
-    if (!device || !device.cli) {
-      this.log.error(`Device not found or does not have a CLI`)
-      return -1
-    }
-
-    let deviceProcess: Process | null = new Process({
-      uid: shell.credentials.uid,
-      gid: shell.credentials.gid,
-      args,
-      command: `/dev/${device.pkg.name}`,
-      entry: async (params: ProcessEntryParams) => await device.cli?.({
-        args: params.args,
-        kernel: params.kernel,
-        pid: params.pid,
-        shell: params.shell,
-        terminal: params.terminal
-      }),
-      context: this.context,
-      filesystem: this.filesystem,
-      processes: this.processes,
-      kernel: this,
-      shell,
-      terminal: this.terminal
-    })
-
-    try {
-      shell.setPositionalParameters([`/dev/${device.pkg.name}`, ...args])
-      await deviceProcess.start()
-    } catch (error) {
-      this.log.error(error)
-      this.terminal.writeln(chalk.red((error as Error).message))
-      return -2
-    } finally {
-      deviceProcess = null
-    }
-
-    return 0
   }
 
   /**

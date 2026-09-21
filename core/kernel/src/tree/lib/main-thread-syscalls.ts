@@ -30,6 +30,7 @@ import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { managePasskey } from './passkey-manage.ts'
 import { presenters } from './presenters/index.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
@@ -62,6 +63,8 @@ declare module '@zenfs/linux/uapi/abi' {
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
     kernel_info(path: string): number
+    device_cli_start(name: string, argsJson: string, path: string): number
+    device_cli_wait(): number
     dom_toast(kind: string, message: string): number
     shell_set_theme(theme: string): number
     proc_spawn(command: string, argvJson: string, cwd: string): number
@@ -221,8 +224,7 @@ export function installMainThreadSyscalls(): void {
   // real Linux process is visible in `/proc` the instant `fork()`+`execve()` return -- this was
   // previously reading a table real execve'd processes were never added to at all, so `ps` showing
   // (effectively) nothing for anything actually running was a real, if quiet, gap until this session.
-  // Apps are real processes too (DOM apps through `/bin/app`); devices (`executeDevice`) still run on
-  // the old legacy model until M2 finishes, so they don't appear here yet.
+  // Apps (`/bin/app`) and device command lines (`/bin/devcli`) are real processes too.
   define_syscall('ps_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const list = Array.from(zenfsProcesses.values()).map(p => ({
@@ -706,6 +708,22 @@ export function installMainThreadSyscalls(): void {
   define_syscall('screensaver_start', async (proc: Process) => {
     return kernelOf(proc).startScreensaverDaemon() ? 0 : 1
   })
+
+  // A device's command line under a real process (`/bin/devcli`, see `device-cli.ts`): start returns the
+  // pipe fd carrying its output, wait its exit code.
+  define_syscall('device_cli_start', async (proc: Process, name: string, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    try {
+      text = JSON.stringify({ fd: startDeviceCli(kernel, proc, shellOf(proc), name, JSON.parse(argsJson) as string[]) })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('device_cli_wait', async (proc: Process) => await waitDeviceCli(proc))
 
   // What an `@ecmaos-apps/*` program's `params.kernel` exposes beyond stdio (see `bin/commands/app.mjs`):
   // the kernel's identity, this process's ids, and toasts -- the DOM notifications apps raise.
