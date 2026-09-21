@@ -56,7 +56,7 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
     if (context instanceof WebGLRenderingContext) {
       drivers.push({
         name: 'webgl',
-        major: 1,
+        major: 226,
         minor: 0,
         class: webgl_class,
         ops: {
