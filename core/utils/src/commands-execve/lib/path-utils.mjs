@@ -48,3 +48,12 @@ export function dirname(path) {
 export function join(...parts) {
   return normalize(parts.join('/'))
 }
+
+/** POSIX `path.relative` for two absolute, normalized paths. */
+export function relative(from, to) {
+  const a = from.split('/').filter(Boolean)
+  const b = to.split('/').filter(Boolean)
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/')
+}

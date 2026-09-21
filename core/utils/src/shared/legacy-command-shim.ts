@@ -30,7 +30,6 @@ import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
 import { meta as metaFalse } from '../commands/false.js'
-import { meta as metaGit } from '../commands/git.js'
 import { meta as metaLess } from '../commands/less.js'
 import { meta as metaMan } from '../commands/man.js'
 import { meta as metaMount } from '../commands/mount.js'
@@ -47,7 +46,6 @@ import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
 
 import { createCommand as createFalse } from '../commands/false.js'
-import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createLess } from '../commands/less.js'
 import { createCommand as createMan } from '../commands/man.js'
 import { createCommand as createMount } from '../commands/mount.js'
@@ -75,7 +73,6 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 function buildLegacyCommands(): LegacyCommands {
   return {
   "false": { description: metaFalse.description, createCommand: createFalse },
-  "git": { description: metaGit.description, createCommand: createGit },
   "less": { description: metaLess.description, createCommand: createLess },
   "man": { description: metaMan.description, createCommand: createMan },
   "mount": { description: metaMount.description, createCommand: createMount },

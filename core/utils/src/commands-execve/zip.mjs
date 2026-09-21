@@ -7,8 +7,8 @@
  * original's chalk coloring is dropped, as in the other migrated commands.
  */
 
-import { resolve, join } from './lib/path-utils.mjs'
-import { zip, out, err, readWholeFile, writeWholeFile, exists, relative, errorMessage, listZip } from './lib/zip-common.mjs'
+import { resolve, join, relative } from './lib/path-utils.mjs'
+import { zip, out, err, readWholeFile, writeWholeFile, exists, errorMessage, listZip } from './lib/zip-common.mjs'
 
 const { argv, exit, getcwd, isDirectory, readdir } = globalThis.ecmaosSyscalls
 
