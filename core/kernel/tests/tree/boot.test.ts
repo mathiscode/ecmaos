@@ -40,6 +40,14 @@ describe('boot smoke test', () => {
     expect(kernel.screensavers.size).toBeGreaterThan(0)
   })
 
+  it('refreshes a stale /bin program left by an earlier build, and keeps an up-to-date one', async () => {
+    const fs = kernel.filesystem.fs
+    const current = await fs.readFile('/bin/echo', 'utf8')
+    await fs.writeFile('/bin/echo', 'stale program from an older build', { mode: 0o755 })
+    await kernel.registerCommands()
+    expect(await fs.readFile('/bin/echo', 'utf8')).toBe(current)
+  })
+
   it('reaches an interactive prompt: a shell command executes and returns a real exit code', async () => {
     const code = await kernel.shell.execute('true')
     expect(code).toBe(0)

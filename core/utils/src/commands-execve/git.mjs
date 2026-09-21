@@ -10,6 +10,7 @@
  * other migrated commands.
  */
 
+import './lib/buffer-polyfill.mjs'
 import * as git from 'isomorphic-git'
 import http from 'isomorphic-git/http/web'
 import { resolve, join, dirname, basename, relative } from './lib/path-utils.mjs'
