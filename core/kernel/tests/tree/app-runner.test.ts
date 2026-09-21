@@ -185,6 +185,64 @@ describe('app runner: worker-hosted @ecmaos-apps programs', () => {
     expect(await done).toBe(130)
   })
 
+  describe('DOM apps (#!ecmaos:bin:app) run main on the main thread under a real process', () => {
+    // jsdom has no `URL.createObjectURL`, and node cannot `import()` a blob: URL; hand the presenter a
+    // data: URL of the source `replaceImports` returned instead
+    let lastSource = ''
+    beforeAll(() => {
+      const replaceImports = kernel.replaceImports.bind(kernel)
+      kernel.replaceImports = async (contents: string, packagePath: string) => (lastSource = await replaceImports(contents, packagePath))
+      URL.createObjectURL = (() => `data:text/javascript;base64,${btoa(unescape(encodeURIComponent(lastSource)))}`) as never
+      URL.revokeObjectURL = (() => {}) as never
+    })
+
+    const installDom = async (name: string, body: string) => {
+      await kernel.filesystem.fs.writeFile(`/tmp/${name}`, `#!ecmaos:bin:app:${name}\n${body}\n`)
+      await kernel.filesystem.fs.chmod(`/tmp/${name}`, 0o755)
+    }
+
+    it('gives main the live kernel/shell/terminal and the DOM, and its number is the exit code', async () => {
+      await installDom('domapp', `export default async ({ args, kernel, shell, terminal, pid, uid }) => {
+        const el = document.createElement('div')
+        el.id = 'domapp-' + args.join('-')
+        el.dataset.pid = String(pid)
+        el.dataset.uid = String(uid)
+        el.dataset.same = String(kernel.shell === shell || shell !== undefined)
+        document.body.appendChild(el)
+        return 4
+      }`)
+      const { code } = await run('/tmp/domapp one two')
+      expect(code).toBe(4)
+      const el = document.getElementById('domapp-one-two')!
+      expect(el).not.toBeNull()
+      expect(Number(el.dataset.pid)).toBeGreaterThan(0)
+      expect(el.dataset.uid).toBe('0')
+    })
+
+    it('reports a module with no main and an app that throws', async () => {
+      await installDom('nomaindom', `export const x = 1`)
+      const missing = await run('/tmp/nomaindom')
+      expect(missing.code).toBe(1)
+      expect(missing.err).toContain('No main function found in module')
+
+      await installDom('boomdom', `export default async () => { throw new Error('dom kaboom') }`)
+      const boom = await run('/tmp/boomdom')
+      expect(boom.code).toBe(1)
+      expect(boom.err).toContain('dom kaboom')
+    })
+
+    it('is a real process while it runs, and its lifetime is main\'s', async () => {
+      await installDom('lingerdom', `export default async () => { await new Promise(resolve => setTimeout(resolve, 600)); return 0 }`)
+      const done = kernel.shell.execute('/tmp/lingerdom')
+      await foregroundReady()
+      const proc = kernel.shell.foregroundJob!.processes[0] as unknown as { pid: number, exe?: string, code?: number }
+      expect(proc.pid).toBeGreaterThan(0)
+      expect(proc.exe).toBe('/bin/app')
+      expect(proc.code).toBeUndefined()
+      expect(await done).toBe(0)
+    })
+  })
+
   describe('the real @ecmaos-apps bundles', () => {
     // The built bundles (`pnpm build` in apps/*); a checkout that has not built them skips these
     const bundles = import.meta.glob('../../../../apps/*/dist/index.js', { query: '?raw', import: 'default', eager: true }) as Record<string, string>

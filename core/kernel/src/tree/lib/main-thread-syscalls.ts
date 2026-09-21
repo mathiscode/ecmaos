@@ -221,9 +221,8 @@ export function installMainThreadSyscalls(): void {
   // real Linux process is visible in `/proc` the instant `fork()`+`execve()` return -- this was
   // previously reading a table real execve'd processes were never added to at all, so `ps` showing
   // (effectively) nothing for anything actually running was a real, if quiet, gap until this session.
-  // Known, accepted trade-off: DOM apps/devices (`executeApp`/`executeDevice`) still run on the old
-  // legacy model until M2 migrates them onto real `Process`es too, so they won't appear here either
-  // -- this fixes the more commonly hit gap (ordinary commands), not every gap at once.
+  // Apps are real processes too (DOM apps through `/bin/app`); devices (`executeDevice`) still run on
+  // the old legacy model until M2 finishes, so they don't appear here yet.
   define_syscall('ps_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const list = Array.from(zenfsProcesses.values()).map(p => ({
