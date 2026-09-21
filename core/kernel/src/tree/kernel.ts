@@ -51,7 +51,6 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 // import createBIOS, { BIOSModule } from '@ecmaos/bios'
-import { getKernelLegacyCommands } from '#lib/commands/index.js'
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
@@ -1080,7 +1079,7 @@ export class Kernel implements IKernel {
     // `executeViaExecve`); this is only reached for a name still on the old in-process path. See
     // `resolveLegacyCommand`'s own doc comment (`@ecmaos/coreutils`) for the lazy, per-`Terminal`-
     // cached construction this does instead of `TerminalCommands` eagerly building all of them.
-    const command = resolveLegacyCommand(kernel, shell, terminal, options.command, getKernelLegacyCommands())
+    const command = resolveLegacyCommand(kernel, shell, terminal, options.command)
     if (!command) return -1
 
     const process = new Process({
@@ -1882,7 +1881,7 @@ export class Kernel implements IKernel {
     // on the old in-process path gets the legacy `#!ecmaos:bin:command:` stub `readFileHeader`
     // recognizes to route it through `executeCommand`'s shim. Building only names + this cheap
     // check (not full `TerminalCommand` construction) is what makes this free regardless of how
-    // many legacy commands remain -- `getLegacyCommands()`/`getKernelLegacyCommands()` hand back
+    // many legacy commands remain -- `getLegacyCommands()` hands back
     // `{ description, createCommand }` pairs, but only `Object.keys(...)` is used here.
     //
     // True shell builtins (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) get NO `/bin/<name>`
@@ -1891,8 +1890,7 @@ export class Kernel implements IKernel {
     const names = [
       ...Object.keys(migratedCommandSources),
       ...Object.keys(migratedKernelCommandSources),
-      ...Object.keys(getLegacyCommands()),
-      ...Object.keys(getKernelLegacyCommands())
+      ...Object.keys(getLegacyCommands())
     ].filter(name => !this.options.blacklist?.commands?.includes(name))
 
     for (const name of names) {

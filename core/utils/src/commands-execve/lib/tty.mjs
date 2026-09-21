@@ -64,6 +64,17 @@ export function rawMode(fd) {
   return () => tcsetattr(fd, { lflag })
 }
 
+/**
+ * Turns echo off (keeping line editing and `^C`) for a password prompt. Returns a function that
+ * restores the previous mode, or a no-op when `fd` is not a terminal.
+ */
+export function echoOff(fd) {
+  if (!isTty(fd)) return () => {}
+  const lflag = tcgetattr(fd).lflag
+  tcsetattr(fd, { lflag: lflag & ~ECHO })
+  return () => tcsetattr(fd, { lflag })
+}
+
 /** `{ rows, cols }` of the terminal on `fd`, falling back to 24x80 when it cannot say. */
 export function terminalSize(fd) {
   try {

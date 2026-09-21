@@ -32,6 +32,7 @@ import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { managePasskey } from './passkey-manage.ts'
+import type { Outcome } from './outcome.ts'
 import { presenters } from './presenters/index.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
@@ -62,6 +63,8 @@ declare module '@zenfs/linux/uapi/abi' {
     fs_mount(argsJson: string, path: string): number
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
+    screensaver_run(name: string, set: number, path: string): number
+    users_password(oldPassword: string, newPassword: string, path: string): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
     device_cli_wait(): number
@@ -707,6 +710,48 @@ export function installMainThreadSyscalls(): void {
   // configured screensaver isn't a registered one (the program reports that).
   define_syscall('screensaver_start', async (proc: Process) => {
     return kernelOf(proc).startScreensaverDaemon() ? 0 : 1
+  })
+
+  // `screensaver [NAME] [--set]`: draws over the page, so it runs here. `name === ''` means "the
+  // saved one, else matrix"; `off` clears the saved default.
+  define_syscall('screensaver_run', async (proc: Process, name: string, set: number, path: string) => {
+    const kernel = kernelOf(proc)
+    const outcome: Outcome = { code: 0, lines: [] }
+
+    if (name === 'off') {
+      kernel.storage.local.removeItem('screensaver')
+    } else {
+      const saverName = name || kernel.storage.local.getItem('screensaver') || 'matrix'
+      const saver = kernel.screensavers.get(saverName)
+      if (!saver) {
+        outcome.code = 1
+        outcome.lines.push({ stream: 'err', text: '\x1b[31mInvalid screensaver\x1b[0m' })
+      } else {
+        kernel.terminal.blur()
+        saver.default({ terminal: kernel.terminal })
+        if (set) kernel.storage.local.setItem('screensaver', saverName)
+      }
+    }
+
+    const text = JSON.stringify(outcome)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  // `passwd`: changes the password of the user the kernel is running as. The program does the
+  // prompting (with echo off) and passes both passwords here; the result is `{}` or `{ error }`.
+  define_syscall('users_password', async (proc: Process, oldPassword: string, newPassword: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    try {
+      if (!oldPassword || !newPassword) throw new Error('Missing password')
+      await kernel.users.password(oldPassword, newPassword)
+      text = JSON.stringify({})
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+    }
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
   })
 
   // A device's command line under a real process (`/bin/devcli`, see `device-cli.ts`): start returns the

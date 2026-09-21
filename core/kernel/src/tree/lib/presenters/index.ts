@@ -27,6 +27,8 @@ import { presentDocument } from './document.ts'
 import { presentEditor } from './editor.ts'
 import { presentAudio, presentVideo } from './media.ts'
 import { presentExternal, presentDownload } from './open.ts'
+import { presentScript } from './script.ts'
+import { presentUpload } from './upload.ts'
 
 export interface Presented {
   /** Anything the program should be told about what was presented (a duration, a final size). JSON-safe. */
@@ -51,5 +53,7 @@ export const presenters: Record<string, Presenter> = {
   browser: presentBrowser,
   document: presentDocument,
   editor: presentEditor,
-  app: presentApp
+  app: presentApp,
+  script: presentScript,
+  upload: presentUpload
 }
