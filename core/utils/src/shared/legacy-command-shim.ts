@@ -49,7 +49,6 @@ import { meta as metaTime } from '../commands/time.js'
 import { meta as metaTrue } from '../commands/true.js'
 import { meta as metaUmount } from '../commands/umount.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
-import { meta as metaUser } from '../commands/user.js'
 import { meta as metaVideo } from '../commands/video.js'
 import { meta as metaView } from '../commands/view.js'
 import { meta as metaVim } from '../commands/vim.js'
@@ -76,7 +75,6 @@ import { createCommand as createTime } from '../commands/time.js'
 import { createCommand as createTrue } from '../commands/true.js'
 import { createCommand as createUmount } from '../commands/umount.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
-import { createCommand as createUser } from '../commands/user.js'
 import { createCommand as createVideo } from '../commands/video.js'
 import { createCommand as createView } from '../commands/view.js'
 import { createCommand as createVim } from '../commands/vim.js'
@@ -114,7 +112,6 @@ function buildLegacyCommands(): LegacyCommands {
   "true": { description: metaTrue.description, createCommand: createTrue },
   "umount": { description: metaUmount.description, createCommand: createUmount },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
-  "user": { description: metaUser.description, createCommand: createUser },
   "video": { description: metaVideo.description, createCommand: createVideo },
   "view": { description: metaView.description, createCommand: createView },
   "vim": { description: metaVim.description, createCommand: createVim },
