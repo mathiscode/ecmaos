@@ -159,6 +159,7 @@
     "vitest-canvas-mock": "^0.3.3"
   },
   "dependencies": {
+    "@alenaksu/json-viewer": "^2.1.2",
     "@bytecodealliance/jco": "^1.33.0",
     "@bytecodealliance/preview2-shim": "^0.24.1",
     "@ecmaos-devices/audio": "workspace:^",
@@ -208,6 +209,7 @@
     "command-line-args": "^6.0.0",
     "command-line-usage": "^7.0.3",
     "cron-schedule": "^6.0.0",
+    "marked": "^17.0.1",
     "cronstrue": "^3.9.0",
     "figlet": "^1.7.0",
     "human-format": "^1.2.1",
@@ -221,6 +223,7 @@
     "smol-toml": "^1.6.0",
     "topbar": "^3.0.0",
     "tslog": "^4.9.3",
+    "vim-wasm": "^0.0.13",
     "wabt": "^1.0.36",
     "winbox": "^0.2.82"
   },
