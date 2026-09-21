@@ -1,4 +1,7 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createTarPacker } from 'modern-tar'
 import pako from 'pako'
 
@@ -8,6 +11,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
+ * `install` is a real worker program now, and a worker's `fetch` is its own (the test cannot stub it),
+ * so the registry here is a real local HTTP server.
+ *
  * `install` used to call `kernel.filesystem.extractTarball` directly -- a second, kernel-only
  * tar-reading path (`@gera2ld/tarjs` + `pako`) duplicating the real, streaming `tar` coreutil.
  * `extractTarball` itself stays (it's also used by `Filesystem.init()`'s boot-time initfs
@@ -52,6 +58,9 @@ async function sha1Hex(bytes: Uint8Array): Promise<string> {
 
 describe('install command: real tar extraction via shell.execute, not extractTarball directly', () => {
   let kernel: Kernel
+  let server: Server
+  let registry = ''
+  const routes = new Map<string, () => { body: string | Uint8Array }>()
 
   beforeAll(async () => {
     kernel = new Kernel({
@@ -62,14 +71,22 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     })
     await kernel.boot()
 
+    // The real `node:http` (the test bundler swaps the static import for a browser polyfill)
+    const { createServer } = process.getBuiltinModule('node:http')
+    server = createServer((req, res) => {
+      const route = routes.get(req.url ?? '')
+      if (!route) { res.statusCode = 404; res.end('not found'); return }
+      res.end(route().body)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
   })
 
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
+  afterAll(() => { server?.close() })
 
   it('extracts a real npm-shaped tarball, stripping the package/ wrapper directory', async () => {
     const tarballBytes = await buildNpmTarballGzip({
@@ -82,22 +99,13 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       name: 'fake-pkg',
       'dist-tags': { latest: '1.2.3' },
       versions: {
-        '1.2.3': { dist: { tarball: 'https://registry.example/fake-pkg/-/fake-pkg-1.2.3.tgz', shasum: checksum } }
+        '1.2.3': { dist: { tarball: `${registry}/fake-pkg/-/fake-pkg-1.2.3.tgz`, shasum: checksum } }
       }
     }
+    routes.set('/fake-pkg', () => ({ body: JSON.stringify(registryData) }))
+    routes.set('/fake-pkg/-/fake-pkg-1.2.3.tgz', () => ({ body: tarballBytes }))
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/fake-pkg')) {
-        return new Response(JSON.stringify(registryData), { status: 200 })
-      }
-      if (url.includes('/fake-pkg/-/fake-pkg-1.2.3.tgz')) {
-        return new Response(tarballBytes, { status: 200 })
-      }
-      throw new Error(`unexpected fetch: ${url}`)
-    })
-
-    const code = await kernel.shell.execute('install fake-pkg')
+    const code = await kernel.shell.execute(`install fake-pkg --registry ${registry}`)
     expect(code).toBe(0)
 
     const extractPath = '/usr/lib/fake-pkg/1.2.3'

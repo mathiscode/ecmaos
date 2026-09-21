@@ -67,19 +67,14 @@ export function getLegacyCommands(): LegacyCommands {
  * thereafter -- keyed by the live `Terminal` instance itself (one per TTY), not a derived string,
  * so it is impossible for one TTY's cached command to leak into another's.
  *
- * `extra` lets a caller merge in a second source of legacy commands this shim doesn't itself know
- * about -- `@ecmaos/kernel`'s own kernel-native legacy commands (`getKernelLegacyCommands()`,
- * `core/kernel/src/tree/lib/commands/index.ts`), which can't live in `@ecmaos/coreutils` since they
- * reach kernel-only state/DOM APIs. Checked only if `name` isn't found in this module's own list.
- *
- * Returns `undefined` for a name neither source knows (an execve'd command, a true builtin, or
+ * Returns `undefined` for a name this list does not know (an execve'd command, a true builtin, or
  * simply unknown) -- `Kernel.executeCommand` should only ever call this as a last resort, after
  * real file resolution and the true-builtin check have both already missed.
  */
 const legacyCommandCache = new WeakMap<Terminal, Map<string, TerminalCommand>>()
 
-export function resolveLegacyCommand(kernel: Kernel, shell: Shell, terminal: Terminal, name: string, extra?: LegacyCommands): TerminalCommand | undefined {
-  const entry = getLegacyCommands()[name] ?? extra?.[name]
+export function resolveLegacyCommand(kernel: Kernel, shell: Shell, terminal: Terminal, name: string): TerminalCommand | undefined {
+  const entry = getLegacyCommands()[name]
   if (!entry) return undefined
 
   let perTerminal = legacyCommandCache.get(terminal)

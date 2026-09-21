@@ -107,9 +107,9 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 
 ### Commands
 
-> [/core/kernel/src/tree/lib/commands](/core/kernel/src/tree/lib/commands)
+> [/core/kernel/src/bin/commands](/core/kernel/src/bin/commands)
 
-- `Commands` are built-in shell commands that are provided by the kernel, e.g. `download`, `install`, `load`, etc. Many or all of these will be migrated to the `@ecmaos/coreutils` package in the future.
+- `Commands` are the kernel's own programs, e.g. `download`, `install`, `load`, `mount`, `passwd`. Each is a real `execve`'d program that reaches main-thread-only capabilities (DOM, WebAuthn, the kernel's singletons) through custom syscalls and presenters.
 
 ### Coreutils
 
