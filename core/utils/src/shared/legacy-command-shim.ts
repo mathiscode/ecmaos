@@ -41,12 +41,10 @@ import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTrue } from '../commands/true.js'
-import { meta as metaUnzip } from '../commands/unzip.js'
 import { meta as metaVideo } from '../commands/video.js'
 import { meta as metaView } from '../commands/view.js'
 import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
-import { meta as metaZip } from '../commands/zip.js'
 
 import { createCommand as createFalse } from '../commands/false.js'
 import { createCommand as createGit } from '../commands/git.js'
@@ -60,12 +58,10 @@ import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTrue } from '../commands/true.js'
-import { createCommand as createUnzip } from '../commands/unzip.js'
 import { createCommand as createVideo } from '../commands/video.js'
 import { createCommand as createView } from '../commands/view.js'
 import { createCommand as createVim } from '../commands/vim.js'
 import { createCommand as createWeb } from '../commands/web.js'
-import { createCommand as createZip } from '../commands/zip.js'
 
 export type CreateCommandFn = (kernel: Kernel, shell: Shell, terminal: Terminal) => TerminalCommand
 
@@ -90,12 +86,10 @@ function buildLegacyCommands(): LegacyCommands {
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "test": { description: metaTest.description, createCommand: createTest },
   "true": { description: metaTrue.description, createCommand: createTrue },
-  "unzip": { description: metaUnzip.description, createCommand: createUnzip },
   "video": { description: metaVideo.description, createCommand: createVideo },
   "view": { description: metaView.description, createCommand: createView },
   "vim": { description: metaVim.description, createCommand: createVim },
   "web": { description: metaWeb.description, createCommand: createWeb },
-  "zip": { description: metaZip.description, createCommand: createZip },
   }
 }
 
