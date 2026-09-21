@@ -9,7 +9,7 @@ esbuild.build({
   format: 'esm',
   outfile: 'dist/index.js',
   banner: {
-    js: '#!ecmaos:bin:app:edit'
+    js: '#!ecmaos:bin:program:edit'
   },
   external: ['@ecmaos/types'],
   plugins: [

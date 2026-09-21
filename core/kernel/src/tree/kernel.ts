@@ -1026,6 +1026,13 @@ export class Kernel implements IKernel {
               if (!header.name) return -1
               exitCode = await this.executeCommand({ ...options, command: header.name })
               break
+            case 'program':
+              exitCode = await this.execute({
+                ...options,
+                command: '/bin/app',
+                args: [options.command, ...(options.args || [])]
+              })
+              break
             case 'app':
               if (!header.name) return -1
               exitCode = await this.executeApp({ ...options, command: header.name, file: options.command })

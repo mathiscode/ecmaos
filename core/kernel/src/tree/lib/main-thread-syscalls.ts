@@ -61,6 +61,8 @@ declare module '@zenfs/linux/uapi/abi' {
     fs_mount(argsJson: string, path: string): number
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
+    kernel_info(path: string): number
+    dom_toast(kind: string, message: string): number
     shell_set_theme(theme: string): number
     proc_spawn(command: string, argvJson: string, cwd: string): number
     proc_wait(pid: number): number
@@ -704,6 +706,27 @@ export function installMainThreadSyscalls(): void {
   // configured screensaver isn't a registered one (the program reports that).
   define_syscall('screensaver_start', async (proc: Process) => {
     return kernelOf(proc).startScreensaverDaemon() ? 0 : 1
+  })
+
+  // What an `@ecmaos-apps/*` program's `params.kernel` exposes beyond stdio (see `bin/commands/app.mjs`):
+  // the kernel's identity, this process's ids, and toasts -- the DOM notifications apps raise.
+  define_syscall('kernel_info', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const credentials = shellOf(proc)?.credentials
+    const text = JSON.stringify({ name: kernel.name, id: kernel.id, pid: proc.pid, uid: credentials?.uid ?? 0, gid: credentials?.gid ?? 0 })
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  const toastKinds = ['success', 'error', 'info', 'warning'] as const
+  define_syscall('dom_toast', async (proc: Process, kind: string, message: string) => {
+    const kernel = kernelOf(proc)
+    if (!(toastKinds as readonly string[]).includes(kind)) return -Errno.EINVAL
+    const toast = kernel.dom.toast as unknown as Record<string, (message: string) => unknown>
+    // Notyf has no `info`/`warning` of its own; `open` takes a type
+    if (kind === 'success' || kind === 'error') toast[kind]!(message)
+    else (kernel.dom.toast as unknown as { open: (options: { type: string, message: string }) => unknown }).open({ type: kind, message })
+    return 0
   })
 
   // `shell.config.setTheme()` mutates the calling `Shell`'s own live `ShellConfig` and immediately
