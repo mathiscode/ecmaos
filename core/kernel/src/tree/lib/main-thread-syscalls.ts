@@ -51,6 +51,7 @@ declare module '@zenfs/linux/uapi/abi' {
     sockets_close(id: string, path: string): number
     sockets_show(id: string, path: string): number
     users_manage(action: string, argsJson: string, path: string): number
+    fs_umount(target: string, path: string): number
   }
 }
 
@@ -456,6 +457,47 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  // Real Linux `umount(2)` is itself a syscall, not filesystem I/O -- this is the one command in the
+  // "portable" bucket that's arguably closer to "the Linux way" as a custom syscall than any plain
+  // fs operation would be. `kernel.filesystem.mounts` (the live mount-point registry) and
+  // `kernel.filesystem.fsSync.umount()` (the actual unmount) are both main-thread-only `Kernel`
+  // state, reached the same way `sockets_*`/`users_manage` reach theirs.
+  //
+  // `target === ''` means "unmount everything except `/`" (`umount -a`), matching the legacy
+  // command's own loop -- done here, in one syscall round trip, rather than making the worker call
+  // this syscall once per mount point after a separate list syscall. Every result (success or
+  // per-target failure) goes into one JSON array written to the scratch file, following the
+  // `{ error: message }` convention (see `sockets_create`'s doc comment) for why nothing here throws
+  // a plain `Error` across the syscall boundary.
+  define_syscall('fs_umount', async (proc: Process, target: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const results: Array<{ target: string, error?: string }> = []
+
+    const unmountOne = (mountTarget: string) => {
+      try {
+        kernel.filesystem.fsSync.umount(mountTarget)
+        results.push({ target: mountTarget })
+      } catch (error) {
+        results.push({ target: mountTarget, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+
+    if (target === '') {
+      const mountList = Array.from(kernel.filesystem.mounts.keys()).filter(m => m !== '/')
+      for (const mountTarget of mountList) unmountOne(mountTarget)
+    } else if (target === '/') {
+      results.push({ target, error: 'cannot unmount root filesystem' })
+    } else if (!kernel.filesystem.mounts.has(target)) {
+      results.push({ target, error: `${target} is not mounted` })
+    } else {
+      unmountOne(target)
+    }
+
+    const text = JSON.stringify(results)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
   })

@@ -47,7 +47,6 @@ import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
 import { meta as metaTrue } from '../commands/true.js'
-import { meta as metaUmount } from '../commands/umount.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
 import { meta as metaVideo } from '../commands/video.js'
 import { meta as metaView } from '../commands/view.js'
@@ -73,7 +72,6 @@ import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
 import { createCommand as createTrue } from '../commands/true.js'
-import { createCommand as createUmount } from '../commands/umount.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
 import { createCommand as createVideo } from '../commands/video.js'
 import { createCommand as createView } from '../commands/view.js'
@@ -110,7 +108,6 @@ function buildLegacyCommands(): LegacyCommands {
   "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },
   "true": { description: metaTrue.description, createCommand: createTrue },
-  "umount": { description: metaUmount.description, createCommand: createUmount },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
   "video": { description: metaVideo.description, createCommand: createVideo },
   "view": { description: metaView.description, createCommand: createView },
