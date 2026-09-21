@@ -1372,16 +1372,16 @@ export class Shell implements IShell {
    */
   private createFileWriteStream(targetPath: string, append: boolean): WritableStream<Uint8Array> {
     const context = this.context
-    let isFirstWrite = true
-    
+
     return new WritableStream({
+      // A real shell opens (creating, and for `>` truncating) the target before the command runs,
+      // so `cmd > f` leaves `f` empty even if `cmd` never writes a byte.
+      start: async () => {
+        if (append && await context.fs.promises.exists(targetPath)) return
+        await context.fs.promises.writeFile(targetPath, new Uint8Array())
+      },
       write: async (chunk) => {
-        if (append || !isFirstWrite) {
-          await context.fs.promises.appendFile(targetPath, chunk)
-        } else {
-          await context.fs.promises.writeFile(targetPath, chunk)
-          isFirstWrite = false
-        }
+        await context.fs.promises.appendFile(targetPath, chunk)
       }
     })
   }

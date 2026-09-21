@@ -205,6 +205,20 @@ describe('Shell control flow, functions, and variable/arithmetic expansion', () 
       // Restore default state for any subsequent test relying on the pre-existing behavior.
       await kernel.shell.execute('set +o pipefail')
     })
+
+    it('a > redirect creates or truncates its target even when the command writes nothing', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/redirect-empty.out', 'stale')
+      expect(await kernel.shell.execute('true > /tmp/redirect-empty.out')).toBe(0)
+      expect(await kernel.filesystem.fs.readFile('/tmp/redirect-empty.out', 'utf-8')).toBe('')
+
+      expect(await kernel.shell.execute('true > /tmp/redirect-new.out')).toBe(0)
+      expect(await kernel.filesystem.fs.exists('/tmp/redirect-new.out')).toBe(true)
+
+      // >> only creates a missing target; it never truncates an existing one
+      await kernel.filesystem.fs.writeFile('/tmp/redirect-append.out', 'kept')
+      expect(await kernel.shell.execute('true >> /tmp/redirect-append.out')).toBe(0)
+      expect(await kernel.filesystem.fs.readFile('/tmp/redirect-append.out', 'utf-8')).toBe('kept')
+    })
   })
 })
 

@@ -1,6 +1,6 @@
 /**
  * Shared plumbing for the real `execve`'d `zip` and `unzip` programs: whole-file I/O over the raw
- * syscalls, recursive `mkdir`, `path.relative`, stdout/stderr writers, and the `-l` listing both
+ * syscalls, recursive `mkdir`, stdout/stderr writers, and the `-l` listing both
  * commands print. Imports `@zip.js/zip.js` once so both bundles configure it identically:
  * `useWebWorkers: false`, because these programs already run inside a worker and zip.js's own
  * nested worker pool would only add a spawn per archive for no parallelism gain.
@@ -59,15 +59,6 @@ export function mkdirRecursive(targetPath) {
 
 export function exists(fullPath) {
   try { stat(fullPath); return true } catch { return false }
-}
-
-/** POSIX `path.relative` for two absolute, normalized paths. */
-export function relative(from, to) {
-  const a = from.split('/').filter(Boolean)
-  const b = to.split('/').filter(Boolean)
-  let i = 0
-  while (i < a.length && i < b.length && a[i] === b[i]) i++
-  return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/')
 }
 
 export const errorMessage = error => (error instanceof Error ? error.message : 'Unknown error')
