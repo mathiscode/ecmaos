@@ -14,21 +14,22 @@
  * mtime check already does what an explicit reload used to force immediately. Building a real signal
  * (`SIGHUP`) round trip into `crond` was scoped out this session: `node.mjs`'s worker-hosted programs
  * have no signal-delivery surface exposed to them at all yet.
- *
- * No `cronstrue` here, unlike the legacy command -- found the hard way, mid-session: bundled in, it
- * pushed this program past the real `data:` URL import-size limit that also broke `stat.mjs`'s
- * original `zip.js` use (see that file's own doc comment), and the actual threshold turned out to be
- * much lower than previously assumed there (`theme.mjs`, 34KB, imports fine; this file at 90KB with
- * `cronstrue` did not -- confirmed via a real booted-kernel test, not just an isolated esbuild
- * `build()` call, which reported no error at all despite the runtime failure). `cronstrue` alone
- * bundles to ~61KB, so this drops the human-readable schedule descriptions it used to print
- * alongside the raw cron expression rather than trying to shave the rest of the program down instead.
  */
 
 import { parseCrontabFile } from './lib/crontab.mjs'
 import { parseCronExpression } from 'cron-schedule'
+import cronstrue from 'cronstrue'
 
 const { argv, exit, write, custom, open, read, close, writeAll, mkdir, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, env } = globalThis.ecmaosSyscalls
+
+/** Human-readable schedule (e.g. "Every 5 minutes"), or null if cronstrue cannot describe it. */
+function describeSchedule(expression) {
+  try {
+    return cronstrue.toString(expression, { throwExceptionOnParseError: false, verbose: false })
+  } catch {
+    return null
+  }
+}
 
 const usage = `Usage: cron [COMMAND] [OPTIONS]
 
@@ -119,7 +120,8 @@ async function cmdList() {
   writeStdout('Configured cron jobs:')
   for (const job of jobs) {
     writeStdout(`  ${job.name}`)
-    writeStdout(`    Schedule: ${job.expression}`)
+    const description = describeSchedule(job.expression)
+    writeStdout(description ? `    Schedule: ${job.expression} (${description})` : `    Schedule: ${job.expression}`)
     writeStdout(`    Command: ${job.command}`)
   }
   return 0
@@ -152,7 +154,9 @@ async function cmdAdd(args) {
   content += `${schedule} ${command}\n`
   writeFile(crontabPath, content)
 
+  const addedDescription = describeSchedule(schedule)
   writeStdout(`Added cron job: ${schedule} ${command}`)
+  if (addedDescription) writeStdout(`  Schedule: ${addedDescription}`)
   writeStdout('crond will pick this up within a minute.')
   return 0
 }
@@ -220,6 +224,8 @@ function cmdValidate(args) {
   try {
     parseCronExpression(expression)
     writeStdout(`Valid cron expression: ${expression}`)
+    const description = describeSchedule(expression)
+    if (description) writeStdout(`  Description: ${description}`)
     return 0
   } catch (error) {
     writeStderr(`Invalid cron expression: ${expression}`)
@@ -245,7 +251,9 @@ function cmdNext(args) {
     const cron = parseCronExpression(expression)
     const now = new Date()
     const dates = cron.getNextDates(count, now)
+    const description = describeSchedule(expression)
     writeStdout(`Next ${count} execution time(s) for "${expression}":`)
+    if (description) writeStdout(`  Schedule: ${description}`)
     dates.forEach((date, i) => writeStdout(`  ${i + 1}. ${date.toISOString()}`))
     return 0
   } catch (error) {
@@ -266,9 +274,11 @@ function cmdTest(args) {
     const cron = parseCronExpression(expression)
     const now = new Date()
     const matches = cron.matchDate(now)
+    const description = describeSchedule(expression)
     writeStdout(matches
       ? `Expression "${expression}" matches current time: ${now.toISOString()}`
       : `Expression "${expression}" does not match current time: ${now.toISOString()}`)
+    if (description) writeStdout(`  Schedule: ${description}`)
     return 0
   } catch (error) {
     writeStderr(`Invalid cron expression: ${expression}`)

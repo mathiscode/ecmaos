@@ -147,7 +147,7 @@ function rmRecursive(path) {
   }
 }
 
-/** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
+/** A short read is not EOF (a pipe or device can return less mid-stream), so loop until `read()` returns 0. */
 async function readWholeFile(path) {
   const fd = open(path, 0 /* O_RDONLY */)
   const chunkSize = 65536
@@ -159,7 +159,6 @@ async function readWholeFile(path) {
       const n = read(fd, buffer, -1)
       if (n <= 0) break
       chunks.push(buffer.subarray(0, n))
-      if (n < chunkSize) break
     }
   } finally {
     close(fd)
