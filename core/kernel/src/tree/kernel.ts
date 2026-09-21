@@ -15,7 +15,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, console_driver, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, Signal as ZenFSSignal, xterm_driver } from '@zenfs/linux'
+import { char_dev, console_driver, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, xterm_driver } from '@zenfs/linux'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
@@ -81,7 +81,7 @@ import type {
   Windows as IWindows,
   Workers as IWorkers,
   EventCallback,
-  ProcessEntryParams,
+  Process as IProcess,
   FileHeader,
   KernelShutdownEvent,
   KernelModule,
@@ -841,28 +841,13 @@ export class Kernel implements IKernel {
           ''
         ].join('\n'))
       }
-      const initProcess = new Process({
-        args: [],
-        command: 'init',
-        uid: user.uid,
-        gid: user.gid,
-        context: this.context,
-        filesystem: this.filesystem,
-        processes: this.processes,
-        kernel: this,
-        shell: this.shell,
-        terminal: this.terminal,
-        entry: async () => await this.sudo(async () => await this.execute({ command: '/boot/init', shell: this.shell }))
-      })
-
-      initProcess.keepAlive()
       // Awaited: /boot/init's own output (motd, screensaver-daemon, ...) must finish printing
       // before the recommended-apps prompt below writes its own -- unawaited, the two raced and
       // could interleave mid-line (e.g. "Do you want to install ... (Y/n)screensaver-daemon:
-      // watching for idle activity" on the same line). keepAlive() only affects whether init's PID
-      // file persists after it exits, not how long it runs -- /boot/init is a normal script that
-      // finishes like any other, so awaiting it here does not hang boot.
-      await initProcess.start()
+      // watching for idle activity" on the same line). /boot/init is a normal script that finishes
+      // like any other, so awaiting it here does not hang boot. It is not a process of its own: the
+      // programs it starts are the real ones.
+      await this.sudo(async () => await this.execute({ command: '/boot/init', shell: this.shell }))
       initSpan.end()
 
       // Started directly, not from /boot/init's own script text -- see the comment left in that
@@ -1082,27 +1067,33 @@ export class Kernel implements IKernel {
     const command = resolveLegacyCommand(kernel, shell, terminal, options.command)
     if (!command) return -1
 
-    const process = new Process({
-      uid: options.shell.credentials.uid,
-      gid: options.shell.credentials.gid,
-      args: options.args,
+    // No process table entry: an in-process command is a function call, so what it needs from a
+    // process (its stdio, and whether they are terminals) is a plain record. A stream this
+    // invocation was handed (a pipe, a redirect) is closed afterwards so the far end sees EOF;
+    // the terminal's own shared streams are left alone.
+    const stdin = options.stdin ?? terminal.getInputStream()
+    const stdout = options.stdout ?? terminal.stdout ?? new WritableStream<Uint8Array>()
+    const stderr = options.stderr ?? terminal.stderr ?? new WritableStream<Uint8Array>()
+    const invocation = {
+      pid: 0,
       command: options.command,
-      context: this.context,
-      filesystem: this.filesystem,
-      processes: this.processes,
-      kernel: options.kernel || this,
-      shell: options.shell || this.shell,
-      terminal: options.terminal || this.terminal,
-      entry: async (params: ProcessEntryParams) => await command.run.call(params, params.pid, params.args),
-      stdin: options.stdin,
-      stdinIsTTY: options.stdinIsTTY,
-      stdout: options.stdout,
-      stdoutIsTTY: options.stdoutIsTTY,
-      stderr: options.stderr
-    })
+      args: options.args ?? [],
+      uid: shell.credentials.uid,
+      gid: shell.credentials.gid,
+      stdin,
+      stdout,
+      stderr,
+      stdinIsTTY: options.stdinIsTTY ?? (options.stdin ? false : true),
+      stdoutIsTTY: options.stdoutIsTTY ?? (options.stdout ? false : true)
+    } as unknown as IProcess
 
-    const exitCode = await process.start()
-    return exitCode
+    try {
+      return (await command.run(invocation.pid, invocation.args, invocation)) ?? 0
+    } finally {
+      if (stdin !== terminal.stdin) await stdin.cancel().catch(() => {})
+      if (stdout !== terminal.stdout) await stdout.close().catch(() => {})
+      if (stderr !== terminal.stderr) await stderr.close().catch(() => {})
+    }
   }
 
   /**
@@ -2611,7 +2602,7 @@ export class Kernel implements IKernel {
 
   /**
    * Sets up global debug utilities for browser console access.
-   * Access via: ecmaos.kernel, ecmaos.processes(), ecmaos.fd(pid?), etc.
+   * Access via: ecmaos.kernel, ecmaos.processes(), etc.
    */
   private setupDebugGlobals() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2621,52 +2612,18 @@ export class Kernel implements IKernel {
       // Core references
       kernel: this,
       
-      // Process utilities
+      // Process utilities: the real `@zenfs/linux` process table
       processes: () => {
-        const procs = Array.from(this.processes.all.values()) as Process[]
-        console.table(procs.map((p: Process) => ({
+        const procs = Array.from(zenfsProcesses.values())
+        console.table(procs.map(p => ({
           pid: p.pid,
-          command: p.command,
-          status: p.status,
-          uid: p.uid,
-          gid: p.gid,
+          command: p.comm,
+          status: p.code !== undefined ? 'exited' : p.stopped ? 'stopped' : 'running',
           cwd: p.cwd
         })))
         return procs
       },
-      
-      // File descriptor table for a specific process
-      fd: (pid?: number) => {
-        if (pid === undefined) {
-          // Show all processes and their fd info
-          const procs = Array.from(this.processes.all.values()) as Process[]
-          for (const proc of procs) {
-            console.group(`PID ${proc.pid}: ${proc.command}`)
-            console.log('stdin:', proc.fd.stdin ? '✓' : '✗')
-            console.log('stdout:', proc.fd.stdout ? '✓' : '✗')
-            console.log('stderr:', proc.fd.stderr ? '✓' : '✗')
-            console.log('tracked file handles:', proc.fd.fileHandles.length)
-            console.groupEnd()
-          }
-          return procs.map(p => ({ pid: p.pid, fd: p.fd }))
-        }
-        
-        const proc = this.processes.get(pid) as Process | undefined
-        if (!proc) {
-          console.error(`Process ${pid} not found`)
-          return null
-        }
-        
-        console.group(`FDTable for PID ${pid}: ${proc.command}`)
-        console.log('stdin:', proc.fd.stdin)
-        console.log('stdout:', proc.fd.stdout)
-        console.log('stderr:', proc.fd.stderr)
-        console.log('tracked file handles:', proc.fd.fileHandles)
-        console.groupEnd()
-        
-        return proc.fd
-      },
-      
+
       // Terminal reference
       terminal: this.terminal,
       
@@ -2680,6 +2637,6 @@ export class Kernel implements IKernel {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(globalThis as any).ecmaos = ecmaos
     
-    this.log.debug('Debug globals available: ecmaos.kernel, ecmaos.processes(), ecmaos.fd(pid?), ecmaos.terminal, ecmaos.shell, ecmaos.fs')
+    this.log.debug('Debug globals available: ecmaos.kernel, ecmaos.processes(), ecmaos.terminal, ecmaos.shell, ecmaos.fs')
   }
 }

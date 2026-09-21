@@ -37,7 +37,7 @@ export class TerminalCommand implements ITerminalCommand {
   description: string = ''
   kernel: Kernel
   options: OptionDefinition[] = []
-  run: (pid: number, argv: string[]) => Promise<number | void>
+  run: (pid: number, argv: string[], process?: Process) => Promise<number | void>
   shell: Shell
   terminal: Terminal
   stdin?: ReadableStream<Uint8Array>
@@ -70,9 +70,8 @@ export class TerminalCommand implements ITerminalCommand {
 
     if (useUnifiedParser) {
       const unifiedRun = run as UnifiedParserRun
-      this.run = async (pid: number, argv: string[]) => {
+      this.run = async (_pid: number, argv: string[], process?: Process) => {
         if (argv === null) return 1
-        const process = this.kernel.processes.get(pid) as Process | undefined
         try {
           const parsed = parseArgs(this.options, { argv, stopAtFirstUnknown: true })
           if (parsed.help) {
@@ -92,9 +91,8 @@ export class TerminalCommand implements ITerminalCommand {
       }
     } else {
       const rawRun = run as RawArgvRun
-      this.run = async (pid: number, argv: string[]) => {
+      this.run = async (pid: number, argv: string[], process?: Process) => {
         if (argv === null) return 1
-        const process = this.kernel.processes.get(pid) as Process | undefined
         const ctx: CommandContext = {
           kernel: this.kernel,
           shell: this.shell,
