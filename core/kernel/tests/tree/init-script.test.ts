@@ -28,14 +28,34 @@ describe('/boot/init and its script commands', () => {
       log: TestLogOptions
     })
     await kernel.boot()
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
   })
 
   it('writes a real, editable script at /boot/init on first boot', async () => {
     const content = await kernel.filesystem.fs.readFile('/boot/init', 'utf-8')
     expect(content).toMatch(/^#!ecmaos:bin:script:init/)
     expect(content).toContain('motd')
-    expect(content).toContain('load-crontab')
     expect(content).toContain('screensaver-daemon')
+  })
+
+  it('starts crond as a real process, outside this shell\'s own job table', async () => {
+    // Started directly from `Kernel.boot()`, not a `crond &` line in /boot/init's own script -- see
+    // the comment left in that script (and at the real call site) for why: backgrounding it through
+    // `Shell`'s own pipeline parsing would push it onto `this.shell`'s `_jobs`, and since crond never
+    // finishes, a later bare `wait` (every non-done job) would hang forever.
+    expect(kernel.shell.listJobs().some(job => job.commandLine.includes('crond'))).toBe(false)
+
+    // `void this.execute(...)` (the real call site) is fire-and-forget -- boot() doesn't await
+    // crond actually registering its real Process, so give it a moment before checking `ps`.
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    const code = await kernel.shell.execute('ps > /tmp/init-script-ps.out')
+    expect(code).toBe(0)
+    const out = await kernel.filesystem.fs.readFile('/tmp/init-script-ps.out', 'utf-8')
+    expect(out).toContain('crond')
   })
 
   it('registers the screensavers so a daemon started from the script has one to show', () => {
@@ -60,20 +80,6 @@ describe('/boot/init and its script commands', () => {
       expect(code).toBe(0)
       const output = await kernel.filesystem.fs.readFile('/tmp/motd-test.out', 'utf-8')
       expect(output).toContain('Welcome to the test suite')
-    })
-  })
-
-  describe('load-crontab command', () => {
-    it('requires a scope of system or user', async () => {
-      const code = await kernel.shell.execute('load-crontab /etc/crontab bogus')
-      expect(code).toBe(1)
-    })
-
-    it('loads a real crontab file and registers its entries', async () => {
-      await kernel.filesystem.fs.writeFile('/tmp/test-crontab', '* * * * * echo hi\n')
-      const code = await kernel.shell.execute('load-crontab /tmp/test-crontab system')
-      expect(code).toBe(0)
-      expect(kernel.intervals.getCron('cron:system:1')).toBeDefined()
     })
   })
 

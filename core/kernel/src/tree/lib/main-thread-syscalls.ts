@@ -25,7 +25,7 @@
  * integer a program passes back to the kernel rather than the open file itself.
  */
 
-import { define_syscall, type Process } from '@zenfs/linux'
+import { define_syscall, kill as zenfsKill, processes as zenfsProcesses, spawn as zenfsSpawn, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
@@ -53,7 +53,10 @@ declare module '@zenfs/linux/uapi/abi' {
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
     shell_set_theme(theme: string): number
-    crontab_load(path: string, scope: string): number
+    proc_spawn(command: string, argvJson: string, cwd: string): number
+    proc_wait(pid: number): number
+    proc_kill(pid: number, signal: number): number
+    shell_exec(command: string): number
   }
 }
 
@@ -160,9 +163,23 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
+  // Reads `@zenfs/linux`'s own real, module-global `processes` map (`process.js`) -- not
+  // `kernel.processes` (the legacy `ProcessManager`, `tree/processes.ts`), which nothing created via
+  // `executeViaExecve`/`spawn()` has ever been registered into. Every migrated coreutil, `crond`
+  // (once it exists), and `proc_spawn`'s own children all show up here automatically, the same way a
+  // real Linux process is visible in `/proc` the instant `fork()`+`execve()` return -- this was
+  // previously reading a table real execve'd processes were never added to at all, so `ps` showing
+  // (effectively) nothing for anything actually running was a real, if quiet, gap until this session.
+  // Known, accepted trade-off: DOM apps/devices (`executeApp`/`executeDevice`) still run on the old
+  // legacy model until M2 migrates them onto real `Process`es too, so they won't appear here either
+  // -- this fixes the more commonly hit gap (ordinary commands), not every gap at once.
   define_syscall('ps_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
-    const list = [...kernel.processes.all.entries()].map(([pid, p]) => ({ pid, command: p.command, status: p.status }))
+    const list = Array.from(zenfsProcesses.values()).map(p => ({
+      pid: p.pid,
+      command: p.comm,
+      status: p.code !== undefined ? 'exited' : p.stopped ? 'stopped' : 'running'
+    }))
     const text = JSON.stringify(list)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
@@ -518,13 +535,56 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `kernel.loadCrontab()` mutates `kernel.intervals`' live in-memory cron-job registry (setInterval
-  // handles can't cross a worker boundary at all) and, on each job firing, calls `kernel.shell.execute()`
-  // -- both main-thread-only. It never throws (catches internally and only logs), so like
-  // `shell_set_theme` this needs no scratch-file round trip.
-  define_syscall('crontab_load', async (proc: Process, path: string, scope: string) => {
+  // `spawn()`/`Process.wait()`/`kill()` (`@zenfs/linux`'s `process.js`/`fs/exec.js`) are real
+  // `fork()`+`execve()`/`waitpid()`/`kill()` -- not main-thread-only capabilities like everything
+  // above, they're plain functions any `Process` object can call. The only reason these need to be
+  // custom syscalls at all is that they're free functions taking a `Process` object as an argument,
+  // and a worker-hosted program only ever sees itself as an opaque id inside `@zenfs/linux`'s own
+  // syscall machinery -- it has no direct JS reference to its own `Process` object to call
+  // `parent.wait()` on. `kernelOf(proc)`/`shellOf(proc)` resolve nothing these three need beyond
+  // `proc` itself (the calling process, i.e. `spawn()`'s `parent`) -- registered here purely so the
+  // *child* `proc_spawn` creates can itself later make `custom()` calls of its own (`registerProcess-
+  // Kernel`, the exact same call `executeViaExecve` makes for a shell-launched process).
+  //
+  // Errors here are deliberately left to throw and propagate as real `-errno` returns, unlike every
+  // scratch-file-using syscall above: `spawn`/`wait`/`kill` all throw `@zenfs/linux`'s own `Exception`
+  // (via kerium's `withErrno`/`UV`), which already carries a real numeric `.errno` -- exactly the
+  // shape `dispatch()` (`syscall/table.js`) needs to preserve a thrown error as a real `-errno`
+  // instead of collapsing it to `-EIO` (see `sockets_create`'s doc comment on that). And the worker's
+  // own `syscall_async` (`uapi/base.js`) reconstructs a real, correctly-named error (`ENOENT`,
+  // `ECHILD`, `ESRCH`, ...) from that `-errno` automatically -- so a program calling `custom('proc_wait',
+  // ...)` on a pid that was never its child gets a real `ECHILD` back, not a generic failure.
+  define_syscall('proc_spawn', async (proc: Process, command: string, argvJson: string, cwd: string) => {
     const kernel = kernelOf(proc)
-    await kernel.loadCrontab(path, scope as 'system' | 'user')
+    const shell = shellOf(proc)
+    const argv = JSON.parse(argvJson) as string[]
+    const child = await zenfsSpawn(proc, command, argv, shell?.envObject ?? proc.env, { cwd: cwd || proc.cwd })
+    registerProcessKernel(child, kernel, shell)
+    return child.pid
+  })
+
+  define_syscall('proc_wait', async (proc: Process, pid: number) => {
+    return await proc.wait(pid)
+  })
+
+  define_syscall('proc_kill', async (_proc: Process, pid: number, signal: number) => {
+    zenfsKill(pid, signal)
     return 0
+  })
+
+  // `kernel.shell.execute()` is the one thing in this module that runs a *full shell command line*
+  // (pipes, redirects, the works) rather than a single program -- main-thread-only since `Shell` is a
+  // persistent object tied to a `Terminal`, not something `proc_spawn` can hand a worker a real
+  // `execve`-shaped binary for (there is no `/bin/sh -c` interpreter in ecmaOS to `proc_spawn` in the
+  // first place). This exists for `crond` (`src/bin/commands/crond.mjs`) to fire a crontab entry's
+  // command line exactly the way the old `kernel.intervals`-based scheduler did (`kernel.shell.execute
+  // (entry.command)`), preserving pipe/redirect support in a cron job with zero behavior change --
+  // individual pipeline stages `kernel.shell.execute()` itself launches via `executeViaExecve` still
+  // get real pids visible in `ps` (see `ps_list`'s own doc comment above), even though the job as a
+  // whole has no single pid of its own, the same limitation real `crond`'s `sh -c` child has for a
+  // multi-stage pipeline.
+  define_syscall('shell_exec', async (proc: Process, command: string) => {
+    const kernel = kernelOf(proc)
+    return await kernel.shell.execute(command)
   })
 }

@@ -1,10 +1,14 @@
-import type { CronMap, IntervalMap, ITimerHandle } from '@ecmaos/types'
-import { parseCronExpression } from 'cron-schedule'
-import { TimerBasedCronScheduler as scheduler } from 'cron-schedule/schedulers/timer-based.js'
+import type { IntervalMap } from '@ecmaos/types'
 
+/**
+ * Plain named `setInterval` handles (e.g. the title-blink interval) -- the cron half that used to
+ * live here (`setCron`/`getCron`/`clearCron`/`listCrons`, backed by `cron-schedule`'s
+ * `TimerBasedCronScheduler`) was retired once `crond` (`src/bin/commands/crond.mjs`) became a real,
+ * long-running daemon `Process` owning its own schedule -- those closures ran main-thread-only with
+ * no pid, invisible to `ps` and unkillable; `crond` fixes both. See `crond.mjs`'s own doc comment.
+ */
 export class Intervals {
   private _intervals: IntervalMap = new Map()
-  private _cronJobs: CronMap = new Map()
 
   get(name: string) {
     return this._intervals.get(name)
@@ -22,28 +26,5 @@ export class Intervals {
       clearInterval(interval)
       this._intervals.delete(name)
     }
-  }
-
-  getCron(name: string) {
-    return this._cronJobs.get(name)
-  }
-
-  setCron(name: string, cronExpression: string, callback: () => void, opts?: { errorHandler?: (err: unknown) => unknown }): ITimerHandle {
-    const cron = parseCronExpression(cronExpression)
-    const handle = scheduler.setInterval(cron, callback, opts) as unknown as ITimerHandle
-    this._cronJobs.set(name, handle)
-    return handle
-  }
-
-  clearCron(name: string) {
-    const handle = this._cronJobs.get(name)
-    if (handle) {
-      scheduler.clearTimeoutOrInterval(handle as unknown as Parameters<typeof scheduler.clearTimeoutOrInterval>[0])
-      this._cronJobs.delete(name)
-    }
-  }
-
-  listCrons(): string[] {
-    return Array.from(this._cronJobs.keys())
   }
 }
