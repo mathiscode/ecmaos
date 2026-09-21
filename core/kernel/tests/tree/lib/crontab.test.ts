@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseCrontabFile, parseCrontabLine } from '#lib/crontab.ts'
+// This is the worker-hosted `crond.mjs`/`cron.mjs` shared crontab parser now -- `#lib/crontab.ts`
+// (the old main-thread-only copy `kernel.loadCrontab()` used) was retired along with that method
+// once `crond` (a real daemon `Process`) replaced `kernel.intervals`'s whole cron half. Ported
+// verbatim, so this file's own coverage (real parsing-ambiguity bug fixes included) carries over
+// unchanged -- see `src/bin/commands/crond.mjs`'s doc comment for why this exists as a real daemon.
+import { parseCrontabFile, parseCrontabLine } from '../../../src/bin/commands/lib/crontab.mjs'
 
 describe('parseCrontabLine', () => {
   it('parses a standard 5-field expression with a simple command', () => {

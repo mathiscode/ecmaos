@@ -200,11 +200,6 @@ export interface Kernel {
   /** Get the main export from a package */
   getPackageMainExport(pkgData: JSONSchemaForNPMPackageJsonFiles): string | null
 
-  /**
-   * Load and register crontab entries from a file, replacing any previously loaded from that scope
-   */
-  loadCrontab(filePath: string, scope: 'system' | 'user'): Promise<void>
-
   /** Show a system notification */
   notify(title: string, options?: object): Promise<Notification | void>
 

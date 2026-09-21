@@ -20,7 +20,6 @@ export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shar
 // in-process shim deliberately -- migrating them to real execve made a tight shell while-loop using
 // `test` as its condition measurably slower (each iteration now pays a real worker spin-up instead
 // of an in-process call), a real perf regression for the pattern these three are most used in.
-export { createCommand as createCron } from './commands/cron.js'
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createFormat } from './commands/format.js'
 export { createCommand as createGit } from './commands/git.js'

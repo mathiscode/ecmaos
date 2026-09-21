@@ -8,20 +8,12 @@
 export type IntervalMap = Map<string, ReturnType<typeof setInterval>>
 
 /**
- * Timer handle interface matching cron-schedule's ITimerHandle
- * This matches the return type of TimerBasedCronScheduler.setInterval
- */
-export interface ITimerHandle {
-  clear(): void
-}
-
-/**
- * Type for mapping cron job names to their timer handles
- */
-export type CronMap = Map<string, ITimerHandle>
-
-/**
  * Interface for interval management functionality
+ *
+ * The cron half this used to declare (`setCron`/`getCron`/`clearCron`/`listCrons`, backed by
+ * `cron-schedule`'s `TimerBasedCronScheduler`) was retired once `crond` became a real, long-running
+ * daemon `Process` owning its own schedule -- see `core/kernel/src/bin/commands/crond.mjs`'s own doc
+ * comment for why.
  */
 export interface Intervals {
   /**
@@ -43,30 +35,4 @@ export interface Intervals {
    * @param name - Name of the interval to clear
    */
   clear(name: string): void
-
-  /**
-   * Get a cron job by name
-   * @param name - Name of the cron job
-   */
-  getCron(name: string): ITimerHandle | undefined
-
-  /**
-   * Set a new cron job
-   * @param name - Name for the cron job
-   * @param cronExpression - Cron expression (e.g., "0 5 * * *" for every 5 minutes past the hour)
-   * @param callback - Function to execute
-   * @param opts - Optional error handler
-   */
-  setCron(name: string, cronExpression: string, callback: () => void, opts?: { errorHandler?: (err: unknown) => unknown }): ITimerHandle
-
-  /**
-   * Clear a cron job by name
-   * @param name - Name of the cron job to clear
-   */
-  clearCron(name: string): void
-
-  /**
-   * List all active cron job names
-   */
-  listCrons(): string[]
-} 
+}

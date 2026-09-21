@@ -53,7 +53,6 @@ import { Workers } from '#workers.ts'
 // import createBIOS, { BIOSModule } from '@ecmaos/bios'
 import { getKernelLegacyCommands } from '#lib/commands/index.js'
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
-import { parseCrontabFile } from '#lib/crontab.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
@@ -694,8 +693,9 @@ export class Kernel implements IKernel {
       await this.registerCommands()
       await this.registerPackages()
 
-      // Load system crontab
-      await this.loadCrontab('/etc/crontab', 'system')
+      // System crontab loading moved to `crond` itself (started from `/boot/init`) -- it parses
+      // /etc/crontab on its own the moment it starts, rather than `boot()` pre-loading it into a
+      // now-retired `kernel.intervals` cron registry.
 
       // Load and process fstab
       const fstabSpan = tracer.startSpan('kernel.boot.fstab', {}, trace.setSpan(context.active(), bootSpan))
@@ -799,8 +799,8 @@ export class Kernel implements IKernel {
       }
       authSpan.end()
 
-      // MOTD display and user-crontab loading both move into /sbin/init's script (via the `motd`
-      // and `load-crontab` commands) -- boot() only needs to get a shell running.
+      // MOTD display and starting the real crond daemon both move into /sbin/init's script (via the
+      // `motd` and `crond` commands) -- boot() only needs to get a shell running.
       const user = this.users.get(this.shell.credentials.uid ?? 0)
       if (!user) throw new Error(t('kernel.userNotFound', 'User not found'))
 
@@ -833,8 +833,11 @@ export class Kernel implements IKernel {
           '# The real, editable boot script -- everything here used to run unconditionally',
           '# inside Kernel.boot() itself. What still can\'t move: anything needing a yes/no',
           '# branch (there is no `if` yet -- see the shell-jobs branch) stays in boot().',
+          '# crond isn\'t started here -- a `crond &` line would background it onto this same',
+          '# Shell\'s own job table (`_jobs`), the one the interactive session goes on to use, and',
+          '# crond never finishes -- so a later bare `wait` (every non-done job) would hang forever.',
+          '# It starts the same way /boot/init itself does: a raw Process, not a shell job.',
           'motd',
-          'load-crontab ~/.config/crontab user',
           'screensaver-daemon',
           ''
         ].join('\n'))
@@ -854,14 +857,22 @@ export class Kernel implements IKernel {
       })
 
       initProcess.keepAlive()
-      // Awaited: /boot/init's own output (motd, load-crontab, screensaver-daemon, ...) must finish
-      // printing before the recommended-apps prompt below writes its own -- unawaited, the two
-      // raced and could interleave mid-line (e.g. "Do you want to install ... (Y/n)screensaver-
-      // daemon: watching for idle activity" on the same line). keepAlive() only affects whether
-      // init's PID file persists after it exits, not how long it runs -- /boot/init is a normal
-      // script that finishes like any other, so awaiting it here does not hang boot.
+      // Awaited: /boot/init's own output (motd, screensaver-daemon, ...) must finish printing
+      // before the recommended-apps prompt below writes its own -- unawaited, the two raced and
+      // could interleave mid-line (e.g. "Do you want to install ... (Y/n)screensaver-daemon:
+      // watching for idle activity" on the same line). keepAlive() only affects whether init's PID
+      // file persists after it exits, not how long it runs -- /boot/init is a normal script that
+      // finishes like any other, so awaiting it here does not hang boot.
       await initProcess.start()
       initSpan.end()
+
+      // Started directly, not from /boot/init's own script text -- see the comment left in that
+      // script for why: `kernel.execute()` here bypasses `Shell`'s own job-table bookkeeping
+      // entirely (only `Shell.execute()`/`executeScriptText()`'s own pipeline parsing pushes onto
+      // `this.shell`'s `_jobs`), so this never-finishing daemon can't ever show up in a later
+      // `jobs`/`wait`. Fire-and-forget: `kernel.execute()`'s own promise only resolves once `crond`
+      // itself exits, which is never during a normal run -- awaiting it here would hang boot.
+      void this.execute({ command: '/bin/crond', args: [], shell: this.shell, terminal: this.terminal })
 
       this._state = KernelState.RUNNING
       this.setupDebugGlobals()
@@ -2103,62 +2114,6 @@ export class Kernel implements IKernel {
     return () => {
       clearTimeout(idleTimer)
       for (const event of events) globalThis.removeEventListener(event, resetIdleTime)
-    }
-  }
-
-  /**
-   * Loads and registers crontab entries from a file.
-   * @param filePath - Path to the crontab file
-   * @param scope - Scope of the crontab ('system' or 'user')
-   * @returns {Promise<void>} A promise that resolves when the crontab is loaded.
-   */
-  async loadCrontab(filePath: string, scope: 'system' | 'user'): Promise<void> {
-    try {
-      let content: string
-      
-      if (scope === 'system') {
-        if (!await this.shell.context.fs.promises.exists(filePath)) return
-        content = await this.shell.context.fs.promises.readFile(filePath, 'utf-8')
-      } else {
-        if (!await this.shell.context.fs.promises.exists(filePath)) return
-        content = await this.shell.context.fs.promises.readFile(filePath, 'utf-8')
-      }
-
-      const entries = parseCrontabFile(content)
-
-      for (const entry of entries) {
-        const jobName = `cron:${scope}:${entry.lineNumber}`
-        
-        // Clear existing job if it exists
-        const existingHandle = this.intervals.getCron(jobName)
-        if (existingHandle) {
-          this.intervals.clearCron(jobName)
-        }
-
-        // Register new cron job
-        this.intervals.setCron(
-          jobName,
-          entry.expression,
-          async () => {
-            try {
-              await this.shell.execute(entry.command)
-            } catch (error) {
-              this.log.error(`Cron job ${jobName} execution failed: ${error instanceof Error ? error.message : String(error)}`)
-            }
-          },
-          {
-            errorHandler: (err) => {
-              this.log.error(`Cron job ${jobName} failed: ${err instanceof Error ? err.message : String(err)}`)
-            }
-          }
-        )
-      }
-
-      if (entries.length > 0) {
-        this.log.info(`Loaded ${entries.length} cron job(s) from ${filePath}`)
-      }
-    } catch (error) {
-      this.log.warn(`Failed to load crontab from ${filePath}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
