@@ -187,6 +187,9 @@ export class Terminal extends XTerm implements ITerminal {
    * deliberately partial, honestly-scoped step; full line discipline is still out of scope here.
    */
   private _zfsTty: TTY | undefined
+  private _ttyInput: IDisposable | undefined
+  private _ttyInputHolders = 0
+  private _ttySavedTermios: TTY['termios'] | undefined
   /**
    * The active hardware-accelerated renderer, once loaded in `mount()`. `undefined` when running
    * the `dom` renderer, either by config or because WebGL's context was lost and this fell back.
@@ -211,6 +214,46 @@ export class Terminal extends XTerm implements ITerminal {
   get tty() { return this._tty }
   /** The `@zenfs/linux` TTY this terminal is attached to, once `mount()` has run */
   get zfsTty() { return this._zfsTty }
+
+  /**
+   * Feeds this terminal's raw input (`onData`) into its `@zenfs/linux` TTY, so a foreground worker
+   * program reading fd 0 gets real line-discipline input (canonical/raw mode, echo, `ISIG`) -- the
+   * `tty.receive()` half `attach_xterm(..., { input: false })` deliberately leaves off. While at
+   * least one holder is attached, `keyHandler` stands down: the line discipline, not the shell's
+   * line editor, owns the keyboard, and turns `^C`/`^Z` into signals itself (`ISIG`).
+   *
+   * Reference-counted, because every stage of a foreground pipeline holds it. Returns an idempotent
+   * release; the last release flushes typeahead nobody read, as a real tty does when its session ends.
+   * Mobile keeps the old path: its on-screen keyboard synthesizes `keyHandler` calls, not `onData`.
+   */
+  attachInput(): () => void {
+    const tty = this._zfsTty
+    if (!tty || this._isMobile) return () => {}
+
+    if (this._ttyInputHolders++ === 0) {
+      // The line settings the session starts with, put back when the last holder lets go however
+      // it ended (`^C`, `kill`, a crash): a program that went raw and died must not leave the shell
+      // typing into a raw terminal. Restored once, by the last release, not per stage -- in
+      // `cat f | less`, `cat` finishing must not cook the terminal out from under `less`.
+      this._ttySavedTermios = { ...tty.termios, cc: [...tty.termios.cc] }
+      this._ttyInput = this.onData(data => tty.receive(data))
+    }
+
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this._ttyInputHolders > 0) return
+      this._ttyInput?.dispose()
+      this._ttyInput = undefined
+      tty.ldisc.flush()
+      if (this._ttySavedTermios) tty.set_termios(this._ttySavedTermios)
+      this._ttySavedTermios = undefined
+    }
+  }
+
+  /** Whether the `@zenfs/linux` line discipline currently owns the keyboard (see `attachInput`) */
+  get ttyInputAttached() { return this._ttyInput !== undefined }
 
   get promptTemplate() { return this._promptTemplate }
   set promptTemplate(value: string) { this._promptTemplate = value }
@@ -1187,6 +1230,27 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalInputEvent>(TerminalEvents.INPUT, { terminal: this, data: clip })
   }
 
+  /**
+   * Bookkeeping for a foreground job whose process just got stopped (`^Z`): it gives up the
+   * controlling terminal (same as `bg`; `fg` reclaims it -- see `JobProcessHandle.setForeground`),
+   * is marked stopped, and control returns to the prompt. Idempotent, so both the keyboard path
+   * above and the process-side `SIGTSTP` hook in `Kernel.executeViaExecve` can call it.
+   */
+  foregroundStopped() {
+    const job = this._shell?.foregroundJob
+    if (job && job.status !== 'stopped') {
+      for (const process of job.processes) process.setForeground?.(false)
+      job.status = 'stopped'
+      this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
+    }
+
+    this._cmd = ''
+    this._cursorPosition = 0
+    this.unlisten()
+    this.write(this.prompt())
+    this.listen()
+  }
+
   async keyHandler({ key, domEvent }: { key: string; domEvent: KeyboardEvent }) {
     const keyName = domEvent.key
     if (!key && !keyName) return
@@ -1195,6 +1259,8 @@ export class Terminal extends XTerm implements ITerminal {
     }
 
     this.events.dispatch<TerminalKeyEvent>(TerminalEvents.KEY, { key, domEvent })
+
+    if (this._ttyInput) return // the line discipline owns the keyboard; see `attachInput`
 
     if (domEvent.ctrlKey) {
       switch (keyName) {
@@ -1218,24 +1284,11 @@ export class Terminal extends XTerm implements ITerminal {
           return
         }
         case 'z': {
-          // `^Z`: SIGTSTP to the foreground job's real process(es), if any, and mark the job
-          // stopped -- same honest scope as `^C` above, nothing more. Returns control to the
-          // prompt exactly like `^C` does; `fg %N` is what resumes a stopped job (SIGCONT).
+          // `^Z` with no line discipline attached: SIGTSTP the foreground job's real process(es), then
+          // do the same bookkeeping `foregroundStopped` does for a process the line discipline stopped.
           const job = this._shell?.foregroundJob
-          if (job) {
-            for (const process of job.processes) process.kill(Signal.TSTP)
-            // A stopped job gives up the controlling terminal, same as `bg` -- `fg` is what a
-            // stopped job needs to reclaim it. See `JobProcessHandle.setForeground`'s doc comment.
-            for (const process of job.processes) process.setForeground?.(false)
-            job.status = 'stopped'
-            this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
-          }
-
-          this._cmd = ''
-          this._cursorPosition = 0
-          this.unlisten()
-          this.write(this.prompt())
-          this.listen()
+          if (job) for (const process of job.processes) process.kill(Signal.TSTP)
+          if (job?.status !== 'stopped') this.foregroundStopped()
           return
         }
         case 'l':

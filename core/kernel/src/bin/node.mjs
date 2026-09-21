@@ -31,7 +31,7 @@ import { ready, exit } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink
+  link, symlink, readlink, ioctl, tcgetattr, tcsetattr, winsize
 } from '@zenfs/linux/uapi/fs'
 import { syscall_async } from '@zenfs/linux/uapi/base'
 
@@ -206,6 +206,9 @@ globalThis.ecmaosSyscalls = {
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
+  // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
+  // (`TCGETS`/`TCSETS`, `lflag`/`iflag`/`oflag`/`cc`), `winsize` (`TIOCGWINSZ`), and the bare `ioctl`.
+  ioctl, tcgetattr, tcsetattr, winsize,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
   // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
   // `thread.js`) -- `argv[0]` is the program's own path (real `execve` convention), so a program's
