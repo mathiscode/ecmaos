@@ -366,6 +366,9 @@ importers:
       '@zenfs/archives':
         specifier: ^1.5.0
         version: 1.5.0(@zenfs/core@2.7.6)(kerium@1.5.0)(memium@1.0.4)(utilium@3.7.0)
+      '@zenfs/cloud':
+        specifier: ^0.2.8
+        version: 0.2.8(@zenfs/core@2.7.6)(kerium@1.5.0)(utilium@3.7.0)
       '@zenfs/core':
         specifier: ^2.7.6
         version: 2.7.6
@@ -402,6 +405,9 @@ importers:
       cronstrue:
         specifier: ^3.9.0
         version: 3.26.0
+      dropbox:
+        specifier: ^10.34.0
+        version: 10.46.0
       figlet:
         specifier: ^1.7.0
         version: 1.11.4
@@ -739,18 +745,9 @@ importers:
       '@ecmaos/types':
         specifier: workspace:^
         version: link:../types
-      '@zenfs/archives':
-        specifier: ^1.5.0
-        version: 1.5.0(@zenfs/core@2.7.6)(kerium@1.5.0)(memium@1.0.4)(utilium@3.7.0)
-      '@zenfs/cloud':
-        specifier: ^0.2.8
-        version: 0.2.8(@zenfs/core@2.7.6)(kerium@1.5.0)(utilium@3.7.0)
       '@zenfs/core':
         specifier: ^2.7.6
         version: 2.7.6
-      '@zenfs/dom':
-        specifier: ^1.2.13
-        version: 1.2.14(@zenfs/core@2.7.6)(kerium@1.5.0)(utilium@3.7.0)
       '@zip.js/zip.js':
         specifier: ^2.7.52
         version: 2.14.0
@@ -778,9 +775,6 @@ importers:
       cronstrue:
         specifier: ^3.9.0
         version: 3.26.0
-      dropbox:
-        specifier: ^10.34.0
-        version: 10.46.0
       human-format:
         specifier: ^1.2.1
         version: 1.2.1

@@ -29,6 +29,8 @@ import { define_syscall, kill as zenfsKill, processes as zenfsProcesses, spawn a
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
+import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { managePasskey } from './passkey-manage.ts'
 import { presenters } from './presenters/index.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
@@ -56,6 +58,9 @@ declare module '@zenfs/linux/uapi/abi' {
     sockets_show(id: string, path: string): number
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
+    fs_mount(argsJson: string, path: string): number
+    auth_passkey(argsJson: string, path: string): number
+    screensaver_start(): number
     shell_set_theme(theme: string): number
     proc_spawn(command: string, argvJson: string, cwd: string): number
     proc_wait(pid: number): number
@@ -656,6 +661,49 @@ export function installMainThreadSyscalls(): void {
     const text = JSON.stringify(results)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
+  })
+
+  // `mount`: the backends need the live mount table, browser storage/File System Access APIs and (for
+  // Google Drive) `document.head` script injection plus an OAuth popup -- all main-thread only. The
+  // program parses arguments; `mountFilesystem` (`mount-backends.ts`) is the original command body,
+  // and reports the lines to print plus an exit code, like every "whole command" syscall here.
+  define_syscall('fs_mount', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const args = JSON.parse(argsJson) as ({ action: 'list' } | ({ action: 'mount' } & MountRequest))
+
+    let text: string
+    if (args.action === 'list') {
+      text = JSON.stringify({ mounts: listMounts(kernel) })
+    } else if (!shell) {
+      text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'mount: no shell available for this process' }] })
+    } else {
+      text = JSON.stringify(await mountFilesystem(kernel, shell, args))
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  // `passkey`: WebAuthn only exists in the top-level browsing context (see `passkey-manage.ts`)
+  define_syscall('auth_passkey', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const { subcommand, name, id } = JSON.parse(argsJson) as { subcommand: string, name?: string, id?: string }
+
+    const outcome = shell
+      ? await managePasskey(kernel, shell, subcommand, { name, id })
+      : { code: 1, lines: [{ stream: 'err', text: 'Error: Current user not found' }] }
+
+    const text = JSON.stringify(outcome)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  // `screensaver-daemon`: registers global DOM activity listeners. Returns 0 on start, 1 if the
+  // configured screensaver isn't a registered one (the program reports that).
+  define_syscall('screensaver_start', async (proc: Process) => {
+    return kernelOf(proc).startScreensaverDaemon() ? 0 : 1
   })
 
   // `shell.config.setTheme()` mutates the calling `Shell`'s own live `ShellConfig` and immediately
