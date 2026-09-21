@@ -30,9 +30,7 @@ import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
 import { meta as metaFalse } from '../commands/false.js'
-import { meta as metaMan } from '../commands/man.js'
 import { meta as metaMount } from '../commands/mount.js'
-import { meta as metaNc } from '../commands/nc.js'
 import { meta as metaOpen } from '../commands/open.js'
 import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
@@ -45,9 +43,7 @@ import { meta as metaVim } from '../commands/vim.js'
 import { meta as metaWeb } from '../commands/web.js'
 
 import { createCommand as createFalse } from '../commands/false.js'
-import { createCommand as createMan } from '../commands/man.js'
 import { createCommand as createMount } from '../commands/mount.js'
-import { createCommand as createNc } from '../commands/nc.js'
 import { createCommand as createOpen } from '../commands/open.js'
 import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
@@ -71,9 +67,7 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 function buildLegacyCommands(): LegacyCommands {
   return {
   "false": { description: metaFalse.description, createCommand: createFalse },
-  "man": { description: metaMan.description, createCommand: createMan },
   "mount": { description: metaMount.description, createCommand: createMount },
-  "nc": { description: metaNc.description, createCommand: createNc },
   "open": { description: metaOpen.description, createCommand: createOpen },
   "passkey": { description: metaPasskey.description, createCommand: createPasskey },
   "play": { description: metaPlay.description, createCommand: createPlay },

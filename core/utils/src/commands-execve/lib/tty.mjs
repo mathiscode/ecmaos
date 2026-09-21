@@ -5,12 +5,33 @@
  * sees is the `@zenfs/linux` line discipline's own state, not a private convention.
  */
 
-const { tcgetattr, tcsetattr, winsize } = globalThis.ecmaosSyscalls
+const { tcgetattr, tcsetattr, winsize, read, onSignal, offSignal } = globalThis.ecmaosSyscalls
+
+const SIGWINCH = 28
 
 // `<asm-generic/termbits.h>` local-mode bits, octal as in the header.
 const ISIG = 0o1
 const ICANON = 0o2
 const ECHO = 0o10
+
+/** Whether `fd` is a terminal (`isatty`: the real `TCGETS` ioctl succeeds on it). */
+export function isTty(fd) {
+  try {
+    tcgetattr(fd)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The terminal to page on, or -1 when output is not going to one: like real `less`/`man`, a
+ * program pages only when its stdout is a terminal (`less f > out` and `man x | grep` just print),
+ * and then reads keys from whichever fd is the terminal (`ttyFd`).
+ */
+export function pagerTty() {
+  return isTty(1) ? ttyFd() : -1
+}
 
 /**
  * The fd that is this program's terminal, or -1 if it has none. Tries stdin, then stderr, then
@@ -89,4 +110,25 @@ export function decodeKeys(bytes) {
     }
   }
   return keys
+}
+
+/**
+ * `read(fd, buffer)` on a terminal that also reports window resizes: returns the byte count, or
+ * `-1` when the read was interrupted by `SIGWINCH` (the caller should redraw, then read again).
+ * Any other error is thrown. The handler is installed for the lifetime of `watchResize`'s disposer.
+ */
+export function watchResize() {
+  const handler = () => {}
+  onSignal(SIGWINCH, handler)
+  return {
+    read(fd, buffer) {
+      try {
+        return read(fd, buffer, -1)
+      } catch (error) {
+        if (error?.code === 'EINTR') return -1
+        throw error
+      }
+    },
+    stop: () => offSignal(SIGWINCH, handler),
+  }
 }

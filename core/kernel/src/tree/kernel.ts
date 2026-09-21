@@ -15,7 +15,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, console_driver, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, xterm_driver } from '@zenfs/linux'
+import { char_dev, console_driver, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, Signal as ZenFSSignal, xterm_driver } from '@zenfs/linux'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
@@ -1309,6 +1309,10 @@ export class Kernel implements IKernel {
 
       const exitCode = await proc.exited
 
+      // The line discipline echoed `^C` with no newline (a real shell's tty driver ends the line
+      // for it); without this the next prompt is drawn after the `^C`, mid-line.
+      if (tty && isForeground && proc.killed_by === ZenFSSignal.INT) terminal.write('\r\n')
+
       // Give the stdout/stderr bridges a moment to drain whatever the program wrote right before
       // exiting -- `bridgeStdio`'s own drain-on-exit path stops promptly on its own, but the
       // pipeline's next stage (or a redirect target file) should see every byte before this stage
@@ -1366,9 +1370,39 @@ export class Kernel implements IKernel {
     stdFd: 0 | 1 | 2,
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
   ): () => void {
+    // fd 0 is the program's stdin: it reads from the pipe we write into
+    return this.bridgeFd(proc, stdFd, stdFd === 0 ? 'read' : 'write', stream).stop
+  }
+
+  /**
+   * Gives `proc` a brand-new descriptor (the lowest free one from 3) that is one end of a real pipe
+   * pumped against `stream`, and returns its number: a `'read'` descriptor the program reads what
+   * `stream` produces from, a `'write'` one whose bytes are delivered to `stream`. This is how a
+   * kernel-side resource (a socket) becomes something a real program can `read`, `write` and `poll`
+   * like any other fd. Same machinery, same caveats as {@link bridgeStdio}, which this generalizes.
+   */
+  attachStream(
+    proc: InstanceType<typeof ZenFSProcess>,
+    direction: 'read' | 'write',
+    stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
+  ): { fd: number, stop: () => void } {
+    let fd = 3
+    while (proc.context.descriptors.has(fd)) fd++
+    return { fd, stop: this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true }).stop }
+  }
+
+  private bridgeFd(
+    proc: InstanceType<typeof ZenFSProcess>,
+    stdFd: number,
+    direction: 'read' | 'write',
+    stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>,
+    // `closeOnEof`: end a `'write'` stream as soon as the program closes its end and what it wrote
+    // has drained (shutdown of the write side), instead of only when the program exits. Stdio
+    // leaves this off -- it has always ended with the process -- but a socket needs it to half-close.
+    { closeOnEof = false }: { closeOnEof?: boolean } = {}
+  ): { stop: () => void } {
     const pipeProcCtx = this.pipeProcess.context
 
-    const direction = stdFd === 0 ? 'read' : 'write' // fd 0 is the program's stdin: it reads from the pipe we write into
     const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
     const programFd = direction === 'read' ? pipeReadFd : pipeWriteFd
     const bridgeFd = direction === 'read' ? pipeWriteFd : pipeReadFd
@@ -1386,7 +1420,7 @@ export class Kernel implements IKernel {
     const bridgeFile = bridgeHandle && pipefs._device(bridgeHandle.internalPath)
     if (!bridgeFile) {
       this.log.error(`bridgeStdio: could not resolve fd ${stdFd}'s pipe device; leaving it on the console`)
-      return () => {}
+      return { stop: () => {} }
     }
 
     let stopped = false
@@ -1405,6 +1439,8 @@ export class Kernel implements IKernel {
               await writer.write(buffer.subarray(0, n))
               continue
             }
+            // Empty and the program's end is closed: EOF (a pipe polls readable exactly then)
+            if (closeOnEof && ((bridgeFile.ops.poll?.(bridgeFile) ?? 0) & 1)) break
             if (await Promise.race([proc.exited.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 10))])) {
               // Program has exited (closing its end); drain whatever is left, then stop.
               const drain = new Uint8Array(65536)
@@ -1438,11 +1474,15 @@ export class Kernel implements IKernel {
           this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
         } finally {
           try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
+          // Dropping the last write end is what tells a reader the stream is over (EOF), but
+          // `@zenfs/linux` only wakes a pipe's sleepers when data moves, not when an end closes -- a
+          // program blocked in `poll`/`read` on this fd would sleep forever. Wake it ourselves.
+          pipefs._end(bridgeFile.path)?.pipe.wait.wake_up()
         }
       })()
     }
 
-    return stop
+    return { stop }
   }
 
   /**

@@ -33,7 +33,24 @@ import {
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
   link, symlink, readlink, ioctl, tcgetattr, tcsetattr, winsize
 } from '@zenfs/linux/uapi/fs'
-import { syscall_async } from '@zenfs/linux/uapi/base'
+import { syscall, syscall_async, copyOut, on_signal, off_signal } from '@zenfs/linux/uapi/base'
+
+/**
+ * `poll(2)`: waits until one of `fds` (`[{ fd, events }]`) is ready or `timeout` ms pass (negative:
+ * forever, 0: just look), and returns each one's `revents` in order. The kernel answers through the
+ * syscall's return region, one little-endian `uint16` per fd, which `copyOut` hands over as a view.
+ * A pipe whose other end closed reports readable (`POLLIN`), so a read then returns 0 -- EOF.
+ */
+function poll(fds, timeout = -1) {
+  syscall('poll', fds, timeout)
+  const { view } = copyOut(class { constructor(buffer, offset) { this.view = new DataView(buffer, offset) } })
+  return fds.map((_, i) => view.getUint16(i * 2, true))
+}
+
+const POLLIN = 0x1
+const POLLOUT = 0x4
+const POLLERR = 0x8
+const POLLHUP = 0x10
 
 const O_RDONLY = 0
 const O_WRONLY = 1
@@ -209,6 +226,11 @@ globalThis.ecmaosSyscalls = {
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
   // (`TCGETS`/`TCSETS`, `lflag`/`iflag`/`oflag`/`cc`), `winsize` (`TIOCGWINSZ`), and the bare `ioctl`.
   ioctl, tcgetattr, tcsetattr, winsize,
+  // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
+  // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
+  onSignal: on_signal, offSignal: off_signal,
+  // `poll(fds, timeout)` and its event bits: wait on several fds at once (a terminal and a socket).
+  poll, POLLIN, POLLOUT, POLLERR, POLLHUP,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
   // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
   // `thread.js`) -- `argv[0]` is the program's own path (real `execve` convention), so a program's
