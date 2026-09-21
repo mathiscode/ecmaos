@@ -44,7 +44,6 @@ import { meta as metaPasskey } from '../commands/passkey.js'
 import { meta as metaPlay } from '../commands/play.js'
 import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaTest } from '../commands/test.js'
-import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
 import { meta as metaTrue } from '../commands/true.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
@@ -69,7 +68,6 @@ import { createCommand as createPasskey } from '../commands/passkey.js'
 import { createCommand as createPlay } from '../commands/play.js'
 import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createTest } from '../commands/test.js'
-import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
 import { createCommand as createTrue } from '../commands/true.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
@@ -105,7 +103,6 @@ function buildLegacyCommands(): LegacyCommands {
   "play": { description: metaPlay.description, createCommand: createPlay },
   "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "test": { description: metaTest.description, createCommand: createTest },
-  "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },
   "true": { description: metaTrue.description, createCommand: createTrue },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
