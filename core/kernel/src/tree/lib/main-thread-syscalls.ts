@@ -52,6 +52,7 @@ declare module '@zenfs/linux/uapi/abi' {
     sockets_show(id: string, path: string): number
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
+    shell_set_theme(theme: string): number
   }
 }
 
@@ -500,5 +501,19 @@ export function installMainThreadSyscalls(): void {
     const text = JSON.stringify(results)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
+  })
+
+  // `shell.config.setTheme()` mutates the calling `Shell`'s own live `ShellConfig` and immediately
+  // calls `terminal.updateConfig()` -- both are main-thread-only `Shell`/`Terminal` state, unlike
+  // every syscall above this needs `shellOf(proc)`, not just `kernelOf(proc)`. `setTheme()` itself
+  // silently no-ops on an unrecognized preset name rather than throwing (`shell.ts`), so the calling
+  // worker program validates the name against `ThemePresets` itself before ever reaching this
+  // syscall -- there's nothing for this handler to fail on, so unlike `fs_umount`/`users_manage` it
+  // needs no scratch-file round trip, just a plain `0`/`-errno` return.
+  define_syscall('shell_set_theme', async (proc: Process, theme: string) => {
+    const shell = shellOf(proc)
+    if (!shell) return -Errno.ENOSYS
+    shell.config.setTheme(theme)
+    return 0
   })
 }
