@@ -52,6 +52,17 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     expect(out).toContain('+ two-changed')
   })
 
+  it('grep -c prints only the match count, per file when given several', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/grep-c1.txt', 'apple\nbanana\ngrape\n')
+    await kernel.filesystem.fs.writeFile('/tmp/grep-c2.txt', 'nothing here\n')
+    await kernel.shell.execute('grep -c a /tmp/grep-c1.txt > /tmp/grep-c-one.txt')
+    expect(await kernel.filesystem.fs.readFile('/tmp/grep-c-one.txt', 'utf-8')).toBe('3\n')
+    await kernel.shell.execute('grep -c an /tmp/grep-c1.txt /tmp/grep-c2.txt > /tmp/grep-c-many.txt')
+    expect(await kernel.filesystem.fs.readFile('/tmp/grep-c-many.txt', 'utf-8')).toBe('/tmp/grep-c1.txt:1\n/tmp/grep-c2.txt:0\n')
+    await kernel.shell.execute('printf "x\\ny\\nx\\n" | grep -c x > /tmp/grep-c-stdin.txt')
+    expect(await kernel.filesystem.fs.readFile('/tmp/grep-c-stdin.txt', 'utf-8')).toBe('2\n')
+  })
+
   it('grep finds matching lines in a file', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/grep-in.txt', 'apple\nbanana\ngrape\n')
     const code = await kernel.shell.execute('grep an /tmp/grep-in.txt > /tmp/grep-out.txt')

@@ -13,6 +13,7 @@ Search for PATTERN in each FILE.
 
   -i, --ignore-case   ignore case distinctions
   -n, --line-number   print line number with output lines
+  -c, --count         print only a count of matching lines per FILE
   --help              display this help and exit`
 
 function readWholeFile(fullPath) {
@@ -62,6 +63,7 @@ function main() {
 
   let ignoreCase = false
   let showLineNumbers = false
+  let countOnly = false
   const positional = []
 
   for (const arg of args) {
@@ -72,11 +74,14 @@ function main() {
       ignoreCase = true
     } else if (arg === '-n' || arg === '--line-number') {
       showLineNumbers = true
+    } else if (arg === '-c' || arg === '--count') {
+      countOnly = true
     } else if (arg.startsWith('-')) {
       const flags = arg.slice(1).split('')
       if (flags.includes('i')) ignoreCase = true
       if (flags.includes('n')) showLineNumbers = true
-      const invalid = flags.find(f => !['i', 'n'].includes(f))
+      if (flags.includes('c')) countOnly = true
+      const invalid = flags.find(f => !['i', 'n', 'c'].includes(f))
       if (invalid) {
         writeAll(2, new TextEncoder().encode(`grep: invalid option -- '${invalid}'\n`))
         return 1
@@ -111,12 +116,15 @@ function main() {
     if (lines[lines.length - 1] === '') lines.pop()
 
     let lineNumber = 1
+    let count = 0
     for (const line of lines) {
       if (regex.test(line)) {
-        output += showLineNumbers ? `${lineNumber}:${line}\n` : `${line}\n`
+        count++
+        if (!countOnly) output += showLineNumbers ? `${lineNumber}:${line}\n` : `${line}\n`
       }
       lineNumber++
     }
+    if (countOnly) output = `${count}\n`
   } else {
     const cwd = getcwd()
     for (const file of files) {
@@ -126,15 +134,17 @@ function main() {
         const lines = content.split('\n')
         if (lines[lines.length - 1] === '') lines.pop()
 
+        const prefix = files.length > 1 ? `${file}:` : ''
         let lineNumber = 1
+        let count = 0
         for (const line of lines) {
           if (regex.test(line)) {
-            const prefix = files.length > 1 ? `${file}:` : ''
-            const lineNumPrefix = showLineNumbers ? `${lineNumber}:` : ''
-            output += `${prefix}${lineNumPrefix}${line}\n`
+            count++
+            if (!countOnly) output += `${prefix}${showLineNumbers ? `${lineNumber}:` : ''}${line}\n`
           }
           lineNumber++
         }
+        if (countOnly) output += `${prefix}${count}\n`
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         writeAll(2, new TextEncoder().encode(`grep: ${file}: ${message}\n`))
