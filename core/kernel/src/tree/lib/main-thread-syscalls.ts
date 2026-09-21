@@ -29,7 +29,7 @@ import { define_syscall, kill as zenfsKill, processes as zenfsProcesses, spawn a
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
-import type { Shell } from '@ecmaos/types'
+import type { Shell, SocketConnection } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) -- the
 // intended extension point for a custom syscall's argument/return shape, matching how `define_syscall`
@@ -49,6 +49,8 @@ declare module '@zenfs/linux/uapi/abi' {
     sockets_list(path: string): number
     sockets_create(url: string, type: string, protocols: string, path: string): number
     sockets_close(id: string, path: string): number
+    sockets_connect(url: string, type: string, protocols: string, path: string): number
+    sockets_result(id: string, path: string): number
     sockets_show(id: string, path: string): number
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
@@ -87,6 +89,10 @@ function kernelOf(proc: Process): Kernel {
 function shellOf(proc: Process): Shell | undefined {
   return shellOfProcess.get(proc)
 }
+
+/** What `sockets_connect` learned about how each connection ended, until `sockets_result` collects it. */
+interface SocketResult { opened: boolean, messages: number, code?: number, reason?: string }
+const socketResults = new Map<string, SocketResult>()
 
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
 let nextWindowHandle = 1
@@ -275,6 +281,99 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ id: connection.id })
     }
 
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  /**
+   * Connects a socket and hands it to the calling program as two real file descriptors (`rx`, which
+   * yields what the peer sends, and `tx`, which sends what is written) that it can `read`, `write` and
+   * `poll` like any other -- `Kernel.attachStream`. The connection is still an ordinary
+   * `kernel.sockets` entry, so `sockets list` sees it for as long as it is open, and it is closed if
+   * the process dies with it still open (a `^C`ed `nc`). How it ended is left for `sockets_result`.
+   * Writes `{ id, rx, tx }` (or `{ error }`) to `path`, the same convention as `sockets_create`.
+   */
+  define_syscall('sockets_connect', async (proc: Process, url: string, type: string, protocols: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+
+    try {
+      let connection: SocketConnection
+      let rx: ReadableStream<Uint8Array>
+      let tx: WritableStream<Uint8Array>
+      const info: SocketResult = { opened: true, messages: 0 }
+
+      if (type === 'webtransport' || (!type && url.startsWith('https://'))) {
+        if (!('WebTransport' in globalThis)) throw new Error('WebTransport is not supported in this browser')
+        const transportConnection = await kernel.sockets.createWebTransport(url)
+        connection = transportConnection
+        const stream = await transportConnection.transport.createBidirectionalStream()
+        tx = stream.writable
+        // Reading to the end is how a transport session ends, so record it as a normal close
+        const reader = stream.readable.getReader()
+        rx = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            const { done, value } = await reader.read()
+            if (done) {
+              info.code = 1000
+              controller.close()
+            } else {
+              info.messages++
+              controller.enqueue(value)
+            }
+          },
+          cancel: () => reader.cancel()
+        })
+      } else if (type === 'websocket' || url.startsWith('ws://') || url.startsWith('wss://')) {
+        const webSocketConnection = await kernel.sockets.createWebSocket(url, protocols ? { protocols: protocols.split(',') } : undefined)
+        connection = webSocketConnection
+        const ws = webSocketConnection.socket
+        rx = new ReadableStream<Uint8Array>({
+          start(controller) {
+            ws.onmessage = event => {
+              info.messages++
+              controller.enqueue(typeof event.data === 'string' ? new TextEncoder().encode(event.data) : new Uint8Array(event.data as ArrayBuffer))
+            }
+            ws.onclose = event => {
+              info.code = event.code
+              info.reason = event.reason
+              void webSocketConnection.close() // drops it from `kernel.sockets`, which `createWebSocket`'s own onclose did until we replaced it
+              try { controller.close() } catch { /* already closed */ }
+            }
+          },
+          cancel: () => { void webSocketConnection.close() }
+        })
+        tx = new WritableStream<Uint8Array>({
+          write(chunk) { if (ws.readyState === WebSocket.OPEN) ws.send(chunk as unknown as ArrayBuffer) },
+          close() { if (ws.readyState === WebSocket.OPEN) ws.close(1000, 'Input closed') }
+        })
+      } else {
+        throw new Error('unable to determine connection type. Use a ws://, wss://, or https:// URL')
+      }
+
+      const rxEnd = kernel.attachStream(proc, 'read', rx)
+      const txEnd = kernel.attachStream(proc, 'write', tx)
+      socketResults.set(connection.id, info)
+      void proc.exited.then(() => {
+        rxEnd.stop()
+        txEnd.stop()
+        void connection.close().catch(() => {})
+      })
+      text = JSON.stringify({ id: connection.id, rx: rxEnd.fd, tx: txEnd.fd })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  /** How a `sockets_connect` connection ended: `{ opened, messages, code?, reason? }`. Read once. */
+  define_syscall('sockets_result', async (proc: Process, id: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const info = socketResults.get(id)
+    socketResults.delete(id)
+    const text = JSON.stringify(info ?? { error: `connection not found: ${id}` })
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
   })

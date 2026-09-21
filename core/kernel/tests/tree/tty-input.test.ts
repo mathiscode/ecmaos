@@ -107,6 +107,61 @@ describe('TTY line discipline input for foreground worker programs', () => {
     expect(kernel.terminal.zfsTty!.termios.lflag & 0o2).toBe(0o2)
   })
 
+  it('a killed foreground program ends the ^C echo line so the next prompt starts on a fresh line', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/tty-nl.js', 'await new Promise(r => setTimeout(r, 5000))', { mode: 0o755 })
+    let written = ''
+    const original = kernel.terminal.write.bind(kernel.terminal)
+    kernel.terminal.write = ((data: string | Uint8Array, callback?: () => void) => {
+      written += typeof data === 'string' ? data : new TextDecoder().decode(data)
+      return original(data, callback)
+    }) as typeof kernel.terminal.write
+    try {
+      const done = kernel.shell.execute('/tmp/tty-nl.js')
+      await foregroundReady()
+      type('\x03')
+      await done
+    } finally {
+      kernel.terminal.write = original
+    }
+    expect(written).toContain('^C')
+    expect(written).toMatch(/\^C\r?\n/)
+  })
+
+  it('SIGWINCH interrupts a blocking terminal read so a program can redraw, then reads on', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/tty-winch.js', `
+      const { read, writeAll, tcgetattr, tcsetattr, onSignal } = globalThis.ecmaosSyscalls
+      const saved = tcgetattr(0)
+      tcsetattr(0, { lflag: saved.lflag & ~(0o2 | 0o10) })
+      let winches = 0
+      onSignal(28, () => { winches++ })
+      const buffer = new Uint8Array(8)
+      const seen = []
+      while (true) {
+        try {
+          const n = read(0, buffer, -1)
+          seen.push('k' + buffer[0])
+          if (buffer[0] === 113) break
+        } catch (error) {
+          if (error.code !== 'EINTR') throw error
+          seen.push('w' + winches)
+        }
+      }
+      writeAll(1, new TextEncoder().encode(seen.join(',')))
+    `, { mode: 0o755 })
+
+    const done = kernel.shell.execute('/tmp/tty-winch.js > /tmp/tty-winch.out')
+    await foregroundReady()
+    const tty = kernel.terminal.zfsTty!
+    await waitFor(() => (tty.termios.lflag & 0o2) === 0)
+    await new Promise(resolve => setTimeout(resolve, 100)) // the handler is registered right after raw mode
+    tty.signal(28)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    type('q')
+
+    expect(await done).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/tty-winch.out', 'utf8')).toBe('w1,k113')
+  })
+
   it('^Z stops the foreground job through the line discipline and hands the terminal back', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/tty-stop.js', 'await new Promise(r => setTimeout(r, 5000))', { mode: 0o755 })
 
@@ -196,6 +251,33 @@ describe('TTY line discipline input for foreground worker programs', () => {
       expect(lflag() & 0o2).toBe(0o2)
     })
 
+    it('prints instead of paging when stdout is not a terminal (less f > out, less | grep)', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/less-g.txt', 'alpha\nbeta\n')
+      expect(await kernel.shell.execute('less /tmp/less-g.txt > /tmp/less-g.out')).toBe(0)
+      expect(await kernel.filesystem.fs.readFile('/tmp/less-g.out', 'utf8')).toBe('alpha\nbeta\n')
+      expect(await kernel.shell.execute('less /tmp/less-g.txt | grep beta > /tmp/less-g2.out')).toBe(0)
+      expect(await kernel.filesystem.fs.readFile('/tmp/less-g2.out', 'utf8')).toBe('beta\n')
+    })
+
+    it('redraws when the window is resized (SIGWINCH) without waiting for a key', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/less-f.txt', numbered)
+      captureScreen()
+      try {
+        const done = kernel.shell.execute('less /tmp/less-f.txt')
+        await foregroundReady()
+        await rawReached()
+        await waitFor(() => screen.includes('/ 200'))
+        await new Promise(resolve => setTimeout(resolve, 100)) // handler registered after the first frame
+        screen = ''
+        kernel.terminal.zfsTty!.signal(28)
+        await waitFor(() => screen.includes('/ 200'))
+        type('q')
+        expect(await done).toBe(0)
+      } finally {
+        restoreWrite()
+      }
+    })
+
     it('a less killed with ^C mid-session cannot leave the terminal raw', async () => {
       await kernel.filesystem.fs.writeFile('/tmp/less-c.txt', numbered)
       const done = kernel.shell.execute('less /tmp/less-c.txt')
@@ -205,6 +287,81 @@ describe('TTY line discipline input for foreground worker programs', () => {
       expect(await done).toBe(130)
       expect(lflag() & 0o2).toBe(0o2)
       expect(lflag() & 0o10).toBe(0o10)
+    })
+  })
+
+  describe('man (real execve program, shared pager)', () => {
+    const run = async (command: string) => {
+      const code = await kernel.shell.execute(`${command} > /tmp/man.out 2> /tmp/man.err`)
+      return {
+        code,
+        out: await kernel.filesystem.fs.readFile('/tmp/man.out', 'utf8'),
+        err: await kernel.filesystem.fs.readFile('/tmp/man.err', 'utf8')
+      }
+    }
+
+    beforeAll(async () => {
+      const fs = kernel.filesystem.fs
+      await fs.mkdir('/tmp/docs/@acme/widget/guide', { recursive: true })
+      await fs.writeFile('/tmp/docs/@acme/widget/index.md', '# Widget\n\nUse `widget` with **care**.\n')
+      await fs.writeFile('/tmp/docs/@acme/widget/faq.txt', 'plain faq text\n')
+      await fs.writeFile('/tmp/docs/@acme/widget/guide/index.html', '<h1>Guide</h1><p>Hello &amp; welcome</p>')
+      await fs.mkdir('/tmp/docs/bare', { recursive: true })
+      await fs.writeFile('/tmp/docs/bare/notes.md', 'notes\n')
+    })
+
+    it('prints the converted document when stdout is not a terminal (no paging, no hang)', async () => {
+      const { code, out } = await run('man --where /tmp/docs @acme/widget')
+      expect(code).toBe(0)
+      expect(out).toContain('Widget')
+      expect(out).toContain('\x1b[') // markdown became ANSI text
+      expect(out).not.toContain('**')
+      expect(out).not.toContain('`')
+    })
+
+    it('finds a topic file and converts html', async () => {
+      expect((await run('man --where /tmp/docs @acme/widget/faq')).out).toBe('plain faq text\n\n')
+      expect((await run('man --where /tmp/docs @acme/widget/guide')).out).toContain('Hello & welcome')
+    })
+
+    it('lists topics with -l and reports a package with no index', async () => {
+      expect((await run('man -l --where /tmp/docs @acme/widget')).out).toBe('@acme/widget:\n  faq\n  guide\n')
+      const noIndex = await run('man --where /tmp/docs bare')
+      expect(noIndex.code).toBe(0)
+      expect(noIndex.out).toContain('No index found, try a topic: man bare/notes')
+      expect(noIndex.out).toContain('  notes')
+    })
+
+    it('honours MANPATH and fails cleanly for an unknown entry', async () => {
+      const missing = await run('man --where /tmp/docs nosuchpkg')
+      expect(missing.code).toBe(1)
+      expect(missing.err).toBe('man: no manual entry for nosuchpkg\n')
+      expect((await run('man --where')).err).toBe('man: missing argument to --where\n')
+    })
+
+    it('pages on the terminal: scrolls with the keys, quits with q, terminal restored', async () => {
+      const long = Array.from({ length: 150 }, (_, i) => `manline ${i + 1}`).join('\n')
+      await kernel.filesystem.fs.writeFile('/tmp/docs/bare/long.txt', long)
+      let screen = ''
+      const original = kernel.terminal.write.bind(kernel.terminal)
+      kernel.terminal.write = ((data: string | Uint8Array, callback?: () => void) => {
+        screen += typeof data === 'string' ? data : new TextDecoder().decode(data)
+        return original(data, callback)
+      }) as typeof kernel.terminal.write
+      try {
+        const done = kernel.shell.execute('man --where /tmp/docs bare/long')
+        await foregroundReady()
+        await waitFor(() => (kernel.terminal.zfsTty!.termios.lflag & 0o2) === 0)
+        await waitFor(() => screen.includes('manline 1') && screen.includes('-- bare/long 1-'))
+        screen = ''
+        type(' ')
+        await waitFor(() => /-- bare\/long \d{2,3}-/.test(screen))
+        type('q')
+        expect(await done).toBe(0)
+      } finally {
+        kernel.terminal.write = original
+      }
+      expect(kernel.terminal.zfsTty!.termios.lflag & 0o2).toBe(0o2)
     })
   })
 })
