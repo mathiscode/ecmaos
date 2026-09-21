@@ -30,16 +30,10 @@ import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 import type { TerminalCommand } from './terminal-command.js'
 
 import { meta as metaFalse } from '../commands/false.js'
-import { meta as metaMount } from '../commands/mount.js'
-import { meta as metaPasskey } from '../commands/passkey.js'
-import { meta as metaScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTrue } from '../commands/true.js'
 
 import { createCommand as createFalse } from '../commands/false.js'
-import { createCommand as createMount } from '../commands/mount.js'
-import { createCommand as createPasskey } from '../commands/passkey.js'
-import { createCommand as createScreensaverDaemon } from '../commands/screensaver-daemon.js'
 import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTrue } from '../commands/true.js'
 
@@ -55,9 +49,6 @@ export type LegacyCommands = Record<string, LegacyCommandEntry>
 function buildLegacyCommands(): LegacyCommands {
   return {
   "false": { description: metaFalse.description, createCommand: createFalse },
-  "mount": { description: metaMount.description, createCommand: createMount },
-  "passkey": { description: metaPasskey.description, createCommand: createPasskey },
-  "screensaver-daemon": { description: metaScreensaverDaemon.description, createCommand: createScreensaverDaemon },
   "test": { description: metaTest.description, createCommand: createTest },
   "true": { description: metaTrue.description, createCommand: createTrue },
   }
