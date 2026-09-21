@@ -44,6 +44,8 @@ declare module '@zenfs/linux/uapi/abi' {
     ps_list(path: string): number
     reboot(): number
     users_lookup(query: string, path: string): number
+    tty_get(): number
+    tty_switch(ttyNumber: number): number
   }
 }
 
@@ -144,6 +146,26 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     await kernel.reboot()
     return 0
+  })
+
+  // `kernel.activeTty` is a plain number already, so unlike `storage_usage`/`ps_list` this needs no
+  // scratch-file round trip at all -- it fits `dispatch`'s `number` return directly.
+  define_syscall('tty_get', async (proc: Process) => {
+    const kernel = kernelOf(proc)
+    return kernel.activeTty
+  })
+
+  // `kernel.switchTty` throws on an out-of-range TTY number rather than returning an error code
+  // itself; translated to a real `-errno` here, the same convention `window_write`/`window_close`
+  // use for a bad handle.
+  define_syscall('tty_switch', async (proc: Process, ttyNumber: number) => {
+    const kernel = kernelOf(proc)
+    try {
+      await kernel.switchTty(ttyNumber)
+      return 0
+    } catch {
+      return -Errno.EINVAL
+    }
   })
 
   // `id`/`groups` need to resolve arbitrary usernames/uids against the live user registry
