@@ -101,7 +101,8 @@ export const migratedCommands = [
   'whoami', 'pwd', 'hostname', 'uname', 'nproc', 'uptime', 'motd',
   'fmt', 'crypto', 'curl', 'fetch',
   'id', 'groups',
-  'chown'
+  'chown',
+  'zip', 'unzip'
 ] as const
 
 /**
