@@ -35,7 +35,6 @@ import { meta as metaFormat } from '../commands/format.js'
 import { meta as metaGit } from '../commands/git.js'
 import { meta as metaHistory } from '../commands/history.js'
 import { meta as metaLess } from '../commands/less.js'
-import { meta as metaLoadCrontab } from '../commands/load-crontab.js'
 import { meta as metaMan } from '../commands/man.js'
 import { meta as metaMount } from '../commands/mount.js'
 import { meta as metaNc } from '../commands/nc.js'
@@ -59,7 +58,6 @@ import { createCommand as createFormat } from '../commands/format.js'
 import { createCommand as createGit } from '../commands/git.js'
 import { createCommand as createHistory } from '../commands/history.js'
 import { createCommand as createLess } from '../commands/less.js'
-import { createCommand as createLoadCrontab } from '../commands/load-crontab.js'
 import { createCommand as createMan } from '../commands/man.js'
 import { createCommand as createMount } from '../commands/mount.js'
 import { createCommand as createNc } from '../commands/nc.js'
@@ -94,7 +92,6 @@ function buildLegacyCommands(): LegacyCommands {
   "git": { description: metaGit.description, createCommand: createGit },
   "history": { description: metaHistory.description, createCommand: createHistory },
   "less": { description: metaLess.description, createCommand: createLess },
-  "load-crontab": { description: metaLoadCrontab.description, createCommand: createLoadCrontab },
   "man": { description: metaMan.description, createCommand: createMan },
   "mount": { description: metaMount.description, createCommand: createMount },
   "nc": { description: metaNc.description, createCommand: createNc },
