@@ -48,7 +48,6 @@ import { meta as metaTest } from '../commands/test.js'
 import { meta as metaTheme } from '../commands/theme.js'
 import { meta as metaTime } from '../commands/time.js'
 import { meta as metaTrue } from '../commands/true.js'
-import { meta as metaTty } from '../commands/tty.js'
 import { meta as metaUmount } from '../commands/umount.js'
 import { meta as metaUnzip } from '../commands/unzip.js'
 import { meta as metaUser } from '../commands/user.js'
@@ -77,7 +76,6 @@ import { createCommand as createTest } from '../commands/test.js'
 import { createCommand as createTheme } from '../commands/theme.js'
 import { createCommand as createTime } from '../commands/time.js'
 import { createCommand as createTrue } from '../commands/true.js'
-import { createCommand as createTty } from '../commands/tty.js'
 import { createCommand as createUmount } from '../commands/umount.js'
 import { createCommand as createUnzip } from '../commands/unzip.js'
 import { createCommand as createUser } from '../commands/user.js'
@@ -117,7 +115,6 @@ function buildLegacyCommands(): LegacyCommands {
   "theme": { description: metaTheme.description, createCommand: createTheme },
   "time": { description: metaTime.description, createCommand: createTime },
   "true": { description: metaTrue.description, createCommand: createTrue },
-  "tty": { description: metaTty.description, createCommand: createTty },
   "umount": { description: metaUmount.description, createCommand: createUmount },
   "unzip": { description: metaUnzip.description, createCommand: createUnzip },
   "user": { description: metaUser.description, createCommand: createUser },
