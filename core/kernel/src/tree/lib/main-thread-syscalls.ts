@@ -50,6 +50,7 @@ declare module '@zenfs/linux/uapi/abi' {
     sockets_create(url: string, type: string, protocols: string, path: string): number
     sockets_close(id: string, path: string): number
     sockets_show(id: string, path: string): number
+    users_manage(action: string, argsJson: string, path: string): number
   }
 }
 
@@ -330,6 +331,131 @@ export function installMainThreadSyscalls(): void {
     }
 
     const text = JSON.stringify(result)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  // `list`/`add`/`del`/`mod` all gate on the *calling* process's own credentials (`suid !== 0`,
+  // matching the legacy command's own permission check exactly -- note this covers `list` too, not
+  // just the three mutating actions, since the original command gated every subcommand the same
+  // way), and `add`/`mod -p` may need to prompt for a password interactively via
+  // `shell.terminal.readline()` when one isn't supplied on the command line -- all of this is
+  // reachable only through `shellOf(proc)`, so unlike every other syscall in this module,
+  // `users_manage` needs the calling `Shell`, not just the `Kernel`. `list` could have reused
+  // `users_lookup` (its read-only shape is identical), but that syscall's other modes are
+  // deliberately permission-free (`id`/`groups` on oneself, or looking up one other user by name)
+  // and giving `list` its own permission check there would have meant carrying `shellOf(proc)`'s
+  // credentials into a syscall that otherwise never needs a permission gate at all -- simpler to
+  // keep `list` here, next to the other three actions that already need the same gate.
+  //
+  // Every failure (permission denied, bad arguments, a user that doesn't/already does exist, a
+  // password mismatch) is written to the scratch file as `{ error: message }` rather than thrown --
+  // see `sockets_create`'s doc comment above for why a thrown `Error` doesn't reliably survive the
+  // trip back to the worker at all.
+  define_syscall('users_manage', async (proc: Process, action: string, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    let text: string
+
+    if (!shell || shell.credentials.suid !== 0) {
+      text = JSON.stringify({ error: 'permission denied' })
+      await kernel.filesystem.fs.writeFile(path, text)
+      return text.length
+    }
+
+    try {
+      const args = JSON.parse(argsJson) as Record<string, unknown>
+
+      if (action === 'list') {
+        text = JSON.stringify(Array.from(kernel.users.all.values()).map(u => ({ uid: u.uid, gid: u.gid, groups: u.groups, username: u.username })))
+      } else if (action === 'add') {
+        const username = args['username'] as string
+        const allUsers = Array.from(kernel.users.all.values())
+        if (allUsers.some(u => u.username === username)) throw new Error(`user '${username}' already exists`)
+
+        const uid = args['uid'] as number | undefined
+        if (uid !== undefined && kernel.users.all.has(uid)) throw new Error(`UID ${uid} already in use`)
+
+        let password = args['password'] as string | undefined
+        if (!password) {
+          password = await shell.terminal.readline('New password: ', true)
+          const confirm = await shell.terminal.readline('Retype new password: ', true)
+          if (password !== confirm) throw new Error('password mismatch')
+        }
+
+        await kernel.users.add(
+          { username, password, uid, gid: args['gid'] as number | undefined, shell: args['shellValue'] as string, home: `/home/${username}` },
+          { noHome: !args['createHome'] }
+        )
+        text = JSON.stringify({ message: `user '${username}' created successfully` })
+      } else if (action === 'del') {
+        const username = args['username'] as string
+        const allUsers = Array.from(kernel.users.all.values())
+        const usr = allUsers.find(u => u.username === username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+        if (usr.uid === 0) throw new Error('cannot delete root user')
+
+        await kernel.users.remove(usr.uid)
+
+        let warning: string | undefined
+        if (args['removeHome'] && usr.home) {
+          try {
+            const removeDirRecursive = async (dirPath: string): Promise<void> => {
+              const entries = await kernel.filesystem.fs.readdir(dirPath)
+              for (const entry of entries) {
+                const entryPath = `${dirPath}/${entry}`
+                const stat = await kernel.filesystem.fs.stat(entryPath)
+                if (stat.isDirectory()) await removeDirRecursive(entryPath)
+                else await kernel.filesystem.fs.unlink(entryPath)
+              }
+              await kernel.filesystem.fs.rmdir(dirPath)
+            }
+            await removeDirRecursive(usr.home)
+          } catch {
+            warning = `warning: could not remove home directory '${usr.home}'`
+          }
+        }
+
+        // `Users.remove()` (`tree/users.ts`) already rewrites /etc/passwd from its own in-memory map
+        // once the user is deleted -- but it never touches /etc/shadow at all, so that still needs
+        // manual cleanup here, exactly matching the legacy command (which did both, redundantly for
+        // passwd, necessarily for shadow).
+        await kernel.filesystem.fs.writeFile('/etc/passwd',
+          (await kernel.filesystem.fs.readFile('/etc/passwd', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
+        await kernel.filesystem.fs.writeFile('/etc/shadow',
+          (await kernel.filesystem.fs.readFile('/etc/shadow', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
+
+        text = JSON.stringify({ message: `user '${username}' deleted successfully`, warning })
+      } else if (action === 'mod') {
+        const username = args['username'] as string
+        const allUsers = Array.from(kernel.users.all.values())
+        const usr = allUsers.find(u => u.username === username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+
+        const updates: Record<string, unknown> = {}
+        if (args['shellValue'] !== undefined) updates['shell'] = args['shellValue']
+        if (args['gid'] !== undefined) updates['gid'] = args['gid']
+
+        if (args['changePassword']) {
+          const newPassword = await shell.terminal.readline('New password: ', true)
+          const confirm = await shell.terminal.readline('Retype new password: ', true)
+          if (newPassword !== confirm) throw new Error('password mismatch')
+
+          const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword.trim()))
+          updates['password'] = Array.from(new Uint8Array(hashedPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
+        }
+
+        if (Object.keys(updates).length === 0) throw new Error('no changes specified')
+
+        await kernel.users.update(usr.uid, updates)
+        text = JSON.stringify({ message: `user '${username}' modified successfully` })
+      } else {
+        throw new Error(`unknown action: ${action}`)
+      }
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
+    }
+
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
   })
