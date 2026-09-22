@@ -14,7 +14,7 @@
  * mapped onto a real fd, so a wasi program never sees, or can close, a descriptor the loader uses.
  */
 
-import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, symlink, readlink, getcwd } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2 } from '@zenfs/linux/uapi/fs'
 import { argv, environ } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut } from '@zenfs/linux/uapi/base'
 
@@ -29,6 +29,16 @@ const ERRNO = {
   EEXIST: 20, EFBIG: 22, EINTR: 27, EINVAL: 28, EIO: 29, EISDIR: 31, ELOOP: 32, EMFILE: 33, ENAMETOOLONG: 37,
   ENODEV: 43, ENOENT: 44, ENOMEM: 48, ENOSPC: 51, ENOSYS: 52, ENOTDIR: 54, ENOTEMPTY: 55, ENOTSUP: 58,
   ENOTTY: 59, ENXIO: 60, EPERM: 63, EPIPE: 64, ERANGE: 68, EROFS: 69, ESPIPE: 70, EXDEV: 75,
+}
+
+// Same errno names, but the real Linux numbers emscripten's musl expects back from a `__syscall_*`
+// (which returns `-errno` on the plain Linux ABI, not a WASI errno) -- distinct table because the
+// two numberings disagree on nearly every value (e.g. WASI's EIO is 29, Linux's is 5).
+const LINUX_ERRNO = {
+  EPERM: 1, ENOENT: 2, ESRCH: 3, EINTR: 4, EIO: 5, ENXIO: 6, E2BIG: 7, EBADF: 9, EAGAIN: 11, ENOMEM: 12,
+  EACCES: 13, EBUSY: 16, EEXIST: 17, EXDEV: 18, ENODEV: 19, ENOTDIR: 20, EISDIR: 21, EINVAL: 22, EMFILE: 24,
+  ENOTTY: 25, EFBIG: 27, ENOSPC: 28, ESPIPE: 29, EROFS: 30, EPIPE: 32, ERANGE: 34, ENAMETOOLONG: 36,
+  ENOSYS: 38, ENOTEMPTY: 39, ELOOP: 40, ENOTSUP: 95, EADDRINUSE: 98, EADDRNOTAVAIL: 99, ECONNREFUSED: 111,
 }
 
 // open(2) flags (Linux values)
@@ -132,7 +142,17 @@ export function createPreview1(getMemory) {
     }
   }
 
-  const entryOf = (fd) => fds.get(fd)
+  const readCString = (ptr) => {
+    let end = ptr
+    while (bytes()[end] !== 0) end++
+    return decoder.decode(bytes().subarray(ptr, end))
+  }
+
+  // A real fd this instance saw only through `env.__syscall_openat` (below) has never been
+  // registered here -- fd_write/fd_read/fd_close etc. still need to reach it, so an unknown
+  // non-negative fd is treated as a plain, already-open file rather than EBADF. `fds` stays the
+  // source of truth for fd 0-4 and anything opened through path_open.
+  const entryOf = (fd) => fds.get(fd) ?? (fd >= 0 ? { fd, path: null, dir: false } : undefined)
 
   /** The real fd behind a wasi fd; a directory preopen opens lazily so `fd_readdir` can list it. */
   function realFd(entry) {
@@ -535,21 +555,218 @@ export function createPreview1(getMemory) {
     sock_shutdown: () => ENOSYS,
   }
 
-  return { imports: { wasi_snapshot_preview1: wasi }, ProcExit }
+  // Emscripten's own `env.__syscall_*` ABI, the layer its libc (as opposed to a plain `wasm32-wasip1`
+  // target's) actually calls for file I/O -- present alongside `wasi_snapshot_preview1` in a normal
+  // (non-STANDALONE_WASM) `emcc` build. Verified against a real `emcc` 6.0.9 build's own JS runtime
+  // (`src/lib/libsyscall.js` in the emscripten install) rather than guessed: signatures, the varargs
+  // convention (the last param is a pointer into wasm memory holding packed i32 extras, read one at a
+  // time and advanced -- `syscallGetVarargI`) and the `struct stat` layout (offsets confirmed by
+  // compiling and running a small `offsetof` probe with the same `emcc`) all come from there. These
+  // calls use real fds directly, the same integer space `open()` returns into -- no wasi-fd remapping
+  // needed, unlike the `wasi_snapshot_preview1` side above. Sockets, `fcntl` locking/duplication
+  // beyond `F_DUPFD`, and anything under `epoll`/`poll`(2) are not implemented; they answer ENOSYS.
+  const AT_FDCWD = -100
+  const dirPaths = new Map() // real fd -> path, populated by openat so a later ...at(dirfd, ...) resolves
+
+  const guardLinux = (fn) => {
+    try {
+      return fn() ?? ESUCCESS
+    } catch (error) {
+      if (error instanceof ProcExit) throw error
+      return -(LINUX_ERRNO[error?.code] ?? LINUX_ERRNO.EIO)
+    }
+  }
+
+  function resolveAt(dirfd, pathPtr) {
+    const rel = readCString(pathPtr)
+    if (rel.startsWith('/')) return rel
+    const dir = dirfd === AT_FDCWD ? getcwd() : dirPaths.get(dirfd)
+    if (dir === undefined) throw { code: 'EBADF' }
+    return rel.length ? `${dir}/${rel}` : dir
+  }
+
+  function writeStatLinux(buf, st) {
+    const dv = view()
+    const ns = (ms) => [BigInt(Math.floor((ms ?? 0) / 1000)), Math.round(((ms ?? 0) % 1000) * 1e6)]
+    dv.setUint32(buf + 0, Number(st.dev ?? 0), true)
+    dv.setUint32(buf + 4, st.mode, true)
+    dv.setUint32(buf + 8, st.nlink ?? 1, true)
+    dv.setUint32(buf + 12, st.uid ?? 0, true)
+    dv.setUint32(buf + 16, st.gid ?? 0, true)
+    dv.setUint32(buf + 20, Number(st.rdev ?? 0), true)
+    dv.setBigInt64(buf + 24, BigInt(st.size ?? 0), true)
+    dv.setInt32(buf + 32, 4096, true)
+    dv.setInt32(buf + 36, st.blocks ?? 0, true)
+    ;[buf + 40, buf + 56, buf + 72].forEach((base, i) => {
+      const [sec, nsec] = ns([st.atimeMs, st.mtimeMs, st.ctimeMs][i])
+      dv.setBigInt64(base, sec, true)
+      dv.setInt32(base + 8, nsec, true)
+    })
+    dv.setBigInt64(buf + 88, BigInt(st.ino ?? 0), true)
+  }
+
+  function varargI(ptr, index) {
+    return view().getInt32(ptr + index * 4, true)
+  }
+
+  const wasiOflagsFromLinux = (flags) => flags // both sides already use Linux's O_* numbering
+
+  const envSyscalls = {
+    __syscall_chdir: (pathPtr) => guardLinux(() => chdir(readCString(pathPtr))),
+    __syscall_fchdir: (fd) => guardLinux(() => { dirPaths.set(fd, dirPaths.get(fd) ?? '.') }),
+    __syscall_chmod: (pathPtr, mode) => guardLinux(() => chmod(readCString(pathPtr), mode)),
+    __syscall_fchmod: (fd, mode) => guardLinux(() => fchmod(fd, mode)),
+    __syscall_rmdir: (pathPtr) => guardLinux(() => rmdir(readCString(pathPtr))),
+    __syscall_getcwd: (bufPtr, size) => guardLinux(() => {
+      const encoded = encoder.encode(getcwd() + '\0')
+      if (encoded.length > size) throw { code: 'ERANGE' }
+      bytes().set(encoded, bufPtr)
+      return encoded.length
+    }),
+    __syscall_truncate64: (pathPtr, low) => guardLinux(() => {
+      const fd = open(readCString(pathPtr), O_WRONLY)
+      try { ftruncate(fd, Number(low)) } finally { close(fd) }
+    }),
+    __syscall_ftruncate64: (fd, low) => guardLinux(() => ftruncate(fd, Number(low))),
+    __syscall_stat64: (pathPtr, buf) => guardLinux(() => writeStatLinux(buf, stat(readCString(pathPtr)))),
+    __syscall_lstat64: (pathPtr, buf) => guardLinux(() => writeStatLinux(buf, lstat(readCString(pathPtr)))),
+    __syscall_fstat64: (fd, buf) => guardLinux(() => writeStatLinux(buf, fstat(fd))),
+    __syscall_fchown32: (fd, owner, group) => guardLinux(() => fchown(fd, owner, group)),
+    __syscall_getdents64: (fd, dirp, count) => guardLinux(() => {
+      const entries = getdents(fd)
+      const out = bytes()
+      let offset = 0
+      for (const item of entries) {
+        const name = encoder.encode(item.name)
+        const reclen = 19 + name.length + 1 // ino(8) off(8) reclen(2) type(1) + name + NUL
+        if (offset + reclen > count) break
+        const dv = view()
+        dv.setBigUint64(dirp + offset, BigInt(item.ino ?? 0), true)
+        dv.setBigUint64(dirp + offset + 8, BigInt(offset + reclen), true)
+        dv.setUint16(dirp + offset + 16, reclen, true)
+        out[dirp + offset + 18] = item.type ?? 0
+        out.set(name, dirp + offset + 19)
+        out[dirp + offset + 19 + name.length] = 0
+        offset += reclen
+      }
+      return offset
+    }),
+    __syscall_fcntl64: (fd, cmd, varargsPtr) => guardLinux(() => {
+      const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4
+      if (cmd === F_DUPFD) return dup2(fd, varargI(varargsPtr, 0))
+      if (cmd === F_GETFD || cmd === F_GETFL) return 0
+      if (cmd === F_SETFD || cmd === F_SETFL) return 0
+      throw { code: 'ENOSYS' }
+    }),
+    __syscall_openat: (dirfd, pathPtr, flags, varargsPtr) => guardLinux(() => {
+      const path = resolveAt(dirfd, pathPtr)
+      const mode = varargsPtr ? varargI(varargsPtr, 0) : 0o644
+      const fd = open(path, wasiOflagsFromLinux(flags), mode)
+      console.error('DEBUG openat', path, flags, mode, '->', fd)
+      if (flags & O_DIRECTORY) dirPaths.set(fd, path)
+      return fd
+    }),
+    __syscall_umask: () => 0o022,
+    __syscall_mkdirat: (dirfd, pathPtr, mode) => guardLinux(() => mkdir(resolveAt(dirfd, pathPtr), mode)),
+    __syscall_fchownat: (dirfd, pathPtr, owner, group, _flags) => guardLinux(() => chown(resolveAt(dirfd, pathPtr), owner, group)),
+    __syscall_newfstatat: (dirfd, pathPtr, buf, flags) => guardLinux(() => {
+      const AT_SYMLINK_NOFOLLOW = 0x100
+      const path = resolveAt(dirfd, pathPtr)
+      writeStatLinux(buf, (flags & AT_SYMLINK_NOFOLLOW) ? lstat(path) : stat(path))
+    }),
+    __syscall_unlinkat: (dirfd, pathPtr, flags) => guardLinux(() => {
+      const AT_REMOVEDIR = 0x200
+      const path = resolveAt(dirfd, pathPtr)
+      if (flags & AT_REMOVEDIR) rmdir(path)
+      else unlink(path)
+    }),
+    __syscall_renameat: (olddirfd, oldPtr, newdirfd, newPtr) => guardLinux(() => rename(resolveAt(olddirfd, oldPtr), resolveAt(newdirfd, newPtr))),
+    __syscall_symlinkat: (targetPtr, dirfd, linkPtr) => guardLinux(() => symlink(readCString(targetPtr), resolveAt(dirfd, linkPtr))),
+    __syscall_linkat: (olddirfd, oldPtr, newdirfd, newPtr, _flags) => guardLinux(() => link(resolveAt(olddirfd, oldPtr), resolveAt(newdirfd, newPtr))),
+    __syscall_readlinkat: (dirfd, pathPtr, bufPtr, bufSize) => guardLinux(() => {
+      const target = encoder.encode(readlink(resolveAt(dirfd, pathPtr))).subarray(0, bufSize)
+      bytes().set(target, bufPtr)
+      return target.length
+    }),
+    __syscall_fchmodat2: (dirfd, pathPtr, mode, _flags) => guardLinux(() => chmod(resolveAt(dirfd, pathPtr), mode)),
+    __syscall_faccessat: (dirfd, pathPtr, amode, _flags) => guardLinux(() => access(resolveAt(dirfd, pathPtr), amode)),
+    __syscall_utimensat: (dirfd, pathPtr, timesPtr, _flags) => guardLinux(() => {
+      const path = resolveAt(dirfd, pathPtr)
+      const dv = view()
+      const now = Date.now()
+      const at = timesPtr ? Number(dv.getBigInt64(timesPtr, true)) * 1000 : now
+      const mt = timesPtr ? Number(dv.getBigInt64(timesPtr + 16, true)) * 1000 : now
+      utimes(path, at, mt)
+    }),
+    __syscall_getuid32: () => 0,
+    __syscall_geteuid32: () => 0,
+    __syscall_getgid32: () => 0,
+    __syscall_getegid32: () => 0,
+    __syscall_dup3: (fd, newfd, _flags) => guardLinux(() => dup2(fd, newfd)),
+    __syscall_fallocate: () => ESUCCESS,
+    __syscall_fadvise64: () => ESUCCESS,
+    __syscall_ioctl: () => -LINUX_ERRNO.ENOTTY,
+  }
+
+  return { imports: { wasi_snapshot_preview1: wasi, env: envSyscalls }, ProcExit, args }
 }
 
 /** Runs a preview1 module to completion and returns its exit code. */
+/**
+ * Builds a real argc/argv (a char** with each arg NUL-terminated) -- the shape `__main_argc_argv`
+ * (emscripten's non-STANDALONE_WASM entry point, taken when there is no `_start`) expects, the same
+ * as libc's own `main(argc, argv)`. Memory is not grown (a module built with a fixed max, the
+ * ordinary case, rejects that): the space comes from the module's own stack allocator, the same one
+ * its own C code uses for a local buffer, via the `_emscripten_stack_alloc` export.
+ */
+function buildArgv(memory, args, stackAlloc) {
+  const encoder = new TextEncoder()
+  const encoded = args.map(arg => encoder.encode(arg))
+  const size = (args.length + 1) * 4 + encoded.reduce((sum, arg) => sum + arg.length + 1, 0)
+  const base = stackAlloc(size)
+  const bytes = new Uint8Array(memory.buffer)
+  const view = new DataView(memory.buffer)
+  let offset = base + (args.length + 1) * 4
+  encoded.forEach((arg, i) => {
+    view.setUint32(base + i * 4, offset, true)
+    bytes.set(arg, offset)
+    bytes[offset + arg.length] = 0
+    offset += arg.length + 1
+  })
+  return base
+}
+
+/** Runs a preview1 or ordinary-`emcc` module to completion and returns its exit code. */
 export async function runPreview1(source) {
   const module = await WebAssembly.compile(source)
   let memory
-  const { imports, ProcExit: Exit } = createPreview1(() => memory)
+  const { imports, ProcExit: Exit, args } = createPreview1(() => memory)
   const instance = await WebAssembly.instantiate(module, imports)
   memory = instance.exports.memory
   if (!memory) throw new Error('wasi: the module does not export its memory')
+  const { _start, _initialize, __wasm_call_ctors, __main_argc_argv, __funcs_on_exit, fflush } = instance.exports
   try {
-    if (typeof instance.exports._start === 'function') instance.exports._start()
-    else if (typeof instance.exports._initialize === 'function') instance.exports._initialize()
-    return 0
+    let code = 0
+    if (typeof _start === 'function') {
+      _start()
+    } else if (typeof _initialize === 'function') {
+      _initialize()
+    } else if (typeof __main_argc_argv === 'function') {
+      // Ordinary emcc output: no _start, driven the way emscripten's own JS glue (Module.callMain)
+      // would drive it -- run static constructors, call main(argc, argv), then flush stdio and any
+      // atexit handlers the way EXIT_RUNTIME's own exit path does, since there is no glue to do it.
+      if (typeof instance.exports.emscripten_stack_init === 'function') instance.exports.emscripten_stack_init()
+      if (typeof __wasm_call_ctors === 'function') __wasm_call_ctors()
+      const stackAlloc = instance.exports._emscripten_stack_alloc
+      if (typeof stackAlloc !== 'function') throw new Error('wasi: the module has no _emscripten_stack_alloc to build argv in')
+      const argvPtr = buildArgv(memory, args, stackAlloc)
+      code = __main_argc_argv(args.length, argvPtr) | 0
+      if (typeof fflush === 'function') fflush(0)
+      if (typeof __funcs_on_exit === 'function') __funcs_on_exit()
+    } else {
+      throw new Error('wasi: the module exports none of _start, _initialize, __main_argc_argv')
+    }
+    return code
   } catch (error) {
     if (error instanceof Exit) return error.code
     throw error
