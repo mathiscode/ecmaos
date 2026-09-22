@@ -85,6 +85,21 @@ const SPIN = `(module ${HEADER}
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
+  // `canRunInWorker` does not route an ordinary emcc build (env.__syscall_* imports) to the worker
+  // yet -- a real compiled fixture (`fixtures/emcc-hello.wasm`, built from `fixtures/emcc-hello.c`
+  // with a real emcc 6.0.9) does not behave the way that build's own library_syscall.js documents:
+  // __syscall_openat is imported but is never actually called at runtime for a plain
+  // open()/write()/stat() sequence, root cause not yet found (see `canRunInWorker`'s own doc
+  // comment). This only checks the routing decision stays conservative, not that the emscripten
+  // path works; a follow-up test replaces this once that gap is understood.
+  it('does not route an ordinary emcc build to the worker (env.__syscall_* unverified end to end)', async () => {
+    const { readFileSync } = process.getBuiltinModule('node:fs')
+    const { join } = process.getBuiltinModule('node:path')
+    const bytes = new Uint8Array(readFileSync(join(process.cwd(), 'tests/tree/wasi/fixtures/emcc-hello.wasm')))
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(false)
+  })
+
+
   beforeAll(async () => {
     kernel = new Kernel({
       credentials: { username: 'root', password: 'root' },

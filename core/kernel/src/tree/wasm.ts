@@ -15,11 +15,14 @@ export interface WasiComponentResult {
 }
 
 /**
- * Plain `wasm32-wasip1` modules (see `canRunInWorker`) no longer run here: `Kernel.execute` sends
- * them through `execve` to `/bin/wali`, where `src/bin/wasi-preview1.mjs` translates preview1 onto
- * the real syscalls, so they are killable worker Processes with real pids, pipes and `^C`.
+ * Plain `wasm32-wasip1` modules, asyncified or not, no longer run here (see `canRunInWorker`):
+ * `Kernel.execute` sends them through `execve` to `/bin/wali`, where `src/bin/wasi-preview1.mjs`
+ * translates preview1 onto the real syscalls, so they are killable worker Processes with real
+ * pids, pipes and `^C`.
  *
- * Known limitation of what still runs through this class (asyncify, emscripten `env` imports,
+ * Known limitation of what still runs through this class (ordinary `emcc` builds -- see
+ * `canRunInWorker`'s own doc comment for why those stay here despite `wasi-preview1.mjs` having a
+ * real, ABI-verified `env.__syscall_*` translation already -- sockets, `epoll`, an imported memory,
  * preview2 components): `_start` is called directly on the main thread with no yield point unless
  * the module was compiled with asyncify, so a genuine infinite loop freezes the tab and `^C`
  * cannot reach it. Those modules move once the worker path covers their imports.
@@ -93,15 +96,23 @@ export class Wasm implements IWasm {
   /**
    * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
    * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module that imports
-   * nothing but `wasi_snapshot_preview1` and exports its own memory. Asyncify is fine (see below);
-   * emscripten `env.__syscall_*` imports and an imported (rather than exported) memory are not
-   * implemented by the adapter yet, so those and preview2 components stay on the main-thread path.
+   * nothing but `wasi_snapshot_preview1` and exports its own memory. Asyncify is fine (see below).
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
     try {
       const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
       const module = await WebAssembly.compile(buffer)
+      // A plain wasip1 module imports nothing but wasi_snapshot_preview1 -- the only shape routed
+      // to the worker today. wasi-preview1.mjs also has a real, ABI-verified translation of
+      // emscripten's env.__syscall_* (`wasi-preview1.mjs`'s own `envSyscalls`; see its doc comment for how the
+      // signatures, varargs convention and struct stat layout were confirmed against a real emcc
+      // 6.0.9 build), but a real compiled fixture using it did not behave as that build's own
+      // library_syscall.js documents -- __syscall_openat was imported but never actually called at
+      // runtime for a plain open()/write()/stat() sequence, for a reason not yet root-caused (this
+      // emcc release may resolve file syscalls through a different, WasmFS-specific path this
+      // adapter does not implement). Gating stays wasi-only until that is understood; env is not
+      // included in the check below on purpose.
       if (!WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')) return false
       if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')) return false
       // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
