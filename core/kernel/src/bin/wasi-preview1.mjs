@@ -8,8 +8,10 @@
  *
  * Scope is the portable core of preview1 (args/environ, clocks, random, the fd and path calls,
  * `poll_oneoff`, `proc_exit`) plus the `env.__syscall_*` names `IMPLEMENTED_SYSCALLS` lists in
- * `tree/wasm.ts`. Sockets and `epoll` answer ENOSYS/ENOTTY. An imported (rather than exported)
- * memory and preview2 components are not routed here; see `canRunInWorker` in `tree/wasm.ts`.
+ * `tree/wasm.ts`. Sockets and `epoll` answer ENOSYS/ENOTTY. Both an exported and an imported
+ * memory are supported (`runPreview1`'s own `detectMemoryImport` reads the import's declared size
+ * straight out of the binary and creates it, since the JS reflection API doesn't expose memory
+ * limits). Preview2 components are not routed here; see `canRunInWorker` in `tree/wasm.ts`.
  *
  * A wasi fd and a real fd share one numbering: 0-2 are the process's own stdio fds, and the `/`
  * and `.` preopens are opened for real right here (not reserved at fixed numbers 3/4), so whatever
@@ -756,14 +758,88 @@ function buildArgv(memory, args, stackAlloc) {
   return base
 }
 
+/**
+ * Reads a memory import's declared limits straight out of the binary (the JS reflection API,
+ * `WebAssembly.Module.imports()`, reports only `{ module, name, kind }`, never the limits), so a
+ * module built with `-sIMPORTED_MEMORY` (or any other toolchain that imports rather than exports
+ * its memory) can still be satisfied here: this adapter creates the `WebAssembly.Memory` itself,
+ * to the module's own declared size, instead of requiring an exported one.
+ */
+function detectMemoryImport(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const decoder = new TextDecoder()
+  let offset = 8 // past the \0asm magic + version
+
+  function readLEB() {
+    let result = 0, shift = 0, read = 0
+    while (true) {
+      const byte = view.getUint8(offset + read)
+      read++
+      result |= (byte & 0x7f) << shift
+      if ((byte & 0x80) === 0) break
+      shift += 7
+    }
+    offset += read
+    return result
+  }
+
+  while (offset < bytes.byteLength) {
+    const sectionId = view.getUint8(offset)
+    offset++
+    const sectionSize = readLEB()
+    const sectionEnd = offset + sectionSize
+    if (sectionId !== 2) { offset = sectionEnd; continue } // import section
+    const count = readLEB()
+    for (let i = 0; i < count; i++) {
+      const moduleLen = readLEB()
+      const moduleName = decoder.decode(bytes.subarray(offset, offset + moduleLen))
+      offset += moduleLen
+      const nameLen = readLEB()
+      const name = decoder.decode(bytes.subarray(offset, offset + nameLen))
+      offset += nameLen
+      const kind = view.getUint8(offset)
+      offset++
+      if (kind === 2) { // memory
+        const flags = view.getUint8(offset)
+        offset++
+        const initial = readLEB()
+        const maximum = (flags & 0x01) ? readLEB() : undefined
+        return { module: moduleName, name, initial, maximum }
+      } else if (kind === 0) { // func: one type index
+        readLEB()
+      } else if (kind === 1) { // table: elem type + limits
+        offset++
+        const tflags = view.getUint8(offset)
+        offset++
+        readLEB()
+        if (tflags & 0x01) readLEB()
+      } else if (kind === 3) { // global: valtype + mutability
+        offset += 2
+      }
+    }
+    return null
+  }
+  return null
+}
+
 /** Runs a preview1 or ordinary-`emcc` module to completion and returns its exit code. */
 export async function runPreview1(source) {
+  const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   const module = await WebAssembly.compile(source)
   let memory
   const { imports, ProcExit: Exit, args } = createPreview1(() => memory)
+  const memoryImport = detectMemoryImport(bytes)
+  if (memoryImport) {
+    // The module wants its memory handed in rather than exported -- create it to the module's own
+    // declared limits and answer the import with it, same as any other host would.
+    memory = new WebAssembly.Memory(memoryImport.maximum !== undefined
+      ? { initial: memoryImport.initial, maximum: memoryImport.maximum }
+      : { initial: memoryImport.initial })
+    imports[memoryImport.module] = { ...(imports[memoryImport.module] ?? {}), [memoryImport.name]: memory }
+  }
   const instance = await WebAssembly.instantiate(module, imports)
-  memory = instance.exports.memory
-  if (!memory) throw new Error('wasi: the module does not export its memory')
+  memory = memory ?? instance.exports.memory
+  if (!memory) throw new Error('wasi: the module does not export or import its memory')
   const { _start, _initialize, __wasm_call_ctors, __main_argc_argv, __funcs_on_exit, fflush } = instance.exports
   try {
     let code = 0

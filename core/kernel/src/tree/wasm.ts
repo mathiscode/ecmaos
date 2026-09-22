@@ -37,10 +37,12 @@ const IMPLEMENTED_SYSCALLS = new Set([
  * pids, pipes and `^C`.
  *
  * Known limitation of what still runs through this class (sockets, `epoll`, an unimplemented
- * `__syscall_*`, an imported memory, preview2 components): `_start` is called directly on the main
- * thread with no yield point unless the module was compiled with asyncify, so a genuine infinite
- * loop freezes the tab and `^C` cannot reach it. Those modules move once the worker path covers
- * their imports.
+ * `__syscall_*`, preview2 components): `_start` is called directly on the main thread with no
+ * yield point unless the module was compiled with asyncify, so a genuine infinite loop freezes
+ * the tab and `^C` cannot reach it. This is a permanent split, not a to-do: preview2's component
+ * model is a different ABI entirely (the canonical ABI plus `jco`'s own shim), and browsers have
+ * no raw sockets to translate `AF_INET`/`epoll` onto, so `executeWasm` (and the `Process`/
+ * `ProcessManager`/`FDTable` types it alone still uses) stays as their real, permanent home.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -112,22 +114,28 @@ export class Wasm implements IWasm {
    * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
    * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module (imports nothing
    * but `wasi_snapshot_preview1`) or an ordinary `emcc` build (also imports only names
-   * `IMPLEMENTED_SYSCALLS` lists), either way exporting its own memory. Asyncify is fine (see below).
+   * `IMPLEMENTED_SYSCALLS` lists), either way exporting or importing its own memory (an imported
+   * memory is created by `runPreview1` itself, to the module's own declared size). Asyncify is
+   * fine (see below).
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
     try {
       const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
       const module = await WebAssembly.compile(buffer)
-      // A plain wasip1 module imports nothing but wasi_snapshot_preview1; an ordinary (non-
-      // STANDALONE_WASM) emcc build also imports a fixed set of env.__syscall_* names, translated
-      // for real in wasi-preview1.mjs's own env object. Anything else in `env` (sockets, epoll, an
-      // unimplemented syscall) is not answered, so such a module stays on the main-thread path
-      // rather than crash on a missing import.
+      // A plain wasip1 module imports nothing but wasi_snapshot_preview1 (and, rarely, its own
+      // memory); an ordinary (non-STANDALONE_WASM) emcc build also imports a fixed set of
+      // env.__syscall_* names, translated for real in wasi-preview1.mjs's own env object. Anything
+      // else in `env` (sockets, epoll, an unimplemented syscall) is not answered, so such a module
+      // stays on the main-thread path rather than crash on a missing import.
       if (!WebAssembly.Module.imports(module).every(entry =>
-        entry.module === 'wasi_snapshot_preview1' || (entry.module === 'env' && IMPLEMENTED_SYSCALLS.has(entry.name))
+        entry.module === 'wasi_snapshot_preview1' ||
+        (entry.module === 'env' && IMPLEMENTED_SYSCALLS.has(entry.name)) ||
+        (entry.kind === 'memory' && entry.name === 'memory')
       )) return false
-      if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')) return false
+      const hasExportedMemory = WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')
+      const hasImportedMemory = WebAssembly.Module.imports(module).some(entry => entry.kind === 'memory')
+      if (!hasExportedMemory && !hasImportedMemory) return false
       // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
       // explicitly triggers that protocol -- this adapter never does (every wasi_snapshot_preview1
       // call here answers synchronously), so asyncify's own state machine never activates and the

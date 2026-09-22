@@ -12,11 +12,14 @@
  * imports directly from a `"wali"` namespace (`SYS_open`, `SYS_read`, `__cl_get_argc`, ...) --
  * musl compiled to target `@zenfs/linux`'s syscalls directly -- while a WASI-preview1 module
  * imports from `wasi_snapshot_preview1` (`fd_write`, `proc_exit`, ...), a separate standardized
- * ABI. The two are not interchangeable, and a preview1 `.wasm` will fail here with unresolved
- * imports (`uapi/wali`'s `link()` reports each one through `missing`) -- ecmaOS's own `.wasm`
- * execution path (`Kernel.executeWasm`, `tree/wasm.ts`) still runs those, unaffected by this file;
- * this interpreter is reachable only when something goes through `execve`/binfmt directly rather
- * than ecmaOS's own header-sniffing dispatch in `Kernel.execute`.
+ * ABI, so `run()` (upstream's own WALI host) would fail on one with unresolved imports
+ * (`uapi/wali`'s `link()` reports each one through `missing`) -- this file tells the two apart by
+ * hand below and routes a preview1 module to `runPreview1` instead. `Kernel.execute`'s own
+ * header-sniffing dispatch (`tree/wasm.ts`'s `canRunInWorker`) reaches this same file for a plain
+ * `wasm32-wasip1` module or an ordinary `emcc` build: `@zenfs/linux`'s `binfmt_wasm` points any
+ * `.wasm` file at `/bin/wali` unconditionally, on the real `execve` that path takes. A module
+ * `canRunInWorker` rejects (sockets, `epoll`, an unimplemented `__syscall_*`, preview2) never
+ * reaches here; `Kernel.executeWasm` (`tree/wasm.ts`) runs those on the main thread instead.
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
