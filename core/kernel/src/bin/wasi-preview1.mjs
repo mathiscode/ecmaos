@@ -77,6 +77,19 @@ const FILETYPE = { unknown: 0, block: 1, char: 2, dir: 3, file: 4, socket: 6, li
 const POLLIN = 0x1
 const POLLOUT = 0x4
 
+// epoll(7) -- values from musl's <sys/epoll.h>. EPOLLIN/EPOLLOUT are deliberately the same bits as
+// POLLIN/POLLOUT (true on real Linux too), so `pollFds`'s revents can be used as epoll's outgoing
+// `events` with no translation.
+const EPOLL_CTL_ADD = 1
+const EPOLL_CTL_DEL = 2
+const EPOLL_CTL_MOD = 3
+const EPOLL_CLOEXEC = 0x80000
+// struct epoll_event on wasm32 (confirmed by compiling a real offsetof() probe with the installed
+// emcc 6.0.9, the same methodology as struct stat's own layout): { u32 events @0; u64 data @8 },
+// 16 bytes total -- unlike x86_64, wasm32 has no __attribute__((packed)) on it, so `data` is
+// 8-aligned, not 4.
+const EPOLL_EVENT_SIZE = 16
+
 class ProcExit {
   constructor(code) {
     this.code = code
@@ -150,6 +163,15 @@ export function createPreview1(getMemory) {
     [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
   let nextFd = Math.max(preopenRoot, preopenCwd) + 1
+
+  // epoll instances: a synthetic fd from the same real allocator (`nextFd`), so it can never
+  // collide with a real fd `env.__syscall_openat` hands out, but is never registered in `fds` --
+  // it isn't a real file, and fd_read/fd_write/fd_close etc. on it correctly see EBADF via
+  // `entryOf`'s fallback. `interests` maps a watched real fd to its registered `{ events, dataLo,
+  // dataHi }` (the two dataLo/dataHi halves are epoll_data_t's opaque 8 bytes, echoed back
+  // unexamined -- same split trick emscripten's own libepoll.js uses so it works without
+  // WASM_BIGINT too).
+  const epollInstances = new Map()
 
   const view = () => new DataView(getMemory().buffer)
   const bytes = () => new Uint8Array(getMemory().buffer)
@@ -578,6 +600,36 @@ export function createPreview1(getMemory) {
     sock_shutdown: () => ENOSYS,
   }
 
+  /**
+   * The real work behind `epoll_pwait`/`epoll_pwait_nonblocking`: derives readiness for every fd
+   * `inst` watches through the same real `poll(2)` syscall `poll_oneoff` above already uses (so a
+   * pipe/tty's actual readable/writable state answers it, not a guess), waiting up to `timeoutMs`
+   * (`pollFds`'s own timeout argument does the actual blocking wait; -1 blocks until ready, exactly
+   * like `poll_oneoff`'s already-proven-interruptible-by-a-real-kill wait). Writes up to
+   * `maxevents` ready `struct epoll_event`s to `evPtr` and returns how many.
+   */
+  function doEpollWait(inst, evPtr, maxevents, timeoutMs) {
+    const entries = [...inst.interests.entries()]
+    if (!entries.length) {
+      if (timeoutMs > 0) sleepMs(timeoutMs)
+      return 0
+    }
+    const fds = entries.map(([fd, reg]) => ({ fd: entryOf(fd)?.fd ?? fd, events: reg.events & (POLLIN | POLLOUT) }))
+    const revents = pollFds(fds, timeoutMs)
+    const dv = view()
+    let n = 0
+    for (let i = 0; i < entries.length && n < maxevents; i++) {
+      if (!revents[i]) continue
+      const [, reg] = entries[i]
+      const base = evPtr + n * EPOLL_EVENT_SIZE
+      dv.setUint32(base, revents[i], true)
+      dv.setInt32(base + 8, reg.dataLo, true)
+      dv.setInt32(base + 12, reg.dataHi, true)
+      n++
+    }
+    return n
+  }
+
   // Emscripten's own `env.__syscall_*` ABI, the layer its libc (as opposed to a plain `wasm32-wasip1`
   // target's) actually calls for file I/O -- present alongside `wasi_snapshot_preview1` in a normal
   // (non-STANDALONE_WASM) `emcc` build. Verified against a real `emcc` 6.0.9 build's own JS runtime
@@ -586,8 +638,11 @@ export function createPreview1(getMemory) {
   // time and advanced -- `syscallGetVarargI`) and the `struct stat` layout (offsets confirmed by
   // compiling and running a small `offsetof` probe with the same `emcc`) all come from there. These
   // calls use real fds directly, the same integer space `open()` returns into -- no wasi-fd remapping
-  // needed, unlike the `wasi_snapshot_preview1` side above. Sockets, `fcntl` locking/duplication
-  // beyond `F_DUPFD`, and anything under `epoll`/`poll`(2) are not implemented; they answer ENOSYS.
+  // needed, unlike the `wasi_snapshot_preview1` side above. Sockets and `fcntl` locking/duplication
+  // beyond `F_DUPFD` are not implemented; they answer ENOSYS. `epoll` is implemented for real (see
+  // `doEpollWait` above): emscripten's own `libepoll.js` derives every epoll readiness question from
+  // the virtual filesystem's generic per-fd poll handler, not from sockets specifically, so it works
+  // here against the same real `poll(2)` syscall `poll_oneoff` already uses for pipes/tty.
   const AT_FDCWD = -100
   const dirPaths = new Map() // real fd -> path, populated by openat so a later ...at(dirfd, ...) resolves
 
@@ -728,6 +783,40 @@ export function createPreview1(getMemory) {
     __syscall_fallocate: () => ESUCCESS,
     __syscall_fadvise64: () => ESUCCESS,
     __syscall_ioctl: () => -LINUX_ERRNO.ENOTTY,
+    __syscall_epoll_create1: (flags) => {
+      if (flags & ~EPOLL_CLOEXEC) return -LINUX_ERRNO.EINVAL
+      const epfd = nextFd++
+      epollInstances.set(epfd, { interests: new Map() })
+      return epfd
+    },
+    __syscall_epoll_ctl: (epfd, op, fd, evPtr) => {
+      const inst = epollInstances.get(epfd)
+      if (!inst) return -LINUX_ERRNO.EBADF
+      if (op === EPOLL_CTL_DEL) {
+        if (!inst.interests.has(fd)) return -LINUX_ERRNO.ENOENT
+        inst.interests.delete(fd)
+        return ESUCCESS
+      }
+      if (op !== EPOLL_CTL_ADD && op !== EPOLL_CTL_MOD) return -LINUX_ERRNO.EINVAL
+      const has = inst.interests.has(fd)
+      if (op === EPOLL_CTL_ADD && has) return -LINUX_ERRNO.EEXIST
+      if (op === EPOLL_CTL_MOD && !has) return -LINUX_ERRNO.ENOENT
+      const dv = view()
+      inst.interests.set(fd, { events: dv.getUint32(evPtr, true), dataLo: dv.getInt32(evPtr + 8, true), dataHi: dv.getInt32(evPtr + 12, true) })
+      return ESUCCESS
+    },
+    __syscall_epoll_pwait: (epfd, evPtr, maxevents, timeout, _sigmask, _sigsetsize) => {
+      const inst = epollInstances.get(epfd)
+      if (!inst) return -LINUX_ERRNO.EBADF
+      if (maxevents <= 0) return -LINUX_ERRNO.EINVAL
+      return doEpollWait(inst, evPtr, maxevents, timeout)
+    },
+    __syscall_epoll_pwait_nonblocking: (epfd, evPtr, maxevents) => {
+      const inst = epollInstances.get(epfd)
+      if (!inst) return -LINUX_ERRNO.EBADF
+      if (maxevents <= 0) return -LINUX_ERRNO.EINVAL
+      return doEpollWait(inst, evPtr, maxevents, 0)
+    },
   }
 
   return { imports: { wasi_snapshot_preview1: wasi, env: envSyscalls }, ProcExit, args }

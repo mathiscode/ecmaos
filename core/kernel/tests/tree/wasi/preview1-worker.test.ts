@@ -82,6 +82,24 @@ const WRITE_FILE = `(module
 const SPIN = `(module ${HEADER}
   (func (export "_start") (loop $forever (br $forever))))`
 
+// epoll_create1 -> epoll_ctl(ADD, fd 0, events=EPOLLIN, data=42) -> epoll_pwait(timeout=5000).
+// Exit code encodes both the real readiness answer and that the registered epoll_data_t round
+// tripped: n*100 + the ready event's data (expect 1*100 + 42 = 142 once stdin -- a pipe fed by the
+// shell pipeline the test runs this under -- already has data buffered, so it is real, not stubbed).
+const EPOLL_STDIN = `(module
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "__syscall_epoll_create1" (func $epoll_create1 (param i32) (result i32)))
+  (import "env" "__syscall_epoll_ctl" (func $epoll_ctl (param i32 i32 i32 i32) (result i32)))
+  (import "env" "__syscall_epoll_pwait" (func $epoll_pwait (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start") (local $epfd i32) (local $n i32)
+    (local.set $epfd (call $epoll_create1 (i32.const 0)))
+    (i32.store (i32.const 200) (i32.const 1))
+    (i64.store (i32.const 208) (i64.const 42))
+    (drop (call $epoll_ctl (local.get $epfd) (i32.const 1) (i32.const 0) (i32.const 200)))
+    (local.set $n (call $epoll_pwait (local.get $epfd) (i32.const 300) (i32.const 1) (i32.const 5000) (i32.const 0) (i32.const 0)))
+    (call $proc_exit (i32.add (i32.mul (local.get $n) (i32.const 100)) (i32.wrap_i64 (i64.load (i32.const 308)))))))`
+
 // same as HELLO, but the memory is imported rather than exported -- proves `runPreview1`'s own
 // `detectMemoryImport` (reading the import's declared size straight out of the binary, since the
 // JS reflection API doesn't expose memory limits) actually creates and wires it in.
@@ -141,6 +159,13 @@ describe('wasi preview1 as a worker Process', () => {
     await kernel.filesystem.fs.writeFile('/tmp/hello-imported-memory.wasm', bytes, { mode: 0o755 })
     expect(await kernel.shell.execute('/tmp/hello-imported-memory.wasm > /tmp/hello-imported-memory.out')).toBe(5)
     expect(await kernel.filesystem.fs.readFile('/tmp/hello-imported-memory.out', 'utf-8')).toBe('hi from imported\n')
+  })
+
+  it('epoll_create1/epoll_ctl/epoll_pwait see a real pipe\'s real readiness, and epoll_data_t round trips', async () => {
+    const bytes = await compile(EPOLL_STDIN)
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+    await kernel.filesystem.fs.writeFile('/tmp/epoll-stdin.wasm', bytes, { mode: 0o755 })
+    expect(await kernel.shell.execute('echo hi | /tmp/epoll-stdin.wasm')).toBe(142)
   })
 
   it('is routed to the worker only when it is a plain wasip1 module', async () => {
