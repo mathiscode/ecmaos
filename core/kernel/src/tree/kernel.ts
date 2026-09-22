@@ -40,7 +40,6 @@ import { Events } from '#events.ts'
 import { I18n } from '#i18n.ts'
 import { Intervals } from '#intervals.ts'
 import { Memory } from '#memory.ts'
-import { ProcessManager } from '#processes.ts'
 import { Protocol } from '#protocol.ts'
 import { DefaultServiceOptions, Service } from '#service.ts'
 import { Sockets } from '#sockets.ts'
@@ -206,8 +205,6 @@ export class Kernel implements IKernel {
   public readonly options: KernelOptions
   /** Map of loaded packages */
   public readonly packages: Map<string, Module> = new Map()
-  /** Process management service */
-  public readonly processes: ProcessManager
   /** Protocol handler service */
   public readonly protocol: Protocol
   /** Socket connection management service */
@@ -271,7 +268,6 @@ export class Kernel implements IKernel {
     this.log = this.options.log ? new Log(this.options.log) : new Log()
     this.memory = new Memory()
     this.modules = new Map()
-    this.processes = new ProcessManager()
     this.screensavers = new Map()
     this.windows = new Windows()
     this.workers = new Workers()

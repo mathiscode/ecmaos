@@ -26,7 +26,6 @@ import type {
   Log,
   LogOptions,
   Memory,
-  ProcessManager,
   Protocol,
   Service,
   ServiceOptions,
@@ -141,9 +140,6 @@ export interface Kernel {
 
   /** Map of loaded packages */
   readonly packages: Map<string, Module>
-
-  /** Process management service */
-  readonly processes: ProcessManager
 
   /** Protocol handler service */
   readonly protocol: Protocol
