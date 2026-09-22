@@ -18,8 +18,10 @@
  * header-sniffing dispatch (`tree/wasm.ts`'s `canRunInWorker`) reaches this same file for a plain
  * `wasm32-wasip1` module or an ordinary `emcc` build: `@zenfs/linux`'s `binfmt_wasm` points any
  * `.wasm` file at `/bin/wali` unconditionally, on the real `execve` that path takes. A module
- * `canRunInWorker` rejects (sockets, `epoll`, an unimplemented `__syscall_*`, preview2) never
- * reaches here; `Kernel.executeWasm` (`tree/wasm.ts`) runs those on the main thread instead.
+ * `canRunInWorker` rejects (real non-loopback internet sockets, an unimplemented `__syscall_*`,
+ * preview2) never reaches here; `Kernel.executeWasm` (`tree/wasm.ts`) runs those on the main
+ * thread instead. `epoll` and loopback `AF_UNIX`/`AF_INET` sockets are both answered for real
+ * here (`wasi-preview1.mjs`'s own doc comment has why neither needed a worker-side exception).
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
