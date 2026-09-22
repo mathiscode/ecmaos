@@ -15,17 +15,14 @@ export interface WasiComponentResult {
 }
 
 /**
- * Known limitation, confirmed by hand-assembling a real tight-loop `.wasm` module and running it:
- * `_start` (below, and in `runComponent`/`runWithAsyncify`) is called directly on the main thread
- * with no yield point unless the module itself was compiled with asyncify. A module with a genuine
- * infinite loop and no such yield point freezes the tab outright -- `^C` cannot reach it, because
- * the same main thread that would need to notice the keypress and deliver a signal is the one
- * spinning inside `_start`. This is not a signal-delivery gap fixable in this class; it would need
- * WASM execution moved off the main thread entirely (a dedicated Worker), which is a real
- * re-architecture, not something this class does today despite the overhaul plan predicting it.
- * The `/bin/wali` interpreter (see `src/bin/wali.mjs`) is a different, real `@zenfs/linux` `Thread`
- * and IS genuinely interruptible via `Process.kill(Signal.INT)` -- only this preview1/preview2 path
- * (`Wasm.run`/`runComponent`, the ecmaOS-native `.wasm` loader, not the WALI binfmt) has this gap.
+ * Plain `wasm32-wasip1` modules (see `canRunInWorker`) no longer run here: `Kernel.execute` sends
+ * them through `execve` to `/bin/wali`, where `src/bin/wasi-preview1.mjs` translates preview1 onto
+ * the real syscalls, so they are killable worker Processes with real pids, pipes and `^C`.
+ *
+ * Known limitation of what still runs through this class (asyncify, emscripten `env` imports,
+ * preview2 components): `_start` is called directly on the main thread with no yield point unless
+ * the module was compiled with asyncify, so a genuine infinite loop freezes the tab and `^C`
+ * cannot reach it. Those modules move once the worker path covers their imports.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -91,6 +88,25 @@ export class Wasm implements IWasm {
     }
     
     return null
+  }
+
+  /**
+   * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
+   * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module that imports
+   * nothing but `wasi_snapshot_preview1`, has no asyncify and exports its own memory. Anything else
+   * (emscripten `env` imports, an imported memory, preview2 components) stays on the main-thread path.
+   */
+  async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
+    if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
+    try {
+      const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
+      const module = await WebAssembly.compile(buffer)
+      if (!WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')) return false
+      if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')) return false
+      return !(await this.detectAsyncify(wasmBytes)).hasAsyncify
+    } catch {
+      return false
+    }
   }
 
   async detectAsyncify(wasmBytes: Uint8Array): Promise<{ 

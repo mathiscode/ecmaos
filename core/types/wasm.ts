@@ -58,6 +58,12 @@ export interface Wasm {
   detectWasiRequirements(wasmBytes: Uint8Array): Promise<boolean>
 
   /**
+   * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
+   * translation: a plain wasip1 core module with no asyncify and no imports beyond WASI.
+   */
+  canRunInWorker(wasmBytes: Uint8Array): Promise<boolean>
+
+  /**
    * Load a WASI component with stream integration
    * @param path - Path to the WASM file
    * @param streams - Stream options for stdin/stdout/stderr
