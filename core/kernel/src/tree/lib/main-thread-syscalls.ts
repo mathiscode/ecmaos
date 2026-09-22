@@ -77,6 +77,10 @@ declare module '@zenfs/linux/uapi/abi' {
     terminal_clear_history(): number
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
+    net_bind(family: string, addr: string, port: number, path: string): number
+    net_listen(key: string, backlog: number, path: string): number
+    net_connect(key: string, path: string): number
+    net_accept(key: string, nonblock: number, path: string): number
   }
 }
 
@@ -108,6 +112,38 @@ function shellOf(proc: Process): Shell | undefined {
 /** What `sockets_connect` learned about how each connection ended, until `sockets_result` collects it. */
 interface SocketResult { opened: boolean, messages: number, code?: number, reason?: string }
 const socketResults = new Map<string, SocketResult>()
+
+/**
+ * A loopback POSIX socket listener (`net_bind`/`net_listen`/`net_connect`/`net_accept`, the
+ * `env.__syscall_socket`/`bind`/`listen`/`connect`/`accept4` translation's main-thread half). No
+ * real internet socket exists in a browser at all -- there is no raw TCP/UDP API, full stop, and
+ * every "socket support" claim from a browser-based Unix (WebContainers, Browsix) turns out to
+ * mean exactly this: loopback/inter-process sockets, not real external connectivity. Real network
+ * I/O for an ecmaOS program is `kernel.sockets` (`sockets_connect` et al., above), unchanged; this
+ * is what an unmodified POSIX binary's `socket()`/`bind()`/`connect()` calls actually get when the
+ * target is loopback, so it runs for real instead of not running at all.
+ *
+ * `key` is the canonical address this listener is reachable at (`unix:<path>` or
+ * `inet:<host>:<port>`, host always normalized to `127.0.0.1` -- see `net_bind`). `queue` holds an
+ * already-connected pair for each pending, not-yet-`accept4`ed connection, in the order
+ * `net_connect` created them: real fds already linked into `serverProc`'s own context via
+ * `Kernel.linkProcesses` (not bridged/pumped -- the client and the eventual accepting program talk
+ * directly to each other's real pipe), just not yet handed to the program's own `fds` table.
+ */
+interface LoopbackListener {
+  key: string
+  serverProc: Process
+  listening: boolean
+  queue: Array<{ fd: number, writeFd: number, peerKey: string }>
+}
+const loopbackListeners = new Map<string, LoopbackListener>()
+let nextEphemeralPort = 49152
+
+/** Normalizes an `AF_INET`/`AF_INET6` bind/connect target; anything not loopback is rejected by
+ * the caller before this is even consulted -- see `net_bind`/`net_connect`'s own checks. */
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '::' || host === 'localhost'
+}
 
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
 let nextWindowHandle = 1
@@ -446,6 +482,111 @@ export function installMainThreadSyscalls(): void {
       }
 
       text = JSON.stringify(detail)
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  /** `family`: `'unix'` or `'inet'` (`'inet6'` isn't supported -- `sockaddr_in6`'s layout wasn't
+   * worth the extra surface for a first loopback-only pass; `-EAFNOSUPPORT` from the worker side
+   * before this is ever reached). `addr`/`port` are `''`/`0` for `unix` (the socket's own path is
+   * `addr`, unused). `port: 0` picks the next ephemeral port, same meaning as real Linux. Writes
+   * `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall
+   * above already uses. */
+  define_syscall('net_bind', async (proc: Process, family: string, addr: string, port: number, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+
+    // A dead server must not leave its address permanently squatted -- the next bind to the same
+    // address (very common: restart the same local dev server) has to see it as free again.
+    const register = (key: string) => {
+      loopbackListeners.set(key, { key, serverProc: proc, listening: false, queue: [] })
+      void proc.exited.then(() => { if (loopbackListeners.get(key)?.serverProc === proc) loopbackListeners.delete(key) })
+    }
+
+    if (family === 'unix') {
+      const key = `unix:${addr}`
+      if (loopbackListeners.has(key)) text = JSON.stringify({ error: 'EADDRINUSE' })
+      else {
+        register(key)
+        text = JSON.stringify({ ok: true, key })
+      }
+    } else if (family === 'inet') {
+      if (addr && !isLoopbackHost(addr)) {
+        text = JSON.stringify({ error: 'EADDRNOTAVAIL' })
+      } else {
+        const assigned = port || nextEphemeralPort++
+        const key = `inet:127.0.0.1:${assigned}`
+        if (loopbackListeners.has(key)) text = JSON.stringify({ error: 'EADDRINUSE' })
+        else {
+          register(key)
+          text = JSON.stringify({ ok: true, key, port: assigned })
+        }
+      }
+    } else {
+      text = JSON.stringify({ error: 'EAFNOSUPPORT' })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('net_listen', async (proc: Process, key: string, backlog: number, path: string) => {
+    const kernel = kernelOf(proc)
+    const listener = loopbackListeners.get(key)
+    let text: string
+
+    if (!listener || listener.serverProc !== proc) text = JSON.stringify({ error: 'EINVAL' })
+    else {
+      listener.listening = true
+      void backlog // accepted but not enforced -- the queue is unbounded; a real backlog limit
+      // would need net_connect to reject once full, not worth it for a loopback-only first pass.
+      text = JSON.stringify({ ok: true })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  /**
+   * Creates the real, full-duplex link (two directed `Kernel.linkProcesses` pipes, one per
+   * direction) between the calling process and `key`'s listener, and hands the accepting side's
+   * fds to the listener's `queue` for `net_accept` to hand out later. Writes `{ fd, writeFd }` (the
+   * connecting side's own real fds -- `fd` to read, `writeFd` to write) or `{ error }`.
+   */
+  define_syscall('net_connect', async (proc: Process, key: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const listener = loopbackListeners.get(key)
+    let text: string
+
+    if (!listener || !listener.listening) {
+      text = JSON.stringify({ error: 'ECONNREFUSED' })
+    } else {
+      const toServer = kernel.linkProcesses(proc, listener.serverProc) // client writes -> server reads
+      const toClient = kernel.linkProcesses(listener.serverProc, proc) // server writes -> client reads
+      listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}` })
+      text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd })
+    }
+
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  /** Pops the next already-connected pair off `key`'s queue. `nonblock`: return `{ pending: true }`
+   * immediately on an empty queue instead of leaving the worker to poll-retry (its own choice, made
+   * by whether the socket has `O_NONBLOCK`/`SOCK_NONBLOCK` set -- this syscall itself never blocks
+   * the main thread either way, same as everything else in this module). */
+  define_syscall('net_accept', async (proc: Process, key: string, nonblock: number, path: string) => {
+    const kernel = kernelOf(proc)
+    const listener = loopbackListeners.get(key)
+    let text: string
+
+    if (!listener || listener.serverProc !== proc) text = JSON.stringify({ error: 'EINVAL' })
+    else {
+      const next = listener.queue.shift()
+      if (next) text = JSON.stringify(next)
+      else text = JSON.stringify(nonblock ? { error: 'EAGAIN' } : { pending: true })
     }
 
     await kernel.filesystem.fs.writeFile(path, text)

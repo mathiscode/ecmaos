@@ -50,7 +50,9 @@ const LINUX_ERRNO = {
   EPERM: 1, ENOENT: 2, ESRCH: 3, EINTR: 4, EIO: 5, ENXIO: 6, E2BIG: 7, EBADF: 9, EAGAIN: 11, ENOMEM: 12,
   EACCES: 13, EBUSY: 16, EEXIST: 17, EXDEV: 18, ENODEV: 19, ENOTDIR: 20, EISDIR: 21, EINVAL: 22, EMFILE: 24,
   ENOTTY: 25, EFBIG: 27, ENOSPC: 28, ESPIPE: 29, EROFS: 30, EPIPE: 32, ERANGE: 34, ENAMETOOLONG: 36,
-  ENOSYS: 38, ENOTEMPTY: 39, ELOOP: 40, ENOTSUP: 95, EADDRINUSE: 98, EADDRNOTAVAIL: 99, ECONNREFUSED: 111,
+  ENOSYS: 38, ENOTEMPTY: 39, ELOOP: 40, ENOTSOCK: 88, ENOPROTOOPT: 92, EPROTONOSUPPORT: 93, ENOTSUP: 95,
+  EAFNOSUPPORT: 97, EADDRINUSE: 98, EADDRNOTAVAIL: 99, ENETUNREACH: 101, EISCONN: 106, ENOTCONN: 107,
+  ECONNREFUSED: 111, EALREADY: 114, EINPROGRESS: 115,
 }
 
 // open(2) flags (Linux values)
@@ -325,6 +327,13 @@ export function createPreview1(getMemory) {
     proc_raise: () => ENOSYS,
 
     fd_close(fd) {
+      const sock = sockets.get(fd)
+      if (sock) {
+        return guard(() => {
+          if (sock.connected) { close(sock.readFd); close(sock.writeFd) }
+          sockets.delete(fd)
+        })
+      }
       const entry = entryOf(fd)
       if (!entry) return EBADF
       if (fd <= 2) return ESUCCESS
@@ -334,6 +343,11 @@ export function createPreview1(getMemory) {
       })
     },
     fd_read(fd, iovPtr, iovCnt, nreadPtr) {
+      const sr = socketRealFd(fd, 'read')
+      if (sr.isSocket) {
+        if (sr.error) return sr.error
+        return guard(() => { const n = readInto(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nreadPtr, n, true) })
+      }
       const entry = entryOf(fd)
       if (!entry) return EBADF
       return guard(() => {
@@ -342,6 +356,11 @@ export function createPreview1(getMemory) {
       })
     },
     fd_pread(fd, iovPtr, iovCnt, offset, nreadPtr) {
+      const sr = socketRealFd(fd, 'read')
+      if (sr.isSocket) {
+        if (sr.error) return sr.error
+        return guard(() => { const n = readInto(sr.fd, iovecs(iovPtr, iovCnt), Number(offset)); view().setUint32(nreadPtr, n, true) })
+      }
       const entry = entryOf(fd)
       if (!entry) return EBADF
       return guard(() => {
@@ -350,6 +369,11 @@ export function createPreview1(getMemory) {
       })
     },
     fd_write(fd, iovPtr, iovCnt, nwrittenPtr) {
+      const sr = socketRealFd(fd, 'write')
+      if (sr.isSocket) {
+        if (sr.error) return sr.error
+        return guard(() => { const n = writeFrom(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nwrittenPtr, n, true) })
+      }
       const entry = entryOf(fd)
       if (!entry) return EBADF
       return guard(() => {
@@ -358,6 +382,11 @@ export function createPreview1(getMemory) {
       })
     },
     fd_pwrite(fd, iovPtr, iovCnt, offset, nwrittenPtr) {
+      const sr = socketRealFd(fd, 'write')
+      if (sr.isSocket) {
+        if (sr.error) return sr.error
+        return guard(() => { const n = writeFrom(sr.fd, iovecs(iovPtr, iovCnt), Number(offset)); view().setUint32(nwrittenPtr, n, true) })
+      }
       const entry = entryOf(fd)
       if (!entry) return EBADF
       return guard(() => {
@@ -571,15 +600,23 @@ export function createPreview1(getMemory) {
       const soonest = clockSubs.length ? Math.min(...clockSubs.map(sub => sub.ms)) : -1
       const ready = []
 
-      const pollable = fdSubs.filter(sub => entryOf(sub.fd)?.fd !== null && entryOf(sub.fd))
+      // A connected socket polls on its real read/write fd, same as any other real fd; an
+      // unconnected one has nothing to poll (not ready, not an error either).
+      const pollFdOf = (fd) => {
+        const sock = sockets.get(fd)
+        if (sock) return sock.connected ? sock.readFd : undefined
+        return entryOf(fd)?.fd
+      }
+      const pollable = fdSubs.filter(sub => pollFdOf(sub.fd) !== null && pollFdOf(sub.fd) !== undefined)
       if (pollable.length) {
-        const revents = pollFds(pollable.map(sub => ({ fd: entryOf(sub.fd).fd, events: sub.tag === 1 ? POLLIN : POLLOUT })), soonest)
+        const revents = pollFds(pollable.map(sub => ({ fd: pollFdOf(sub.fd), events: sub.tag === 1 ? POLLIN : POLLOUT })), soonest)
         pollable.forEach((sub, i) => { if (revents[i]) ready.push(sub) })
       } else if (soonest > 0) {
         sleepMs(soonest)
       }
-      // A regular file or a directory is always ready
-      for (const sub of fdSubs) if (!pollable.includes(sub)) ready.push(sub)
+      // A regular file or a directory is always ready; an unconnected socket (no real fd to poll
+      // yet) is not -- only these two cases ever fall out of `pollable` now that sockets exist.
+      for (const sub of fdSubs) if (!pollable.includes(sub) && !sockets.has(sub.fd)) ready.push(sub)
 
       const events = ready.length ? ready : clockSubs.filter(sub => sub.ms <= soonest)
       events.forEach((sub, i) => {
@@ -614,7 +651,11 @@ export function createPreview1(getMemory) {
       if (timeoutMs > 0) sleepMs(timeoutMs)
       return 0
     }
-    const fds = entries.map(([fd, reg]) => ({ fd: entryOf(fd)?.fd ?? fd, events: reg.events & (POLLIN | POLLOUT) }))
+    const fds = entries.map(([fd, reg]) => {
+      const sock = sockets.get(fd)
+      const realFd = sock ? (sock.connected ? sock.readFd : -1) : (entryOf(fd)?.fd ?? fd)
+      return { fd: realFd, events: reg.events & (POLLIN | POLLOUT) }
+    })
     const revents = pollFds(fds, timeoutMs)
     const dv = view()
     let n = 0
@@ -688,6 +729,104 @@ export function createPreview1(getMemory) {
   }
 
   const wasiOflagsFromLinux = (flags) => flags // both sides already use Linux's O_* numbering
+
+  // Loopback POSIX sockets (`__syscall_socket` and friends, below): real internet sockets don't
+  // exist in a browser (no raw TCP/UDP API at all), so `env.__syscall_connect` only ever succeeds
+  // against `127.0.0.1`/`::1`/a `AF_UNIX` path -- anything else answers a real `ECONNREFUSED`/
+  // `ENETUNREACH`, exactly what a sandboxed Linux process with no route to that address would see,
+  // not a crash or a silent lie. `main-thread-syscalls.ts`'s own `net_bind`/`net_listen`/
+  // `net_connect`/`net_accept` (its doc comment has the shared-address-namespace half of this) own
+  // matching listeners across processes; everything else (the fd itself, reads, writes, close,
+  // getsockname/getpeername, setsockopt/getsockopt, shutdown) is answered entirely locally here,
+  // against the real fds those four syscalls hand back -- no further main-thread round trip needed
+  // once a connection exists. Real network I/O for an ecmaOS program is unchanged: `kernel.sockets`
+  // (`sockets_connect` et al.) over `WebSocket`/`WebTransport`, not this.
+  const AF_UNIX = 1
+  const AF_INET = 2
+  const SOCK_STREAM_MASK = 0xff // socket()'s type also carries SOCK_NONBLOCK/SOCK_CLOEXEC as high bits
+  const SOCK_STREAM = 1
+
+  const sockets = new Map() // synthetic fd -> { family, key, bound, listening, connected }
+  const socketWriteFd = new Map() // synthetic/real rx fd -> its paired real tx fd, for fd_write/close
+
+  /** Calls a `main-thread-syscalls.ts` custom syscall that answers through a scratch file (JSON),
+   * the same bridge `/bin/node`'s `lib/scratch.mjs` gives coreutils -- reimplemented locally with
+   * the real fs syscalls this file already imports, since `/bin/wali` runs raw WASM, not JS, and
+   * has no `globalThis.ecmaosSyscalls`. */
+  function callMainThread(name, ...args) {
+    const path = `/tmp/.${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    syscall(name, ...args, path)
+    const fd = open(path, O_RDONLY)
+    const chunks = []
+    try {
+      while (true) {
+        const buf = new Uint8Array(65536)
+        const n = read(fd, buf, -1)
+        if (n <= 0) break
+        chunks.push(buf.subarray(0, n))
+        if (n < 65536) break
+      }
+    } finally {
+      close(fd)
+      unlink(path)
+    }
+    const total = chunks.reduce((sum, c) => sum + c.length, 0)
+    const out = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length }
+    return JSON.parse(decoder.decode(out))
+  }
+
+  /** `struct sockaddr_un`/`struct sockaddr_in`, confirmed by compiling and running a real
+   * `offsetof()` probe with the installed emcc 6.0.9 (same methodology as `struct stat`): family
+   * (u16) at offset 0 for both; `sockaddr_in`'s port (u16, network/big-endian byte order) at 2,
+   * its 4-byte address at 4; `sockaddr_un`'s NUL-terminated path starts at 2. */
+  function readSockaddr(ptr) {
+    const dv = view()
+    const family = dv.getUint16(ptr, true)
+    if (family === AF_UNIX) return { family, path: readCString(ptr + 2) }
+    if (family === AF_INET) {
+      const port = dv.getUint16(ptr + 2, false)
+      const b = bytes()
+      return { family, port, addr: `${b[ptr + 4]}.${b[ptr + 5]}.${b[ptr + 6]}.${b[ptr + 7]}` }
+    }
+    return { family }
+  }
+
+  function writeSockaddrIn(ptr, addr, port) {
+    const dv = view()
+    dv.setUint16(ptr, AF_INET, true)
+    dv.setUint16(ptr + 2, port, false)
+    const parts = (addr || '127.0.0.1').split('.').map(Number)
+    const b = bytes()
+    for (let i = 0; i < 4; i++) b[ptr + 4 + i] = parts[i] || 0
+  }
+
+  /** `addrlenPtr` is a real in/out `socklen_t*` (`accept4`/`getsockname`/`getpeername`) -- writes
+   * back how many bytes were actually available, same as the real syscalls this answers for. */
+  function writeSockaddrResult(addrPtr, addrlenPtr, addr, port) {
+    if (!addrPtr) return
+    writeSockaddrIn(addrPtr, addr, port)
+    if (addrlenPtr) view().setUint32(addrlenPtr, 16, true)
+  }
+
+  function socketErrno(error) {
+    if (typeof error === 'string') return -(LINUX_ERRNO[error] ?? LINUX_ERRNO.EIO)
+    return -(LINUX_ERRNO[error?.code] ?? LINUX_ERRNO.EIO)
+  }
+
+  /** Whether `fd` is a socket, and if so its real backing fd for `direction` -- used by
+   * `fd_read`/`fd_write`/etc (the WASI ABI, which is what a socket's read()/write() actually go
+   * through, same as a plain file's) so they redirect transparently instead of trying `entryOf`'s
+   * generic real-fd fallback on a purely synthetic number. Returns WASI `EBADF` (this file's own
+   * `EBADF` constant, not `LINUX_ERRNO`'s -- `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
+   * for a socket that exists but isn't connected yet. */
+  function socketRealFd(fd, direction) {
+    const sock = sockets.get(fd)
+    if (!sock) return { isSocket: false }
+    if (!sock.connected) return { isSocket: true, error: EBADF }
+    return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd }
+  }
 
   const envSyscalls = {
     __syscall_chdir: (pathPtr) => guardLinux(() => chdir(readCString(pathPtr))),
@@ -816,6 +955,116 @@ export function createPreview1(getMemory) {
       if (!inst) return -LINUX_ERRNO.EBADF
       if (maxevents <= 0) return -LINUX_ERRNO.EINVAL
       return doEpollWait(inst, evPtr, maxevents, 0)
+    },
+
+    __syscall_socket: (domain, type, _protocol) => {
+      if (domain !== AF_UNIX && domain !== AF_INET) return -LINUX_ERRNO.EAFNOSUPPORT
+      if ((type & SOCK_STREAM_MASK) !== SOCK_STREAM) return -LINUX_ERRNO.EPROTONOSUPPORT
+      const fd = nextFd++
+      sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false })
+      return fd
+    },
+    __syscall_bind: (fd, addrPtr, _addrlen) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      const sa = readSockaddr(addrPtr)
+      let result
+      if (sa.family === AF_UNIX) result = callMainThread('net_bind', 'unix', sa.path, 0)
+      else if (sa.family === AF_INET) result = callMainThread('net_bind', 'inet', sa.addr, sa.port)
+      else return -LINUX_ERRNO.EAFNOSUPPORT
+      if (result.error) return socketErrno(result.error)
+      sock.bound = true
+      sock.key = result.key
+      if (result.port) sock.port = result.port
+      return ESUCCESS
+    },
+    __syscall_listen: (fd, backlog) => {
+      const sock = sockets.get(fd)
+      if (!sock || !sock.bound) return -LINUX_ERRNO.ENOTSOCK
+      const result = callMainThread('net_listen', sock.key, backlog)
+      if (result.error) return socketErrno(result.error)
+      sock.listening = true
+      return ESUCCESS
+    },
+    __syscall_connect: (fd, addrPtr, _addrlen) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      if (sock.connected) return -LINUX_ERRNO.EISCONN
+      const sa = readSockaddr(addrPtr)
+      let key
+      if (sa.family === AF_UNIX) key = `unix:${sa.path}`
+      else if (sa.family === AF_INET) key = `inet:127.0.0.1:${sa.port}`
+      else return -LINUX_ERRNO.EAFNOSUPPORT
+      const result = callMainThread('net_connect', key)
+      if (result.error) return socketErrno(result.error)
+      sock.connected = true
+      sock.peerKey = key
+      sock.readFd = result.fd
+      sock.writeFd = result.writeFd
+      return ESUCCESS
+    },
+    // `flags` may carry SOCK_NONBLOCK: an empty accept queue then answers EAGAIN immediately
+    // instead of the worker polling (`net_accept`'s own doc comment has the main-thread half).
+    // A blocking accept4 polls `net_accept` on a short interval until a connection lands or this
+    // worker is killed -- interruptible the same way every other wait in this file is: `kill`/`^C`
+    // tears the worker down regardless of what JS statement happens to be running.
+    __syscall_accept4: (fd, addrPtr, addrlenPtr, flags) => {
+      const sock = sockets.get(fd)
+      if (!sock || !sock.listening) return -LINUX_ERRNO.ENOTSOCK
+      const nonblock = flags & 0x800 ? 1 : 0
+      while (true) {
+        const result = callMainThread('net_accept', sock.key, nonblock)
+        if (result.error) return socketErrno(result.error)
+        if (result.pending) { sleepMs(50); continue }
+        const newFd = nextFd++
+        sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey })
+        writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', 0)
+        return newFd
+      }
+    },
+    __syscall_getsockname: (fd, addrPtr, addrlenPtr) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', sock.port ?? 0)
+      return ESUCCESS
+    },
+    __syscall_getpeername: (fd, addrPtr, addrlenPtr) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      if (!sock.connected) return -LINUX_ERRNO.ENOTCONN
+      writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', 0)
+      return ESUCCESS
+    },
+    __syscall_shutdown: (fd, how) => {
+      const sock = sockets.get(fd)
+      if (!sock || !sock.connected) return -LINUX_ERRNO.ENOTCONN
+      return guardLinux(() => {
+        if (how !== 0 /* SHUT_RD */) close(sock.writeFd) // SHUT_WR or SHUT_RDWR
+      })
+    },
+    __syscall_sendto: (fd, buf, len, _flags, _addrPtr, _addrlen) => guardLinux(() => {
+      const sock = sockets.get(fd)
+      if (!sock) throw { code: 'ENOTSOCK' }
+      if (!sock.connected) throw { code: 'ENOTCONN' }
+      return write(sock.writeFd, bytes().subarray(buf, buf + len))
+    }),
+    __syscall_recvfrom: (fd, buf, len, _flags, _addrPtr, _addrlen) => guardLinux(() => {
+      const sock = sockets.get(fd)
+      if (!sock) throw { code: 'ENOTSOCK' }
+      if (!sock.connected) throw { code: 'ENOTCONN' }
+      const chunk = new Uint8Array(len)
+      const n = read(sock.readFd, chunk, -1)
+      bytes().set(chunk.subarray(0, Math.max(n, 0)), buf)
+      return Math.max(n, 0)
+    }),
+    // No real socket-level options exist for a loopback pipe pair -- accepted as a harmless no-op
+    // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.
+    __syscall_setsockopt: () => ESUCCESS,
+    __syscall_getsockopt: (fd, _level, _optname, optvalPtr, optlenPtr) => {
+      if (!sockets.has(fd)) return -LINUX_ERRNO.ENOTSOCK
+      if (optvalPtr) view().setInt32(optvalPtr, 0, true)
+      if (optlenPtr) view().setUint32(optlenPtr, 4, true)
+      return ESUCCESS
     },
   }
 
