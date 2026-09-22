@@ -53,6 +53,17 @@ describe('boot smoke test', () => {
     expect(code).toBe(0)
   })
 
+  it('publishes the driver core: /sys/bus lists the platform, node and cpu buses', async () => {
+    const buses = await kernel.filesystem.fs.readdir('/sys/bus')
+    expect(buses).toEqual(expect.arrayContaining(['platform', 'node', 'cpu']))
+  })
+
+  it('registers /dev/tty and /dev/console through the tty module (probe off, so no host stdio console)', async () => {
+    const { tty } = await import('@zenfs/linux')
+    expect(tty.param('probe')).toBe(false)
+    for (const path of ['/dev/tty', '/dev/console']) expect(await kernel.filesystem.fs.exists(path)).toBe(true)
+  })
+
   describe('the console is actually writable, not just present', () => {
     it('mounts a terminal and writes through its real /dev/xterm<n> node', async () => {
       const container = document.createElement('div')
