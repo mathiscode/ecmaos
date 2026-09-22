@@ -85,18 +85,26 @@ const SPIN = `(module ${HEADER}
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
-  // `canRunInWorker` does not route an ordinary emcc build (env.__syscall_* imports) to the worker
-  // yet -- a real compiled fixture (`fixtures/emcc-hello.wasm`, built from `fixtures/emcc-hello.c`
-  // with a real emcc 6.0.9) does not behave the way that build's own library_syscall.js documents:
-  // __syscall_openat is imported but is never actually called at runtime for a plain
-  // open()/write()/stat() sequence, root cause not yet found (see `canRunInWorker`'s own doc
-  // comment). This only checks the routing decision stays conservative, not that the emscripten
-  // path works; a follow-up test replaces this once that gap is understood.
-  it('does not route an ordinary emcc build to the worker (env.__syscall_* unverified end to end)', async () => {
+  // A real, ordinary (non-STANDALONE_WASM) emcc 6.0.9 build, run end to end through the worker:
+  // stdout, a real file created/written/closed via env.__syscall_openat/fd_write/fd_close, its size
+  // read back correctly via __syscall_stat64, a real directory via __syscall_mkdirat, and the
+  // program's own exit code. This is also the regression test for a real bug caught building it:
+  // the '.' preopen used to reserve a fixed wasi-fd number that a real env.__syscall_openat call
+  // could (and here did) collide with, silently corrupting the write -- see wasi-preview1.mjs's own
+  // doc comment.
+  it('runs a real emcc build: writes to stdout, creates a file and a directory through env.__syscall_*, exits its own code', async () => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
     const { join } = process.getBuiltinModule('node:path')
     const bytes = new Uint8Array(readFileSync(join(process.cwd(), 'tests/tree/wasi/fixtures/emcc-hello.wasm')))
-    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(false)
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+
+    await kernel.filesystem.fs.writeFile('/tmp/emcc-hello.wasm', bytes, { mode: 0o755 })
+    expect(await kernel.shell.execute('/tmp/emcc-hello.wasm > /tmp/emcc-hello.out 2> /tmp/emcc-hello.err')).toBe(3)
+    const out = await kernel.filesystem.fs.readFile('/tmp/emcc-hello.out', 'utf-8')
+    expect(out).toContain('hello from emscripten')
+    expect(out).toContain('size=11')
+    expect(await kernel.filesystem.fs.readFile('/tmp/emtest-out.txt', 'utf-8')).toBe('wrote this\n')
+    expect((await kernel.filesystem.fs.stat('/tmp/emtest-dir')).isDirectory()).toBe(true)
   })
 
 
