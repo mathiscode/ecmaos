@@ -40,7 +40,7 @@ import { Events } from '#events.ts'
 import { I18n } from '#i18n.ts'
 import { Intervals } from '#intervals.ts'
 import { Memory } from '#memory.ts'
-import { Process, ProcessManager } from '#processes.ts'
+import { ProcessManager } from '#processes.ts'
 import { Protocol } from '#protocol.ts'
 import { DefaultServiceOptions, Service } from '#service.ts'
 import { Sockets } from '#sockets.ts'
@@ -1508,6 +1508,25 @@ export class Kernel implements IKernel {
     const shouldUnlisten = terminal && stdinIsTTY
     let keyListener: { dispose: () => void } | null = null
 
+    // A real `ZenFSProcess`, not the legacy `Process`/`ProcessManager` -- this is the only thing
+    // that still constructed one (grep confirms), so this is what let processes.ts/fdtable.ts be
+    // deleted for real: a preview2 component or the rare non-WASI `.wasm` that ends up here now
+    // gets a real pid `ps`/`kill` (which already only read `@zenfs/linux`'s own `zenfsProcesses`/
+    // `kill()`, not the legacy manager) can actually see and signal -- something the legacy
+    // `Process` never gave them, since it lived in a separate bookkeeping map nothing else read.
+    // Deliberately not `executeViaExecve`'s real line discipline (`terminal.attachInput()`) here:
+    // this still drives a JS-level stdin/stdout `Stream` pair into `loadWasiComponent`/`loadWasm`,
+    // not a real fd, and `terminal.onKey`/`TerminalEvents.INTERRUPT` below (unchanged, already
+    // proven correct) is what the WASI preview1/preview2 adapters actually key their own `^C`
+    // handling off, independent of which process type wraps the pid.
+    const proc = new ZenFSProcess({
+      argv: [options.command, ...(options.args || [])],
+      env: options.shell.envObject,
+      cwd: options.shell.cwd,
+      tty: terminal?.zfsTty
+    })
+    registerProcessKernel(proc, this, options.shell)
+
     try {
       const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
       const needsWasi = await this.wasm.detectWasiRequirements(wasmBytes)
@@ -1563,61 +1582,46 @@ export class Kernel implements IKernel {
         })
       }
 
-      const process = new Process({
-        uid: options.shell.credentials.uid,
-        gid: options.shell.credentials.gid,
-        args: options.args || [],
-        command: options.command,
-        context: this.context,
-        filesystem: this.filesystem,
-        processes: this.processes,
-        kernel: this,
-        shell: options.shell || this.shell,
-        terminal: options.terminal || this.terminal,
-        entry: async () => {
-          if (needsWasi) {
-            const result = await this.wasm.loadWasiComponent(options.command, {
-              stdin,
-              stdout,
-              stderr
-            }, [options.command, ...(options.args || [])], options.shell || this.shell, process.pid)
-            return await result.exitCode
-          } else {
-            const { instance } = await this.wasm.loadWasm(options.command)
-            const exports = instance.exports
-            
-            if (typeof exports._start === 'function') {
-              try {
-                (exports._start as () => void)()
-                return 0
-              } catch (error) {
-                this.log.error(`WASM _start failed: ${(error as Error).message}`)
-                return 1
-              }
-            } else if (typeof exports._initialize === 'function') {
-              try {
-                (exports._initialize as () => void)()
-                return 0
-              } catch (error) {
-                this.log.error(`WASM _initialize failed: ${(error as Error).message}`)
-                return 1
-              }
-            }
-            return 0
-          }
-        },
-        stdin,
-        stdinIsTTY: options.stdinIsTTY,
-        stdout,
-        stdoutIsTTY: options.stdoutIsTTY,
-        stderr
-      })
+      let exitCode = 0
+      try {
+        if (needsWasi) {
+          const result = await this.wasm.loadWasiComponent(options.command, {
+            stdin,
+            stdout,
+            stderr
+          }, [options.command, ...(options.args || [])], options.shell || this.shell, proc.pid)
+          exitCode = await result.exitCode
+        } else {
+          const { instance } = await this.wasm.loadWasm(options.command)
+          const exports = instance.exports
 
-      const exitCode = await process.start()
+          if (typeof exports._start === 'function') {
+            try {
+              (exports._start as () => void)()
+              exitCode = 0
+            } catch (error) {
+              this.log.error(`WASM _start failed: ${(error as Error).message}`)
+              exitCode = 1
+            }
+          } else if (typeof exports._initialize === 'function') {
+            try {
+              (exports._initialize as () => void)()
+              exitCode = 0
+            } catch (error) {
+              this.log.error(`WASM _initialize failed: ${(error as Error).message}`)
+              exitCode = 1
+            }
+          }
+        }
+      } finally {
+        proc.exit(exitCode)
+      }
+
       return exitCode
     } catch (error) {
       this.log.error(`Failed to execute WASM: ${error}`)
       terminal?.writeln(chalk.red((error as Error).message))
+      if (!proc.zombie) proc.exit(-1)
       return -1
     } finally {
       if (keyListener) {
