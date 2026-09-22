@@ -114,6 +114,66 @@ const HELLO_IMPORTED_MEMORY = `(module
     (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 100)))
     (call $proc_exit (i32.const 5))))`
 
+// Binds/listens/accepts a loopback AF_INET socket on 127.0.0.1:9000, reads what the client sends,
+// writes "pong\n" back, exits with the byte count it read (expect 5, "hello"'s length). Signals
+// "past listen(), ready to accept" by creating tmp/socket-ready through the same env.__syscall_openat
+// the real emcc fixture already proved, since there is no other way for the test to know listen()
+// has actually happened before the client tries to connect.
+const SOCKET_SERVER = `(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "__syscall_socket" (func $socket (param i32 i32 i32) (result i32)))
+  (import "env" "__syscall_bind" (func $bind (param i32 i32 i32) (result i32)))
+  (import "env" "__syscall_listen" (func $listen (param i32 i32) (result i32)))
+  (import "env" "__syscall_accept4" (func $accept4 (param i32 i32 i32 i32) (result i32)))
+  (import "env" "__syscall_openat" (func $openat (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 2)
+  (data (i32.const 200) "\\02\\00\\23\\28\\00\\00\\00\\00")
+  (data (i32.const 300) "tmp/socket-ready")
+  (data (i32.const 2000) "pong\\n")
+  (func (export "_start") (local $sfd i32) (local $cfd i32)
+    (local.set $sfd (call $socket (i32.const 2) (i32.const 1) (i32.const 0)))
+    (if (i32.lt_s (call $bind (local.get $sfd) (i32.const 200) (i32.const 16)) (i32.const 0))
+      (then (call $proc_exit (i32.const 10))))
+    (if (i32.lt_s (call $listen (local.get $sfd) (i32.const 1)) (i32.const 0))
+      (then (call $proc_exit (i32.const 11))))
+    (drop (call $openat (i32.const -100) (i32.const 300) (i32.const 577) (i32.const 0)))
+    (local.set $cfd (call $accept4 (local.get $sfd) (i32.const 0) (i32.const 0) (i32.const 0)))
+    (if (i32.lt_s (local.get $cfd) (i32.const 0)) (then (call $proc_exit (i32.const 12))))
+    (i32.store (i32.const 0) (i32.const 1000))
+    (i32.store (i32.const 4) (i32.const 64))
+    (drop (call $fd_read (local.get $cfd) (i32.const 0) (i32.const 1) (i32.const 100)))
+    (i32.store (i32.const 8) (i32.const 2000))
+    (i32.store (i32.const 12) (i32.const 5))
+    (drop (call $fd_write (local.get $cfd) (i32.const 8) (i32.const 1) (i32.const 104)))
+    (call $proc_exit (i32.load (i32.const 100)))))`
+
+// Connects to 127.0.0.1:9000, sends "hello", echoes whatever comes back to its own stdout.
+const SOCKET_CLIENT = `(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "__syscall_socket" (func $socket (param i32 i32 i32) (result i32)))
+  (import "env" "__syscall_connect" (func $connect (param i32 i32 i32) (result i32)))
+  (memory (export "memory") 2)
+  (data (i32.const 200) "\\02\\00\\23\\28\\7f\\00\\00\\01")
+  (data (i32.const 2000) "hello")
+  (func (export "_start") (local $sfd i32)
+    (local.set $sfd (call $socket (i32.const 2) (i32.const 1) (i32.const 0)))
+    (if (i32.lt_s (call $connect (local.get $sfd) (i32.const 200) (i32.const 16)) (i32.const 0))
+      (then (call $proc_exit (i32.const 20))))
+    (i32.store (i32.const 8) (i32.const 2000))
+    (i32.store (i32.const 12) (i32.const 5))
+    (drop (call $fd_write (local.get $sfd) (i32.const 8) (i32.const 1) (i32.const 104)))
+    (i32.store (i32.const 0) (i32.const 1000))
+    (i32.store (i32.const 4) (i32.const 64))
+    (drop (call $fd_read (local.get $sfd) (i32.const 0) (i32.const 1) (i32.const 100)))
+    (i32.store (i32.const 8) (i32.const 1000))
+    (i32.store (i32.const 12) (i32.load (i32.const 100)))
+    (drop (call $fd_write (i32.const 1) (i32.const 8) (i32.const 1) (i32.const 104)))
+    (call $proc_exit (i32.const 0))))`
+
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
@@ -166,6 +226,43 @@ describe('wasi preview1 as a worker Process', () => {
     expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
     await kernel.filesystem.fs.writeFile('/tmp/epoll-stdin.wasm', bytes, { mode: 0o755 })
     expect(await kernel.shell.execute('echo hi | /tmp/epoll-stdin.wasm')).toBe(142)
+  })
+
+  it('binds/listens/accepts and connects a real loopback socket, exchanging data both ways', async () => {
+    const serverBytes = await compile(SOCKET_SERVER)
+    const clientBytes = await compile(SOCKET_CLIENT)
+    expect(await kernel.wasm.canRunInWorker(serverBytes)).toBe(true)
+    expect(await kernel.wasm.canRunInWorker(clientBytes)).toBe(true)
+    await kernel.filesystem.fs.writeFile('/tmp/socket-server.wasm', serverBytes, { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/tmp/socket-client.wasm', clientBytes, { mode: 0o755 })
+
+    const exists = async (path: string) => { try { await kernel.filesystem.fs.stat(path); return true } catch { return false } }
+
+    const serverRun = kernel.shell.execute('/tmp/socket-server.wasm')
+    for (let i = 0; i < 100 && !(await exists('/tmp/socket-ready')); i++) await new Promise(resolve => setTimeout(resolve, 50))
+    expect(await exists('/tmp/socket-ready')).toBe(true)
+
+    expect(await kernel.shell.execute('/tmp/socket-client.wasm > /tmp/socket-client.out')).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/socket-client.out', 'utf-8')).toBe('pong\n')
+    expect(await serverRun).toBe(5)
+  })
+
+  it('a connect to a non-loopback address fails cleanly instead of crashing', async () => {
+    const NON_LOOPBACK = `(module
+      (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+      (import "env" "__syscall_socket" (func $socket (param i32 i32 i32) (result i32)))
+      (import "env" "__syscall_connect" (func $connect (param i32 i32 i32) (result i32)))
+      (memory (export "memory") 1)
+      (data (i32.const 200) "\\02\\00\\00\\50\\08\\08\\08\\08")
+      (func (export "_start") (local $sfd i32) (local $rc i32)
+        (local.set $sfd (call $socket (i32.const 2) (i32.const 1) (i32.const 0)))
+        (local.set $rc (call $connect (local.get $sfd) (i32.const 200) (i32.const 16)))
+        (call $proc_exit (i32.eqz (i32.lt_s (local.get $rc) (i32.const 0))))))`
+    const bytes = await compile(NON_LOOPBACK)
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+    await kernel.filesystem.fs.writeFile('/tmp/socket-nonloopback.wasm', bytes, { mode: 0o755 })
+    // exit code 0 means connect() returned a real negative errno (never crashed, never silently succeeded)
+    expect(await kernel.shell.execute('/tmp/socket-nonloopback.wasm')).toBe(0)
   })
 
   it('is routed to the worker only when it is a plain wasip1 module', async () => {

@@ -1286,6 +1286,38 @@ export class Kernel implements IKernel {
     return { fd, stop: this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true }).stop }
   }
 
+  /**
+   * A real, directed `create_pipe` between two real `Process`es, no main-thread pump involved on
+   * either side -- unlike {@link attachStream}, both ends are real worker-hosted programs doing
+   * real reads/writes against real fds, not one end bridged against a JS `Stream`. This is the
+   * primitive a loopback `AF_UNIX`/`AF_INET` socket connection is built from (`net_connect`/
+   * `net_accept` in `main-thread-syscalls.ts`): a full-duplex "socket" is two of these, one per
+   * direction, each side's fd number picked by the worker-side translation, not here.
+   *
+   * Same handle-move pattern as {@link bridgeFd}: `create_pipe` always puts both ends in whichever
+   * context it's given, so both are created on the neutral `pipeProcess` context, then each end's
+   * `Handle` is moved (not copied-and-left, `attachStream` doesn't need to survive on two contexts
+   * at once) onto its real destination process's own descriptor table, at the lowest free fd.
+   */
+  linkProcesses(fromProc: InstanceType<typeof ZenFSProcess>, toProc: InstanceType<typeof ZenFSProcess>): { writerFd: number, readerFd: number } {
+    const pipeProcCtx = this.pipeProcess.context
+    const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
+
+    const readHandle = pipeProcCtx.descriptors.get(pipeReadFd)
+    pipeProcCtx.descriptors.delete(pipeReadFd)
+    let readerFd = 3
+    while (toProc.context.descriptors.has(readerFd)) readerFd++
+    if (readHandle) toProc.context.descriptors.set(readerFd, readHandle)
+
+    const writeHandle = pipeProcCtx.descriptors.get(pipeWriteFd)
+    pipeProcCtx.descriptors.delete(pipeWriteFd)
+    let writerFd = 3
+    while (fromProc.context.descriptors.has(writerFd)) writerFd++
+    if (writeHandle) fromProc.context.descriptors.set(writerFd, writeHandle)
+
+    return { writerFd, readerFd }
+  }
+
   private bridgeFd(
     proc: InstanceType<typeof ZenFSProcess>,
     stdFd: number,
