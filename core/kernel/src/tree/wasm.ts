@@ -27,6 +27,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_renameat', '__syscall_symlinkat', '__syscall_linkat', '__syscall_readlinkat', '__syscall_fchmodat2',
   '__syscall_faccessat', '__syscall_utimensat', '__syscall_getuid32', '__syscall_geteuid32', '__syscall_getgid32',
   '__syscall_getegid32', '__syscall_dup3', '__syscall_fallocate', '__syscall_fadvise64', '__syscall_ioctl',
+  '__syscall_epoll_create1', '__syscall_epoll_ctl', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking',
 ])
 
 /**
@@ -36,13 +37,11 @@ const IMPLEMENTED_SYSCALLS = new Set([
  * `env.__syscall_*` ABI onto the real syscalls, so they are killable worker Processes with real
  * pids, pipes and `^C`.
  *
- * Known limitation of what still runs through this class (sockets, `epoll`, an unimplemented
- * `__syscall_*`, preview2 components): `_start` is called directly on the main thread with no
- * yield point unless the module was compiled with asyncify, so a genuine infinite loop freezes
- * the tab and `^C` cannot reach it. This is a permanent split, not a to-do: preview2's component
- * model is a different ABI entirely (the canonical ABI plus `jco`'s own shim), and browsers have
- * no raw sockets to translate `AF_INET`/`epoll` onto, so `executeWasm` (and the `Process`/
- * `ProcessManager`/`FDTable` types it alone still uses) stays as their real, permanent home.
+ * Known limitation of what still runs through this class (real (non-loopback) internet sockets, an
+ * unimplemented `__syscall_*`, preview2 components): `_start` is called directly on the main thread
+ * with no yield point unless the module was compiled with asyncify, so a genuine infinite loop
+ * freezes the tab and `^C` cannot reach it. `epoll` moved to the worker path -- see
+ * `wasi-preview1.mjs`'s own doc comment for why it never needed sockets in the first place.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -126,7 +125,7 @@ export class Wasm implements IWasm {
       // A plain wasip1 module imports nothing but wasi_snapshot_preview1 (and, rarely, its own
       // memory); an ordinary (non-STANDALONE_WASM) emcc build also imports a fixed set of
       // env.__syscall_* names, translated for real in wasi-preview1.mjs's own env object. Anything
-      // else in `env` (sockets, epoll, an unimplemented syscall) is not answered, so such a module
+      // else in `env` (real internet sockets, an unimplemented syscall) is not answered, so such a module
       // stays on the main-thread path rather than crash on a missing import.
       if (!WebAssembly.Module.imports(module).every(entry =>
         entry.module === 'wasi_snapshot_preview1' ||
