@@ -981,9 +981,15 @@ export class Kernel implements IKernel {
 
       let exitCode: number | void = -1
       switch (header.type) {
-        case 'wasm':
-          exitCode = await this.executeWasm(options)
+        case 'wasm': {
+          // A plain wasip1 module runs as a real worker Process under /bin/wali (killable, real
+          // pid, real pipes); the rest still need the main-thread adapter.
+          const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
+          exitCode = await this.wasm.canRunInWorker(wasmBytes)
+            ? await this.executeViaExecve(options)
+            : await this.executeWasm(options)
           break
+        }
         case 'js':
           exitCode = await this.executeViaExecve(options)
           break

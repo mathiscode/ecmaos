@@ -22,6 +22,7 @@
 import { ready, exit } from '@zenfs/linux/uapi/process'
 import { open, read, close } from '@zenfs/linux/uapi/fs'
 import { run } from '@zenfs/linux/uapi/wali'
+import { runPreview1 } from './wasi-preview1.mjs'
 
 /** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
 async function readWholeFile(path) {
@@ -58,7 +59,11 @@ try {
   const source = await readWholeFile(init.exe)
   // run() only returns if the module falls out of main() without exiting -- __proc_exit tears
   // the thread down itself, same as bin/node.mjs's exit() for a program that calls it directly.
-  const code = await run(source)
+  // A `wasi_snapshot_preview1` module is translated onto the same syscalls (`wasi-preview1.mjs`);
+  // anything else is a WALI module and goes straight to upstream's host.
+  const module = await WebAssembly.compile(source)
+  const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
+  const code = isPreview1 ? await runPreview1(source) : await run(source)
   exit(code)
 } catch (error) {
   console.error(error)
