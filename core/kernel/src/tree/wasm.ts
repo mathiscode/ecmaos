@@ -14,18 +14,33 @@ export interface WasiComponentResult {
   exitCode: Promise<number>
 }
 
+/** The `env.__syscall_*` names `wasi-preview1.mjs`'s own `envSyscalls` object answers -- see its doc
+ * comment for how the signatures, the varargs-pointer convention and the `struct stat` layout were
+ * confirmed against a real `emcc` 6.0.9 build rather than guessed, and `tests/tree/wasi/fixtures/`
+ * for the real compiled fixture (`emcc-hello.c`/`.wasm`) that proves it end to end: stdout, a real
+ * file created/written/closed/stat'd, a real directory, and the program's own exit code. */
+const IMPLEMENTED_SYSCALLS = new Set([
+  '__syscall_chdir', '__syscall_fchdir', '__syscall_chmod', '__syscall_fchmod', '__syscall_rmdir',
+  '__syscall_getcwd', '__syscall_truncate64', '__syscall_ftruncate64', '__syscall_stat64', '__syscall_lstat64',
+  '__syscall_fstat64', '__syscall_fchown32', '__syscall_getdents64', '__syscall_fcntl64', '__syscall_openat',
+  '__syscall_umask', '__syscall_mkdirat', '__syscall_fchownat', '__syscall_newfstatat', '__syscall_unlinkat',
+  '__syscall_renameat', '__syscall_symlinkat', '__syscall_linkat', '__syscall_readlinkat', '__syscall_fchmodat2',
+  '__syscall_faccessat', '__syscall_utimensat', '__syscall_getuid32', '__syscall_geteuid32', '__syscall_getgid32',
+  '__syscall_getegid32', '__syscall_dup3', '__syscall_fallocate', '__syscall_fadvise64', '__syscall_ioctl',
+])
+
 /**
- * Plain `wasm32-wasip1` modules, asyncified or not, no longer run here (see `canRunInWorker`):
- * `Kernel.execute` sends them through `execve` to `/bin/wali`, where `src/bin/wasi-preview1.mjs`
- * translates preview1 onto the real syscalls, so they are killable worker Processes with real
+ * Plain `wasm32-wasip1` modules and ordinary (non-`STANDALONE_WASM`) `emcc` builds, asyncified or
+ * not, no longer run here (see `canRunInWorker`): `Kernel.execute` sends them through `execve` to
+ * `/bin/wali`, where `src/bin/wasi-preview1.mjs` translates preview1 and emscripten's own
+ * `env.__syscall_*` ABI onto the real syscalls, so they are killable worker Processes with real
  * pids, pipes and `^C`.
  *
- * Known limitation of what still runs through this class (ordinary `emcc` builds -- see
- * `canRunInWorker`'s own doc comment for why those stay here despite `wasi-preview1.mjs` having a
- * real, ABI-verified `env.__syscall_*` translation already -- sockets, `epoll`, an imported memory,
- * preview2 components): `_start` is called directly on the main thread with no yield point unless
- * the module was compiled with asyncify, so a genuine infinite loop freezes the tab and `^C`
- * cannot reach it. Those modules move once the worker path covers their imports.
+ * Known limitation of what still runs through this class (sockets, `epoll`, an unimplemented
+ * `__syscall_*`, an imported memory, preview2 components): `_start` is called directly on the main
+ * thread with no yield point unless the module was compiled with asyncify, so a genuine infinite
+ * loop freezes the tab and `^C` cannot reach it. Those modules move once the worker path covers
+ * their imports.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -95,25 +110,23 @@ export class Wasm implements IWasm {
 
   /**
    * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
-   * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module that imports
-   * nothing but `wasi_snapshot_preview1` and exports its own memory. Asyncify is fine (see below).
+   * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module (imports nothing
+   * but `wasi_snapshot_preview1`) or an ordinary `emcc` build (also imports only names
+   * `IMPLEMENTED_SYSCALLS` lists), either way exporting its own memory. Asyncify is fine (see below).
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
     try {
       const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
       const module = await WebAssembly.compile(buffer)
-      // A plain wasip1 module imports nothing but wasi_snapshot_preview1 -- the only shape routed
-      // to the worker today. wasi-preview1.mjs also has a real, ABI-verified translation of
-      // emscripten's env.__syscall_* (`wasi-preview1.mjs`'s own `envSyscalls`; see its doc comment for how the
-      // signatures, varargs convention and struct stat layout were confirmed against a real emcc
-      // 6.0.9 build), but a real compiled fixture using it did not behave as that build's own
-      // library_syscall.js documents -- __syscall_openat was imported but never actually called at
-      // runtime for a plain open()/write()/stat() sequence, for a reason not yet root-caused (this
-      // emcc release may resolve file syscalls through a different, WasmFS-specific path this
-      // adapter does not implement). Gating stays wasi-only until that is understood; env is not
-      // included in the check below on purpose.
-      if (!WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')) return false
+      // A plain wasip1 module imports nothing but wasi_snapshot_preview1; an ordinary (non-
+      // STANDALONE_WASM) emcc build also imports a fixed set of env.__syscall_* names, translated
+      // for real in wasi-preview1.mjs's own env object. Anything else in `env` (sockets, epoll, an
+      // unimplemented syscall) is not answered, so such a module stays on the main-thread path
+      // rather than crash on a missing import.
+      if (!WebAssembly.Module.imports(module).every(entry =>
+        entry.module === 'wasi_snapshot_preview1' || (entry.module === 'env' && IMPLEMENTED_SYSCALLS.has(entry.name))
+      )) return false
       if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')) return false
       // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
       // explicitly triggers that protocol -- this adapter never does (every wasi_snapshot_preview1

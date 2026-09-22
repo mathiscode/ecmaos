@@ -1,17 +1,27 @@
 /**
- * WASI preview1 for `/bin/wali`: a translation of `wasi_snapshot_preview1` onto the real
- * `@zenfs/linux` syscalls, so a plain `wasm32-wasip1` program runs as a real worker-hosted Process
- * (killable, on a real pid, with real pipes and a real tty) instead of on the main thread inside
- * `Kernel.executeWasm`, where a tight loop freezes the tab and `^C` cannot reach it.
+ * WASI preview1 for `/bin/wali`: a translation of `wasi_snapshot_preview1`, and of the
+ * emscripten-proprietary `env.__syscall_*` ABI an ordinary (non-`STANDALONE_WASM`) `emcc` build
+ * uses for file I/O, onto the real `@zenfs/linux` syscalls -- so a `wasm32-wasip1` program or a
+ * plain `emcc` build runs as a real worker-hosted Process (killable, on a real pid, with real
+ * pipes and a real tty) instead of on the main thread inside `Kernel.executeWasm`, where a tight
+ * loop freezes the tab and `^C` cannot reach it.
  *
- * Scope is deliberately the portable core of preview1: args/environ, clocks, random, the fd and
- * path calls, `poll_oneoff` and `proc_exit`. Sockets answer ENOSYS. Modules that need more (asyncify,
- * an imported `env` memory, emscripten `__syscall_*`, preview2 components) are not routed here; see
- * `canRunPreview1InWorker` in `tree/wasm.ts`.
+ * Scope is the portable core of preview1 (args/environ, clocks, random, the fd and path calls,
+ * `poll_oneoff`, `proc_exit`) plus the `env.__syscall_*` names `IMPLEMENTED_SYSCALLS` lists in
+ * `tree/wasm.ts`. Sockets and `epoll` answer ENOSYS/ENOTTY. An imported (rather than exported)
+ * memory and preview2 components are not routed here; see `canRunInWorker` in `tree/wasm.ts`.
  *
- * Every wasi fd is its own number: 0-2 are the process's real stdio fds, 3 is a preopen of `/` and
- * 4 a preopen of `.` (the cwd at start), and files opened after that get the next free number
- * mapped onto a real fd, so a wasi program never sees, or can close, a descriptor the loader uses.
+ * A wasi fd and a real fd share one numbering: 0-2 are the process's own stdio fds, and the `/`
+ * and `.` preopens are opened for real right here (not reserved at fixed numbers 3/4), so whatever
+ * real fds they land on can never collide with one `env.__syscall_openat` later hands out into the
+ * very same real fd space -- unlike `wasi_snapshot_preview1.path_open`, which allocates its own
+ * fd numbers starting at `nextFd`, `__syscall_openat` returns a real fd directly. A collision here
+ * was a real bug, caught by hand with a real `emcc` build (`tests/tree/wasi/fixtures/emcc-hello.c`):
+ * a program's own file happened to open onto the fd the '.' preopen's fixed slot reserved, and
+ * every `fd_write` to it silently hit the preopen's directory entry instead, throwing before the
+ * write ever reached the real file -- caught with a durable, syscall-level trace (console output
+ * from a worker close to its own exit is not reliable in this test environment; the eventual
+ * fix -- opening the preopens for real up front -- came from that trace, not from guessing).
  */
 
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2 } from '@zenfs/linux/uapi/fs'
@@ -119,14 +129,25 @@ export function createPreview1(getMemory) {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
+  // The preopens are opened *eagerly*, right here, so they get real fd numbers from the same real
+  // allocator env.__syscall_openat (below) hands out into -- not the fixed 3/4 a lazy-open used to
+  // reserve. That fixed numbering was a real bug: a program using env.__syscall_openat opens into
+  // the very same real fd space (unlike wasi path_open's own wasi-fd numbers starting at `nextFd`),
+  // so a real file that happened to land on fd 4 collided with the '.' preopen's reserved slot --
+  // fd_write(4, ...) matched the stale directory entry and threw before ever reaching the real
+  // file, a silent, hard-to-trace failure caught by hand with a real emcc build (see
+  // tests/tree/wasi/fixtures/emcc-hello.c). Opening for real here, before anything else can, is
+  // what guarantees uniqueness: real fd allocation never reuses a number that's still open.
+  const preopenRoot = open('/', O_RDONLY | O_DIRECTORY)
+  const preopenCwd = open(cwd, O_RDONLY | O_DIRECTORY)
   const fds = new Map([
     [0, { fd: 0, path: null, dir: false }],
     [1, { fd: 1, path: null, dir: false }],
     [2, { fd: 2, path: null, dir: false }],
-    [3, { fd: null, path: '/', dir: true, preopen: '/' }],
-    [4, { fd: null, path: cwd, dir: true, preopen: '.' }],
+    [preopenRoot, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
+    [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
-  let nextFd = 5
+  let nextFd = Math.max(preopenRoot, preopenCwd) + 1
 
   const view = () => new DataView(getMemory().buffer)
   const bytes = () => new Uint8Array(getMemory().buffer)
@@ -662,7 +683,6 @@ export function createPreview1(getMemory) {
       const path = resolveAt(dirfd, pathPtr)
       const mode = varargsPtr ? varargI(varargsPtr, 0) : 0o644
       const fd = open(path, wasiOflagsFromLinux(flags), mode)
-      console.error('DEBUG openat', path, flags, mode, '->', fd)
       if (flags & O_DIRECTORY) dirPaths.set(fd, path)
       return fd
     }),
