@@ -1,11 +1,13 @@
 /**
  * Real `execve`'d `ps` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/kernel/src/tree/lib/commands/index.ts`). `kernel.processes.all` is a live, main-thread-only
- * process table, so this reaches it through the `ps_list` custom syscall (`#lib/main-thread-syscalls.ts`),
- * the same pattern `df.mjs` uses for `storage_usage`, including `lib/scratch.mjs`'s shared scratch-
- * file bridge. No ANSI colour here (the original used `chalk` for a TTY-only presentation) -- kept
- * plain to match every other migrated coreutil's stdout-is-just-text convention; a real terminal can
- * still colour it downstream if that's ever wanted back.
+ * (`core/kernel/src/tree/lib/commands/index.ts`). The real process table is `@zenfs/linux`'s own
+ * module-global `processes` map (real pids, real for every worker-hosted and main-thread-fallback
+ * program alike -- the legacy `Process`/`ProcessManager` this replaced is gone entirely), reachable
+ * only from the main thread, so this reaches it through the `ps_list` custom syscall
+ * (`#lib/main-thread-syscalls.ts`), the same pattern `df.mjs` uses for `storage_usage`, including
+ * `lib/scratch.mjs`'s shared scratch-file bridge. No ANSI colour here (the original used `chalk`
+ * for a TTY-only presentation) -- kept plain to match every other migrated coreutil's stdout-is-
+ * just-text convention; a real terminal can still colour it downstream if that's ever wanted back.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

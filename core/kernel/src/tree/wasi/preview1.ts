@@ -1,4 +1,5 @@
 import path from 'path'
+import { processes as zenfsProcesses } from '@zenfs/linux'
 import type { Kernel, FileHandle, Shell, WasiStreamOptions } from '@ecmaos/types'
 
 
@@ -413,17 +414,17 @@ export default function createWasiPreview1Bindings({
         // Special handling for /proc/self/stat - ensure it exists and has correct content
         if (entry.path === '/proc/self/stat') {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
-          const currentProcess = kernel.processes.get(currentPid) || null
+          const currentProcess = zenfsProcesses.get(currentPid) || null
           const statFields = [
             currentPid,
             '(ecmaos)',
             'R',
-            currentProcess?.parent || 0,
+            currentProcess?.ppid || 0,
             currentPid, currentPid, 0, currentPid, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -686,18 +687,18 @@ export default function createWasiPreview1Bindings({
         // Ensure /proc/self/stat exists before trying to stat it
         if (resolvedPath === '/proc/self/stat' || resolvedPath.startsWith('/proc/self/')) {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (resolvedPath === '/proc/self/stat') {
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,
               '(ecmaos)',
               'R',
-              currentProcess?.parent || 0,
+              currentProcess?.ppid || 0,
               currentPid, currentPid, 0, currentPid, 0,
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -757,19 +758,19 @@ export default function createWasiPreview1Bindings({
         // Handle /proc/self/stat dynamically - create it with the current process's PID
         if (resolvedPath === '/proc/self/stat' || resolvedPath.startsWith('/proc/self/')) {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (resolvedPath === '/proc/self/stat') {
             // Create /proc/self/stat with the current process's PID
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,                    // 1: pid
               '(ecmaos)',                    // 2: comm (command name in parentheses)
               'R',                           // 3: state (R=running)
-              currentProcess?.parent || 0,   // 4: ppid (parent process ID)
+              currentProcess?.ppid || 0,   // 4: ppid (parent process ID)
               currentPid,                    // 5: pgrp (process group ID)
               currentPid,                    // 6: session (session ID)
               0,                             // 7: tty_nr (controlling terminal)
@@ -812,8 +813,8 @@ export default function createWasiPreview1Bindings({
             }
           } else if (resolvedPath === '/proc/self/exe') {
             // Handle /proc/self/exe symlink
-            const currentProcess = kernel.processes.get(currentPid) || null
-            const exePath = currentProcess?.command || '/bin/ecmaos'
+            const currentProcess = zenfsProcesses.get(currentPid) || null
+            const exePath = currentProcess?.exe || currentProcess?.argv[0] || '/bin/ecmaos'
             
             try {
               if (!fsSync.existsSync('/proc/self')) {
@@ -907,19 +908,19 @@ export default function createWasiPreview1Bindings({
         // Ensure /proc/self/stat exists and is readable before opening
         if (resolvedPath === '/proc/self/stat') {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (!fsSync.existsSync('/proc/self/stat') || !fsSync.statSync('/proc/self/stat').isFile()) {
             // Recreate it if it doesn't exist or is invalid
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,
               '(ecmaos)',
               'R',
-              currentProcess?.parent || 0,
+              currentProcess?.ppid || 0,
               currentPid, currentPid, 0, currentPid, 0,
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -966,18 +967,18 @@ export default function createWasiPreview1Bindings({
         // Ensure /proc/self/stat exists before trying to stat it
         if (resolvedPath === '/proc/self/stat' || resolvedPath.startsWith('/proc/self/')) {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (resolvedPath === '/proc/self/stat') {
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,
               '(ecmaos)',
               'R',
-              currentProcess?.parent || 0,
+              currentProcess?.ppid || 0,
               currentPid, currentPid, 0, currentPid, 0,
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1346,7 +1347,7 @@ export default function createWasiPreview1Bindings({
         return pid
       }
       // Fallback: get the most recent process or default to 1
-      const allProcesses = Array.from(kernel.processes.all.values())
+      const allProcesses = Array.from(zenfsProcesses.values())
       const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
       return lastProcess?.pid || 1
     },
@@ -1355,7 +1356,7 @@ export default function createWasiPreview1Bindings({
       if (pid !== undefined) {
         return pid
       }
-      const allProcesses = Array.from(kernel.processes.all.values())
+      const allProcesses = Array.from(zenfsProcesses.values())
       const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
       return lastProcess?.pid || 1
     },
@@ -1676,17 +1677,17 @@ export default function createWasiPreview1Bindings({
       // Special handling for /proc/self/stat - return content directly from memory
       if (entry.path === '/proc/self/stat') {
         const currentPid = pid !== undefined ? pid : (() => {
-          const allProcesses = Array.from(kernel.processes.all.values())
+          const allProcesses = Array.from(zenfsProcesses.values())
           const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
           return lastProcess?.pid || 1
         })()
         
-        const currentProcess = kernel.processes.get(currentPid) || null
+        const currentProcess = zenfsProcesses.get(currentPid) || null
         const statFields = [
           currentPid,
           '(ecmaos)',
           'R',
-          currentProcess?.parent || 0,
+          currentProcess?.ppid || 0,
           currentPid, currentPid, 0, currentPid, 0,
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Math.floor(Date.now() / 1000), // starttime in seconds (approximation)
           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2067,18 +2068,18 @@ export default function createWasiPreview1Bindings({
         // Ensure /proc/self/stat exists before trying to stat it
         if (resolvedPath === '/proc/self/stat' || resolvedPath.startsWith('/proc/self/')) {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (resolvedPath === '/proc/self/stat') {
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,
               '(ecmaos)',
               'R',
-              currentProcess?.parent || 0,
+              currentProcess?.ppid || 0,
               currentPid, currentPid, 0, currentPid, 0,
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2492,18 +2493,18 @@ export default function createWasiPreview1Bindings({
         // Ensure /proc/self/stat exists before trying to open it
         if (resolvedPath === '/proc/self/stat' || resolvedPath.startsWith('/proc/self/')) {
           const currentPid = pid !== undefined ? pid : (() => {
-            const allProcesses = Array.from(kernel.processes.all.values())
+            const allProcesses = Array.from(zenfsProcesses.values())
             const lastProcess = allProcesses.length > 0 ? allProcesses[allProcesses.length - 1] : null
             return lastProcess?.pid || 1
           })()
           
           if (resolvedPath === '/proc/self/stat') {
-            const currentProcess = kernel.processes.get(currentPid) || null
+            const currentProcess = zenfsProcesses.get(currentPid) || null
             const statFields = [
               currentPid,
               '(ecmaos)',
               'R',
-              currentProcess?.parent || 0,
+              currentProcess?.ppid || 0,
               currentPid, currentPid, 0, currentPid, 0,
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, Date.now(),
               0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -2520,8 +2521,8 @@ export default function createWasiPreview1Bindings({
               kernel.log.warn(`Failed to create /proc/self/stat: ${(error as Error).message}`)
             }
           } else if (resolvedPath === '/proc/self/exe') {
-            const currentProcess = kernel.processes.get(currentPid) || null
-            const exePath = currentProcess?.command || '/bin/ecmaos'
+            const currentProcess = zenfsProcesses.get(currentPid) || null
+            const exePath = currentProcess?.exe || currentProcess?.argv[0] || '/bin/ecmaos'
             const fsSync = shell.context.fs
             try {
               if (!fsSync.existsSync('/proc/self')) {

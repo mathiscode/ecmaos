@@ -2,8 +2,7 @@
  * Process management types and interfaces
  */
 
-import type { Filesystem } from './filesystem.ts'
-import type { Kernel, KernelContext } from './kernel.ts'
+import type { Kernel } from './kernel.ts'
 import type { Shell } from './shell.ts'
 import type { Terminal } from './terminal.ts'
 
@@ -61,58 +60,6 @@ export interface FDTable {
   closeFileHandles(): Promise<void>
   /** Cleanup all resources */
   cleanup(): Promise<void>
-}
-
-/** Map of process IDs to processes */
-export type ProcessesMap = Map<number, Process>
-
-/**
- * Options for configuring processes
- */
-export interface ProcessOptions {
-  /** User ID */
-  uid: number
-  /** Group ID */
-  gid: number
-  /** Command line arguments */
-  args?: string[]
-  /** Exit code */
-  code?: number
-  /** Command name */
-  command?: string
-  /** Working directory */
-  cwd?: string
-  /** Process entry point */
-  entry?: (params: ProcessEntryParams) => Promise<number | undefined | void>
-  /** The cross-cutting kernel primitives (log is what Process uses internally) */
-  context: KernelContext
-  /** The filesystem, for PID files and process.open()/close() */
-  filesystem: Filesystem
-  /** The process table this process registers itself in */
-  processes: ProcessManager
-  /**
-   * Only used to populate `ProcessEntryParams.kernel`, which every entry point (apps especially)
-   * may depend on -- narrowing that external-facing surface is out of scope here.
-   */
-  kernel: Kernel
-  /** Parent process ID */
-  parent?: number
-  /** Reference to shell instance */
-  shell: Shell
-  /** Process status */
-  status?: ProcessStatus
-  /** Standard error stream */
-  stderr?: WritableStream<Uint8Array>
-  /** Standard input stream */
-  stdin?: ReadableStream<Uint8Array>
-  /** Whether stdin is a TTY (interactive terminal) vs a pipe */
-  stdinIsTTY?: boolean
-  /** Standard output stream */
-  stdout?: WritableStream<Uint8Array>
-  /** Whether stdout is a TTY (interactive terminal) vs a file/pipe */
-  stdoutIsTTY?: boolean
-  /** Reference to terminal instance */
-  terminal: Terminal
 }
 
 /**
@@ -264,47 +211,3 @@ export interface Process {
   /** Restart process */
   restart(): void
 }
-
-/**
- * Interface for process manager functionality
- */
-export interface ProcessManager {
-  /** Get all processes */
-  readonly all: ProcessesMap
-
-  /**
-   * Add a process
-   * @param process - Process to add
-   */
-  add(process: Process): number
-
-  /**
-   * Create a process
-   * @param options - Process options
-   */
-  create(options: ProcessOptions): Process
-
-  /**
-   * Get a process by ID
-   * @param pid - Process ID
-   */
-  get(pid: number): Process | undefined
-
-  /**
-   * Get next available process ID
-   */
-  pid(): number
-
-  /**
-   * Remove a process
-   * @param pid - Process ID
-   */
-  remove(pid: number): void
-
-  /**
-   * Spawn a child process
-   * @param parent - Parent process ID
-   * @param process - Process to spawn
-   */
-  spawn(parent: number, process: Process): number
-} 
