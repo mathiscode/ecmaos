@@ -19,6 +19,20 @@ async function compile(wat: string): Promise<Uint8Array> {
   return buffer
 }
 
+/** Runs a real module through `wasm-opt --asyncify` (binaryen), proving the adapter's claim by hand. */
+function asyncify(bytes: Uint8Array): Uint8Array {
+  const { execFileSync } = process.getBuiltinModule('node:child_process')
+  const { mkdtempSync, writeFileSync, readFileSync } = process.getBuiltinModule('node:fs')
+  const { tmpdir } = process.getBuiltinModule('node:os')
+  const { join } = process.getBuiltinModule('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'wasi-asyncify-'))
+  const inPath = join(dir, 'in.wasm')
+  const outPath = join(dir, 'out.wasm')
+  writeFileSync(inPath, Buffer.from(bytes))
+  execFileSync(join(process.cwd(), '../../node_modules/.bin/wasm-opt'), [inPath, '--asyncify', '-o', outPath])
+  return new Uint8Array(readFileSync(outPath))
+}
+
 const HEADER = `
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))
@@ -88,6 +102,20 @@ describe('wasi preview1 as a worker Process', () => {
     expect(await kernel.wasm.canRunInWorker(await compile(HELLO))).toBe(true)
     const emscripten = await compile(`(module (import "env" "emscripten_thing" (func)) (memory (export "memory") 1) (func (export "_start")))`)
     expect(await kernel.wasm.canRunInWorker(emscripten)).toBe(false)
+  })
+
+  it('runs an asyncify-instrumented module the same as the plain one, unwind/rewind never triggered', async () => {
+    const instrumented = asyncify(await compile(HELLO))
+    // The transform adds only the asyncify_* exports, no new imports -- confirms the adapter's claim
+    // that it stays routable (no env.* import shows up asyncify needs answering).
+    const module = await WebAssembly.compile(instrumented.buffer.slice(instrumented.byteOffset, instrumented.byteOffset + instrumented.byteLength) as ArrayBuffer)
+    expect(WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')).toBe(true)
+    expect(WebAssembly.Module.exports(module).some(entry => entry.name === 'asyncify_get_state')).toBe(true)
+
+    expect(await kernel.wasm.canRunInWorker(instrumented)).toBe(true)
+    await kernel.filesystem.fs.writeFile('/tmp/hello-async.wasm', instrumented, { mode: 0o755 })
+    expect(await kernel.shell.execute('/tmp/hello-async.wasm > /tmp/hello-async.out')).toBe(7)
+    expect(await kernel.filesystem.fs.readFile('/tmp/hello-async.out', 'utf-8')).toBe('hello from wasi\n')
   })
 
   it('writes to stdout and exits with its own code', async () => {

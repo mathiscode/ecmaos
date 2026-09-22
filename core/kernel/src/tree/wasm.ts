@@ -93,8 +93,9 @@ export class Wasm implements IWasm {
   /**
    * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
    * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module that imports
-   * nothing but `wasi_snapshot_preview1`, has no asyncify and exports its own memory. Anything else
-   * (emscripten `env` imports, an imported memory, preview2 components) stays on the main-thread path.
+   * nothing but `wasi_snapshot_preview1` and exports its own memory. Asyncify is fine (see below);
+   * emscripten `env.__syscall_*` imports and an imported (rather than exported) memory are not
+   * implemented by the adapter yet, so those and preview2 components stay on the main-thread path.
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
@@ -103,7 +104,12 @@ export class Wasm implements IWasm {
       const module = await WebAssembly.compile(buffer)
       if (!WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')) return false
       if (!WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')) return false
-      return !(await this.detectAsyncify(wasmBytes)).hasAsyncify
+      // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
+      // explicitly triggers that protocol -- this adapter never does (every wasi_snapshot_preview1
+      // call here answers synchronously), so asyncify's own state machine never activates and the
+      // module runs exactly as if it had never been instrumented. Confirmed by hand: `wasm-opt
+      // --asyncify` on a real preview1 module adds only the asyncify_* exports, no new imports.
+      return true
     } catch {
       return false
     }
