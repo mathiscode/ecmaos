@@ -82,6 +82,20 @@ const WRITE_FILE = `(module
 const SPIN = `(module ${HEADER}
   (func (export "_start") (loop $forever (br $forever))))`
 
+// same as HELLO, but the memory is imported rather than exported -- proves `runPreview1`'s own
+// `detectMemoryImport` (reading the import's declared size straight out of the binary, since the
+// JS reflection API doesn't expose memory limits) actually creates and wires it in.
+const HELLO_IMPORTED_MEMORY = `(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "memory" (memory 2))
+  (data (i32.const 8) "hi from imported\\n")
+  (func (export "_start")
+    (i32.store (i32.const 0) (i32.const 8))
+    (i32.store (i32.const 4) (i32.const 17))
+    (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 100)))
+    (call $proc_exit (i32.const 5))))`
+
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
@@ -119,6 +133,14 @@ describe('wasi preview1 as a worker Process', () => {
     for (const [name, wat] of Object.entries({ hello: HELLO, cat: CAT, spin: SPIN, writefile: WRITE_FILE })) {
       await kernel.filesystem.fs.writeFile(`/tmp/${name}.wasm`, await compile(wat), { mode: 0o755 })
     }
+  })
+
+  it('runs a module with an imported (not exported) memory, created to its own declared size', async () => {
+    const bytes = await compile(HELLO_IMPORTED_MEMORY)
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+    await kernel.filesystem.fs.writeFile('/tmp/hello-imported-memory.wasm', bytes, { mode: 0o755 })
+    expect(await kernel.shell.execute('/tmp/hello-imported-memory.wasm > /tmp/hello-imported-memory.out')).toBe(5)
+    expect(await kernel.filesystem.fs.readFile('/tmp/hello-imported-memory.out', 'utf-8')).toBe('hi from imported\n')
   })
 
   it('is routed to the worker only when it is a plain wasip1 module', async () => {
