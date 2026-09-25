@@ -53,13 +53,14 @@ describe('Kernel.executeWasm (main-thread fallback, no worker route)', () => {
     // let that happen, then measure the *second* run in isolation.
     expect(await kernel.shell.execute('/tmp/plain.wasm')).toBe(0)
 
-    const before = processes.size
     const code = await kernel.shell.execute('/tmp/plain.wasm')
     expect(code).toBe(0)
     // A real, parentless ZenFSProcess reaps itself on exit (`Process.exit`'s own real behavior:
     // "with no parent left to wait for it, there is nothing to keep the zombie around for") --
     // registers into and then exits back out of the same real `processes` map `ps_list`/`kill`
-    // read, no zombie left behind.
-    expect(processes.size).toBe(before)
+    // read, no zombie left behind. Matched by argv rather than by counting the whole map, which
+    // boot's own background processes (crond) can grow at any moment under load.
+    const leftovers = [...processes.values()].filter(p => p.argv[0] === '/tmp/plain.wasm')
+    expect(leftovers).toEqual([])
   })
 })
