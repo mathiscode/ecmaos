@@ -93,6 +93,16 @@ import type {
   Timer
 } from '@ecmaos/types'
 
+/**
+ * Reads a structured (array/object) build constant that `vite.config.ts` `define`s under
+ * `import.meta.env`. A bundled build inlines the real value; Vite 8's unbundled dev/test path
+ * serves `import.meta.env` values as strings, so accept the JSON source text there too.
+ */
+function jsonEnv<T>(value: unknown): T | undefined {
+  if (typeof value !== 'string') return value as T | undefined
+  try { return JSON.parse(value) as T } catch { return undefined }
+}
+
 const DefaultKernelOptions: KernelOptions = {
   devices: DefaultDevices,
   dom: DefaultDomOptions,
@@ -568,20 +578,22 @@ export class Kernel implements IKernel {
           `${this.terminal.createSpecialLink(import.meta.env['HOMEPAGE'], import.meta.env['NAME'] || 'ecmaOS')}@${import.meta.env['VERSION']}`
           + chalk.cyan(` [${dependencyLinks.map(link => link.link).join(', ')}]`))
 
+        const author = jsonEnv<{ name?: string, email?: string, url?: string }>(import.meta.env['AUTHOR'])
         this.terminal.writeln(`${this.i18n.ns.kernel('madeBy')} ${this.terminal.createSpecialLink(
-          import.meta.env['AUTHOR']?.url || 'https://github.com/mathiscode',
-          `${import.meta.env['AUTHOR']?.name} <${import.meta.env['AUTHOR']?.email}>`
+          author?.url || 'https://github.com/mathiscode',
+          `${author?.name} <${author?.email}>`
         )}`)
 
         this.terminal.writeln(import.meta.env['REPOSITORY'] + '\n')
 
+        const knownIssues = jsonEnv<string[]>(import.meta.env['KNOWN_ISSUES'])
         if (
-          import.meta.env['KNOWN_ISSUES']
+          knownIssues
           && import.meta.env['ECMAOS_BOOT_DISABLE_ISSUES'] !== 'true'
           && !this.filesystem.fsSync.existsSync('/etc/noissues')
         ) {
           this.terminal.writeln(chalk.yellow.bold(this.i18n.ns.kernel('knownIssues')))
-          this.terminal.writeln(chalk.yellow(import.meta.env['KNOWN_ISSUES'].map((issue: string) => `- ${issue}`).join('\n')) + '\n')
+          this.terminal.writeln(chalk.yellow(knownIssues.map((issue: string) => `- ${issue}`).join('\n')) + '\n')
         }
 
         if (
@@ -589,12 +601,13 @@ export class Kernel implements IKernel {
           && !this.filesystem.fsSync.existsSync('/etc/notips')
         ) {
           const tipsList = this.i18n.ns.kernel('tipsList', { returnObjects: true }) as string[]
+          const fallbackTips = jsonEnv<string[]>(import.meta.env['TIPS'])
           if (Array.isArray(tipsList) && tipsList.length > 0) {
             this.terminal.writeln(chalk.green.bold(this.i18n.ns.kernel('tips')))
             this.terminal.writeln(chalk.green(tipsList.map(tip => `- ${tip}`).join('\n')) + '\n')
-          } else if (import.meta.env['TIPS']) {
+          } else if (fallbackTips) {
             this.terminal.writeln(chalk.green.bold(this.i18n.ns.kernel('tips')))
-            this.terminal.writeln(chalk.green(import.meta.env['TIPS'].map((tip: string) => `- ${tip}`).join('\n')) + '\n')
+            this.terminal.writeln(chalk.green(fallbackTips.map((tip: string) => `- ${tip}`).join('\n')) + '\n')
           }
         }
 

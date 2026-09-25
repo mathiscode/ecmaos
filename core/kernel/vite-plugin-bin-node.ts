@@ -32,7 +32,7 @@ function binWorkerPlugin(name: string, entryPoint: string): Plugin {
           format: 'esm',
           platform: 'browser',
           write: false,
-          absWorkingDir: __dirname
+          absWorkingDir: import.meta.dirname
         })
 
         const output = result.outputFiles[0]
@@ -192,12 +192,12 @@ export function binKernelCommands(): Plugin {
         const entries: Record<string, string> = {}
         for (const name of migratedKernelCommands) {
           const result = await build({
-            entryPoints: [path.join(__dirname, 'src', 'bin', 'commands', `${name}.mjs`)],
+            entryPoints: [path.join(import.meta.dirname, 'src', 'bin', 'commands', `${name}.mjs`)],
             bundle: true,
             format: 'esm',
             platform: 'browser',
             write: false,
-            absWorkingDir: __dirname
+            absWorkingDir: import.meta.dirname
           })
           const output = result.outputFiles[0]
           if (!output) throw new Error(`bin-kernel-commands: esbuild produced no output for ${name}`)
