@@ -738,12 +738,9 @@ export function installMainThreadSyscalls(): void {
           }
         }
 
-        // `Users.remove()` (`tree/users.ts`) already rewrites /etc/passwd from its own in-memory map
-        // once the user is deleted -- but it never touches /etc/shadow at all, so that still needs
-        // manual cleanup here, exactly matching the legacy command (which did both, redundantly for
-        // passwd, necessarily for shadow).
-        await kernel.filesystem.fs.writeFile('/etc/passwd',
-          (await kernel.filesystem.fs.readFile('/etc/passwd', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
+        // `Users.remove()` (`tree/users.ts`) already rewrites both /etc/passwd and /etc/group from
+        // its own in-memory map once the user is deleted -- but it never touches /etc/shadow at
+        // all, so that still needs manual cleanup here.
         await kernel.filesystem.fs.writeFile('/etc/shadow',
           (await kernel.filesystem.fs.readFile('/etc/shadow', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
 
