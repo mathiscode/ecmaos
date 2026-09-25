@@ -136,6 +136,18 @@ describe('Shell.execute — real execution over the new parser', () => {
     expect((await kernel.filesystem.fs.readFile(path, 'utf-8')).trim()).toBe('fresh')
   })
 
+  /**
+   * Regression test: `1>&2` (or any `N>&M` dup onto an fd with no redirect of its own) used to hand
+   * back the *same* `WritableStream` instance for both stdout and stderr
+   * (`Shell.buildOutputStreams`'s `defaultFor` caches per fd), and `Kernel.executeViaExecve` bridged
+   * both fds independently, calling `.getWriter()` on the already-locked stream a second time and
+   * throwing `Cannot create writer when WritableStream is locked`.
+   */
+  it('does not crash on a foreground 1>&2 dup redirect', async () => {
+    const code = await run('echo err 1>&2')
+    expect(code).toBe(0)
+  })
+
   it('appends stdout to a file with >>', async () => {
     const path = '/tmp/shell-append-test.txt'
     if (await kernel.filesystem.fs.exists(path)) await kernel.filesystem.fs.unlink(path)

@@ -276,9 +276,114 @@ class LineParser {
 /** Reserved words this parser understands -- used by the shell to reject them as command names. */
 export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
 
+/**
+ * `then`/`do` must end a line (attached to their condition/header, per `consumeConditionThroughKeyword`),
+ * and once attached, the compound "COND then"/"HEADER do" line is complete.
+ */
+const ATTACH_AND_CLOSE_LINE = new Set(['then', 'do'])
+/** Start a new line on their own; the word itself continues to accumulate normally afterward. */
+const START_NEW_LINE = new Set(['if', 'while', 'for', 'elif', 'fi', 'done'])
+/** Stands alone on its own line, with nothing else -- its body starts as a fresh line after it. */
+const ISOLATE_ALONE = new Set(['else'])
+
+/**
+ * Rewrites a single physical line's `;`-joined compact control flow (`if COND; then BODY; fi`, as
+ * typed at an interactive prompt) into the newline-delimited form `LineParser` above actually
+ * understands (it is strictly line-oriented: `then`/`do` attached to the end of a line, `else` alone
+ * on its own line, bodies on the following lines). Already multi-line script text is left untouched
+ * -- each of these keywords is only ever recognized right after a top-level `;` (a real statement
+ * boundary), never after plain whitespace, so an ordinary argument that happens to spell a keyword
+ * (`echo done`, `touch fi`) is never misread as control flow; real shells enforce the same
+ * command-position restriction on these reserved words.
+ */
+export function normalizeInlineControlFlow(text: string): string {
+  const lines: string[] = []
+  let current = ''
+  let depth = 0
+  let i = 0
+
+  const flush = () => {
+    const trimmed = current.trim()
+    if (trimmed.length) lines.push(trimmed)
+    current = ''
+  }
+
+  while (i < text.length) {
+    const char = text[i] as string
+
+    if (char === '\\' && i + 1 < text.length) {
+      current += text.slice(i, i + 2)
+      i += 2
+      continue
+    }
+
+    if (char === "'") {
+      const end = text.indexOf("'", i + 1)
+      const stop = end === -1 ? text.length : end + 1
+      current += text.slice(i, stop)
+      i = stop
+      continue
+    }
+
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' && j + 1 < text.length ? 2 : 1
+      const stop = Math.min(j + 1, text.length)
+      current += text.slice(i, stop)
+      i = stop
+      continue
+    }
+
+    if (char === '(') { depth++; current += char; i++; continue }
+    if (char === ')') { depth = Math.max(0, depth - 1); current += char; i++; continue }
+    if (char === '\n') { flush(); i++; continue }
+
+    if (depth === 0 && char === ';') {
+      if (text[i + 1] === ';') { current += ';;'; i += 2; continue }
+
+      let j = i + 1
+      while (j < text.length && /\s/.test(text[j] as string)) j++
+      let k = j
+      while (k < text.length && /[A-Za-z]/.test(text[k] as string)) k++
+      const word = text.slice(j, k)
+      const boundaryOk = !text[k] || !/[A-Za-z0-9_]/.test(text[k] as string)
+
+      if (boundaryOk && ISOLATE_ALONE.has(word)) {
+        flush()
+        lines.push(word)
+        i = k
+        continue
+      }
+
+      if (boundaryOk && START_NEW_LINE.has(word)) {
+        flush()
+        i = j
+        continue
+      }
+
+      if (boundaryOk && ATTACH_AND_CLOSE_LINE.has(word)) {
+        current += (current.length && !/\s$/.test(current) ? ' ' : '') + word
+        flush()
+        i = k
+        continue
+      }
+
+      current += char
+      i++
+      continue
+    }
+
+    current += char
+    i++
+  }
+
+  flush()
+  return lines.join('\n')
+}
+
 /** Parse a full script into a statement tree. Blank lines and full-line comments are dropped. */
 export function parseStatements(script: string): Statement[] {
-  const lines = preprocessLines(script)
+  const lines = preprocessLines(normalizeInlineControlFlow(script))
   const parser = new LineParser(lines)
   const statements = parser.parseStatements([])
   return statements

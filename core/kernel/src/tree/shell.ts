@@ -24,6 +24,49 @@ import type { CaseStatement, ForStatement, IfStatement, Statement, WhileStatemen
 import { expandWord } from '#lib/expand-variables.ts'
 import { runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 
+/**
+ * Finds the first top-level (unquoted, unescaped, not nested inside `$(...)`/`$((...))`)
+ * `;`/`&`/`|` in `text`, for splitting a bare `VAR=value` assignment from whatever statement
+ * follows it on the same line (`tryExecuteAssignment`). Deliberately simpler than
+ * `shell-parser.ts`'s `tokenize` -- it doesn't word-split on whitespace, so `$((X + 3))` survives
+ * intact inside an assignment's value the same way it already does today. Returns -1 if none found.
+ */
+function findTopLevelOperatorIndex(text: string): number {
+  let depth = 0
+  let i = 0
+  while (i < text.length) {
+    const char = text[i] as string
+
+    if (char === '\\' && i + 1 < text.length) {
+      i += 2
+      continue
+    }
+
+    if (char === "'") {
+      const end = text.indexOf("'", i + 1)
+      if (end === -1) return -1
+      i = end + 1
+      continue
+    }
+
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' && j + 1 < text.length ? 2 : 1
+      if (j >= text.length) return -1
+      i = j + 1
+      continue
+    }
+
+    if (char === '(') { depth++; i++; continue }
+    if (char === ')') { depth = Math.max(0, depth - 1); i++; continue }
+    if (depth === 0 && (char === ';' || char === '&' || char === '|')) return i
+
+    i++
+  }
+
+  return -1
+}
+
 /** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
 class BreakSignal extends Error {}
 class ContinueSignal extends Error {}
@@ -824,76 +867,70 @@ export class Shell implements IShell {
    * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
   private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
-    const currentCmd = this._terminal.cmd
-    try {
-      const stages: Array<{
-        finalCommand: string
-        args: string[]
-        stdin: ReadableStream<Uint8Array>
-        stdinIsTTY: boolean
-        stdout: WritableStream<Uint8Array>
-        stdoutIsTTY: boolean
-        stderr: WritableStream<Uint8Array>
-      }> = []
+    const stages: Array<{
+      finalCommand: string
+      args: string[]
+      stdin: ReadableStream<Uint8Array>
+      stdinIsTTY: boolean
+      stdout: WritableStream<Uint8Array>
+      stdoutIsTTY: boolean
+      stderr: WritableStream<Uint8Array>
+    }> = []
 
-      let prevReadable: ReadableStream<Uint8Array> | undefined
+    let prevReadable: ReadableStream<Uint8Array> | undefined
 
-      for (let i = 0; i < pipeline.commands.length; i++) {
-        const command = pipeline.commands[i] as ParsedCommand
-        const { finalCommand, args } = await this.prepareCommand(command)
-        const isFirstCommand = i === 0
-        const isLastCommand = i === pipeline.commands.length - 1
+    for (let i = 0; i < pipeline.commands.length; i++) {
+      const command = pipeline.commands[i] as ParsedCommand
+      const { finalCommand, args } = await this.prepareCommand(command)
+      const isFirstCommand = i === 0
+      const isLastCommand = i === pipeline.commands.length - 1
 
-        let stdin: ReadableStream<Uint8Array>
-        let stdinIsTTY = false
-        const inputRedirect = command.redirections.find(r => r.type === '<' && r.fd === 0)
-        if (isFirstCommand && inputRedirect) {
-          const sourcePath = path.resolve(this.cwd, inputRedirect.target)
-          if (!await this.context.fs.promises.exists(sourcePath)) {
-            throw new Error(`File not found: ${sourcePath}`)
-          }
-          stdin = this.createFileReadStream(sourcePath, this.env, this._filesystem)
-        } else if (isFirstCommand) {
-          stdin = this._terminal.getInputStream()
-          stdinIsTTY = true
-        } else {
-          if (!prevReadable) throw new Error('Pipeline error: missing previous stream')
-          stdin = prevReadable
+      let stdin: ReadableStream<Uint8Array>
+      let stdinIsTTY = false
+      const inputRedirect = command.redirections.find(r => r.type === '<' && r.fd === 0)
+      if (isFirstCommand && inputRedirect) {
+        const sourcePath = path.resolve(this.cwd, inputRedirect.target)
+        if (!await this.context.fs.promises.exists(sourcePath)) {
+          throw new Error(`File not found: ${sourcePath}`)
         }
-
-        let pipeWritable: WritableStream<Uint8Array> | undefined
-        if (!isLastCommand) {
-          const pipe = this._createPipeStream()
-          pipeWritable = pipe.writable
-          prevReadable = pipe.readable
-        }
-
-        const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
-        const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
-        stages.push({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr })
+        stdin = this.createFileReadStream(sourcePath, this.env, this._filesystem)
+      } else if (isFirstCommand) {
+        stdin = this._terminal.getInputStream()
+        stdinIsTTY = true
+      } else {
+        if (!prevReadable) throw new Error('Pipeline error: missing previous stream')
+        stdin = prevReadable
       }
 
-      const results = await Promise.all(stages.map(({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }) =>
-        this._execute({
-          command: finalCommand,
-          args,
-          shell: this,
-          terminal: this._terminal,
-          stdin,
-          stdinIsTTY,
-          stdout,
-          stdoutIsTTY,
-          stderr,
-          onProcess: job ? (process => { job.processes.push(process) }) : undefined,
-          foreground: job ? !job.background : true
-        })
-      ))
+      let pipeWritable: WritableStream<Uint8Array> | undefined
+      if (!isLastCommand) {
+        const pipe = this._createPipeStream()
+        pipeWritable = pipe.writable
+        prevReadable = pipe.readable
+      }
 
-      return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
-    } catch (error) {
-      this._terminal.restoreCommand(currentCmd)
-      throw error
+      const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
+      const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
+      stages.push({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr })
     }
+
+    const results = await Promise.all(stages.map(({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }) =>
+      this._execute({
+        command: finalCommand,
+        args,
+        shell: this,
+        terminal: this._terminal,
+        stdin,
+        stdinIsTTY,
+        stdout,
+        stdoutIsTTY,
+        stderr,
+        onProcess: job ? (process => { job.processes.push(process) }) : undefined,
+        foreground: job ? !job.background : true
+      })
+    ))
+
+    return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
   }
 
   /** All tracked jobs, oldest first. See `_jobs`'s doc comment for retention behavior. */
@@ -1055,18 +1092,28 @@ export class Shell implements IShell {
 
   /**
    * `VAR=value` (and `VAR=` for an empty assignment) as a bare statement -- not `env VAR=value cmd`,
-   * which already works today by other means, but a whole line whose only content is an assignment.
-   * A real shell recognizes this at the parser level (it's not a command at all, and `=` is not an
+   * which already works today by other means, but a line that *starts* with an assignment. A real
+   * shell recognizes this at the parser level (it's not a command at all, and `=` is not an
    * operator); recognizing it here, at the same point `execute` decides what kind of line this is,
-   * avoids teaching `shell-parser.ts` a whole new statement kind for something that never pipes,
-   * redirects, or chains with `&&`. Returns the exit code if `line` was an assignment, else
-   * `undefined` so `execute` falls through to normal pipeline parsing.
+   * avoids teaching `shell-parser.ts` a whole new statement kind for something that never pipes or
+   * redirects. Returns the exit code if `line` started with an assignment, else `undefined` so
+   * `execute` falls through to normal pipeline parsing.
+   *
+   * The value only extends up to the first top-level (unquoted, not inside `$(...)`/`$((...))`)
+   * `;`/`&&`/`||`/`&`/`|` -- `x=5; echo $x` must run `echo $x` as its own statement, not swallow it
+   * into `x`'s value. Whatever follows that boundary is hand back to `execute` recursively; an
+   * assignment always "succeeds" (exit 0) unless expansion itself throws, so `;`/`&&` both continue
+   * into the remainder and `||` skips it, matching how a real shell treats a successful command.
    */
   private async tryExecuteAssignment(line: string): Promise<number | undefined> {
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)
     if (!match) return undefined
 
-    const [, name, rawValue] = match as unknown as [string, string, string]
+    const name = match[0].slice(0, -1)
+    const rest = line.slice(match[0].length)
+    const boundary = findTopLevelOperatorIndex(rest)
+    const rawValue = boundary === -1 ? rest : rest.slice(0, boundary)
+
     let value = await this.parseCommandSubstitution(rawValue)
     value = this.expandTilde(value)
     value = expandWord(value, (varName) => this.lookupVariable(varName))
@@ -1077,23 +1124,61 @@ export class Shell implements IShell {
     }
 
     this.setVariable(name, value)
-    return 0
+    if (boundary === -1) return 0
+
+    const opLen = (rest[boundary] === '&' && rest[boundary + 1] === '&') || (rest[boundary] === '|' && rest[boundary + 1] === '|') ? 2 : 1
+    const operator = rest.slice(boundary, boundary + opLen)
+    if (operator === '||') return 0
+
+    const remainder = rest.slice(boundary + opLen).trim()
+    return remainder ? await this.execute(remainder) : 0
   }
 
   /**
-   * Executes a command line: comment-stripped, parsed into a `Script`, and walked stage by stage
-   * honoring `;`, `&&`, `||`, and `&`. A stage whose trailing operator is `&` is registered as a
-   * background `Job` (see `@ecmaos/types`' `Job`) and *not* awaited here -- `execute()` returns to
-   * the caller (the prompt) immediately after printing `[<job-id>] <pid>`, the same way bash reports
-   * a backgrounded pipeline. Every other stage runs in the foreground: tracked as `foregroundJob`
-   * for the duration (so `^C`/`^Z` in `Terminal.keyHandler` have something to signal) and awaited
-   * before the next stage of the line runs. `set -e` aborts the whole line on the first foreground
-   * stage that fails without being consumed by `&&`/`||`/negation; `set -o pipefail` changes a
-   * pipeline's reported exit code to its last *non-zero* stage rather than strictly its last stage.
-   * A backgrounded stage's exit code never affects `$?`/`errexit`/`&&`/`||` on this line -- exactly
-   * like bash, which reports it only later via `wait`/the "Done" line in `jobs`.
+   * Executes a line typed at the prompt (or handed in by any other single-line caller). Most lines
+   * are a plain pipeline and go straight to `executeSimple`; a line that itself contains control
+   * flow (`if`/`while`/`for`/`case`/a function definition -- whether spread across real `\n`s or
+   * typed compact-and-`;`-joined at the prompt) is instead handed to the same
+   * `parseStatements`/`executeStatements` machinery `executeScriptText` uses for script files, so
+   * `if ...; then ...; fi` typed directly at the terminal behaves identically to running it from a
+   * script. `parseStatements` normalizes the compact/`;`-joined form itself
+   * (`normalizeInlineControlFlow`); a line that isn't parseable as statements at all (e.g. mismatched
+   * quotes) falls back to `executeSimple` so it fails with a normal command error instead of a parser
+   * exception.
    */
-  async execute(line: string) {
+  async execute(line: string): Promise<number> {
+    const trimmed = line.split('#')[0]?.trim()
+    if (!trimmed) return 0
+
+    let statements: Statement[]
+    try {
+      statements = parseStatements(trimmed)
+    } catch {
+      return this.executeSimple(trimmed)
+    }
+
+    if (statements.length !== 1 || statements[0]?.type !== 'simple') {
+      return this.executeStatements(statements)
+    }
+
+    return this.executeSimple(trimmed)
+  }
+
+  /**
+   * Executes a single already-simple command line: comment-stripped, parsed into a `Script`, and
+   * walked stage by stage honoring `;`, `&&`, `||`, and `&`. A stage whose trailing operator is `&`
+   * is registered as a background `Job` (see `@ecmaos/types`' `Job`) and *not* awaited here -- this
+   * returns to the caller (the prompt) immediately after printing `[<job-id>] <pid>`, the same way
+   * bash reports a backgrounded pipeline. Every other stage runs in the foreground: tracked as
+   * `foregroundJob` for the duration (so `^C`/`^Z` in `Terminal.keyHandler` have something to
+   * signal) and awaited before the next stage of the line runs. `set -e` aborts the whole line on
+   * the first foreground stage that fails without being consumed by `&&`/`||`/negation; `set -o
+   * pipefail` changes a pipeline's reported exit code to its last *non-zero* stage rather than
+   * strictly its last stage. A backgrounded stage's exit code never affects `$?`/`errexit`/`&&`/`||`
+   * on this line -- exactly like bash, which reports it only later via `wait`/the "Done" line in
+   * `jobs`.
+   */
+  private async executeSimple(line: string): Promise<number> {
     const lineWithoutComments = line.split('#')[0]?.trim()
     if (!lineWithoutComments) return 0
 
@@ -1235,7 +1320,7 @@ export class Shell implements IShell {
           const trimmed = statement.line.trim()
           if (trimmed === 'break') throw new BreakSignal()
           if (trimmed === 'continue') throw new ContinueSignal()
-          lastExit = await this.execute(statement.line)
+          lastExit = await this.executeSimple(statement.line)
           break
         }
 
