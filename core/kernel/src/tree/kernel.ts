@@ -26,7 +26,6 @@ import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
-import { WebContainer } from '@webcontainer/api'
 import { context, trace } from '@opentelemetry/api'
 
 import './../themes/default.scss'
@@ -54,7 +53,6 @@ import { Wasm } from '#wasm.ts'
 import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
-// import createBIOS, { BIOSModule } from '@ecmaos/bios'
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
@@ -164,14 +162,10 @@ export class Kernel implements IKernel {
 
   /** Authentication and authorization service */
   public readonly auth: Auth
-  /** BIOS module providing low-level functionality */
-  // public bios?: BIOSModule
   /** Broadcast channel for inter-kernel communication */
   public readonly channel: BroadcastChannel
   /** Web Components manager */
   public readonly components: Components
-  /** WebContainer instance */
-  public container?: WebContainer
   /** DOM manipulation service */
   public readonly dom: Dom
   /** Map of registered devices and their drivers */
