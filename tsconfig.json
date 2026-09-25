@@ -8,7 +8,10 @@
     "core/metal",
     "core/swapi",
     "core/bios",
-    "core/kernel/src/ui.ts"
+    "core/jaffa",
+    "core/kernel/src/ui.ts",
+    "**/vite.config.ts",
+    "**/vite-plugin-*.ts"
   ],
   "compilerOptions": {
     "rootDir": "./core",
@@ -18,9 +21,13 @@
     "resolveJsonModule": true,
     "module": "ES2022",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
     "moduleResolution": "bundler",
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "vim-wasm/vimwasm.js": ["./core/utils/src/types/vim-wasm.d.ts"]
+    }
   }
 }

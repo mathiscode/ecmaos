@@ -47,7 +47,6 @@ export interface I18nNamespaces {
   common: TFunction
   kernel: TFunction
   filesystem: TFunction
-  coreutils: TFunction
   terminal: TFunction
 }
 

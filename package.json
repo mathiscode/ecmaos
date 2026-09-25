@@ -38,7 +38,7 @@
     "publish-packages": "turbo run build lint test && pnpm sync && git commit -am \"chore: sync version and docs\" && changeset version && changeset publish",
     "start": "turbo run dev --filter=@ecmaos/kernel",
     "sync": "pnpm sync:readme && pnpm sync:version && pnpm sync:version:html && pnpm build:docs && pnpm sync:tutorials && pnpm sync:docs && pnpm sync:licenses && pnpm sync:zenfs && pnpm sync:initfs",
-    "sync:docs": "cp -r docs core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel",
+    "sync:docs": "rm -rf core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel/docs && cp -r docs core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel",
     "sync:initfs": "tar --owner=root --group=root -czf core/kernel/public/initfs.tar.gz -C core/kernel/public/initfs .",
     "sync:initfs:demo": "tar --owner=root --group=root -czf core/kernel/public/initfs.demo.tar.gz -C core/kernel/public/initfs.demo .",
     "sync:licenses": "cp LICENSE LICENSE-APACHE LICENSE-MIT core/kernel/public/initfs/usr/share/licenses/@ecmaos/kernel/ && cp LICENSE LICENSE-APACHE LICENSE-MIT core/kernel/public/initfs.demo/usr/share/licenses/@ecmaos/kernel/",
