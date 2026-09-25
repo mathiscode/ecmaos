@@ -53,6 +53,7 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
+import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
@@ -417,6 +418,15 @@ export class Kernel implements IKernel {
         if (!(await this.filesystem.fs.exists(path))) await this.filesystem.fs.mkdir(path, { recursive: true, mode })
       }
       filesystemSpan.setAttribute('filesystem.paths_created', requiredPaths.length)
+
+      // A persisted root may have been laid down by an older release; bring it up to this one's
+      // schema before anything below reads or rewrites what it holds.
+      const migrated = await runFsMigrations({
+        fs: this.filesystem.fs,
+        log: this.log,
+        legacyCommandNames: new Set(Object.keys(getLegacyCommands()))
+      })
+      if (migrated.length) filesystemSpan.setAttribute('filesystem.migrations_applied', migrated.join(','))
       filesystemSpan.end()
 
       // Always rewritten (not gated on `exists`, unlike `/etc/hostname` below): on a persisted
@@ -822,20 +832,7 @@ export class Kernel implements IKernel {
 
       const initSpan = tracer.startSpan('kernel.boot.init', {}, trace.setSpan(context.active(), bootSpan))
       if (!await this.filesystem.fs.exists('/boot/init')) {
-        await this.filesystem.fs.writeFile('/boot/init', [
-          '#!ecmaos:bin:script:init',
-          '',
-          '# The real, editable boot script -- everything here used to run unconditionally',
-          '# inside Kernel.boot() itself. What still can\'t move: anything needing a yes/no',
-          '# branch (there is no `if` yet -- see the shell-jobs branch) stays in boot().',
-          '# crond isn\'t started here -- a `crond &` line would background it onto this same',
-          '# Shell\'s own job table (`_jobs`), the one the interactive session goes on to use, and',
-          '# crond never finishes -- so a later bare `wait` (every non-done job) would hang forever.',
-          '# It starts the same way /boot/init itself does: a raw Process, not a shell job.',
-          'motd',
-          'screensaver-daemon',
-          ''
-        ].join('\n'))
+        await this.filesystem.fs.writeFile('/boot/init', DEFAULT_BOOT_INIT)
       }
       // Awaited: /boot/init's own output (motd, screensaver-daemon, ...) must finish printing
       // before the recommended-apps prompt below writes its own -- unawaited, the two raced and
@@ -1982,6 +1979,12 @@ export class Kernel implements IKernel {
       if (await this.filesystem.fs.exists(target) && await this.filesystem.fs.readFile(target, 'utf8') === source) continue
       await this.filesystem.fs.writeFile(target, source, { mode: 0o755 })
     }
+
+    // A stub left by an earlier build for a command that is no longer on the in-process path (it
+    // became a real program under another name, or was dropped) can only fail when run; clear any,
+    // so a stub never outlives the command it pointed at.
+    const stubNames = new Set(names.filter(name => !migratedCommandSources[name] && !migratedKernelCommandSources[name]))
+    await removeStaleCommandStubs(this.filesystem.fs, stubNames)
   }
 
   /**
