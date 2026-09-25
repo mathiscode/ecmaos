@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import binPilotWindowSource from 'virtual:bin-pilot-window'
+
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
@@ -31,12 +33,17 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     })
     await kernel.boot()
 
+    // Not shipped in /bin any more: the pilot is a test fixture, installed from the same bundle
+    // the vite plugin builds for it.
+    expect(await kernel.filesystem.fs.exists('/bin/pilot-window.js')).toBe(false)
+    await kernel.filesystem.fs.writeFile('/bin/pilot-window.js', binPilotWindowSource, { mode: 0o755 })
+
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
   })
 
-  it('writes /bin/pilot-window.js as a real, executable file at boot', async () => {
+  it('installs /bin/pilot-window.js as a real, executable file', async () => {
     expect(await kernel.filesystem.fs.exists('/bin/pilot-window.js')).toBe(true)
     const stat = await kernel.filesystem.fs.stat('/bin/pilot-window.js')
     expect(stat.mode & 0o111).toBeGreaterThan(0)

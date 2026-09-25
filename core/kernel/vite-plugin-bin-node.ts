@@ -58,16 +58,18 @@ export function binWali(): Plugin {
 }
 
 /**
- * Bundles `src/bin/pilot-pwd.mjs` -- the real, syscall-only coreutil pilot proving `execve` plus
+ * Bundles `src/bin/pilot-pwd.mjs` -- a syscall-only program proving `execve` plus
  * `Kernel.bridgeStdio` work together -- into `virtual:bin-pilot-pwd`, the same way `binNode` does.
+ * A test fixture only: tests install it into `/bin` themselves; it never ships in the OS.
  */
 export function binPilotPwd(): Plugin {
   return binWorkerPlugin('pilot-pwd', 'src/bin/pilot-pwd.mjs')
 }
 
 /**
- * Bundles `src/bin/pilot-window.mjs` -- the pilot proving the `window_create`/`window_write`/
+ * Bundles `src/bin/pilot-window.mjs` -- a program proving the `window_create`/`window_write`/
  * `window_close` main-thread-syscall bridge works end to end -- into `virtual:bin-pilot-window`.
+ * A test fixture only, like `binPilotPwd`.
  */
 export function binPilotWindow(): Plugin {
   return binWorkerPlugin('pilot-window', 'src/bin/pilot-window.mjs')

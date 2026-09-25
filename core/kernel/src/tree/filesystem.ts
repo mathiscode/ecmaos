@@ -19,8 +19,6 @@ import pako from 'pako'
 import path from 'path'
 import binNodeSource from 'virtual:bin-node'
 import binWaliSource from 'virtual:bin-wali'
-import binPilotPwdSource from 'virtual:bin-pilot-pwd'
-import binPilotWindowSource from 'virtual:bin-pilot-window'
 
 import type { ConfigMounts, Configuration } from '@zenfs/core'
 
@@ -143,8 +141,6 @@ export class Filesystem {
     this.registerProcEntries()
     await this.installBinNode()
     await this.installBinWali()
-    await this.installPilotPwd()
-    await this.installPilotWindow()
     const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
 
     if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
@@ -184,33 +180,6 @@ export class Filesystem {
   private async installBinWali() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
     await this.fs.writeFile('/bin/wali', binWaliSource, { mode: 0o755 })
-  }
-
-  /**
-   * Writes `/bin/pilot-pwd.js` -- an experimental, real `execve`'d coreutil-shaped program proving
-   * `Kernel.bridgeStdio` (redirected stdio for real `Process`es) actually works end to end, not a
-   * shipped coreutil. See `src/bin/pilot-pwd.mjs`'s doc comment and
-   * `.docs/overhaul/STATUS_01.md` for what this pilot is and is not proving.
-   *
-   * Named with a `.js` extension deliberately -- `Kernel.readFileHeader`'s extension fallback is
-   * what classifies a shebang-less, non-magic-byte file as `'js'` (matching every other execve'd
-   * `.js` fixture in this codebase); `@zenfs/linux`'s own `binfmt_js` doesn't care about the name
-   * at all (it matches any non-WASM, non-null-byte content), but ecmaOS's own dispatch does.
-   */
-  private async installPilotPwd() {
-    if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
-    await this.fs.writeFile('/bin/pilot-pwd.js', binPilotPwdSource, { mode: 0o755 })
-  }
-
-  /**
-   * Writes `/bin/pilot-window.js` -- an experimental, real `execve`'d program proving
-   * `main-thread-syscalls.ts`'s `window_create`/`window_write`/`window_close` syscalls actually work
-   * end to end: a worker-hosted program reaching a real, main-thread-only DOM capability through a
-   * real custom syscall, not a `Process`/DOM fallback. See `src/bin/pilot-window.mjs`'s doc comment.
-   */
-  private async installPilotWindow() {
-    if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
-    await this.fs.writeFile('/bin/pilot-window.js', binPilotWindowSource, { mode: 0o755 })
   }
 
   /**
