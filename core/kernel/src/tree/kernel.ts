@@ -15,13 +15,15 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, Credentials } from '@zenfs/core'
-import { char_dev, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
+import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
+import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { of_platform_populate as populatePlatformBus } from '@zenfs/linux/drivers/of/device_tree'
 import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
+import { withErrno } from 'kerium'
 // import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
 import { WebContainer } from '@webcontainer/api'
@@ -55,7 +57,7 @@ import { Workers } from '#workers.ts'
 // import createBIOS, { BIOSModule } from '@ecmaos/bios'
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
 import { parseFstabFile } from '#lib/fstab.ts'
-import { installSyscallPolicy } from '#lib/syscall-policy.ts'
+import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
@@ -1986,6 +1988,22 @@ export class Kernel implements IKernel {
       const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
         const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
         if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
+
+        // Manifest `devices` enforcement (see `lib/syscall-policy.ts`'s doc comment for why this
+        // reads the cache synchronously instead of awaiting `loadManifest` itself). `current` is
+        // whichever process this worker is running right now, i.e. the caller -- by the time it
+        // reaches a device's `read`/`write`, it has already made the syscall that opened the
+        // device node, which `installSyscallPolicy` already intercepted and cached a manifest
+        // for. No manifest, or no `devices` list on it, is unrestricted, same as `syscalls`.
+        const exe = zenfsCurrent?.exe
+        if (exe) {
+          const manifest = getCachedManifest(exe)
+          const allowed = manifest?.devices
+          if (allowed && !allowed.includes(entry.driver.name) && !allowed.includes(entry.driver.class?.name)) {
+            throw withErrno('EPERM')
+          }
+        }
+
         return entry.driver.ops
       }
 
@@ -2012,15 +2030,37 @@ export class Kernel implements IKernel {
         continue
       }
 
+      // `Device.register()` links a device into `bus.devices_kobj` (`/sys/bus/<name>/devices`)
+      // purely off the `bus` field -- no `DeviceDriver` is required for that part, only for
+      // auto-binding. ecmaOS's own web-capability devices (webcam, gamepad, ...) previously never
+      // set `bus` at all, so they got a real `/sys/devices/.../<name>` and `/sys/class/<class>/...`
+      // entry but were invisible under any `/sys/bus/*` -- unlike the core subsystems `boot()`
+      // already wires onto real buses via `initDriverCore`/`populatePlatformBus`/`tty.init()`.
       for (const { driver } of group) {
         try {
-          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor } }).register()
+          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor }, bus: this._webCapabilityBus }).register()
         } catch (error) {
           this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     }
   }
+
+  /**
+   * `/sys/bus/webcapability` -- the bus ecmaOS's own {@link KernelCharDevice}s register on, so
+   * they show up under `/sys/bus/*` the same way the core subsystems `boot()` wires through
+   * `@zenfs/linux`'s real driver core do. Lazily constructed once per `Kernel` instance; a second
+   * `Kernel` booted in the same JS realm (as tests do) constructing another `BusType('webcapability')`
+   * is tolerated the same way duplicate major/device registration already is elsewhere in this
+   * method -- `KObject`'s constructor has no EEXIST check, it just replaces the prior entry under
+   * `/sys/bus`, which is fine since only the most-recently-booted kernel's devices matter here.
+   */
+  private get _webCapabilityBus(): BusType {
+    this.__webCapabilityBus ??= new BusType('webcapability')
+    return this.__webCapabilityBus
+  }
+
+  private __webCapabilityBus?: BusType
 
   /**
    * Registers the kernel events.
