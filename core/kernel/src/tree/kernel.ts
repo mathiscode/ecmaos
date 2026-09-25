@@ -909,12 +909,36 @@ export class Kernel implements IKernel {
       bootSpan.end()
       this.log.error(error)
       this._state = KernelState.PANIC
+      this.showBootFailure(error, spinner)
       this.events.dispatch<KernelPanicEvent>(KernelEvents.PANIC, { error: error as Error })
-      this.dom.toast.error({
-        message: this.i18n.ns.kernel('panic'),
-        duration: 0,
-        dismissible: false
-      })
+    }
+  }
+
+  /**
+   * Leaves the UI in an honest state after `boot()` fails: the spinner stops, the topbar and its
+   * progress clear, and a toast names the error. Each step is guarded on its own, because the
+   * failure may have come from the very subsystem (dom, i18n, terminal) the step would use.
+   */
+  private showBootFailure(error: unknown, spinner?: { stop(): void }) {
+    const detail = error instanceof Error ? error.message : String(error)
+
+    try { spinner?.stop() } catch {}
+    try {
+      void this.dom.topbarProgress(0)
+      void this.dom.topbar(false)
+    } catch {}
+
+    let headline = 'Uh oh, kernel panic! Check the logs for more details.'
+    try {
+      const translated = this.i18n.ns.kernel('panic')
+      if (translated && translated !== 'panic') headline = translated
+    } catch {}
+
+    const message = detail ? `${headline}\n${detail}` : headline
+    try {
+      this.dom.toast.error({ message, duration: 0, dismissible: false })
+    } catch {
+      console.error(message)
     }
   }
 
