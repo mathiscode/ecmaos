@@ -5,7 +5,7 @@ import type { ProcessEntryParams } from '@ecmaos/types'
 const main = async (params: ProcessEntryParams) => {
   // const Webamp = WebampModule.default
   // console.log(WebampModule)
-  const { args, command, cwd, gid, kernel, pid, shell, terminal, stdin, stdout, stderr, uid } = params
+  const { args, command, cwd, gid, instance, kernel, pid, shell, terminal, stdin, stdout, stderr, uid } = params
   if (!(Webamp as any).browserIsSupported()) throw new Error('Browser does not support necessary features for webamp')
 
   const mount = document.createElement('div')
@@ -30,6 +30,16 @@ const main = async (params: ProcessEntryParams) => {
   const player = new (Webamp as any)(playerOptions)
   document.body.appendChild(mount)
   player.renderWhenReady(mount)
+
+  // Without this, `main` returning right after render resolves the process's `closed` promise
+  // immediately, so the process exits while the player is still open -- its lifetime was never
+  // actually tied to the process's. `keepAlive` ties it to the player's own close, the same way
+  // `apps/code/src/main.ts` ties its process to its editor window: `onClose` (the user closing
+  // the player through its own UI) exits the process; `onDispose` (killed from outside) disposes
+  // the player, since nothing else can reach into it once the process is gone.
+  instance.keepAlive()
+  player.onClose(() => instance.exit(0))
+  instance.onDispose?.(() => player.dispose())
 }
 
 export default main
