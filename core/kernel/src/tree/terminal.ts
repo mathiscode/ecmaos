@@ -64,6 +64,77 @@ export enum CommandPath {
   KERNEL = 'kernel'
 }
 
+/** The exact command line an `ecmaos://kernel.execute?command=...&args=...` link asks to run. */
+export interface KernelExecuteLink {
+  command: string
+  args: string[]
+}
+
+/**
+ * Parses an `ecmaos://kernel.execute` link into the command line it would run, or `null` if the text
+ * isn't one (or is malformed). Keys and values are percent-decoded; `args` is split on whitespace.
+ */
+export function parseKernelExecuteLink(text: string): KernelExecuteLink | null {
+  const prefix = 'ecmaos://'
+  if (!text.startsWith(prefix)) return null
+  const rest = text.slice(prefix.length)
+  const query = rest.indexOf('?')
+  if (query < 0 || rest.slice(0, query) !== `${CommandPath.KERNEL}.execute`) return null
+
+  const params: Record<string, string> = {}
+  try {
+    for (const pair of rest.slice(query + 1).split('&')) {
+      const eq = pair.indexOf('=')
+      if (eq <= 0) continue
+      params[decodeURIComponent(pair.slice(0, eq))] = decodeURIComponent(pair.slice(eq + 1))
+    }
+  } catch {
+    return null // a malformed percent-escape: refuse rather than guess
+  }
+
+  const command = params['command']?.trim()
+  if (!command) return null
+  return { command, args: params['args']?.split(/\s+/).filter(Boolean) ?? [] }
+}
+
+/** What activating a terminal link needs from its surroundings; injectable for tests. */
+export interface LinkActivationDeps {
+  confirm: (message: string) => boolean | Promise<boolean>
+  execute: (link: KernelExecuteLink) => unknown
+  openUrl: (url: string) => void
+}
+
+const defaultLinkActivationDeps: LinkActivationDeps = {
+  confirm: message => globalThis.window?.confirm?.(message) ?? false,
+  execute: ({ command, args }) => {
+    const kernel = globalThis.kernel
+    if (kernel) return kernel.execute({ command, args, shell: kernel.shell })
+  },
+  openUrl: url => { globalThis.window?.open(url, '_blank', 'noopener,noreferrer') }
+}
+
+/**
+ * Handles a click on a link in terminal output. `http(s)` links open in a new tab. An
+ * `ecmaos://kernel.execute` link runs a command, and any program's output can print one, so it
+ * first shows the exact decoded command line and runs it only if the user confirms.
+ * Resolves `true` if a command ran.
+ */
+export async function activateTerminalLink(text: string, deps: LinkActivationDeps = defaultLinkActivationDeps): Promise<boolean> {
+  if (/^https?:\/\//.test(text)) {
+    deps.openUrl(text)
+    return false
+  }
+
+  const link = parseKernelExecuteLink(text)
+  if (!link) return false
+
+  const commandLine = [link.command, ...link.args].join(' ')
+  if (!await deps.confirm(`A terminal link wants to run this command:\n\n${commandLine}\n\nRun it?`)) return false
+
+  await deps.execute(link)
+  return true
+}
+
 export const DefaultTerminalOptions: Omit<TerminalOptions, 'context' | 'dom' | 'users' | 'kernel'> = {
   fontFamily: 'FiraCode Nerd Font Mono, Ubuntu Mono, courier-new, courier, monospace',
   fontSize: 16,
@@ -83,41 +154,7 @@ export const DefaultTerminalOptions: Omit<TerminalOptions, 'context' | 'dom' | '
   },
   linkHandler: {
     allowNonHttpProtocols: true,
-
-    activate: (event, text, range) => {
-      console.log('activate', event, text, range)
-      if (text.startsWith('http')) window.open(text, '_blank', 'noopener,noreferrer')
-      if (text.startsWith('ecmaos://')) {
-        const [protocol, argstr] = text.replace('ecmaos://', '').split('?')
-        if (!protocol || !argstr) return
-        const commandPath = protocol.split('.')
-
-        const args: Record<string, string> = {}
-        for (const arg of argstr.split('&')) {
-          const [key, value] = arg.split('=')
-          if (!key || !value) continue
-          args[key] = value
-        }
-
-        switch (commandPath[0]) {
-          case CommandPath.KERNEL: // TODO: Limit the power of links and/or require user confirmation
-            switch (commandPath[1]) {
-              case 'execute':
-                if (!args['command']) break
-                globalThis?.kernel?.execute({ command: args['command'], args: args['args']?.split(' ') || [], shell: globalThis?.kernel?.shell })
-                break
-            }; break
-        }
-      }
-    },
-
-    // hover: (event, text, range) => {
-      // console.log('hover', event, text, range)
-    // },
-
-    // leave: (event, text, range) => {
-      // console.log('leave', event, text, range)
-    // }
+    activate: (_event, text) => { void activateTerminalLink(text) }
   }
 }
 
@@ -362,7 +399,6 @@ export class Terminal extends XTerm implements ITerminal {
       }
 
       ;(this.addons.get('progress') as ProgressAddon).onChange(({ state, value }) => {
-        console.log('progress', state, value)
         switch (state) {
           case 0: // Remove
             this._dom.topbar(false)
