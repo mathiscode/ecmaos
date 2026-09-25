@@ -15,6 +15,19 @@ import type {
 import { createCredentials, Credentials } from '@zenfs/core'
 import { deriveAesKey, fromBase64, generateKeySalt, hashPassword, isLegacyHash, toBase64, verifyPassword } from './lib/credentials.ts'
 
+/** Shortest plaintext password accepted; the documented default login (root/root) is 4. */
+export const MIN_PASSWORD_LENGTH = 4
+
+/**
+ * Throws if a plaintext password can't be stored. `:` and line breaks are refused because
+ * `/etc/shadow` and `/etc/passwd` are colon-separated, one entry per line.
+ */
+export function validatePassword(password: unknown): asserts password is string {
+  if (typeof password !== 'string' || password.length === 0) throw new Error('Password is required')
+  if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+  if (/[:\r\n]/.test(password)) throw new Error('Password may not contain ":" or line breaks')
+}
+
 export class Users {
   private _options: UsersOptions
   private _users: Map<number, User> = new Map()
@@ -45,9 +58,9 @@ export class Users {
     if (invalidChars.test(user.username)) throw new Error('Username contains invalid characters')
     user.username = user.username.replace(/[^\x20-\x7E]+/g, '') // remove non-printable characters
 
-    // TODO: validate
     const unhashedPassword = user.password
     if (!options.noHash) {
+      validatePassword(unhashedPassword)
       user.password = await hashPassword(unhashedPassword)
     }
 
@@ -187,6 +200,7 @@ export class Users {
 
     try {
       if (!(await verifyPassword(oldPassword, user.password))) throw new Error('Invalid password')
+      validatePassword(newPassword)
 
       user.password = await hashPassword(newPassword)
       await this.rewrapPrivateKey(user, newPassword)
