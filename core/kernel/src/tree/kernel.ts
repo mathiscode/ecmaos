@@ -85,11 +85,11 @@ import type {
   Windows as IWindows,
   Workers as IWorkers,
   EventCallback,
-  Process as IProcess,
   FileHeader,
   KernelShutdownEvent,
   KernelModule,
   KernelModules,
+  CommandInvocation,
   Timer
 } from '@ecmaos/types'
 
@@ -1108,7 +1108,7 @@ export class Kernel implements IKernel {
     const stdin = options.stdin ?? terminal.getInputStream()
     const stdout = options.stdout ?? terminal.stdout ?? new WritableStream<Uint8Array>()
     const stderr = options.stderr ?? terminal.stderr ?? new WritableStream<Uint8Array>()
-    const invocation = {
+    const invocation: CommandInvocation = {
       pid: 0,
       command: options.command,
       args: options.args ?? [],
@@ -1119,7 +1119,7 @@ export class Kernel implements IKernel {
       stderr,
       stdinIsTTY: options.stdinIsTTY ?? (options.stdin ? false : true),
       stdoutIsTTY: options.stdoutIsTTY ?? (options.stdout ? false : true)
-    } as unknown as IProcess
+    }
 
     try {
       return (await command.run(invocation.pid, invocation.args, invocation)) ?? 0
