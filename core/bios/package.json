@@ -16,6 +16,10 @@
   },
   "type": "module",
   "main": "./build/dist/bios.js",
+  "files": [
+    "build/dist",
+    "src/bios.d.ts"
+  ],
   "exports": {
     ".": {
       "types": "./src/bios.d.ts",

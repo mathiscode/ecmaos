@@ -6,7 +6,10 @@
   },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "build": "tsc"
@@ -15,12 +18,17 @@
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@types/ansi-escape-sequences": "^4.0.4",
+    "@types/node": "22.20.2",
     "@webgpu/types": "^0.1.51",
-    "@zenfs/core": "^2.4.4",
+    "@zenfs/core": "^2.7.6",
+    "@zenfs/linux": "0.6.1",
     "typescript": "^7.0.2",
     "vite-plugin-node-polyfills": "^0.28.0"
   },
   "dependencies": {
     "ansi-escape-sequences": "^6.2.4"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
