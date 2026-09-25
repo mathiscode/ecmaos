@@ -17,7 +17,7 @@ export const DefaultI18nOptions: InitOptions = {
   resources,
   lng: 'en',
   fallbackLng: 'en',
-  ns: ['common', 'kernel', 'filesystem', 'coreutils', 'terminal'],
+  ns: ['common', 'kernel', 'filesystem', 'terminal'],
   defaultNS: 'common',
   interpolation: {
     escapeValue: false
@@ -37,14 +37,12 @@ export class I18n {
     common: TFunction
     kernel: TFunction
     filesystem: TFunction
-    coreutils: TFunction
     terminal: TFunction
   } {
     return {
       common: this._i18next.getFixedT(this.language || 'en', 'common') as TFunction,
       kernel: this._i18next.getFixedT(this.language || 'en', 'kernel') as TFunction,
       filesystem: this._i18next.getFixedT(this.language || 'en', 'filesystem') as TFunction,
-      coreutils: this._i18next.getFixedT(this.language || 'en', 'coreutils') as TFunction,
       terminal: this._i18next.getFixedT(this.language || 'en', 'terminal') as TFunction
     }
   }
