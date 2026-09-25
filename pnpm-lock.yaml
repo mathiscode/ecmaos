@@ -156,8 +156,6 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  apps/python: {}
-
   apps/web3:
     devDependencies:
       '@ecmaos/config-typescript':
