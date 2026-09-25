@@ -6,6 +6,9 @@
   "bin": {
     "boilerplate": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
