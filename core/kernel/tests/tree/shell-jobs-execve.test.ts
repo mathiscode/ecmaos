@@ -169,4 +169,31 @@ describe('Shell job control — real @zenfs/linux Process handles', () => {
     await fgPromise
     await promise
   })
+
+  /**
+   * Regression test: `Kernel.executeViaExecve` used to restore `tty.foreground` in its `finally`
+   * block based on `isForeground`, captured once at spawn time (`false` for a `&`-backgrounded
+   * job). `fg()` promotes a job's process to the real foreground live (`setForeground(true)`
+   * above), but never touched that stale captured flag, so a job started backgrounded and later
+   * `fg`'d never released `tty.foreground` on exit -- it stayed pinned to the now-dead process,
+   * silently swallowing the next foreground job's `^C`/`^Z`. The fix checks `tty.foreground ===
+   * proc` live in `finally` instead of the stale flag.
+   */
+  it('a job started backgrounded and later fg\'d still releases the tty on exit', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/job-bg-then-fg.js', 'await new Promise(r => setTimeout(r, 200))', { mode: 0o755 })
+
+    await kernel.shell.execute('/tmp/job-bg-then-fg.js &')
+    const jobs = kernel.shell.listJobs()
+    const job = jobs[jobs.length - 1]!
+    await waitFor(() => job.processes.length === 1)
+
+    const proc = job.processes[0]!
+    expect(kernel.terminal.zfsTty?.foreground?.pid).not.toBe(proc.pid)
+
+    const fgPromise = kernel.shell.fg()
+    await waitFor(() => kernel.terminal.zfsTty?.foreground?.pid === proc.pid)
+
+    await fgPromise
+    expect(kernel.terminal.zfsTty?.foreground?.pid).not.toBe(proc.pid)
+  })
 })
