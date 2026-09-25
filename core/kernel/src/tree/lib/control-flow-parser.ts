@@ -22,6 +22,8 @@
  * unchanged, so this parser never needs to know about pipes, redirections, or substitutions.
  */
 
+import { foldHeredocs } from '#lib/shell-parser.ts'
+
 export interface SimpleStatement {
   type: 'simple'
   line: string
@@ -381,9 +383,15 @@ export function normalizeInlineControlFlow(text: string): string {
   return lines.join('\n')
 }
 
-/** Parse a full script into a statement tree. Blank lines and full-line comments are dropped. */
+/**
+ * Parse a full script into a statement tree. Blank lines and full-line comments are dropped.
+ * Heredoc bodies (`foldHeredocs`) are lifted out first -- before anything else here goes
+ * line-by-line -- so a body that happens to contain `if`/`do`/`;` or a blank line is never
+ * mistaken for script structure; each `<<`/`<<-` becomes one self-contained encoded token on its
+ * command's own line, exactly like `shell-parser.ts`'s own single-line entry points expect.
+ */
 export function parseStatements(script: string): Statement[] {
-  const lines = preprocessLines(normalizeInlineControlFlow(script))
+  const lines = preprocessLines(normalizeInlineControlFlow(foldHeredocs(script)))
   const parser = new LineParser(lines)
   const statements = parser.parseStatements([])
   return statements

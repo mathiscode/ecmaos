@@ -160,6 +160,28 @@ export interface Shell {
   /** Applies a `set -e` / `-u` / `-o pipefail` style flag. */
   applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void
 
+  /** Indexed arrays (`a=(x y)`, `${a[@]}`, `${#a[@]}`), keyed by name; never exported to the environment. */
+  readonly arrays: Map<string, Map<number, string>>
+  /** Replaces an array's entire contents. */
+  setArray(name: string, values: string[]): void
+  /** Sets one array element by index, creating the array if needed. */
+  setArrayElement(name: string, index: number, value: string): void
+  /** Appends elements to an array (`a+=(...)`), creating it if needed. */
+  appendArray(name: string, values: string[]): void
+  /** Removes one array element by index (`unset a[i]`). */
+  unsetArrayElement(name: string, index: number): void
+  /** Removes an entire array (`unset a`). */
+  unsetArray(name: string): void
+
+  /** `trap 'cmd' SIG`/`trap - SIG`/`trap '' SIG`. Signal names are normalized (`SIGINT` -> `INT`). */
+  setTrap(handler: string | undefined, signal: string): void
+  /** The handler registered for `signal`, if any. */
+  getTrap(signal: string): string | undefined
+  /** Every registered trap as `[signal, handler]` pairs, for bare `trap`'s listing. */
+  listTraps(): Array<[string, string]>
+  /** Runs the handler registered for `signal`, if any (a no-op if none is registered). */
+  runTrap(signal: string): Promise<void>
+
   /** The job currently occupying the foreground, if any -- see {@link Job}'s doc comment for scope. */
   readonly foregroundJob: Job | undefined
 

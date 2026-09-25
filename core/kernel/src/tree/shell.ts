@@ -17,12 +17,14 @@ import type {
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
-import { parseScript } from '#lib/shell-parser.ts'
-import type { Command as ParsedCommand, Pipeline, Redirection, Script } from '#lib/shell-parser.ts'
+import { parseScript, stripComments, tokenize, tokenizeConditional } from '#lib/shell-parser.ts'
+import type { Command as ParsedCommand, Pipeline, Redirection, Script, WordPart } from '#lib/shell-parser.ts'
 import { parseStatements } from '#lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, IfStatement, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
-import { expandWord } from '#lib/expand-variables.ts'
+import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
 import { runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
+import { evaluateConditional, type ConditionalFs } from '#lib/conditional-eval.ts'
 
 /**
  * Finds the first top-level (unquoted, unescaped, not nested inside `$(...)`/`$((...))`)
@@ -65,6 +67,12 @@ function findTopLevelOperatorIndex(text: string): number {
   }
 
   return -1
+}
+
+/** Tokenizes `text` as a single word (for `a[i]=value`'s right-hand side) and returns its parts. */
+function tokenizeSingleWord(text: string): WordPart[] {
+  const tokens = tokenize(text)
+  return tokens.length === 1 && tokens[0]?.kind === 'word' ? (tokens[0].parts ?? []) : [{ text, quoting: 'unquoted' }]
 }
 
 /** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
@@ -141,6 +149,23 @@ export class Shell implements IShell {
   private _shellOptions = { errexit: false, nounset: false, pipefail: false }
 
   /**
+   * Indexed arrays (`a=(x y)`, `a[i]=v`, `${a[@]}`). Kept apart from `_env` (which is scalars
+   * only) because arrays are never exported to the process environment -- a real shell rejects
+   * `export a` for an array too, and this shell simply has no path that would put one in `envObject`.
+   * `local` scoping doesn't currently cover arrays; every array is shell/function-global, matching
+   * the pre-existing scoping ecmaOS had for everything before `local` was added.
+   */
+  private _arrays = new Map<string, Map<number, string>>()
+
+  /**
+   * `trap 'cmd' SIG...` handlers, keyed by the signal name they were registered for (`INT`, `TERM`,
+   * `EXIT`, ... -- `SIGINT` is normalized to `INT` on registration). A `''` handler means "ignore
+   * the signal"; no entry means the default behavior. `runTrap` looks this up and runs the handler
+   * as an ordinary shell command line.
+   */
+  private _traps = new Map<string, string>()
+
+  /**
    * All jobs this shell has ever launched, insertion order (oldest first), keyed by job number.
    * Entries are never removed automatically -- `jobs` in a real shell keeps showing a `Done` job
    * until the next prompt reaps it; this implementation just keeps it, which `listJobs()` callers
@@ -197,6 +222,68 @@ export class Shell implements IShell {
     const frame = this._localScopes[this._localScopes.length - 1]
     if (frame) frame.set(name, value)
     else this._env.set(name, value)
+  }
+
+  /** Indexed arrays -- `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for `=(...)`, `a[i]=`, `unset a[i]`, `a+=(...)`. */
+  get arrays(): Map<string, Map<number, string>> { return this._arrays }
+  setArray(name: string, values: string[]): void { this._arrays.set(name, new Map(values.map((v, i) => [i, v]))) }
+  setArrayElement(name: string, index: number, value: string): void {
+    const array = this._arrays.get(name) ?? new Map<number, string>()
+    array.set(index, value)
+    this._arrays.set(name, array)
+  }
+  appendArray(name: string, values: string[]): void {
+    const array = this._arrays.get(name) ?? new Map<number, string>()
+    const nextIndex = array.size ? Math.max(...array.keys()) + 1 : 0
+    values.forEach((v, i) => array.set(nextIndex + i, v))
+    this._arrays.set(name, array)
+  }
+  unsetArrayElement(name: string, index: number): void { this._arrays.get(name)?.delete(index) }
+  unsetArray(name: string): void { this._arrays.delete(name) }
+
+  /**
+   * `trap 'cmd' SIG`/`trap - SIG`/`trap '' SIG`/bare `trap`. Signal names are normalized (leading
+   * `SIG` stripped, uppercased) so `trap ... SIGINT` and `trap ... INT` register the same handler.
+   */
+  setTrap(handler: string | undefined, signal: string): void {
+    const name = signal.replace(/^SIG/, '').toUpperCase()
+    if (handler === undefined) this._traps.delete(name)
+    else this._traps.set(name, handler)
+  }
+  getTrap(signal: string): string | undefined { return this._traps.get(signal.replace(/^SIG/, '').toUpperCase()) }
+  listTraps(): Array<[string, string]> { return [...this._traps.entries()] }
+
+  /** Runs the handler registered for `signal`, if any (and it isn't the `''` ignore marker). Errors from the handler are swallowed -- a bad trap must not crash the shell. */
+  async runTrap(signal: string): Promise<void> {
+    const handler = this.getTrap(signal)
+    if (!handler) return
+    try { await this.execute(handler) } catch {}
+  }
+
+  /**
+   * Builds a `word-expansion.ts` `ExpansionContext` bound to this shell's current variable/array/
+   * positional-parameter state, for `[[ ]]`, heredocs, and any other new construct that needs the
+   * quote-aware expander rather than the older string-based `expandWord` path.
+   */
+  expansionContext(): ExpansionContext {
+    return {
+      lookup: (name) => this.lookupVariable(name),
+      lookupArray: (name) => this._arrays.get(name),
+      positional: () => {
+        const positional: string[] = []
+        for (let i = 1; ; i++) {
+          const value = this.lookupVariable(String(i))
+          if (value === undefined) break
+          positional.push(value)
+        }
+        return positional
+      },
+      assign: (name, value) => this.setVariable(name, value),
+      substitute: (command) => this.executeCommandSubstitution(command),
+      glob: (pattern) => this.expandGlob(pattern),
+      home: () => this._env.get('HOME'),
+      nounset: this._shellOptions.nounset
+    }
   }
 
   /** Declare `name` as local to the current function call, defaulting to '' until assigned. */
@@ -818,21 +905,30 @@ export class Shell implements IShell {
    * `echo '$HOME'` must print the literal text, not the expanded path.
    */
   private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[] }> {
-    const words = await Promise.all(command.words.map(async (word, index) => {
-      let expanded = await this.parseCommandSubstitution(word)
-      expanded = await this.expandHistoryBang(expanded)
-      expanded = this.expandTilde(expanded)
-      if (!command.wordsQuoted[index]) expanded = expandWord(expanded, (name) => this.lookupVariable(name))
+    const ctx = this.expansionContext()
+    const fields: string[] = []
+    for (const [index, word] of command.words.entries()) {
+      const parts = command.wordParts[index]
       if (this._shellOptions.nounset) this.assertNoUnsetReferences(word)
-      return expanded
-    }))
+      // `wordParts` (quote-aware) is what the parser actually produced; falling back to the old
+      // string-based path only covers a caller that hand-builds a `Command` without it (none do
+      // today, but this keeps `prepareCommand` total rather than throwing on an empty array).
+      if (parts && parts.length) {
+        fields.push(...await expandWordFields(parts, ctx))
+      } else {
+        let expanded = await this.parseCommandSubstitution(word)
+        expanded = await this.expandHistoryBang(expanded)
+        expanded = this.expandTilde(expanded)
+        if (!command.wordsQuoted[index]) expanded = expandWord(expanded, (name) => this.lookupVariable(name))
+        fields.push(expanded)
+      }
+    }
 
-    const [commandName, ...rawWords] = words
+    const [commandName, ...args] = fields
     if (!commandName) {
       throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
     }
 
-    const args = await this.expandGlobWords(rawWords, command.wordsQuoted.slice(1))
     const finalCommand = await this.resolveCommand(commandName)
     if (!finalCommand) {
       throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
@@ -887,9 +983,21 @@ export class Shell implements IShell {
 
       let stdin: ReadableStream<Uint8Array>
       let stdinIsTTY = false
-      const inputRedirect = command.redirections.find(r => r.type === '<' && r.fd === 0)
-      if (isFirstCommand && inputRedirect) {
-        const sourcePath = path.resolve(this.cwd, inputRedirect.target)
+      // Applies to *any* stage, not only the first -- `a | b < f` redirects b's stdin, discarding
+      // whatever a's stdout would have fed it, exactly like a real shell.
+      const inputRedirect = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+      if (inputRedirect?.type === '<<') {
+        const heredoc = inputRedirect.heredoc as { body: string, expand: boolean }
+        const body = heredoc.expand ? await expandHeredocBody(heredoc.body, this.expansionContext()) : heredoc.body
+        stdin = new ReadableStream({ start: (controller) => { controller.enqueue(new TextEncoder().encode(body)); controller.close() } })
+      } else if (inputRedirect?.type === '<<<') {
+        const parts = inputRedirect.targetParts ?? [{ text: inputRedirect.target, quoting: 'unquoted' as const }]
+        const text = await expandWordString(parts, this.expansionContext())
+        stdin = new ReadableStream({ start: (controller) => { controller.enqueue(new TextEncoder().encode(text + '\n')); controller.close() } })
+      } else if (inputRedirect) {
+        const targetParts = inputRedirect.targetParts ?? [{ text: inputRedirect.target, quoting: 'unquoted' as const }]
+        const target = await expandWordString(targetParts, this.expansionContext())
+        const sourcePath = path.resolve(this.cwd, target)
         if (!await this.context.fs.promises.exists(sourcePath)) {
           throw new Error(`File not found: ${sourcePath}`)
         }
@@ -1068,6 +1176,34 @@ export class Shell implements IShell {
     return trueBuiltinNameFor(pipeline.commands[0]?.words[0])
   }
 
+  /** Expands a command's argument words (index 1..) with the quote-aware expander -- true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
+  private async expandCommandArgs(command: ParsedCommand): Promise<string[]> {
+    const ctx = this.expansionContext()
+    const fields: string[] = []
+    for (let i = 1; i < command.words.length; i++) {
+      const parts = command.wordParts[i]
+      fields.push(...(parts && parts.length ? await expandWordFields(parts, ctx) : [command.words[i] as string]))
+    }
+    return fields
+  }
+
+  /** Runs a `[[ ... ]]` compound test, returning bash's own 0/1 exit convention. Sets `BASH_REMATCH` on `=~`. */
+  private async evaluateConditionalCommand(text: string): Promise<number> {
+    const tokens = tokenizeConditional(text)
+    const fs: ConditionalFs = {
+      exists: (p) => this.context.fs.promises.exists(p),
+      isFile: async (p) => { try { return (await this.context.fs.promises.stat(p)).isFile() } catch { return false } },
+      isDirectory: async (p) => { try { return (await this.context.fs.promises.stat(p)).isDirectory() } catch { return false } },
+      resolve: (p) => path.resolve(this.cwd, p)
+    }
+    try {
+      const result = await evaluateConditional(tokens, this.expansionContext(), fs, (groups) => this.setArray('BASH_REMATCH', groups))
+      return result ? 0 : 1
+    } catch {
+      return 2
+    }
+  }
+
   /** Calls a registered function: its own `local` scope, positional parameters set to `argv`. */
   private async callFunction(name: string, argv: string[]): Promise<number> {
     const body = this._functions.get(name)
@@ -1106,6 +1242,37 @@ export class Shell implements IShell {
    * into the remainder and `||` skips it, matching how a real shell treats a successful command.
    */
   private async tryExecuteAssignment(line: string): Promise<number | undefined> {
+    // Array forms: `a=(x y)`, `a+=(z)`, `a[i]=v`. Checked before the plain scalar match below,
+    // since `a[i]=v` would otherwise fail the scalar regex and fall through unhandled, and
+    // `a=(...)`/`a+=(...)` would otherwise be treated as a scalar assigned the literal text `(x y)`.
+    const arrayLiteral = /^([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(([\s\S]*?)\)(?:\s*(?:;|&&|\|\||&|\|)\s*([\s\S]*))?$/.exec(line)
+    if (arrayLiteral) {
+      const [, name, append, body, remainder] = arrayLiteral as unknown as [string, string, string, string, string | undefined]
+      const words = body.trim().length ? tokenize(body).filter(t => t.kind === 'word') : []
+      const values = await Promise.all(words.map(t => expandWordFields((t.parts as WordPart[]), this.expansionContext())))
+      const flat = values.flat()
+      if (append) this.appendArray(name, flat)
+      else this.setArray(name, flat)
+      return remainder ? await this.execute(remainder.trim()) : 0
+    }
+
+    const elementAssignment = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]=/.exec(line)
+    if (elementAssignment) {
+      const [full, name, subscript] = elementAssignment as unknown as [string, string, string]
+      const rest = line.slice(full.length)
+      const boundary = findTopLevelOperatorIndex(rest)
+      const rawValue = boundary === -1 ? rest : rest.slice(0, boundary)
+      const index = evaluateArithmeticExpression(subscript, (n) => this.lookupVariable(n))
+      const value = await expandWordString(tokenizeSingleWord(rawValue), this.expansionContext())
+      this.setArrayElement(name, index, value)
+      if (boundary === -1) return 0
+      const opLen = (rest[boundary] === '&' && rest[boundary + 1] === '&') || (rest[boundary] === '|' && rest[boundary + 1] === '|') ? 2 : 1
+      const operator = rest.slice(boundary, boundary + opLen)
+      if (operator === '||') return 0
+      const remainder = rest.slice(boundary + opLen).trim()
+      return remainder ? await this.execute(remainder) : 0
+    }
+
     const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)
     if (!match) return undefined
 
@@ -1147,7 +1314,7 @@ export class Shell implements IShell {
    * exception.
    */
   async execute(line: string): Promise<number> {
-    const trimmed = line.split('#')[0]?.trim()
+    const trimmed = stripComments(line).trim()
     if (!trimmed) return 0
 
     let statements: Statement[]
@@ -1179,7 +1346,7 @@ export class Shell implements IShell {
    * `jobs`.
    */
   private async executeSimple(line: string): Promise<number> {
-    const lineWithoutComments = line.split('#')[0]?.trim()
+    const lineWithoutComments = stripComments(line).trim()
     if (!lineWithoutComments) return 0
 
     const assignmentExitCode = await this.tryExecuteAssignment(lineWithoutComments)
@@ -1195,22 +1362,26 @@ export class Shell implements IShell {
       } else if (stage.operator === '&') {
         this.runInBackground(stage.pipeline)
       } else {
-        const builtinName = this.trueBuiltinNameFor(stage.pipeline)
+        const conditionalCommand = stage.pipeline.commands.length === 1 ? stage.pipeline.commands[0] : undefined
+        const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.trueBuiltinNameFor(stage.pipeline)
         const fnName = builtinName ? undefined : this.functionNameFor(stage.pipeline)
         let pipeStatus: number[]
 
-        if (builtinName) {
+        if (conditionalCommand?.conditional !== undefined) {
+          const code = await this.evaluateConditionalCommand(conditionalCommand.conditional)
+          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
+        } else if (builtinName) {
           // True builtins (see `lib/shell-builtins.ts`'s own doc comment) always win over a
           // same-named function or real file, the same way bash's POSIX "special builtins"
           // (cd/export/set/...) can never be shadowed -- checked before `functionNameFor` so a
           // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
           const command = stage.pipeline.commands[0] as ParsedCommand
-          const args = await this.expandGlobWords(command.words.slice(1), command.wordsQuoted.slice(1))
+          const args = await this.expandCommandArgs(command)
           const code = await runTrueBuiltin(this, builtinName, args)
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else if (fnName) {
           const command = stage.pipeline.commands[0] as ParsedCommand
-          const args = await this.expandGlobWords(command.words.slice(1), command.wordsQuoted.slice(1))
+          const args = await this.expandCommandArgs(command)
           const code = await this.callFunction(fnName, args)
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else {
@@ -1221,7 +1392,7 @@ export class Shell implements IShell {
           ? ([...pipeStatus].reverse().find(code => code !== 0) ?? 0)
           : pipeStatus[pipeStatus.length - 1] ?? 0
 
-        this.env.set('PIPESTATUS', pipeStatus.join(' '))
+        this.setArray('PIPESTATUS', pipeStatus.map(String))
         this.env.set('?', String(lastPipelineExit))
 
         if (this._shellOptions.errexit && lastPipelineExit !== 0 && stage.operator !== '&&' && stage.operator !== '||') {
@@ -1417,7 +1588,11 @@ export class Shell implements IShell {
    */
   async executeScriptText(script: string): Promise<number> {
     const statements = parseStatements(script)
-    return this.executeStatements(statements)
+    try {
+      return await this.executeStatements(statements)
+    } finally {
+      await this.runTrap('EXIT')
+    }
   }
 
   /**

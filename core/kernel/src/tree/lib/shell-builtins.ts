@@ -26,7 +26,7 @@ import type { Shell } from '#shell.ts'
 import type { User } from '@ecmaos/types'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
-  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'su'
+  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'su', 'trap', 'unset'
 ])
 
 /** Writes a line to the shell's own terminal -- these run with no real `Process`/`CommandIO` at all. */
@@ -342,6 +342,50 @@ function runSu(shell: Shell, argv: string[]): number {
   return 0
 }
 
+function runTrap(shell: Shell, argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    writeln(shell, "Usage: trap ['COMMAND'] [SIGNAL...]\n       trap - SIGNAL...\nSet, reset ('-'), or list (no args) signal handlers for this shell.")
+    return 0
+  }
+
+  if (argv.length === 0) {
+    for (const [signal, handler] of shell.listTraps()) writeln(shell, `trap -- '${handler}' ${signal}`)
+    return 0
+  }
+
+  const [first, ...signals] = argv
+  if (signals.length === 0) {
+    // `trap` with exactly one arg and no recognized signal name after it isn't valid trap syntax
+    // in this shell's subset -- report it rather than silently doing nothing.
+    writeln(shell, `trap: usage: trap ['COMMAND'] [SIGNAL...]`)
+    return 1
+  }
+
+  const handler = first === '-' ? undefined : (first as string)
+  for (const signal of signals) shell.setTrap(handler, signal)
+  return 0
+}
+
+function runUnset(shell: Shell, argv: string[]): number {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    writeln(shell, 'Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
+    return 0
+  }
+
+  for (const arg of argv) {
+    const element = /^([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\]$/.exec(arg)
+    if (element) {
+      shell.unsetArrayElement(element[1] as string, Number(element[2]))
+      continue
+    }
+    if (shell.arrays.has(arg)) { shell.unsetArray(arg); continue }
+    shell.env.delete(arg)
+    shell.functions.delete(arg)
+  }
+
+  return 0
+}
+
 /** Returns the true-builtin's name if `pipeline`'s sole command is one, else `undefined`. */
 export function trueBuiltinNameFor(commandName: string | undefined): string | undefined {
   return commandName && trueBuiltinNames.has(commandName) ? commandName : undefined
@@ -360,6 +404,8 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[])
     case 'env': return runEnv(shell, argv)
     case 'export': return runExport(shell, argv)
     case 'su': return runSu(shell, argv)
+    case 'trap': return runTrap(shell, argv)
+    case 'unset': return runUnset(shell, argv)
     default: throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)
   }
 }
