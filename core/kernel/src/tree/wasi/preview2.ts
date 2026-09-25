@@ -387,8 +387,6 @@ Object.defineProperty(globalThis.URL, 'prototype', {
 
   const component = await instantiate(getCoreModule, importObject)
 
-  // Find the instance (it might be nested in the component exports)
-  let instance: WebAssembly.Instance | null = null
   let exitCodePromise: Promise<number> = Promise.resolve(0)
 
   // Look for wasi:cli/run export
@@ -428,7 +426,7 @@ Object.defineProperty(globalThis.URL, 'prototype', {
   }
 
   // Create a dummy instance for compatibility
-  instance = {
+  const instance = {
     exports: component as WebAssembly.Exports
   } as WebAssembly.Instance
 

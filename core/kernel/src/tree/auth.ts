@@ -28,17 +28,17 @@ export class Auth implements IAuth {
       } catch (error) {
         if (error instanceof Error) {
           if (error.name === 'NotAllowedError') {
-            throw new Error('User cancelled or denied the operation')
+            throw new Error('User cancelled or denied the operation', { cause: error })
           } else if (error.name === 'InvalidStateError') {
-            throw new Error('Credential already exists or operation is invalid')
+            throw new Error('Credential already exists or operation is invalid', { cause: error })
           } else if (error.name === 'NotSupportedError') {
-            throw new Error('The operation is not supported')
+            throw new Error('The operation is not supported', { cause: error })
           } else if (error.name === 'SecurityError') {
-            throw new Error('Security error: operation not allowed')
+            throw new Error('Security error: operation not allowed', { cause: error })
           }
           throw error
         }
-        throw new Error(`Error creating credential: ${String(error)}`)
+        throw new Error(`Error creating credential: ${String(error)}`, { cause: error })
       }
     },
 
@@ -63,17 +63,17 @@ export class Auth implements IAuth {
       } catch (error) {
         if (error instanceof Error) {
           if (error.name === 'NotAllowedError') {
-            throw new Error('User cancelled or denied the operation')
+            throw new Error('User cancelled or denied the operation', { cause: error })
           } else if (error.name === 'InvalidStateError') {
-            throw new Error('No matching credential found')
+            throw new Error('No matching credential found', { cause: error })
           } else if (error.name === 'NotSupportedError') {
-            throw new Error('The operation is not supported')
+            throw new Error('The operation is not supported', { cause: error })
           } else if (error.name === 'SecurityError') {
-            throw new Error('Security error: operation not allowed')
+            throw new Error('Security error: operation not allowed', { cause: error })
           }
           throw error
         }
-        throw new Error(`Error getting credential: ${String(error)}`)
+        throw new Error(`Error getting credential: ${String(error)}`, { cause: error })
       }
     },
 

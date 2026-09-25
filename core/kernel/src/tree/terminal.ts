@@ -1469,7 +1469,7 @@ export class Terminal extends XTerm implements ITerminal {
           const cacheStart = Math.max(0, totalLines - cache.length)
           const cacheIndex = this._historyPosition - cacheStart
           
-          let cmd = ''
+          let cmd: string
           if (cacheIndex >= 0 && cacheIndex < cache.length) {
             cmd = cache[cacheIndex] || ''
           } else {
@@ -1515,7 +1515,7 @@ export class Terminal extends XTerm implements ITerminal {
           const cacheStart = Math.max(0, totalLines - cache.length)
           const cacheIndex = this._historyPosition - cacheStart
           
-          let cmd = ''
+          let cmd: string
           if (this._historyPosition === totalLines) {
             cmd = ''
           } else if (cacheIndex >= 0 && cacheIndex < cache.length) {
