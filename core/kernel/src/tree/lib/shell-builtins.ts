@@ -4,15 +4,14 @@
  * state and so can never become a separate `execve`'d file/process, no matter how far the rest of
  * ecmaOS's coreutils migrate. A forked child process changing its own cwd/env/job-table/credentials
  * has zero effect on its parent shell -- that's the whole reason these exist as permanent, in-
- * process exceptions in every real shell, not a temporary gap the way ecmaOS's other 98+12 legacy
- * commands are.
+ * process exceptions in every real shell. Every other ecmaOS command is a real program under `/bin`.
  *
  * Confirmed by direct code reading (not guessed) which of ecmaOS's existing commands actually
  * belong here: `cd` (`shell.cwd`), `set` (`shell.applyShellOption`), `bg`/`fg`/`jobs`/`wait` (the
  * shell's own job table), `local` (the shell's own call-frame scope), `env`/`export` (`shell.env`/
  * `globalThis.process.env`), `su` (`shell.context`/`shell.credentials`). `theme`/`history` were
- * checked too and found NOT structurally blocked (cosmetic/display config a future syscall could
- * plausibly bridge) -- they stay in the legacy shim, not here.
+ * checked too and found NOT structurally blocked: they are real programs that reach the shell
+ * through custom syscalls, not builtins.
  *
  * Dispatched from `Shell.execute` exactly the way `functionNameFor`/`callFunction` already dispatch
  * a registered shell function -- checked before any `$PATH`/`resolveCommand` file lookup happens at

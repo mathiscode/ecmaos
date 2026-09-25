@@ -1466,10 +1466,9 @@ export class Kernel implements IKernel {
 
   /**
    * A real `@zenfs/linux` `create_pipe`-backed drop-in for `new TransformStream()`, used by
-   * `Shell.runPipeline` to join one pipeline stage's stdout to the next stage's stdin -- closing
-   * the plan's last open item (`.docs/overhaul/STATUS_01.md` recommendation #3): pipeline stages
-   * were still joined by a plain web `TransformStream`, never the real `pipe` syscall, even after
-   * `bridgeStdio` proved the primitive itself works.
+   * `Shell.runPipeline` to join one pipeline stage's stdout to the next stage's stdin, so pipeline
+   * stages are joined by a real pipe (with real EOF/EPIPE semantics) rather than a plain web
+   * `TransformStream`.
    *
    * Both ends of the real pipe are anchored on `this.pipeProcess`'s context, exactly as
    * `bridgeStdio` above anchors its own ends and for the identical reason: `fs/pipe.ts`'s `write`

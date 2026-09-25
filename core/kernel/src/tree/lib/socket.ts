@@ -1,12 +1,9 @@
 /**
  * A socket: a `WebSocket`-backed `FileOperations` end, in the same shape `lib/pipe.ts` uses for
- * pipes -- and for the identical reason. Real `socket()`/`connect()`/`send()`/`recv()` syscalls
- * (Phase 6's target, `.docs/overhaul/09-phase-6-security.md`) want a numeric fd minted through a
- * `Process`'s fd table, and that table does not exist yet in this kernel: `Process` still carries
- * no file-descriptor concept of its own (the same gap that stopped `lib/pipe.ts` from registering
- * a real `pipe` syscall). Until that plumbing lands, a socket's `FileOperations` end is used
- * directly wherever something needs a byte-stream-with-readiness: unit tests today, and the
- * `socket`/`connect`/`send`/`recv` syscall handlers once a fd table exists to hand them out from.
+ * pipes. ecmaOS's `socket()` syscall is loopback-only today (`AF_UNIX` and loopback `AF_INET`, see
+ * `main-thread-syscalls.ts`); connections to the outside world go through `kernel.sockets`
+ * (`sockets_connect`, which `nc` uses). This is the byte-stream-with-readiness end a
+ * WebSocket-backed `socket()` would hand out as an fd; for now only its unit tests use it.
  *
  * Semantics:
  * - `read` never blocks past what has already arrived; it drains the inbound ring buffer and

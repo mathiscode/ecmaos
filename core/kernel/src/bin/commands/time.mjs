@@ -1,13 +1,12 @@
 /**
- * Real `execve`'d `time` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/time.ts`). A real program that resolves COMMAND against PATH, then
- * `proc_spawn`s and `proc_wait`s it (real `fork()`+`execve()`/`waitpid()`, the primitives built for
- * `cron edit`), timing the whole thing. The child inherits this process's fds 0/1/2 automatically, so
- * `time cmd > file` and `time cmd | grep x` keep working with no stream plumbing here at all -- the
- * legacy version needed a hand-rolled pass-through `WritableStream` for that.
+ * Real `execve`'d `time`. A real program that resolves COMMAND against PATH, then `proc_spawn`s and
+ * `proc_wait`s it (a new process running `execve`, then `waitpid()` -- ecmaOS creates processes by
+ * spawn only; there is no copy-on-write `fork()`), timing the whole thing. The child inherits this
+ * process's fds 0/1/2 automatically, so `time cmd > file` and `time cmd | grep x` keep working with
+ * no stream plumbing here at all.
  *
- * Fallback: a target that is not a real `execve` program (a legacy `#!ecmaos:bin:command:` stub such
- * as `git`/`man`, or a name PATH can't resolve at all, e.g. a shell builtin) is run through the
+ * Fallback: a target that is not a real `execve` program (an in-process command such as `test`, or a
+ * name PATH can't resolve at all, e.g. a shell builtin or function) is run through the
  * `shell_exec` syscall instead, the same full-command-line entry point `crond` uses. That still
  * gives a true wall-clock measurement for any command the shell can run; the one loss is that such a
  * command writes to the terminal rather than through this process's redirected stdout.

@@ -76,18 +76,15 @@ export function binPilotWindow(): Plugin {
 }
 
 /**
- * The coreutils migrated onto real `execve` so far (`feat/1.0.0-execve-commands`) -- each a real,
- * worker-hosted, syscall-only program living in `@ecmaos/coreutils` (`core/utils/src/commands-
- * execve/<name>.mjs`), replacing that command's entry in `Kernel.executeCommand`'s legacy dispatch.
+ * The coreutils that ship as real `execve` programs -- each a worker-hosted, syscall-only program
+ * living in `@ecmaos/coreutils` (`core/utils/src/commands-execve/<name>.mjs`).
  * Keyed by the real command name (`/bin/<name>`), since that's the path `Kernel.registerCommands`/
  * `readFileHeader` resolve.
  *
  * These live in `@ecmaos/coreutils`, not here, on purpose: they're coreutils content (the actual
- * `echo`/`rm`/`cp`/... business logic, mirroring `core/utils/src/commands/*.ts`'s existing legacy
- * versions), and `@ecmaos/kernel` should own only the *mechanism* (esbuild bundling, `execve`,
- * syscalls) -- not accumulate a second, shadow copy of the coreutils package as more commands
- * migrate. `@ecmaos/kernel` already depends on `@ecmaos/coreutils` (for `TerminalCommands`), so this
- * adds no new dependency edge, just a second thing consumed from it.
+ * `echo`/`rm`/`cp`/... business logic), and `@ecmaos/kernel` should own only the *mechanism*
+ * (esbuild bundling, `execve`, syscalls). `@ecmaos/kernel` already depends on `@ecmaos/coreutils`
+ * (for the in-process `true`/`false`/`test` shim), so this adds no new dependency edge.
  */
 export const migratedCommands = [
   'echo', 'basename', 'dirname', 'tr', 'mkdir', 'rm', 'cp', 'mv', 'touch', 'chmod', 'cat',
@@ -108,13 +105,12 @@ export const migratedCommands = [
 ] as const
 
 /**
- * The kernel-native commands migrated onto real `execve` so far -- unlike `migratedCommands` above,
+ * The kernel-native commands that ship as real `execve` programs -- unlike `migratedCommands` above,
  * these live in `@ecmaos/kernel` itself (`src/bin/commands/<name>.mjs`), not `@ecmaos/coreutils`,
  * because their real logic needs a kernel-only custom syscall (`storage_usage`/`ps_list`/`reboot` --
  * see `#lib/main-thread-syscalls.ts`) rather than the plain filesystem/stdio syscalls every
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
- * worker-hosted, syscall-only program replacing that name's entry in `Kernel.executeCommand`'s
- * legacy dispatch.
+ * worker-hosted, syscall-only program.
  */
 export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'vim', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'screensaver', 'snake', 'upload', 'install'] as const
 
@@ -131,9 +127,8 @@ function coreutilsExecveDir(): string {
 
 /**
  * Bundles every migrated coreutil's real program (`@ecmaos/coreutils`'s `commands-execve/<name>.mjs`)
- * into one virtual module, `virtual:bin-commands`, exporting `{ [name]: string }` -- the same shape
- * as `TerminalCommands`' own name-keyed map, so `Kernel.registerCommands` can look a migrated name up
- * directly.
+ * into one virtual module, `virtual:bin-commands`, exporting `{ [name]: string }`, so
+ * `Kernel.registerCommands` can look a name up directly.
  */
 export function binCommands(): Plugin {
   const virtualModuleId = 'virtual:bin-commands'

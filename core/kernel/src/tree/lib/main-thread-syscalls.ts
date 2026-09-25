@@ -257,13 +257,9 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // Reads `@zenfs/linux`'s own real, module-global `processes` map (`process.js`) -- not
-  // `kernel.processes` (the legacy `ProcessManager`, `tree/processes.ts`), which nothing created via
-  // `executeViaExecve`/`spawn()` has ever been registered into. Every migrated coreutil, `crond`
-  // (once it exists), and `proc_spawn`'s own children all show up here automatically, the same way a
-  // real Linux process is visible in `/proc` the instant `fork()`+`execve()` return -- this was
-  // previously reading a table real execve'd processes were never added to at all, so `ps` showing
-  // (effectively) nothing for anything actually running was a real, if quiet, gap until this session.
+  // Reads `@zenfs/linux`'s own module-global `processes` map (`process.js`), the one real process
+  // table. Every execve'd program, `crond`, and `proc_spawn`'s children register there the moment
+  // they are spawned (ecmaOS creates processes by spawn only; there is no copy-on-write `fork()`).
   // Apps (`/bin/app`) and device command lines (`/bin/devcli`) are real processes too.
   define_syscall('ps_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
@@ -963,9 +959,10 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `spawn()`/`Process.wait()`/`kill()` (`@zenfs/linux`'s `process.js`/`fs/exec.js`) are real
-  // `fork()`+`execve()`/`waitpid()`/`kill()` -- not main-thread-only capabilities like everything
-  // above, they're plain functions any `Process` object can call. The only reason these need to be
+  // `spawn()`/`Process.wait()`/`kill()` (`@zenfs/linux`'s `process.js`/`fs/exec.js`) are real process
+  // creation (a new process running `execve` -- there is no copy-on-write `fork()`), `waitpid()` and
+  // `kill()` -- not main-thread-only capabilities like everything above, they're plain functions any
+  // `Process` object can call. The only reason these need to be
   // custom syscalls at all is that they're free functions taking a `Process` object as an argument,
   // and a worker-hosted program only ever sees itself as an opaque id inside `@zenfs/linux`'s own
   // syscall machinery -- it has no direct JS reference to its own `Process` object to call
