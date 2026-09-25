@@ -234,6 +234,30 @@ export class Filesystem {
         return lines.length ? lines.join('\n') + '\n' : ''
       }
     })
+
+    proc_root.children.set('userAgent', {
+      mode: 0o444,
+      show: () => `${navigator.userAgent}\n`
+    })
+
+    proc_root.children.set('platform', {
+      mode: 0o444,
+      show: () => `${navigator.userAgentData?.platform || navigator.platform || 'unknown'}\n`
+    })
+
+    proc_root.children.set('connection', {
+      mode: 0o444,
+      show: () => {
+        const connection = (navigator as unknown as { connection?: { effectiveType?: string, downlink?: number, rtt?: number, saveData?: boolean } }).connection
+        if (!connection) return ''
+        const lines: string[] = []
+        if (connection.effectiveType) lines.push(`effectiveType\t: ${connection.effectiveType}`)
+        if (connection.downlink !== undefined) lines.push(`downlink\t: ${connection.downlink} Mb/s`)
+        if (connection.rtt !== undefined) lines.push(`rtt\t\t: ${connection.rtt} ms`)
+        if (connection.saveData !== undefined) lines.push(`saveData\t: ${connection.saveData}`)
+        return lines.length ? lines.join('\n') + '\n' : ''
+      }
+    })
   }
 
   /**
