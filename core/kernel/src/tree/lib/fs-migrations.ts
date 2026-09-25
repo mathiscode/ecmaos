@@ -122,6 +122,61 @@ async function upgradeBootInit(ctx: FsMigrationContext): Promise<void> {
   log.warn('/boot/init was edited, so it was kept; the new default is in /boot/init.new')
 }
 
+/**
+ * Converts a pre-1.0 6-field `/etc/passwd` line (`name:uid:gid:groups:home:shell`, the `groups`
+ * field a comma-separated list of supplementary gids) to the real 7-field format
+ * (`name:x:uid:gid:gecos:home:shell`) and writes the supplementary groups out to a new
+ * `/etc/group` (`name:x:gid:members`), synthesizing each group's name from whichever user has it
+ * as their primary gid, or `group<gid>` if none does -- this filesystem has no group-creation
+ * API, only users with a primary gid, so there is no other name to recover.
+ *
+ * A passwd file already in the 7-field format (its 2nd field is the literal `x`) is left alone,
+ * so this migration is safe to run again -- the boot version marker already prevents that in the
+ * normal case, but a filesystem hand-edited between migrations shouldn't be double-converted.
+ */
+async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {
+  const { fs, log } = ctx
+  if (!await fs.exists('/etc/passwd')) return
+
+  const lines = (await fs.readFile('/etc/passwd', 'utf8')).split('\n').filter(line => line.trim() !== '')
+  if (lines.length === 0 || lines[0]?.split(':')[1] === 'x') return // already 7-field
+
+  interface Entry { username: string, uid: number, gid: number, groups: number[], home: string, shell: string }
+  const entries: Entry[] = []
+  for (const line of lines) {
+    const [username, uidStr, gidStr, groupsStr, home, shell] = line.split(':')
+    if (!username || !uidStr || !gidStr || !home || !shell) continue
+    entries.push({
+      username,
+      uid: Number(uidStr),
+      gid: Number(gidStr),
+      groups: (groupsStr ?? '').split(',').filter(Boolean).map(Number),
+      home,
+      shell
+    })
+  }
+
+  const passwdOut = entries.map(e => `${e.username}:x:${e.uid}:${e.gid}:${e.username}:${e.home}:${e.shell}`).join('\n') + '\n'
+  await fs.writeFile('/etc/passwd', passwdOut, { mode: 0o644 })
+
+  const byGid = new Map<number, { name: string, members: Set<string> }>()
+  const nameFor = (gid: number, owner?: Entry) => byGid.get(gid)?.name ?? owner?.username ?? `group${gid}`
+  for (const entry of entries) if (!byGid.has(entry.gid)) byGid.set(entry.gid, { name: nameFor(entry.gid, entry), members: new Set() })
+  for (const entry of entries) {
+    for (const gid of entry.groups) {
+      if (!byGid.has(gid)) byGid.set(gid, { name: nameFor(gid), members: new Set() })
+      byGid.get(gid)!.members.add(entry.username)
+    }
+  }
+  const groupOut = Array.from(byGid.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([gid, { name, members }]) => `${name}:x:${gid}:${Array.from(members).join(',')}`)
+    .join('\n') + '\n'
+  await fs.writeFile('/etc/group', groupOut, { mode: 0o644 })
+
+  log.info(`Converted /etc/passwd to the 7-field format and wrote /etc/group (${entries.length} user(s))`)
+}
+
 export const FS_MIGRATIONS: readonly FsMigration[] = [
   {
     version: 1,
@@ -135,6 +190,13 @@ export const FS_MIGRATIONS: readonly FsMigration[] = [
       }
 
       await upgradeBootInit(ctx)
+    }
+  },
+  {
+    version: 2,
+    description: '1.0: convert /etc/passwd to the real 7-field format and split supplementary groups into /etc/group',
+    async run(ctx) {
+      await convertPasswdAndGroup(ctx)
     }
   }
 ]

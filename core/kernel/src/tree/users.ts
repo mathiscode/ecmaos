@@ -28,6 +28,48 @@ export function validatePassword(password: unknown): asserts password is string 
   if (/[:\r\n]/.test(password)) throw new Error('Password may not contain ":" or line breaks')
 }
 
+/**
+ * Serializes a `User` to a real 7-field `/etc/passwd` line: `name:x:uid:gid:gecos:home:shell`.
+ * The password field is always `x` -- real hashes live in `/etc/shadow`, exactly like a real
+ * Linux system, and always did here too; only the *shape* of this line was non-standard before.
+ */
+function passwdLine(user: User): string {
+  return `${user.username}:x:${user.uid}:${user.gid}:${user.username}:${user.home}:${user.shell}`
+}
+
+/** Serializes every currently-loaded user to `/etc/passwd`'s full contents. */
+function passwdFile(users: Iterable<User>): string {
+  return Array.from(users).map(passwdLine).join('\n') + '\n'
+}
+
+/**
+ * Serializes `/etc/group`: one line per group a user actually belongs to (`name:x:gid:members`),
+ * `members` a comma-separated list of usernames. A user's own primary group (`gid`) always gets
+ * an entry even with no members, matching `groupadd`'s behavior on a real system; a user's
+ * supplementary groups (`user.groups`, numeric gids) add that user to each named group's member
+ * list. Group names are synthesized from the owning/primary user's username when no other name is
+ * known -- this system has no separate group-creation API yet, only users with a primary gid.
+ */
+function groupFile(users: Iterable<User>): string {
+  const byGid = new Map<number, { name: string, members: Set<string> }>()
+  const nameFor = (gid: number, fallbackUser?: User) => byGid.get(gid)?.name ?? fallbackUser?.username ?? `group${gid}`
+
+  for (const user of users) {
+    if (!byGid.has(user.gid)) byGid.set(user.gid, { name: nameFor(user.gid, user), members: new Set() })
+  }
+  for (const user of users) {
+    for (const gid of user.groups) {
+      if (!byGid.has(gid)) byGid.set(gid, { name: nameFor(gid), members: new Set() })
+      byGid.get(gid)!.members.add(user.username)
+    }
+  }
+
+  return Array.from(byGid.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([gid, { name, members }]) => `${name}:x:${gid}:${Array.from(members).join(',')}`)
+    .join('\n') + '\n'
+}
+
 export class Users {
   private _options: UsersOptions
   private _users: Map<number, User> = new Map()
@@ -38,6 +80,13 @@ export class Users {
 
   constructor(options: UsersOptions) {
     this._options = options
+  }
+
+  /** Rewrites both `/etc/passwd` and `/etc/group` from the current in-memory user map. */
+  private async writePasswdAndGroup(): Promise<void> {
+    const users = Array.from(this._users.values())
+    await this.fs.writeFile('/etc/passwd', passwdFile(users), { encoding: 'utf-8', mode: 0o644 })
+    await this.fs.writeFile('/etc/group', groupFile(users), { encoding: 'utf-8', mode: 0o644 })
   }
 
   /**
@@ -96,8 +145,8 @@ export class Users {
       if (!options.noWrite) await this.fs.appendFile('/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { encoding: 'utf-8', mode: 0o700 })
     }
 
-    if (!options.noWrite) await this.fs.appendFile('/etc/passwd', `${user.username}:${user.uid}:${user.gid}:${user.groups.join(',')}:${user.home}:${user.shell}\n\n`, { encoding: 'utf-8', mode: 0o700 })
     this._users.set(user.uid, user as User)
+    if (!options.noWrite) await this.writePasswdAndGroup()
 
     // Fix user home permissions
     try { await this.fs.chown(user.home, user.uid, user.gid) }
@@ -118,9 +167,27 @@ export class Users {
     const { context } = this._options
     const passwd = await this.fs.readFile('/etc/passwd', 'utf-8')
     const shadow = await this.fs.readFile('/etc/shadow', 'utf-8')
+    const group = await this.fs.exists('/etc/group') ? await this.fs.readFile('/etc/group', 'utf-8') : ''
+
+    // Supplementary groups now live in /etc/group, keyed by username -> the numeric gids of every
+    // group line that lists them as a member (a user's own primary gid, from passwd, is separate).
+    const supplementaryGroups = new Map<string, number[]>()
+    for (const groupLine of group.split('\n')) {
+      if (!groupLine.trim() || groupLine.startsWith('#')) continue
+      const [, , gidStr, membersStr] = groupLine.split(':')
+      const gid = Number(gidStr)
+      if (!gidStr || Number.isNaN(gid)) continue
+      for (const member of (membersStr ?? '').split(',').filter(Boolean)) {
+        supplementaryGroups.set(member, [...(supplementaryGroups.get(member) ?? []), gid])
+      }
+    }
+
     for (const line of passwd.split('\n')) {
       if (line.trim() === '' || line.trim() === '\n' || line.startsWith('#')) continue
-      const [username, uid, gid, groups, home, shell] = line.split(':')
+      // Real 7-field format: name:x:uid:gid:gecos:home:shell. A pre-1.0 6-field line
+      // (name:uid:gid:groups:home:shell) is handled by the boot migration (`kernel.ts`'s
+      // versioned-migration list), not here -- by the time `load()` runs, the fs is already current.
+      const [username, , uid, gid, , home, shell] = line.split(':')
       if (!username || !uid || !gid || !home || !shell) continue
       const shadowEntry = shadow.split('\n').find((l: string) => l.startsWith(username + ':'))
 
@@ -137,7 +204,7 @@ export class Users {
           password,
           uid: parseInt(uid),
           gid: parseInt(gid),
-          groups: groups?.split(',').filter((g: string) => g !== '').map(Number) ?? [],
+          groups: supplementaryGroups.get(username) ?? [],
           home,
           shell,
           keypair
@@ -206,7 +273,6 @@ export class Users {
       await this.rewrapPrivateKey(user, newPassword)
       await this.update(user.uid, user)
       await this.writeShadowEntry(user)
-      await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
     } catch (err) {
       console.error(err)
       throw err
@@ -296,7 +362,7 @@ export class Users {
   */
   async remove(uid: number) {
     this._users.delete(uid)
-    await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
+    await this.writePasswdAndGroup()
     // we leave the home directory behind for the admin to delete manually
   }
 
@@ -307,7 +373,7 @@ export class Users {
     const existingUser = this._users.get(uid);
     if (existingUser) {
       this._users.set(uid, { ...existingUser, ...user });
-      await this.fs.writeFile('/etc/passwd', Array.from(this._users.values()).map(u => `${u.username}:${u.uid}:${u.gid}:${u.groups.join(',')}:${u.home}:${u.shell}`).join('\n'), { encoding: 'utf-8', mode: 0o750 })
+      await this.writePasswdAndGroup()
     } else {
       throw new Error(`User with UID ${uid} not found`);
     }

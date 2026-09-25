@@ -64,7 +64,15 @@ describe('boot over a persisted 0.x filesystem', () => {
 
   it('boots to RUNNING and records the filesystem as migrated', async () => {
     expect(kernel.state).toBe(KernelState.RUNNING)
-    expect(await readFsVersion(kernel.filesystem.fs)).toBe(1)
+    expect(await readFsVersion(kernel.filesystem.fs)).toBe(2)
+  })
+
+  it('writes a real 7-field /etc/passwd and an /etc/group for the fresh-boot root user (migration 2 is a no-op on an already-current file)', async () => {
+    const fs = kernel.filesystem.fs
+    const passwd = await fs.readFile('/etc/passwd', 'utf8')
+    const rootLine = passwd.split('\n').find(l => l.startsWith('root:'))
+    expect(rootLine?.split(':')[1]).toBe('x') // already 7-field; a fresh boot never went through the 6-field path
+    expect(await fs.exists('/etc/group')).toBe(true)
   })
 
   it('removes stale command stubs and the pilot programs, keeping the live stubs', async () => {
@@ -89,7 +97,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([])
     await kernel.registerCommands()
 
-    expect(await readFsVersion(fs)).toBe(1)
+    expect(await readFsVersion(fs)).toBe(2)
     expect((await fs.readdir('/bin')).sort()).toEqual(binBefore)
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(DEFAULT_BOOT_INIT)
     expect(await fs.exists('/boot/init.new')).toBe(false)
@@ -109,9 +117,35 @@ describe('boot over a persisted 0.x filesystem', () => {
     await fs.unlink(FS_VERSION_FILE)
     await fs.writeFile('/boot/init', edited)
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2])
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(edited)
     expect(await fs.readFile('/boot/init.new', 'utf8')).toBe(DEFAULT_BOOT_INIT)
+  })
+
+  it('migration 2 converts a pre-1.0 6-field /etc/passwd to the real 7-field format and splits supplementary groups into /etc/group', async () => {
+    const fs = kernel.filesystem.fs
+    await fs.unlink(FS_VERSION_FILE)
+    // A user in primary group 100 with a supplementary group 200, plus a second user sharing the
+    // same primary group -- exercises both "primary group names itself" and "member list grows".
+    await fs.writeFile('/etc/passwd', 'alice:1000:100:200:/home/alice:ecmaos\nbob:1001:100:200,300:/home/bob:ecmaos\n')
+
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2])
+
+    const passwd = await fs.readFile('/etc/passwd', 'utf8')
+    expect(passwd).toContain('alice:x:1000:100:alice:/home/alice:ecmaos')
+    expect(passwd).toContain('bob:x:1001:100:bob:/home/bob:ecmaos')
+
+    const group = await fs.readFile('/etc/group', 'utf8')
+    const lines = Object.fromEntries(group.trim().split('\n').map(l => { const [name, , gid] = l.split(':'); return [gid as string, { name, line: l }] }))
+    expect(lines['100']?.line).toBe('alice:x:100:')
+    expect(lines['200']?.line).toBe('group200:x:200:alice,bob')
+    expect(lines['300']?.line).toBe('group300:x:300:bob')
+
+    // Re-running is safe: the file is already 7-field, so migration 2 (re-triggered by clearing
+    // the version marker again) must not double-convert or duplicate /etc/group entries.
+    await fs.unlink(FS_VERSION_FILE)
+    await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })
+    expect(await fs.readFile('/etc/passwd', 'utf8')).toBe(passwd)
   })
 
   it('removeStaleCommandStubs leaves real programs and the named stubs alone', async () => {
