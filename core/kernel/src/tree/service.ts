@@ -76,7 +76,7 @@ export class Service implements IService {
           // the service worker is exactly this kind of boundary from the page). Cloning into a
           // fresh Uint8Array here guarantees postMessage's structured clone -- and the service
           // worker's later `new Response(fileData, ...)` -- see a normal, unambiguous binary buffer.
-          data: new Uint8Array(contents as ArrayBufferLike)
+          data: new Uint8Array(contents)
         })
       } catch (error) {
         this._ctx.log.error(error instanceof Error ? error.message : 'Unknown error')

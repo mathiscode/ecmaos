@@ -14,7 +14,7 @@
     "vite": "^8.3.1"
   },
   "peerDependencies": {
-    "typescript": "^5.4.0"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@faker-js/faker": "^9.1.0",
