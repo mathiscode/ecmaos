@@ -8,7 +8,7 @@ export default defineConfig({
     cssInjectedByJs()
   ],
   define: {
-    "import.meta.env.ECMAOS_KERNEL_MODULES": ''
+    "import.meta.env.ECMAOS_KERNEL_MODULES": '""'
   },
   server: {
     port: Number(process.env['ECMAOS_PORT']) || 30448
@@ -21,10 +21,9 @@ export default defineConfig({
       formats: ['es'],
       fileName: 'code'
     },
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        inlineDynamicImports: true,
-        manualChunks: undefined
+        codeSplitting: false
       }
     }
   }

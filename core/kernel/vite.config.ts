@@ -7,9 +7,9 @@ import dts from 'vite-plugin-dts'
 import { playwright } from '@vitest/browser-playwright'
 import type { ViteDevServer } from 'vite'
 
-import { binCommands, binKernelCommands, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node'
+import { binCommands, binKernelCommands, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node.ts'
 
-import pkg from './package.json'
+import pkg from './package.json' with { type: 'json' }
 
 const xterm = pkg.dependencies['@xterm/xterm']
 const xtermVersion = xterm.replace('^', '').replace('~', '')
@@ -104,6 +104,10 @@ const instantiateCore = (source, imports) => {
 
 export default defineConfig({
   envPrefix: 'ECMAOS_',
+  // Tests boot against the kernel's built-in defaults, never the developer's (or CI's) `.env`:
+  // Vite 8's unbundled path exposes `.env` values to `import.meta.env` under vitest, which would
+  // make every boot fetch initfs and install ECMAOS_KERNEL_MODULES from the network.
+  envDir: process.env['VITEST'] ? false : undefined,
   plugins: [
     binNode(),
     binWali(),
@@ -115,7 +119,9 @@ export default defineConfig({
     jcoBrowserFixPlugin(),
     nodePolyfills({
       protocolImports: true,
-      globals: { Buffer: true, global: true, process: true },
+      // Under vitest the code runs on real Node: injecting the browser `process` shim there would
+      // shadow Node's own (tests reach `process.getBuiltinModule` for real fs/http fixtures).
+      globals: { Buffer: true, global: true, process: !process.env['VITEST'] },
       include: [
         'assert', 'buffer', 'child_process', 'cluster', 'console', 'constants', 'crypto',
         'events', 'fs', 'http', 'http2', 'https', 'os', 'path', 'punycode', 'querystring',
@@ -139,13 +145,13 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@zenfs/core-dev': path.resolve(process.env['HOME'] || process.env['USERPROFILE'] || __dirname, 'code/zenfs-core/dist'),
+      '@zenfs/core-dev': path.resolve(process.env['HOME'] || process.env['USERPROFILE'] || import.meta.dirname, 'code/zenfs-core/dist'),
       // Ensure buffer shim resolves correctly (both singular and plural for compatibility)
       'vite-plugin-node-polyfills/shim/buffer': 'vite-plugin-node-polyfills/shims/buffer',
       'vite-plugin-node-polyfills/shim/global': 'vite-plugin-node-polyfills/shims/global',
       'vite-plugin-node-polyfills/shim/process': 'vite-plugin-node-polyfills/shims/process',
       // Stub node:fs/promises for browser builds (jco library tries to import it)
-      'node:fs/promises': path.resolve(__dirname, 'src/stubs/node-fs-promises.ts')
+      'node:fs/promises': path.resolve(import.meta.dirname, 'src/stubs/node-fs-promises.ts')
     },
     dedupe: ['vite-plugin-node-polyfills']
   },

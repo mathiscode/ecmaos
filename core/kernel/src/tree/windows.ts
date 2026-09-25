@@ -1,11 +1,13 @@
 import 'winbox'
 import 'winbox/dist/css/winbox.min.css'
-// @ts-ignore
-import WinBox from 'winbox/src/js/winbox.js'
+// @ts-ignore -- the ESM source ships no types; @types/winbox describes it as WinBox.WinBoxConstructor
+import WinBoxModule from 'winbox/src/js/winbox.js'
 
 import type { WindowId, Windows as IWindows } from '@ecmaos/types'
 
-declare const WinBox: WinBox.WinBoxConstructor;
+// Bound under its own name: a `declare const WinBox` alongside a same-named import lets the
+// transform treat the import as type-only and drop it, leaving `new WinBox()` unbound at runtime.
+const WinBoxCtor = WinBoxModule as WinBox.WinBoxConstructor
 
 declare module 'winbox' {
   interface WinBoxConstructor {
@@ -13,7 +15,14 @@ declare module 'winbox' {
   }
 }
 
-const DefaultWindowOptions: WinBox.Params = {
+/** `@types/winbox` omits the minimize/restore/maximize hooks the real WinBox calls. */
+type WindowParams = WinBox.Params & {
+  onminimize?: (this: WinBox, force?: boolean) => void
+  onrestore?: (this: WinBox) => void
+  onmaximize?: (this: WinBox) => void
+}
+
+const DefaultWindowOptions: WindowParams = {
   background: 'black',
   border: 1,
   class: 'ecmaos-window',
@@ -24,7 +33,7 @@ const DefaultWindowOptions: WinBox.Params = {
   y: 'center'
 }
 
-const DefaultDialogOptions: WinBox.Params = {
+const DefaultDialogOptions: WindowParams = {
   ...DefaultWindowOptions,
   modal: true,
   width: 320,
@@ -34,7 +43,7 @@ const DefaultDialogOptions: WinBox.Params = {
 export class Windows implements IWindows {
   private _manager: Map<WindowId, WinBox> = new Map()
 
-  get stack() { return WinBox.stack() }
+  get stack() { return WinBoxCtor.stack() }
 
   all() {
     return this._manager.entries()
@@ -44,15 +53,15 @@ export class Windows implements IWindows {
     this._manager.get(id)?.close()
   }
   
-  create(_options: WinBox.Params = DefaultWindowOptions): WinBox {
-    const options = { ...DefaultWindowOptions, ..._options }
+  create(_options: WindowParams = DefaultWindowOptions): WinBox {
+    const options: WindowParams = { ...DefaultWindowOptions, ..._options }
     const id = options.id || Math.random().toString(36).substring(2, 8)
     options.id = id
 
     const self = this
     
     const originalOnMinimize = options.onminimize
-    options.onminimize = function(this: WinBox, force: boolean) {
+    options.onminimize = function(this: WinBox, force?: boolean) {
       setTimeout(() => self._updateBodyClass(), 0)
       originalOnMinimize?.call(this, force)
     }
@@ -70,13 +79,13 @@ export class Windows implements IWindows {
     }
 
     const originalOnClose = options.onclose
-    options.onclose = function(this: WinBox, force: boolean) {
+    options.onclose = function(this: WinBox, force?: boolean) {
       setTimeout(() => self._updateBodyClass(), 0)
       self.remove(id)
-      return originalOnClose?.call(this, force)
+      return originalOnClose?.call(this, force) ?? false
     }
 
-    const win = new WinBox(options)
+    const win = new WinBoxCtor(options)
     this._manager.set(id, win)
     return win
   }
