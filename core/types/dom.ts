@@ -43,4 +43,13 @@ export interface Dom {
    * @param value - Progress value (0-100)
    */
   topbarProgress(value: number): Promise<void>
-} 
+
+  /**
+   * Show the on-screen key row for touch devices
+   * @param onKey - Called with the key and code for each tapped key
+   */
+  enableMobileControls(onKey: (key: string, code: string) => void): void
+
+  /** Remove the on-screen key row, if shown */
+  disableMobileControls(): void
+}

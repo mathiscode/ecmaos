@@ -122,7 +122,7 @@ class LineParser {
 
   /** `if COND; then` / `if COND` with `then` on its own following line -- both are legal. */
   private consumeConditionThroughKeyword(openKeyword: string, throughKeyword: string): string {
-    let line = this.restAfterKeyword(this.advance(), openKeyword)
+    const line = this.restAfterKeyword(this.advance(), openKeyword)
     // Strip a trailing `; then` on the same line.
     const inlineMatch = new RegExp(`;?\\s*${throughKeyword}\\s*$`).exec(line)
     if (inlineMatch) return line.slice(0, inlineMatch.index).replace(/;\s*$/, '').trim()
