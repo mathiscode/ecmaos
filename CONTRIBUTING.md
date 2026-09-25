@@ -55,10 +55,10 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 ## Typecheck error-budget ratchet
 
-The `feat/1.0.0` overhaul carries a body of pre-existing `tsc` errors (dual
-`@zenfs/core` copies across the workspace, plus third-party `vim-wasm` sources
-pulled into the program). Fixing them all up front is not a prerequisite for the
-overhaul, but the count must not grow while it is in progress.
+The budget is **0** — `tsc --noEmit` must report zero diagnostics. The dual
+`@zenfs/core` copies and stray `vim-wasm` sources that used to produce a
+pre-existing error baseline are gone (removed during the `feat/1.0.0`
+overhaul); there is no longer a tolerated error count to work within.
 
 CI enforces this with `scripts/typecheck-ratchet.mjs`, which runs
 `tsc --noEmit` in `core/kernel` **after `pnpm build`**, counts diagnostics, and
@@ -66,12 +66,13 @@ compares against the budget in `.ci/typecheck-baseline.json`. Run it after a
 build locally too — several packages resolve their types from `dist/`, so the
 count is only stable once `dist/` is populated.
 
-* **More errors than the budget** — CI fails. Fix the new errors.
-* **Fewer errors than the budget** — CI passes with a warning. Run
-  `node scripts/typecheck-ratchet.mjs --write` and commit the updated
-  `.ci/typecheck-baseline.json` so the improvement is locked in.
+* **Any error at all** — CI fails. Fix it; there is no headroom to spend.
+* If a legitimate reason ever reopens headroom (a new third-party dependency
+  with broken types, say), raise the budget deliberately with
+  `node scripts/typecheck-ratchet.mjs --write` and explain why in the commit —
+  don't let it drift up silently.
 
-The number only ever ratchets down.
+The number only ever ratchets down from wherever it's set.
 
 ## License
 
