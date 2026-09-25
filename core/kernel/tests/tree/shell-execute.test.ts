@@ -126,7 +126,7 @@ describe('Shell.execute — real execution over the new parser', () => {
 
   it('sets PIPESTATUS to every stage\'s exit code, not just the last', async () => {
     await run('false | true')
-    expect(kernel.shell.env.get('PIPESTATUS')).toBe('1 0')
+    expect([...(kernel.shell.arrays.get('PIPESTATUS')?.values() ?? [])]).toEqual(['1', '0'])
   })
 
   it('redirects stdout to a file with >, truncating', async () => {
@@ -162,5 +162,114 @@ describe('Shell.execute — real execution over the new parser', () => {
     await kernel.filesystem.fs.writeFile(inPath, 'from-file')
     const { output } = await runCapturing(`rev < ${inPath}`)
     expect(output.trim()).toBe('elif-morf')
+  })
+
+  it('redirects stdin on a later pipeline stage, not just the first', async () => {
+    const inPath = '/tmp/shell-input-stage-test.txt'
+    await kernel.filesystem.fs.writeFile(inPath, 'from-file')
+    // `echo ignored`'s output is discarded because `cat`'s stdin is overridden by `< inPath`.
+    const { output } = await runCapturing(`echo ignored | cat < ${inPath}`)
+    expect(output.trim()).toBe('from-file')
+  })
+
+  describe('heredocs and here-strings', () => {
+    it('runs a <<< here-string as stdin', async () => {
+      const { output } = await runCapturing('cat <<< hello')
+      expect(output.trim()).toBe('hello')
+    })
+
+    it('expands variables in an unquoted here-string', async () => {
+      await run('x=world')
+      const { output } = await runCapturing('cat <<< "hi $x"')
+      expect(output.trim()).toBe('hi world')
+    })
+
+    it('runs a << heredoc body as stdin, expanding variables when the delimiter is unquoted', async () => {
+      await run('x=5')
+      const code = await kernel.shell.executeScriptText('cat <<EOF > /tmp/shell-heredoc-test.out\nvalue is $x\nEOF\n')
+      expect(code).toBe(0)
+      const content = await kernel.filesystem.fs.readFile('/tmp/shell-heredoc-test.out', 'utf-8')
+      expect(content).toBe('value is 5\n')
+    })
+
+    it('does not expand variables (or escapes) when the heredoc delimiter is quoted', async () => {
+      await run('x=5')
+      const code = await kernel.shell.executeScriptText("cat <<'EOF' > /tmp/shell-heredoc-quoted-test.out\nvalue is \\$x\nEOF\n")
+      expect(code).toBe(0)
+      const content = await kernel.filesystem.fs.readFile('/tmp/shell-heredoc-quoted-test.out', 'utf-8')
+      expect(content).toBe('value is \\$x\n')
+    })
+  })
+
+  describe('[[ ]] conditionals', () => {
+    it('matches == against a glob pattern', async () => {
+      await run('x=abc')
+      expect(await run('[[ $x == a* ]]')).toBe(0)
+      expect(await run('[[ $x == z* ]]')).toBe(1)
+    })
+
+    it('matches =~ against a regex and negates with !=', async () => {
+      await run('x=abc123')
+      expect(await run('[[ $x =~ ^[a-z]+[0-9]+$ ]]')).toBe(0)
+      expect(await run('[[ $x != xyz ]]')).toBe(0)
+    })
+
+    it('combines &&/||/! and file tests', async () => {
+      expect(await run('[[ -e /etc/hostname && ! -d /etc/hostname ]]')).toBe(0)
+      expect(await run('[[ -d /nonexistent-dir-xyz || -e /etc/hostname ]]')).toBe(0)
+    })
+
+    it('supports -z/-n and string comparison', async () => {
+      expect(await run('[[ -z "" ]]')).toBe(0)
+      expect(await run('[[ -n nonempty ]]')).toBe(0)
+    })
+  })
+
+  describe('arrays and ${PIPESTATUS[@]}', () => {
+    it('creates an indexed array and expands ${a[@]} and ${#a[@]}', async () => {
+      await run('a=(x y z)')
+      const { output } = await runCapturing('echo ${a[@]}')
+      expect(output.trim()).toBe('x y z')
+      const { output: lengthOutput } = await runCapturing('echo ${#a[@]}')
+      expect(lengthOutput.trim()).toBe('3')
+    })
+
+    it('reads and writes a single element with a[i]', async () => {
+      await run('a=(x y z)')
+      await run('a[1]=Y')
+      const { output } = await runCapturing('echo ${a[1]}')
+      expect(output.trim()).toBe('Y')
+    })
+
+    it('appends with +=(...)', async () => {
+      await run('b=(1 2)')
+      await run('b+=(3)')
+      const { output } = await runCapturing('echo ${b[@]}')
+      expect(output.trim()).toBe('1 2 3')
+    })
+
+    it('exposes PIPESTATUS as a real array with [@] expansion', async () => {
+      await run('false | true | false')
+      const { output } = await runCapturing('echo ${PIPESTATUS[@]}')
+      expect(output.trim()).toBe('1 0 1')
+    })
+  })
+
+  describe('trap', () => {
+    it('runs an EXIT trap when a script finishes', async () => {
+      const path = '/tmp/shell-trap-exit-test.out'
+      if (await kernel.filesystem.fs.exists(path)) await kernel.filesystem.fs.unlink(path)
+      await kernel.shell.executeScriptText(`trap 'echo bye > ${path}' EXIT\necho main\n`)
+      const content = await kernel.filesystem.fs.readFile(path, 'utf-8')
+      expect(content.trim()).toBe('bye')
+    })
+
+    it('lists and resets traps', async () => {
+      await run("trap 'echo x' TERM")
+      expect(kernel.shell.getTrap('TERM')).toBe('echo x')
+      expect(kernel.shell.getTrap('SIGTERM')).toBe('echo x')
+      await run('trap - TERM')
+      expect(kernel.shell.getTrap('TERM')).toBeUndefined()
+    })
   })
 })

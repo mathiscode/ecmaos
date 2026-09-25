@@ -1337,6 +1337,7 @@ export class Terminal extends XTerm implements ITerminal {
           // which is what actually stops the *prompt* from being stuck, same as before this existed.
           const job = this._shell?.foregroundJob
           if (job) for (const process of job.processes) process.kill(Signal.INT)
+          void this._shell?.runTrap('INT')
 
           this._cmd = ''
           this._cursorPosition = 0

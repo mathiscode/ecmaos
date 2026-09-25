@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseScript, tokenize } from '#lib/shell-parser.ts'
+import { foldHeredocs, parseScript, tokenize } from '#lib/shell-parser.ts'
 import type { Command, Pipeline } from '#lib/shell-parser.ts'
 
 describe('shell-parser', () => {
@@ -175,24 +175,26 @@ describe('shell-parser', () => {
       expect(command.words).toEqual(['echo', 'a > b'])
     })
 
+    const targetParts = (text: string) => [{ text, quoting: 'unquoted' as const }]
+
     it('parses > with an implicit fd of 1', () => {
       const command = firstCommand(parseScript('cmd > out.txt'))
-      expect(command.redirections).toEqual([{ type: '>', fd: 1, target: 'out.txt' }])
+      expect(command.redirections).toEqual([{ type: '>', fd: 1, target: 'out.txt', targetParts: targetParts('out.txt') }])
     })
 
     it('parses >> as append', () => {
       const command = firstCommand(parseScript('cmd >> out.txt'))
-      expect(command.redirections).toEqual([{ type: '>>', fd: 1, target: 'out.txt' }])
+      expect(command.redirections).toEqual([{ type: '>>', fd: 1, target: 'out.txt', targetParts: targetParts('out.txt') }])
     })
 
     it('parses < with an implicit fd of 0', () => {
       const command = firstCommand(parseScript('cmd < in.txt'))
-      expect(command.redirections).toEqual([{ type: '<', fd: 0, target: 'in.txt' }])
+      expect(command.redirections).toEqual([{ type: '<', fd: 0, target: 'in.txt', targetParts: targetParts('in.txt') }])
     })
 
     it('parses an explicit fd prefix, e.g. 2>', () => {
       const command = firstCommand(parseScript('cmd 2> err.txt'))
-      expect(command.redirections).toEqual([{ type: '>', fd: 2, target: 'err.txt' }])
+      expect(command.redirections).toEqual([{ type: '>', fd: 2, target: 'err.txt', targetParts: targetParts('err.txt') }])
     })
 
     it('parses 2>&1 as a fd-to-fd duplication, not a file target', () => {
@@ -204,12 +206,12 @@ describe('shell-parser', () => {
       const a = firstCommand(parseScript('cmd 2>&1 > out.txt'))
       expect(a.redirections).toEqual([
         { type: '>&', fd: 2, target: '1', targetIsFd: true },
-        { type: '>', fd: 1, target: 'out.txt' }
+        { type: '>', fd: 1, target: 'out.txt', targetParts: targetParts('out.txt') }
       ])
 
       const b = firstCommand(parseScript('cmd > out.txt 2>&1'))
       expect(b.redirections).toEqual([
-        { type: '>', fd: 1, target: 'out.txt' },
+        { type: '>', fd: 1, target: 'out.txt', targetParts: targetParts('out.txt') },
         { type: '>&', fd: 2, target: '1', targetIsFd: true }
       ])
     })
@@ -217,20 +219,25 @@ describe('shell-parser', () => {
     it('parses multiple redirections on one command', () => {
       const command = firstCommand(parseScript('cmd < in.txt > out.txt 2> err.txt'))
       expect(command.redirections).toEqual([
-        { type: '<', fd: 0, target: 'in.txt' },
-        { type: '>', fd: 1, target: 'out.txt' },
-        { type: '>', fd: 2, target: 'err.txt' }
+        { type: '<', fd: 0, target: 'in.txt', targetParts: targetParts('in.txt') },
+        { type: '>', fd: 1, target: 'out.txt', targetParts: targetParts('out.txt') },
+        { type: '>', fd: 2, target: 'err.txt', targetParts: targetParts('err.txt') }
       ])
     })
 
-    it('parses a heredoc operator', () => {
-      const command = firstCommand(parseScript('cmd << EOF'))
-      expect(command.redirections).toEqual([{ type: '<<', fd: 0, target: 'EOF' }])
+    it('parses a heredoc operator, body folded in from the following lines', () => {
+      const command = firstCommand(parseScript(foldHeredocs('cmd << EOF\nhello\nEOF')))
+      expect(command.redirections).toEqual([{ type: '<<', fd: 0, target: 'hello\n', heredoc: { body: 'hello\n', expand: true } }])
+    })
+
+    it('parses a quoted heredoc delimiter as non-expanding', () => {
+      const command = firstCommand(parseScript(foldHeredocs("cmd << 'EOF'\n$x\nEOF")))
+      expect(command.redirections).toEqual([{ type: '<<', fd: 0, target: '$x\n', heredoc: { body: '$x\n', expand: false } }])
     })
 
     it('parses a here-string operator', () => {
       const command = firstCommand(parseScript('cmd <<< hello'))
-      expect(command.redirections).toEqual([{ type: '<<<', fd: 0, target: 'hello' }])
+      expect(command.redirections).toEqual([{ type: '<<<', fd: 0, target: 'hello', targetParts: targetParts('hello') }])
     })
   })
 
