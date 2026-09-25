@@ -6,6 +6,16 @@
 
 ---
 
+## 1.0.0
+
+- ecmaOS 1.0.0 is here! Every command now runs through a real, worker-hosted `execve` -- the old in-process `ProcessManager` is gone for good.
+- The shell now supports `<<` heredocs, `<<<` here-strings, `[[ ]]` tests, indexed arrays (`a=(x y)`, `${a[@]}`), `${PIPESTATUS[@]}`, and `trap`.
+- Clicking a command link in terminal output now asks you to confirm before it runs.
+- `/etc/passwd` and `/etc/group` moved to the real Linux format; existing installs are migrated automatically on next boot.
+- Added the `free` command, and filled in a few missing `/proc` entries.
+- A failed boot now leaves you with a readable error instead of a stuck spinner.
+- Toolchain upgraded across the board: Vite 8, TypeScript 7, ESLint 10, vitest 5.
+
 ## 2025-12-31
 
 - Development is picking back up!
