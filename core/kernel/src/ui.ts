@@ -70,4 +70,7 @@ const ttySwitchHandler = async (event: KeyboardEvent) => {
 // Add handler with capture phase to catch events before xterm.js
 document.addEventListener('keydown', ttySwitchHandler, true)
 
+// boot() reports its own failures (PANIC state + toast); this only catches one that escapes it,
+// e.g. from the panic handler itself, so it never becomes an unhandled rejection.
 kernel.boot({ silent: import.meta.env.NODE_ENV === 'test', figletFontRandom: false })
+  .catch(error => console.error('ecmaOS failed to boot:', error))
