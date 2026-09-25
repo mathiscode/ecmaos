@@ -16,6 +16,7 @@ import spinners from 'cli-spinners'
 import * as emoji from '@thi.ng/emoji'
 import { attach_xterm, detach_xterm, Signal } from '@zenfs/linux'
 import type { TTY } from '@zenfs/linux'
+import { lflags } from '@zenfs/linux/uapi/abi'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
 import { AttachAddon } from '@xterm/addon-attach'
 import { BrowserClipboardProvider, ClipboardAddon } from '@xterm/addon-clipboard'
@@ -959,6 +960,22 @@ export class Terminal extends XTerm implements ITerminal {
     let cursor = 0
     const wasListening = this._keyListener !== undefined
     this.unlisten()
+
+    // `unlisten()` only stops this terminal's own `onKey` handler. When a foreground execve
+    // process holds `attachInput()` (e.g. `user add` reading its own stdin), raw keystrokes still
+    // flow through `onData` into the `@zenfs/linux` line discipline, which echoes them back per
+    // `termios.lflag` regardless of what this `readline()` does with `hide` -- leaking the real
+    // password onto the screen on every keypress, not just on backspace/delete.
+    const tty = this._zfsTty
+    const restoreTtyEcho = hide && tty && this._ttyInput
+      ? (() => {
+          const lflag = tty.termios.lflag
+          if ((lflag & lflags.ECHO) === 0) return undefined
+          tty.set_termios({ lflag: lflag & ~lflags.ECHO })
+          return () => tty.set_termios({ lflag })
+        })()
+      : undefined
+
     this.write(prompt)
     this.focus()
     if (this._isMobile) {
@@ -1011,18 +1028,25 @@ export class Terminal extends XTerm implements ITerminal {
             if (cursor > 0) {
               cursor--
               input = input.slice(0, cursor) + input.slice(cursor + 1)
-              this.write(ansi.cursor.back() + ansi.erase.inLine(0) + input.slice(cursor))
-              if (input.length - cursor > 0) {
-                this.write(`\x1b[${input.length - cursor}D`)
+              // `hide` (a password prompt) suppresses echo entirely, the same way the typed-
+              // character branch below does -- redrawing `input.slice(cursor)` here regardless of
+              // `hide` used to leak the real plaintext onto the terminal on every edit.
+              if (!hide) {
+                this.write(ansi.cursor.back() + ansi.erase.inLine(0) + input.slice(cursor))
+                if (input.length - cursor > 0) {
+                  this.write(`\x1b[${input.length - cursor}D`)
+                }
               }
             } else this.write('\x07')
             break
           case 'Delete':
             if (cursor < input.length) {
               input = input.slice(0, cursor) + input.slice(cursor + 1)
-              this.write(ansi.erase.inLine(0) + input.slice(cursor))
-              if (input.length - cursor > 0) {
-                this.write(`\x1b[${input.length - cursor}D`)
+              if (!hide) {
+                this.write(ansi.erase.inLine(0) + input.slice(cursor))
+                if (input.length - cursor > 0) {
+                  this.write(`\x1b[${input.length - cursor}D`)
+                }
               }
             }
             break
@@ -1052,6 +1076,7 @@ export class Terminal extends XTerm implements ITerminal {
       })
     })
 
+    restoreTtyEcho?.()
     if (wasListening && !noListen) this.listen()
     return result
   }
@@ -1845,17 +1870,23 @@ export class Terminal extends XTerm implements ITerminal {
   private _clearCurrentCommand() {
     const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
     const cursorTargetLen = promptLen + this._cursorPosition
-    
-    // Calculate cursor line relative to start of prompt
-    const targetLine = Math.floor(cursorTargetLen / this.cols)
-    
+
+    // Rows the prompt/command block occupies, with the cursor (always at the end after a history
+    // recall) on the last of them. `Math.ceil(len / cols) - 1` gives that last row's zero-indexed
+    // offset from the first -- unlike `Math.floor(len / cols)`, it doesn't overcount by one when
+    // `len` is an exact multiple of `cols`: a real terminal leaves the cursor on the last column of
+    // the current row in that case (deferred wrap), it doesn't advance to the next row until another
+    // character is actually written there. Overcounting moved the cursor one row too far up, so the
+    // subsequent erase-down wiped out whatever was printed just above the prompt.
+    const targetLine = Math.max(0, Math.ceil(cursorTargetLen / this.cols) - 1)
+
     // Move up to the first line of the prompt/command block
     if (targetLine > 0) {
       this.write(`\x1b[${targetLine}A`)
     }
-    
+
     // Move to start of line and clear everything down
-    this.write('\r\x1b[J') 
+    this.write('\r\x1b[J')
   }
   
   private _resizeTerminalToViewport() {
