@@ -1,9 +1,20 @@
-import { vi } from 'vitest'
+import { afterAll, vi } from 'vitest'
 import { Buffer } from 'node:buffer'
 import 'fake-indexeddb/auto'
 import 'vitest-canvas-mock'
 
 (globalThis as any).Buffer = Buffer
+
+// A booted kernel leaves background work running (crond, intervals) that keeps logging after a
+// file's last test. Once the file is done, that output has nowhere useful to go, and if it lands
+// while vitest is closing the worker's RPC channel it surfaces as an EnvironmentTeardownError
+// ("Closing rpc while onUserConsoleLog was pending") that fails an otherwise green run.
+// Unhandled errors don't go through the console, so vitest still reports those.
+afterAll(() => {
+  for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const) {
+    console[method] = () => {}
+  }
+})
 
 ;(globalThis as any).ResizeObserver = class ResizeObserver {
   observe() {}
