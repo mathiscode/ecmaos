@@ -4,6 +4,7 @@ import path from 'path'
 import { defineConfig, ViteUserConfig } from 'vitest/config'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import dts from 'vite-plugin-dts'
+import { playwright } from '@vitest/browser-playwright'
 import type { ViteDevServer } from 'vite'
 
 import { binCommands, binKernelCommands, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node'
@@ -198,7 +199,7 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     deps: {
       optimizer: {
-        web: {
+        client: {
           include: ['vitest-canvas-mock', '@ecmaos/coreutils']
         }
       }
@@ -210,23 +211,14 @@ export default defineConfig({
     },
     browser: {
       enabled: false,
-      provider: 'playwright',
-      name: 'chromium',
-      providerOptions: {
-        launch: {
-          devtools: true
-        }
-      }
+      provider: playwright({ launchOptions: { devtools: true } }),
+      instances: [{ browser: 'chromium' }]
     },
     environmentOptions: {
       jsdom: {
         resources: 'usable'
       }
     },
-    poolOptions: {
-      forks: {
-        execArgv: ['--no-warnings=ExperimentalWarning']
-      }
-    }
+    execArgv: ['--no-warnings=ExperimentalWarning']
   }
 })

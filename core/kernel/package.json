@@ -130,9 +130,9 @@
     "@types/winbox": "^0.2.5",
     "@typhonjs-typedoc/ts-lib-docs": "^2024.9.18",
     "@typhonjs-typedoc/typedoc-theme-dmt": "^0.2.1",
-    "@vitest/browser": "^2.1.2",
-    "@vitest/coverage-v8": "^2.1.2",
-    "@vitest/ui": "^2.1.2",
+    "@vitest/browser-playwright": "^5.0.2",
+    "@vitest/coverage-v8": "^5.0.2",
+    "@vitest/ui": "^5.0.2",
     "@webgpu/types": "^0.1.51",
     "@xterm/addon-attach": "^0.12.0",
     "@xterm/addon-web-links": "^0.12.0",
@@ -155,8 +155,8 @@
     "vite-plugin-i18next-loader": "^2.0.13",
     "vite-plugin-node-polyfills": "^0.22.0",
     "vite-tsconfig-paths": "^5.0.1",
-    "vitest": "^2.1.2",
-    "vitest-canvas-mock": "^0.3.3"
+    "vitest": "^5.0.2",
+    "vitest-canvas-mock": "^1.2.0"
   },
   "dependencies": {
     "@alenaksu/json-viewer": "^2.1.2",
