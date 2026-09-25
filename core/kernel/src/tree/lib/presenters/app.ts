@@ -39,6 +39,26 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
   }
 
   const owner = shell ?? kernel.shell
+
+  // Apps written against the old `executeApp`-era ABI (e.g. `apps/code/src/main.ts`) destructure
+  // `instance` and call `instance.open/exit/keepAlive` directly. `open` used to be the legacy
+  // `Process`'s own file-open helper (deleted in 046a5609); `exit`/`keepAlive` decided whether the
+  // process ended when `main` returned (a fire-and-forget window) or stayed alive until the app
+  // called `exit` itself (e.g. a Monaco editor window that outlives `main` returning once its UI
+  // is set up). This shim reproduces both against the current API, tying `keepAlive`/`exit` into
+  // the `closed` promise `window_present` actually awaits.
+  let resolveClosed!: (code: number) => void
+  let rejectClosed!: (error: unknown) => void
+  const closed = new Promise<number>((resolve, reject) => { resolveClosed = resolve; rejectClosed = reject })
+  let keptAlive = false
+  let onDispose: (() => void) | undefined
+  const instance = {
+    open: (path: string, flags: string = 'r') => kernel.filesystem.fs.open(path, flags),
+    exit: (code: number = 0) => resolveClosed(code),
+    keepAlive: () => { keptAlive = true },
+    onDispose: (callback: () => void) => { onDispose = callback }
+  }
+
   const entryParams = {
     args,
     command,
@@ -46,6 +66,7 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
     uid: owner.credentials.uid,
     gid: owner.credentials.gid,
     pid: proc.pid,
+    instance,
     kernel,
     shell: owner,
     terminal: kernel.terminal,
@@ -54,5 +75,9 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
     stderr: kernel.terminal.stderr
   } as unknown as ProcessEntryParams
 
-  return { closed: Promise.resolve(main(entryParams)).then(code => typeof code === 'number' ? code : 0) }
+  Promise.resolve(main(entryParams))
+    .then(code => { if (!keptAlive) resolveClosed(typeof code === 'number' ? code : 0) })
+    .catch(rejectClosed)
+
+  return { closed, dispose: () => onDispose?.() }
 }

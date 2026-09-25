@@ -194,6 +194,12 @@ export interface Process {
    */
   keepAlive(): void
   /**
+   * Registers a callback run if the process ends first from outside (`^C`, `kill`) rather than by
+   * calling `exit()` itself -- for a DOM app under `/bin/app`, this is the app's chance to close
+   * whatever window it opened, since nothing else can reach into it from outside the main thread.
+   */
+  onDispose?(callback: () => void): void
+  /**
    * Open a file and automatically track in FDTable
    * @param path - Path to the file
    * @param flags - Open flags (default: 'r')
