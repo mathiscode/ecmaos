@@ -334,9 +334,9 @@ async function mountGoogleDrive({ out, mountOptions, mount }: {
         } catch (authError) {
           const message = authError instanceof Error ? authError.message : String(authError)
           if (message.toLowerCase().includes('popup') || message.toLowerCase().includes('blocked')) {
-            throw new Error(`OAuth authentication failed: ${message}. Please allow popups for this site.`)
+            throw new Error(`OAuth authentication failed: ${message}. Please allow popups for this site.`, { cause: authError })
           } else if (message.toLowerCase().includes('origin') || message.toLowerCase().includes('authorized')) {
-            throw new Error(`OAuth authentication failed: ${message}. Your origin may not be authorized in Google Cloud Console. Add your current origin to the OAuth client's authorized JavaScript origins.`)
+            throw new Error(`OAuth authentication failed: ${message}. Your origin may not be authorized in Google Cloud Console. Add your current origin to the OAuth client's authorized JavaScript origins.`, { cause: authError })
           }
           throw authError
         }

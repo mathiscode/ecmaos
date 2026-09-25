@@ -200,7 +200,7 @@ export async function presentEditor(kernel: Kernel, _proc: unknown, params: Reco
     console.error('[vim] Error calling vim.start():', startError)
     if (startError instanceof Error && startError.stack) console.error('[vim] Start error stack:', startError.stack)
     closeWindow()
-    throw new Error(`failed to start: ${startError instanceof Error ? startError.message : 'Unknown error'}`)
+    throw new Error(`failed to start: ${startError instanceof Error ? startError.message : 'Unknown error'}`, { cause: startError })
   }
 
   return {

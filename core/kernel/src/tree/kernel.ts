@@ -1671,7 +1671,6 @@ export class Kernel implements IKernel {
     } finally {
       if (keyListener) {
         keyListener.dispose()
-        keyListener = null
       }
       if (shouldUnlisten) {
         terminal.listen()

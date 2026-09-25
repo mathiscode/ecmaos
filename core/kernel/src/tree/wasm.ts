@@ -529,13 +529,9 @@ export class Wasm implements IWasm {
     const malloc = exports.malloc as ((size: number) => number) | undefined
     
     const ASYNCIFY_DATA_SIZE = 16384
-    let dataAddr = 0
-    
-    if (malloc) {
-      dataAddr = malloc(ASYNCIFY_DATA_SIZE)
-    } else {
-      dataAddr = memory.buffer.byteLength - ASYNCIFY_DATA_SIZE - 256
-    }
+    const dataAddr = malloc
+      ? malloc(ASYNCIFY_DATA_SIZE)
+      : memory.buffer.byteLength - ASYNCIFY_DATA_SIZE - 256
     
     const memView = new DataView(memory.buffer)
     const stackStart = dataAddr + 8
