@@ -1578,6 +1578,15 @@ export class Kernel implements IKernel {
           if (domEvent.ctrlKey && domEvent.key === 'c') {
             domEvent.preventDefault()
             domEvent.stopPropagation()
+            // `proc` here is a real `ZenFSProcess` (unlike the legacy `Process` this replaced), so
+            // it can actually be signaled -- `ps`/`kill` now see a consistent state for it, same as
+            // any worker-hosted process. This does NOT make WASM interruptible on its own: `_start`/
+            // `_initialize` below run synchronously with no yield point unless the module itself was
+            // compiled with asyncify, so a real blocking/looping module still can't be preempted by
+            // this signal -- only non-asyncify code that happens to check for pending signals (or
+            // the WASI adapters watching `TerminalEvents.INTERRUPT`, dispatched alongside this same
+            // as before) can actually react to it.
+            proc.kill(ZenFSSignal.INT)
             terminal.events.dispatch(TerminalEvents.INTERRUPT, { terminal })
             return
           }
