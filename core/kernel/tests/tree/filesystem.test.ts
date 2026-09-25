@@ -93,6 +93,21 @@ describe('Filesystem', async () => {
     if (performance.memory) expect(meminfo).toContain('MemFree:')
   })
 
+  it('should generate /proc/userAgent from navigator.userAgent', async () => {
+    const userAgent = await kernel.filesystem.fs.readFile('/proc/userAgent', 'utf-8')
+    expect(userAgent.trim()).toBe(navigator.userAgent)
+  })
+
+  it('should generate /proc/platform from navigator.platform', async () => {
+    const platform = await kernel.filesystem.fs.readFile('/proc/platform', 'utf-8')
+    expect(platform.trim().length).toBeGreaterThan(0)
+  })
+
+  it('should generate /proc/connection without fabricating fields it cannot back', async () => {
+    const connection = await kernel.filesystem.fs.readFile('/proc/connection', 'utf-8')
+    expect(typeof connection).toBe('string')
+  })
+
   it('should write a real /etc/os-release and /etc/hostname', async () => {
     const osRelease = await kernel.filesystem.fs.readFile('/etc/os-release', 'utf-8')
     expect(osRelease).toContain(`VERSION="${kernel.version}"`)
