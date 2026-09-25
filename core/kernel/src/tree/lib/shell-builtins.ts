@@ -339,7 +339,7 @@ function runSu(shell: Shell, argv: string[]): number {
 
   shell.context = bindContext({ root: '/', pwd: '/', credentials: user })
   shell.credentials = createCredentials({ uid: user.uid, gid: user.gid, suid: currentUser.uid, sgid: currentUser.gid, euid: user.uid, egid: user.gid, groups: user.groups })
-  shell.terminal.promptTemplate = `{user}:{cwd}${user.uid === 0 ? '#' : '$'} `
+  shell.terminal.promptTemplate = '{user}:{cwd}{sigil} '
   return 0
 }
 

@@ -819,8 +819,6 @@ export class Kernel implements IKernel {
         groups: user.groups
       }
 
-      // TODO: Fix initial prompt showing root as {user} substitution when not 0
-
       this.shell.cwd = localStorage.getItem(`cwd:${this.shell.credentials.uid}`) ?? (
         user.uid === 0 ? '/' : (user.home || '/')
       )
