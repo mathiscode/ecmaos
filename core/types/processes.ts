@@ -1,13 +1,14 @@
 /**
- * Process management types and interfaces
+ * Types for programs started by the kernel.
+ *
+ * Processes themselves are `@zenfs/linux` `Process`es created by `execve`; ecmaOS no longer has a
+ * process class of its own. What remains here is the entry-point contract a DOM app (`/bin/app`)
+ * receives.
  */
 
 import type { Kernel } from './kernel.ts'
 import type { Shell } from './shell.ts'
 import type { Terminal } from './terminal.ts'
-
-/** Process status type */
-export type ProcessStatus = 'running' | 'paused' | 'stopped' | 'exited'
 
 /**
  * ZenFS FileHandle interface
@@ -31,39 +32,51 @@ export interface FileHandle {
 }
 
 /**
- * File Descriptor Table interface
- * Manages stdin/stdout/stderr and tracks open file handles
+ * What an in-process command (the legacy shim that still runs `true`/`false`/`test`) gets in place of
+ * a process: no process-table entry, just its stdio and whether each end is a terminal.
  */
-export interface FDTable {
-  /** Standard input stream */
-  readonly stdin: ReadableStream<Uint8Array> | undefined
-  /** Standard output stream */
-  readonly stdout: WritableStream<Uint8Array> | undefined
-  /** Standard error stream */
-  readonly stderr: WritableStream<Uint8Array> | undefined
-  /** Get all tracked file handles */
-  readonly fileHandles: FileHandle[]
-  
-  /** Set stdin stream */
-  setStdin(stream: ReadableStream<Uint8Array>): void
-  /** Set stdout stream */
-  setStdout(stream: WritableStream<Uint8Array>): void
-  /** Set stderr stream */
-  setStderr(stream: WritableStream<Uint8Array>): void
-  /** Redirect stderr to stdout (2>&1) */
-  redirectStderrToStdout(): void
-  /** Track a file handle */
-  trackFileHandle(handle: FileHandle): void
-  /** Untrack a file handle */
-  untrackFileHandle(handle: FileHandle): void
-  /** Close all tracked file handles */
-  closeFileHandles(): Promise<void>
-  /** Cleanup all resources */
-  cleanup(): Promise<void>
+export interface CommandInvocation {
+  readonly pid: number
+  readonly command: string
+  readonly args: string[]
+  readonly uid: number
+  readonly gid: number
+  readonly stdin: ReadableStream<Uint8Array>
+  readonly stdout: WritableStream<Uint8Array>
+  readonly stderr: WritableStream<Uint8Array>
+  /** Whether stdin is a TTY (interactive terminal) vs a pipe */
+  readonly stdinIsTTY?: boolean
+  /** Whether stdout is a TTY (interactive terminal) vs a file/pipe */
+  readonly stdoutIsTTY?: boolean
 }
 
 /**
- * Parameters passed to process entry point
+ * The `instance` an app's entry point receives from the `/bin/app` presenter: a small handle on the
+ * app's own process lifetime.
+ */
+export interface ProcessInstance {
+  /**
+   * Open a file
+   * @param path - Path to the file
+   * @param flags - Open flags (default: 'r')
+   */
+  open(path: string, flags?: string): Promise<FileHandle>
+  /** End the process with the given exit code (default 0) */
+  exit(code?: number): void
+  /**
+   * Keep the process alive after the entry function returns, until `exit` is called. For apps whose
+   * window outlives `main` (an editor, a player).
+   */
+  keepAlive(): void
+  /**
+   * Registers a callback run if the process ends from outside (`^C`, `kill`) rather than by calling
+   * `exit()` itself -- the app's chance to close whatever window it opened.
+   */
+  onDispose(callback: () => void): void
+}
+
+/**
+ * Parameters passed to an app's entry point
  */
 export interface ProcessEntryParams {
   /** Process ID */
@@ -78,8 +91,8 @@ export interface ProcessEntryParams {
   command: string
   /** Working directory */
   cwd: string
-  /** Process instance */
-  instance: Process
+  /** The app's own process lifetime handle */
+  instance: ProcessInstance
   /** Reference to kernel instance */
   kernel: Kernel
   /** Reference to shell instance */
@@ -96,124 +109,4 @@ export interface ProcessEntryParams {
   stdoutIsTTY?: boolean
   /** Standard error stream */
   stderr?: WritableStream<Uint8Array>
-}
-
-/**
- * Process events
- */
-export enum ProcessEvents {
-  EXIT = 'exit',
-  PAUSE = 'pause',
-  RESUME = 'resume',
-  START = 'start',
-  STOP = 'stop'
-}
-
-/**
- * Process event interfaces
- */
-export interface ProcessExitEvent {
-  pid: number
-  code: number
-}
-
-export interface ProcessStartEvent {
-  pid: number
-}
-
-export interface ProcessStopEvent {
-  pid: number
-}
-
-export interface ProcessPauseEvent {
-  pid: number
-}
-
-export interface ProcessResumeEvent {
-  pid: number
-}
-
-/**
- * Interface for process functionality
- */
-export interface Process {
-  /** Get command line arguments */
-  readonly args: string[]
-  /** Get exit code */
-  readonly code?: number
-  /** Get command name */
-  readonly command: string
-  /** Get working directory */
-  readonly cwd: string
-  /** Get process entry point */
-  readonly entry: (params: ProcessEntryParams) => Promise<number | undefined | void>
-  /** Get event emitter */
-  readonly events: any
-  /** Get file descriptor table */
-  readonly fd: FDTable
-  /** Get group ID */
-  readonly gid: number
-  /** Get kernel instance */
-  readonly kernel: Kernel
-  /** Get process ID */
-  readonly pid: number
-  /** Get shell instance */
-  readonly shell: Shell
-  /** Get process status */
-  readonly status: ProcessStatus
-  /** Get standard error stream */
-  readonly stderr: WritableStream<Uint8Array>
-  /** Get standard input stream */
-  readonly stdin: ReadableStream<Uint8Array>
-  /** Whether stdin is a TTY (interactive terminal) vs a pipe */
-  readonly stdinIsTTY?: boolean
-  /** Get standard output stream */
-  readonly stdout: WritableStream<Uint8Array>
-  /** Whether stdout is a TTY (interactive terminal) vs a file/pipe */
-  readonly stdoutIsTTY?: boolean
-  /** Get terminal instance */
-  readonly terminal: Terminal
-  /** Get user ID */
-  readonly uid: number
-
-  /** Get/set parent process ID */
-  parent?: number
-
-  /** Clean up process resources */
-  cleanup(): Promise<void>
-  /**
-   * Close a file handle and untrack from FDTable
-   * @param handle - The file handle to close
-   */
-  close(handle: FileHandle): Promise<void>
-  /** Exit process */
-  exit(exitCode?: number): Promise<void>
-  /**
-   * Marks the process to stay alive after the entry function returns.
-   * Useful for background/daemon processes that need to keep running.
-   */
-  keepAlive(): void
-  /**
-   * Registers a callback run if the process ends first from outside (`^C`, `kill`) rather than by
-   * calling `exit()` itself -- for a DOM app under `/bin/app`, this is the app's chance to close
-   * whatever window it opened, since nothing else can reach into it from outside the main thread.
-   */
-  onDispose?(callback: () => void): void
-  /**
-   * Open a file and automatically track in FDTable
-   * @param path - Path to the file
-   * @param flags - Open flags (default: 'r')
-   * @returns The file handle
-   */
-  open(path: string, flags?: string): Promise<FileHandle>
-  /** Pause process */
-  pause(): void
-  /** Resume process */
-  resume(): void
-  /** Start process */
-  start(): Promise<number>
-  /** Stop process */
-  stop(exitCode?: number): Promise<void>
-  /** Restart process */
-  restart(): void
 }

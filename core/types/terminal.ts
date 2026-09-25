@@ -8,7 +8,7 @@ import type { TTY } from '@zenfs/linux'
 
 import type { Dom } from './dom.ts'
 import type { Kernel, KernelContext, KernelState } from './kernel.ts'
-import type { Process } from './processes.ts'
+import type { CommandInvocation } from './processes.ts'
 import type { Shell } from './shell.ts'
 import type { Users } from './users.ts'
 
@@ -355,8 +355,8 @@ export interface CommandContext {
   readonly kernel: Kernel
   readonly shell: Shell
   readonly terminal: Terminal
-  /** The real process backing this invocation, when one exists (absent in some synchronous/test paths). */
-  readonly process: Process | undefined
+  /** This invocation's stdio, when it has its own (absent in some synchronous/test paths). */
+  readonly process: CommandInvocation | undefined
   readonly pid: number
   readonly argv: string[]
   readonly cwd: string

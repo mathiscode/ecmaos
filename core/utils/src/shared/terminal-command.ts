@@ -2,17 +2,17 @@ import chalk from 'chalk'
 import parseArgs, { CommandLineOptions, OptionDefinition } from 'command-line-args'
 import parseUsage from 'command-line-usage'
 import type { TerminalCommand as ITerminalCommand } from '@ecmaos/types'
-import type { CommandContext, CommandIO, Kernel, Process, Shell, Terminal } from '@ecmaos/types'
+import type { CommandContext, CommandInvocation, CommandIO, Kernel, Shell, Terminal } from '@ecmaos/types'
 import { writeStdout, writelnStdout, writeStderr, writelnStderr } from './helpers.js'
 
-type UnifiedParserRun = (argv: CommandLineOptions, process?: Process, rawArgv?: string[]) => Promise<number | void>
+type UnifiedParserRun = (argv: CommandLineOptions, process?: CommandInvocation, rawArgv?: string[]) => Promise<number | void>
 type RawArgvRun = (ctx: CommandContext, io: CommandIO) => Promise<number | void>
 
 /**
  * Builds the `CommandIO` handed to a coreutils command's `run`, closing over the resolved
  * `process`/`terminal` for this invocation so commands stop threading them through every write.
  */
-function createCommandIO(process: Process | undefined, terminal: Terminal): CommandIO {
+function createCommandIO(process: CommandInvocation | undefined, terminal: Terminal): CommandIO {
   return {
     write: (text: string) => writeStdout(process, terminal, text),
     writeln: (text: string) => writelnStdout(process, terminal, text),
@@ -37,7 +37,7 @@ export class TerminalCommand implements ITerminalCommand {
   description: string = ''
   kernel: Kernel
   options: OptionDefinition[] = []
-  run: (pid: number, argv: string[], process?: Process) => Promise<number | void>
+  run: (pid: number, argv: string[], process?: CommandInvocation) => Promise<number | void>
   shell: Shell
   terminal: Terminal
   stdin?: ReadableStream<Uint8Array>
@@ -70,7 +70,7 @@ export class TerminalCommand implements ITerminalCommand {
 
     if (useUnifiedParser) {
       const unifiedRun = run as UnifiedParserRun
-      this.run = async (_pid: number, argv: string[], process?: Process) => {
+      this.run = async (_pid: number, argv: string[], process?: CommandInvocation) => {
         if (argv === null) return 1
         try {
           const parsed = parseArgs(this.options, { argv, stopAtFirstUnknown: true })
@@ -91,7 +91,7 @@ export class TerminalCommand implements ITerminalCommand {
       }
     } else {
       const rawRun = run as RawArgvRun
-      this.run = async (pid: number, argv: string[], process?: Process) => {
+      this.run = async (pid: number, argv: string[], process?: CommandInvocation) => {
         if (argv === null) return 1
         const ctx: CommandContext = {
           kernel: this.kernel,
