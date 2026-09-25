@@ -9,10 +9,11 @@
  */
 
 import { TFunction } from 'i18next'
-import { configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
+import { _version as zenfsCoreVersion, configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
 import { IndexedDB, IndexedDBStore, IndexedDBTransaction } from '@zenfs/dom'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
+import { init_uts } from '@zenfs/linux/uts'
 import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
 import path from 'path'
@@ -215,12 +216,22 @@ export class Filesystem {
   /**
    * Adds ecmaOS's browser-backed entries to ProcFS's `/proc` root.
    *
-   * `/proc/version` already exists upstream, generated from the real ZenFS/linux version, and is
-   * left alone. `cpuinfo` and `meminfo` are new here, generated on read from `navigator.*` and
-   * `performance.memory`. A field that cannot be populated honestly is omitted rather than
-   * zero-filled or fabricated.
+   * `/proc/version` exists upstream too, but reports `@zenfs/linux`'s own package version as if it
+   * were the kernel -- accurate for a real Linux build (`uname -r` genuinely is the kernel's own
+   * version), but misleading here, since `@zenfs/linux` is the POSIX layer ecmaOS runs on top of, not
+   * ecmaOS itself. Overridden below so ecmaOS's own version is the headline "kernel" version (matching
+   * `Kernel.version`, `import.meta.env['VERSION']`), with `@zenfs/linux` (`init_uts.release`) and
+   * `@zenfs/core` (its own exported `_version`) kept separately in the parenthetical, same place a
+   * real `/proc/version` keeps its compiler/build info. `cpuinfo`
+   * and `meminfo` are new here, generated on read from `navigator.*` and `performance.memory`. A field
+   * that cannot be populated honestly is omitted rather than zero-filled or fabricated.
    */
   private registerProcEntries() {
+    proc_root.children.set('version', {
+      mode: 0o444,
+      show: () => `ecmaOS version ${import.meta.env['VERSION'] || '?.?.?'} (@zenfs/linux ${init_uts.release}, @zenfs/core ${zenfsCoreVersion})\n`
+    })
+
     proc_root.children.set('cpuinfo', {
       mode: 0o444,
       show: () => {
