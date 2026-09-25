@@ -424,28 +424,6 @@ export class Wasm implements IWasm {
     await initializePreOpenedDirs()
     const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
     
-    // Log all required imports for debugging
-    // try {
-    //   const module = await WebAssembly.compile(buffer)
-    //   const requiredImports = WebAssembly.Module.imports(module)
-    //   const importMap = new Map<string, Set<string>>()
-      
-    //   for (const imp of requiredImports) {
-    //     if (!importMap.has(imp.module)) {
-    //       importMap.set(imp.module, new Set())
-    //     }
-    //     importMap.get(imp.module)!.add(`${imp.name} (${imp.kind})`)
-    //   }
-      
-    //   this._kernel.log.info('WASM module required imports:')
-    //   for (const [moduleName, imports] of importMap.entries()) {
-    //     const importList = Array.from(imports).sort().join(', ')
-    //     this._kernel.log.info(`  ${moduleName}: ${importList}`)
-    //   }
-    // } catch (error) {
-    //   this._kernel.log.warn(`Failed to log imports: ${(error as Error).message}`)
-    // }
-    
     let exitCode = 0
     let instance: WebAssembly.Instance | null = null
     
