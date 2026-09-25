@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -44,5 +44,8 @@ jobs:
       - name: Typecheck error-budget ratchet
         run: node scripts/typecheck-ratchet.mjs
 
+      - name: Lint
+        run: pnpm lint
+
       - name: Test
-        run: pnpm --filter @ecmaos/kernel test
+        run: pnpm test
