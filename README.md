@@ -52,7 +52,7 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 - Many common files can be viewed directly: `# ./image.jpg`, `# ./doc.pdf`
 - Install any client-side npm package; `# install axios`
 - Event manager for dispatching and subscribing to events
-- Process manager for running applications and daemons
+- Real worker-hosted `execve` processes (real pids, signals, and exit codes) for running commands, apps, and daemons
 - Interval manager for scheduling recurring operations with support for cron expressions via the `cron` command
 - Memory manager for managing pseudo-memory: Collections, Config, Heap, and Stack
 - Storage manager for managing Storage API capabilities: IndexedDB, localStorage, etc.
@@ -91,31 +91,29 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 - The main idea is that data and custom code can be loaded into it from the OS for WASM-native performance, as well as providing various utilities
 - Confusingly, the Kernel loads the BIOS — not the other way around -->
 
-### Binaries
+### Execution Model
 
-> [/core/kernel/src/tree/wasm.ts](/core/kernel/src/tree/wasm.ts)
+> [/core/kernel/src/tree/kernel.ts](/core/kernel/src/tree/kernel.ts) · [/core/kernel/src/bin](/core/kernel/src/bin)
 
-- The native binary format for ecmaOS is WebAssembly
-- The kernel supports both WASI Preview 1 and WASI Preview 2 (WIP)
-- You can run WASM binaries directly:
-  - `/root/bin/hello.wasm --help`
-- The `.wasm` extension is optional
-- Compiling can be as simple as:
-  - `$ rustc --target wasm32-wasip1 -o hello.wasm hello.rs`
-  - `$ emcc -o hello.wasm hello.c -sSTANDALONE_WASM`
-- You can also load WASM+JS harnesses manually
+Every runnable file in ecmaOS -- a coreutil, a kernel command, an app, a WASM binary -- is dispatched the same way: `Kernel.execute` reads the file's header (a shebang or magic bytes) and routes it to a real, worker-hosted `execve` process (from `@zenfs/linux`'s process/thread model), not to a hand-rolled in-process class. That process has a real pid, real signals, and a real exit code, and can be `kill`ed, waited on (`proc_wait`), and listed (`ps`) like any other process.
+
+- **`/bin/node`** ([/core/kernel/src/bin/node.mjs](/core/kernel/src/bin/node.mjs)) runs any plain JavaScript program (`#!ecmaos:bin:node`, or a coreutil with no shebang) inside the worker, with a small `globalThis.ecmaosSyscalls` bridge to the real syscall table. This is how every `@ecmaos/coreutils` command runs -- `cat`, `ls`, `grep`, `free`, and the rest are just JS files executed this way, not special-cased kernel code.
+- **`/bin/wali`** ([/core/kernel/src/bin/wali.mjs](/core/kernel/src/bin/wali.mjs)) runs WALI-format WebAssembly modules -- musl compiled to call `@zenfs/linux`'s real kernel syscalls (`SYS_open`, `SYS_read`, ...) directly, not through a WASI ABI. WALI and WASI Preview 1 are different, incompatible module formats. Plain WASI Preview 1 modules that qualify (`Wasm.canRunInWorker`) also run as real worker processes; a WASI Preview 1/2 module that can't (e.g. it imports memory in a way the worker path doesn't support) falls back to a main-thread loader, `Wasm.run`/`runComponent`.
+- **`/bin/app`** ([/core/kernel/src/tree/lib/presenters/app.ts](/core/kernel/src/tree/lib/presenters/app.ts)) is the presenter for programs that must touch the DOM -- `#!ecmaos:bin:app:<name>` (a windowed app like `code` or `webamp`) and `#!ecmaos:bin:program:<name>` (an `@ecmaos-apps/*` package that isn't windowed but still needs `document`, i18n, or other main-thread state). The real process is still a worker with a pid and signals; the app's own `main(params)` runs on the main thread, where it has the live `kernel`/`shell`/`terminal` the DOM-app ABI has always given it, and the process's lifetime is tied to `main`'s return (or the window closing) via a small dispose/keepAlive shim, not a bespoke lifecycle class.
+- **Main-thread custom syscalls.** A worker can't reach the DOM, WebAuthn, or the kernel's own singletons directly -- only the main thread can. `core/kernel/src/tree/lib/main-thread-syscalls.ts` uses `@zenfs/linux`'s public `define_syscall` to register ecmaOS-specific syscalls (`window_create`, `window_write`, `window_close`, `storage_usage`, `ps_list`, `users_lookup`, `klog`, `crontab_load`, `proc_spawn`, `proc_wait`, and more) that a worker-hosted process can call like any other syscall; the handler runs on the main thread and the result crosses back over the same `Atomics.wait`-blocking syscall ABI `@zenfs/linux` uses for its own syscalls. This is how a worker-hosted coreutil or kernel command reaches main-thread-only capability without itself running on the main thread.
+- **The manifest `syscalls`/`devices` allowlist.** A program at `/path/to/program` may ship a sibling `/path/to/program.manifest.json`: `{ "syscalls": ["read", "write", "openat"], "devices": ["tty", "echo"] }`. When present, `core/kernel/src/tree/lib/syscall-policy.ts` refuses any syscall the manifest doesn't list with `-EPERM` before the real handler runs, and `Kernel.registerDevices()`'s per-major device dispatch enforces `devices` the same way at the point a device node is opened. A program with no manifest is unrestricted (today's default), so the allowlist is opt-in per-program rather than mandatory.
 
 ### Commands
 
-> [/core/kernel/src/tree/lib/commands](/core/kernel/src/tree/lib/commands)
+> [/core/kernel/src/bin/commands](/core/kernel/src/bin/commands)
 
-- `Commands` are built-in shell commands that are provided by the kernel, e.g. `download`, `install`, `load`, etc. Many or all of these will be migrated to the `@ecmaos/coreutils` package in the future.
+- `Commands` are the kernel's own programs, e.g. `download`, `install`, `load`, `mount`, `passwd`. Each is a real `execve`'d program that reaches main-thread-only capabilities (DOM, WebAuthn, the kernel's singletons) through custom syscalls and presenters, same as any other program in the execution model above.
 
 ### Coreutils
 
 > [/core/utils](/core/utils)
 
-- `Coreutils` are similar to `Commands`, but are provided by the `@ecmaos/coreutils` package, e.g. `cat`, `cd`, `chmod`, `cp`, `echo`, `git`, `ls`, `mkdir`, `mv`, `pwd`, `rm`, `rmdir`, `stat`, `touch`, etc.
+- `Coreutils` are similar to `Commands`, but are provided by the `@ecmaos/coreutils` package, e.g. `cat`, `cd`, `chmod`, `cp`, `echo`, `git`, `ls`, `mkdir`, `mv`, `pwd`, `rm`, `rmdir`, `stat`, `touch`, etc. They run under `/bin/node` in the execution model above, using plain filesystem/process syscalls -- no kernel-singleton access, and no shell-state mutation (a coreutil can't change its own shell's cwd or env; that's what the small set of true shell builtins, and `executeCommand`'s in-process `false`/`test`/`true`, are for).
 
 ### Devices
 
@@ -130,7 +128,7 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 
 ### Filesystems
 
-> [/core/utils/src/commands/mount.ts](/core/utils/src/commands/mount.ts)
+> [/core/kernel/src/bin/commands/mount.mjs](/core/kernel/src/bin/commands/mount.mjs)
 
 ecmaOS supports multiple filesystem backends powered by [zenfs](https://zenfs.dev), allowing you to mount various storage types into the virtual filesystem.
 
@@ -261,17 +259,16 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
   - Interval Manager (setInterval and cron scheduling)
   - Log Manager (tslog)
   - Memory Manager (Abstractions)
-  - Process Manager
+  - Execution (worker-hosted `execve` processes via `@zenfs/linux`, real pids/signals/exit codes -- see [Execution Model](#execution-model))
   - Protocol Handlers (web+ecmaos://...)
   - Service Worker Manager
   - Shell
-  - Sockets (WebSocket, WebTransport)
+  - Sockets (loopback POSIX sockets, `AF_UNIX`/`AF_INET`; see [Sockets](#sockets))
   - Storage (IndexedDB, localStorage, sessionStorage, etc.)
   - Telemetry (OpenTelemetry)
   - Terminal (xterm.js)
   - User Manager
-  - WASM Loader (WASI Preview 1 mostly complete; WASI Preview 2 WIP)
-  <!-- - [WebContainer](https://github.com/stackblitz/webcontainer-core) for running Node.js apps -->
+  - WASM Loader (WASI Preview 1 mostly complete; WASI Preview 2 not supported; WALI supported via `/bin/wali`)
   - Web Workers
   - Window Manager (WinBox)
 
@@ -327,8 +324,11 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 
 ### Sockets
 
-- A socket manager is available for creating and managing WebSocket and WebTransport connections
-- It can be accessed via the `kernel.sockets` property or the `sockets` command
+> [/core/kernel/src/tree/lib/main-thread-syscalls.ts](/core/kernel/src/tree/lib/main-thread-syscalls.ts)
+
+- A real `socket()`/`bind()`/`listen()`/`connect()`/`accept()` POSIX socket implementation runs natively in the worker (`AF_UNIX` and loopback `AF_INET`/`AF_INET6` only -- anything that isn't loopback is rejected with `-EAFNOSUPPORT`). This is genuine inter-process socket communication between ecmaOS processes, not a network connection.
+- For an actual external connection, use `nc` (which speaks WebSocket under the hood) or the `sockets` command/`kernel.sockets` manager, both of which create real `WebSocket`/`WebTransport` connections on the main thread and bridge them to a worker-hosted process's stdio.
+- See [Known gaps](#known-gaps) for what this does and doesn't cover, and `man sockets` for the full address-family breakdown once installed.
 
 ### SWAPI
 
@@ -471,6 +471,8 @@ The [apps](/apps) directory in the repository contains some examples of how to d
 
 Basically, your app's [bin](https://docs.npmjs.com/cli/v10/configuring-npm/package-json#bin) file has a `main` (or unnamed default) function export that is passed the kernel reference and can use it to interact with the system as needed. A shebang line of `#!ecmaos:bin:app:myappname` is required at the top of the bin file to identify it as an app.
 
+There's a second shebang, `#!ecmaos:bin:program:myprogramname`, for a package that isn't a windowed app but still needs main-thread state -- `document`, `kernel.i18n`, or another singleton a worker can't reach. Both run through the same `/bin/app` presenter (see [Execution Model](#execution-model)) and get the same `ProcessEntryParams`; `:app:` is for something that opens a window, `:program:` is for something that doesn't but still can't run purely in a worker.
+
 ## App/Kernel Interface Example
 
 > See the [docs](https://docs.ecmaos.sh) for more information
@@ -491,9 +493,23 @@ export default async function main(params: ProcessEntryParams) {
 }
 ```
 
+## Known gaps
+
+ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number of things are deliberately not done, either because the browser can't support them or because they're scoped past this release:
+
+- **No copy-on-write `fork()`.** Processes are created by spawn (`execve`) only -- there is no `fork()` that clones an existing process's address space. This is a deliberate scope decision, not a missing feature: a browser worker has no cheap way to clone memory the way a real OS `fork()` does.
+- **The OPFS root isn't selectable.** The root filesystem is hardcoded to IndexedDB (`Filesystem`, `core/kernel/src/tree/filesystem.ts`). OPFS (Origin Private File System) is mountable as a secondary filesystem via `mount -t opfs`, but you can't boot with OPFS as `/`.
+- **`socket()` is loopback-only.** `AF_UNIX` and loopback `AF_INET`/`AF_INET6` sockets work natively in the worker; there is no real external `AF_INET` connectivity over raw TCP/UDP (browsers don't expose that). For an external connection, use `nc` or `sockets_connect`, both of which go over a real `WebSocket`/`WebTransport` on the main thread. See [Sockets](#sockets).
+- **A main-thread, non-asyncify WASM module can't be preempted.** WASI Preview 1/2 modules that qualify for the worker path (`Wasm.canRunInWorker`) run as real, killable processes under `/bin/wali`. A module that doesn't qualify falls back to a main-thread loader that calls `_start` directly with no yield point unless the module itself was compiled with asyncify -- a genuine infinite loop on that path freezes the tab, and `^C` cannot reach it, because the same main thread that would notice the keypress is the one spinning. This is a provable ceiling of that fallback path, not an open bug.
+- **No WASI Preview 2 (P3) support.** WASI Preview 1 is mostly complete; WASI Preview 2/components are not supported.
+- **No `strace`.** There is no syscall trace/hook for a running process.
+- **initfs isn't extracted via a real `tar`.** `extractTarball` runs before syscalls, processes, or `/bin/tar` itself exist on the filesystem -- the tarball being extracted is what provides `/bin/tar` in the first place, so boot uses a small bootstrap extractor instead of the real coreutil. A genuine fix needs a two-phase boot (a tiny bootstrap tarball extracted the current way, then everything else through the real `/bin/tar`).
+- **The WebGL terminal renderer's ligature behavior is undecided.** No verdict yet on whether/how ligatures should render under the WebGL addon.
+- **There is no persistent PID 1.** `/boot/init` runs as a script during boot, but it is not itself a long-lived process holding pid 1 that reaps orphans -- that would need a real boot-sequencing redesign and was scoped out of this pass.
+
 ## Early Days
 
-ecmaOS is currently in active development. It is not considered stable and the structure and API are very likely to change in unexpected and possibly unannounced ways until version 1.0.0. Use cautiously and at your own risk.
+ecmaOS is currently in active development. It is not considered stable and the structure and API are very likely to change in unexpected and possibly unannounced ways. Use cautiously and at your own risk.
 
 Things to keep in mind:
 
@@ -505,8 +521,6 @@ Things to keep in mind:
 - Command interfaces won't match what you might be used to from a traditional Linux environment; not all commands and options are supported. Over time, Linuxish commands will be fleshed out and made to behave in a more familiar way.
 
 ## Development
-
-Until v1.0.0, active development will occur on the `main` branch. Once a v1.0.0 release is made, development will shift to a `dev` branch, and `main` will be reserved for stable releases.
 
 [Turborepo](https://turbo.build/repo) is used to manage the monorepo, and [pnpm](https://pnpm.io) is used for package management.
 
