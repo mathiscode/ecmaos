@@ -58,6 +58,14 @@ describe('boot smoke test', () => {
     expect(buses).toEqual(expect.arrayContaining(['platform', 'node', 'cpu']))
   })
 
+  it("publishes ecmaOS's own web-capability devices under /sys/bus/webcapability, not just /sys/class", async () => {
+    const buses = await kernel.filesystem.fs.readdir('/sys/bus')
+    expect(buses).toContain('webcapability')
+
+    const devices = await kernel.filesystem.fs.readdir('/sys/bus/webcapability/devices')
+    expect(devices.length).toBeGreaterThan(0)
+  })
+
   it('registers /dev/tty and /dev/console through the tty module (probe off, so no host stdio console)', async () => {
     const { tty } = await import('@zenfs/linux')
     expect(tty.param('probe')).toBe(false)

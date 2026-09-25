@@ -11,11 +11,15 @@
  * is unrestricted (today's behavior), so existing scripts/apps/commands keep working; the
  * allowlist is opt-in per-program until manifests are the norm.
  *
- * `devices` is declared for the manifest format's sake (matching the design in
- * `.docs/overhaul/09-phase-6-security.md`) but not yet enforced here -- device access does not
- * yet go through a syscall this table can intercept (it is mediated by `char_dev`/`block_dev`
- * file operations instead, a separate chokepoint). Recording it now means a manifest written
- * today does not need to change shape once that enforcement lands.
+ * `devices` is enforced at a separate chokepoint (`Kernel.registerDevices`'s per-major dispatch,
+ * `core/kernel/src/tree/kernel.ts`), not here -- `char_dev`/`block_dev` `FileOperations.read`/
+ * `write` are called synchronously (`devtmpfs.js` never awaits them, even from its own `async`
+ * entry points), so they can't `await loadManifest` themselves the way a syscall handler can.
+ * Instead, {@link getCachedManifest} exposes this module's manifest cache synchronously: by the
+ * time a process reaches a device's `read`/`write`, it has necessarily already made at least one
+ * syscall (to open the device node in the first place), which `installSyscallPolicy` intercepts
+ * and which populates this cache as a side effect -- so the manifest is reliably already cached,
+ * not fetched fresh, at the point device dispatch needs it.
  */
 
 import { syscalls } from '@zenfs/linux'
@@ -26,7 +30,7 @@ import type { Filesystem } from '@ecmaos/types'
 export interface ProgramManifest {
   /** Syscall names (as userspace calls them, e.g. "openat", "read") this program may use. */
   syscalls?: string[]
-  /** Device classes/names this program may open (recorded, not yet enforced -- see module docs). */
+  /** Device classes/names this program may open, checked against a device's `name`/`class` at `Kernel.registerDevices`'s dispatch -- see module docs. */
   devices?: string[]
 }
 
@@ -67,6 +71,17 @@ async function loadManifest(fs: Filesystem['fs'], exe: string): Promise<ProgramM
 export function invalidateManifestCache(exe?: string): void {
   if (exe) manifestCache.delete(exe)
   else manifestCache.clear()
+}
+
+/**
+ * Synchronously read this module's manifest cache, for a caller (device dispatch) that can't
+ * `await loadManifest` itself. `undefined` means "not cached yet" (no syscall has run for this
+ * `exe` yet, or the cache was cleared) -- distinct from `null`, which means "checked, no manifest
+ * exists." A caller should treat `undefined` the same as `null` (unrestricted), the same
+ * fail-open default `installSyscallPolicy` itself uses for an unrecognized program.
+ */
+export function getCachedManifest(exe: string): ProgramManifest | null | undefined {
+  return manifestCache.get(exe)
 }
 
 /**
