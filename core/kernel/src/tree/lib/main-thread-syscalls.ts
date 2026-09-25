@@ -48,6 +48,7 @@ declare module '@zenfs/linux/uapi/abi' {
     window_present(kind: string, paramsJson: string, path: string): number
     storage_usage(path: string): number
     ps_list(path: string): number
+    klog(level: string, message: string): number
     reboot(): number
     users_lookup(query: string, path: string): number
     tty_get(): number
@@ -274,6 +275,22 @@ export function installMainThreadSyscalls(): void {
     const text = JSON.stringify(list)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
+  })
+
+  // A worker process's syslog-style escape hatch: writes to `kernel.log` (tslog, already piped to
+  // `/var/log/kernel.log` via `Kernel.boot`'s own transport) instead of the program's own stdout/
+  // stderr, so a daemon's routine bookkeeping (`crond` starting up, a job failing on some future
+  // tick) never lands in an interactive terminal it happens to share a session with -- the same
+  // distinction real syslog draws between a daemon's controlling tty and `/var/log/*`. `level` is
+  // whatever `kernel.log` itself exposes (`info`/`warn`/`error`/`debug`/`fatal`); an unrecognized one
+  // falls back to `info` rather than throwing, since a bad level string is never worth crashing the
+  // caller over.
+  define_syscall('klog', async (proc: Process, level: string, message: string) => {
+    const kernel = kernelOf(proc)
+    const fn = (kernel.log as unknown as Record<string, (msg: string) => void>)[level]
+    if (typeof fn === 'function') fn.call(kernel.log, message)
+    else kernel.log.info(message)
+    return 0
   })
 
   define_syscall('reboot', async (proc: Process) => {

@@ -24,13 +24,10 @@
 import { parseCrontabFile } from './lib/crontab.mjs'
 import { parseCronExpression } from 'cron-schedule'
 
-const { exit, write, custom, stat, env, open, read, close, O_RDONLY } = globalThis.ecmaosSyscalls
+const { exit, custom, stat, env, open, read, close, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const SYSTEM_CRONTAB = '/etc/crontab'
 const tickIntervalMs = 60_000
-
-function writelnStdout(text) { write(1, new TextEncoder().encode(text + '\n')) }
-function writelnStderr(text) { write(2, new TextEncoder().encode(text + '\n')) }
 
 function mtimeOf(path) {
   try { return stat(path).mtimeMs } catch { return undefined }
@@ -68,7 +65,7 @@ function reloadIfChanged(source) {
     const content = new TextDecoder().decode(new Uint8Array(chunks.flatMap(c => [...c])))
     source.entries = parseCrontabFile(content)
   } catch (error) {
-    writelnStderr(`crond: failed to read ${source.path}: ${error instanceof Error ? error.message : String(error)}`)
+    custom('klog', 'warn', `crond: failed to read ${source.path}: ${error instanceof Error ? error.message : String(error)}`)
     source.entries = []
   }
 }
@@ -89,7 +86,7 @@ async function tick(sources, now) {
       // it, and `shell_exec`'s own `kernel.shell.execute()` call can itself take arbitrarily long
       // (a job that hangs must not stall every other job's schedule).
       custom('shell_exec', entry.command).catch(error => {
-        writelnStderr(`crond: job failed (${entry.expression} ${entry.command}): ${error instanceof Error ? error.message : String(error)}`)
+        custom('klog', 'warn', `crond: job failed (${entry.expression} ${entry.command}): ${error instanceof Error ? error.message : String(error)}`)
       })
     }
   }
@@ -103,7 +100,11 @@ async function main() {
   // missed waiting for the first minute boundary.
   for (const source of sources) reloadIfChanged(source)
 
-  writelnStdout('crond: watching for scheduled jobs')
+  // A syslog-style entry, not stdout: `crond` is started backgrounded from `/boot/init`, so a plain
+  // `write(1, ...)` here would otherwise resurface in whatever interactive terminal happens to share
+  // its session (the actual bug report this replaced) -- `klog` (`main-thread-syscalls.ts`) routes it
+  // to `kernel.log`/`/var/log/kernel.log` instead, same as real cron logging to syslog, not its tty.
+  await custom('klog', 'info', 'crond: watching for scheduled jobs')
 
   // Align the first tick to the next minute boundary, then fall back to a plain fixed interval --
   // matching real cron's once-a-minute wake, not millisecond-precise `cron-schedule`-scheduler timing.
@@ -120,6 +121,6 @@ async function main() {
 try {
   await main()
 } catch (error) {
-  writelnStderr(`crond: ${error instanceof Error ? error.message : String(error)}`)
+  await custom('klog', 'error', `crond: ${error instanceof Error ? error.message : String(error)}`)
   exit(1)
 }
