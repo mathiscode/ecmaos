@@ -181,7 +181,9 @@ export class Terminal extends XTerm implements ITerminal {
   private _users: Users
   private _wiring?: TerminalWiring
   private _keyListener: IDisposable | undefined
-  private _promptTemplate: string = '{user}:{cwd}# '
+  // {sigil} is '#' for root, '$' for anyone else -- resolved per render, so the first prompt after a
+  // non-root login is right without anything having to reset the template.
+  private _promptTemplate: string = '{user}:{cwd}{sigil} '
   /**
    * Definite-assignment: `Kernel.createShell` constructs `Terminal` before the `Shell` it belongs
    * to exists (the same order `Kernel`'s own constructor uses), then calls `attachShell()`
@@ -1262,7 +1264,8 @@ export class Terminal extends XTerm implements ITerminal {
         .replace('{cwd}', chalk.cyan(this.cwd))
         .replace('{uid}', chalk.white(user?.uid.toString() || ''))
         .replace('{gid}', chalk.white(user?.gid.toString() || ''))
-        .replace('{user}', chalk.white(user?.username || '')))
+        .replace('{user}', chalk.white(user?.username || ''))
+        .replace('{sigil}', (this._shell.credentials.euid ?? 0) === 0 ? '#' : '$'))
     }
 
     // Parse the PS1-like format
