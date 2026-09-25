@@ -11,8 +11,6 @@ import chalk from 'chalk'
 import path from 'path'
 import spinners from 'cli-spinners'
 
-// import * as textCanvas from '@thi.ng/text-canvas'
-// import * as textFormat from '@thi.ng/text-format'
 import * as emoji from '@thi.ng/emoji'
 import { attach_xterm, detach_xterm, Signal } from '@zenfs/linux'
 import type { TTY } from '@zenfs/linux'

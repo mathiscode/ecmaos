@@ -24,7 +24,6 @@ import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
-// import { Emscripten } from '@zenfs/emscripten'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
 import { context, trace } from '@opentelemetry/api'
 
@@ -552,7 +551,6 @@ export class Kernel implements IKernel {
         let logoFiglet: string | undefined
         try {
           // TODO: A lot of trouble with Figlet fonts; revamp later - default to Poison now
-          // const loadedFont = await import(`figlet/importable-fonts/${figletFont}.js`)
           const loadedFont = await import('figlet/importable-fonts/Poison.js')
           figlet.parseFont(figletFont || 'Poison', loadedFont.default)
           logoFiglet = figlet.textSync(import.meta.env['FIGLET_TEXT'] || 'ECMAOS', { font: figletFont as keyof typeof figlet.fonts })
@@ -2134,8 +2132,6 @@ export class Kernel implements IKernel {
             }
             
             break
-          // default:
-          //   this.log.debug('KernelEvent:', event, { command, args, exitCode })
         }
       })
     }
