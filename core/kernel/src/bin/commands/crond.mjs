@@ -111,7 +111,6 @@ async function main() {
   const msToNextMinute = tickIntervalMs - (Date.now() % tickIntervalMs)
   await new Promise(resolve => setTimeout(resolve, msToNextMinute))
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     await tick(sources, new Date())
     await new Promise(resolve => setTimeout(resolve, tickIntervalMs))

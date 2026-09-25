@@ -747,7 +747,6 @@ export function createPreview1(getMemory) {
   const SOCK_STREAM = 1
 
   const sockets = new Map() // synthetic fd -> { family, key, bound, listening, connected }
-  const socketWriteFd = new Map() // synthetic/real rx fd -> its paired real tx fd, for fd_write/close
 
   /** Calls a `main-thread-syscalls.ts` custom syscall that answers through a scratch file (JSON),
    * the same bridge `/bin/node`'s `lib/scratch.mjs` gives coreutils -- reimplemented locally with

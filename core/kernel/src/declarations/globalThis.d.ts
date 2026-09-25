@@ -1,11 +1,11 @@
 import type { Kernel, Shell, Terminal } from '@ecmaos/types'
 
 declare global {
-  var kernel: Kernel | undefined // eslint-disable-line no-var
-  var kernels: Map<string, Kernel> | undefined // eslint-disable-line no-var
-  var shells: Map<string, Shell> | undefined // eslint-disable-line no-var
-  var terminals: Map<string, Terminal> | undefined // eslint-disable-line no-var
-  var requiremap: Map<string, { // eslint-disable-line no-var
+  var kernel: Kernel | undefined
+  var kernels: Map<string, Kernel> | undefined
+  var shells: Map<string, Shell> | undefined
+  var terminals: Map<string, Terminal> | undefined
+  var requiremap: Map<string, {
     command: string
     code: string
     filePath: string

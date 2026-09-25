@@ -252,7 +252,7 @@ export function presentBrowser(kernel: Kernel, _proc: unknown, params: Record<st
 
     // Refresh button handler
     refreshButton.addEventListener('click', () => {
-      iframe.src = iframe.src
+      iframe.setAttribute('src', iframe.src)
     })
 
     // Update URL bar when iframe navigates (for same-origin or when possible)

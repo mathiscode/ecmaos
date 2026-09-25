@@ -37,7 +37,7 @@ function keyEvent(key) {
 }
 
 export function createAppParams({ syscalls, init, command }) {
-  const { open, read, write, writeAll, close, getcwd, mkdir, unlink, stat, poll, POLLIN, custom, tcgetattr, tcsetattr } = syscalls
+  const { open, read, writeAll, close, getcwd, mkdir, unlink, stat, poll, POLLIN, custom, tcgetattr, tcsetattr } = syscalls
   const tty = ttyFd()
 
   const writeFd = (fd, data) => writeAll(fd, typeof data === 'string' ? encoder.encode(data) : data)
