@@ -414,7 +414,12 @@ export class Kernel implements IKernel {
       filesystemSpan.setAttribute('filesystem.paths_created', requiredPaths.length)
       filesystemSpan.end()
 
-      if (!(await this.filesystem.fs.exists('/etc/os-release'))) {
+      // Always rewritten (not gated on `exists`, unlike `/etc/hostname` below): on a persisted
+      // filesystem this file survives across reboots, and a stale, only-written-once copy would
+      // otherwise keep reporting whatever `this.version` was the very first time this origin ever
+      // booted, never picking up a real version bump. It's read-only to users (`0o444`), not
+      // something they're expected to hand-edit, so overwriting it here is always safe.
+      {
         const osRelease = [
           `NAME="${this.name}"`,
           `VERSION="${this.version}"`,
@@ -1124,6 +1129,9 @@ export class Kernel implements IKernel {
     // correct rule regardless -- hands control back up rather than to nobody.
     const previousForeground = tty?.foreground
     const stopBridges: Array<() => void> = []
+    // Only for the `finally` block below to check `tty.foreground === liveProc` after the process
+    // exits -- everything else in this method still uses the `const proc` declared inside `try`.
+    let liveProc: InstanceType<typeof ZenFSProcess> | undefined
 
     try {
       const proc = new ZenFSProcess({
@@ -1135,6 +1143,7 @@ export class Kernel implements IKernel {
         // foreground-process/signal-delivery side of things.
         console: tty ? `/dev/${tty.name}` : undefined
       })
+      liveProc = proc
 
       // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
       // calling `Process` -- `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
@@ -1171,8 +1180,17 @@ export class Kernel implements IKernel {
       // stream for and that isn't just the plain console -- the overwhelmingly common case (a
       // foreground command with no `>`/`|`) needs no bridge at all.
       if (options.stdin && !options.stdinIsTTY) stopBridges.push(this.bridgeStdio(proc, 0, options.stdin))
-      if (options.stdout && !options.stdoutIsTTY) stopBridges.push(this.bridgeStdio(proc, 1, options.stdout))
-      if (options.stderr) stopBridges.push(this.bridgeStdio(proc, 2, options.stderr))
+      const stdoutBridged = Boolean(options.stdout && !options.stdoutIsTTY)
+      if (stdoutBridged) stopBridges.push(this.bridgeStdio(proc, 1, options.stdout as WritableStream<Uint8Array>))
+      // `1>&2` (or any dup onto an fd with no redirect of its own) can hand back the *same*
+      // `WritableStream` instance for both stdout and stderr (`Shell.buildOutputStreams`'s
+      // `defaultFor` caches and reuses it) -- bridging it twice calls `.getWriter()` on an
+      // already-locked stream and throws. Only skip the fd 2 bridge when fd 1 was *actually*
+      // bridged against that same stream just above (e.g. a foreground `2>&1` with stdout still a
+      // real TTY leaves fd 1 unbridged, so fd 2 still needs its own bridge to that stream).
+      if (options.stderr && !(stdoutBridged && options.stderr === options.stdout)) {
+        stopBridges.push(this.bridgeStdio(proc, 2, options.stderr))
+      }
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)
       // before awaiting completion -- this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
@@ -1217,7 +1235,14 @@ export class Kernel implements IKernel {
       return -1
     } finally {
       for (const stop of stopBridges) stop()
-      if (tty && isForeground) tty.foreground = previousForeground
+      // `isForeground` reflects how this process was *spawned* (`false` for a `&` background job),
+      // not its foreground status right now -- `Shell.fg()` can promote it later via
+      // `setForeground(true)` above, which repoints `tty.foreground` live without updating this
+      // captured local. Checking `tty.foreground === proc` (as the `^C`-echo branch above already
+      // does) reflects the real state instead, so a backgrounded-then-`fg`'d process still gets the
+      // tty properly released on exit -- otherwise `tty.foreground` stays pinned to this now-dead
+      // process and `^C`/`^Z` on the next foreground job are silently swallowed.
+      if (tty && tty.foreground === liveProc) tty.foreground = previousForeground
     }
   }
 
