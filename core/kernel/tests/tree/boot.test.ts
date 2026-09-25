@@ -7,10 +7,8 @@ import { KernelState } from '@ecmaos/types'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The smoke test the overhaul status report (`.docs/overhaul/STATUS_01.md`, recommendation #1)
- * flagged as still missing and "likely the best test-per-hour in the plan": boot headlessly and
- * assert the kernel actually reaches a usable state, not just that `boot()` resolves without
- * throwing. Two real bugs shipped and were only caught by hand, later, because no test asserted
+ * The boot smoke test: boot headlessly and assert the kernel actually reaches a usable state, not
+ * just that `boot()` resolves without throwing. Two real bugs shipped and were only caught by hand, later, because no test asserted
  * this: the boot-output race (`/boot/init`'s own output interleaving with the recommended-apps
  * prompt, because its process wasn't actually awaited) and the console-device-registration bug
  * (`/dev/xterm<n>`/`/dev/console` existed and `stat`'d correctly but threw `ENXIO` on every real

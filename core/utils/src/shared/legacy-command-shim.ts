@@ -1,24 +1,16 @@
 /**
- * The legacy-command shim: a source list, built once, of every coreutil that still runs as an
- * in-process JS closure (`TerminalCommand`) rather than a real `execve`'d file -- NOT a
- * permanent registry. Real Linux has no such thing: `execve`+`$PATH` resolve a command purely
- * off real files on disk, and this shim exists only because most of ecmaOS's coreutils predate
- * `execve` working at all and still reach live `kernel`/`shell`/`terminal` object references a
- * real worker cannot see. As more commands migrate to `core/utils/src/commands-execve/*.mjs`
- * (see that directory, and `vite-plugin-bin-node.ts`'s `migratedCommands`), this list shrinks --
- * it is not meant to be "finished" by growing to cover everything forever.
+ * The legacy-command shim: the three coreutils that still run as in-process JS closures
+ * (`TerminalCommand`) instead of real `execve`'d files -- `true`, `false` and `test`.
  *
- * Excludes two categories on purpose:
- * - The 45 already-`execve`-migrated names (echo, basename, dirname, tr, mkdir, rm, cp, mv,
- *   touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold, expand, unexpand, cksum,
- *   strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join, paste, sleep, mktemp,
- *   shuf, split, pr, tee, stat, readlink, realpath, ln): real files under /bin already resolve them
- *   via `readFileHeader`/`execve` -- they need no entry here at all, the same way bash needs no
- *   table entry for a real `/bin/ls`.
- * - True shell builtins (cd, set, bg, fg, jobs, wait, local, env -- see
- *   `core/kernel/src/tree/lib/shell-builtins.ts`'s own doc comment for why these can never
- *   become real files): they moved to a small, permanent, in-process dispatch table on `Shell`
- *   itself, checked before any file-based resolution happens at all.
+ * Every other command is a real program: a file under `/bin` that `readFileHeader`/`execve`
+ * resolve the same way bash resolves `/bin/ls`, with no table entry anywhere. These three stay
+ * in-process on purpose: they are the usual condition of a tight shell loop
+ * (`while test ...; do ...; done`), and a real `execve` costs a worker start-up per iteration, a
+ * measurable slowdown for exactly the pattern they are used in most.
+ *
+ * True shell builtins (cd, set, bg, fg, jobs, wait, local, env) are not here either: they live in
+ * `core/kernel/src/tree/lib/shell-builtins.ts`, a dispatch table on `Shell` checked before any
+ * file resolution.
  *
  * `resolveLegacyCommand` is what `Kernel.executeCommand` calls -- lazily constructing the ONE
  * `TerminalCommand` actually invoked, cached per-`Terminal` (one per TTY) via a `WeakMap` keyed

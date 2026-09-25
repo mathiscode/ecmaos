@@ -1,10 +1,9 @@
 /**
- * Pilot: a real, worker-hosted coreutil-shaped program, proving the infrastructure a genuine
- * `execve`'d coreutil would need actually works end to end -- not a plumbing exercise like
- * `coreutils-ctx`'s signature codemod, a real one. See `Kernel.executeViaExecve`'s doc comment and
- * `.docs/overhaul/STATUS_01.md` for why coreutils don't run this way today (they reach live
- * `kernel`/`shell`/`terminal` JS object references directly -- 792 call sites across the 108
- * commands -- which a worker has no access to at all; only syscalls).
+ * Pilot (test fixture): a real, worker-hosted coreutil-shaped program, proving the infrastructure an
+ * `execve`'d coreutil needs works end to end. It was the first program to run this way, before the
+ * coreutils migrated off in-process closures that reached live `kernel`/`shell`/`terminal` objects,
+ * which a worker cannot see -- a worker has only syscalls. See `Kernel.executeViaExecve`'s doc
+ * comment.
  *
  * This is deliberately as close to real `pwd` as a syscall-only program can get: it calls
  * `getcwd()` (a real syscall, not a value read off a JS object) and writes the result to fd 1 with
