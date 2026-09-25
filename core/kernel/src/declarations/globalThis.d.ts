@@ -13,10 +13,6 @@ declare global {
     argv: string[]
     argv0: string
   }> | undefined
-
-  interface Navigator {
-    userAgentData: NavigatorUAData | null
-  }
 }
 
 export type Timer = ReturnType<typeof setInterval>

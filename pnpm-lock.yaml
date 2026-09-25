@@ -10,7 +10,7 @@ overrides:
   memium: ^1.0.4
   '@zenfs/core': ^2.7.6
 
-pnpmfileChecksum: sha256-Zzw6AUu2SJputeGoAFT8YK9JWXNZcYWS/QbYOLDEi5E=
+pnpmfileChecksum: sha256-2hGgCVIM97qm1SYj0uKb+Dkq66veP79smXwIOrLf4fI=
 
 importers:
 
@@ -24,16 +24,16 @@ importers:
         version: link:utils/config-typescript
       '@turbo/gen':
         specifier: ^2.2.3
-        version: 2.3.0(@types/node@26.5.1)(typescript@5.6.3)
+        version: 2.3.0(@types/node@26.5.1)
       '@types/webmidi':
         specifier: ^2.1.0
         version: 2.1.0
       '@typhonjs-typedoc/ts-lib-docs':
         specifier: ^2024.9.18
-        version: 2024.9.18(typedoc@0.27.2(typescript@5.6.3))
+        version: 2024.9.18(typedoc@0.27.2)
       '@typhonjs-typedoc/typedoc-theme-dmt':
         specifier: ^0.2.1
-        version: 0.2.3(typedoc@0.27.2(typescript@5.6.3))
+        version: 0.2.3(typedoc@0.27.2)
       concurrently:
         specifier: ^9.0.1
         version: 9.1.0
@@ -54,10 +54,10 @@ importers:
         version: 2.8.1
       typedoc:
         specifier: ^0.27.2
-        version: 0.27.2(typescript@5.6.3)
+        version: 0.27.2
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vim-wasm:
         specifier: ^0.0.13
         version: 0.0.13
@@ -77,8 +77,8 @@ importers:
         specifier: ^6.7.0
         version: 6.49.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(ws@8.21.3)
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
 
   apps/boilerplate:
     devDependencies:
@@ -89,8 +89,8 @@ importers:
         specifier: workspace:^
         version: link:../../core/types
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
 
   apps/code:
     devDependencies:
@@ -100,12 +100,15 @@ importers:
       '@ecmaos/types':
         specifier: workspace:^
         version: link:../../core/types
+      '@types/node':
+        specifier: 22.20.2
+        version: 22.20.2
       monaco-editor:
         specifier: ^0.52.2
         version: 0.52.2
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite:
         specifier: ^8.3.1
         version: 8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)
@@ -138,8 +141,8 @@ importers:
         specifier: ^1.7.1
         version: 1.8.3(esbuild@0.27.7)
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
 
   apps/news:
     devDependencies:
@@ -150,8 +153,8 @@ importers:
         specifier: workspace:^
         version: link:../../core/types
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
 
   apps/python: {}
 
@@ -167,11 +170,11 @@ importers:
         specifier: ^0.27.2
         version: 0.27.7
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       viem:
         specifier: ^2.45.1
-        version: 2.56.3(typescript@5.6.3)(zod@3.22.4)
+        version: 2.56.3(zod@3.22.4)
 
   apps/webamp:
     devDependencies:
@@ -185,8 +188,8 @@ importers:
         specifier: ^0.27.2
         version: 0.27.7
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       webamp:
         specifier: 0.0.0-next-b06490d
         version: 0.0.0-next-b06490d(@types/react@18.3.31)
@@ -232,8 +235,8 @@ importers:
         specifier: ^1.79.4
         version: 1.104.0
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       user-agent-data-types:
         specifier: ^0.4.2
         version: 0.4.3
@@ -534,13 +537,13 @@ importers:
         version: 0.2.5
       '@typhonjs-typedoc/ts-lib-docs':
         specifier: ^2024.9.18
-        version: 2024.9.18(typedoc@0.27.2(typescript@5.6.3))
+        version: 2024.9.18(typedoc@0.27.2)
       '@typhonjs-typedoc/typedoc-theme-dmt':
         specifier: ^0.2.1
-        version: 0.2.3(typedoc@0.27.2(typescript@5.6.3))
+        version: 0.2.3(typedoc@0.27.2)
       '@vitest/browser-playwright':
         specifier: ^5.0.2
-        version: 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
+        version: 5.0.2(msw@2.15.0(@types/node@22.20.2))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
       '@vitest/coverage-v8':
         specifier: ^5.0.2
         version: 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
@@ -590,11 +593,11 @@ importers:
         specifier: ^14.2.3
         version: 14.2.4
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       typescript-eslint:
         specifier: ^8.70.1
-        version: 8.70.1(eslint@10.11.0)(typescript@5.6.3)
+        version: 8.70.1(eslint@10.11.0)
       user-agent-data-types:
         specifier: ^0.4.2
         version: 0.4.3
@@ -603,7 +606,7 @@ importers:
         version: 8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)
       vite-plugin-dts:
         specifier: ^5.1.0
-        version: 5.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+        version: 5.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       vite-plugin-i18next-loader:
         specifier: ^2.0.13
         version: 2.0.14(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -612,10 +615,10 @@ importers:
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       vite-tsconfig-paths:
         specifier: ^5.0.1
-        version: 5.1.4(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+        version: 5.1.4(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       vitest:
         specifier: ^5.0.2
-        version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+        version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       vitest-canvas-mock:
         specifier: ^1.2.0
         version: 1.2.0(vitest@5.0.2)
@@ -663,8 +666,8 @@ importers:
         specifier: ^4.6.7
         version: 4.13.7
       typescript:
-        specifier: ^5.4.0
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
     devDependencies:
       '@ecmaos/config-typescript':
         specifier: workspace:^
@@ -728,8 +731,8 @@ importers:
         specifier: ^4.9.3
         version: 4.11.0
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -826,8 +829,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -851,8 +854,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -879,8 +882,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -922,8 +925,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -947,8 +950,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -975,8 +978,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1003,8 +1006,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1031,8 +1034,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1056,8 +1059,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1084,8 +1087,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1112,8 +1115,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1155,8 +1158,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -1180,8 +1183,8 @@ importers:
         specifier: ^2.7.6
         version: 2.7.6
       typescript:
-        specifier: ^5.6.3
-        version: 5.6.3
+        specifier: ^7.0.2
+        version: 7.0.2
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
@@ -3551,20 +3554,16 @@ packages:
     peerDependencies:
       '@typescript-eslint/parser': ^8.70.1
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/parser@8.70.1':
     resolution: {integrity: sha512-nO974WLllwhSFWQXnMLj6nDGa8f0khKEz1JzpPJ1u7Vm/4X1X6ZHajpoknU4bb41vJyMB0HHVyS2GqdhWfIXZw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/project-service@8.70.1':
     resolution: {integrity: sha512-62xOgboPfwc3/IgPSX/W6oQR3ZbF04194FPGUGH8HL8iLFHbt/456/8Ph1wLNUgVF+s94FlHoipBsz+v7+LMnA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/scope-manager@8.70.1':
     resolution: {integrity: sha512-Pa0EeSeAusQc1WbjQMac+YfenewYTBu0KjgYvkUKwhXaHUKbFog23Dm/rp0DX/6tyYOQ3Xl1a+3EcFNZynGHCw==}
@@ -3573,15 +3572,12 @@ packages:
   '@typescript-eslint/tsconfig-utils@8.70.1':
     resolution: {integrity: sha512-jumze1fPI+sDOaM2TWGQdn39PDxTr7TZGeuyLkAbNyx2vtMT3uRnVKChN0hfht5V2TugphJzF6bYXvBcE09qqg==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/type-utils@8.70.1':
     resolution: {integrity: sha512-7zKTnyvaVWqzLZHPFQtX1hVHqgkMC+WebPWakNCSyrQVbIP1AM0L0TlBZtACldIRb6PptI8Odk+jyZ5kP3B1VA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/types@8.70.1':
     resolution: {integrity: sha512-Dm1ypdhhrGCTyyehxElhgJ6kgk8MVCv5qXdoOVqPr1uqk42jX8KjrZqhROvdShczA8qrDoYiOWn1ykWlx2k81Q==}
@@ -3590,15 +3586,12 @@ packages:
   '@typescript-eslint/typescript-estree@8.70.1':
     resolution: {integrity: sha512-TU8PwyGN0PQJUcE96mw8eCQ44SmxGdQlJmlWakHaHQ15eIuuvye5yNtmh/i6oS88jzXVQB71xdNkbkB/fMwL0g==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/utils@8.70.1':
     resolution: {integrity: sha512-Esgul8MsnKnRLdYU2Eb2cRV9bS5HJYtKj1ByJnOzzG2M58DGdSUQ1jUuILxipqcpB2h9WLrbD5GijIWUjX/Tqw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
 
   '@typescript-eslint/visitor-keys@8.70.1':
     resolution: {integrity: sha512-Vwj9lUIW5Xq3wQ9w6gv3R86g1hMK8f2zNOdGTAgeXUMMXFK78G9ruCjjqutHMNJc0+CH7LYRnHeUB9IT8wFmcw==}
@@ -3900,11 +3893,8 @@ packages:
   abitype@1.2.3:
     resolution: {integrity: sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg==}
     peerDependencies:
-      typescript: '>=5.0.4'
       zod: ^3.22.0 || ^4.0.0
     peerDependenciesMeta:
-      typescript:
-        optional: true
       zod:
         optional: true
 
@@ -6121,11 +6111,6 @@ packages:
     resolution: {integrity: sha512-2wQAmKkQKxRuXvYJxVhPGG0wZNBQyD06oJvxqw90XqLvptdqxdlHrFUfEteKkpaNORX3Xzc+HtEl/q0nfmN2wQ==}
     engines: {node: '>=18'}
     hasBin: true
-    peerDependencies:
-      typescript: '>= 4.8.x'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   music-metadata-browser@0.6.6:
     resolution: {integrity: sha512-14KFz4HR6rM6RATcLtJoBDRbehU/dKdVzElCdeI8CjP7Un2HtSf0WiT7f7Lz+XNkcBMZUjthmC6Wy4+NNayCRw==}
@@ -6307,11 +6292,6 @@ packages:
 
   ox@0.14.44:
     resolution: {integrity: sha512-O54qXXHEk4ySamMSyBpI0AeBegS5frxU6+LA6Jb9Sf6kMOxcTNaxYmwZfpOu22DIQsdKfgQxHq8EsAGaoBQScA==}
-    peerDependencies:
-      typescript: '>=5.4.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   oxc-minify@0.136.0:
     resolution: {integrity: sha512-u9UvPFTYVwQ/i1kpp/c20S/SbvLaLV0Ngzyhgi0YV4B1SlxM7RgnnePl4vY9N3Z9sTRcozL1MRStI3PlUN9RFA==}
@@ -7388,8 +7368,6 @@ packages:
   ts-api-utils@2.5.0:
     resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
     engines: {node: '>=18.12'}
-    peerDependencies:
-      typescript: '>=4.8.4'
 
   ts-deepmerge@7.0.3:
     resolution: {integrity: sha512-Du/ZW2RfwV/D4cmA5rXafYjBQVuvu4qGiEEla4EmEHVHgRdx68Gftx7i66jn2bzHPwSVZY36Ae6OuDn9el4ZKA==}
@@ -7402,7 +7380,6 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': 22.20.2
-      typescript: '>=2.7'
     peerDependenciesMeta:
       '@swc/core':
         optional: true
@@ -7414,11 +7391,6 @@ packages:
     engines: {node: ^18 || >=20}
     deprecated: unmaintained
     hasBin: true
-    peerDependencies:
-      typescript: ^5.0.0
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   tslib@1.14.1:
     resolution: {integrity: sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==}
@@ -7523,30 +7495,12 @@ packages:
     resolution: {integrity: sha512-C2ima5TZJHU3ecnRIz50lKd1BsYck5LhYQIy7MRPmjuSEJreUEAt+uAVcZgY7wZsSORzEI7xW8miZIdxv/cbmw==}
     engines: {node: '>= 18'}
     hasBin: true
-    peerDependencies:
-      typescript: 5.0.x || 5.1.x || 5.2.x || 5.3.x || 5.4.x || 5.5.x || 5.6.x || 5.7.x
 
   typescript-eslint@8.70.1:
     resolution: {integrity: sha512-AcWG7KDjZ2THNXsgwttMaGmzVi0VFRlFYfqFHYQRbDpF3owuYbuiL8c7UUrd2k8s3PoSfIQrWfrGXfcElrWLYA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
     peerDependencies:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
-
-  typescript@2.9.2:
-    resolution: {integrity: sha512-Gr4p6nFNaoufRIY4NMdpQRNmgxVIGMs4Fcu/ujdYk3nAZqk7supzBE9idmvfZIlH/Cuj//dvi+019qEue9lV0w==}
-    engines: {node: '>=4.2.0'}
-    hasBin: true
-
-  typescript@5.6.3:
-    resolution: {integrity: sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
 
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
@@ -7625,7 +7579,6 @@ packages:
       esbuild: '*'
       rolldown: '*'
       rollup: '>=3'
-      typescript: '>=4'
       vite: '>=3'
       webpack: ^4 || ^5
     peerDependenciesMeta:
@@ -7711,11 +7664,6 @@ packages:
 
   viem@2.56.3:
     resolution: {integrity: sha512-vUObq3GO7D3lz9gPNEE/xd5jIUnMbeVDWewh252o54pDEDlW4pDe6FEd/qTGL5RyK52cGHMM7kQ3wjxhilEvkQ==}
-    peerDependencies:
-      typescript: '>=5.0.4'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   vim-wasm@0.0.13:
     resolution: {integrity: sha512-2EkJ4OfMgvA/bURJeu43wqIQ4tpCJymst++Y4R/AKuQlnrvdI4hTpG2jf0yL5TrLt1ui12leLRghrwPOybyu8w==}
@@ -8372,7 +8320,7 @@ snapshots:
       componentize-qjs: 0.4.4
       mkdirp: 3.0.1
       rolldown: 1.2.8
-      typescript: 7.0.2
+      typescript: 6.0.3
       typescript-compiler-api: typescript@6.0.3
       unenv: 2.0.0-rc.24
 
@@ -9008,7 +8956,7 @@ snapshots:
       resolve: 1.22.8
       semver: 7.7.4
       source-map: 0.6.1
-      typescript: 5.9.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
     optional: true
@@ -10008,7 +9956,7 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
-  '@turbo/gen@2.3.0(@types/node@26.5.1)(typescript@5.6.3)':
+  '@turbo/gen@2.3.0(@types/node@26.5.1)':
     dependencies:
       '@turbo/workspaces': 2.3.0
       commander: 10.0.1
@@ -10018,7 +9966,7 @@ snapshots:
       node-plop: 0.26.3
       picocolors: 1.0.1
       proxy-agent: 6.4.0
-      ts-node: 10.9.2(@types/node@26.5.1)(typescript@5.6.3)
+      ts-node: 10.9.2(@types/node@26.5.1)
       update-check: 1.5.4
       validate-npm-package-name: 5.0.1
     transitivePeerDependencies:
@@ -10026,7 +9974,6 @@ snapshots:
       - '@swc/wasm'
       - '@types/node'
       - supports-color
-      - typescript
 
   '@turbo/workspaces@2.3.0':
     dependencies:
@@ -10158,7 +10105,7 @@ snapshots:
 
   '@types/w3c-generic-sensor@1.0.10':
     dependencies:
-      typescript: 2.9.2
+      typescript: 6.0.3
 
   '@types/w3c-image-capture@1.0.11':
     dependencies:
@@ -10184,40 +10131,40 @@ snapshots:
 
   '@types/winbox@0.2.5': {}
 
-  '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@10.11.0)(typescript@5.6.3))(eslint@10.11.0)(typescript@5.6.3)':
+  '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@10.11.0))(eslint@10.11.0)':
     dependencies:
       '@eslint-community/regexpp': 4.12.2
-      '@typescript-eslint/parser': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
+      '@typescript-eslint/parser': 8.70.1(eslint@10.11.0)
       '@typescript-eslint/scope-manager': 8.70.1
-      '@typescript-eslint/type-utils': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
-      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
+      '@typescript-eslint/type-utils': 8.70.1(eslint@10.11.0)
+      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)
       '@typescript-eslint/visitor-keys': 8.70.1
       eslint: 10.11.0
       ignore: 7.0.9
       natural-compare: 1.4.0
-      ts-api-utils: 2.5.0(typescript@5.6.3)
-      typescript: 5.6.3
+      ts-api-utils: 2.5.0
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/parser@8.70.1(eslint@10.11.0)(typescript@5.6.3)':
+  '@typescript-eslint/parser@8.70.1(eslint@10.11.0)':
     dependencies:
       '@typescript-eslint/scope-manager': 8.70.1
       '@typescript-eslint/types': 8.70.1
-      '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.6.3)
+      '@typescript-eslint/typescript-estree': 8.70.1
       '@typescript-eslint/visitor-keys': 8.70.1
       debug: 4.4.3
       eslint: 10.11.0
-      typescript: 5.6.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/project-service@8.70.1(typescript@5.6.3)':
+  '@typescript-eslint/project-service@8.70.1':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.70.1(typescript@5.6.3)
+      '@typescript-eslint/tsconfig-utils': 8.70.1
       '@typescript-eslint/types': 8.70.1
       debug: 4.4.3
-      typescript: 5.6.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
@@ -10226,47 +10173,47 @@ snapshots:
       '@typescript-eslint/types': 8.70.1
       '@typescript-eslint/visitor-keys': 8.70.1
 
-  '@typescript-eslint/tsconfig-utils@8.70.1(typescript@5.6.3)':
+  '@typescript-eslint/tsconfig-utils@8.70.1':
     dependencies:
-      typescript: 5.6.3
+      typescript: 6.0.3
 
-  '@typescript-eslint/type-utils@8.70.1(eslint@10.11.0)(typescript@5.6.3)':
+  '@typescript-eslint/type-utils@8.70.1(eslint@10.11.0)':
     dependencies:
       '@typescript-eslint/types': 8.70.1
-      '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.6.3)
-      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
+      '@typescript-eslint/typescript-estree': 8.70.1
+      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)
       debug: 4.4.3
       eslint: 10.11.0
-      ts-api-utils: 2.5.0(typescript@5.6.3)
-      typescript: 5.6.3
+      ts-api-utils: 2.5.0
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
   '@typescript-eslint/types@8.70.1': {}
 
-  '@typescript-eslint/typescript-estree@8.70.1(typescript@5.6.3)':
+  '@typescript-eslint/typescript-estree@8.70.1':
     dependencies:
-      '@typescript-eslint/project-service': 8.70.1(typescript@5.6.3)
-      '@typescript-eslint/tsconfig-utils': 8.70.1(typescript@5.6.3)
+      '@typescript-eslint/project-service': 8.70.1
+      '@typescript-eslint/tsconfig-utils': 8.70.1
       '@typescript-eslint/types': 8.70.1
       '@typescript-eslint/visitor-keys': 8.70.1
       debug: 4.4.3
       minimatch: 10.2.6
       semver: 7.8.5
       tinyglobby: 0.2.17
-      ts-api-utils: 2.5.0(typescript@5.6.3)
-      typescript: 5.6.3
+      ts-api-utils: 2.5.0
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/utils@8.70.1(eslint@10.11.0)(typescript@5.6.3)':
+  '@typescript-eslint/utils@8.70.1(eslint@10.11.0)':
     dependencies:
       '@eslint-community/eslint-utils': 4.10.1(eslint@10.11.0)
       '@typescript-eslint/scope-manager': 8.70.1
       '@typescript-eslint/types': 8.70.1
-      '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.6.3)
+      '@typescript-eslint/typescript-estree': 8.70.1
       eslint: 10.11.0
-      typescript: 5.6.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
 
@@ -10335,39 +10282,39 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@typhonjs-typedoc/ts-lib-docs@2024.9.18(typedoc@0.27.2(typescript@5.6.3))':
+  '@typhonjs-typedoc/ts-lib-docs@2024.9.18(typedoc@0.27.2)':
     dependencies:
-      typedoc: 0.27.2(typescript@5.6.3)
+      typedoc: 0.27.2
 
-  '@typhonjs-typedoc/typedoc-theme-dmt@0.2.3(typedoc@0.27.2(typescript@5.6.3))':
+  '@typhonjs-typedoc/typedoc-theme-dmt@0.2.3(typedoc@0.27.2)':
     dependencies:
       cheerio: 1.0.0
-      typedoc: 0.27.2(typescript@5.6.3)
+      typedoc: 0.27.2
 
-  '@vitest/browser-playwright@5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)':
+  '@vitest/browser-playwright@5.0.2(msw@2.15.0(@types/node@22.20.2))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)':
     dependencies:
-      '@vitest/browser': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
-      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      '@vitest/browser': 5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
+      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       playwright: 1.63.0
       tinyrainbow: 3.1.1
-      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
     transitivePeerDependencies:
       - bufferutil
       - msw
       - utf-8-validate
       - vite
 
-  '@vitest/browser@5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)':
+  '@vitest/browser@5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)':
     dependencies:
       '@blazediff/core': 1.10.0
-      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       '@vitest/ui': 5.0.2(vitest@5.0.2)
       '@vitest/utils': 5.0.2
       magic-string: 1.4.2
       pngjs: 7.0.0
       sirv: 3.0.2
       tinyrainbow: 3.1.1
-      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       ws: 8.21.3
     transitivePeerDependencies:
       - bufferutil
@@ -10385,9 +10332,9 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
     optionalDependencies:
-      '@vitest/browser': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
+      '@vitest/browser': 5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
 
   '@vitest/istanbul-lib-coverage@1.0.1': {}
 
@@ -10395,14 +10342,14 @@ snapshots:
     dependencies:
       '@vitest/istanbul-lib-coverage': 1.0.1
 
-  '@vitest/mocker@5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))':
+  '@vitest/mocker@5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.0.2
       estree-walker: 3.0.3
       magic-string: 1.4.2
     optionalDependencies:
-      msw: 2.15.0(@types/node@22.20.2)(typescript@5.6.3)
+      msw: 2.15.0(@types/node@22.20.2)
       vite: 8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)
 
   '@vitest/pretty-format@5.0.2':
@@ -10419,7 +10366,7 @@ snapshots:
       pathe: 2.0.3
       sirv: 3.0.2
       tinyrainbow: 3.1.1
-      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
 
   '@vitest/utils@5.0.2':
     dependencies:
@@ -10526,9 +10473,10 @@ snapshots:
 
   abbrev@2.0.0: {}
 
-  abitype@1.2.3(typescript@5.6.3)(zod@3.22.4):
+  abitype@1.2.3(zod@3.22.4):
+    dependencies:
+      typescript: 6.0.3
     optionalDependencies:
-      typescript: 5.6.3
       zod: 3.22.4
 
   abort-controller@3.0.0:
@@ -13046,7 +12994,7 @@ snapshots:
 
   ms@2.1.3: {}
 
-  msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3):
+  msw@2.15.0(@types/node@22.20.2):
     dependencies:
       '@inquirer/confirm': 6.3.2(@types/node@22.20.2)
       '@mswjs/interceptors': 0.41.9
@@ -13064,10 +13012,9 @@ snapshots:
       strict-event-emitter: 0.5.1
       tough-cookie: 6.0.2
       type-fest: 5.9.0
+      typescript: 6.0.3
       until-async: 3.0.2
       yargs: 17.7.2
-    optionalDependencies:
-      typescript: 5.6.3
     transitivePeerDependencies:
       - '@types/node'
     optional: true
@@ -13310,7 +13257,7 @@ snapshots:
       object-keys: 1.1.1
       safe-push-apply: 1.0.0
 
-  ox@0.14.44(typescript@5.6.3)(zod@3.22.4):
+  ox@0.14.44(zod@3.22.4):
     dependencies:
       '@adraffy/ens-normalize': 1.11.1
       '@noble/ciphers': 1.3.0
@@ -13318,10 +13265,9 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.6.3)(zod@3.22.4)
+      abitype: 1.2.3(zod@3.22.4)
       eventemitter3: 5.0.1
-    optionalDependencies:
-      typescript: 5.6.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - zod
 
@@ -14514,13 +14460,13 @@ snapshots:
 
   tree-kill@1.2.2: {}
 
-  ts-api-utils@2.5.0(typescript@5.6.3):
+  ts-api-utils@2.5.0:
     dependencies:
-      typescript: 5.6.3
+      typescript: 6.0.3
 
   ts-deepmerge@7.0.3: {}
 
-  ts-node@10.9.2(@types/node@26.5.1)(typescript@5.6.3):
+  ts-node@10.9.2(@types/node@26.5.1):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.11
@@ -14534,13 +14480,13 @@ snapshots:
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 5.6.3
+      typescript: 6.0.3
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
 
-  tsconfck@3.1.6(typescript@5.6.3):
-    optionalDependencies:
-      typescript: 5.6.3
+  tsconfck@3.1.6:
+    dependencies:
+      typescript: 6.0.3
 
   tslib@1.14.1: {}
 
@@ -14648,32 +14594,25 @@ snapshots:
       typed-array-buffer: 1.0.3
       typed-array-byte-offset: 1.0.4
 
-  typedoc@0.27.2(typescript@5.6.3):
+  typedoc@0.27.2:
     dependencies:
       '@gerrit0/mini-shiki': 1.24.1
       lunr: 2.3.9
       markdown-it: 14.1.0
       minimatch: 9.0.5
-      typescript: 5.6.3
+      typescript: 6.0.3
       yaml: 2.6.1
 
-  typescript-eslint@8.70.1(eslint@10.11.0)(typescript@5.6.3):
+  typescript-eslint@8.70.1(eslint@10.11.0):
     dependencies:
-      '@typescript-eslint/eslint-plugin': 8.70.1(@typescript-eslint/parser@8.70.1(eslint@10.11.0)(typescript@5.6.3))(eslint@10.11.0)(typescript@5.6.3)
-      '@typescript-eslint/parser': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
-      '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.6.3)
-      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)(typescript@5.6.3)
+      '@typescript-eslint/eslint-plugin': 8.70.1(@typescript-eslint/parser@8.70.1(eslint@10.11.0))(eslint@10.11.0)
+      '@typescript-eslint/parser': 8.70.1(eslint@10.11.0)
+      '@typescript-eslint/typescript-estree': 8.70.1
+      '@typescript-eslint/utils': 8.70.1(eslint@10.11.0)
       eslint: 10.11.0
-      typescript: 5.6.3
+      typescript: 6.0.3
     transitivePeerDependencies:
       - supports-color
-
-  typescript@2.9.2: {}
-
-  typescript@5.6.3: {}
-
-  typescript@5.9.3:
-    optional: true
 
   typescript@6.0.3: {}
 
@@ -14747,7 +14686,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unplugin-dts@1.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
+  unplugin-dts@1.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
     dependencies:
       '@rollup/pluginutils': 5.4.0(rollup@4.63.1)
       '@volar/typescript': 2.4.28
@@ -14757,7 +14696,7 @@ snapshots:
       kolorist: 1.8.0
       local-pkg: 1.2.1
       magic-string: 0.30.21
-      typescript: 5.6.3
+      typescript: 6.0.3
       unplugin: 2.3.11
     optionalDependencies:
       '@microsoft/api-extractor': 7.59.1(@types/node@22.20.2)
@@ -14832,18 +14771,17 @@ snapshots:
 
   vary@1.1.2: {}
 
-  viem@2.56.3(typescript@5.6.3)(zod@3.22.4):
+  viem@2.56.3(zod@3.22.4):
     dependencies:
       '@noble/curves': 1.9.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.6.3)(zod@3.22.4)
+      abitype: 1.2.3(zod@3.22.4)
       isows: 1.0.7(ws@8.21.0)
-      ox: 0.14.44(typescript@5.6.3)(zod@3.22.4)
+      ox: 0.14.44(zod@3.22.4)
+      typescript: 6.0.3
       ws: 8.21.0
-    optionalDependencies:
-      typescript: 5.6.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -14855,9 +14793,9 @@ snapshots:
     dependencies:
       vite: 8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)
 
-  vite-plugin-dts@5.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
+  vite-plugin-dts@5.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
     dependencies:
-      unplugin-dts: 1.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      unplugin-dts: 1.1.0(@microsoft/api-extractor@7.59.1(@types/node@22.20.2))(esbuild@0.27.7)(rolldown@1.2.11)(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
     optionalDependencies:
       '@microsoft/api-extractor': 7.59.1(@types/node@22.20.2)
       rollup: 4.63.1
@@ -14868,7 +14806,6 @@ snapshots:
       - esbuild
       - rolldown
       - supports-color
-      - typescript
       - webpack
 
   vite-plugin-i18next-loader@2.0.14(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
@@ -14907,16 +14844,15 @@ snapshots:
     transitivePeerDependencies:
       - rollup
 
-  vite-tsconfig-paths@5.1.4(typescript@5.6.3)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
+  vite-tsconfig-paths@5.1.4(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
     dependencies:
       debug: 4.3.7(supports-color@5.5.0)
       globrex: 0.1.2
-      tsconfck: 3.1.6(typescript@5.6.3)
+      tsconfck: 3.1.6
     optionalDependencies:
       vite: 8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)
     transitivePeerDependencies:
       - supports-color
-      - typescript
 
   vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1):
     dependencies:
@@ -14954,12 +14890,12 @@ snapshots:
     dependencies:
       cssfontparser: 1.2.1
       moo-color: 1.0.3
-      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      vitest: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
 
-  vitest@5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
+  vitest@5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
+      '@vitest/mocker': 5.0.2(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))
       chai: 6.2.2
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -14975,7 +14911,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 22.20.2
-      '@vitest/browser-playwright': 5.0.2(msw@2.15.0(@types/node@22.20.2)(typescript@5.6.3))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
+      '@vitest/browser-playwright': 5.0.2(msw@2.15.0(@types/node@22.20.2))(playwright@1.63.0)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.27.7)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.6.1))(vitest@5.0.2)
       '@vitest/coverage-v8': 5.0.2(@vitest/browser@5.0.2)(vitest@5.0.2)
       '@vitest/ui': 5.0.2(vitest@5.0.2)
       jsdom: 25.0.1(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/0eb31c29eaa86aeebbaec2125af934daf3e6e2ca)
