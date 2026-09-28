@@ -1,9 +1,7 @@
 /**
- * Pilot (test fixture): a real, worker-hosted coreutil-shaped program, proving the infrastructure an
- * `execve`'d coreutil needs works end to end. It was the first program to run this way, before the
- * coreutils migrated off in-process closures that reached live `kernel`/`shell`/`terminal` objects,
- * which a worker cannot see -- a worker has only syscalls. See `Kernel.executeViaExecve`'s doc
- * comment.
+ * Pilot (test fixture): a minimal worker-hosted coreutil-shaped program, exercising the real
+ * `execve` infrastructure end to end with only real syscalls, no access to live `kernel`/`shell`/
+ * `terminal` objects. See `Kernel.executeViaExecve`'s doc comment.
  *
  * This is deliberately as close to real `pwd` as a syscall-only program can get: it calls
  * `getcwd()` (a real syscall, not a value read off a JS object) and writes the result to fd 1 with

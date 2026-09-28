@@ -203,15 +203,14 @@ const init = await ready
 
 // Expose this module's own already-initialized syscall wrappers for the loaded program to use --
 // see the doc comment above for why a program can't get working ones of its own by importing
-// `@zenfs/linux/uapi/*` directly. Grows as more coreutils move onto real execve (see the
-// `feat/1.0.0-execve-commands` migration); still deliberately just what's been needed so far, not
-// all of `uapi/*` up front.
+// `@zenfs/linux/uapi/*` directly. Deliberately just what's been needed so far, not all of `uapi/*`
+// up front.
 //
 // `readdir`/`isDirectory`/`copyFile`/`rmRecursive` are this interpreter's own userspace helpers
 // (built above from raw syscalls), not `@zenfs/linux` exports -- there is no kernel primitive for
 // any of them in real Linux either; every libc builds them the same way over `getdents`/`open`+
-// `read`+`write`/recursive `unlink`+`rmdir`. Provided once here so migrated coreutils (`cp`, `rm`,
-// `mv`, ...) don't each reimplement directory walking.
+// `read`+`write`/recursive `unlink`+`rmdir`. Provided once here so coreutils (`cp`, `rm`, `mv`,
+// ...) don't each reimplement directory walking.
 //
 // `custom` is `syscall_async` itself, not `syscall`/`syscall_raw` -- a main-thread-only capability
 // like `window_create` can take arbitrarily long (a real window is created synchronously today, but

@@ -1,9 +1,6 @@
 /**
- * Metadata only -- `sockets`' real implementation is `core/kernel/src/bin/commands/sockets.mjs`, a
- * real, worker-hosted program running via `execve` reaching `kernel.sockets` through the
- * `sockets_list`/`sockets_create`/`sockets_close`/`sockets_show` custom syscalls (`core/kernel/src/
- * tree/lib/main-thread-syscalls.ts`), migrated in this session's M1 pass. It lives in
- * `@ecmaos/kernel`, not here, for the same reason `tty.ts` does -- see that file's doc comment, or
- * `echo.ts`'s for the general explanation of why this file is metadata-only.
+ * Metadata only -- `sockets`' real implementation is `core/kernel/src/bin/commands/sockets.mjs`. It
+ * lives in `@ecmaos/kernel`, not here, because it reaches `kernel.sockets`, kernel-only state a
+ * worker can't see directly. See `echo.ts`'s doc comment for why this file itself is metadata-only.
  */
 export const meta = { command: 'sockets', description: 'Manage socket connections (WebSocket and WebTransport)' } as const
