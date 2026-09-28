@@ -29,6 +29,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 
 import '@xterm/xterm/css/xterm.css'
 import { trueBuiltinNames } from '#lib/shell-builtins.ts'
+import { needsMoreInput } from '#lib/control-flow-parser.ts'
 
 import { Events } from '#events.ts'
 
@@ -1337,7 +1338,11 @@ export class Terminal extends XTerm implements ITerminal {
           // which is what actually stops the *prompt* from being stuck, same as before this existed.
           const job = this._shell?.foregroundJob
           if (job) for (const process of job.processes) process.kill(Signal.INT)
-          void this._shell?.runTrap('INT')
+          // `notifyInterrupted`, not a bare `runTrap`: it also sets the flag that stops the rest
+          // of a `;`-separated list. This branch only runs when no line discipline is attached
+          // (see the early return above); when one is, `Kernel.executeViaExecve` calls the same
+          // method where the real signal lands.
+          void this._shell?.notifyInterrupted()
 
           this._cmd = ''
           this._cursorPosition = 0
@@ -1371,9 +1376,28 @@ export class Terminal extends XTerm implements ITerminal {
     }
 
     switch (keyName) {
-      case 'Enter':
+      case 'Enter': {
         if (this._cmd.trim().endsWith('\\')) {
-          this._multiLineBuffer += this._cmd.slice(0, -1) + '\n'
+          // A backslash-newline is *removed*, not turned into a newline: `echo one \` then `two`
+          // is the single line `echo one two`, as in every real shell. Joining with `\n` instead
+          // made it two separate commands, so the continuation silently ran `two` as its own.
+          this._multiLineBuffer += this._cmd.replace(/\\\s*$/, '')
+          this._multiLineMode = true
+          this._cmd = ''
+          this._cursorPosition = 0
+          this.write('\n> ')
+          break
+        }
+
+        // What the line would be if this Enter ended it: the accumulated continuation buffer plus
+        // what was just typed. The shell grammar -- not a lexical rule like the trailing backslash
+        // above -- decides whether that is a complete statement. An open heredoc (`cat <<EOF` with
+        // no terminator yet) or an open block (`for ...; do` with no `done`) keeps the prompt in
+        // continuation mode; a genuine syntax error does not, so a typo can't trap the user in a
+        // `>` prompt with no way out. See `needsMoreInput` in `lib/control-flow-parser.ts`.
+        const candidate = this._multiLineMode ? this._multiLineBuffer + this._cmd : this._cmd
+        if (candidate.trim().length > 0 && needsMoreInput(candidate)) {
+          this._multiLineBuffer = candidate + '\n'
           this._multiLineMode = true
           this._cmd = ''
           this._cursorPosition = 0
@@ -1425,6 +1449,7 @@ export class Terminal extends XTerm implements ITerminal {
           this.write(ansi.erase.inLine(2) + this.prompt())
         }
         break
+      }
       case 'Backspace':
         if (this._cursorPosition > 0) {
           const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length

@@ -185,6 +185,21 @@ export interface Shell {
   /** The job currently occupying the foreground, if any -- see {@link Job}'s doc comment for scope. */
   readonly foregroundJob: Job | undefined
 
+  /**
+   * Whether the line currently running was interrupted by `^C`. The rest of a `;`/`&&`/`||` list
+   * and any enclosing loop stop when this is set, as in bash.
+   */
+  readonly interrupted: boolean
+
+  /**
+   * Records that a foreground process was interrupted, and runs any `trap ... INT` handler.
+   *
+   * Called by the kernel where the signal actually lands, not by the terminal's key handler: while
+   * a foreground `execve`'d process holds the terminal, the `@zenfs/linux` line discipline owns the
+   * keyboard and turns `^C` into a real `SIGINT` itself (`ISIG`), so the key handler never sees it.
+   */
+  notifyInterrupted(): Promise<void>
+
   /** All tracked jobs (running, stopped, and not-yet-reaped done), oldest first. */
   listJobs(): Job[]
 

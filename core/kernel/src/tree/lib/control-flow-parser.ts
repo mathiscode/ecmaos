@@ -21,7 +21,7 @@
  * unchanged, so this parser never needs to know about pipes, redirections, or substitutions.
  */
 
-import { foldHeredocs } from '#lib/shell-parser.ts'
+import { foldHeredocs, pendingHeredocDelimiter } from '#lib/shell-parser.ts'
 
 export interface SimpleStatement {
   type: 'simple'
@@ -66,7 +66,21 @@ export interface FunctionDef {
 
 export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | FunctionDef
 
-class ControlFlowParseError extends Error {}
+/**
+ * A parse failure in the statement tree.
+ *
+ * `incomplete` distinguishes "this input is wrong" from "this input is only a prefix" -- the parser
+ * ran out of lines partway through a construct, so more input would resolve it. An interactive
+ * prompt uses that to decide between printing an error and asking for the next line; a script file,
+ * which has no more lines coming, treats both the same. See {@link needsMoreInput}.
+ */
+export class ControlFlowParseError extends Error {
+  readonly incomplete: boolean
+  constructor(message: string, incomplete = false) {
+    super(message)
+    this.incomplete = incomplete
+  }
+}
 
 /** Split a script into non-blank, non-comment, non-empty-after-trim logical lines. */
 function preprocessLines(script: string): string[] {
@@ -138,12 +152,18 @@ class LineParser {
       return line.trim()
     }
 
-    throw new ControlFlowParseError(`Expected '${throughKeyword}' after '${openKeyword} ${line}'`)
+    throw new ControlFlowParseError(
+      `Expected '${throughKeyword}' after '${openKeyword} ${line}'`,
+      this.atEnd()
+    )
   }
 
   private expectKeywordLine(keyword: string): void {
     if (this.atEnd() || this.firstWord(this.peek() as string) !== keyword) {
-      throw new ControlFlowParseError(`Expected '${keyword}', got: ${this.peek() ?? '<end of script>'}`)
+      throw new ControlFlowParseError(
+        `Expected '${keyword}', got: ${this.peek() ?? '<end of script>'}`,
+        this.atEnd()
+      )
     }
     this.advance()
   }
@@ -183,7 +203,7 @@ class LineParser {
     const [, variable, wordsPart, inlineDo] = match as unknown as [string, string, string, string | undefined]
     if (!inlineDo) {
       if (this.firstWord(this.peek() ?? '') !== 'do') {
-        throw new ControlFlowParseError(`Expected 'do' after 'for ${header}'`)
+        throw new ControlFlowParseError(`Expected 'do' after 'for ${header}'`, this.atEnd())
       }
       this.advance()
     }
@@ -259,7 +279,7 @@ class LineParser {
   private finishFunctionBody(name: string, openBraceOnHeaderLine: boolean): FunctionDef {
     if (!openBraceOnHeaderLine) {
       if (this.firstWord(this.peek() ?? '') !== '{') {
-        throw new ControlFlowParseError(`Expected '{' to open function '${name}'`)
+        throw new ControlFlowParseError(`Expected '{' to open function '${name}'`, this.atEnd())
       }
       this.advance()
     }
@@ -394,4 +414,30 @@ export function parseStatements(script: string): Statement[] {
   const parser = new LineParser(lines)
   const statements = parser.parseStatements([])
   return statements
+}
+
+/**
+ * Whether `text` is only the beginning of a shell statement, so an interactive prompt should ask
+ * for another line (`> `) instead of running it.
+ *
+ * Two ways input can be a prefix:
+ * - an open heredoc, whose terminator line has not arrived yet ({@link pendingHeredocDelimiter});
+ * - an open control-flow block (`if` with no `fi`, `for`/`while` with no `done`, `case` with no
+ *   `esac`, a function body with no closing brace), which the statement parser reports as a
+ *   {@link ControlFlowParseError} with `incomplete` set.
+ *
+ * A genuine syntax error -- `fi` with no `if`, a malformed `for` header -- is deliberately *not*
+ * incomplete: no amount of further typing fixes it, so the prompt reports it rather than hanging in
+ * a continuation the user cannot escape.
+ */
+export function needsMoreInput(text: string): boolean {
+  if (!text.trim()) return false
+  if (pendingHeredocDelimiter(text) !== null) return true
+
+  try {
+    parseStatements(text)
+    return false
+  } catch (error) {
+    return error instanceof ControlFlowParseError && error.incomplete
+  }
 }

@@ -263,9 +263,13 @@ export function installMainThreadSyscalls(): void {
   // Apps (`/bin/app`) and device command lines (`/bin/devcli`) are real processes too.
   define_syscall('ps_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
+    // `Process.comm` is derived from `exe`/`argv[0]`, so a Process that exists but was never
+    // `execve`'d into a program reports an empty string -- `ps` printed a row with a blank COMMAND.
+    // Label it the way Linux labels a process with no userspace image, in brackets, rather than
+    // emitting nothing.
     const list = Array.from(zenfsProcesses.values()).map(p => ({
       pid: p.pid,
-      command: p.comm,
+      command: p.comm || '[kernel]',
       status: p.code !== undefined ? 'exited' : p.stopped ? 'stopped' : 'running'
     }))
     const text = JSON.stringify(list)

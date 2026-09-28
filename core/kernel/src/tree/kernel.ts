@@ -1025,7 +1025,11 @@ export class Kernel implements IKernel {
             case 'script':
               exitCode = await this.executeScript(options)
               break
+            // `interpreter` is a real `#!/path` shebang: upstream `binfmt_script` resolves the
+            // interpreter and rewrites argv once `executeViaExecve` hands it the path untouched.
+            // See `readFileHeader`.
             case 'node':
+            case 'interpreter':
               exitCode = await this.executeViaExecve(options)
               break
             case 'device': {
@@ -1225,7 +1229,18 @@ export class Kernel implements IKernel {
 
       // The line discipline echoed `^C` with no newline (a real shell's tty driver ends the line
       // for it); without this the next prompt is drawn after the `^C`, mid-line.
-      if (tty && isForeground && proc.killed_by === ZenFSSignal.INT) terminal.write('\r\n')
+      //
+      // This is also where the shell learns an interactive `^C` happened at all. `Terminal`'s own
+      // key handler stands down while the line discipline owns the keyboard, so the keystroke
+      // becomes a real `SIGINT` via `ISIG` and never reaches `Terminal.keyHandler`'s `runTrap`
+      // call. Reporting it here is what makes `trap ... INT` fire and what stops the rest of a
+      // `;`-separated list from running -- see `Shell.notifyInterrupted`.
+      if (isForeground && proc.killed_by === ZenFSSignal.INT) {
+        // The echo is a tty concern (only a line discipline wrote a bare `^C` needing a newline);
+        // the shell-side effects are not, so they run whether or not a terminal is attached.
+        if (tty) terminal.write('\r\n')
+        await options.shell.notifyInterrupted()
+      }
 
       // Give the stdout/stderr bridges a moment to drain whatever the program wrote right before
       // exiting -- `bridgeStdio`'s own drain-on-exit path stops promptly on its own, but the
@@ -1745,6 +1760,20 @@ export class Kernel implements IKernel {
       }
 
       if (header.startsWith('#!/usr/bin/env node')) return { type: 'bin', namespace: 'node', name: 'node' }
+
+      // Any other `#!` is an ordinary POSIX shebang naming a real interpreter. ecmaOS does not
+      // parse it here: `@zenfs/linux`'s own `binfmt_script` already implements the real rule --
+      // split `#!name [arg]`, rewrite argv to `[name, arg?, filename, ...rest]`, re-search the
+      // binfmt table, with a chain-depth limit and `ENOEXEC` on a truncated line. Classifying it
+      // as `interpreter` routes it to `executeViaExecve`, which hands the untouched path to
+      // upstream `execve` and lets that handler do the work.
+      //
+      // Before this, such a file fell through to `checkExtensionType` and came back as
+      // `application/octet-stream`, which `execute`'s switch has no case for -- so a `#!/bin/sh`
+      // script exited -1 with no diagnostic at all. An interpreter that does not exist now fails
+      // as a real `ENOENT` from `execve` instead of silently.
+      const interpreter = header.slice(2).trim().split(/[ \t]+/)[0]
+      if (interpreter) return { type: 'bin', namespace: 'interpreter', name: interpreter }
       return null
     }
 

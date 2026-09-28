@@ -181,13 +181,42 @@ export class Shell implements IShell {
    */
   private _foregroundJob: Job | undefined
 
+  /**
+   * Set when a foreground process was killed by `SIGINT`, so the rest of a `;`/`&&`/`||` list and
+   * any enclosing loop stop instead of carrying on. bash aborts the whole list on `^C`; before this
+   * existed, `echo a; sleep 25; echo b` still printed `b` after the `^C` that killed the sleep.
+   *
+   * Cleared at the start of every `execute()`, so it only ever describes the line running now.
+   */
+  private _interrupted = false
+
+  /**
+   * How many `execute()` calls are currently on the stack. Only the outermost one clears
+   * `_interrupted`: a trap handler, a command substitution and a function body all run through
+   * `execute()` too, so resetting unconditionally meant `runTrap('INT')` wiped the very flag that
+   * dispatched it, and the rest of the interrupted line carried on regardless.
+   */
+  private _executeDepth = 0
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
   public context: BoundContext = bindContext({ root: '/', pwd: '/', credentials: this.credentials })
 
   get cwd() { return this._cwd }
-  set cwd(path: string) { this._cwd = path === '/' ? path : path.endsWith('/') ? path.slice(0, -1) : path }
+  /**
+   * Setting the working directory also maintains `PWD` and `OLDPWD`, the way every real shell does.
+   * They are ordinary environment variables, not a second source of truth: `_cwd` stays
+   * authoritative and these are written from it, so `$PWD` can never disagree with `pwd`. Without
+   * this, `echo $PWD` expanded to nothing and `cd -` had nothing to return to.
+   */
+  set cwd(path: string) {
+    const normalized = path === '/' ? path : path.endsWith('/') ? path.slice(0, -1) : path
+    const previous = this._cwd
+    this._cwd = normalized
+    if (previous !== undefined && previous !== normalized) this._env.set('OLDPWD', previous)
+    this._env.set('PWD', normalized)
+  }
   get env() { return this._env }
   set env(env: Map<string, string>) { this._env = env; globalThis.process.env = { ...globalThis.process.env, ...Object.fromEntries(env) } }
   get envObject() { return Object.fromEntries(this._env) }
@@ -198,6 +227,27 @@ export class Shell implements IShell {
   get shellOptions() { return this._shellOptions }
   get functions() { return this._functions }
   get foregroundJob() { return this._foregroundJob }
+
+  /** Whether the line currently running was interrupted by `^C`. */
+  get interrupted() { return this._interrupted }
+
+  /**
+   * Records that a foreground process was interrupted, and runs any `trap ... INT` handler.
+   *
+   * This is the only path by which an interactive `^C` reaches the shell's trap table. While a
+   * foreground `execve`'d process holds the terminal, `Terminal.keyHandler` returns early
+   * (`if (this._ttyInput) return` -- the line discipline owns the keyboard) and the keystroke is
+   * turned into a real `SIGINT` by `ISIG` instead. So the `runTrap('INT')` call in that key handler
+   * never fires for exactly the case an `INT` trap is written for; `Kernel.executeViaExecve` calls
+   * this when it observes `proc.killed_by === Signal.INT`, where the signal actually lands.
+   */
+  async notifyInterrupted(): Promise<void> {
+    // Handler first, flag second. The handler runs through `execute()` like any other command, so
+    // if the flag were already set, a multi-command handler (`trap 'echo a; echo b' INT`) would
+    // abort after its first stage on the very check this flag exists to drive.
+    await this.runTrap('INT')
+    this._interrupted = true
+  }
   /** The real user registry -- needed by `su` (a true shell builtin, see `lib/shell-builtins.ts`). */
   get users() { return this._users }
   /** Translated strings -- needed by `su`'s error messages, the same way `resolveCommand` uses it. */
@@ -313,6 +363,11 @@ export class Shell implements IShell {
     this._terminal = options.terminal as ITerminal
     this._terminalWriter = this._terminal?.stdout.getWriter() || new WritableStream().getWriter()
     this.config = new ShellConfig(this)
+
+    // `_cwd` was assigned directly above, before `_env` existed, so the `cwd` setter that normally
+    // maintains `PWD` never ran for the initial value. Seed it here so `$PWD` is correct from the
+    // first prompt rather than only after the first `cd`.
+    this._env.set('PWD', this._cwd)
 
     process.env = Object.fromEntries(this._env)
   }
@@ -1317,6 +1372,20 @@ export class Shell implements IShell {
     const trimmed = stripComments(line).trim()
     if (!trimmed) return 0
 
+    // A fresh line is never pre-interrupted: `^C` aborts the line it happened during, not the next.
+    // Only at depth 0 -- see `_executeDepth`.
+    if (this._executeDepth === 0) this._interrupted = false
+    this._executeDepth++
+    try {
+      return await this.executeParsed(trimmed)
+    } finally {
+      this._executeDepth--
+    }
+  }
+
+  /** The body of {@link execute}, minus the interrupt bookkeeping that must not nest. */
+  private async executeParsed(trimmed: string): Promise<number> {
+
     let statements: Statement[]
     try {
       statements = parseStatements(trimmed)
@@ -1328,7 +1397,13 @@ export class Shell implements IShell {
       return this.executeStatements(statements)
     }
 
-    return this.executeSimple(trimmed)
+    // Run the *parsed* line, not the raw text. `parseStatements` folds each heredoc body into one
+    // self-contained token on its command's own line (`foldHeredocs`), which is the form
+    // `executeSimple`/`parseScript` expect. Passing `trimmed` here instead handed `executeSimple`
+    // raw text with embedded newlines, so a multi-line heredoc typed at the prompt reached `cat`
+    // with an empty body -- while the same text through `executeScriptText` (which goes via
+    // `executeStatements`, and so uses `statement.line`) worked correctly.
+    return this.executeSimple(statements[0].line)
   }
 
   /**
@@ -1398,6 +1473,9 @@ export class Shell implements IShell {
         if (this._shellOptions.errexit && lastPipelineExit !== 0 && stage.operator !== '&&' && stage.operator !== '||') {
           return lastPipelineExit
         }
+
+        // `^C` aborts the whole list, as in bash -- `sleep 25; echo done` must not print `done`.
+        if (this._interrupted) return lastPipelineExit
       }
 
       // && only runs its next stage on success; || only on failure. A skipped stage's own trailing
@@ -1486,6 +1564,12 @@ export class Shell implements IShell {
     let lastExit = 0
 
     for (const statement of statements) {
+      // `^C` unwinds the whole statement tree, not just the pipeline it landed on -- a `for` loop
+      // whose body was interrupted stops, rather than starting its next iteration. Checked here (at
+      // every nesting level) as well as in `executeSimple`'s stage loop, since a loop body is its
+      // own `executeStatements` call and would otherwise continue on its own.
+      if (this._interrupted) return lastExit
+
       switch (statement.type) {
         case 'simple': {
           const trimmed = statement.line.trim()
