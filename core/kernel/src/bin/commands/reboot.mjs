@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `reboot` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/kernel/src/tree/lib/commands/index.ts`). `kernel.reboot()` shuts down every subsystem then
- * calls `globalThis.location.reload()`, which doesn't exist inside a Web Worker -- reached through
- * the `reboot` custom syscall (`#lib/main-thread-syscalls.ts`) the same way `window_create` reaches
- * main-thread-only DOM APIs.
- */
+/** Shut down every kernel subsystem and reload the page. */
 
 const { exit, write, custom } = globalThis.ecmaosSyscalls
 

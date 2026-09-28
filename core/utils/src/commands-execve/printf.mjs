@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `printf` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/printf.ts`) per `feat/1.0.0-execve-commands`. Pure string formatting, no
- * live kernel/shell/terminal state.
- */
+/** Format and print arguments according to a printf-style format string. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `realpath` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/realpath.ts`) per `feat/1.0.0-execve-commands`. The original never
- * actually followed symlinks either (just `path.resolve` plus an optional existence check for
- * `-e`) -- carried over unchanged, this is a migration, not a correctness fix.
- */
+/** Print the resolved absolute path. Symlinks are not followed/resolved; `-e` optionally requires the path to exist. */
 
 import { resolve } from './lib/path-utils.mjs'
 

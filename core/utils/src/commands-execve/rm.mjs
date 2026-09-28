@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `rm` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/rm.ts`) per `feat/1.0.0-execve-commands`. Glob expansion and recursive
- * removal are userspace (`readdir`/`rmRecursive`, both from `/bin/node`'s own helpers), the same as
- * every real `rm` implementation -- there is no recursive-remove or glob syscall in real Linux either.
- */
+/** Remove files. `-r`/`-R` removes directories recursively. Supports glob patterns. */
 
 import { resolve } from './lib/path-utils.mjs'
 

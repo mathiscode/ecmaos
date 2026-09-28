@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `uniq` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/uniq.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Filter out repeated adjacent lines from input. */
 
 import { resolve } from './lib/path-utils.mjs'
 

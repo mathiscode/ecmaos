@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `factor` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/factor.ts`) per `feat/1.0.0-execve-commands`. The original's interactive-
- * TTY branch used `terminal.readline(...)` for line-edited input -- no real analogue for a worker
- * reading fd 0 directly (same reasoning as `xxd.mjs`'s doc comment); dropped in favor of a plain
- * `read(0, ...)` stdin read, which still works for both piped and raw interactive input.
- */
+/** Print the prime factors of each given number, or read numbers from stdin if none are given. */
 
 const { argv, exit, writeAll, read } = globalThis.ecmaosSyscalls
 

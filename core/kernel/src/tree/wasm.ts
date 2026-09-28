@@ -35,7 +35,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
 
 /**
  * Plain `wasm32-wasip1` modules and ordinary (non-`STANDALONE_WASM`) `emcc` builds, asyncified or
- * not, no longer run here (see `canRunInWorker`): `Kernel.execute` sends them through `execve` to
+ * not, do not run here (see `canRunInWorker`): `Kernel.execute` sends them through `execve` to
  * `/bin/wali`, where `src/bin/wasi-preview1.mjs` translates preview1 and emscripten's own
  * `env.__syscall_*` ABI onto the real syscalls, so they are killable worker Processes with real
  * pids, pipes and `^C`.

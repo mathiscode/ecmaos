@@ -1,13 +1,8 @@
 /**
- * Real `execve`'d `groups` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/groups.ts`) per `feat/1.0.0-execve-commands`. See `id.mjs`'s doc comment
- * for the `users_lookup` custom syscall this uses to resolve usernames/uids/groups against the live
- * `kernel.users` registry a worker has no direct reference to.
+ * Print the groups a user belongs to.
  *
- * Note: the original always printed the *calling* process's own `shell.credentials.groups`, even
- * when asked for a different `username` (it looked up the named user only to print their username in
- * the output line, never their actual group membership) -- confirmed by reading the original
- * directly. That's carried over unchanged here, not "fixed," since this is a migration.
+ * Note: `groups <username>` always prints the *calling* user's own group membership, not the named
+ * user's -- the given username is only used to label the output line.
  */
 
 const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls

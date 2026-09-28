@@ -1,11 +1,4 @@
-/**
- * Real `execve`'d `zip` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/zip.ts`). Reads inputs and writes the archive over raw filesystem
- * syscalls; `@zip.js/zip.js` does the compression in memory (see `lib/zip-common.mjs`). The old
- * import-size limit that kept this library out of worker programs was a filesystem bug, not a real
- * limit (fixed in `filesystem.ts`), so the library bundles here like any other dependency. The
- * original's chalk coloring is dropped, as in the other migrated commands.
- */
+/** Create a zip archive from files. Plain text output, no ANSI coloring. */
 
 import { resolve, join, relative } from './lib/path-utils.mjs'
 import { zip, out, err, readWholeFile, writeWholeFile, exists, errorMessage, listZip } from './lib/zip-common.mjs'

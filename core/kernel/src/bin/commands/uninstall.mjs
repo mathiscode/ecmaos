@@ -1,11 +1,4 @@
-/**
- * Real `execve`'d `uninstall` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/kernel/src/tree/lib/commands/index.ts`'s old `createUninstall`/`uninstall.ts`). Unlike
- * `install` (blocked on `kernel.filesystem.extractTarball` plus recursive `shell.execute()` calls for
- * pre/postinstall scripts and dependencies -- a worker can't drive its own parent shell), `uninstall`
- * only ever reads directories, reads/parses one `package.json`, and unlinks/removes real files -- all
- * of it plain filesystem syscalls this interpreter already exposes, no kernel-only state at all.
- */
+/** Uninstall a package: `uninstall <package-name>[@version]`. */
 
 import { join } from './lib/path-utils.mjs'
 

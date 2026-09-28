@@ -1,10 +1,4 @@
-/**
- * The worker-side `ProcessEntryParams` an `@ecmaos-apps/*` program receives. Apps used to be handed
- * the live `kernel`/`shell`/`terminal` objects on the main thread; a worker cannot hold those, so
- * each field an app actually uses is rebuilt here over real syscalls: stdio over fds 0/1/2, the
- * terminal over the tty's termios and window size, `shell.context.fs` over the filesystem syscalls,
- * and the few `kernel` capabilities (`name`, `id`, `dom.toast`) over named custom syscalls.
- */
+/** Builds the `ProcessEntryParams` passed to an `@ecmaos-apps/*` program: stdio, terminal, filesystem, and a small set of kernel capabilities. */
 
 import ansi from 'ansi-escape-sequences'
 

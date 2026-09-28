@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `load`: runs a JavaScript file in the page's own global scope. That is the whole
- * point of the command (a script that reaches `document`, `window`, `ecmaos`), and a worker has
- * none of it, so the file is evaluated by the `script` presenter (`#lib/presenters/script.ts`)
- * on the main thread; this program only resolves the path and reports failures.
- */
+/** Load and run a JavaScript file in the page's own global scope (reaching `document`/`window`/`ecmaos`). */
 import { join } from './lib/path-utils.mjs'
 import { present } from './lib/present.mjs'
 

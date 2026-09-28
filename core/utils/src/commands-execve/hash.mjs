@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `hash` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/hash.ts`) per `feat/1.0.0-execve-commands`. `crypto.subtle.digest` (Web
- * Crypto) is available inside a Web Worker by spec, unlike `window`/`document` -- no bridge needed.
- * See `head.mjs`'s doc comment for why there's no in-band interrupt handling and no `/dev`-path
- * special case anymore.
- */
+/** Compute a cryptographic hash digest of input or files. */
 
 import { resolve } from './lib/path-utils.mjs'
 

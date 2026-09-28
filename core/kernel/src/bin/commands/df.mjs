@@ -1,13 +1,4 @@
-/**
- * Real `execve`'d `df` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/kernel/src/tree/lib/commands/index.ts`). `kernel.storage.usage()` has no direct worker-side
- * equivalent (it's a live `Kernel` method), so this reaches it through the `storage_usage` custom
- * syscall (`#lib/main-thread-syscalls.ts`), the same `custom`/`syscall_async` bridge `pilot-window.mjs`
- * proved out for `window_create`. The syscall itself formats nothing -- it hands back the raw
- * `StorageEstimate` as JSON, and this program does the human-readable formatting, exactly like the
- * original in-process version did. `readBackAndDelete`/`scratchPath` are `lib/scratch.mjs`'s shared
- * scratch-file bridge, the same one `ps.mjs`/`sockets.mjs` use.
- */
+/** Report filesystem storage usage. */
 
 import humanFormat from 'human-format'
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

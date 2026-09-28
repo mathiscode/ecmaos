@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `cp` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/cp.ts`) per `feat/1.0.0-execve-commands`. Recursive directory copy is
- * userspace (`readdir` + recurse), same as every real `cp -r`; there is no recursive-copy syscall.
- */
+/** Copy files and directories. `-r`/`-R` copies directories recursively. */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 

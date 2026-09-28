@@ -1,16 +1,8 @@
 /**
- * Real `execve`'d `nc` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/commands/
- * nc.ts`). Like `sockets`, it lives in the kernel because a connection is a live main-thread object
- * (`kernel.sockets`); unlike `sockets` it needs a *data* path, not just a control one. `sockets_connect`
- * (`#lib/main-thread-syscalls.ts`) connects and installs the socket in this process as two real file
- * descriptors -- `rx`, which yields what the peer sends, and `tx`, which sends what is written --
- * so `nc` is what a real netcat is: `poll` the terminal (or a pipe) and the socket together and copy
- * bytes between them, no event loop and no kernel handle needed.
- *
- * Semantics kept from the original: the connection is a `kernel.sockets` entry (so `sockets list`
- * sees it), end of input closes it (after flushing what was written), and the exit status is 0 for a
- * normal close. `^C` is now the
- * line discipline's `SIGINT` killing the process, which closes the socket with it.
+ * Connect to a host and port and pipe data between the socket and the terminal (or a pipe), like
+ * netcat. The connection shows up in `sockets list` while open. End of input closes the connection
+ * after flushing what was written, and a normal close exits 0. `^C` kills the process and closes
+ * the socket with it.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

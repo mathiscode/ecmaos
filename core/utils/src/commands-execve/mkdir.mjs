@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `mkdir` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/mkdir.ts`) per `feat/1.0.0-execve-commands`. `-p`/`--parents` is
- * userspace path-walking over the real single-level `mkdir` syscall, the same way real `mkdir -p`
- * is implemented in every libc -- `@zenfs/linux`'s `mkdir` syscall (`syscall/fs.js`) has no
- * recursive option, matching real `mkdir(2)`.
- */
+/** Create directories. `-p`/`--parents` also creates any missing parent directories. */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -1,9 +1,6 @@
 /**
- * Real `execve`'d `diff` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/diff.ts`) per `feat/1.0.0-execve-commands`. See `cat.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore. The original
- * parsed -u/-c NUM but never actually used them in its output (a TODO'd, dead feature -- confirmed by
- * reading the original directly) -- still parsed here for argument-compatibility, still unused.
+ * Compare two files line by line and print the differences. The NUM argument to `-u`/`-c` is
+ * accepted for compatibility but has no effect on the output.
  */
 
 import { resolve } from './lib/path-utils.mjs'
@@ -95,7 +92,7 @@ function main() {
     } else if (arg === '-u' || arg === '--unified') {
       if (i + 1 < args.length) i++
     } else if (arg.startsWith('--unified=')) {
-      // no-op: parsed for compatibility, never used by the original either
+      // no-op: parsed for compatibility, has no effect on the output
     } else if (arg === '-c' || arg === '--context') {
       if (i + 1 < args.length) i++
     } else if (arg.startsWith('--context=')) {

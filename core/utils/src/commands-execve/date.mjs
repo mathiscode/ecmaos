@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `date` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/date.ts`) per `feat/1.0.0-execve-commands`. Pure `Date` formatting, no
- * live kernel/shell/terminal state.
- */
+/** Print or format the current date and time. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

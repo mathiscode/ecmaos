@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `sed` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/sed.ts`) per `feat/1.0.0-execve-commands`. `shell.expandTilde(...)` is
- * replaced by the same small worker-local `~`/`~/rest` expansion `tee.mjs` uses (see its doc
- * comment). See `cat.mjs`'s doc comment for why there's no in-band interrupt handling anymore.
- */
+/** Stream editor: apply substitution and other editing commands to each line of input. */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `screensaver-daemon`. Starting the idle-timeout daemon registers global DOM
- * activity listeners, which only the main thread can do, so this is one `screensaver_start` syscall.
- * Like the original it returns immediately: the listeners are the daemon, there is no process to keep.
- */
+/** Start the idle-timeout screensaver daemon. Returns immediately; there is no process to keep alive. */
 
 const { argv, exit, write, custom } = globalThis.ecmaosSyscalls
 
@@ -14,8 +10,7 @@ user activity (the "screensaver-timeout" storage setting in ms, default 60000).
   --help  display this help and exit
 
 This registers global activity listeners and returns immediately -- there is
-no per-process "daemon" to keep alive here, the same way starting it inline
-during boot() never needed one either.`
+no per-process "daemon" to keep alive here.`
 
 const args = argv.slice(1)
 

@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `kill` -- new for this session's M1/M4 pass (no legacy in-process version existed;
- * there was nothing real to signal before real `execve`'d processes existed). Reaches
- * `@zenfs/linux`'s own real `kill(pid, signal)` (`process.js`) through the `proc_kill` custom syscall
- * (`#lib/main-thread-syscalls.ts`), which lets a thrown `ESRCH` (no such process) survive back to
- * this program as a real, correctly-named error -- see that syscall's own doc comment.
- */
+/** Send a signal to one or more processes by PID. Reports `ESRCH` for a PID that doesn't exist. */
 
 import { SignalNumbers, parseSignalArg } from './lib/signals.mjs'
 

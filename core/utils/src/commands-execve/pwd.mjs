@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `pwd` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/pwd.ts`) per `feat/1.0.0-execve-commands`. `shell.cwd` is replaced by the
- * real `getcwd()` syscall -- always reflects a real `chdir()` mid-process, unlike `init.cwd` which is
- * only the cwd at the moment this program was launched (see `node.mjs`'s doc comment on `argv`/`env`).
- */
+/** Print the current working directory. */
 
 const { argv, exit, writeAll, getcwd } = globalThis.ecmaosSyscalls
 

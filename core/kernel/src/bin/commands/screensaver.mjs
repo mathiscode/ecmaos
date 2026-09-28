@@ -1,7 +1,6 @@
 /**
- * Real `execve`'d `screensaver`: starts a screensaver on the terminal. The screensaver draws over
- * the page, so the `screensaver_run` syscall (`#lib/main-thread-syscalls.ts`) does the work
- * main-thread side; this program parses arguments and prints what comes back.
+ * Start a screensaver (default: the saved one, else matrix). NAME `off` clears the saved default.
+ * `--set` also saves NAME as the default screensaver.
  */
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 

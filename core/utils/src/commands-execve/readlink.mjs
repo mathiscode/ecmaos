@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `readlink` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/readlink.ts`) per `feat/1.0.0-execve-commands`. Needed a real
- * `readlink` syscall this interpreter didn't expose yet -- added to `globalThis.ecmaosSyscalls` in
- * `/bin/node.mjs` (a plain pass-through of `@zenfs/linux`'s own `readlink`, same as `link`/`symlink`
- * added alongside it for `ln`).
- */
+/** Print the target of a symbolic link. */
 
 import { resolve } from './lib/path-utils.mjs'
 

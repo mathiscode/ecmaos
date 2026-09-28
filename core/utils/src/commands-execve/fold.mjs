@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `fold` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/fold.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Wrap each line of input to a given width. */
 
 import { resolve } from './lib/path-utils.mjs'
 

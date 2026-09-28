@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `view` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/commands/
- * view.ts`). Parses the options and checks each file exists; showing it (PDF, markdown, JSON,
- * image, audio or video, each in its own window) is the `document` presenter
- * (`#lib/presenters/document.ts`), reached through `window_present`, which hands back the status
- * lines the command used to print for this program to print in order.
- */
+/** View a file (PDF, markdown, JSON, image, audio, or video) in its own window. */
 
 import { basename, resolvePath } from './lib/paths.mjs'
 import { present } from './lib/present.mjs'

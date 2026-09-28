@@ -2,8 +2,7 @@
  * Groups a script's lines into a tree of statements: plain lines plus `if`/`while`/`for`/`case`
  * blocks and function definitions. `shell-parser.ts` still owns everything *within* one logical
  * line (words, redirections, `;`/`&&`/`||`/`|`) -- this is the layer above it, the one that lets a
- * script span multiple lines around a keyword the way `Kernel.executeScript`'s old flat
- * `line.split('\n')` + one `shell.execute(line)` per line never could.
+ * script span multiple lines around a keyword.
  *
  * Grammar (line-oriented; each production consumes whole lines, not characters):
  * ```

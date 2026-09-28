@@ -1,15 +1,10 @@
 /**
- * Real `execve`'d `time`. A real program that resolves COMMAND against PATH, then `proc_spawn`s and
- * `proc_wait`s it (a new process running `execve`, then `waitpid()` -- ecmaOS creates processes by
- * spawn only; there is no copy-on-write `fork()`), timing the whole thing. The child inherits this
- * process's fds 0/1/2 automatically, so `time cmd > file` and `time cmd | grep x` keep working with
- * no stream plumbing here at all.
+ * Run COMMAND and print a summary of the real, user, and system time used. `time cmd > file` and
+ * `time cmd | grep x` redirect as expected.
  *
- * Fallback: a target that is not a real `execve` program (an in-process command such as `test`, or a
- * name PATH can't resolve at all, e.g. a shell builtin or function) is run through the
- * `shell_exec` syscall instead, the same full-command-line entry point `crond` uses. That still
- * gives a true wall-clock measurement for any command the shell can run; the one loss is that such a
- * command writes to the terminal rather than through this process's redirected stdout.
+ * A shell builtin or function, or a name that isn't on PATH, is run through the shell instead of
+ * spawned directly -- timing still works, but such a command writes to the terminal rather than
+ * through this command's own redirected stdout.
  */
 
 import { join } from './lib/path-utils.mjs'

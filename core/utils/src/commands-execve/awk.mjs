@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `awk` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/awk.ts`) per `feat/1.0.0-execve-commands`. See `cat.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** A simple text-processing tool: run an awk-style pattern/action program over input lines. */
 
 import { resolve } from './lib/path-utils.mjs'
 
@@ -173,7 +169,7 @@ function main() {
     } else if (arg.startsWith('-F')) {
       fieldSeparator = arg.slice(2) || ' '
     } else if (arg === '-v' || arg === '--assign') {
-      if (i + 1 < args.length) i++ // parsed for compatibility, unused (matches the original)
+      if (i + 1 < args.length) i++ // parsed for compatibility, variable assignment isn't implemented
     } else if (arg.startsWith('--assign=') || arg.startsWith('-v')) {
       // no-op: see above
     } else if (!arg.startsWith('-')) {

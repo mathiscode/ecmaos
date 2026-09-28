@@ -1,24 +1,11 @@
 /**
- * `crond` -- the real cron daemon, replacing `kernel.intervals`'s cron half (`setCron`/`getCron`/
- * `clearCron`/`listCrons`, the `TimerBasedCronScheduler` from `cron-schedule`) and `kernel.loadCrontab()`
- * entirely. Those held cron jobs as live closures on the main-thread `Kernel` object, calling
- * `kernel.shell.execute()` directly on a schedule computed by `cron-schedule`'s own scheduler -- no
- * pid, invisible to `ps`, unkillable. This is a genuine, long-running `execve`'d worker `Process`
- * instead (started backgrounded from `/boot/init`, the same way a real `crond` is just another
- * daemon process started from init, not a kernel built-in).
+ * The cron daemon: wakes once a minute, like real vixie-cron, and runs any crontab entry whose
+ * schedule matches. A job's command line can be a full shell pipeline (`cmd1 | cmd2`), not just a
+ * single binary.
  *
- * Scheduling itself needs no main-thread syscall at all -- `setInterval`/`setTimeout` work natively
- * inside a Web Worker, so this wakes once a minute like real vixie-cron and matches each entry's
- * expression against `cron-schedule`'s own `matchDate()`. Running a job's command line *does* need
- * one: `shell_exec` (`#lib/main-thread-syscalls.ts`), since a crontab command can be a full shell
- * pipeline (`cmd1 | cmd2`), and there is no `/bin/sh -c` interpreter in ecmaOS to `proc_spawn` a
- * single resolved binary for -- `kernel.shell.execute()` is the only thing that still understands
- * pipes/redirects, preserving this exactly matches the old scheduler's own behavior.
- *
- * Re-reads both crontab files whenever their mtime changes (checked every tick, like this session's
- * scope decided instead of building real signal delivery into a worker-hosted program just for
- * `cron reload`) -- so `cron add`/`remove`'s plain file edits take effect within a minute with no
- * explicit reload needed, the same as real cron picking up a `crontab -e` change on its own.
+ * Re-reads both crontab files whenever their mtime changes (checked every tick), so `cron add`/
+ * `remove`'s file edits take effect within a minute with no explicit reload needed, the same as
+ * real cron picking up a `crontab -e` change on its own.
  */
 
 import { parseCrontabFile } from './lib/crontab.mjs'

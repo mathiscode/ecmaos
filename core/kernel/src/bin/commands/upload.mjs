@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `upload`: opens the browser's file picker and writes the chosen files into a
- * directory. The picker is DOM, so the `upload` presenter (`#lib/presenters/upload.ts`) runs it
- * main-thread side and reports back once the dialog is closed; this program parses arguments and
- * prints what happened.
- */
+/** Open the browser's file picker and write the chosen files into DIRECTORY. */
 import { join } from './lib/path-utils.mjs'
 import { present } from './lib/present.mjs'
 

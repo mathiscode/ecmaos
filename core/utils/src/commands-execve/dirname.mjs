@@ -1,7 +1,4 @@
-/**
- * Real `execve`'d `dirname` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/dirname.ts`) per `feat/1.0.0-execve-commands`.
- */
+/** Strip the final component from a path, printing the directory portion. */
 
 import { dirname } from './lib/path-utils.mjs'
 

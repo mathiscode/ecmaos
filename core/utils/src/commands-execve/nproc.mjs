@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `nproc` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/nproc.ts`) per `feat/1.0.0-execve-commands`. `navigator` is a standard
- * Worker global, so `navigator.hardwareConcurrency` works the same as it did main-thread.
- */
+/** Print the number of available processing units. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

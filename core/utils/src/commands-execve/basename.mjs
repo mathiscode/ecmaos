@@ -1,7 +1,4 @@
-/**
- * Real `execve`'d `basename` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/basename.ts`) per `feat/1.0.0-execve-commands`.
- */
+/** Strip directory and (optionally) a suffix from a path, printing just the final component. */
 
 import { basename } from './lib/path-utils.mjs'
 

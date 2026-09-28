@@ -1,8 +1,6 @@
 /**
- * Real `execve`'d `mount`. The backends (browser storage, the File System Access picker, Google
- * Drive's OAuth scripts, the live mount table) are main-thread only, so the work runs behind the
- * `fs_mount` syscall (`#lib/mount-backends.ts`); this program parses arguments, reads `/etc/fstab`
- * for `-a`, and prints the lines that come back. Mirrors `umount.mjs`.
+ * Mount a filesystem: browser storage, the File System Access picker, or Google Drive. `-a` mounts
+ * every entry in `/etc/fstab`; `-l` lists current mounts.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

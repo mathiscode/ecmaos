@@ -700,10 +700,6 @@ export class Kernel implements IKernel {
       await this.registerCommands()
       await this.registerPackages()
 
-      // System crontab loading moved to `crond` itself (started from `/boot/init`) -- it parses
-      // /etc/crontab on its own the moment it starts, rather than `boot()` pre-loading it into a
-      // now-retired `kernel.intervals` cron registry.
-
       // Load and process fstab
       const fstabSpan = tracer.startSpan('kernel.boot.fstab', {}, trace.setSpan(context.active(), bootSpan))
       await this.loadFstab()
@@ -806,8 +802,6 @@ export class Kernel implements IKernel {
       }
       authSpan.end()
 
-      // MOTD display and starting the real crond daemon both move into /sbin/init's script (via the
-      // `motd` and `crond` commands) -- boot() only needs to get a shell running.
       const user = this.users.get(this.shell.credentials.uid ?? 0)
       if (!user) throw new Error(t('kernel.userNotFound', 'User not found'))
 
@@ -825,34 +819,20 @@ export class Kernel implements IKernel {
         user.uid === 0 ? '/' : (user.home || '/')
       )
 
-      // Registering the available screensavers (an `import.meta.glob`, resolved at build time
-      // relative to this file) must stay here; starting the idle-timeout daemon does not -- see
-      // `startScreensaverDaemon`, invoked from /sbin/init via the `screensaver-daemon` command.
       this.registerScreensavers()
 
       const initSpan = tracer.startSpan('kernel.boot.init', {}, trace.setSpan(context.active(), bootSpan))
       if (!await this.filesystem.fs.exists('/boot/init')) {
         await this.filesystem.fs.writeFile('/boot/init', DEFAULT_BOOT_INIT)
       }
-      // Awaited: /boot/init's own output (motd, screensaver-daemon, ...) must finish printing
-      // before the recommended-apps prompt below writes its own -- unawaited, the two raced and
-      // could interleave mid-line (e.g. "Do you want to install ... (Y/n)screensaver-daemon:
-      // watching for idle activity" on the same line). /boot/init is a normal script that finishes
-      // like any other, so awaiting it here does not hang boot. It is not a process of its own: the
-      // programs it starts are the real ones.
+      // Awaited so /boot/init's own output (motd, screensaver-daemon, ...) finishes printing
+      // before the recommended-apps prompt below writes its own.
       await this.sudo(async () => await this.execute({ command: '/boot/init', shell: this.shell }))
       initSpan.end()
 
-      // Started directly, not from /boot/init's own script text -- see the comment left in that
-      // script for why: `kernel.execute()` here bypasses `Shell`'s own job-table bookkeeping
-      // entirely (only `Shell.execute()`/`executeScriptText()`'s own pipeline parsing pushes onto
-      // `this.shell`'s `_jobs`), so this never-finishing daemon can't ever show up in a later
-      // `jobs`/`wait`. Fire-and-forget: `kernel.execute()`'s own promise only resolves once `crond`
-      // itself exits, which is never during a normal run -- awaiting it here would hang boot.
-      //
-      // `foreground: false`: a daemon never owns the terminal. Left at the default it took over
-      // `tty.foreground` (and, with the line discipline attached, the keyboard) for the whole
-      // session, so every later `^C`/keystroke would have been aimed at crond, not the shell.
+      // crond runs as a background daemon outside the shell's job table (`jobs`/`wait` never see
+      // it) so it doesn't block a later bare `wait`, and with `foreground: false` so it never takes
+      // over the terminal or the keyboard.
       void this.execute({ command: '/bin/crond', args: [], shell: this.shell, terminal: this.terminal, foreground: false })
 
       this._state = KernelState.RUNNING
@@ -973,7 +953,7 @@ export class Kernel implements IKernel {
       }
     }
 
-    // Fallback to legacy fields if exports didn't yield a result
+    // Fallback to package.json's older main-entry fields if `exports` didn't yield a result
     if (!mainFile) {
       mainFile = pkgData.browser || pkgData.module || pkgData.main
 
@@ -1082,9 +1062,8 @@ export class Kernel implements IKernel {
     const terminal = options.terminal || this.terminal
     const shell = options.shell || this.shell
     const kernel = options.kernel || this
-    // Last-resort legacy shim -- a real, migrated command never reaches this method at all
-    // (`readFileHeader` classifies its unshebanged file as `'js'`, routed through
-    // `executeViaExecve`); this is only reached for a name still on the old in-process path. See
+    // Reached only for a command name resolved via the in-process shim path (`readFileHeader`
+    // classifies a real bundled bin as `'js'`, routed through `executeViaExecve` instead). See
     // `resolveLegacyCommand`'s own doc comment (`@ecmaos/coreutils`) for the lazy, per-`Terminal`-
     // cached construction this does instead of `TerminalCommands` eagerly building all of them.
     const command = resolveLegacyCommand(kernel, shell, terminal, options.command)
@@ -1468,11 +1447,11 @@ export class Kernel implements IKernel {
    * Both ends of the real pipe are anchored on `this.pipeProcess`'s context, exactly as
    * `bridgeStdio` above anchors its own ends and for the identical reason: `fs/pipe.ts`'s `write`
    * throws `EPIPE` unless `open_ends()` finds the *other* end referenced by some registered
-   * `Process`, and a stage's own `Process` (when it has one at all -- a legacy in-process coreutil
-   * has none) would tear its end down on its own exit timing, racing whichever side is still
-   * draining it. Anchoring both ends on the same kernel-lifetime process sidesteps that regardless
-   * of what kind of thing is on either side of the join (a real `execve`'d `Process`, or a legacy
-   * coreutil closure that only ever sees the returned `readable`/`writable` web streams).
+   * `Process`, and a pipeline stage's own `Process` (when it has one at all) would tear its end
+   * down on its own exit timing, racing whichever side is still draining it. Anchoring both ends on
+   * the same kernel-lifetime process sidesteps that regardless of what kind of thing is on either
+   * side of the join (a real `execve`'d `Process`, or an in-process command closure that only ever
+   * sees the returned `readable`/`writable` web streams).
    *
    * Reads/writes go through `pipefs`'s own `read_device`/`write_device`, not `@zenfs/core`'s
    * generic `fs.readSync`/`writeSync` -- confirmed by hand (see `bridgeStdio`'s own doc comment)
@@ -1554,12 +1533,9 @@ export class Kernel implements IKernel {
     const shouldUnlisten = terminal && stdinIsTTY
     let keyListener: { dispose: () => void } | null = null
 
-    // A real `ZenFSProcess`, not the legacy `Process`/`ProcessManager` -- this is the only thing
-    // that still constructed one (grep confirms), so this is what let processes.ts/fdtable.ts be
-    // deleted for real: a preview2 component or the rare non-WASI `.wasm` that ends up here now
-    // gets a real pid `ps`/`kill` (which already only read `@zenfs/linux`'s own `zenfsProcesses`/
-    // `kill()`, not the legacy manager) can actually see and signal -- something the legacy
-    // `Process` never gave them, since it lived in a separate bookkeeping map nothing else read.
+    // A real `ZenFSProcess`: a preview2 component or the rare non-WASI `.wasm` that ends up here
+    // gets a real pid that `ps`/`kill` (which read `@zenfs/linux`'s own `zenfsProcesses`/`kill()`)
+    // can actually see and signal.
     // Deliberately not `executeViaExecve`'s real line discipline (`terminal.attachInput()`) here:
     // this still drives a JS-level stdin/stdout `Stream` pair into `loadWasiComponent`/`loadWasm`,
     // not a real fd, and `terminal.onKey`/`TerminalEvents.INTERRUPT` below (unchanged, already
@@ -1601,10 +1577,10 @@ export class Kernel implements IKernel {
           if (domEvent.ctrlKey && domEvent.key === 'c') {
             domEvent.preventDefault()
             domEvent.stopPropagation()
-            // `proc` here is a real `ZenFSProcess` (unlike the legacy `Process` this replaced), so
-            // it can actually be signaled -- `ps`/`kill` now see a consistent state for it, same as
-            // any worker-hosted process. This does NOT make WASM interruptible on its own: `_start`/
-            // `_initialize` below run synchronously with no yield point unless the module itself was
+            // `proc` here is a real `ZenFSProcess`, so it can actually be signaled -- `ps`/`kill` see
+            // a consistent state for it, same as any worker-hosted process. This does NOT make WASM
+            // interruptible on its own: `_start`/`_initialize` below run synchronously with no yield
+            // point unless the module itself was
             // compiled with asyncify, so a real blocking/looping module still can't be preempted by
             // this signal -- only non-asyncify code that happens to check for pending signals (or
             // the WASI adapters watching `TerminalEvents.INTERRUPT`, dispatched alongside this same
@@ -1848,14 +1824,12 @@ export class Kernel implements IKernel {
         else if (filePath.endsWith('.md')) return 'view'
         else if (filePath.endsWith('.json')) return 'view'
         else if (filePath.endsWith('.txt')) return 'view'
-        // A file under /bin with no shebang and no magic bytes at all is a real, migrated coreutil
-        // (see `feat/1.0.0-execve-commands`) -- bundled JS, same content shape as any `.js` fixture,
-        // just installed without the extension since it's meant to be run bare (`/bin/<name>`, not
-        // `/bin/<name>.js`). `@zenfs/linux`'s own `binfmt_js` (fs/exec.ts) already accepts this
-        // content unconditionally by matching "not WASM, no null byte" -- this only teaches ecmaOS's
-        // own pre-execve classification (`readFileHeader`) the same rule for this one directory,
-        // rather than requiring every migrated command to keep the legacy `#!ecmaos:bin:command:`
-        // stub just to be found.
+        // A file under /bin with no shebang and no magic bytes at all is a real coreutil -- bundled
+        // JS, same content shape as any `.js` fixture, just installed without the extension since
+        // it's meant to be run bare (`/bin/<name>`, not `/bin/<name>.js`). `@zenfs/linux`'s own
+        // `binfmt_js` (fs/exec.ts) already accepts this content unconditionally by matching "not
+        // WASM, no null byte" -- this only teaches ecmaOS's own pre-execve classification
+        // (`readFileHeader`) the same rule for this one directory.
         else if (filePath.startsWith('/bin/')) return 'js'
         else return 'application/octet-stream'
       }
@@ -1952,14 +1926,14 @@ export class Kernel implements IKernel {
     if (!await this.filesystem.fs.exists('/bin')) await this.filesystem.fs.mkdir('/bin')
 
     // Real Linux has no equivalent of this method at all -- `execve`+`$PATH` resolve a command
-    // purely off real files on disk. This exists only for the commands that aren't real files yet:
-    // a name real `execve` already handles gets its actual bundled program written here (no
+    // purely off real files on disk. This writes each command's actual file into `/bin` up front:
+    // a name that runs via real `execve` gets its actual bundled program written here (no
     // registry/manifest lookup needed to run it, only to know it needs a file at all); a name still
-    // on the old in-process path gets the legacy `#!ecmaos:bin:command:` stub `readFileHeader`
-    // recognizes to route it through `executeCommand`'s shim. Building only names + this cheap
-    // check (not full `TerminalCommand` construction) is what makes this free regardless of how
-    // many legacy commands remain -- `getLegacyCommands()` hands back
-    // `{ description, createCommand }` pairs, but only `Object.keys(...)` is used here.
+    // on the in-process path gets the `#!ecmaos:bin:command:` stub `readFileHeader` recognizes to
+    // route it through `executeCommand`'s shim. Building only names + this cheap check (not full
+    // `TerminalCommand` construction) is what makes this cheap regardless of how many in-process
+    // commands remain -- `getLegacyCommands()` hands back `{ description, createCommand }` pairs,
+    // but only `Object.keys(...)` is used here.
     //
     // True shell builtins (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) get NO `/bin/<name>`
     // file at all, matching real bash having no `/bin/cd` -- `Shell.execute` dispatches them before
@@ -1980,9 +1954,9 @@ export class Kernel implements IKernel {
       await this.filesystem.fs.writeFile(target, source, { mode: 0o755 })
     }
 
-    // A stub left by an earlier build for a command that is no longer on the in-process path (it
-    // became a real program under another name, or was dropped) can only fail when run; clear any,
-    // so a stub never outlives the command it pointed at.
+    // A stub from a command that is not on the in-process path this build (it is a real program
+    // under another name, or was dropped) can only fail when run; clear any, so a stub never
+    // outlives the command it pointed at.
     const stubNames = new Set(names.filter(name => !migratedCommandSources[name] && !migratedKernelCommandSources[name]))
     await removeStaleCommandStubs(this.filesystem.fs, stubNames)
   }
@@ -2069,10 +2043,11 @@ export class Kernel implements IKernel {
 
       // `Device.register()` links a device into `bus.devices_kobj` (`/sys/bus/<name>/devices`)
       // purely off the `bus` field -- no `DeviceDriver` is required for that part, only for
-      // auto-binding. ecmaOS's own web-capability devices (webcam, gamepad, ...) previously never
-      // set `bus` at all, so they got a real `/sys/devices/.../<name>` and `/sys/class/<class>/...`
-      // entry but were invisible under any `/sys/bus/*` -- unlike the core subsystems `boot()`
-      // already wires onto real buses via `initDriverCore`/`populatePlatformBus`/`tty.init()`.
+      // auto-binding. ecmaOS's own web-capability devices (webcam, gamepad, ...) are registered
+      // with `bus` set here, so each gets a real `/sys/devices/.../<name>` and
+      // `/sys/class/<class>/...` entry and is visible under `/sys/bus/*`, the same as the core
+      // subsystems `boot()` wires onto real buses via
+      // `initDriverCore`/`populatePlatformBus`/`tty.init()`.
       for (const { driver } of group) {
         try {
           new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor }, bus: this._webCapabilityBus }).register()
@@ -2193,9 +2168,8 @@ export class Kernel implements IKernel {
   /**
    * Starts the idle-timeout screensaver daemon: watches for user activity and shows the configured
    * screensaver (`localStorage['screensaver']`, default `matrix`) after a period of none
-   * (`localStorage['screensaver-timeout']` ms, default 60000). Extracted out of `boot()` so it can
-   * be started from `/sbin/init` (via the `screensaver-daemon` command) instead of unconditionally
-   * on every boot.
+   * (`localStorage['screensaver-timeout']` ms, default 60000). Started from `/boot/init` via the
+   * `screensaver-daemon` command, not unconditionally on every boot.
    * @returns a function that stops the daemon and removes its listeners, or undefined if the
    * configured screensaver isn't a registered one
    */

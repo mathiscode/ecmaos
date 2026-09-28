@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `whoami` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/whoami.ts`) per `feat/1.0.0-execve-commands`. `shell.username` is
- * replaced by `env.USER` (already part of every shell's env, per `Shell`'s `DefaultShellOptions`).
- */
+/** Print the effective username, read from `env.USER`. */
 
 const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 

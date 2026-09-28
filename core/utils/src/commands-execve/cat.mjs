@@ -1,11 +1,4 @@
-/**
- * Real `execve`'d `cat` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/cat.ts`) per `feat/1.0.0-execve-commands`. No special in-band interrupt
- * handling here (the original used `kernel.terminal.events`'s `INTERRUPT` event to stop mid-read) --
- * a real `execve`'d process is killed like any other real process, exactly how a real `cat` doesn't
- * poll for its own SIGINT; `Kernel.executeViaExecve`'s job-control wiring covers this the same way it
- * already does for every other migrated coreutil.
- */
+/** Concatenate files and print them to stdout. `^C` kills the process outright, like a real `cat`. */
 
 import { resolve } from './lib/path-utils.mjs'
 
@@ -17,15 +10,9 @@ Concatenate files and print on the standard output.
   --help  display this help and exit`
 
 /**
- * Loops until a real EOF (`n <= 0`), never on a short read -- a pipe (unlike a regular file) can
- * legitimately return fewer bytes than asked for mid-stream, not just at EOF (confirmed against
- * `@zenfs/linux`'s own `read()` doc comment: "a buffer bigger than the return region comes back
- * short, the way a read from a pipe does, so callers loop"). This loop used to also break on
- * `n < chunkSize`, which happened to work only because every consumer of stdin was fed by a plain
- * `TransformStream` that delivered each written chunk atomically -- once `Shell.runPipeline`
- * started joining stages with a real `@zenfs/linux` pipe (`Kernel.createPipeStream`), a short read
- * partway through a real payload silently truncated stdin here. Same fix applied to every other
- * `commands-execve/*.mjs` file with this exact pattern.
+ * Loops until a real EOF (`n <= 0`), never on a short read -- a pipe can legitimately return fewer
+ * bytes than asked for mid-stream, not just at EOF. Breaking early on `n < chunkSize` would silently
+ * truncate stdin read from a pipe.
  */
 function readAllStdin() {
   const chunkSize = 65536

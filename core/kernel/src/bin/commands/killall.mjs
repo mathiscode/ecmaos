@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `killall` -- new for this session's M1/M4 pass, alongside `kill.mjs`. Matches by
- * process name against the real process table, reached the same way `ps.mjs` reaches it: the
- * `ps_list` custom syscall's scratch-file bridge (`#lib/main-thread-syscalls.ts`,
- * `lib/scratch.mjs`) -- there is no separate "look up by name" syscall, `killall` just filters the
- * same list `ps` prints. Each match is signalled through `proc_kill`, same as `kill.mjs`.
- */
+/** Send a signal to every process matching NAME. */
 
 import { SignalNumbers, parseSignalArg } from './lib/signals.mjs'
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

@@ -1,12 +1,4 @@
-/**
- * Real `execve`'d `tty` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/tty.ts`) per this session's M1 pass. `kernel.activeTty`/
- * `kernel.switchTty()` are live `Kernel` state a worker can't see directly, reached through the
- * `tty_get`/`tty_switch` custom syscalls (`#lib/main-thread-syscalls.ts`), the same `custom`/
- * `syscall_async` bridge `reboot.mjs`/`df.mjs` use. Unlike `df`/`ps`, `kernel.activeTty` is already
- * a plain number, so this needs no scratch-file round trip at all -- the syscall's own numeric
- * return is the answer.
- */
+/** Print or switch the active terminal (tty). */
 
 const { argv, exit, write, custom } = globalThis.ecmaosSyscalls
 

@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `seq` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/seq.ts`) per `feat/1.0.0-execve-commands`. Pure computation, no file I/O
- * at all -- the simplest kind of migration.
- */
+/** Print a sequence of numbers. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

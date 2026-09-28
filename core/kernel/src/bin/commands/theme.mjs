@@ -1,15 +1,6 @@
 /**
- * Real `execve`'d `theme` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/theme.ts`) per this session's M1 pass. `shell.config.setTheme()` mutates
- * live `Shell`/`Terminal` state (and immediately calls `terminal.updateConfig()`), reached through
- * the new `shell_set_theme` custom syscall (`#lib/main-thread-syscalls.ts`). Listing presets is plain
- * data work needing no syscall at all -- `ThemePresets` is a plain data object, imported here the
- * same way the legacy command imported it.
- *
- * Every successful switch is persisted to `~/.config/shell.toml` -- this used to be opt-in behind a
- * `--save`/`-s` flag, but that made the default behavior silently non-persistent across a reload,
- * which is surprising for a shell setting. A failure to persist is reported but doesn't fail the
- * command, since the live switch (the part the user is actually watching happen) already succeeded.
+ * List or switch terminal themes. A successful switch is persisted to `~/.config/shell.toml` so it
+ * survives a reload; if persisting fails, a warning is printed but the switch itself still applies.
  */
 
 import { join } from './lib/path-utils.mjs'

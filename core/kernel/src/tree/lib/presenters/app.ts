@@ -14,7 +14,7 @@ import type { Presented } from './index.ts'
  * exit code; the app's own `main(params)` still needs `document`, so it runs here, on the main thread,
  * with the live `kernel`/`shell`/`terminal` it was written against -- the ABI DOM apps already have.
  *
- * The process lives as long as `main` does and exits with its number, as the old `executeApp` did. A
+ * The process lives as long as `main` does and exits with its number. A
  * main-thread `main` cannot be interrupted from outside, so `^C` ends the process but the app's own
  * windows stay until it (or the user) closes them.
  */
@@ -40,12 +40,11 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
 
   const owner = shell ?? kernel.shell
 
-  // Apps written against the old `executeApp`-era ABI (e.g. `apps/code/src/main.ts`) destructure
-  // `instance` and call `instance.open/exit/keepAlive` directly. `open` used to be the legacy
-  // `Process`'s own file-open helper (deleted in 046a5609); `exit`/`keepAlive` decided whether the
-  // process ended when `main` returned (a fire-and-forget window) or stayed alive until the app
-  // called `exit` itself (e.g. a Monaco editor window that outlives `main` returning once its UI
-  // is set up). This shim reproduces both against the current API, tying `keepAlive`/`exit` into
+  // Apps written against the `executeApp`-era ABI (e.g. `apps/code/src/main.ts`) destructure
+  // `instance` and call `instance.open/exit/keepAlive` directly. `exit`/`keepAlive` decide whether
+  // the process ends when `main` returns (a fire-and-forget window) or stays alive until the app
+  // calls `exit` itself (e.g. a Monaco editor window that outlives `main` returning once its UI
+  // is set up). This shim implements both against the current API, tying `keepAlive`/`exit` into
   // the `closed` promise `window_present` actually awaits.
   let resolveClosed!: (code: number) => void
   let rejectClosed!: (error: unknown) => void

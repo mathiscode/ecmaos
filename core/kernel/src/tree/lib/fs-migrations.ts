@@ -29,13 +29,9 @@ export const REMOVED_PILOT_PROGRAMS = ['/bin/pilot-pwd.js', '/bin/pilot-window.j
 export const DEFAULT_BOOT_INIT = [
   '#!ecmaos:bin:script:init',
   '',
-  '# The real, editable boot script -- everything here used to run unconditionally',
-  '# inside Kernel.boot() itself. What still can\'t move: anything needing a yes/no',
-  '# branch (there is no `if` yet -- see the shell-jobs branch) stays in boot().',
-  '# crond isn\'t started here -- a `crond &` line would background it onto this same',
-  '# Shell\'s own job table (`_jobs`), the one the interactive session goes on to use, and',
-  '# crond never finishes -- so a later bare `wait` (every non-done job) would hang forever.',
-  '# It starts the same way /boot/init itself does: a raw Process, not a shell job.',
+  '# The boot script. Edit this to change what runs at startup.',
+  '# crond is started separately by the kernel, not from here, since it never exits',
+  '# and would otherwise block a later `wait` on this shell\'s job table.',
   'motd',
   'screensaver-daemon',
   ''

@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `curl` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/curl.ts`) per `feat/1.0.0-execve-commands`. `fetch` is a standard Worker
- * global, same as main-thread. `chalk` (ANSI coloring) is dropped, matching `ls.mjs`'s precedent --
- * color output isn't proven anywhere in this worker pipeline and isn't essential to the command.
- */
+/** Transfer data from or to a URL. Plain text output, no ANSI coloring. */
 
 import { resolve, basename } from './lib/path-utils.mjs'
 

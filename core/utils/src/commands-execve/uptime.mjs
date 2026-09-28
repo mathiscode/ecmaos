@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `uptime` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/uptime.ts`) per `feat/1.0.0-execve-commands`. `performance.now()` is a
- * standard Worker global, same source the original used main-thread -- this measures time since
- * *this worker* started, exactly as imprecise/approximate as the original's main-thread reading was.
- */
+/** Print how long the system has been running. This is approximate, not an exact uptime reading. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

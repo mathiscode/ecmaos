@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `join` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/join.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Join lines of two sorted files on a common field. */
 
 import { resolve } from './lib/path-utils.mjs'
 

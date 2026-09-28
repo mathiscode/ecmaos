@@ -1,7 +1,4 @@
-/**
- * Real `execve`'d `mv` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/mv.ts`) per `feat/1.0.0-execve-commands`.
- */
+/** Move or rename files and directories. */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 

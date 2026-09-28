@@ -1,8 +1,6 @@
 /**
- * Real `execve`'d `play` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/
- * commands/play.ts`). Parses options and checks each file; the `<audio>` element and its player
- * window (or, with `--quiet`, none) are the `audio` presenter (`#lib/presenters/media.ts`), reached
- * through `window_present`. The command returns once playback has started, as before.
+ * Play audio files. Opens a player window by default, or `--quiet` plays in the background with no
+ * window. The command returns once playback has started, not once it finishes.
  */
 
 import { basename, resolvePath } from './lib/paths.mjs'

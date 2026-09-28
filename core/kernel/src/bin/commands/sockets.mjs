@@ -1,24 +1,7 @@
 /**
- * Real `execve`'d `sockets` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/sockets.ts`) per this session's M1 pass. `kernel.sockets` is a live,
- * main-thread-only registry of real `WebSocket`/`WebTransport` instances, so `list`/`create`/
- * `close`/`show` each reach it through their own custom syscall (`sockets_list`/`sockets_create`/
- * `sockets_close`/`sockets_show`, `#lib/main-thread-syscalls.ts`), using `lib/scratch.mjs`'s shared
- * scratch-file bridge the same way `df.mjs`/`ps.mjs` do. Unlike `windows`, a connection's own id is
- * already a real, structured-clone-safe string, so no handle indirection layer is needed here --
- * `close`/`show`'s id argument goes straight through to the syscall, fuzzy 8-char-prefix matching
- * and all (see `findSocketConnection` on the syscall side).
- *
- * No ANSI colour or `columnify`'s box-drawing here -- kept plain to match every other migrated
- * coreutil's stdout-is-just-text convention; the original's `chalk` state/type colouring is dropped
- * (see `ls.mjs`/`ps.mjs` for the same precedent), but the `columnify`-shaped table layout is kept.
- *
- * `create`/`close`/`show`'s syscall handlers write `{ error: message }` to their scratch file on
- * failure rather than throwing -- a plain thrown `Error` gets collapsed into a bare `-EIO` by
- * `@zenfs/linux`'s own `dispatch()`, discarding the real message (confirmed by hand, and by a real
- * test that caught it before this shipped) -- so each of these three checks `result.error` after
- * reading its scratch file back and re-throws locally, where the outer `try`/`catch` below can print
- * the real message same as every other error path in this program.
+ * Manage WebSocket/WebTransport connections: `list`, `create`, `close`, `show`. `close` and `show`
+ * accept an id or any unambiguous 8-character prefix of one. Output is plain text in table layout,
+ * with no ANSI coloring.
  */
 
 import columnify from 'columnify'
