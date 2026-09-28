@@ -3,7 +3,7 @@
  *
  * Deliberately hand-written rather than `import path from 'path'` -- not because a real import
  * would break the way `@zenfs/linux/uapi/*` does (this carries no shared runtime state to diverge
- * across bundles), but because every migrated coreutil bundles independently (see
+ * across bundles), but because every coreutil bundles independently (see
  * `vite-plugin-bin-node.ts`) and this is small enough that hand-writing it avoids pulling in
  * `vite-plugin-node-polyfills`'s full `path` shim N times over for four functions.
  */
