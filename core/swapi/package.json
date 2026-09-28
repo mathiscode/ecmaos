@@ -4,6 +4,14 @@
   "description": "EcmaOS Service Worker API",
   "author": "Jay Mathis <code@mathis.network>",
   "type": "module",
+  "main": "./dist/swapi.js",
+  "exports": {
+    ".": "./dist/swapi.js",
+    "./swapi.js": "./dist/swapi.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

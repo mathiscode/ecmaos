@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import fs from 'fs'
 import { cors } from 'hono/cors'
 import { createNodeWebSocket } from '@hono/node-ws'

@@ -2,6 +2,11 @@
 "@ecmaos/kernel": major
 "@ecmaos/types": major
 "@ecmaos/coreutils": major
+"@ecmaos/bios": patch
+"@ecmaos/metal": minor
+"@ecmaos/swapi": minor
+"@ecmaos/jaffa": patch
+"@ecmaos-apps/boilerplate": patch
 "@ecmaos-devices/audio": minor
 "@ecmaos-devices/battery": minor
 "@ecmaos-devices/bluetooth": minor
@@ -39,6 +44,18 @@ Breaking changes:
 - `@webcontainer/api` and `modelfusion` are no longer dependencies.
 - The 104 meta-only command stubs in `@ecmaos/coreutils` are gone (kept:
   `false`/`test`/`true`, still used by the legacy command shim).
+
+`@ecmaos/bios` and `@ecmaos-apps/boilerplate` get a patch bump for the same
+packaging pass: both gained a `files` field so their published tarballs carry
+their build output instead of whatever happened not to be gitignored.
+
+`@ecmaos/metal` and `@ecmaos/swapi` were published with no `main`, `exports`,
+or `files` at all, so nothing in their tarballs could be resolved. Both now
+declare a real entry point and ship only `dist`. `@ecmaos/metal` is also
+runnable directly (`npx @ecmaos/metal`) via a new `bin` and a shebang on its
+server entry. `@ecmaos/jaffa` is a Tauri desktop app rather than an importable
+package, so it declares `files` covering its buildable source instead of a
+dist that would not exist.
 
 Every browser-API device (audio, battery, bluetooth, echo, gamepad, geo, gpu,
 hid, midi, presentation, sensors, serial, tty, usb, webgl) gets a minor bump:

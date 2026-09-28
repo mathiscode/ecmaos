@@ -2,6 +2,15 @@
   "name": "@ecmaos/jaffa",
   "version": "0.2.27",
   "type": "module",
+  "description": "ecmaOS as a Tauri desktop application",
+  "comment:files": "A Tauri app ships as a platform bundle, not a JS entry point, so this package publishes the buildable source (`pnpm buildx && pnpm build:tauri`) rather than a dist/ nobody can import.",
+  "files": [
+    "index.html",
+    "src",
+    "src-tauri",
+    "tsconfig.json",
+    "vite.config.ts"
+  ],
   "scripts": {
     "buildx": "tsc && vite build",
     "build:tauri": "tauri build",

@@ -5,6 +5,16 @@
   "author": "Jay Mathis <code@mathis.network>",
   "license": "MIT+Apache-2.0",
   "type": "module",
+  "main": "./dist/server.js",
+  "exports": {
+    ".": "./dist/server.js"
+  },
+  "bin": {
+    "metal": "./dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "nodemon",
