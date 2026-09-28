@@ -1,8 +1,6 @@
 /**
- * Real `execve`'d `passwd`. Prompts on the terminal with echo off (the line discipline's `ECHO`
- * flag, the same way real `passwd` does it) and hands the two passwords to the `users_password`
- * syscall, which changes the password of the user the kernel is running as; `passwd OLD NEW` skips
- * the prompts.
+ * Change the current user's password. Prompts for the current and new password with echo off,
+ * like a real `passwd`; `passwd OLD NEW` skips the prompts.
  */
 import { echoOff, isTty } from '../../../../utils/src/commands-execve/lib/tty.mjs'
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

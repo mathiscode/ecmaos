@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `video` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/
- * commands/video.ts`). This parses the options and checks each file exists; the window, the
- * `<video>` element and its sizing are the `video` presenter (`#lib/presenters/media.ts`), reached
- * through `window_present`. As before, the command returns once the window is up and the video keeps
- * playing. (The original's `chalk` colouring is dropped, like every other migrated coreutil's.)
- */
+/** Play a video file in its own window. The command returns once the window is up; playback continues in the background. */
 
 import { basename, resolvePath } from './lib/paths.mjs'
 import { present } from './lib/present.mjs'

@@ -1,11 +1,4 @@
-/**
- * Real `execve`'d `head` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/head.ts`) per `feat/1.0.0-execve-commands`. No special in-band interrupt
- * handling (see `cat.mjs`'s doc comment for why: a real `execve`'d process is killed like any other).
- * The old `/dev`-path special case is dropped too -- every migrated coreutil just opens the real path
- * with the plain `open`/`read` syscalls; a real device file either supports that or errors like any
- * other unsupported open, exactly as real Linux's own `head /dev/something` would.
- */
+/** Print the first lines (or bytes, with `-c`) of each file, or of stdin. */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -1,9 +1,8 @@
 /**
- * Real `execve`'d `unzip` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/unzip.ts`). See `zip.mjs` and `lib/zip-common.mjs` for the shared
- * `@zip.js/zip.js` setup. Behavior is unchanged apart from dropping the original's chalk coloring:
- * glob fallback for unmatched zipfile arguments, `-d`, `-o`, `-q`, `-v`, `-x`, member selection, and
- * the directory-traversal guard.
+ * Extract files from a zip archive. Supports `-d` (extract to a directory), `-o` (overwrite without
+ * prompting), `-q` (quiet), `-v` (list contents), `-x` (exclude members), and selecting specific
+ * members to extract. Guards against path-traversal entries in the archive. Plain text output, no
+ * ANSI coloring.
  */
 
 import { resolve, dirname, basename } from './lib/path-utils.mjs'

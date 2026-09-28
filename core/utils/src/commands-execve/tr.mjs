@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `tr` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/tr.ts`) per `feat/1.0.0-execve-commands`. Reads all of stdin (fd 0) via
- * real `read()` in a loop the same way `pilot-pwd`'s output side does, just reversed.
- */
+/** Translate, squeeze, or delete characters from stdin. */
 
 const { argv, exit, writeAll, read } = globalThis.ecmaosSyscalls
 

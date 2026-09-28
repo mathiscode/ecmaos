@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `unexpand` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/unexpand.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc
- * comment for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Convert runs of spaces in input to tabs. */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -4,8 +4,8 @@
  * Passwords are hashed with PBKDF2-SHA256 using a random per-user salt, and the AES-GCM key that
  * wraps a user's ECDSA private key is derived from the password with the same KDF (a distinct
  * derivation, so a hash leak alone does not hand over the wrapping key). Both are tagged with a
- * `pbkdf2$<iterations>$<saltB64>$<hashB64>` format so legacy unsalted SHA-256 hex digests --
- * written by ecmaOS before this module existed -- remain recognizable and migratable in place.
+ * `pbkdf2$<iterations>$<saltB64>$<hashB64>` format, distinguishing them from unsalted SHA-256 hex
+ * digests, which are recognized and upgraded in place on the next successful login.
  */
 
 const PBKDF2_ITERATIONS = 210_000
@@ -15,7 +15,7 @@ const HASH_BYTES = 32
 const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes))
 const fromBase64 = (b64: string): Uint8Array => Uint8Array.from(atob(b64), c => c.charCodeAt(0))
 
-/** A legacy hash is a 64-character hex SHA-256 digest with no `pbkdf2$` tag. */
+/** An unsalted SHA-256 hex digest with no `pbkdf2$` tag: the older, weaker hash format. */
 export function isLegacyHash(stored: string): boolean {
   return /^[0-9a-f]{64}$/i.test(stored)
 }
@@ -37,7 +37,7 @@ export async function hashPassword(password: string): Promise<string> {
   return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64(salt)}$${toBase64(hash)}`
 }
 
-/** Legacy hashing, kept only so old shadow entries can be verified before migration. */
+/** The older, unsalted SHA-256 hash, kept only to verify and upgrade existing shadow entries. */
 async function hashPasswordLegacy(password: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password.trim()))
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')

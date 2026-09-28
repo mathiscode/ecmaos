@@ -1,10 +1,6 @@
 /**
- * Real `execve`'d `install`: fetches a package from an npm-style registry into `/usr/lib` and links
- * its bins into `/usr/bin`. `fetch` and `crypto.subtle` exist in a worker, the filesystem work is
- * plain syscalls, `tar` runs as its own real process (`proc_spawn`/`proc_wait`), and the package's
- * `ecmaos:preinstall`/`ecmaos:postinstall` scripts go through `shell_exec` -- the same full command
- * line entry point `crond` uses -- so they behave exactly as when the old in-process command called
- * `shell.execute`.
+ * Fetch a package from an npm-style registry into `/usr/lib` and link its bins into `/usr/bin`.
+ * Runs the package's `ecmaos:preinstall`/`ecmaos:postinstall` scripts, if any, as shell commands.
  */
 import semver from 'semver'
 

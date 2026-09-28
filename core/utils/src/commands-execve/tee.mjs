@@ -1,12 +1,6 @@
 /**
- * Real `execve`'d `tee` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/tee.ts`) per `feat/1.0.0-execve-commands`. `shell.expandTilde(...)` (a
- * live `Shell` method) is replaced by a small worker-local `~` expansion using `env.HOME` (from the
- * real `init` message, `ecmaosSyscalls.env`) -- the common `~` and `~/rest` cases only, matching what
- * `tee`'s own file-argument usage actually needs (not the fuller quoting-aware expansion `Shell`'s
- * own version handles for general command-line words). See `head.mjs`'s doc comment for why there's
- * no in-band interrupt handling anymore -- `-i`/`--ignore-interrupts` is now a no-op flag accepted
- * for compatibility, since a real execve'd process is killed like any other on `^C` regardless.
+ * Read from stdin and write to both stdout and one or more files. `-i`/`--ignore-interrupts` is
+ * accepted for compatibility but has no effect -- `^C` always kills the process.
  */
 
 import { resolve } from './lib/path-utils.mjs'

@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `sleep` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/sleep.ts`) per `feat/1.0.0-execve-commands`. The original polled
- * `terminal.events`'s `INTERRUPT` event to cancel the wait early and return exit code 130 -- no
- * in-band check needed anymore: a real `execve`'d process is killed like any other real process on
- * `^C` (see `cat.mjs`'s doc comment), so a plain `setTimeout`-based wait is all this needs.
- */
+/** Pause for a given number of seconds. `^C` kills the process outright, like a real `sleep`. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

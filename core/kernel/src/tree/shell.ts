@@ -1167,7 +1167,7 @@ export class Shell implements IShell {
 
   /**
    * A pipeline whose sole command names a true shell builtin (`cd`, `export`, ... -- see
-   * `lib/shell-builtins.ts`'s own doc comment for why these are permanent, not migration-pending).
+   * `lib/shell-builtins.ts`'s own doc comment for why these are permanent).
    * Same single-command restriction as `functionNameFor`, for the same reason: piping into/out of
    * something that mutates this shell's own state isn't meaningful the way it is for a real process.
    */

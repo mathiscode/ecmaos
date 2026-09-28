@@ -1,9 +1,8 @@
 /**
- * `/bin/app`: runs an `@ecmaos-apps/*` program as a real worker process. `Kernel.execute` launches it
- * as `app <file> [args...]`. A `#!ecmaos:bin:program:<name>` app runs in this worker: its bundle is
- * imported, its `ProcessEntryParams` are built over real syscalls (`lib/app-params.mjs`) and its `main`
- * is called. A `#!ecmaos:bin:app:<name>` app needs the DOM, so its `main` runs on the main thread
- * through the `app` presenter. Either way the app's return value is the process's exit code.
+ * `/bin/app`: runs an `@ecmaos-apps/*` program, invoked as `app <file> [args...]`. A
+ * `#!ecmaos:bin:program:<name>` app runs here directly; a `#!ecmaos:bin:app:<name>` app needs the
+ * DOM, so it runs through the `app` presenter instead. Either way, the app's return value becomes
+ * this process's exit code.
  */
 
 import { createAppParams } from './lib/app-params.mjs'

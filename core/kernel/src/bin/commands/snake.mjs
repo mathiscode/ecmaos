@@ -1,8 +1,6 @@
 /**
- * Real `execve`'d `snake`: a game that owns the terminal. Raw-mode keys come from the tty (arrow
- * keys steer, Escape or ^C quits) and each frame is one `poll()` on the tty with a timeout, so the
- * game loop is plain synchronous code in its worker. The high score lives in `$HOME/.snake-high-score`
- * (it used to be a `localStorage` key, which a worker cannot reach).
+ * Play a simple snake game. Arrow keys steer, Escape or `^C` quits. The high score is saved to
+ * `$HOME/.snake-high-score`.
  */
 import { decodeKeys, rawMode, ttyFd } from '../../../../utils/src/commands-execve/lib/tty.mjs'
 

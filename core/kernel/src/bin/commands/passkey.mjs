@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `passkey`. WebAuthn (`navigator.credentials`) only exists in the top-level
- * browsing context, so the work runs main-thread side through the `auth_passkey` syscall
- * (`#lib/passkey-manage.ts`); this program only parses arguments and prints what comes back.
- */
+/** Manage WebAuthn passkeys: register, list, remove one, or remove all. */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 

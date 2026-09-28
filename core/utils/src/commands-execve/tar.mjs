@@ -1,20 +1,4 @@
-/**
- * Real `execve`'d `tar` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/tar.ts`) per `feat/1.0.0-execve-commands`. The original streamed
- * entries one at a time through `modern-tar`'s `createTarPacker`/`createTarDecoder` (`ReadableStream`/
- * `WritableStream`/`TransformStream`, piped to/from real file handles). This port uses
- * `modern-tar`'s other, buffered API instead -- `packTar(entries): Promise<Uint8Array>` and
- * `unpackTar(bytes): Promise<ParsedTarEntryWithData[]>` -- whole-archive-in-memory, the same way
- * every other migrated coreutil already reads/writes whole files via `readWholeFile`/
- * `writeWholeFile` helpers. Confirmed the whole library (buffered API included) bundles to only
- * ~13KB minified, nowhere near the ~345KB that broke `stat.mjs`'s original `@zip.js/zip.js` import,
- * so there's no bundle-size risk here -- the buffered API was chosen instead of the streaming one to
- * avoid this migration's first untested reliance on `WritableStream.getWriter()`/`TransformStream`
- * inside a worker program, for a payoff (lower peak memory on huge archives) this OS doesn't need
- * yet. `-z` gzip is still supported: `CompressionStream`/`DecompressionStream` are standard Worker
- * globals, not part of `modern-tar` itself, so wrapping the buffered bytes through them adds no
- * bundle risk. See `cat.mjs`'s doc comment for why there's no in-band interrupt handling anymore.
- */
+/** Create and extract tar archives. `-z` supports gzip compression. */
 
 import { resolve, join, dirname } from './lib/path-utils.mjs'
 import { packTar, unpackTar } from 'modern-tar'

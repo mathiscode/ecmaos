@@ -184,9 +184,8 @@ export class Users {
 
     for (const line of passwd.split('\n')) {
       if (line.trim() === '' || line.trim() === '\n' || line.startsWith('#')) continue
-      // Real 7-field format: name:x:uid:gid:gecos:home:shell. A pre-1.0 6-field line
-      // (name:uid:gid:groups:home:shell) is handled by the boot migration (`kernel.ts`'s
-      // versioned-migration list), not here -- by the time `load()` runs, the fs is already current.
+      // Standard 7-field format: name:x:uid:gid:gecos:home:shell. Filesystems on an older
+      // format are upgraded by the boot migration before `load()` ever runs.
       const [username, , uid, gid, , home, shell] = line.split(':')
       if (!username || !uid || !gid || !home || !shell) continue
       const shadowEntry = shadow.split('\n').find((l: string) => l.startsWith(username + ':'))
@@ -240,9 +239,9 @@ export class Users {
         throw new Error('Invalid username or password')
       }
 
-      // A successful login with a legacy (unsalted SHA-256, or unsalted zero-padded AES key)
-      // credential is the one safe moment to migrate it in place: we have the plaintext
-      // password in hand, and the user has just proven they own the account.
+      // A successful login is the one safe moment to upgrade an older (unsalted SHA-256, or
+      // unsalted zero-padded AES key) credential in place: the plaintext password is in hand,
+      // and the user has just proven they own the account.
       if (isLegacyHash(user.password)) {
         await this.migrateLegacyCredentials(user, password)
       }
@@ -313,7 +312,7 @@ export class Users {
 
   /**
    * Decrypt a wrapped private key, transparently handling both the current keySalt:iv:ciphertext
-   * format and the legacy format (iv+ciphertext only, key derived by zero-padding the password).
+   * format and the older format (iv+ciphertext only, key derived by zero-padding the password).
    */
   private async decryptPrivateKey(wrapped: string, password: string, _user: User): Promise<JsonWebKey | null> {
     try {
@@ -325,7 +324,7 @@ export class Users {
         return JSON.parse(new TextDecoder().decode(decrypted))
       }
 
-      // Legacy format: base64(iv ++ ciphertext), key = password zero-padded to 32 bytes
+      // Older format: base64(iv ++ ciphertext), key = password zero-padded to 32 bytes
       const raw = fromBase64(wrapped)
       const iv = raw.slice(0, 12)
       const data = raw.slice(12)
@@ -340,9 +339,9 @@ export class Users {
   }
 
   /**
-   * Migrate a user's on-disk credentials from the legacy unsalted-SHA-256 password hash and
-   * legacy zero-padded-AES key wrapping to PBKDF2 + salted AES-GCM, in place, using the
-   * plaintext password from the login that just succeeded against the legacy hash.
+   * Upgrade a user's on-disk credentials from an unsalted-SHA-256 password hash and zero-padded
+   * AES key wrapping to PBKDF2 + salted AES-GCM, in place, using the plaintext password from the
+   * login that just succeeded.
    */
   private async migrateLegacyCredentials(user: User, password: string): Promise<void> {
     try {
@@ -350,10 +349,10 @@ export class Users {
       await this.rewrapPrivateKey(user, password, password)
       this._users.set(user.uid, user)
       await this.writeShadowEntry(user)
-      this._options.context.log.info(`Migrated legacy credentials for user ${user.username} to PBKDF2`)
+      this._options.context.log.info(`Upgraded credentials for user ${user.username} to PBKDF2`)
     } catch (error) {
-      // Migration is best-effort: a failure here must not block the login that already succeeded.
-      this._options.context.log.warn(`Failed to migrate legacy credentials for user ${user.username}: ${error}`)
+      // Best-effort: a failure here must not block the login that already succeeded.
+      this._options.context.log.warn(`Failed to upgrade credentials for user ${user.username}: ${error}`)
     }
   }
 

@@ -1,14 +1,4 @@
-/**
- * Real `execve`'d `echo` -- migrated off `Kernel.executeCommand`'s legacy main-thread `Process`
- * (`core/utils/src/commands/echo.ts`) onto a real, worker-isolated `Thread`, per the
- * `feat/1.0.0-execve-commands` plan. Business logic (flag parsing, backslash-escape
- * interpretation) is unchanged from the original; only the execution shape and I/O are different --
- * real `argv`/`exit`/`write` syscalls instead of a `ctx`/`io` object closing over live `kernel`/
- * `shell`/`terminal` references.
- *
- * The original's `terminal.writeAll(output)` fallback for `!ctx.process` is dropped: a real `execve`'d
- * program always has a process (there is no other way to reach this file), so that branch never ran.
- */
+/** Print arguments to stdout, with optional backslash-escape interpretation. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

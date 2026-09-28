@@ -1,19 +1,6 @@
 /**
- * Real `execve`'d `user` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/user.ts`) per this session's M1 pass. `kernel.users` (add/remove/update/
- * list), the `suid !== 0` permission check, and the interactive password prompt
- * (`shell.terminal.readline()`) are all live, main-thread-only state a worker can't reach directly --
- * all four subcommands (`list`/`add`/`del`/`mod`) reach the same new `users_manage` syscall
- * (`#lib/main-thread-syscalls.ts`), using `lib/scratch.mjs`'s shared scratch-file bridge the same way
- * `df.mjs`/`ps.mjs`/`sockets.mjs` do. `list` isn't routed through the existing `users_lookup` syscall
- * (`id.mjs`/`groups.mjs`'s own) even though its read-only shape is identical -- see
- * `users_manage`'s own doc comment for why: `list` needs the same permission gate `add`/`del`/`mod`
- * do, and `users_lookup`'s other modes are deliberately permission-free.
- *
- * CLI parsing (flags, positional username) stays here, unprivileged -- only the actual mutation, the
- * permission check, and any interactive password prompt happen inside the syscall handler on the
- * main thread, since only it can reach `shell.terminal`. No ANSI colour here, same as every other
- * migrated coreutil (`ls.mjs`/`ps.mjs`/`sockets.mjs`).
+ * Manage user accounts: `list`, `add`, `del`, `mod`. Adding or modifying a user may prompt
+ * interactively for a password. Requires root privileges. Plain text output, no ANSI coloring.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

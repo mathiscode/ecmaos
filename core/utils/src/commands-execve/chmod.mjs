@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `chmod` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/chmod.ts`) per `feat/1.0.0-execve-commands`. Symbolic-mode parsing
- * (`u+x`, `g-w`, ...) is unchanged business logic, just re-hosted against real syscalls.
- */
+/** Change file permissions. Accepts both octal modes and symbolic mode expressions (`u+x`, `g-w`, ...). */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `ln` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/ln.ts`) per `feat/1.0.0-execve-commands`. Needed real `link`/`symlink`
- * syscalls this interpreter didn't expose yet -- added to `globalThis.ecmaosSyscalls` in
- * `/bin/node.mjs` alongside `readlink` (for the `readlink`/`realpath` migrations).
- */
+/** Create a hard or symbolic (`-s`) link to a file. */
 
 import { resolve, basename, join } from './lib/path-utils.mjs'
 

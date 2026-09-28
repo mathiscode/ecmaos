@@ -1,13 +1,4 @@
-/**
- * Real `execve`'d `dd` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/dd.ts`) per `feat/1.0.0-execve-commands`. The original had a separate
- * code path for `/dev`-path input (streamed via a device file handle, no real byte-count `stat`)
- * versus regular files, plus a stdin-stream fallback when `if=` was omitted. Here there is only one
- * path: fd 0 is a real, syscall-backed file descriptor exactly like any other, so `if=`-omitted and
- * `if=/dev/...` and `if=<regular file>` are all just "read fd N with `read(fd, buffer, position)`" --
- * the old `/dev`-special-casing and the stdin-vs-file branching both collapse into one loop. See
- * `head.mjs`'s doc comment for why there's no in-band interrupt handling anymore either.
- */
+/** Copy and convert data between an input and an output (`if=`/`of=`), with block size and count options. */
 
 import { resolve } from './lib/path-utils.mjs'
 

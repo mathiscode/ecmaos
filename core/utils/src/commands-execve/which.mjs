@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `which` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/which.ts`) per `feat/1.0.0-execve-commands`. `shell.env.get('PATH')` is
- * replaced by `env.PATH` (from the real `init` message, matching every other migrated command's
- * `env` usage).
- */
+/** Locate a command in `env.PATH` and print its path. */
 
 import { resolve, join } from './lib/path-utils.mjs'
 

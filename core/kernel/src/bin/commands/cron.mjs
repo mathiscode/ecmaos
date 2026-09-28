@@ -1,19 +1,8 @@
 /**
- * Real `execve`'d `cron` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/cron.ts`) per this session's M1 pass, alongside `crond.mjs` (the real
- * scheduler daemon this command's file-editing subcommands feed). `list`/`add`/`remove`/`validate`/
- * `next`/`test` are all plain crontab-file reads/writes plus pure expression parsing -- exactly
- * `crontab -l`/`-e`-shaped, needing no live query of `crond` at all, since `crond` re-reads both
- * crontab files on its own whenever their mtime changes (see its own doc comment). `edit` is the one
- * subcommand needing a syscall: it opens a real editor as a child process and waits for it, through
- * the new `proc_spawn`/`proc_wait` syscalls (`#lib/main-thread-syscalls.ts`) -- the first real
- * consumer of that fork+exec+wait primitive in this session.
- *
- * `reload` no longer clears/reloads a live in-memory registry (there is not one to clear -- `crond`
- * owns its own schedule entirely) -- it is now purely informational, since `crond`'s own per-minute
- * mtime check already does what an explicit reload used to force immediately. Building a real signal
- * (`SIGHUP`) round trip into `crond` was scoped out this session: `node.mjs`'s worker-hosted programs
- * have no signal-delivery surface exposed to them at all yet.
+ * Manage scheduled cron jobs: `list`, `add <schedule> <command>`, `remove <id>`, `edit` (opens the
+ * crontab in an editor), `validate <expression>`, `next <expression> [count]`, and `test
+ * <expression>`. `crond` picks up crontab changes on its own once the file's mtime changes, so
+ * `reload` is purely informational and does not force anything to happen immediately.
  */
 
 import { parseCrontabFile } from './lib/crontab.mjs'
@@ -203,10 +192,9 @@ async function cmdEdit() {
   const configDir = `${home}/.config`
   if (!exists(configDir)) mkdir(configDir, 0o777)
 
-  // Same `$EDITOR`/`$VISUAL` convention real `crontab -e` uses -- `proc_spawn` needs an already-
-  // resolved path (real `execve` semantics, no PATH search), so this fails with a real `ENOENT`
-  // through the syscall (see `proc_spawn`'s own doc comment) if none of these exist, the same way
-  // real `crontab -e` fails clearly when no editor is configured, rather than silently no-op'ing.
+  // Same `$EDITOR`/`$VISUAL` convention real `crontab -e` uses. No PATH search: an unresolvable
+  // path fails clearly with `ENOENT`, the same way real `crontab -e` fails when no editor is
+  // configured, rather than silently no-op'ing.
   const editor = env['EDITOR'] || env['VISUAL'] || '/usr/bin/vi'
   const pid = await custom('proc_spawn', editor, JSON.stringify([editor, crontabPath]), '')
   const code = await custom('proc_wait', pid)

@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `free` -- reads the already-populated `/proc/meminfo` (`Filesystem`'s
- * `registerProcEntries`, `core/kernel/src/tree/filesystem.ts`) and reports it the way `free`
- * traditionally does. No new syscall: `/proc/meminfo` is a normal file, just like every other
- * `/proc` entry a coreutil already reads.
- */
+/** Display memory usage, reading `/proc/meminfo`. */
 
 const { argv, exit, writeAll, read, open, close, O_RDONLY } = globalThis.ecmaosSyscalls
 

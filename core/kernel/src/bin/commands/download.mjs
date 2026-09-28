@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `download`: hands files to the browser as downloads. The program checks that each
- * path exists and asks for the `download` presenter (`#lib/presenters/open.ts`, the same one `open`
- * uses), which builds the blob and clicks the anchor on the main thread.
- */
+/** Download files from the filesystem through the browser's download mechanism. */
 import { join } from './lib/path-utils.mjs'
 import { present } from './lib/present.mjs'
 

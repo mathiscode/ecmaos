@@ -1,12 +1,4 @@
-/**
- * Real `execve`'d `find` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/find.ts`) per `feat/1.0.0-execve-commands`. Recursive directory walk is
- * userspace (`readdir` + recurse), same as every real `find` -- there is no recursive-listing
- * syscall. Needed a real `lstat`-backed `isSymbolicLink` this interpreter didn't expose yet (`stat`
- * alone follows a symlink, so it can't tell `-type l` apart from whatever the link points at) --
- * added alongside `isDirectory` in `/bin/node.mjs`, same pattern. See `cat.mjs`'s doc comment for why
- * there's no in-band interrupt handling anymore.
- */
+/** Recursively search a directory tree for files matching given criteria (name, type, etc). */
 
 import { resolve, join } from './lib/path-utils.mjs'
 
@@ -99,7 +91,7 @@ function main() {
 
         if (isDir && !isLink) searchDirectory(fullPath)
       } catch {
-        // unreadable/racy entry -- skip, matching the original's silent catch
+        // unreadable/racy entry -- skip silently, since a listing racing a concurrent delete is expected
       }
     }
   }

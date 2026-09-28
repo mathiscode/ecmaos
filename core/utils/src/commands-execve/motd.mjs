@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `motd` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/motd.ts`) per `feat/1.0.0-execve-commands`. `kernel.filesystem.fs`
- * reads are replaced by real `open`/`read`/`close`/`stat` syscalls, same as every other migrated
- * coreutil.
- */
+/** Print the message of the day. */
 
 const { argv, exit, writeAll, open, read, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 

@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `hostname` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/hostname.ts`) per `feat/1.0.0-execve-commands`. The original read
- * `window.location.hostname` (undefined in a Worker regardless -- it already fell back to a fixed
- * `'localhost'` string in any non-window context, this migration included). `env.HOSTNAME` now
- * carries that same value, threaded through `Shell`'s env at construction (see `kernel.ts`).
- */
+/** Print the system hostname, read from `env.HOSTNAME` (a fixed `'localhost'`). */
 
 const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 

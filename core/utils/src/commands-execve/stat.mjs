@@ -1,19 +1,6 @@
 /**
- * Real `execve`'d `stat` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/stat.ts`) per `feat/1.0.0-execve-commands`. The original used
- * `@zip.js/zip.js` for its `.zip`-entries listing; bundled in here, that ~345KB library pushed this
- * program's `data:` URL past some real, empirically-confirmed size limit on importing a worker
- * program this large (a minimal repro without the ZIP codepath imports fine; the full bundle throws
- * a bare `SyntaxError` on import, no useful message) -- so this hand-parses the real ZIP central
- * directory instead (a plain, well-documented binary format: an End-Of-Central-Directory record at
- * the end of the file points at where the central directory starts, and each fixed 46-byte record
- * there is followed by its variable-length filename). `stat` only ever printed each entry's filename
- * and uncompressed size, so that's all this parses -- no compression/decompression, no encryption,
- * none of what `zip.js` is actually for.
- *
- * The real `stat()` syscall returns a `Stat` class whose fields are getters, not own-enumerable
- * properties -- `JSON.stringify` on it directly wouldn't print anything useful, so this builds a
- * plain object from the documented `StatFields` shape instead of relying on class serialization.
+ * Print file or filesystem status: size, permissions, timestamps, and similar metadata. For a
+ * `.zip` file, lists each entry's filename and uncompressed size instead.
  */
 
 import { resolve } from './lib/path-utils.mjs'

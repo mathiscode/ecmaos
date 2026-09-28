@@ -1,12 +1,6 @@
 /**
- * Real `execve`'d `format` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/format.ts`). The permission check, the interactive yes/no confirmation
- * prompt, and the actual `indexedDB`/`localStorage` wipe are all live, main-thread-only state a
- * worker can't reach directly -- all of it (CLI parsing stays here, unprivileged) reaches the new
- * `system_format` custom syscall (`#lib/main-thread-syscalls.ts`), using `lib/scratch.mjs`'s shared
- * scratch-file bridge the same way `user.mjs`/`df.mjs`/`ps.mjs` do. On success, `format` finishes by
- * calling the existing `reboot` syscall (`reboot.mjs`'s own), matching the legacy command's own
- * "format then reboot" sequence without duplicating `kernel.reboot()`'s shutdown logic here.
+ * Wipe all persisted storage and reboot. Requires root and an interactive yes/no confirmation
+ * before anything is erased.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

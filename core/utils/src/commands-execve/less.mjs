@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `less` -- migrated off `Kernel.executeCommand`'s legacy shim
- * (`core/utils/src/commands/less.ts`). The original reached into `terminal.onKey`/`unlisten`; this
- * one is an ordinary program that puts its terminal in raw mode (`lib/tty.mjs`) and `read()`s single
- * keypresses from it, which works because `Kernel.executeViaExecve` routes the keyboard through the
- * real `@zenfs/linux` line discipline while a foreground process runs.
- */
+/** Page through a file or stdin, one screen at a time. */
 
 import { resolve } from './lib/path-utils.mjs'
 import { readFdText, readTextFile } from './lib/fs-text.mjs'

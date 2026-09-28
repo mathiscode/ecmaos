@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `column` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/column.ts`) per `feat/1.0.0-execve-commands`. `columnify` is a plain npm
- * package with no DOM/kernel dependency, bundled into this worker program by esbuild the same way
- * `human-format`/`semver` already are for `df`/`install`. See `head.mjs`'s doc comment for why
- * there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Format input into aligned columns. */
 
 import columnify from 'columnify'
 import { resolve } from './lib/path-utils.mjs'

@@ -1,12 +1,7 @@
 /**
- * Real `execve`'d `history` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/history.ts`). Listing, `N`, and `-d` (delete one entry) are plain reads/
- * writes of `~/.history`, no kernel state involved -- but `-c`/`-r` mutate/re-read the live, in-memory
- * history buffer a real `Terminal` keeps for its own up-arrow recall, which only the main thread can
- * reach. Those two go through the new `terminal_clear_history`/`terminal_reload_history` custom
- * syscalls (`#lib/main-thread-syscalls.ts`); `-d` also calls `terminal_reload_history` afterward, same
- * as the legacy command, so the terminal's in-memory buffer doesn't drift from the file it just
- * rewrote.
+ * Show or manage command history. With no arguments, prints the history list; `N` limits it to the
+ * last N entries. `-c` clears history, `-d` deletes one entry, `-r` re-reads history from disk.
+ * `-d` and `-c` also refresh the terminal's own up-arrow recall so it matches what's on disk.
  */
 
 import { join } from './lib/path-utils.mjs'

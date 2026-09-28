@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `umount` -- migrated off `Kernel`'s legacy in-process `Process`
- * (`core/utils/src/commands/umount.ts`) per this session's M1 pass. `kernel.filesystem.mounts`/
- * `kernel.filesystem.fsSync.umount()` are live `Kernel` state a worker can't see directly, reached
- * through the `fs_umount` custom syscall (`#lib/main-thread-syscalls.ts`), which also does the
- * whole `-a` loop main-thread side rather than making this program call it once per mount point.
- */
+/** Unmount a filesystem, or `-a` to unmount all mounted filesystems. */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 

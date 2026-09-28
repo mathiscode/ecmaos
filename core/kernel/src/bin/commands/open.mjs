@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `open` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/commands/
- * open.ts`). Opening a browser tab or starting a download can only be done from the main thread, so
- * this parses its argument, checks the file exists, and asks the kernel to do the DOM part through
- * the `external`/`download` presenters (`#lib/presenters/open.ts`, via `window_present`).
- */
+/** Open a file or URL: downloads a local file, opens a URL in a new browser tab. */
 
 import { resolvePath } from './lib/paths.mjs'
 import { present } from './lib/present.mjs'
@@ -39,7 +34,7 @@ async function main() {
     return 1
   }
 
-  // Spaces in a name arrive as separate arguments unless quoted, so they are joined back (as the original did)
+  // Spaces in a name arrive as separate arguments unless quoted, so they are joined back
   const target = args.join(' ')
 
   if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(target)) {

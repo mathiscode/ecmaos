@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `web` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/commands/
- * web.ts`). Parses and validates the URL here; the contained browser window itself (an iframe, a
- * URL bar, history) is the `browser` presenter (`#lib/presenters/browser.ts`), reached through
- * `window_present`. The command returns once the window is open, as before.
- */
+/** Open a URL in a contained browser window (with its own URL bar and history). */
 
 import { present } from './lib/present.mjs'
 

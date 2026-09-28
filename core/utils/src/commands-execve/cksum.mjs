@@ -1,10 +1,4 @@
-/**
- * Real `execve`'d `cksum` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/cksum.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore. The CRC-32
- * algorithm itself (not real POSIX cksum's actual CRC variant) is unchanged from the original --
- * this is a migration, not a correctness fix.
- */
+/** Print a checksum and byte count for each file. Uses a standard CRC-32, not POSIX cksum's exact CRC variant. */
 
 import { resolve } from './lib/path-utils.mjs'
 

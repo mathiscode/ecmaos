@@ -1,12 +1,6 @@
 /**
- * Real `execve`'d `man` -- migrated off `Kernel.executeCommand`'s legacy shim
- * (`core/utils/src/commands/man.ts`). Documents are found and read with plain filesystem syscalls,
- * converted from Markdown/HTML to ANSI text exactly as before, and shown with the shared raw-mode
- * pager (`lib/pager.mjs`, also `less`'s). With no terminal (`man x | grep`, `man x > file`) it
- * prints the converted text instead of paging, as real man does.
- *
- * Dropped from the original: `parseMetadata`, whose result was never used, and the `kernel.i18n`
- * lookups, whose keys have no translations (the English defaults were the only output).
+ * Show a manual page. Pages when run interactively; with output piped or redirected, prints the
+ * text directly instead, like real `man`. Only English text is shown.
  */
 
 import ansi from 'ansi-escape-sequences'

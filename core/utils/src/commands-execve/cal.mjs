@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `cal` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/cal.ts`) per `feat/1.0.0-execve-commands`. Pure `Date` computation, no
- * live kernel/shell/terminal state.
- */
+/** Print a calendar for a month or year. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 

@@ -1,12 +1,4 @@
-/**
- * Real `execve`'d `uname` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/uname.ts`) per `feat/1.0.0-execve-commands`. `kernel.name`/
- * `kernel.version` (build-time constants, no live kernel reference otherwise needed) come through
- * `env.KERNEL_NAME`/`env.KERNEL_VERSION`, threaded through `Shell`'s env at construction (see
- * `kernel.ts`), the same way `env.HOSTNAME` now carries what `hostname.mjs` needs. `navigator` is a
- * standard Worker global (unlike `window`, which never existed here even before migration), so
- * `navigator.userAgentData`/`navigator.platform` still work directly.
- */
+/** Print system information: kernel name, version, and platform. */
 
 const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 

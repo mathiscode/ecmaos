@@ -1,20 +1,9 @@
 /**
- * Real `execve`'d `chown` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/chown.ts`) per `feat/1.0.0-execve-commands`. `kernel.users` username/gid
- * resolution is replaced by the `users_lookup` custom syscall `id.mjs`/`groups.mjs` already use (see
- * `id.mjs`'s doc comment for why this needs a main-thread round-trip rather than a real syscall --
- * there's no execve-compatible way to query the live `kernel.users` registry otherwise). The actual
- * ownership change uses the real `chown` syscall (`@zenfs/linux` already had one; it just wasn't yet
- * exposed on `ecmaosSyscalls` -- added alongside `chmod` in `node.mjs`, same as `link`/`symlink`/
- * `readlink`/`lstat` were added for earlier migrations).
+ * Change file ownership (user and group).
  *
- * Note: `-R` on a directory itself always fails with `EISDIR` -- `@zenfs/core`'s `chown` (both the
- * real syscall used here and the async `fs.promises.chown` the original in-process version used)
- * opens its target with the `'r+'` flag before chowning it, which a directory can never satisfy.
- * Since `processFile`'s own `chown` call throws before it ever reaches the recursion step below,
- * `chown -R somedir` never touches `somedir`'s contents either -- a genuine pre-existing
- * `@zenfs/core` limitation confirmed identical in its own `promises.js`/`sync.js`, not something
- * introduced by this migration.
+ * Note: `-R` on a directory always fails with `EISDIR`, and because of that, `chown -R somedir`
+ * never gets to change ownership of `somedir`'s contents either -- a pre-existing limitation in the
+ * underlying filesystem's `chown` implementation, not specific to any one file or flag combination.
  */
 
 import { resolve, join } from './lib/path-utils.mjs'

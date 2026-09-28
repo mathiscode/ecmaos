@@ -1,13 +1,8 @@
 /**
- * Real `execve`'d `ls` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/ls.ts`) per `feat/1.0.0-execve-commands`. The original read live
- * `kernel.i18n` (translated column headers), `kernel.users.all` (username lookup for uid/gid),
- * `kernel.devices` (package descriptions for device files), and `terminal.isMobile` (responsive
- * column layout) -- none of which a real, worker-hosted `execve`'d process can see, the same way a
- * real `/bin/ls` binary in a minimal container without `/etc/passwd` just prints numeric uid/gid.
- * This port simplifies accordingly: numeric uid/gid, fixed English column headers, no device-package
- * descriptions, no mobile-responsive layout, no ANSI coloring (color output isn't proven anywhere in
- * this worker pipeline yet, unlike `columnify` itself -- already used by `column.mjs`).
+ * List directory contents. Prints numeric uid/gid rather than usernames, fixed English column
+ * headers, no device-package descriptions, and no ANSI coloring or mobile-responsive layout --
+ * the same way a real `/bin/ls` in a minimal container without `/etc/passwd` just prints numeric
+ * uid/gid.
  */
 
 import { resolve, join, basename, dirname } from './lib/path-utils.mjs'

@@ -1,13 +1,7 @@
 /**
- * Real `execve`'d `git` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/git.ts`). `isomorphic-git` runs unchanged; the only new piece is
- * `fs` below, a small `fs.promises`-shaped adapter over the raw filesystem syscalls (what the
- * library's `fs` option asks for), so the same code that used to read `shell.context.fs` now reads
- * the real filesystem through `open`/`read`/`write`/`stat`/`readdir`. Network access (`clone`,
- * `push`, `pull`, `fetch`) goes through the library's `http/web` client, which is plain `fetch` and
- * works in a worker. Environment (`USER`, `EMAIL`, `HOSTNAME`, `GITHUB_TOKEN`, `GIT_CORS_PROXY`)
- * comes from the process's real environment. The original's chalk coloring is dropped, as in the
- * other migrated commands.
+ * Git version control. Supports the common subcommands (clone, push, pull, fetch, commit, etc.)
+ * using `USER`, `EMAIL`, `HOSTNAME`, `GITHUB_TOKEN`, and `GIT_CORS_PROXY` from the environment.
+ * Plain text output, no ANSI coloring.
  */
 
 import './lib/buffer-polyfill.mjs'

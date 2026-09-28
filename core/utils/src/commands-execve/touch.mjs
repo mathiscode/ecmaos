@@ -1,8 +1,6 @@
 /**
- * Real `execve`'d `touch` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/touch.ts`) per `feat/1.0.0-execve-commands`. The original used
- * `appendFile('')`, which both creates a missing file and leaves an existing one untouched (not a
- * real `utimes` update) -- reproduced exactly via `open(O_CREAT)` + `close`, no write.
+ * Create a file if it doesn't exist. Unlike a real `touch`, this does not update the modification
+ * time of a file that already exists.
  */
 
 import { resolve } from './lib/path-utils.mjs'

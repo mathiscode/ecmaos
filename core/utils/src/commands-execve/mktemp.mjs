@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `mktemp` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/mktemp.ts`) per `feat/1.0.0-execve-commands`. `crypto.getRandomValues` is
- * available inside a Web Worker by spec, unlike `window`/`document` -- no bridge needed. `env` (from
- * the real `init` message, `ecmaosSyscalls.env`) replaces `shell.env.get('TMPDIR')`.
- */
+/** Create a uniquely named temporary file or directory and print its path. */
 
 import { resolve, join } from './lib/path-utils.mjs'
 

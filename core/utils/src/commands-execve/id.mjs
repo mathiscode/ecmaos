@@ -1,13 +1,4 @@
-/**
- * Real `execve`'d `id` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/id.ts`) per `feat/1.0.0-execve-commands`. `kernel.users.get(uid)` and
- * `shell.credentials` are both live main-thread state a worker has no direct reference to -- resolved
- * instead through the new `users_lookup` custom syscall (`core/kernel/src/tree/lib/
- * main-thread-syscalls.ts`), the same `custom`/`syscall_async` mechanism `window_create`/
- * `storage_usage`/`ps_list` already use for main-thread-only capabilities. Like `storage_usage`/
- * `ps_list`, the syscall can only return a number, so the actual JSON result is written to a real
- * temp file and read back with plain `open`/`read`/`close`.
- */
+/** Print the effective user and group IDs, and group membership, for the current user or a named one. */
 
 const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
 

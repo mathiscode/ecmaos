@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `rmdir` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/rmdir.ts`) per `feat/1.0.0-execve-commands`. The original always did a
- * recursive `rm` rather than real `rmdir`'s empty-directory-only semantics -- carried over unchanged
- * (this is a migration, not a correctness fix).
- */
+/** Remove directories. Unlike real `rmdir`, this removes non-empty directories too, not just empty ones. */
 
 import { resolve } from './lib/path-utils.mjs'
 

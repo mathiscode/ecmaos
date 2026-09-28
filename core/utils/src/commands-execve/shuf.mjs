@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `shuf` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/shuf.ts`) per `feat/1.0.0-execve-commands`. `Math.random()` is available
- * everywhere including workers. See `head.mjs`'s doc comment for why there's no in-band interrupt
- * handling and no `/dev`-path special case anymore.
- */
+/** Print input lines in random order. */
 
 import { resolve } from './lib/path-utils.mjs'
 

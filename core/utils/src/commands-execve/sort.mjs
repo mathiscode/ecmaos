@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `sort` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/sort.ts`) per `feat/1.0.0-execve-commands`. See `cat.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Sort lines of input. */
 
 import { resolve } from './lib/path-utils.mjs'
 

@@ -1,9 +1,4 @@
-/**
- * Real `execve`'d `crypto` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/crypto.ts`) per `feat/1.0.0-execve-commands`. `crypto.subtle`/
- * `crypto.getRandomValues` are standard Worker globals, identical to main-thread. `chalk` (ANSI
- * coloring) is dropped, matching `ls.mjs`'s precedent.
- */
+/** Cryptographic utilities: hashing, random value generation, and related operations. Plain text output, no ANSI coloring. */
 
 import { resolve } from './lib/path-utils.mjs'
 

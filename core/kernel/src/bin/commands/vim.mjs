@@ -1,10 +1,6 @@
 /**
- * Real `execve`'d `vim` -- migrated off `Kernel`'s legacy in-process shim (`core/utils/src/commands/
- * vim.ts`). This reads the files and works out the directory tree vim.wasm's virtual filesystem
- * needs; the editor itself (a 900x700 window running vim.wasm) is the `editor` presenter
- * (`#lib/presenters/editor.ts`), reached through `window_present`. Unlike the other presenters
- * this one holds the program until the editor exits, so `vim` returns vim's own status, and `^C` or
- * `kill` closes the window with the process.
+ * Edit a file with vim, in its own window. Unlike other file-viewing commands, this blocks until
+ * the editor exits and returns vim's own exit status; `^C` or `kill` closes the window with it.
  */
 
 import { basename, resolvePath } from './lib/paths.mjs'

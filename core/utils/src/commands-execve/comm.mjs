@@ -1,8 +1,4 @@
-/**
- * Real `execve`'d `comm` -- migrated off `Kernel.executeCommand`'s legacy `Process`
- * (`core/utils/src/commands/comm.ts`) per `feat/1.0.0-execve-commands`. See `head.mjs`'s doc comment
- * for why there's no in-band interrupt handling and no `/dev`-path special case anymore.
- */
+/** Compare two sorted files line by line, printing lines unique to each and lines common to both. */
 
 import { resolve } from './lib/path-utils.mjs'
 
