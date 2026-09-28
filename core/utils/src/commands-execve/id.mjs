@@ -69,7 +69,7 @@ async function main() {
       if (flags.includes('n')) nameOnly = true
       const invalid = flags.find(f => !['u', 'g', 'G', 'n'].includes(f))
       if (invalid) {
-        writeAll(1, new TextEncoder().encode(`id: invalid option -- '${invalid}'\n`))
+        writeAll(2, new TextEncoder().encode(`id: invalid option -- '${invalid}'\n`))
         return 1
       }
     }
@@ -77,7 +77,10 @@ async function main() {
 
   const self = await usersLookup({ mode: 'self' })
   const groupRecord = await usersLookup({ mode: 'byUid', uid: self.gid })
-  const groups = self.groups || []
+  // A user's group list always begins with their primary group, then the supplementary groups from
+  // `/etc/group`. `self.groups` carries only the supplementary ones, so reporting it alone printed
+  // `groups=` (empty) for any user with no supplementary memberships -- root included.
+  const groups = [self.gid, ...(self.groups || []).filter(gid => gid !== self.gid)]
 
   const resolveGroupName = async (gid) => {
     const record = await usersLookup({ mode: 'byUid', uid: gid })

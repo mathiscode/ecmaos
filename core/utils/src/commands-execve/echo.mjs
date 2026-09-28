@@ -47,8 +47,19 @@ const usage = `Usage: echo [OPTION]... [STRING]...
 Echo the STRING(s) to standard output.
 
   -e     enable interpretation of backslash escapes
+  -E     disable interpretation of backslash escapes (default)
   -n     do not output the trailing newline
   --help display this help and exit`
+
+/**
+ * Whether `arg` is an option bundle echo recognizes: a leading `-` followed by at least one
+ * character, all of which are `n`, `e`, or `E`. Anything else that merely starts with `-` is an
+ * ordinary operand, not an error -- bash and POSIX both print `---`, `-x`, and `-n-` literally,
+ * because echo has no way to report a usage error without corrupting its own output stream.
+ */
+function isOptionBundle(arg) {
+  return arg.length > 1 && arg[0] === '-' && [...arg.slice(1)].every(f => f === 'n' || f === 'e' || f === 'E')
+}
 
 function main() {
   const args = argv.slice(1) // argv[0] is the program path itself
@@ -61,27 +72,27 @@ function main() {
   let noNewline = false
   let enableEscapes = false
   const textParts = []
+  // Options stop at the first operand, as in bash: `echo hello -n` prints "hello -n" rather than
+  // treating the trailing `-n` as a flag.
+  let parsingOptions = true
 
   for (const arg of args) {
-    if (arg === '--help' || arg === '-h') {
+    if (parsingOptions && (arg === '--help' || arg === '-h')) {
       writeAll(2, new TextEncoder().encode(usage + '\n'))
       return 0
-    } else if (arg === '-n') {
-      noNewline = true
-    } else if (arg === '-e') {
-      enableEscapes = true
-    } else if (arg.startsWith('-') && arg.length > 1 && arg !== '--') {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('n')) noNewline = true
-      if (flags.includes('e')) enableEscapes = true
-      const invalidFlag = flags.find(f => f !== 'n' && f !== 'e')
-      if (invalidFlag) {
-        writeAll(1, new TextEncoder().encode(`echo: invalid option -- '${invalidFlag}'\n`))
-        return 1
-      }
-    } else {
-      textParts.push(arg)
     }
+
+    if (parsingOptions && isOptionBundle(arg)) {
+      for (const flag of arg.slice(1)) {
+        if (flag === 'n') noNewline = true
+        else if (flag === 'e') enableEscapes = true
+        else if (flag === 'E') enableEscapes = false
+      }
+      continue
+    }
+
+    parsingOptions = false
+    textParts.push(arg)
   }
 
   let text = textParts.join(' ')
