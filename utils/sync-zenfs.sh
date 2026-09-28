@@ -2,97 +2,84 @@
 
 set -e
 
-REPO_URL="https://github.com/zen-fs/core.git"
 DOCS_PATH="documentation"
-TARGET_DIR="core/kernel/public/initfs/usr/share/docs/@zenfs/core"
-TEMP_DIR=$(mktemp -d)
 
 # Get the script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-echo "REPO_URL: $REPO_URL"
-echo "DOCS_PATH: $DOCS_PATH"
-echo "TARGET_DIR: $TARGET_DIR"
-echo "TEMP_DIR: $TEMP_DIR"
-echo "SCRIPT_DIR: $SCRIPT_DIR"
-echo "PROJECT_ROOT: $PROJECT_ROOT"
-
-echo "Syncing ZenFS documentation from GitHub..."
-
-# Clean up function
-cleanup() {
-    if [ -d "$TEMP_DIR" ]; then
-        echo "Cleaning up temporary directory..."
-        rm -rf "$TEMP_DIR"
-    fi
-}
-
-# Set trap to cleanup on exit
-trap cleanup EXIT
-
-# Change to project root
 cd "$PROJECT_ROOT"
 
-# Create target directory if it doesn't exist
-mkdir -p "$TARGET_DIR"
+# Syncs one upstream repo's docs into $2 (a path under core/kernel/public/initfs/usr/share/docs).
+# Copies the documentation/ folder when the repo still ships one; always copies README.md as
+# index.md, since that's the one thing every one of these repos reliably has.
+sync_repo() {
+    REPO_URL="$1"
+    TARGET_DIR="$2"
+    TEMP_DIR=$(mktemp -d)
 
-# Clone the repository to temporary directory
-echo "Cloning zen-fs/core repository..."
-git clone --depth 1 --filter=blob:none "$REPO_URL" "$TEMP_DIR"
+    echo "Syncing $REPO_URL -> $TARGET_DIR"
 
-# Configure sparse checkout to only get the documentation folder
-cd "$TEMP_DIR"
-git sparse-checkout init --cone
-git sparse-checkout set "$DOCS_PATH"
+    cleanup() {
+        if [ -d "$TEMP_DIR" ]; then
+            rm -rf "$TEMP_DIR"
+        fi
+    }
+    trap cleanup EXIT
 
-# Fetch README.md separately
-echo "Fetching README.md..."
-git show HEAD:README.md > README.md 2>/dev/null || echo "Warning: Could not fetch README.md from repository"
+    mkdir -p "$PROJECT_ROOT/$TARGET_DIR"
 
-# Copy documentation files to target directory
-echo "Copying documentation files..."
-if [ ! -d "$DOCS_PATH" ]; then
-    echo "Error: Documentation folder not found in repository"
-    exit 1
-fi
+    echo "Cloning $REPO_URL..."
+    git clone --depth 1 --filter=blob:none "$REPO_URL" "$TEMP_DIR" -q
 
-# Check if documentation folder is empty
-if [ -z "$(ls -A "$DOCS_PATH" 2>/dev/null)" ]; then
-    echo "Warning: Documentation folder appears to be empty"
-    exit 1
-fi
+    cd "$TEMP_DIR"
+    git sparse-checkout init --cone
+    git sparse-checkout set "$DOCS_PATH"
 
-# Protect against unset or empty variables before removing files
-if [ -z "$PROJECT_ROOT" ] || [ -z "$TARGET_DIR" ]; then
-    echo "Error: PROJECT_ROOT and TARGET_DIR must be set and non-empty before removing files."
-    exit 1
-fi
+    # Protect against unset or empty variables before removing files
+    if [ -z "$PROJECT_ROOT" ] || [ -z "$TARGET_DIR" ]; then
+        echo "Error: PROJECT_ROOT and TARGET_DIR must be set and non-empty before removing files."
+        exit 1
+    fi
 
-# Double-check to prevent accidental deletion of important directories
-if [ "$PROJECT_ROOT/$TARGET_DIR" = "/" ] || [ "$PROJECT_ROOT/$TARGET_DIR" = "" ]; then
-    echo "Error: Will not remove top-level or empty path. Aborting."
-    exit 1
-fi
+    # Double-check to prevent accidental deletion of important directories
+    if [ "$PROJECT_ROOT/$TARGET_DIR" = "/" ] || [ "$PROJECT_ROOT/$TARGET_DIR" = "" ]; then
+        echo "Error: Will not remove top-level or empty path. Aborting."
+        exit 1
+    fi
 
-if [ ! -d "$PROJECT_ROOT/$TARGET_DIR" ]; then
-    echo "Error: Target directory $PROJECT_ROOT/$TARGET_DIR does not exist (should have been created); aborting."
-    exit 1
-fi
+    if [ ! -d "$PROJECT_ROOT/$TARGET_DIR" ]; then
+        echo "Error: Target directory $PROJECT_ROOT/$TARGET_DIR does not exist (should have been created); aborting."
+        exit 1
+    fi
 
-# Remove existing files in target directory
-rm -rf "$PROJECT_ROOT/$TARGET_DIR"/*
+    # Remove existing files in target directory
+    rm -rf "${PROJECT_ROOT:?}/${TARGET_DIR:?}"/*
 
-# Copy all files from documentation folder
-cp -r "$DOCS_PATH"/* "$PROJECT_ROOT/$TARGET_DIR/"
+    # Copy the documentation/ folder when the repo still has one. Some upstream repos have moved
+    # their docs out of the repo entirely (e.g. onto a hosted site); when that's the case, README.md
+    # (copied below) is the only reference material available, and that's fine.
+    if [ -d "$DOCS_PATH" ] && [ -n "$(ls -A "$DOCS_PATH" 2>/dev/null)" ]; then
+        echo "Copying documentation/ folder..."
+        cp -r "$DOCS_PATH"/* "$PROJECT_ROOT/$TARGET_DIR/"
+    else
+        echo "No documentation/ folder in this repo -- shipping README.md only."
+    fi
 
-# Copy README.md from zen-fs repository to index.md in target directory
-echo "Copying README.md from zen-fs repository to index.md..."
-if [ -f "$TEMP_DIR/README.md" ]; then
-    cp "$TEMP_DIR/README.md" "$PROJECT_ROOT/$TARGET_DIR/index.md"
-    echo "README.md copied to index.md successfully"
-else
-    echo "Warning: README.md not found in zen-fs repository"
-fi
+    echo "Copying README.md to index.md..."
+    if git show HEAD:README.md > "$PROJECT_ROOT/$TARGET_DIR/index.md" 2>/dev/null; then
+        echo "README.md copied to index.md successfully"
+    else
+        echo "Warning: README.md not found in $REPO_URL"
+        rm -f "$PROJECT_ROOT/$TARGET_DIR/index.md"
+    fi
+
+    cd "$PROJECT_ROOT"
+    cleanup
+    trap - EXIT
+}
+
+sync_repo "https://github.com/zen-fs/core.git" "core/kernel/public/initfs/usr/share/docs/@zenfs/core"
+sync_repo "https://github.com/zen-fs/linux.git" "core/kernel/public/initfs/usr/share/docs/@zenfs/linux"
 
 echo "ZenFS documentation sync completed!"
