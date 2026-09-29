@@ -1,0 +1,117 @@
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+
+import { Kernel } from '#kernel.ts'
+import { DefaultFilesystemOptions } from '#filesystem.ts'
+
+import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+
+/**
+ * Shell startup files, and the two bugs that kept them from being possible.
+ *
+ * Nothing was ever sourced as a shell script before this: `/etc/env` and `~/.env` are `KEY=VALUE`
+ * only, so there was no way to define an alias or a function that survived a login.
+ *
+ * `~/.ecmashrc` could not have worked even once it was read, because the interactive login path
+ * called `loadEnvFile()` *before* setting `HOME` for the user who had just authenticated. Every
+ * `~/`-rooted startup file was therefore resolved against the previous user's home -- on a fresh
+ * boot the default `/root`, and after a relogin the last user's.
+ */
+describe('startup files', () => {
+  let kernel: Kernel
+
+  beforeAll(async () => {
+    kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+  })
+
+  const shell = () => kernel.shell
+  const fs = () => kernel.filesystem.fs
+
+  const FILES = ['/etc/profile', '/etc/ecmashrc', '/root/.profile', '/root/.ecmash_profile', '/root/.ecmashrc']
+
+  beforeEach(async () => {
+    // The kernel's shell is long-lived and shared across this file, so anything a previous test left
+    // behind would show up here as a pass.
+    shell().aliases.clear()
+    shell().functions.clear()
+    for (const [signal] of shell().listTraps()) shell().setTrap(undefined, signal)
+    for (const file of FILES) {
+      try { await fs().unlink(file) } catch {}
+    }
+  })
+
+  const write = (file: string, text: string) => fs().writeFile(file, text)
+
+  it('runs /etc/profile and ~/.ecmashrc, in that order, and keeps what they define', async () => {
+    await write('/etc/profile', 'STARTUP_ORDER=profile\nexport FROM_PROFILE=yes\n')
+    await write('/root/.ecmashrc', "STARTUP_ORDER=$STARTUP_ORDER:rc\nalias hi='echo hello'\ngreet() { echo greeted; }\n")
+
+    await shell().loadProfile()
+
+    expect(shell().env.get('STARTUP_ORDER')).toBe('profile:rc')
+    expect(shell().env.get('FROM_PROFILE')).toBe('yes')
+    expect(shell().aliases.get('hi')).toBe('echo hello')
+    expect(shell().functions.has('greet')).toBe(true)
+  })
+
+  it('reads only the first of ~/.ecmash_profile and ~/.profile', async () => {
+    await write('/root/.ecmash_profile', 'WHICH_PROFILE=ecmash\n')
+    await write('/root/.profile', 'WHICH_PROFILE=posix\n')
+
+    await shell().loadProfile()
+
+    expect(shell().env.get('WHICH_PROFILE')).toBe('ecmash')
+  })
+
+  it('falls back to ~/.profile when ~/.ecmash_profile is absent', async () => {
+    await write('/root/.profile', 'WHICH_PROFILE=posix\n')
+
+    await shell().loadProfile()
+
+    expect(shell().env.get('WHICH_PROFILE')).toBe('posix')
+  })
+
+  it('does not fire the EXIT trap, so a trap set at startup survives for the session', async () => {
+    const OUT = '/tmp/startup-trap.out'
+    try { await fs().unlink(OUT) } catch {}
+    await write('/root/.ecmashrc', `trap 'echo left >> ${OUT}' EXIT\n`)
+
+    await shell().loadProfile()
+
+    expect(await fs().exists(OUT)).toBe(false)
+    expect(shell().getTrap('EXIT')).toBe(`echo left >> ${OUT}`)
+  })
+
+  it('carries on when one startup file fails', async () => {
+    await write('/etc/profile', 'this-command-does-not-exist\n')
+    await write('/root/.ecmashrc', 'AFTER_FAILURE=reached\n')
+
+    await shell().loadProfile()
+
+    expect(shell().env.get('AFTER_FAILURE')).toBe('reached')
+  })
+
+  /**
+   * `parseEnvFile` dropped a bare `FOO=`, so an env file could not clear an inherited variable: the
+   * line looked malformed to it rather than like the empty-string assignment it is.
+   */
+  it('assigns the empty string for a bare FOO= in an env file', () => {
+    expect(shell().parseEnvFile('EMPTY=\nSET=value\n')).toEqual({ EMPTY: '', SET: 'value' })
+    expect(shell().parseEnvFile('\n# a comment\nA=1\n')).toEqual({ A: '1' })
+  })
+
+  /**
+   * A login shell starts in `$HOME`. The cwd used to be restored from `localStorage`, which made `cd`
+   * a persistent setting no real shell has, and could never have worked in a worker.
+   */
+  it('starts in $HOME rather than / or a remembered directory', () => {
+    expect(shell().env.get('HOME')).toBe('/root')
+    expect(shell().cwd).toBe('/root')
+    expect(shell().env.get('PWD')).toBe('/root')
+  })
+})

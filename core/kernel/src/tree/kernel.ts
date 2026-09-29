@@ -301,8 +301,6 @@ export class Kernel implements IKernel {
       execute: options => this.execute({ ...options, kernel: this }),
       filesystem: this.filesystem,
       users: this.users,
-      uid: 0,
-      gid: 0,
       tty: 0,
       // KERNEL_NAME/KERNEL_VERSION/HOSTNAME: build-time constants a real execve'd worker process
       // has no other way to see (no `kernel` reference, no `window`) -- threaded through env the same
@@ -817,10 +815,6 @@ export class Kernel implements IKernel {
         egid: user.gid,
         groups: user.groups
       }
-
-      this.shell.cwd = localStorage.getItem(`cwd:${this.shell.credentials.uid}`) ?? (
-        user.uid === 0 ? '/' : (user.home || '/')
-      )
 
       this.registerScreensavers()
 
@@ -2452,7 +2446,9 @@ export class Kernel implements IKernel {
       shell.env.set('USER', user.username)
       shell.env.set('HOSTNAME', globalThis.location.hostname || 'localhost')
       shell.publishEnv()
+      shell.cwd = shell.env.get('HOME') || '/'
       await shell.loadEnvFile()
+      await shell.loadProfile()
       await shell.loadConfig()
       this.updateLocaleFromEnv()
       return
@@ -2566,8 +2562,6 @@ export class Kernel implements IKernel {
 
         shell.credentials = userCred.cred
         shell.context = bindContext({ root: '/', pwd: '/', credentials: userCred.cred })
-        await shell.loadEnvFile()
-        await shell.loadConfig()
         shell.env.set('UID', userCred.user.uid.toString())
         shell.env.set('GID', userCred.user.gid.toString())
         shell.env.set('SUID', userCred.cred.suid.toString())
@@ -2578,6 +2572,21 @@ export class Kernel implements IKernel {
         shell.env.set('HOME', userCred.user.home || '/root')
         shell.env.set('USER', userCred.user.username)
         shell.publishEnv()
+
+        // A login shell starts in `$HOME`, as on Linux. The cwd used to be restored from
+        // `localStorage`, which meant a fresh login landed wherever that user last happened to be
+        // and made `cd` a persistent setting no real shell has. It also could not survive the move
+        // to a worker, where `localStorage` does not exist. It is set before the startup files so a
+        // `cd` in `~/.ecmashrc` is the one that wins.
+        shell.cwd = shell.env.get('HOME') || '/'
+
+        // After `HOME` is set, not before. `loadEnvFile` reads `~/.env` from `$HOME`, so running it
+        // ahead of these assignments read the *previous* user's home -- on a fresh boot the default
+        // `/root`, and after a `su`-style relogin the last user's. `~/.ecmashrc` has the same
+        // dependency, so both hooks belong here.
+        await shell.loadEnvFile()
+        await shell.loadProfile()
+        await shell.loadConfig()
 
         const langEnv = shell.env.get('LANG')
         if (langEnv) {
@@ -2653,8 +2662,6 @@ export class Kernel implements IKernel {
       execute: options => this.execute({ ...options, kernel: this }),
       filesystem: this.filesystem,
       users: this.users,
-      uid: 0,
-      gid: 0,
       tty: ttyNumber,
       terminal,
       env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
@@ -2681,10 +2688,6 @@ export class Kernel implements IKernel {
       egid: user.gid,
       groups: user.groups
     }
-
-    shell.cwd = localStorage.getItem(`cwd:${shell.credentials.uid}`) ?? (
-      user.uid === 0 ? '/' : (user.home || '/')
-    )
 
     const motd = await this.filesystem.fs.exists('/etc/motd')
       ? await this.filesystem.fs.readFile('/etc/motd', 'utf-8')

@@ -130,7 +130,7 @@ const SOCKET_SERVER = `(module
   (import "env" "__syscall_openat" (func $openat (param i32 i32 i32 i32) (result i32)))
   (memory (export "memory") 2)
   (data (i32.const 200) "\\02\\00\\23\\28\\00\\00\\00\\00")
-  (data (i32.const 300) "tmp/socket-ready")
+  (data (i32.const 300) "/tmp/socket-ready")
   (data (i32.const 2000) "pong\\n")
   (func (export "_start") (local $sfd i32) (local $cfd i32)
     (local.set $sfd (call $socket (i32.const 2) (i32.const 1) (i32.const 0)))

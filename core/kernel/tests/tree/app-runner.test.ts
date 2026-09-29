@@ -86,7 +86,8 @@ describe('app runner: worker-hosted @ecmaos-apps programs', () => {
     }`)
     kernel.shell.env.set('FOO', 'bar')
     const { out, err } = await run('/tmp/ids')
-    expect(out).toBe('OUT 0 0 true /\n')
+    // `/root`, not `/`: a login shell starts in `$HOME` now rather than restoring a persisted cwd.
+    expect(out).toBe('OUT 0 0 true /root\n')
     expect(err).toBe('ERR bar bar\n')
   })
 

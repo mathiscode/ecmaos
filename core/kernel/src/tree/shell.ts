@@ -902,7 +902,7 @@ export class Shell implements IShell {
     globalThis.shells?.set(this.id, this)
 
     this._tty = options.tty ?? 0
-    this._cwd = options.cwd || localStorage.getItem(`cwd:${this.credentials.uid}`) || DefaultShellOptions.cwd
+    this._cwd = options.cwd || DefaultShellOptions.cwd
     this._env = new Map([...Object.entries(DefaultShellOptions.env), ...Object.entries(options.env)])
     this._ctx = options.context
     this._createPipeStream = options.createPipeStream
@@ -960,6 +960,59 @@ export class Shell implements IShell {
   }
 
   /**
+   * Runs the shell startup files, in bash's order: the system-wide ones first, then the user's, so a
+   * user file can override what the system set.
+   *
+   * Two things this deliberately does not do. It does not go through `executeScriptText`, which fires
+   * the `EXIT` trap when the text ends -- an rc file that installs a trap wants it to survive for the
+   * session, not to run immediately. And it does not stop when one file fails: a broken `~/.ecmashrc`
+   * should not cost you a shell, which is why each file is guarded on its own.
+   *
+   * Login files (`profile`) and per-shell files (`ecmashrc`) run together here because every shell in
+   * ecmaOS is a login shell today: each virtual console authenticates, and nothing nests shells yet.
+   * When `/bin/ecmash` can run inside another shell, the `profile` half becomes conditional on
+   * `argv[0]` starting with a `-` and only the `ecmashrc` half stays unconditional.
+   */
+  async loadProfile() {
+    const home = this._env.get('HOME')
+    const candidates = ['/etc/profile']
+
+    // bash reads the *first* of these three that exists, not all of them, so that a `~/.bash_profile`
+    // can suppress `~/.profile` rather than adding to it.
+    if (home) {
+      for (const name of ['.ecmash_profile', '.profile']) {
+        const candidate = path.join(home, name)
+        try {
+          if (await this.context.fs.promises.exists(candidate)) {
+            candidates.push(candidate)
+            break
+          }
+        } catch {}
+      }
+    }
+
+    candidates.push('/etc/ecmashrc')
+    if (home) candidates.push(path.join(home, '.ecmashrc'))
+
+    for (const file of candidates) {
+      try {
+        if (!await this.context.fs.promises.exists(file)) continue
+        const content = await this.context.fs.promises.readFile(file, 'utf-8')
+        await this.executeSourced(content)
+      } catch (error) {
+        // `exit` in a startup file stops startup, as in bash -- there is no process to end here, so
+        // the remaining files are skipped and the prompt is reached anyway.
+        if (error instanceof ExitSignal) break
+        try {
+          this.terminal?.writeln(`ecmash: ${file}: ${(error as Error).message}`)
+        } catch {}
+      }
+    }
+
+    this.publishEnv()
+  }
+
+  /**
    * Loads shell configuration from config files and applies to terminal
    */
   async loadConfig() {
@@ -982,8 +1035,11 @@ export class Shell implements IShell {
       const match = trimmed.match(/^([^=#\s]+)=(.*)$/)
       if (match) {
         const [, key, value] = match
-        if (!key || !value) continue
-        let parsedValue = value.trim()
+        // `value` is `''` for a bare `FOO=`, which is a real assignment of the empty string, not a
+        // malformed line: the old `!value` guard dropped it, so a file could not clear an inherited
+        // variable. Only a missing key is a reason to skip.
+        if (!key) continue
+        let parsedValue = (value ?? '').trim()
 
         if ((parsedValue.startsWith('"') && parsedValue.endsWith('"')) ||
             (parsedValue.startsWith("'") && parsedValue.endsWith("'")))

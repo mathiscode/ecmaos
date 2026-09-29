@@ -118,10 +118,6 @@ export interface ShellOptions {
   users: Users
   /** Reference to terminal instance */
   terminal?: Terminal
-  /** User ID */
-  uid: number
-  /** Group ID */
-  gid: number
 }
 
 /**

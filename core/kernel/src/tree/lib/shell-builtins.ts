@@ -70,7 +70,6 @@ async function runCd(shell: Shell, argv: string[], io: Io): Promise<number> {
   try {
     await shell.context.fs.promises.access(fullPath)
     shell.cwd = fullPath
-    localStorage.setItem(`cwd:${shell.credentials.uid}`, fullPath)
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
