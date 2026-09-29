@@ -17,10 +17,10 @@ import type {
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
-import { parseScript, stripComments, tokenize, tokenizeConditional } from '#lib/shell-parser.ts'
-import type { Command as ParsedCommand, Pipeline, Redirection, Script, WordPart } from '#lib/shell-parser.ts'
+import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '#lib/shell-parser.ts'
+import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, WordPart } from '#lib/shell-parser.ts'
 import { parseStatements } from '#lib/control-flow-parser.ts'
-import type { CaseStatement, ForStatement, IfStatement, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
+import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
 import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
 import { runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
@@ -73,6 +73,131 @@ function findTopLevelOperatorIndex(text: string): number {
 function tokenizeSingleWord(text: string): WordPart[] {
   const tokens = tokenize(text)
   return tokens.length === 1 && tokens[0]?.kind === 'word' ? (tokens[0].parts ?? []) : [{ text, quoting: 'unquoted' }]
+}
+
+/**
+ * Whether word `index` of `words` is a `NAME=VALUE` assignment rather than a command word.
+ *
+ * POSIX: a leading word is an assignment only while it has the shape `NAME=`, with the `=` itself
+ * unquoted -- `"X=1" cmd` runs a command literally named `X=1`, it does not assign anything. The
+ * first word that isn't an assignment is the command name, which is why `X=a b` runs `b` rather
+ * than assigning the two words `a b`.
+ */
+function isAssignmentWord(words: string[], wordParts: WordPart[][], index: number): boolean {
+  const text = words[index]
+  const parts = wordParts[index]
+  if (!text || !parts || parts.length === 0) return false
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(text)
+  if (!match) return false
+  // The name and its `=` have to live entirely inside the word's first part, and that part has to
+  // be unquoted, or the `=` came from quoted text and this is an ordinary word.
+  const first = parts[0] as WordPart
+  return first.quoting === 'unquoted' && first.text.length >= (match[0] as string).length
+}
+
+/** How many of `command`'s leading words are `NAME=VALUE` assignment prefixes. */
+function assignmentPrefixLength(words: string[], wordParts: WordPart[][]): number {
+  let n = 0
+  while (n < words.length && isAssignmentWord(words, wordParts, n)) n++
+  // A line that is nothing but assignments is a plain assignment, not a prefixed command.
+  return n === words.length ? 0 : n
+}
+
+/**
+ * Lifts every command's leading `NAME=VALUE` words out of a pipeline, returning the commands with
+ * those words removed alongside the assignments they stood for.
+ *
+ * The value keeps its `WordPart[]` rather than being re-parsed from text, so quoting still decides
+ * what expands: `X='$HOME' cmd` passes the literal `$HOME` and `X="$HOME" cmd` passes the path.
+ */
+function stripAssignmentPrefixes(
+  commands: readonly ParsedCommand[]
+): { commands: readonly ParsedCommand[], prefixes: Array<{ name: string, parts: WordPart[] }> } {
+  const prefixes: Array<{ name: string, parts: WordPart[] }> = []
+  const stripped = commands.map(command => {
+    const n = assignmentPrefixLength(command.words, command.wordParts)
+    if (n === 0) return command
+
+    for (let k = 0; k < n; k++) {
+      const text = command.words[k] as string
+      const parts = command.wordParts[k] as WordPart[]
+      const first = parts[0] as WordPart
+      const eq = text.indexOf('=')
+      prefixes.push({
+        name: text.slice(0, eq),
+        // `isAssignmentWord` guarantees `NAME=` sits entirely inside part 0, so the value is that
+        // part past the `=` plus every later part untouched.
+        parts: [{ ...first, text: first.text.slice(eq + 1) }, ...parts.slice(1)]
+      })
+    }
+
+    return {
+      ...command,
+      words: command.words.slice(n),
+      wordsQuoted: command.wordsQuoted.slice(n),
+      wordParts: command.wordParts.slice(n)
+    }
+  })
+
+  return { commands: stripped, prefixes }
+}
+
+/**
+ * A line-oriented, *shared* view of one input stream.
+ *
+ * The point is that the buffer outlives a single read. `while read -r line; do ...; done < f` opens
+ * `f` once and every `read` in the body advances through the same source, so a chunk that happened
+ * to span a line boundary is not lost between iterations. A fresh reader per `read` would drop it.
+ *
+ * Only builtins read it. See `runPipelineStages` for why a real command in the same statement
+ * cannot be handed this source.
+ */
+class StdinSource {
+  private pending = ''
+  private eof = false
+  private reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+
+  constructor(private readonly stream: ReadableStream<Uint8Array>) {}
+
+  /** Appends one more chunk to the buffer. False once the stream is exhausted. */
+  private async fill(): Promise<boolean> {
+    if (this.eof) return false
+    this.reader ??= this.stream.getReader()
+    const { done, value } = await this.reader.read()
+    if (done) { this.eof = true; return false }
+    this.pending += new TextDecoder().decode(value)
+    return true
+  }
+
+  /** The next line without its newline, or `undefined` at EOF. */
+  async readLine(): Promise<string | undefined> {
+    for (;;) {
+      const newline = this.pending.indexOf('\n')
+      if (newline !== -1) {
+        const line = this.pending.slice(0, newline)
+        this.pending = this.pending.slice(newline + 1)
+        return line
+      }
+      if (!await this.fill()) {
+        // A final line with no trailing newline is still a line; an empty tail is EOF.
+        if (this.pending === '') return undefined
+        const line = this.pending
+        this.pending = ''
+        return line
+      }
+    }
+  }
+
+  async readAll(): Promise<string> {
+    while (await this.fill()) { /* drain */ }
+    const text = this.pending
+    this.pending = ''
+    return text
+  }
+
+  async close(): Promise<void> {
+    try { await this.reader?.cancel() } catch { this.reader?.releaseLock() }
+  }
 }
 
 /** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
@@ -144,6 +269,15 @@ export class Shell implements IShell {
    * `_env` on read, and `local NAME=VALUE` writes only ever touch the top frame. Empty outside a
    * function call, so top-level `env.get`/`env.set` behavior is completely unchanged by this.
    */
+  /**
+   * Inputs opened by a redirected compound statement (`while ...; done < f`), innermost last.
+   *
+   * The top of this stack is what `read` and a first-stage command read from when they have no
+   * redirection of their own, instead of the terminal. Held as a stack so nested loops each read
+   * from their own input and restore the outer one on the way out.
+   */
+  private _stdinSources: StdinSource[] = []
+
   private _localScopes: Map<string, string>[] = []
   /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
   private _shellOptions = { errexit: false, nounset: false, pipefail: false }
@@ -259,7 +393,7 @@ export class Shell implements IShell {
    * `lookup` is bound to everywhere a word is expanded, so `local`-declared variables shadow outer
    * ones exactly where a real shell would.
    */
-  private lookupVariable(name: string): string | undefined {
+  lookupVariable(name: string): string | undefined {
     for (let i = this._localScopes.length - 1; i >= 0; i--) {
       const frame = this._localScopes[i] as Map<string, string>
       if (frame.has(name)) return frame.get(name)
@@ -1018,6 +1152,45 @@ export class Shell implements IShell {
    * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
   private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
+    const { commands, prefixes } = stripAssignmentPrefixes(pipeline.commands)
+    if (prefixes.length === 0) return await this.runPipelineStages(pipeline, commands, job)
+
+    const restore = await this.applyAssignmentPrefixes(prefixes)
+    try {
+      return await this.runPipelineStages(pipeline, commands, job)
+    } finally {
+      restore()
+    }
+  }
+
+  /**
+   * Applies a pipeline's `NAME=VALUE` prefix assignments, returning a function that puts the
+   * previous values back.
+   *
+   * Applied before any of the pipeline's words are expanded, because `IFS=: cmd $x` has to split
+   * `$x` by the new IFS, and expanded left to right so `A=1 B=$A cmd` sees `A`.
+   *
+   * Written through `env` rather than `setVariable` so the values reach a spawned process, which
+   * takes its environment from `envObject` -- the same thing the `env` builtin already does.
+   *
+   * Known limit: every stage's prefixes are applied around the whole pipeline rather than per stage,
+   * because the stages start concurrently and share one `env`. `IFS=: a | IFS=, b` is therefore
+   * approximate; a single command, which is what `IFS= read` needs, is exact.
+   */
+  private async applyAssignmentPrefixes(entries: Array<{ name: string, parts: WordPart[] }>): Promise<() => void> {
+    const saved = entries.map(({ name }) => ({ name, had: this.env.has(name), previous: this.env.get(name) }))
+    for (const { name, parts } of entries) {
+      this.env.set(name, await expandWordString(parts, this.expansionContext()))
+    }
+    return () => {
+      for (const { name, had, previous } of saved) {
+        if (had) this.env.set(name, previous as string)
+        else this.env.delete(name)
+      }
+    }
+  }
+
+  private async runPipelineStages(pipeline: Pipeline, commands: readonly ParsedCommand[], job?: JobImpl): Promise<number[]> {
     /**
      * A stage is either a real command to hand `Kernel.execute`, or a true builtin to run in this
      * shell's own tick. Both get an identically-wired set of fds, which is what lets `jobs > f` and
@@ -1025,7 +1198,13 @@ export class Shell implements IShell {
      */
     type Stage = {
       args: string[]
-      stdin: ReadableStream<Uint8Array>
+      stdin: ReadableStream<Uint8Array> | undefined
+      /**
+       * Set when this stage's stdin is a redirected compound statement's shared input. A builtin
+       * reads it directly: wrapping `asStream()` in a second buffer swallowed the lines that came in
+       * the same chunk, so `while read -r line; done < f` only ever saw the first one.
+       */
+      stdinSource: StdinSource | undefined
       stdinIsTTY: boolean
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
@@ -1036,10 +1215,10 @@ export class Shell implements IShell {
 
     let prevReadable: ReadableStream<Uint8Array> | undefined
 
-    for (let i = 0; i < pipeline.commands.length; i++) {
-      const command = pipeline.commands[i] as ParsedCommand
+    for (let i = 0; i < commands.length; i++) {
+      const command = commands[i] as ParsedCommand
       const isFirstCommand = i === 0
-      const isLastCommand = i === pipeline.commands.length - 1
+      const isLastCommand = i === commands.length - 1
 
       // Builtins keep their own quote-aware/array-aware expansion (`expandCommandArgs`) and must
       // not go through `prepareCommand`, which resolves a `$PATH` file that will never exist for
@@ -1050,30 +1229,35 @@ export class Shell implements IShell {
         : await this.prepareCommand(command)
       const args = resolved.args
 
-      let stdin: ReadableStream<Uint8Array>
+      let stdin: ReadableStream<Uint8Array> | undefined
+      let stdinSource: StdinSource | undefined
       let stdinIsTTY = false
       // Applies to *any* stage, not only the first -- `a | b < f` redirects b's stdin, discarding
       // whatever a's stdout would have fed it, exactly like a real shell.
       const inputRedirect = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
-      if (inputRedirect?.type === '<<') {
-        const heredoc = inputRedirect.heredoc as { body: string, expand: boolean }
-        const body = heredoc.expand ? await expandHeredocBody(heredoc.body, this.expansionContext()) : heredoc.body
-        stdin = new ReadableStream({ start: (controller) => { controller.enqueue(new TextEncoder().encode(body)); controller.close() } })
-      } else if (inputRedirect?.type === '<<<') {
-        const parts = inputRedirect.targetParts ?? [{ text: inputRedirect.target, quoting: 'unquoted' as const }]
-        const text = await expandWordString(parts, this.expansionContext())
-        stdin = new ReadableStream({ start: (controller) => { controller.enqueue(new TextEncoder().encode(text + '\n')); controller.close() } })
-      } else if (inputRedirect) {
-        const targetParts = inputRedirect.targetParts ?? [{ text: inputRedirect.target, quoting: 'unquoted' as const }]
-        const target = await expandWordString(targetParts, this.expansionContext())
-        const sourcePath = path.resolve(this.cwd, target)
-        if (!await this.context.fs.promises.exists(sourcePath)) {
-          throw new Error(`File not found: ${sourcePath}`)
-        }
-        stdin = this.createFileReadStream(sourcePath, this.env, this._filesystem)
+      if (inputRedirect) {
+        stdin = await this.buildInputStream(inputRedirect)
       } else if (isFirstCommand) {
-        stdin = this._terminal.getInputStream()
-        stdinIsTTY = true
+        // A redirected compound statement's input wins over the keyboard, and is shared rather than
+        // reopened, so `while read a; do cat; done < f` hands `cat` what the loop has not read.
+        const source = this.currentStdin
+        if (source) {
+          // Only a builtin gets the shared source, because it reads on demand, one line per call.
+          //
+          // A real command cannot have it: `Kernel.bridgeStdio` pumps a stage's stdin as fast as the
+          // stream yields rather than as the process reads, so handing it over would drain the whole
+          // input on the first `echo` in a loop body and starve every later `read`. It gets an
+          // immediately-closed stream instead, so it sees EOF rather than the keyboard.
+          //
+          // Known divergence: `while read a; do cat; done < f` therefore gives `cat` nothing, where
+          // bash gives it the rest of `f`. Making that work needs a stdin bridge driven by the
+          // process's own reads.
+          stdinSource = builtinName ? source : undefined
+          stdin = builtinName ? undefined : new ReadableStream({ start: controller => controller.close() })
+        } else {
+          stdin = this._terminal.getInputStream()
+          stdinIsTTY = true
+        }
       } else {
         if (!prevReadable) throw new Error('Pipeline error: missing previous stream')
         stdin = prevReadable
@@ -1088,17 +1272,17 @@ export class Shell implements IShell {
 
       const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
       const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
-      const fds = { args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }
+      const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, stderr }
       stages.push(builtinName
         ? { kind: 'builtin', name: builtinName, ...fds }
         : { kind: 'command', finalCommand: resolved.finalCommand as string, ...fds })
     }
 
     const results = await Promise.all(stages.map(async stage => {
-      const { args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr } = stage
+      const { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, stderr } = stage
 
       if (stage.kind === 'builtin') {
-        const io = this.streamBuiltinIO(stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
+        const io = this.streamBuiltinIO(stdinSource ?? stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
         try {
           return await runTrueBuiltin(this, stage.name, args, io)
         } finally {
@@ -1329,6 +1513,33 @@ export class Shell implements IShell {
    * assignment always "succeeds" (exit 0) unless expansion itself throws, so `;`/`&&` both continue
    * into the remainder and `||` skips it, matching how a real shell treats a successful command.
    */
+  /**
+   * Whether `line` is `NAME=VALUE... command args` rather than a plain assignment: after its run of
+   * leading assignment words, a command word remains.
+   *
+   * Only the words before the first operator or redirection are considered, so `X=1; cmd` stays a
+   * plain assignment while `X=1 cmd` does not.
+   */
+  private hasAssignmentPrefix(line: string): boolean {
+    let tokens: Token[]
+    try {
+      tokens = tokenize(line)
+    } catch {
+      // Unparseable here is not this method's problem to report; let the normal path raise it.
+      return false
+    }
+
+    const words: string[] = []
+    const parts: WordPart[][] = []
+    for (const token of tokens) {
+      if (token.kind !== 'word') break
+      words.push(token.value)
+      parts.push(token.parts ?? [])
+    }
+
+    return assignmentPrefixLength(words, parts) > 0
+  }
+
   private async tryExecuteAssignment(line: string): Promise<number | undefined> {
     // Array forms: `a=(x y)`, `a+=(z)`, `a[i]=v`. Checked before the plain scalar match below,
     // since `a[i]=v` would otherwise fail the scalar regex and fall through unhandled, and
@@ -1363,6 +1574,12 @@ export class Shell implements IShell {
 
     const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)
     if (!match) return undefined
+
+    // `NAME=VALUE... command args` is a command carrying prefix assignments, not an assignment, so
+    // it belongs to `parseScript`/`runPipeline` (which scopes those assignments to that pipeline and
+    // gets `;`/`&&`/`||` semantics for free). Without this, `findTopLevelOperatorIndex` finds no
+    // operator in `IFS= read -r line` and stores the whole `read -r line` as IFS's value.
+    if (this.hasAssignmentPrefix(line)) return undefined
 
     const name = match[0].slice(0, -1)
     const rest = line.slice(match[0].length)
@@ -1618,23 +1835,25 @@ export class Shell implements IShell {
           break
         }
 
+        // The four compound statements can carry a redirection on their closing keyword
+        // (`done < f`), which opens one input for the whole statement -- see `withStatementStdin`.
         case 'if': {
-          lastExit = await this.executeIf(statement)
+          lastExit = await this.withStatementStdin(statement, () => this.executeIf(statement))
           break
         }
 
         case 'while': {
-          lastExit = await this.executeWhile(statement)
+          lastExit = await this.withStatementStdin(statement, () => this.executeWhile(statement))
           break
         }
 
         case 'for': {
-          lastExit = await this.executeFor(statement)
+          lastExit = await this.withStatementStdin(statement, () => this.executeFor(statement))
           break
         }
 
         case 'case': {
-          lastExit = await this.executeCase(statement)
+          lastExit = await this.withStatementStdin(statement, () => this.executeCase(statement))
           break
         }
       }
@@ -1643,6 +1862,21 @@ export class Shell implements IShell {
     }
 
     return lastExit
+  }
+
+  /**
+   * Runs a compound statement with its trailing redirection (`while ...; done < f`) in effect, so
+   * every `read` in the body advances through one open input rather than reopening it per iteration.
+   * Statements without one call straight through and allocate nothing.
+   */
+  private async withStatementStdin(statement: Redirected, run: () => Promise<number>): Promise<number> {
+    const pop = await this.pushStatementStdin(statement.redirect)
+    if (!pop) return await run()
+    try {
+      return await run()
+    } finally {
+      await pop()
+    }
   }
 
   private async executeIf(statement: IfStatement): Promise<number> {
@@ -1733,7 +1967,13 @@ export class Shell implements IShell {
         try {
           while (true) {
             const { bytesRead } = await fileHandle.read(buffer, 0, chunkSize)
-            if (bytesRead === 0) break
+            // Anything that isn't a positive count is EOF, not a short read to retry.
+            //
+            // Does NOT rescue `cmd < /dev/null`, which still hangs: `/dev/null`'s driver op is
+            // literally `read() { }` (`@zenfs/linux`, `drivers/char/mem.js`), and the layer above it
+            // reports a full buffer rather than 0, so this loop never sees the end. Reading any
+            // `/dev/*` node is Phase 4 work and the driver itself needs an upstream fix.
+            if (typeof bytesRead !== 'number' || !(bytesRead > 0)) break
             controller.enqueue(buffer.slice(0, bytesRead))
           }
         } finally {
@@ -1774,17 +2014,79 @@ export class Shell implements IShell {
    * `readLine` goes through `terminal.readline()`, which is the editor already used for login and
    * password prompts, so an interactive `read` gets echo and line editing for free.
    */
+  /**
+   * The input a redirected compound statement opened, if one is active. `read` and a pipeline's
+   * first stage prefer it over the terminal when they have no redirection of their own, which is
+   * what carries one open file across every iteration of `while ...; done < f`.
+   */
+  private get currentStdin(): StdinSource | undefined {
+    return this._stdinSources[this._stdinSources.length - 1]
+  }
+
+  /**
+   * The stream behind one input redirection: a heredoc body, a here-string, or a real file. Shared by
+   * a pipeline stage's `< f` and a compound statement's trailing `done < f`.
+   */
+  private async buildInputStream(redirection: Redirection): Promise<ReadableStream<Uint8Array>> {
+    const literal = (text: string): ReadableStream<Uint8Array> => new ReadableStream({
+      start: controller => { controller.enqueue(new TextEncoder().encode(text)); controller.close() }
+    })
+
+    if (redirection.type === '<<') {
+      const heredoc = redirection.heredoc as { body: string, expand: boolean }
+      return literal(heredoc.expand ? await expandHeredocBody(heredoc.body, this.expansionContext()) : heredoc.body)
+    }
+
+    const parts = redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' as const }]
+    const target = await expandWordString(parts, this.expansionContext())
+
+    if (redirection.type === '<<<') return literal(target + '\n')
+
+    const sourcePath = path.resolve(this.cwd, target)
+    if (!await this.context.fs.promises.exists(sourcePath)) throw new Error(`File not found: ${sourcePath}`)
+    return this.createFileReadStream(sourcePath, this.env, this._filesystem)
+  }
+
+  /**
+   * Opens a compound statement's trailing redirection (`done < f`) and pushes it, returning a
+   * function that pops and closes it. `undefined` when the statement has no redirection, so the
+   * common case allocates nothing.
+   */
+  private async pushStatementStdin(redirect: string | undefined): Promise<(() => Promise<void>) | undefined> {
+    if (!redirect) return undefined
+
+    const redirections = parseRedirections(redirect)
+    const input = redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    if (!input) return undefined
+
+    const source = new StdinSource(await this.buildInputStream(input))
+    this._stdinSources.push(source)
+    return async () => {
+      this._stdinSources.pop()
+      await source.close()
+    }
+  }
+
   private terminalBuiltinIO(): ShellBuiltinIO {
+    const kernelShell = this
     const terminal = this._terminal
     return {
       stdoutIsTTY: true,
-      stdinIsTTY: true,
+      get stdinIsTTY() { return kernelShell.currentStdin === undefined },
       write: async (text: string) => { terminal.write(text) },
       writeln: async (text: string) => { terminal.writeln(text) },
       writeErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m`) },
       writelnErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m\r\n`) },
-      readLine: async (prompt?: string) => await terminal.readline(prompt ?? '', false, true),
-      readAll: async () => await terminal.readline('', false, true),
+      readLine: async (options?: { prompt?: string, silent?: boolean }) => {
+        const source = this.currentStdin
+        if (source) return await source.readLine()
+        return await terminal.readline(options?.prompt ?? '', options?.silent ?? false, true)
+      },
+      readAll: async () => {
+        const source = this.currentStdin
+        if (source) return await source.readAll()
+        return await terminal.readline('', false, true)
+      },
       close: async () => {}
     }
   }
@@ -1796,7 +2098,7 @@ export class Shell implements IShell {
    * and `close()` releases whatever was acquired exactly once.
    */
   private streamBuiltinIO(
-    stdin: ReadableStream<Uint8Array> | undefined,
+    stdin: ReadableStream<Uint8Array> | StdinSource | undefined,
     stdinIsTTY: boolean,
     stdout: WritableStream<Uint8Array>,
     stdoutIsTTY: boolean,
@@ -1805,10 +2107,8 @@ export class Shell implements IShell {
     const encoder = new TextEncoder()
     let outWriter: WritableStreamDefaultWriter<Uint8Array> | undefined
     let errWriter: WritableStreamDefaultWriter<Uint8Array> | undefined
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-    // Bytes pulled from `stdin` that belong to the line after the one `readLine` just returned.
-    let pending = ''
-    let eof = false
+    // An already-shared source is used as-is; only a raw stream gets a buffer of its own.
+    const source = stdin instanceof StdinSource ? stdin : stdin ? new StdinSource(stdin) : undefined
 
     const out = async (text: string) => {
       outWriter ??= stdout.getWriter()
@@ -1818,14 +2118,6 @@ export class Shell implements IShell {
       errWriter ??= stderr.getWriter()
       await errWriter.write(encoder.encode(text))
     }
-    const pull = async (): Promise<boolean> => {
-      if (eof || !stdin) return false
-      reader ??= stdin.getReader()
-      const { done, value } = await reader.read()
-      if (done) { eof = true; return false }
-      pending += new TextDecoder().decode(value)
-      return true
-    }
 
     return {
       stdoutIsTTY,
@@ -1834,35 +2126,13 @@ export class Shell implements IShell {
       writeln: async (text: string) => await out(text + '\n'),
       writeErr: err,
       writelnErr: async (text: string) => await err(text + '\n'),
-      readLine: async () => {
-        for (;;) {
-          const newline = pending.indexOf('\n')
-          if (newline !== -1) {
-            const line = pending.slice(0, newline)
-            pending = pending.slice(newline + 1)
-            return line
-          }
-          if (!await pull()) {
-            // A final line with no trailing newline is still a line; a truly empty tail is EOF.
-            if (pending.length === 0) return undefined
-            const line = pending
-            pending = ''
-            return line
-          }
-        }
-      },
-      readAll: async () => {
-        while (await pull()) { /* drain */ }
-        const text = pending
-        pending = ''
-        return text
-      },
+      readLine: async () => await source?.readLine(),
+      readAll: async () => await source?.readAll() ?? '',
       close: async () => {
-        // Releasing rather than closing: the pipe's far end and the terminal are shared, and
-        // `runPipeline` owns their lifetime the same way it does for an execve'd stage.
+        // Releasing rather than closing on failure: the pipe's far end and the terminal are shared,
+        // and `runPipelineStages` owns their lifetime as it does for an execve'd stage.
         try { await outWriter?.close() } catch { outWriter?.releaseLock() }
         try { await errWriter?.close() } catch { errWriter?.releaseLock() }
-        reader?.releaseLock()
       }
     }
   }

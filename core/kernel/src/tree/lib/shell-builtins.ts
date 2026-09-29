@@ -24,9 +24,10 @@ import chalk from 'chalk'
 import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
 import type { ShellBuiltinIO, User } from '@ecmaos/types'
+import { DEFAULT_IFS, splitOnIFS } from '#lib/word-expansion.ts'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
-  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'su', 'trap', 'unset'
+  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'read', 'su', 'trap', 'unset'
 ])
 
 /**
@@ -374,6 +375,143 @@ async function runTrap(shell: Shell, argv: string[], io: Io): Promise<number> {
   return 0
 }
 
+/**
+ * Splits one input line into the fields `read` assigns, honoring `$IFS`.
+ *
+ * Differs from word splitting during expansion in one way that matters: when there are fewer names
+ * than fields, the final name receives *the rest of the line* rather than just the next field, with
+ * its delimiters intact and only leading IFS whitespace trimmed. `read a b <<< "1 2 3"` therefore
+ * puts `1` in `a` and `2 3` in `b`, which is what makes `read` usable for parsing.
+ *
+ * `IFS=` (set but empty) disables splitting entirely, so the line is handed over verbatim -- the
+ * reason `while IFS= read -r line` preserves a line's own leading and trailing whitespace.
+ */
+function readFields(line: string, ifs: string, count: number): string[] {
+  // `IFS=` disables splitting, so the line is handed over byte for byte.
+  if (ifs === '') return [line]
+  // A single name still gets the line with leading and trailing IFS whitespace stripped, which is
+  // why `read -r line` trims but `IFS= read -r line` does not.
+  if (count <= 1) return [trimIFSWhitespace(line, ifs)]
+
+  const { pieces, hard } = splitOnIFS(line, ifs)
+  const fields: string[] = []
+  let consumed = 0
+
+  for (let k = 0; k < pieces.length && fields.length < count - 1; k++) {
+    const piece = pieces[k] as string
+    const boundaryIsHard = k < pieces.length - 1 && (hard[k] as boolean)
+    // Skip the empty piece a run of leading IFS whitespace produces; keep the one a non-whitespace
+    // delimiter produces, since that is a real empty field.
+    if (piece === '' && !boundaryIsHard && fields.length === 0) { consumed = k + 1; continue }
+    if (piece === '' && k === pieces.length - 1) break
+    fields.push(piece)
+    consumed = k + 1
+  }
+
+  // Whatever is left of the original line, located by re-joining the pieces we did not take.
+  const remainderPieces = pieces.slice(consumed)
+  if (remainderPieces.length > 0) {
+    const rest = trimIFSWhitespace(rejoinRemainder(line, pieces, consumed), ifs)
+    if (rest !== '' || fields.length < count) fields.push(rest)
+  }
+
+  while (fields.length < count) fields.push('')
+  return fields.slice(0, count)
+}
+
+/**
+ * The tail of `line` starting at piece `from`, with the original delimiter text between the
+ * remaining pieces preserved. Located by measuring how much of `line` the taken pieces and their
+ * delimiters account for, since the delimiters themselves are not returned by the splitter.
+ */
+function rejoinRemainder(line: string, pieces: string[], from: number): string {
+  if (from === 0) return line
+  let index = 0
+  for (let k = 0; k < from; k++) {
+    index += (pieces[k] as string).length
+    // Step over the delimiter run that followed this piece.
+    while (index < line.length && !line.startsWith(pieces[k + 1] as string, index)) {
+      index++
+      if ((pieces[k + 1] as string) === '') break
+    }
+  }
+  return line.slice(index)
+}
+
+/** Strips IFS whitespace (never IFS non-whitespace) from both ends of `text`. */
+function trimIFSWhitespace(text: string, ifs: string): string {
+  const isTrimmable = (c: string) => (c === ' ' || c === '\t' || c === '\n') && ifs.includes(c)
+  let start = 0
+  let end = text.length
+  while (start < end && isTrimmable(text[start] as string)) start++
+  while (end > start && isTrimmable(text[end - 1] as string)) end--
+  return text.slice(start, end)
+}
+
+async function runRead(shell: Shell, argv: string[], io: Io): Promise<number> {
+  const usage = [
+    'Usage: read [-r] [-s] [-p PROMPT] [NAME...]',
+    'Read one line from standard input and split it into NAMEs using $IFS.',
+    '',
+    '  -r          do not treat backslash as an escape character',
+    '  -s          do not echo input coming from a terminal',
+    '  -p PROMPT   write PROMPT before reading, without a trailing newline',
+    '  --help      display this help and exit',
+    '',
+    'With no NAME, the line is assigned to REPLY. Exits non-zero at end of file.'
+  ].join('\n')
+
+  let raw = false
+  let silent = false
+  let prompt: string | undefined
+  const names: string[] = []
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (arg === '--help' || arg === '-h') { await io.writeln(usage); return 0 }
+    if (arg === '-r') { raw = true; continue }
+    if (arg === '-s') { silent = true; continue }
+    if (arg === '-p') {
+      prompt = argv[++i]
+      if (prompt === undefined) { await io.writelnErr("read: option requires an argument -- 'p'"); return 2 }
+      continue
+    }
+    // `-n`/`-d`/`-t`/`-a` need character-level and timed reads from a terminal, which the current
+    // line-oriented editor cannot do. Rejected rather than silently read as a whole line.
+    if (/^-[ndta]/.test(arg)) { await io.writelnErr(`read: ${arg}: not supported yet`); return 2 }
+    if (arg.startsWith('-') && arg.length > 1) { await io.writelnErr(`read: ${arg}: invalid option`); return 2 }
+    names.push(arg)
+  }
+
+  for (const name of names) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      await io.writelnErr(`read: ${name}: not a valid identifier`)
+      return 1
+    }
+  }
+
+  let line = await io.readLine(prompt !== undefined || silent ? { prompt, silent } : undefined)
+  if (line === undefined) return 1
+
+  if (!raw) {
+    // Without `-r`, a backslash escapes the next character and disappears. Line continuation is not
+    // reachable here: the editor and the stream reader both hand over exactly one line.
+    line = line.replace(/\\(.)/g, '$1')
+  }
+
+  const ifs = shell.lookupVariable('IFS') ?? DEFAULT_IFS
+
+  if (names.length === 0) {
+    // bash assigns REPLY the line unsplit, keeping its whitespace, regardless of $IFS.
+    shell.setVariable('REPLY', line)
+    return 0
+  }
+
+  const fields = readFields(line, ifs, names.length)
+  names.forEach((name, index) => shell.setVariable(name, fields[index] ?? ''))
+  return 0
+}
+
 async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
     await io.writeln('Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
@@ -414,6 +552,7 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'local': return runLocal(shell, argv, io)
     case 'env': return runEnv(shell, argv, io)
     case 'export': return runExport(shell, argv, io)
+    case 'read': return runRead(shell, argv, io)
     case 'su': return runSu(shell, argv, io)
     case 'trap': return runTrap(shell, argv, io)
     case 'unset': return runUnset(shell, argv, io)

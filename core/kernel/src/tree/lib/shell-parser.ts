@@ -398,6 +398,11 @@ class Parser {
     return { type: 'command', words, wordsQuoted, wordParts, redirections, ...(conditional !== undefined ? { conditional } : {}) }
   }
 
+  /** {@link buildRedirection}, reachable from {@link parseRedirections} for a bare redirection run. */
+  redirectionFrom(token: Token, targetToken: Token): Redirection {
+    return this.buildRedirection(token, targetToken)
+  }
+
   private buildRedirection(token: Token, targetToken: Token): Redirection {
     const defaultFd = token.value === '<' || token.value === '<<' || token.value === '<<<' ? 0 : 1
     const fd = token.fd ?? defaultFd
@@ -421,6 +426,33 @@ class Parser {
 export function parseScript(line: string): Script {
   const tokens = tokenize(line)
   return new Parser(tokens).parseScript()
+}
+
+/**
+ * Parses a bare run of redirections, e.g. the `< input.txt` that follows a compound statement's
+ * closing keyword in `while ...; done < input.txt`.
+ *
+ * The statement parser (`control-flow-parser.ts`) deliberately knows nothing about redirections, so
+ * it keeps that text verbatim and hands it here. Returns an empty array for empty text, and throws
+ * `ParseError` for anything that is not purely redirections.
+ */
+export function parseRedirections(text: string): Redirection[] {
+  const trimmed = text.trim()
+  if (trimmed === '') return []
+
+  const tokens = tokenize(trimmed)
+  const redirections: Redirection[] = []
+  const parser = new Parser(tokens)
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] as Token
+    if (token.kind !== 'redirect') throw new ParseError(`Expected a redirection, got: ${token.value}`)
+    const target = tokens[++i]
+    if (!target || target.kind !== 'word') throw new ParseError(`Expected a target after '${token.value}'`)
+    redirections.push(parser.redirectionFrom(token, target))
+  }
+
+  return redirections
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -88,9 +88,10 @@ export interface ShellBuiltinIO {
   writelnErr(text: string): Promise<void>
   /**
    * One line from fd 0 with its trailing newline removed, or `undefined` at EOF. When
-   * {@link stdinIsTTY} it prompts and echoes like `readline`; otherwise it reads bytes.
+   * {@link stdinIsTTY} it prompts and echoes like `readline`; otherwise it reads bytes and both
+   * options are ignored, since there is nobody to prompt and nothing echoing.
    */
-  readLine(prompt?: string): Promise<string | undefined>
+  readLine(options?: { prompt?: string, silent?: boolean }): Promise<string | undefined>
   /** Everything left on fd 0. Empty string when there is no stdin at all. */
   readAll(): Promise<string>
   /** Flushes and releases whatever backs this. Called exactly once, after the builtin returns. */
@@ -193,6 +194,13 @@ export interface Shell {
    * function frame rather than the real environment).
    */
   setVariable(name: string, value: string): void
+
+  /**
+   * Reads `name` the way an expansion does: innermost `local` scope first, then the environment.
+   * Returns `undefined` when it is set nowhere, which is how `$IFS` unset (meaning the default
+   * ` \t\n`) stays distinguishable from `IFS=` (meaning: do not split).
+   */
+  lookupVariable(name: string): string | undefined
 
   /** Declares `name` as local to the current function call. Throws outside a function call. */
   declareLocal(name: string, value?: string): void

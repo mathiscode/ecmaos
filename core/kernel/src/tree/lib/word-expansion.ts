@@ -43,7 +43,67 @@ interface Chunk {
 /** What one `$...` expansion produced: a single value, or (for `$@`/`${a[@]}`) one per element. */
 type Expanded = { values: string[], multi: boolean }
 
-const IFS_WHITESPACE = /[ \t\n]+/
+/** What `$IFS` means when it has never been set. Set-but-empty is a different thing: no splitting. */
+export const DEFAULT_IFS = ' \t\n'
+
+/** The three characters POSIX calls "IFS white space" when they appear in `$IFS`. */
+const isIFSWhitespace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n'
+
+/**
+ * Splits `text` at `$IFS` delimiters, POSIX rules.
+ *
+ * `$IFS` holds two kinds of character and they behave differently, which is the whole reason this
+ * can't be one regex:
+ *
+ * - **IFS whitespace** (space, tab, newline, when present in `$IFS`). A run of it delimits one
+ *   field, and a run at either end of the input delimits nothing at all -- `a  b` is two fields,
+ *   and so is `  a  b  `.
+ * - **IFS non-whitespace** (anything else in `$IFS`, e.g. `:`). *Each* occurrence delimits a field,
+ *   with any adjacent IFS whitespace absorbed into the same delimiter. So `IFS=:` on `a::b` is
+ *   three fields, the middle one empty, and `IFS=' :'` on `a : : b` is the same three.
+ *
+ * Returned as pieces plus one flag per boundary rather than a finished field list, because the
+ * caller splits each expansion result separately and has to know whether an empty piece is a real
+ * empty field (a non-whitespace delimiter produced it) or just an edge effect of whitespace.
+ *
+ * `hard.length` is always `pieces.length - 1`; `hard[k]` describes the boundary between
+ * `pieces[k]` and `pieces[k + 1]`.
+ */
+export function splitOnIFS(text: string, ifs: string): { pieces: string[], hard: boolean[] } {
+  const pieces: string[] = []
+  const hard: boolean[] = []
+  let current = ''
+  let i = 0
+
+  while (i < text.length) {
+    const c = text[i] as string
+    if (!ifs.includes(c)) {
+      current += c
+      i++
+      continue
+    }
+
+    // One delimiter is `ws* [nonws ws*]?`: a whitespace run, optionally with a single
+    // non-whitespace IFS character somewhere in it. A second non-whitespace character starts its
+    // own delimiter, which is what makes `a::b` three fields rather than two.
+    let sawNonWhitespace = false
+    let j = i
+    while (j < text.length && isIFSWhitespace(text[j] as string) && ifs.includes(text[j] as string)) j++
+    if (j < text.length && ifs.includes(text[j] as string) && !isIFSWhitespace(text[j] as string)) {
+      sawNonWhitespace = true
+      j++
+      while (j < text.length && isIFSWhitespace(text[j] as string) && ifs.includes(text[j] as string)) j++
+    }
+
+    pieces.push(current)
+    hard.push(sawNonWhitespace)
+    current = ''
+    i = j
+  }
+
+  pieces.push(current)
+  return { pieces, hard }
+}
 
 function assertName(name: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !/^[0-9@*#?$!-]$/.test(name)) {
@@ -261,24 +321,34 @@ class Expander {
       return [fields.map(chunks => chunks.map(c => c.glob ? c.text : escape(c.text)).join('')).join(' ')]
     }
 
-    // Word splitting: only expansion results that were unquoted.
+    // Word splitting: only expansion results that were unquoted, and only at `$IFS` characters.
+    // `$IFS` unset means the default; set-but-empty means no splitting at all, which is what makes
+    // `while IFS= read -r line` preserve a line's own whitespace.
+    const ifs = options.split ? (this.ctx.lookup('IFS') ?? DEFAULT_IFS) : ''
     const split: Array<{ chunks: Chunk[], keep: boolean }> = []
     for (const [n, chunks] of fields.entries()) {
       let pending: Chunk[] = []
       let pendingKeep = keep[n] as boolean
       for (const chunk of chunks) {
-        if (!options.split || !chunk.split || !IFS_WHITESPACE.test(chunk.text)) {
+        if (!options.split || !chunk.split || ifs === '' || ![...chunk.text].some(c => ifs.includes(c))) {
           pending.push(chunk)
           continue
         }
-        const pieces = chunk.text.split(IFS_WHITESPACE)
+        const { pieces, hard } = splitOnIFS(chunk.text, ifs)
         pieces.forEach((piece, k) => {
           if (k > 0) {
-            if (pending.some(p => p.text !== '') || pendingKeep) split.push({ chunks: pending, keep: pendingKeep })
+            // A boundary holding a non-whitespace IFS character ends a field even when that field
+            // is empty (`IFS=:` on `a::b`); a run of IFS whitespace only ends one with content.
+            if (hard[k - 1] || pending.some(p => p.text !== '') || pendingKeep) {
+              split.push({ chunks: pending, keep: pendingKeep })
+            }
             pending = []
             pendingKeep = false
           }
           if (piece) pending.push({ ...chunk, text: piece })
+          // An empty piece is a real field only between two delimiters, never trailing one:
+          // `IFS=:` makes `a::b` three fields but `a:` just one.
+          else if (k < pieces.length - 1 && hard[k]) pendingKeep = true
         })
       }
       split.push({ chunks: pending, keep: pendingKeep })

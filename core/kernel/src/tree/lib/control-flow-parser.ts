@@ -28,19 +28,31 @@ export interface SimpleStatement {
   line: string
 }
 
-export interface IfStatement {
+/**
+ * The text after a compound statement's closing keyword, e.g. the `< input.txt` in
+ * `while ...; done < input.txt`. Kept verbatim: this parser deliberately knows nothing about
+ * redirections, so `Shell` hands it to `shell-parser.ts`'s `parseRedirections`.
+ *
+ * It is what makes `while IFS= read -r line; do ...; done < file` work -- the whole statement reads
+ * from one open input, so successive `read` calls advance through it.
+ */
+export interface Redirected {
+  redirect?: string
+}
+
+export interface IfStatement extends Redirected {
   type: 'if'
   branches: Array<{ condition: string, body: Statement[] }>
   elseBody: Statement[] | null
 }
 
-export interface WhileStatement {
+export interface WhileStatement extends Redirected {
   type: 'while'
   condition: string
   body: Statement[]
 }
 
-export interface ForStatement {
+export interface ForStatement extends Redirected {
   type: 'for'
   variable: string
   words: string[]
@@ -52,7 +64,7 @@ export interface CaseClause {
   body: Statement[]
 }
 
-export interface CaseStatement {
+export interface CaseStatement extends Redirected {
   type: 'case'
   word: string
   clauses: CaseClause[]
@@ -158,14 +170,19 @@ class LineParser {
     )
   }
 
-  private expectKeywordLine(keyword: string): void {
+  /**
+   * Consumes the line that closes a compound statement and returns whatever followed the keyword on
+   * it, which is a redirection run (`done < f`) or empty. It used to be discarded silently, so
+   * `done < f` parsed and then read from the terminal.
+   */
+  private expectKeywordLine(keyword: string): string {
     if (this.atEnd() || this.firstWord(this.peek() as string) !== keyword) {
       throw new ControlFlowParseError(
         `Expected '${keyword}', got: ${this.peek() ?? '<end of script>'}`,
         this.atEnd()
       )
     }
-    this.advance()
+    return this.restAfterKeyword(this.advance(), keyword)
   }
 
   private parseIf(): IfStatement {
@@ -184,15 +201,15 @@ class LineParser {
       elseBody = this.parseStatements(['fi'])
     }
 
-    this.expectKeywordLine('fi')
-    return { type: 'if', branches, elseBody }
+    const redirect = this.expectKeywordLine('fi')
+    return { type: 'if', branches, elseBody, ...(redirect ? { redirect } : {}) }
   }
 
   private parseWhile(): WhileStatement {
     const condition = this.consumeConditionThroughKeyword('while', 'do')
     const body = this.parseStatements(['done'])
-    this.expectKeywordLine('done')
-    return { type: 'while', condition, body }
+    const redirect = this.expectKeywordLine('done')
+    return { type: 'while', condition, body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseFor(): ForStatement {
@@ -213,8 +230,8 @@ class LineParser {
     ) : []
 
     const body = this.parseStatements(['done'])
-    this.expectKeywordLine('done')
-    return { type: 'for', variable, words, body }
+    const redirect = this.expectKeywordLine('done')
+    return { type: 'for', variable, words, body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseCase(): CaseStatement {
@@ -260,8 +277,8 @@ class LineParser {
       clauses.push({ patterns, body })
     }
 
-    this.expectKeywordLine('esac')
-    return { type: 'case', word, clauses }
+    const redirect = this.expectKeywordLine('esac')
+    return { type: 'case', word, clauses, ...(redirect ? { redirect } : {}) }
   }
 
   private parseFunctionKeywordForm(): FunctionDef {
