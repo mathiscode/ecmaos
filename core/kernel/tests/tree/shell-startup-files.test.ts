@@ -87,13 +87,26 @@ describe('startup files', () => {
     expect(shell().getTrap('EXIT')).toBe(`echo left >> ${OUT}`)
   })
 
-  it('carries on when one startup file fails', async () => {
-    await write('/etc/profile', 'this-command-does-not-exist\n')
-    await write('/root/.ecmashrc', 'AFTER_FAILURE=reached\n')
+  it('carries on past a typo, within the file and across files', async () => {
+    // A missing command used to throw out of the whole statement tree, so one typo in a startup
+    // file silently dropped every line after it. Found by the browser pass for this phase.
+    await write('/etc/profile', 'BEFORE_TYPO=yes\nthis-command-does-not-exist\nAFTER_TYPO=yes\n')
+    await write('/root/.ecmashrc', 'NEXT_FILE=reached\n')
 
     await shell().loadProfile()
 
-    expect(shell().env.get('AFTER_FAILURE')).toBe('reached')
+    expect(shell().env.get('BEFORE_TYPO')).toBe('yes')
+    expect(shell().env.get('AFTER_TYPO')).toBe('yes')
+    expect(shell().env.get('NEXT_FILE')).toBe('reached')
+  })
+
+  it('reports a missing command as exit 127 without ending the script', async () => {
+    const OUT = '/tmp/startup-127.out'
+    try { await fs().unlink(OUT) } catch {}
+
+    await shell().executeScriptText(`this-command-does-not-exist\necho "code=$?" > ${OUT}\n`)
+
+    expect(await fs().readFile(OUT, 'utf-8')).toBe('code=127\n')
   })
 
   /**

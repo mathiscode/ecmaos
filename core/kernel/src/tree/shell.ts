@@ -275,6 +275,17 @@ class JobImpl implements Job {
 }
 
 const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin'
+/**
+ * A command name that resolved to nothing: no builtin, no function, no file on `$PATH`.
+ *
+ * Its own type because `runPipeline` has to tell it apart from a genuine error thrown while a
+ * command was being prepared. A missing command fails that one command with exit 127 and lets the
+ * script continue, as in bash; anything else still unwinds.
+ */
+class CommandNotFoundError extends Error {
+  constructor(message: string) { super(message); this.name = 'CommandNotFoundError' }
+}
+
 const DefaultShellOptions = {
   cwd: '/',
   env: {
@@ -1600,12 +1611,12 @@ export class Shell implements IShell {
 
     const [commandName, ...args] = fields
     if (!commandName) {
-      throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
+      throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
     }
 
     const finalCommand = await this.resolveCommand(commandName)
     if (!finalCommand) {
-      throw new Error(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
+      throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
     }
 
     return { finalCommand, args }
@@ -1715,9 +1726,20 @@ export class Shell implements IShell {
       // not go through `prepareCommand`, which resolves a `$PATH` file that will never exist for
       // them -- there is no `/bin/cd`, deliberately.
       const builtinName = trueBuiltinNameFor(command.words[0])
-      const resolved = builtinName
-        ? { finalCommand: undefined, args: await this.expandCommandArgs(command) }
-        : await this.prepareCommand(command)
+      let resolved: { finalCommand: string | undefined, args: string[] }
+      try {
+        resolved = builtinName
+          ? { finalCommand: undefined, args: await this.expandCommandArgs(command) }
+          : await this.prepareCommand(command)
+      } catch (error) {
+        // A command that does not exist fails *this command*, exit 127, and the script carries on.
+        // It used to throw all the way out of the statement tree, so one typo in a script silently
+        // dropped every line after it -- the same unwinding problem readonly and noclobber had, and
+        // the reason a typo in a startup file cost you the rest of the file.
+        if (!(error instanceof CommandNotFoundError)) throw error
+        await this.terminalBuiltinIO().writelnErr(error.message)
+        return commands.map(() => 127)
+      }
       const args = resolved.args
 
       let stdin: ReadableStream<Uint8Array> | undefined
