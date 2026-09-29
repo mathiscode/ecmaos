@@ -104,6 +104,39 @@ describe('parseStatements', () => {
     expect(stmt.name).toBe('greet')
   })
 
+  it('parses a whole function definition on one line', () => {
+    // The form every rc file uses. It matched nothing before, fell through as a `simple` statement,
+    // and the shell went looking for a command literally named `greet()`.
+    const stmt = parseStatements('greet() { echo hi; }')[0] as FunctionDef
+    expect(stmt.type).toBe('function')
+    expect(stmt.name).toBe('greet')
+    expect(stmt.body).toEqual([{ type: 'simple', line: 'echo hi' }])
+  })
+
+  it('keeps a `;`-joined one-line body as one simple statement', () => {
+    // This parser only splits `;` where a control-flow keyword follows it; a plain `;` list is one
+    // statement, which `Shell.executeSimple` then walks stage by stage. So the body stays whole here
+    // and both commands still run -- see the runtime coverage in shell-control-flow-builtins.
+    const stmt = parseStatements('greet() { echo one; echo two; }')[0] as FunctionDef
+    expect(stmt.body).toEqual([{ type: 'simple', line: 'echo one; echo two' }])
+  })
+
+  it('keeps a nested block inside a one-line body', () => {
+    // The body group is greedy, so the `}` it matches is the last one on the line, not the `fi`'s
+    // neighbour.
+    const stmt = parseStatements('check() { if test -d /tmp; then echo yes; fi; }')[0] as FunctionDef
+    expect(stmt.type).toBe('function')
+    expect(stmt.body).toHaveLength(1)
+    expect(stmt.body[0]?.type).toBe('if')
+  })
+
+  it('parses a one-line definition in the function-keyword form', () => {
+    const stmt = parseStatements('function greet { echo hi; }')[0] as FunctionDef
+    expect(stmt.type).toBe('function')
+    expect(stmt.name).toBe('greet')
+    expect(stmt.body).toEqual([{ type: 'simple', line: 'echo hi' }])
+  })
+
   it('parses nested control flow', () => {
     const script = [
       'for i in 1 2; do',

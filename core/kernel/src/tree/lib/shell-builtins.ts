@@ -1,5 +1,5 @@
 /**
- * True shell builtins -- the ~10 commands (per real Unix precedent: bash's own POSIX "special
+ * True shell builtins -- the commands (per real Unix precedent: bash's own POSIX "special
  * builtins," `cd`/`export`/`set`/`shift`/`trap`/...) that mutate the *calling shell's own* live
  * state and so can never become a separate `execve`'d file/process, no matter how far the rest of
  * ecmaOS's coreutils migrate. A forked child process changing its own cwd/env/job-table/credentials
@@ -9,9 +9,12 @@
  * Confirmed by direct code reading (not guessed) which of ecmaOS's existing commands actually
  * belong here: `cd` (`shell.cwd`), `set` (`shell.applyShellOption`), `bg`/`fg`/`jobs`/`wait` (the
  * shell's own job table), `local` (the shell's own call-frame scope), `env`/`export` (`shell.env`/
- * `globalThis.process.env`), `su` (`shell.context`/`shell.credentials`). `theme`/`history` were
- * checked too and found NOT structurally blocked: they are real programs that reach the shell
- * through custom syscalls, not builtins.
+ * `globalThis.process.env`), `su` (`shell.context`/`shell.credentials`), `read` (assigns into the
+ * caller's variables), and `shift`/`source`/`eval` (the caller's positional parameters and its
+ * statement stream). `break`/`continue`/`exit`/`return` belong for a different reason: they alter
+ * the interpreter's own control flow, which a child process cannot do to its parent -- see
+ * `lib/shell-signals.ts`. `theme`/`history` were checked too and found NOT structurally blocked:
+ * they are real programs that reach the shell through custom syscalls, not builtins.
  *
  * Dispatched from `Shell.execute` exactly the way `functionNameFor`/`callFunction` already dispatch
  * a registered shell function -- checked before any `$PATH`/`resolveCommand` file lookup happens at
@@ -25,10 +28,23 @@ import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
 import type { ShellBuiltinIO, User } from '@ecmaos/types'
 import { DEFAULT_IFS, splitOnIFS } from '#lib/word-expansion.ts'
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from '#lib/shell-signals.ts'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
-  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'read', 'su', 'trap', 'unset'
+  'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'read', 'su', 'trap', 'unset',
+  ':', '.', 'break', 'continue', 'eval', 'exit', 'return', 'shift', 'source'
 ])
+
+/**
+ * The builtins that run a statement tree in the calling shell rather than acting themselves, so a
+ * redirection on them has to apply to everything that tree runs.
+ *
+ * `Shell.runPipelineStages` holds their redirections as aggregate ones for the duration of the call,
+ * the same way it does for a redirected function call or a redirected compound statement. Without
+ * that, `source setup.sh > log` would build fds for `source` itself -- which writes nothing but
+ * diagnostics -- and let every command in `setup.sh` print to the terminal.
+ */
+export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.'])
 
 /**
  * Shorthand for the fds every builtin below writes through. Usage text goes to fd 1 and diagnostics
@@ -512,6 +528,165 @@ async function runRead(shell: Shell, argv: string[], io: Io): Promise<number> {
   return 0
 }
 
+/**
+ * `break [N]` / `continue [N]`.
+ *
+ * Builtins rather than a special case in `Shell.executeStatements`, which is what they used to be:
+ * that check compared the statement's whole trimmed text to `'break'`, so `break 2`, `break;` and
+ * `test -d "$d" && break` all missed it and went looking for a `/bin/break`. As builtins they work
+ * anywhere a command works, and `N` reaches the right loop -- see `lib/shell-signals.ts`.
+ */
+async function runBreak(argv: string[], io: Io, keyword: 'break' | 'continue'): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln(`Usage: ${keyword} [N]\n${keyword === 'break' ? 'Exit' : 'Resume'} the Nth enclosing for/while loop (default: 1).`)
+    return 0
+  }
+
+  const parsed = parseSignalArgument(argv, keyword)
+  if (parsed.error) { await io.writelnErr(parsed.error); return 2 }
+  // bash treats `break 0` as `break 1` rather than as a no-op.
+  const level = Math.max(1, parsed.value ?? 1)
+  throw keyword === 'break' ? new BreakSignal(level) : new ContinueSignal(level)
+}
+
+/**
+ * `exit [N]` -- ends the running script, or the current line at an interactive prompt.
+ *
+ * With no argument it reports `$?`, which is what makes the `cmd || exit` idiom propagate the real
+ * failure code. It does not tear down the terminal session: ecmaOS's login shell is a kernel-owned
+ * object with no session-exit path yet, so at the prompt this sets the exit code and stops the line.
+ */
+async function runExit(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: exit [N]\nExit the current script with status N (default: the status of the last command).')
+    return 0
+  }
+
+  const parsed = parseSignalArgument(argv, 'exit')
+  if (parsed.error) { await io.writelnErr(parsed.error); return 2 }
+  throw new ExitSignal(parsed.value ?? Number(shell.env.get('?') ?? 0))
+}
+
+/** `return [N]` -- leaves the current function or sourced script, defaulting to `$?` like `exit`. */
+async function runReturn(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: return [N]\nReturn from a shell function or sourced script with status N (default: the status of the last command).')
+    return 0
+  }
+
+  const parsed = parseSignalArgument(argv, 'return')
+  if (parsed.error) { await io.writelnErr(parsed.error); return 2 }
+  throw new ReturnSignal(parsed.value ?? Number(shell.env.get('?') ?? 0))
+}
+
+/** `shift [N]` -- drops the first N positional parameters. Non-zero when N exceeds `$#`, as in bash. */
+async function runShift(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: shift [N]\nShift positional parameters left by N (default: 1).')
+    return 0
+  }
+
+  const raw = argv[0]
+  if (raw !== undefined && !/^\d+$/.test(raw)) { await io.writelnErr(`shift: ${raw}: numeric argument required`); return 2 }
+  return shell.shiftPositionalParameters(raw === undefined ? 1 : Number(raw)) ? 0 : 1
+}
+
+/** `:` -- the null command. Expands its arguments and succeeds, nothing more. */
+async function runColon(): Promise<number> {
+  return 0
+}
+
+/**
+ * `eval ARG...` -- joins its arguments with a single space and runs the result as shell input.
+ *
+ * Runs in the calling shell (`executeSourced`), so `eval 'x=1'` really does set `x`. That is the
+ * entire point of `eval`, and the reason it cannot be an `execve`'d program.
+ */
+async function runEval(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: eval [ARG]...\nConcatenate ARGs into a single command and execute it in the current shell.')
+    return 0
+  }
+
+  const text = argv.join(' ').trim()
+  if (!text) return 0
+  try {
+    return await shell.executeSourced(text)
+  } catch (error) {
+    // A control-flow signal is the interpreter unwinding and must pass through; a parse error is
+    // `eval`'s own failure to report, the way bash reports a syntax error from eval'd text.
+    if (isControlFlowSignal(error)) throw error
+    await io.writelnErr(`eval: ${error instanceof Error ? error.message : String(error)}`)
+    return 2
+  }
+}
+
+/**
+ * `source FILE [ARG...]` and its POSIX spelling `.` -- runs FILE's lines in the calling shell, so
+ * functions, variables, aliases and `cd` all persist afterwards. This is what makes `~/.ecmashrc`
+ * and `/etc/profile` possible at all.
+ *
+ * FILE is looked up on `$PATH` when it contains no slash, matching bash, with the working directory
+ * as a final fallback so `source ./setup.sh`'s more common spelling `source setup.sh` also works.
+ */
+async function runSource(shell: Shell, argv: string[], io: Io, keyword: string): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln(`Usage: ${keyword} FILE [ARG]...\nRead and execute FILE's commands in the current shell.`)
+    return 0
+  }
+
+  const name = argv[0]
+  if (!name) { await io.writelnErr(`${keyword}: filename argument required`); return 2 }
+
+  const resolved = await resolveSourcePath(shell, name)
+  if (!resolved) { await io.writelnErr(`${keyword}: ${name}: No such file or directory`); return 1 }
+
+  let text: string
+  try {
+    text = await shell.context.fs.promises.readFile(resolved, 'utf-8')
+  } catch (error) {
+    await io.writelnErr(`${keyword}: ${name}: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+  }
+
+  const args = argv.slice(1)
+  try {
+    return await shell.executeSourced(text, args.length > 0 ? args : undefined)
+  } catch (error) {
+    if (isControlFlowSignal(error)) throw error
+    await io.writelnErr(`${keyword}: ${name}: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+  }
+}
+
+/** Whether `error` is one of the four interpreter unwind signals, which a builtin must never swallow. */
+function isControlFlowSignal(error: unknown): boolean {
+  return error instanceof BreakSignal || error instanceof ContinueSignal ||
+    error instanceof ExitSignal || error instanceof ReturnSignal
+}
+
+/** `source`'s file lookup: a slash means "use this path", otherwise `$PATH` then the working directory. */
+async function resolveSourcePath(shell: Shell, name: string): Promise<string | undefined> {
+  const path = await import('path')
+  const exists = async (candidate: string) => {
+    try { return (await shell.context.fs.promises.stat(candidate)).isFile() } catch { return false }
+  }
+
+  const expanded = shell.expandTilde(name)
+  if (expanded.includes('/')) {
+    const absolute = path.resolve(shell.cwd, expanded)
+    return await exists(absolute) ? absolute : undefined
+  }
+
+  for (const dir of (shell.env.get('PATH') ?? '').split(':').filter(Boolean)) {
+    const candidate = path.resolve(dir, expanded)
+    if (await exists(candidate)) return candidate
+  }
+
+  const local = path.resolve(shell.cwd, expanded)
+  return await exists(local) ? local : undefined
+}
+
 async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
     await io.writeln('Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
@@ -556,6 +731,15 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'su': return runSu(shell, argv, io)
     case 'trap': return runTrap(shell, argv, io)
     case 'unset': return runUnset(shell, argv, io)
+    case ':': return runColon()
+    case 'break': return runBreak(argv, io, 'break')
+    case 'continue': return runBreak(argv, io, 'continue')
+    case 'eval': return runEval(shell, argv, io)
+    case 'exit': return runExit(shell, argv, io)
+    case 'return': return runReturn(shell, argv, io)
+    case 'shift': return runShift(shell, argv, io)
+    case 'source':
+    case '.': return runSource(shell, argv, io, name)
     default: throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)
   }
 }

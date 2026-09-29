@@ -60,8 +60,9 @@ describe('$IFS, read, and command-prefix assignments', () => {
    *
    * `arr=($x)` is the one construct here that runs unquoted text through the real field expander and
    * then lets the count and each element be read back, so an empty field is observable rather than
-   * being flattened into an output string. (`for f in $x` cannot be used: `executeFor` expands its
-   * words with `expandWord`, which does no splitting at all -- a separate gap from `$IFS`.)
+   * being flattened into an output string. (`for f in $x` splits correctly too, now that
+   * `executeFor` runs its list through the real expander, but a `for` body cannot report an empty
+   * field distinctly from no field at all.)
    */
   const showFields = (assign: string): string => [
     assign,

@@ -174,6 +174,26 @@ export interface Shell {
    */
   setPositionalParameters(args: string[]): void
 
+  /** `$1`, `$2`, ... in order, stopping at the first gap. `$0` is not one of them. */
+  readonly positionalParameters: string[]
+
+  /**
+   * `shift [N]`: drops the first N positional parameters and renumbers the rest, leaving `$0` alone.
+   * @returns false, changing nothing, when N exceeds `$#` -- which is how bash's `shift` fails
+   */
+  shiftPositionalParameters(count: number): boolean
+
+  /**
+   * Runs `text` in this shell the way `source`/`.` and `eval` do: nothing is forked, so variables,
+   * functions, `cd` and options all persist afterwards.
+   *
+   * Unlike {@link executeScriptText} the `EXIT` trap does not run (a sourced file is not a process
+   * exiting) and `return` returns from the sourced text rather than escaping.
+   * @param text - The text to run
+   * @param positional - Replaces `$1..` for the duration (`source f a b`), restored on the way out
+   */
+  executeSourced(text: string, positional?: string[]): Promise<number>
+
   /**
    * Expands tilde (~) to the user's home directory
    * @param input - String that may contain tilde

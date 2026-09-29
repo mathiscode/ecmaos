@@ -143,6 +143,11 @@ class LineParser {
       case 'case': return this.parseCase()
       case 'function': return this.parseFunctionKeywordForm()
       default: {
+        const inlineFn = INLINE_FUNCTION_DEF.exec(line)
+        if (inlineFn) {
+          this.advance()
+          return { type: 'function', name: inlineFn[1] as string, body: parseInlineBody(inlineFn[2] as string) }
+        }
         const fnMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{?\s*$/.exec(line)
         if (fnMatch) return this.parseFunctionParenForm(fnMatch[1] as string, line)
         this.advance()
@@ -287,6 +292,8 @@ class LineParser {
 
   private parseFunctionKeywordForm(): FunctionDef {
     const header = this.restAfterKeyword(this.advance(), 'function')
+    const inline = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.+)\}\s*$/.exec(header)
+    if (inline) return { type: 'function', name: inline[1] as string, body: parseInlineBody(inline[2] as string) }
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{?\s*$/.exec(header)
     if (!match) throw new ControlFlowParseError(`Malformed function definition: function ${header}`)
     return this.finishFunctionBody(match[1] as string, header.trim().endsWith('{'))
@@ -315,6 +322,29 @@ class LineParser {
   }
 }
 
+/**
+ * A whole function definition on one physical line: `f() { echo hi; }`, the form every rc file and
+ * most one-liners use. The body group is greedy, so the `}` matched is the last one on the line and a
+ * nested block inside the body (`f() { if x; then y; fi; }`) stays part of it.
+ *
+ * Without this the line matched nothing and fell through to `{ type: 'simple' }`, so the shell went
+ * looking for a command literally named `f()` and reported it as not found.
+ */
+const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/
+
+/**
+ * Parses a one-line function body, which is ordinary `;`-joined shell input and so goes through the
+ * same normalization an interactively typed compound statement does. `foldHeredocs` is deliberately
+ * not repeated: {@link parseStatements} already ran it over the whole script, so any heredoc in this
+ * body is already one self-contained token.
+ */
+function parseInlineBody(text: string): Statement[] {
+  // bash requires the `;` before the closing brace; dropping it here makes the resulting statements
+  // identical to the multi-line form's rather than carrying a stray trailing separator.
+  const body = text.trim().replace(/;\s*$/, '')
+  return new LineParser(preprocessLines(normalizeInlineControlFlow(body))).parseStatements([])
+}
+
 /** Reserved words this parser understands -- used by the shell to reject them as command names. */
 export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
 
@@ -339,6 +369,24 @@ const ISOLATE_ALONE = new Set(['else'])
  * command-position restriction on these reserved words.
  */
 export function normalizeInlineControlFlow(text: string): string {
+  // A physical line that is a complete one-line function definition is handed through untouched.
+  // Its `;`-joined body is normalized later, by `parseInlineBody`, once the braces around it have
+  // been stripped -- otherwise the keyword splitting below would tear `f() { if x; then y; fi; }`
+  // apart at `then` and `fi` without any idea that those keywords are inside a function body.
+  //
+  // Splitting per physical line changes nothing else: the loop below already flushes at every `\n`,
+  // so it never carried state across one.
+  if (text.includes('\n') || INLINE_FUNCTION_DEF.test(text.trim())) {
+    return text.split('\n')
+      .map(line => INLINE_FUNCTION_DEF.test(line.trim()) ? line : normalizeOneLine(line))
+      .join('\n')
+  }
+
+  return normalizeOneLine(text)
+}
+
+/** {@link normalizeInlineControlFlow} for exactly one physical line. */
+function normalizeOneLine(text: string): string {
   const lines: string[] = []
   let current = ''
   let depth = 0

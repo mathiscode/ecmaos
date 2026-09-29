@@ -22,7 +22,8 @@ import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, Wo
 import { parseStatements } from '#lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
 import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
-import { runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
 import { evaluateConditional, type ConditionalFs } from '#lib/conditional-eval.ts'
 
@@ -216,9 +217,6 @@ class StdinSource {
   }
 }
 
-/** Internal unwind signals for `break`/`continue` inside `Shell.executeStatements`'s loop nodes. */
-class BreakSignal extends Error {}
-class ContinueSignal extends Error {}
 
 /**
  * A tracked pipeline job. See `@ecmaos/types`' `Job` for the field-by-field contract; this class
@@ -294,6 +292,23 @@ export class Shell implements IShell {
    */
   private _stdinSources: StdinSource[] = []
 
+  /**
+   * Output redirections belonging to an enclosing *aggregate* command -- a redirected compound
+   * statement (`done > f`), a redirected function call (`greet > f`), or `eval`/`source` with a
+   * redirection. Outermost first.
+   *
+   * None of those three have a single command whose fds could carry the redirection, because each
+   * runs a whole statement tree whose commands build their own streams. So the redirection is kept
+   * here and consulted by `buildOutputStreams`, where a command with no redirection of its own
+   * inherits it instead of defaulting to the terminal. Without this the redirection parsed and was
+   * then silently discarded -- the same bug `done < f` had on the input side.
+   *
+   * `truncated` is what keeps `> f` from truncating once per command in the body: the first command
+   * to write to that fd truncates, every later one appends, which is what one shared descriptor
+   * would do.
+   */
+  private _statementOutputs: Array<{ redirections: Redirection[], truncated: Set<number> }> = []
+
   private _localScopes: Map<string, string>[] = []
   /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
   private _shellOptions = { errexit: false, nounset: false, pipefail: false }
@@ -347,6 +362,20 @@ export class Shell implements IShell {
    * dispatched it, and the rest of the interrupted line carried on regardless.
    */
   private _executeDepth = 0
+
+  /**
+   * How many frames are currently on the stack that will catch each kind of control-flow signal
+   * (see `lib/shell-signals.ts`): a script or sourced file for `exit`, a function call or sourced
+   * file for `return`, an enclosing loop for `break`/`continue`.
+   *
+   * `execute()`'s outermost frame is the last-resort handler for all three, and it needs to know
+   * whether some frame *above* it is going to handle the signal instead. Nesting depth alone cannot
+   * answer that: a loop condition and the `env` builtin both call `execute()` recursively, so an
+   * `exit` inside a script can be one `execute()` frame deep or five, while the script's own
+   * handler sits outside `execute()` entirely (`executeScriptText` walks `executeStatements`
+   * directly). Counting the real handlers is exact where counting depth is a guess.
+   */
+  private _signalCatchers = { exit: 0, return: 0, loop: 0 }
 
   public readonly config: ShellConfig
 
@@ -1043,6 +1072,7 @@ export class Shell implements IShell {
    * fd 1 and fd 2 default to the terminal (or the pipe, mid-pipeline) when nothing redirects them;
    * any other fd a script names is left for a caller that cares about it — this shell doesn't open
    * arbitrary fds yet.
+   *
    */
   private async buildOutputStreams(
     redirections: Redirection[],
@@ -1051,6 +1081,7 @@ export class Shell implements IShell {
   ): Promise<{ stdout: WritableStream<Uint8Array>, stderr: WritableStream<Uint8Array> }> {
     const fdStreams = new Map<number, WritableStream<Uint8Array>>()
     const fdFiles = new Map<number, { path: string, append: boolean }>()
+
 
     const defaultFor = (fd: number): WritableStream<Uint8Array> => {
       const existing = fdStreams.get(fd)
@@ -1225,7 +1256,7 @@ export class Shell implements IShell {
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
       stderr: WritableStream<Uint8Array>
-    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string })
+    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined })
 
     const stages: Stage[] = []
 
@@ -1286,11 +1317,24 @@ export class Shell implements IShell {
         prevReadable = pipe.readable
       }
 
-      const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
-      const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
+      // An enclosing aggregate command's redirections come first, so this command's own still win --
+      // the same "later wins" rule applied across nesting levels. Resolved once per command, since
+      // `inheritedOutputRedirections` also records which fds have already been truncated.
+      const redirections = this._statementOutputs.length > 0
+        ? [...this.inheritedOutputRedirections(), ...command.redirections]
+        : command.redirections
+      const { stdout, stderr } = await this.buildOutputStreams(redirections, isLastCommand, pipeWritable)
+      const stdoutIsTTY = isLastCommand && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
       const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, stderr }
       stages.push(builtinName
-        ? { kind: 'builtin', name: builtinName, ...fds }
+        ? {
+            kind: 'builtin',
+            name: builtinName,
+            // `eval`/`source` run a statement tree, so their redirections have to reach everything
+            // in it rather than only the builtin's own diagnostics.
+            aggregate: aggregateBuiltinNames.has(builtinName) ? command.redirections : undefined,
+            ...fds
+          }
         : { kind: 'command', finalCommand: resolved.finalCommand as string, ...fds })
     }
 
@@ -1299,8 +1343,12 @@ export class Shell implements IShell {
 
       if (stage.kind === 'builtin') {
         const io = this.streamBuiltinIO(stdinSource ?? stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
+        const name = stage.name
+        const aggregate = stage.aggregate
         try {
-          return await runTrueBuiltin(this, stage.name, args, io)
+          return aggregate
+            ? await this.withStatementRedirections(aggregate, () => runTrueBuiltin(this, name, args, io))
+            : await runTrueBuiltin(this, name, args, io)
         } finally {
           await io.close()
         }
@@ -1492,7 +1540,17 @@ export class Shell implements IShell {
     }
   }
 
-  /** Calls a registered function: its own `local` scope, positional parameters set to `argv`. */
+  /**
+   * Calls a registered function: its own `local` scope, positional parameters set to `argv`.
+   *
+   * `return` unwinds to here as a `ReturnSignal`, which is the only way it can work -- the function
+   * body is an ordinary statement tree, so `return` has to leave it from arbitrary depth.
+   *
+   * `break`/`continue` deliberately stop here too. In bash a loop is only breakable from within the
+   * same function, so a function called from inside a loop cannot break its caller's loop; letting
+   * the signal through would make `for f in *; do process "$f"; done` stop the whole loop the first
+   * time `process` happened to contain a stray `break`.
+   */
   private async callFunction(name: string, argv: string[]): Promise<number> {
     const body = this._functions.get(name)
     if (!body) throw new Error(`${name}: function not found`)
@@ -1505,12 +1563,63 @@ export class Shell implements IShell {
     // for a device command line, where $0 is the invoked name and $1.. are the real arguments) -- so
     // the function's own name goes first, keeping $1 as the caller's first argument like bash.
     this.setPositionalParameters([name, ...argv])
+    this._signalCatchers.return++
+    // A function body is a loop boundary as far as `break` is concerned, so its own last-resort
+    // handler must not defer to a loop in the *caller* that it will never reach.
+    const enclosingLoops = this._signalCatchers.loop
+    this._signalCatchers.loop = 0
     try {
       return await this.executeStatements(body)
+    } catch (signal) {
+      if (signal instanceof ReturnSignal) return signal.code
+      if (signal instanceof BreakSignal || signal instanceof ContinueSignal) {
+        await this.terminalBuiltinIO().writelnErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
+        return 0
+      }
+      throw signal
     } finally {
+      this._signalCatchers.return--
+      this._signalCatchers.loop = enclosingLoops
       this._localScopes.pop()
       this.clearPositionalParameters()
       for (const [key, value] of savedPositional) this.env.set(key, value)
+    }
+  }
+
+  /**
+   * Runs `text` in *this* shell, the way `source`/`.` and `eval` do: variables, functions, `cd` and
+   * options all persist after it returns, because nothing is forked.
+   *
+   * Two things separate it from `executeScriptText`:
+   *
+   * - The `EXIT` trap does not run. A sourced file is not a process exiting, and firing the trap per
+   *   `source` would run `~/.ecmashrc`'s cleanup handler the moment the rc file finished loading.
+   * - `return` is caught here, since bash lets a sourced script `return` to its caller without
+   *   ending the shell; `exit` is deliberately *not* caught, because `exit` in a sourced file exits
+   *   the shell that sourced it.
+   *
+   * `positional` replaces `$1..` for the duration (`source f a b`), restored on the way out.
+   */
+  async executeSourced(text: string, positional?: string[]): Promise<number> {
+    const statements = parseStatements(text)
+
+    const savedPositional = positional
+      ? new Map([...this.env.entries()].filter(([key]) => !isNaN(parseInt(key))))
+      : undefined
+    if (positional) this.setPositionalParameters([this.env.get('0') ?? 'ecmaos', ...positional])
+
+    this._signalCatchers.return++
+    try {
+      return await this.executeStatements(statements)
+    } catch (signal) {
+      if (signal instanceof ReturnSignal) return signal.code
+      throw signal
+    } finally {
+      this._signalCatchers.return--
+      if (savedPositional) {
+        this.clearPositionalParameters()
+        for (const [key, value] of savedPositional) this.env.set(key, value)
+      }
     }
   }
 
@@ -1644,6 +1753,22 @@ export class Shell implements IShell {
     this._executeDepth++
     try {
       return await this.executeParsed(trimmed)
+    } catch (signal) {
+      // The outermost `execute()` is the last place a control-flow signal can be caught, so this is
+      // where `exit 3` typed at the prompt becomes an exit code instead of escaping to `Terminal`'s
+      // catch-all and printing an internal error in red. `break`/`continue`/`return` reaching here
+      // means there was no enclosing loop or function to act on them, which bash reports and
+      // otherwise ignores.
+      if (signal instanceof ExitSignal && this._signalCatchers.exit === 0) return signal.code
+      if (signal instanceof ReturnSignal && this._signalCatchers.return === 0) {
+        await this.terminalBuiltinIO().writelnErr("return: can only `return' from a function or sourced script")
+        return 1
+      }
+      if ((signal instanceof BreakSignal || signal instanceof ContinueSignal) && this._signalCatchers.loop === 0) {
+        await this.terminalBuiltinIO().writelnErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
+        return 0
+      }
+      throw signal
     } finally {
       this._executeDepth--
     }
@@ -1721,9 +1846,11 @@ export class Shell implements IShell {
           const code = await runTrueBuiltin(this, builtinName, args, this.terminalBuiltinIO())
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else if (fnName) {
+          // A function's body is a statement tree, not a command with fds, so `greet > f` has to be
+          // held as an aggregate redirection for the whole call. It used to be parsed and dropped.
           const command = stage.pipeline.commands[0] as ParsedCommand
           const args = await this.expandCommandArgs(command)
-          const code = await this.callFunction(fnName, args)
+          const code = await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args))
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else {
           pipeStatus = await this.runForeground(stage.pipeline)
@@ -1820,11 +1947,11 @@ export class Shell implements IShell {
    * itself. This is what `Kernel.executeScript` walks instead of its old flat `line.split('\n')`,
    * and what a function body runs through when called.
    *
-   * `break`/`continue` are implemented as internal control-flow signals (thrown, caught by the
-   * nearest loop) rather than a return-code convention, because a return code can't distinguish
-   * "this command legitimately exited 1" from "please stop the enclosing loop" -- exactly the
-   * ambiguity a real shell avoids by making `break`/`continue` builtins that unwind the interpreter
-   * itself, not the process tree.
+   * `break`/`continue`/`return`/`exit` are real builtins that throw (see `lib/shell-signals.ts`),
+   * caught by the nearest loop here, by `callFunction`, or by `executeScriptText`. They used to be
+   * recognized at this level by comparing the statement's whole trimmed text to `'break'` and
+   * `'continue'`, which meant `break 2`, `break;` and `test -n x && break` all fell through to a
+   * `$PATH` lookup for a `/bin/break` that does not exist.
    */
   async executeStatements(statements: Statement[]): Promise<number> {
     let lastExit = 0
@@ -1838,9 +1965,6 @@ export class Shell implements IShell {
 
       switch (statement.type) {
         case 'simple': {
-          const trimmed = statement.line.trim()
-          if (trimmed === 'break') throw new BreakSignal()
-          if (trimmed === 'continue') throw new ContinueSignal()
           lastExit = await this.executeSimple(statement.line)
           break
         }
@@ -1854,22 +1978,22 @@ export class Shell implements IShell {
         // The four compound statements can carry a redirection on their closing keyword
         // (`done < f`), which opens one input for the whole statement -- see `withStatementStdin`.
         case 'if': {
-          lastExit = await this.withStatementStdin(statement, () => this.executeIf(statement))
+          lastExit = await this.withStatementRedirection(statement, () => this.executeIf(statement))
           break
         }
 
         case 'while': {
-          lastExit = await this.withStatementStdin(statement, () => this.executeWhile(statement))
+          lastExit = await this.withStatementRedirection(statement, () => this.executeWhile(statement))
           break
         }
 
         case 'for': {
-          lastExit = await this.withStatementStdin(statement, () => this.executeFor(statement))
+          lastExit = await this.withStatementRedirection(statement, () => this.executeFor(statement))
           break
         }
 
         case 'case': {
-          lastExit = await this.withStatementStdin(statement, () => this.executeCase(statement))
+          lastExit = await this.withStatementRedirection(statement, () => this.executeCase(statement))
           break
         }
       }
@@ -1881,18 +2005,34 @@ export class Shell implements IShell {
   }
 
   /**
-   * Runs a compound statement with its trailing redirection (`while ...; done < f`) in effect, so
-   * every `read` in the body advances through one open input rather than reopening it per iteration.
-   * Statements without one call straight through and allocate nothing.
+   * Runs a compound statement with its trailing redirection (`while ...; done < f`, `done > out`) in
+   * effect: one open input that every `read` in the body advances through rather than reopening per
+   * iteration, and one output that every command in the body writes to rather than the terminal.
+   * Statements without a redirection call straight through and allocate nothing.
    */
-  private async withStatementStdin(statement: Redirected, run: () => Promise<number>): Promise<number> {
-    const pop = await this.pushStatementStdin(statement.redirect)
-    if (!pop) return await run()
-    try {
-      return await run()
-    } finally {
-      await pop()
-    }
+  private async withStatementRedirection(statement: Redirected, run: () => Promise<number>): Promise<number> {
+    if (!statement.redirect) return await run()
+
+    const redirections = parseRedirections(statement.redirect)
+    return await this.withStatementRedirections(redirections, run)
+  }
+
+  /**
+   * The shared implementation behind every aggregate command's redirections: a compound statement's
+   * closing keyword, a function call, and `eval`/`source`. All three run a statement tree rather than
+   * one command, so all three need the redirection held for the duration instead of attached to a
+   * single set of fds.
+   */
+  private async withStatementRedirections(redirections: readonly Redirection[], run: () => Promise<number>): Promise<number> {
+    return await this.withStatementOutputs(redirections, async () => {
+      const pop = await this.pushStatementStdin(redirections)
+      if (!pop) return await run()
+      try {
+        return await run()
+      } finally {
+        await pop()
+      }
+    })
   }
 
   private async executeIf(statement: IfStatement): Promise<number> {
@@ -1906,15 +2046,37 @@ export class Shell implements IShell {
   private async executeWhile(statement: WhileStatement): Promise<number> {
     let lastExit = 0
     while (await this.execute(statement.condition) === 0) {
+      this._signalCatchers.loop++
       try {
         lastExit = await this.executeStatements(statement.body)
       } catch (signal) {
-        if (signal instanceof BreakSignal) break
-        if (signal instanceof ContinueSignal) continue
+        const unwind = this.unwindLoop(signal)
+        if (unwind === 'break') break
+        if (unwind === 'continue') continue
         throw signal
+      } finally {
+        this._signalCatchers.loop--
       }
     }
     return lastExit
+  }
+
+  /**
+   * How an enclosing loop should react to a thrown signal: `break`/`continue` this loop, or
+   * `undefined` for "not mine, rethrow".
+   *
+   * `break N`/`continue N` target the Nth enclosing loop, so a signal with `level` still above 1 is
+   * counted down one and rethrown for the loop outside this one to act on. That is why the count
+   * lives on the signal rather than on the shell: it unwinds with the exception, so it cannot be
+   * left behind by a loop that exits some other way.
+   */
+  private unwindLoop(signal: unknown): 'break' | 'continue' | undefined {
+    if (!(signal instanceof BreakSignal) && !(signal instanceof ContinueSignal)) return undefined
+    if (signal.level > 1) {
+      signal.level--
+      throw signal
+    }
+    return signal instanceof BreakSignal ? 'break' : 'continue'
   }
 
   /**
@@ -1939,12 +2101,16 @@ export class Shell implements IShell {
     let lastExit = 0
     for (const word of await this.expandForWords(statement.wordsText)) {
       this.setVariable(statement.variable, word)
+      this._signalCatchers.loop++
       try {
         lastExit = await this.executeStatements(statement.body)
       } catch (signal) {
-        if (signal instanceof BreakSignal) break
-        if (signal instanceof ContinueSignal) continue
+        const unwind = this.unwindLoop(signal)
+        if (unwind === 'break') break
+        if (unwind === 'continue') continue
         throw signal
+      } finally {
+        this._signalCatchers.loop--
       }
     }
     return lastExit
@@ -1973,9 +2139,16 @@ export class Shell implements IShell {
    */
   async executeScriptText(script: string): Promise<number> {
     const statements = parseStatements(script)
+    this._signalCatchers.exit++
     try {
       return await this.executeStatements(statements)
+    } catch (signal) {
+      // `exit N` ends the script with code N. The `EXIT` trap still runs, in the `finally` below,
+      // because that is precisely when bash runs it.
+      if (signal instanceof ExitSignal) return signal.code
+      throw signal
     } finally {
+      this._signalCatchers.exit--
       await this.runTrap('EXIT')
     }
   }
@@ -2117,14 +2290,47 @@ export class Shell implements IShell {
   }
 
   /**
+   * Every enclosing aggregate command's output redirections, outermost first, with a `>` that has
+   * already truncated its fd rewritten as `>>`.
+   *
+   * The rewrite is what makes a body of several commands behave like one redirected stream: without
+   * it `for f in a b; do echo $f; done > out` would leave only `b` in `out`, because each `echo`
+   * would reopen the file from the top.
+   */
+  private inheritedOutputRedirections(): Redirection[] {
+    const inherited: Redirection[] = []
+    for (const level of this._statementOutputs) {
+      for (const redirection of level.redirections) {
+        if (redirection.type !== '>') { inherited.push(redirection); continue }
+        if (level.truncated.has(redirection.fd)) inherited.push({ ...redirection, type: '>>' })
+        else { inherited.push(redirection); level.truncated.add(redirection.fd) }
+      }
+    }
+    return inherited
+  }
+
+  /**
+   * Pushes an aggregate command's output redirections for the duration of `run`, so every command in
+   * its body inherits them. Allocates nothing when there are none to push.
+   */
+  private async withStatementOutputs<T>(redirections: readonly Redirection[], run: () => Promise<T>): Promise<T> {
+    const outputs = redirections.filter(r => r.fd !== 0 && (r.type === '>' || r.type === '>>' || r.type === '>&'))
+    if (outputs.length === 0) return await run()
+
+    this._statementOutputs.push({ redirections: outputs, truncated: new Set() })
+    try {
+      return await run()
+    } finally {
+      this._statementOutputs.pop()
+    }
+  }
+
+  /**
    * Opens a compound statement's trailing redirection (`done < f`) and pushes it, returning a
    * function that pops and closes it. `undefined` when the statement has no redirection, so the
    * common case allocates nothing.
    */
-  private async pushStatementStdin(redirect: string | undefined): Promise<(() => Promise<void>) | undefined> {
-    if (!redirect) return undefined
-
-    const redirections = parseRedirections(redirect)
+  private async pushStatementStdin(redirections: readonly Redirection[]): Promise<(() => Promise<void>) | undefined> {
     const input = redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
     if (!input) return undefined
 
@@ -2294,6 +2500,35 @@ export class Shell implements IShell {
   setPositionalParameters(args: string[]) {
     this.clearPositionalParameters()
     for (const [index, arg] of args.entries()) this.env.set(`${index}`, arg)
+  }
+
+  /**
+   * `$1`, `$2`, ... in order, stopping at the first gap. `$0` is excluded: it is the invoked name,
+   * not an argument, which is why `shift` never touches it and `$#` never counts it.
+   */
+  get positionalParameters(): string[] {
+    const values: string[] = []
+    for (let i = 1; ; i++) {
+      const value = this.env.get(String(i))
+      if (value === undefined) break
+      values.push(value)
+    }
+    return values
+  }
+
+  /**
+   * `shift [N]`: drops the first N positional parameters and renumbers the rest, leaving `$0` alone.
+   *
+   * Returns false without changing anything when N exceeds `$#`, which is how bash's `shift` reports
+   * failure -- and what makes `while [ $# -gt 0 ]; do ...; shift; done` terminate rather than spin.
+   */
+  shiftPositionalParameters(count: number): boolean {
+    const positional = this.positionalParameters
+    if (count < 0 || count > positional.length) return false
+    const zero = this.env.get('0')
+    this.setPositionalParameters([zero ?? '', ...positional.slice(count)])
+    if (zero === undefined) this.env.delete('0')
+    return true
   }
 }
 
