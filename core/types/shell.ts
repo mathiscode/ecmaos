@@ -125,6 +125,27 @@ export interface ShellOptions {
 }
 
 /**
+ * The `set` flags a shell tracks, by their long names.
+ *
+ * `errexit` (`-e`), `nounset` (`-u`) and `pipefail` (`-o pipefail`) govern how failures propagate;
+ * `xtrace` (`-x`) prints each command to stderr behind `$PS4`; `noglob` (`-f`) turns pathname
+ * expansion off; `noclobber` (`-C`) stops `>` truncating an existing file; `verbose` (`-v`) echoes
+ * input as it is read.
+ */
+export interface ShellOptionState {
+  errexit: boolean
+  nounset: boolean
+  pipefail: boolean
+  xtrace: boolean
+  noglob: boolean
+  noclobber: boolean
+  verbose: boolean
+}
+
+/** One of {@link ShellOptionState}'s flags, by name. */
+export type ShellOptionName = keyof ShellOptionState
+
+/**
  * Interface for shell functionality
  */
 export interface Shell {
@@ -146,8 +167,8 @@ export interface Shell {
   terminal: Terminal
   /** Shell configuration */
   readonly config: ShellConfigManager
-  /** `set -e` / `-u` / `-o pipefail` state; off by default */
-  readonly shellOptions: { errexit: boolean, nounset: boolean, pipefail: boolean }
+  /** The name of a `set` flag; see {@link ShellOptionState} for what each one does. */
+  readonly shellOptions: ShellOptionState
   /** Registered `name() { ... }` function bodies, keyed by name */
   readonly functions: Map<string, unknown[]>
 
@@ -250,7 +271,7 @@ export interface Shell {
   claimProcessEnv(): void
 
   /** Applies a `set -e` / `-u` / `-o pipefail` style flag. */
-  applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void
+  applyShellOption(flag: ShellOptionName, enabled: boolean): void
 
   /**
    * Indexed arrays (`a=(x y)`, `${a[@]}`, `${#a[@]}`), keyed by name; never exported to the

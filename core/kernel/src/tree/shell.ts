@@ -13,7 +13,7 @@ import type { BoundContext, Credentials } from '@zenfs/core'
 import { fromDev, Process as ZenFSProcess, Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
-  Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
+  Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptionName, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
@@ -345,8 +345,23 @@ export class Shell implements IShell {
    * bash's behavior for `local X=1; unset X` (the outer `X` stays hidden until the function returns).
    */
   private _localScopes: Map<string, string | undefined>[] = []
-  /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
-  private _shellOptions = { errexit: false, nounset: false, pipefail: false }
+  /**
+   * The `set` options, all off by default (which matches ecmaOS's prior behavior, and bash's for
+   * every one of these except in specific invocation modes).
+   */
+  private _shellOptions = {
+    errexit: false,
+    nounset: false,
+    pipefail: false,
+    /** `-x`: print each command, prefixed by `$PS4`, to stderr before running it. */
+    xtrace: false,
+    /** `-f`: pathname expansion off, so `*` and `?` stay literal. */
+    noglob: false,
+    /** `-C`: `>` refuses to truncate an existing file. `>|` overrides it, as in bash. */
+    noclobber: false,
+    /** `-v`: echo each line of input to stderr as it is read. */
+    verbose: false
+  }
 
   /**
    * Indexed arrays (`a=(x y)`, `a[i]=v`, `${a[@]}`). Kept apart from `_env` (which is scalars
@@ -792,9 +807,27 @@ export class Shell implements IShell {
     this._localArrayScopes.pop()
   }
 
-  /** Apply `set -e` / `-u` / `-o pipefail` style flags. Matches the subset scripts here use. */
-  applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void {
+  /** Apply a `set` flag. See {@link _shellOptions} for what each one does. */
+  applyShellOption(flag: ShellOptionName, enabled: boolean): void {
     this._shellOptions[flag] = enabled
+  }
+
+  /**
+   * `set -x` -- writes `$PS4` followed by the command about to run to stderr.
+   *
+   * The arguments are the expanded ones, which is the point: xtrace exists to show what a command
+   * actually received after the shell was done with it, not what was typed.
+   */
+  private async trace(args: readonly string[]): Promise<void> {
+    if (!this._shellOptions.xtrace || args.length === 0) return
+    const ps4 = this.lookupVariable('PS4') ?? '+ '
+    await this.terminalBuiltinIO().writelnErr(ps4 + args.join(' '))
+  }
+
+  /** `set -v` -- echoes a line of input to stderr before it runs. */
+  private async traceVerbose(line: string): Promise<void> {
+    if (!this._shellOptions.verbose || !line) return
+    await this.terminalBuiltinIO().writelnErr(line)
   }
 
   constructor(_options: ShellOptions & { tty?: number }) {
@@ -1172,6 +1205,9 @@ export class Shell implements IShell {
    * @returns Array of matching file paths
    */
   private async expandGlob(pattern: string): Promise<string[]> {
+    // `set -f`: pathname expansion off, so the pattern stays exactly as written.
+    if (this._shellOptions.noglob) return [pattern]
+
     if (!pattern.includes('*') && !pattern.includes('?')) {
       return [pattern]
     }
@@ -1385,7 +1421,7 @@ export class Shell implements IShell {
         continue
       }
 
-      if (redirection.type === '>' || redirection.type === '>>') {
+      if (redirection.type === '>' || redirection.type === '>>' || redirection.type === '>|') {
         // Expanded, not taken literally: `> /tmp/work.$$` and `> "$dir/out"` have to name the file
         // the script meant. The input side has always done this (`buildInputStream`); the output side
         // used the raw text, so a redirect target containing a variable created a file named after
@@ -1608,8 +1644,16 @@ export class Shell implements IShell {
       const redirections = this._statementOutputs.length > 0
         ? [...this.inheritedOutputRedirections(), ...command.redirections]
         : command.redirections
+      const blocked = await this.noclobberTarget(redirections)
+      if (blocked) {
+        await this.terminalBuiltinIO().writelnErr(`${blocked}: cannot overwrite existing file`)
+        return commands.map(() => 1)
+      }
+
       const { stdout, stderr } = await this.buildOutputStreams(redirections, isLastCommand, pipeWritable)
-      const stdoutIsTTY = isLastCommand && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
+      const stdoutIsTTY = isLastCommand && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
+      // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
+      await this.trace([command.words[0] ?? '', ...args])
       const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
       stages.push(builtinName
         ? {
@@ -2175,6 +2219,7 @@ export class Shell implements IShell {
     // raw text with embedded newlines, so a multi-line heredoc typed at the prompt reached `cat`
     // with an empty body -- while the same text through `executeScriptText` (which goes via
     // `executeStatements`, and so uses `statement.line`) worked correctly.
+    await this.traceVerbose(statements[0].line)
     return this.executeSimple(statements[0].line)
   }
 
@@ -2232,6 +2277,7 @@ export class Shell implements IShell {
           // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
           const command = stage.pipeline.commands[0] as ParsedCommand
           const args = await this.expandCommandArgs(command)
+          await this.trace([builtinName, ...args])
           const code = await runTrueBuiltin(this, builtinName, args, this.terminalBuiltinIO())
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else if (fnName) {
@@ -2239,6 +2285,7 @@ export class Shell implements IShell {
           // held as an aggregate redirection for the whole call. It used to be parsed and dropped.
           const command = stage.pipeline.commands[0] as ParsedCommand
           const args = await this.expandCommandArgs(command)
+          await this.trace([fnName, ...args])
           const code = await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args))
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else {
@@ -2357,6 +2404,7 @@ export class Shell implements IShell {
 
       switch (statement.type) {
         case 'simple': {
+          await this.traceVerbose(statement.line)
           lastExit = await this.executeSimple(statement.line)
           break
         }
@@ -2657,6 +2705,26 @@ export class Shell implements IShell {
     return this._stdinSources[this._stdinSources.length - 1]
   }
 
+  /**
+   * `set -C` (noclobber): the first target a `>` would destroy, if any.
+   *
+   * Only plain `>` is affected. `>>` appends rather than destroying anything, and `>|` is the
+   * explicit override, which is why the parser keeps it as a distinct redirection type.
+   *
+   * Reported rather than thrown: a throw out of the stage builder unwinds the whole statement tree,
+   * and a refused redirection is an ordinary command failure that the rest of the script should
+   * survive.
+   */
+  private async noclobberTarget(redirections: readonly Redirection[]): Promise<string | undefined> {
+    if (!this._shellOptions.noclobber) return undefined
+    for (const redirection of redirections) {
+      if (redirection.type !== '>') continue
+      const target = path.resolve(this.cwd, await this.expandRedirectionTarget(redirection))
+      if (await this.context.fs.promises.exists(target)) return target
+    }
+    return undefined
+  }
+
   /** A redirection target word, expanded. Quote-aware, so `> "$dir/a b"` is one filename. */
   private async expandRedirectionTarget(redirection: Redirection): Promise<string> {
     const parts = redirection.targetParts
@@ -2699,7 +2767,7 @@ export class Shell implements IShell {
     const inherited: Redirection[] = []
     for (const level of this._statementOutputs) {
       for (const redirection of level.redirections) {
-        if (redirection.type !== '>') { inherited.push(redirection); continue }
+        if (redirection.type !== '>' && redirection.type !== '>|') { inherited.push(redirection); continue }
         if (level.truncated.has(redirection.fd)) inherited.push({ ...redirection, type: '>>' })
         else { inherited.push(redirection); level.truncated.add(redirection.fd) }
       }

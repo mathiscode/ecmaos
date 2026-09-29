@@ -21,7 +21,7 @@
  * command's own line.
  */
 
-export type RedirectionType = '>' | '>>' | '<' | '<<' | '<<<' | '>&'
+export type RedirectionType = '>' | '>>' | '>|' | '<' | '<<' | '<<<' | '>&'
 
 /** How a run of characters inside a word was quoted. */
 export type Quoting = 'unquoted' | 'single' | 'double' | 'escaped'
@@ -291,8 +291,10 @@ export function tokenize(line: string): Token[] {
       continue
     }
 
-    // Redirections: [n]<<< [n]<< [n]>> [n]>& [n]> [n]<
-    const fdMatch = /^(\d*)(<<<|<<|>>|>&|>|<)/.exec(line.slice(i))
+    // Redirections: [n]<<< [n]<< [n]>> [n]>& [n]>| [n]> [n]<
+    // `>|` is `>` with `set -C` (noclobber) explicitly overridden, so it has to be its own operator
+    // rather than a `>` followed by a word starting with `|`.
+    const fdMatch = /^(\d*)(<<<|<<|>>|>&|>\||>|<)/.exec(line.slice(i))
     if (fdMatch) {
       const [full, fdStr, op] = fdMatch
       tokens.push({ kind: 'redirect', value: op as string, fd: fdStr ? Number(fdStr) : undefined })

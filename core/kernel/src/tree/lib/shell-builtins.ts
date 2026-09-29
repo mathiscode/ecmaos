@@ -26,7 +26,7 @@
 import chalk from 'chalk'
 import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
-import type { ShellBuiltinIO, User } from '@ecmaos/types'
+import type { ShellBuiltinIO, ShellOptionName, User } from '@ecmaos/types'
 import { DEFAULT_IFS, splitOnIFS } from '#lib/word-expansion.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from '#lib/shell-signals.ts'
 
@@ -75,29 +75,106 @@ async function runCd(shell: Shell, argv: string[], io: Io): Promise<number> {
   }
 }
 
+/**
+ * The `set` flags, by the single letter and the `-o` long name that select them -- the same pairs
+ * bash uses, so `set -x` and `set -o xtrace` are the same thing.
+ */
+const SHELL_OPTION_LETTERS: ReadonlyMap<string, ShellOptionName> = new Map([
+  ['e', 'errexit'],
+  ['u', 'nounset'],
+  ['x', 'xtrace'],
+  ['f', 'noglob'],
+  ['C', 'noclobber'],
+  ['v', 'verbose']
+])
+
+/** Every long name `set -o` accepts, including `pipefail`, which has no single-letter form. */
+const SHELL_OPTION_NAMES: readonly ShellOptionName[] = [
+  'errexit', 'noclobber', 'noglob', 'nounset', 'pipefail', 'verbose', 'xtrace'
+]
+
 async function runSet(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
-    await io.writeln('Usage: set [-e|+e] [-u|+u] [-o pipefail|+o pipefail]\nConfigure shell options for the current shell.')
+    await io.writeln([
+      'Usage: set [-/+abefCuvx] [-/+o [OPTION]] [ARG...]',
+      'Set or unset shell options, or set the positional parameters.',
+      '',
+      '  -e  errexit    exit on a command that fails outside a condition',
+      '  -u  nounset    treat an unset variable as an error',
+      '  -x  xtrace     print each command, behind $PS4, before running it',
+      '  -f  noglob     turn pathname expansion off',
+      '  -C  noclobber  refuse to let > truncate an existing file (>| overrides)',
+      '  -v  verbose    echo each line of input as it is read',
+      '      pipefail   a pipeline reports its last failing stage, -o only',
+      '',
+      'Use + instead of - to turn an option off. `set -o` with no name lists them all;',
+      '`set -- ARG...` replaces the positional parameters.'
+    ].join('\n'))
     return 0
   }
 
+  // `set` with no arguments lists variables in bash. That is what `env` already does here, and
+  // printing a second, differently-formatted listing would be the more confusing choice.
+  if (argv.length === 0) return 0
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
-    if (arg === '-e') shell.applyShellOption('errexit', true)
-    else if (arg === '+e') shell.applyShellOption('errexit', false)
-    else if (arg === '-u') shell.applyShellOption('nounset', true)
-    else if (arg === '+u') shell.applyShellOption('nounset', false)
-    else if (arg === '-o' || arg === '+o') {
-      const option = argv[++i]
-      if (option !== 'pipefail') {
-        await io.writelnErr(`set: unsupported option: ${option ?? '<missing>'}`)
-        return 1
-      }
-      shell.applyShellOption('pipefail', arg === '-o')
-    } else {
-      await io.writelnErr(`set: unsupported option: ${arg}`)
-      return 1
+
+    // `set -- a b c` replaces the positional parameters; everything after it is a value, not a flag.
+    if (arg === '--') {
+      shell.setPositionalParameters([shell.lookupVariable('0') ?? 'ecmaos', ...argv.slice(i + 1)])
+      return 0
     }
+
+    if (arg === '-o' || arg === '+o') {
+      const name = argv[i + 1]
+      // Bare `set -o` lists every option and its state, which is how a script reads them back.
+      if (name === undefined || name.startsWith('-') || name.startsWith('+')) {
+        if (arg === '-o') for (const option of SHELL_OPTION_NAMES) {
+          await io.writeln(`${option.padEnd(12)}${shell.shellOptions[option] ? 'on' : 'off'}`)
+        }
+        continue
+      }
+
+      i++
+      if (!(SHELL_OPTION_NAMES as readonly string[]).includes(name)) {
+        await io.writelnErr(`set: ${name}: invalid option name`)
+        return 2
+      }
+      shell.applyShellOption(name as ShellOptionName, arg === '-o')
+      continue
+    }
+
+    if ((arg.startsWith('-') || arg.startsWith('+')) && arg.length > 1) {
+      const enable = arg.startsWith('-')
+      // A cluster like `set -eux` is one argument setting three flags, as in bash. An `o` inside a
+      // cluster still takes the *next* argument as its long name, which is what makes
+      // `set -euo pipefail` -- the standard first line of a shell script -- one command.
+      let invalid: string | undefined
+      for (const letter of arg.slice(1)) {
+        if (letter === 'o') {
+          const name = argv[++i]
+          if (name === undefined || !(SHELL_OPTION_NAMES as readonly string[]).includes(name)) {
+            await io.writelnErr(`set: ${name ?? '-o'}: invalid option name`)
+            return 2
+          }
+          shell.applyShellOption(name as ShellOptionName, enable)
+          continue
+        }
+        const option = SHELL_OPTION_LETTERS.get(letter)
+        if (!option) { invalid = arg; break }
+        shell.applyShellOption(option, enable)
+      }
+      if (invalid) {
+        await io.writelnErr(`set: ${invalid}: invalid option`)
+        return 2
+      }
+      continue
+    }
+
+    // A bare word with no leading `-`/`+` is a positional parameter, the same as after `--`.
+    shell.setPositionalParameters([shell.lookupVariable('0') ?? 'ecmaos', ...argv.slice(i)])
+    return 0
   }
 
   return 0
