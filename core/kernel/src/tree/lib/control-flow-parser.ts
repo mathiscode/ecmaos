@@ -148,8 +148,11 @@ class LineParser {
           this.advance()
           return { type: 'function', name: inlineFn[1] as string, body: parseInlineBody(inlineFn[2] as string) }
         }
-        const fnMatch = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{?\s*$/.exec(line)
-        if (fnMatch) return this.parseFunctionParenForm(fnMatch[1] as string, line)
+        const fnMatch = OPEN_FUNCTION_DEF.exec(line)
+        if (fnMatch) {
+          this.advance()
+          return this.finishFunctionBody(fnMatch[1] as string, line.trim().includes('{'), fnMatch[2])
+        }
         this.advance()
         return { type: 'simple', line }
       }
@@ -294,23 +297,31 @@ class LineParser {
     const header = this.restAfterKeyword(this.advance(), 'function')
     const inline = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.+)\}\s*$/.exec(header)
     if (inline) return { type: 'function', name: inline[1] as string, body: parseInlineBody(inline[2] as string) }
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{?\s*$/.exec(header)
+    const open = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.*)$/.exec(header)
+    if (open) return this.finishFunctionBody(open[1] as string, true, open[2])
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*$/.exec(header)
     if (!match) throw new ControlFlowParseError(`Malformed function definition: function ${header}`)
-    return this.finishFunctionBody(match[1] as string, header.trim().endsWith('{'))
+    return this.finishFunctionBody(match[1] as string, false)
   }
 
-  private parseFunctionParenForm(name: string, line: string): FunctionDef {
-    this.advance()
-    return this.finishFunctionBody(name, line.trim().endsWith('{'))
-  }
-
-  private finishFunctionBody(name: string, openBraceOnHeaderLine: boolean): FunctionDef {
+  /**
+   * Collects a function body up to its closing `}`.
+   *
+   * `inlineBodyStart` is whatever followed the opening brace on the header line, for a definition that
+   * begins on one line and ends on a later one (`greet() { echo hi` then `}`). It is pushed back onto
+   * the line stream at the current position rather than parsed separately, so it goes through exactly
+   * the same `parseStatement` the rest of the body does -- a nested block opened there
+   * (`greet() { if true; then`) therefore still works.
+   */
+  private finishFunctionBody(name: string, openBraceOnHeaderLine: boolean, inlineBodyStart?: string): FunctionDef {
     if (!openBraceOnHeaderLine) {
       if (this.firstWord(this.peek() ?? '') !== '{') {
         throw new ControlFlowParseError(`Expected '{' to open function '${name}'`, this.atEnd())
       }
       this.advance()
     }
+
+    if (inlineBodyStart && inlineBodyStart.trim()) this.lines.splice(this.pos, 0, inlineBodyStart.trim())
 
     const body: Statement[] = []
     while (!this.atEnd() && this.peek() !== '}') {
@@ -331,6 +342,22 @@ class LineParser {
  * looking for a command literally named `f()` and reported it as not found.
  */
 const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/
+
+/**
+ * `NAME()` with an opening brace whose body is not closed on this line: either the classic
+ * `greet() {` with the body on following lines, or `greet() { echo hi` with the body *started* here
+ * and closed later. The second form used to match nothing, so at an interactive prompt it read as a
+ * complete plain command and ran immediately instead of asking for the rest.
+ */
+const OPEN_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(?:\{(.*))?$/
+
+/**
+ * A physical line that opens a function body and puts something after the brace -- complete
+ * (`f() { echo hi; }`) or not (`f() { echo hi`). {@link normalizeInlineControlFlow} hands these
+ * through untouched, because its keyword splitting has no idea the keywords are inside a function
+ * body and would tear `f() { if x; then y; fi; }` apart at `then` and `fi`.
+ */
+const ONE_LINE_FUNCTION_BODY = /^(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:\(\s*\))?\s*\{.*\S/
 
 /**
  * Parses a one-line function body, which is ordinary `;`-joined shell input and so goes through the
@@ -369,16 +396,17 @@ const ISOLATE_ALONE = new Set(['else'])
  * command-position restriction on these reserved words.
  */
 export function normalizeInlineControlFlow(text: string): string {
-  // A physical line that is a complete one-line function definition is handed through untouched.
-  // Its `;`-joined body is normalized later, by `parseInlineBody`, once the braces around it have
-  // been stripped -- otherwise the keyword splitting below would tear `f() { if x; then y; fi; }`
-  // apart at `then` and `fi` without any idea that those keywords are inside a function body.
+  // A physical line that opens a function body with content after the brace is handed through
+  // untouched. Its `;`-joined body is normalized later -- by `parseInlineBody` for a complete
+  // one-liner, or by the ordinary line parser once `finishFunctionBody` pushes the started body back
+  // onto the stream. Either way the keyword splitting below must not see it first: it has no idea the
+  // keywords are inside a function body, and would tear `f() { if x; then y; fi; }` apart.
   //
   // Splitting per physical line changes nothing else: the loop below already flushes at every `\n`,
   // so it never carried state across one.
-  if (text.includes('\n') || INLINE_FUNCTION_DEF.test(text.trim())) {
+  if (text.includes('\n') || ONE_LINE_FUNCTION_BODY.test(text.trim())) {
     return text.split('\n')
-      .map(line => INLINE_FUNCTION_DEF.test(line.trim()) ? line : normalizeOneLine(line))
+      .map(line => ONE_LINE_FUNCTION_BODY.test(line.trim()) ? line : normalizeOneLine(line))
       .join('\n')
   }
 

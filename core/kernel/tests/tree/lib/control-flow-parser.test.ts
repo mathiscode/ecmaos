@@ -137,6 +137,22 @@ describe('parseStatements', () => {
     expect(stmt.body).toEqual([{ type: 'simple', line: 'echo hi' }])
   })
 
+  it('parses a function whose body starts on the header line and closes later', () => {
+    // `greet() { echo hi` matched nothing before, so at a prompt it read as a complete plain command
+    // and ran immediately rather than asking for the closing brace.
+    const stmt = parseStatements('greet() { echo hi\n}')[0] as FunctionDef
+    expect(stmt.type).toBe('function')
+    expect(stmt.name).toBe('greet')
+    expect(stmt.body).toEqual([{ type: 'simple', line: 'echo hi' }])
+  })
+
+  it('parses a nested block opened on the header line', () => {
+    const stmt = parseStatements('check() { if true; then\necho yes\nfi\n}')[0] as FunctionDef
+    expect(stmt.type).toBe('function')
+    expect(stmt.body).toHaveLength(1)
+    expect(stmt.body[0]?.type).toBe('if')
+  })
+
   it('parses nested control flow', () => {
     const script = [
       'for i in 1 2; do',

@@ -24,7 +24,14 @@ describe('needsMoreInput', () => {
       ['a closed multi-line for loop', 'for i in 1 2 3\ndo\necho $i\ndone'],
       ['a closed multi-line if', 'if true\nthen\necho yes\nfi'],
       ['a closed heredoc', 'cat <<EOF\nbody\nEOF'],
-      ['a here-string, which needs no terminator', 'tr a-z A-Z <<< hello']
+      ['a here-string, which needs no terminator', 'tr a-z A-Z <<< hello'],
+      // A whole function definition on one line is complete, so the prompt must run it rather than
+      // ask for another line. Before it parsed, it read as a plain command and was also "complete" --
+      // for the wrong reason, then failed as a command named `greet()`.
+      ['a one-line function definition', 'greet() { echo hi; }'],
+      ['a one-line function in the keyword form', 'function greet { echo hi; }'],
+      ['a one-line function with a nested block', 'check() { if true; then echo yes; fi; }'],
+      ['a one-line function with several commands', 'both() { echo one; echo two; }']
     ])('%s', (_label, input) => {
       expect(needsMoreInput(input)).toBe(false)
     })
@@ -42,7 +49,10 @@ describe('needsMoreInput', () => {
       ['an if with a body but no fi', 'if true; then\necho yes'],
       ['an if in its else branch', 'if true; then\necho yes\nelse'],
       ['a while loop', 'while true; do\necho spin'],
-      ['a function body', 'greet() {\necho hi']
+      ['a function body', 'greet() {\necho hi'],
+      // An opening brace with a body but no closing one is still a prefix, one-line form or not.
+      ['a one-line function with no closing brace', 'greet() { echo hi'],
+      ['a one-line function whose nested block is open', 'check() { if true; then']
     ])('%s', (_label, input) => {
       expect(needsMoreInput(input)).toBe(true)
     })

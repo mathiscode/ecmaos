@@ -48,6 +48,11 @@ file did not work at all. Both spellings now parse on one line, including a nest
 A `;`-joined body stays one statement for `Shell.executeSimple` to walk, exactly as a `;`-joined line
 typed at the prompt does.
 
+A body *started* on the header line and closed later (`greet() { echo hi` then `}`) matched nothing
+either, which was worse at an interactive prompt: the line read as complete, so the prompt ran it
+immediately instead of asking for the closing brace. Both now continue correctly, including when the
+line opens a nested block (`check() { if true; then`).
+
 ## Redirections on aggregate commands
 
 A compound statement's closing keyword, a function call, and `eval`/`source` are not commands with a
