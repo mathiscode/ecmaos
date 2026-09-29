@@ -23,7 +23,7 @@
 
 import { foldHeredocs, pendingHeredocDelimiter } from '#lib/shell-parser.ts'
 
-export interface SimpleStatement {
+export interface SimpleStatement extends Positioned {
   type: 'simple'
   line: string
 }
@@ -40,19 +40,31 @@ export interface Redirected {
   redirect?: string
 }
 
-export interface IfStatement extends Redirected {
+/**
+ * The 1-based physical line of the script a statement came from, for `$LINENO`.
+ *
+ * Physical, not logical: blank lines and comments still count, several statements normalized out of
+ * one compact line (`if x; then y; fi`) all report that line, and a one-line function body reports
+ * the line the definition is on. Heredoc bodies are padded back to their original height by
+ * `foldHeredocs` so a statement after one is not shifted.
+ */
+export interface Positioned {
+  lineNumber?: number
+}
+
+export interface IfStatement extends Redirected, Positioned {
   type: 'if'
   branches: Array<{ condition: string, body: Statement[] }>
   elseBody: Statement[] | null
 }
 
-export interface WhileStatement extends Redirected {
+export interface WhileStatement extends Redirected, Positioned {
   type: 'while'
   condition: string
   body: Statement[]
 }
 
-export interface ForStatement extends Redirected {
+export interface ForStatement extends Redirected, Positioned {
   type: 'for'
   variable: string
   /**
@@ -72,13 +84,13 @@ export interface CaseClause {
   body: Statement[]
 }
 
-export interface CaseStatement extends Redirected {
+export interface CaseStatement extends Redirected, Positioned {
   type: 'case'
   word: string
   clauses: CaseClause[]
 }
 
-export interface FunctionDef {
+export interface FunctionDef extends Positioned {
   type: 'function'
   name: string
   body: Statement[]
@@ -102,23 +114,51 @@ export class ControlFlowParseError extends Error {
   }
 }
 
-/** Split a script into non-blank, non-comment, non-empty-after-trim logical lines. */
-function preprocessLines(script: string): string[] {
-  return script
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0 && !line.startsWith('#'))
+/** One logical line the parser walks, and the physical line of the script it came from. */
+interface SourceLine {
+  text: string
+  line: number
+}
+
+/**
+ * Splits a script into the non-blank, non-comment logical lines the parser walks, each tagged with
+ * the physical line it came from.
+ *
+ * Normalization happens here, per physical line, rather than over the whole script: that is what
+ * lets every line `if x; then y; fi` expands into report the one line it was written on. Blank and
+ * comment lines are dropped from the output but still counted, so `$LINENO` matches what an editor
+ * shows.
+ *
+ * @param offset - Added to every number, for a nested parse (a one-line function body) whose lines
+ * all belong to the enclosing definition's line.
+ */
+function preprocessLines(script: string, offset = 0): SourceLine[] {
+  const out: SourceLine[] = []
+  script.split('\n').forEach((physical, index) => {
+    for (const normalized of normalizeOneLineIfNeeded(physical).split('\n')) {
+      const text = normalized.trim()
+      if (text.length > 0 && !text.startsWith('#')) out.push({ text, line: offset || index + 1 })
+    }
+  })
+  return out
+}
+
+/** {@link normalizeInlineControlFlow}'s per-line rule, shared with {@link preprocessLines}. */
+function normalizeOneLineIfNeeded(line: string): string {
+  return ONE_LINE_FUNCTION_BODY.test(line.trim()) ? line : normalizeOneLine(line)
 }
 
 const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
 
 class LineParser {
   private pos = 0
-  constructor(private lines: string[]) {}
+  constructor(private lines: SourceLine[]) {}
 
-  private peek(): string | undefined { return this.lines[this.pos] }
-  private advance(): string { return this.lines[this.pos++] as string }
+  private peek(): string | undefined { return this.lines[this.pos]?.text }
+  private advance(): string { return (this.lines[this.pos++] as SourceLine).text }
   private atEnd(): boolean { return this.pos >= this.lines.length }
+  /** The physical line the next statement starts on, for `$LINENO`. */
+  private here(): number | undefined { return this.lines[this.pos]?.line }
 
   private firstWord(line: string): string {
     return (line.split(/\s+/)[0]) ?? ''
@@ -127,9 +167,17 @@ class LineParser {
   parseStatements(stopWords: string[]): Statement[] {
     const statements: Statement[] = []
     while (!this.atEnd() && !stopWords.includes(this.firstWord(this.peek() as string))) {
-      statements.push(this.parseStatement())
+      statements.push(this.parsePositionedStatement())
     }
     return statements
+  }
+
+  /** {@link parseStatement}, tagged with the physical line it started on. See {@link Positioned}. */
+  private parsePositionedStatement(): Statement {
+    const lineNumber = this.here()
+    const statement = this.parseStatement()
+    if (lineNumber !== undefined) statement.lineNumber = lineNumber
+    return statement
   }
 
   private parseStatement(): Statement {
@@ -145,8 +193,9 @@ class LineParser {
       default: {
         const inlineFn = INLINE_FUNCTION_DEF.exec(line)
         if (inlineFn) {
+          const at = this.here() ?? 1
           this.advance()
-          return { type: 'function', name: inlineFn[1] as string, body: parseInlineBody(inlineFn[2] as string) }
+          return { type: 'function', name: inlineFn[1] as string, body: parseInlineBody(inlineFn[2] as string, at) }
         }
         const fnMatch = OPEN_FUNCTION_DEF.exec(line)
         if (fnMatch) {
@@ -276,7 +325,7 @@ class LineParser {
       }
 
       while (!this.atEnd() && !/;;\s*$/.test(this.peek() as string) && this.firstWord(this.peek() as string) !== 'esac') {
-        body.push(this.parseStatement())
+        body.push(this.parsePositionedStatement())
       }
 
       // `;;` may terminate the last body line inline (`echo hi ;;`) or stand alone on its own line.
@@ -294,9 +343,10 @@ class LineParser {
   }
 
   private parseFunctionKeywordForm(): FunctionDef {
+    const at = this.here() ?? 1
     const header = this.restAfterKeyword(this.advance(), 'function')
     const inline = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.+)\}\s*$/.exec(header)
-    if (inline) return { type: 'function', name: inline[1] as string, body: parseInlineBody(inline[2] as string) }
+    if (inline) return { type: 'function', name: inline[1] as string, body: parseInlineBody(inline[2] as string, at) }
     const open = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.*)$/.exec(header)
     if (open) return this.finishFunctionBody(open[1] as string, true, open[2])
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*$/.exec(header)
@@ -321,11 +371,15 @@ class LineParser {
       this.advance()
     }
 
-    if (inlineBodyStart && inlineBodyStart.trim()) this.lines.splice(this.pos, 0, inlineBodyStart.trim())
+    // Pushed back at the current position, carrying the header's own line number: a body started on
+    // the header line belongs to that line.
+    if (inlineBodyStart && inlineBodyStart.trim()) {
+      this.lines.splice(this.pos, 0, { text: inlineBodyStart.trim(), line: this.lines[this.pos - 1]?.line ?? 1 })
+    }
 
     const body: Statement[] = []
     while (!this.atEnd() && this.peek() !== '}') {
-      body.push(this.parseStatement())
+      body.push(this.parsePositionedStatement())
     }
 
     this.expectKeywordLine('}')
@@ -365,11 +419,11 @@ const ONE_LINE_FUNCTION_BODY = /^(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:\(\
  * not repeated: {@link parseStatements} already ran it over the whole script, so any heredoc in this
  * body is already one self-contained token.
  */
-function parseInlineBody(text: string): Statement[] {
+function parseInlineBody(text: string, line: number): Statement[] {
   // bash requires the `;` before the closing brace; dropping it here makes the resulting statements
   // identical to the multi-line form's rather than carrying a stray trailing separator.
   const body = text.trim().replace(/;\s*$/, '')
-  return new LineParser(preprocessLines(normalizeInlineControlFlow(body))).parseStatements([])
+  return new LineParser(preprocessLines(body, line)).parseStatements([])
 }
 
 /** Reserved words this parser understands -- used by the shell to reject them as command names. */
@@ -507,7 +561,7 @@ function normalizeOneLine(text: string): string {
  * command's own line, exactly like `shell-parser.ts`'s own single-line entry points expect.
  */
 export function parseStatements(script: string): Statement[] {
-  const lines = preprocessLines(normalizeInlineControlFlow(foldHeredocs(script)))
+  const lines = preprocessLines(foldHeredocs(script))
   const parser = new LineParser(lines)
   const statements = parser.parseStatements([])
   return statements

@@ -148,6 +148,44 @@ describe('special parameters', () => {
     })
   })
 
+  describe('$LINENO', () => {
+    it('reports the physical line, counting blanks and comments', async () => {
+      const output = await runScript([
+        '# a comment',
+        '',
+        `echo $LINENO >> ${OUT}`,
+        '',
+        `echo $LINENO >> ${OUT}`
+      ].join('\n'))
+      // The script file gets a `#!` line prepended, so both numbers are shifted by one and what
+      // matters is the gap between them matching the gap in the source.
+      const [first, second] = lines(output).map(Number) as [number, number]
+      expect(second - first).toBe(2)
+    })
+
+    it('tracks a loop body rather than freezing at the loop', async () => {
+      const output = await runScript([
+        'for i in 1 2; do',
+        `  echo $LINENO >> ${OUT}`,
+        'done'
+      ].join('\n'))
+      const [first, second] = lines(output)
+      expect(first).toBe(second)
+    })
+
+    it('advances line by line inside a function', async () => {
+      const output = await runScript([
+        'f() {',
+        `  echo $LINENO >> ${OUT}`,
+        `  echo $LINENO >> ${OUT}`,
+        '}',
+        'f'
+      ].join('\n'))
+      const [first, second] = lines(output).map(Number) as [number, number]
+      expect(second - first).toBe(1)
+    })
+  })
+
   describe('$SHLVL', () => {
     it('is 1 for a console shell', async () => {
       expect(lines(await runScript(`echo $SHLVL >> ${OUT}`))[0]).toBe('1')

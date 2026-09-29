@@ -349,6 +349,16 @@ export class Shell implements IShell {
   private _statementOutputs: Array<{ redirections: Redirection[], truncated: Set<number> }> = []
 
   /**
+   * Output redirections installed by `exec > file`, which apply to the shell itself rather than to
+   * one command.
+   *
+   * Kept apart from `_statementOutputs` because it is not a stack: it has no matching pop, outliving
+   * every statement until another `exec` replaces it. `inheritedOutputRedirections` reads it as the
+   * outermost layer, so a command's own redirection and any enclosing statement's both still win.
+   */
+  private _execOutputs?: { redirections: Redirection[], truncated: Set<number> }
+
+  /**
    * `local` frames, innermost last. A name mapped to `undefined` is a local that `unset` removed:
    * present in the frame, so it still shadows the caller's value, but resolving to nothing -- which is
    * bash's behavior for `local X=1; unset X` (the outer `X` stays hidden until the function returns).
@@ -492,6 +502,14 @@ export class Shell implements IShell {
    */
   private _getoptsCharIndex = 1
 
+  /**
+   * The physical script line of the statement running right now, for `$LINENO`.
+   *
+   * Set by `executeStatements` as it walks, since that is the only place that knows which statement
+   * is current. Zero before anything has run, which is what `$LINENO` reads at the prompt.
+   */
+  private _lineNumber = 0
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -613,6 +631,7 @@ export class Shell implements IShell {
         return String(this._randomState % 32768)
       }
       case 'SECONDS': return String(Math.floor((Date.now() - this._secondsOrigin) / 1000))
+      case 'LINENO': return String(this._lineNumber)
       case '$': return String(this.process.pid)
       case 'PPID': return String(this.process.ppid)
       case '-': return this.optionFlags()
@@ -1689,7 +1708,7 @@ export class Shell implements IShell {
       // An enclosing aggregate command's redirections come first, so this command's own still win --
       // the same "later wins" rule applied across nesting levels. Resolved once per command, since
       // `inheritedOutputRedirections` also records which fds have already been truncated.
-      const redirections = this._statementOutputs.length > 0
+      const redirections = this._statementOutputs.length > 0 || this._execOutputs
         ? [...this.inheritedOutputRedirections(), ...command.redirections]
         : command.redirections
       const blocked = await this.noclobberTarget(redirections)
@@ -1884,6 +1903,9 @@ export class Shell implements IShell {
    * `runPipeline` as a builtin stage with real fds.
    */
   private fastPathBuiltinFor(pipeline: Pipeline): string | undefined {
+    // With `exec > file` installed there is no such thing as "nothing redirected": the shell's own
+    // fd 1 is the file, and a builtin writing straight to the terminal would escape it.
+    if (this._execOutputs || this._statementOutputs.length > 0) return undefined
     if (pipeline.commands.length !== 1) return undefined
     const command = pipeline.commands[0]
     if (!command || command.redirections.length > 0) return undefined
@@ -2317,12 +2339,20 @@ export class Shell implements IShell {
       } else if (stage.operator === '&') {
         this.runInBackground(stage.pipeline)
       } else {
-        const conditionalCommand = stage.pipeline.commands.length === 1 ? stage.pipeline.commands[0] : undefined
+        // `exec` never reaches the builtin table: its redirections are the point, so they must be
+        // installed rather than handed to it as its own fds the way every other builtin's are.
+        const execCommand = stage.pipeline.commands.length === 1 && stage.pipeline.commands[0]?.words[0] === 'exec'
+          ? stage.pipeline.commands[0]
+          : undefined
+        const conditionalCommand = execCommand ? undefined : (stage.pipeline.commands.length === 1 ? stage.pipeline.commands[0] : undefined)
         const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.fastPathBuiltinFor(stage.pipeline)
         const fnName = builtinName ? undefined : this.functionNameFor(stage.pipeline)
         let pipeStatus: number[]
 
-        if (conditionalCommand?.conditional !== undefined) {
+        if (execCommand) {
+          const code = await this.runExec(execCommand)
+          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
+        } else if (conditionalCommand?.conditional !== undefined) {
           const code = await this.evaluateConditionalCommand(conditionalCommand.conditional)
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else if (builtinName) {
@@ -2457,6 +2487,8 @@ export class Shell implements IShell {
       // own `executeStatements` call and would otherwise continue on its own.
       if (this._interrupted) return lastExit
 
+      if (statement.lineNumber !== undefined) this._lineNumber = statement.lineNumber
+
       switch (statement.type) {
         case 'simple': {
           await this.traceVerbose(statement.line)
@@ -2497,6 +2529,38 @@ export class Shell implements IShell {
     }
 
     return lastExit
+  }
+
+  /**
+   * `exec [redirection...]` -- installs redirections on the shell itself.
+   *
+   * The command form (`exec prog args`) replaces the shell's process image, which ecmaOS has nothing
+   * to do yet: the shell is a main-thread object, not a program a worker is running. It is reported
+   * rather than approximated, because "run it and carry on" is a different thing with the same
+   * spelling. `/bin/ecmash` is where that becomes possible.
+   *
+   * The redirection-only form is the one scripts actually use -- `exec > run.log 2>&1` at the top of
+   * a script sends everything after it to a file -- and that works, because the shell already
+   * carries inherited redirections for compound statements.
+   */
+  private async runExec(command: ParsedCommand): Promise<number> {
+    const args = await this.expandCommandArgs(command)
+    if (args.length > 0) {
+      await this.terminalBuiltinIO().writelnErr('exec: replacing the shell with a command is not supported yet; only redirections are')
+      return 1
+    }
+
+    const outputs = command.redirections.filter(r => r.fd !== 0 && (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&'))
+    if (outputs.length > 0) this._execOutputs = { redirections: outputs, truncated: new Set() }
+
+    const input = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    if (input) {
+      // Installed at the bottom of the stack, so a redirected compound statement still wins while it
+      // is running and this is what is left underneath when it finishes.
+      this._stdinSources.unshift(new StdinSource(await this.buildInputStream(input)))
+    }
+
+    return 0
   }
 
   /**
@@ -2820,7 +2884,8 @@ export class Shell implements IShell {
    */
   private inheritedOutputRedirections(): Redirection[] {
     const inherited: Redirection[] = []
-    for (const level of this._statementOutputs) {
+    const levels = this._execOutputs ? [this._execOutputs, ...this._statementOutputs] : this._statementOutputs
+    for (const level of levels) {
       for (const redirection of level.redirections) {
         if (redirection.type !== '>' && redirection.type !== '>|') { inherited.push(redirection); continue }
         if (level.truncated.has(redirection.fd)) inherited.push({ ...redirection, type: '>>' })

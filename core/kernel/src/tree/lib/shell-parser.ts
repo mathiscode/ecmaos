@@ -532,6 +532,7 @@ export function foldHeredocs(text: string): string {
   const out: string[] = []
 
   for (let n = 0; n < lines.length; n++) {
+    const startedAt = n
     let line = lines[n] as string
     const operators = line.includes('<<') ? findHeredocOperators(line) : []
     if (operators.length === 0) { out.push(line); continue }
@@ -553,6 +554,10 @@ export function foldHeredocs(text: string): string {
       line = line.slice(0, op.start) + '<< ' + encoded[k] + line.slice(op.end)
     }
     out.push(line)
+    // The body and its terminator collapsed into the line above. Pad the gap back so the output has
+    // the same number of lines as the input, which is what keeps `$LINENO` right after a heredoc.
+    // `preprocessLines` drops blank lines, so the padding costs nothing else.
+    for (let pad = startedAt; pad < n; pad++) out.push('')
   }
 
   return out.join('\n')
