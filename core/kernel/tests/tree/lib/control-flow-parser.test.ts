@@ -54,13 +54,14 @@ describe('parseStatements', () => {
     const stmt = parseStatements('for f in a "b c" d; do\n  echo $f\ndone')[0] as ForStatement
     expect(stmt.type).toBe('for')
     expect(stmt.variable).toBe('f')
-    expect(stmt.words).toEqual(['a', 'b c', 'd'])
+    // Kept verbatim: quoting is the expander's to interpret, not the statement parser's.
+    expect(stmt.wordsText).toBe('a "b c" d')
     expect(stmt.body).toEqual([{ type: 'simple', line: 'echo $f' }])
   })
 
   it('parses for/in/do on the same line as the header', () => {
     const stmt = parseStatements('for i in 1 2 3; do\necho $i\ndone')[0] as ForStatement
-    expect(stmt.words).toEqual(['1', '2', '3'])
+    expect(stmt.wordsText).toBe('1 2 3')
   })
 
   it('parses case/esac with multiple patterns per clause', () => {

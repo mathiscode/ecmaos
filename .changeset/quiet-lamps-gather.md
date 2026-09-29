@@ -52,12 +52,38 @@ separate things, none of which existed:
   loop read from the terminal. The statement now opens that input once and every
   `read` in the body advances through it.
 
-Known limitation: inside a redirected compound statement, only builtins read the
-statement's input. A real command gets an immediately-closed stdin instead, so
-`while read a; do cat; done < f` gives `cat` nothing where bash gives it the rest
-of the file. The stdin bridge pumps as fast as the stream yields rather than as
-the process reads, so handing it the shared input would drain the file on the
-first command in the loop body.
-
 `Shell.lookupVariable` is now public, since `read` needs the same scope-aware
 lookup an expansion does.
+
+## Input redirection fixes
+
+Four bugs found while building the above, two of which could wedge the shell:
+
+- **`cmd < /dev/null` hung forever.** A character device read reports the full
+  length requested no matter what its driver produced (`DeviceFS.read` discards
+  the driver's count, and `@zenfs/core` skips the size clamp for devices by
+  design), so the read loop never saw end of file. `/dev/null` is now recognized
+  by its device number, 1:3, exactly as on Linux.
+- **Reading an endless device hung too, and large files were buffered whole.**
+  Input redirection read the entire file inside the stream's `start`, before the
+  stream was usable. It now reads one chunk per `pull`, so `head -c 4 < /dev/zero`
+  returns four bytes instead of never returning, and a redirect no longer holds
+  the whole file in memory.
+- **`head` read all of stdin before taking the first lines or bytes.** It now
+  stops once it has enough, which is what makes `head -c 4` on an endless stream
+  terminate and lets `head` on a pipe print without waiting for the writer.
+- **`printf` applied its format once.** POSIX reuses the format until the
+  arguments run out, so `printf '[%s]\n' a b c` now prints three lines instead of
+  one. A specifier with no argument left formats as empty rather than printing the
+  specifier text, and a format with no specifiers is printed exactly once.
+
+## `for` lists expand like command arguments
+
+`for f in $x` never word-split: the statement parser regex-split the list and
+stripped its quotes, so by the time the loop ran there was no quoting left to
+decide what could split. The list is now kept verbatim and expanded by the same
+expander a command's arguments use, so `for f in $x` iterates the fields,
+`for f in "a b"` stays one value, `for f in *.txt` matches files, and
+`for f in $(cmd)` works.
+
+`ForStatement.words: string[]` is therefore now `ForStatement.wordsText: string`.

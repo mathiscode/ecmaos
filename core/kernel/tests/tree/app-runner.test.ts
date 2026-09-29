@@ -57,7 +57,11 @@ describe('app runner: worker-hosted @ecmaos-apps programs', () => {
 
   it("returns main's number as the exit code and 0 otherwise", async () => {
     await install('exit3', `export default async () => 3`)
-    expect((await run('/tmp/exit3')).code).toBe(3)
+    // `/bin/app` exits 1 from a catch-all that writes the reason to fd 2, so a failure here is only
+    // diagnosable if that reason comes with it. This has flaked once under a full parallel run and
+    // passed in isolation and on re-run; the message is what will identify the cause next time.
+    const { code, err } = await run('/tmp/exit3')
+    expect(code, `/bin/app wrote to stderr: ${err || '(nothing)'}`).toBe(3)
   })
 
   it('reports a module with no main and an uncaught error', async () => {

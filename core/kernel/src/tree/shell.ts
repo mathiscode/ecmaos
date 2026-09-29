@@ -10,7 +10,7 @@ import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
 import type { BoundContext, Credentials } from '@zenfs/core'
-import { Signal } from '@zenfs/linux'
+import { fromDev, Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
   Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
@@ -140,6 +140,22 @@ function stripAssignmentPrefixes(
   })
 
   return { commands: stripped, prefixes }
+}
+
+/**
+ * Whether reading this character device yields end-of-file immediately.
+ *
+ * Only `/dev/null` does, and on Linux it is device 1:3 -- the same numbers `@zenfs/linux` gives it
+ * (`memMajor` is 1, null is minor 3). `/dev/zero`, `/dev/full`, `/dev/random` and `/dev/urandom` all
+ * produce data endlessly, and a tty blocks, so none of them belong here.
+ *
+ * This exists because the filesystem layer cannot express EOF for a device at all: `DeviceFS.read`
+ * discards whatever the driver did, and `@zenfs/core`'s `vfs/file.js` returns the full requested
+ * length for a character device by design. Fixing that upstream would let this go away.
+ */
+function readsAsEof(rdev: number): boolean {
+  const { major, minor } = fromDev(rdev)
+  return major === 1 && minor === 3
 }
 
 /**
@@ -1901,10 +1917,28 @@ export class Shell implements IShell {
     return lastExit
   }
 
+  /**
+   * A `for` list's values, expanded the way a command's arguments are: quote-aware, with word
+   * splitting on `$IFS`, command substitution, arithmetic and globbing.
+   *
+   * `for f in $x` therefore iterates `$x`'s fields rather than the whole string, `for f in "a b"`
+   * stays one value, and `for f in *.txt` matches files.
+   */
+  private async expandForWords(wordsText: string): Promise<string[]> {
+    if (wordsText === '') return []
+    const ctx = this.expansionContext()
+    const values: string[] = []
+    for (const token of tokenize(wordsText)) {
+      if (token.kind !== 'word') continue
+      values.push(...await expandWordFields(token.parts ?? [], ctx))
+    }
+    return values
+  }
+
   private async executeFor(statement: ForStatement): Promise<number> {
     let lastExit = 0
-    for (const word of statement.words) {
-      this.setVariable(statement.variable, expandWord(word, (name) => this.lookupVariable(name)))
+    for (const word of await this.expandForWords(statement.wordsText)) {
+      this.setVariable(statement.variable, word)
       try {
         lastExit = await this.executeStatements(statement.body)
       } catch (signal) {
@@ -1949,37 +1983,72 @@ export class Shell implements IShell {
   /**
    * Creates a ReadableStream that reads from a file
    */
+  /**
+   * A lazy stream over a file or device.
+   *
+   * Reads one chunk per `pull`, i.e. only as the consumer asks. It used to read the whole input
+   * inside `start()` before the stream was usable, which meant an endless character device never
+   * returned at all (`head -c 4 < /dev/zero` hung instead of reading four bytes) and a large file was
+   * buffered in full.
+   */
   private createFileReadStream(
     sourcePath: string,
     env: Map<string, string>,
     filesystem: Filesystem
   ): ReadableStream<Uint8Array> {
+    const chunkSize = parseInt(
+      env.get('SHELL_INPUT_REDIRECTION_CHUNK_SIZE') ||
+      import.meta.env.ECMAOS_APP_SHELL_INPUT_REDIRECTION_CHUNK_SIZE ||
+      '8192'
+    )
+
+    let handle: Awaited<ReturnType<Filesystem['fs']['open']>> | undefined
+    let done = false
+
+    const finish = async (): Promise<void> => {
+      done = true
+      const open = handle
+      handle = undefined
+      await open?.close()
+    }
+
     return new ReadableStream({
-      async start(controller) {
-        const fileHandle = await filesystem.fs.open(sourcePath, 'r')
-        const chunkSize = parseInt(
-          env.get('SHELL_INPUT_REDIRECTION_CHUNK_SIZE') || 
-          import.meta.env.ECMAOS_APP_SHELL_INPUT_REDIRECTION_CHUNK_SIZE || 
-          '8192'
-        )
-        const buffer = new Uint8Array(chunkSize)
-        
-        try {
-          while (true) {
-            const { bytesRead } = await fileHandle.read(buffer, 0, chunkSize)
-            // Anything that isn't a positive count is EOF, not a short read to retry.
-            //
-            // Does NOT rescue `cmd < /dev/null`, which still hangs: `/dev/null`'s driver op is
-            // literally `read() { }` (`@zenfs/linux`, `drivers/char/mem.js`), and the layer above it
-            // reports a full buffer rather than 0, so this loop never sees the end. Reading any
-            // `/dev/*` node is Phase 4 work and the driver itself needs an upstream fix.
-            if (typeof bytesRead !== 'number' || !(bytesRead > 0)) break
-            controller.enqueue(buffer.slice(0, bytesRead))
-          }
-        } finally {
-          await fileHandle.close()
-          controller.close()
+      async start() {
+        // A character device that reads as end-of-file has to be recognized here, because no driver
+        // can say so: `DeviceFS.read` throws the driver's byte count away, and `@zenfs/core`'s
+        // `vfs/file.js` deliberately skips the size clamp for a device and returns the full length
+        // requested. So reading `/dev/null` reports a full buffer forever, and `cmd < /dev/null` used
+        // to wedge the shell. Devices that really do produce endless data still stream, which is
+        // correct now that this is lazy.
+        const stats = await filesystem.fs.stat(sourcePath)
+        if (stats.isCharacterDevice() && readsAsEof(stats.rdev)) {
+          done = true
+          return
         }
+        handle = await filesystem.fs.open(sourcePath, 'r')
+      },
+
+      async pull(controller) {
+        if (done || !handle) {
+          controller.close()
+          return
+        }
+
+        const buffer = new Uint8Array(chunkSize)
+        const { bytesRead } = await handle.read(buffer, 0, chunkSize)
+        // Anything that isn't a positive count is end of file, not a short read to retry.
+        if (typeof bytesRead !== 'number' || !(bytesRead > 0)) {
+          await finish()
+          controller.close()
+          return
+        }
+
+        controller.enqueue(buffer.slice(0, bytesRead))
+      },
+
+      // The consumer stopped early (`head -c 4`), so drop the handle rather than leaking it.
+      async cancel() {
+        await finish()
       }
     })
   }

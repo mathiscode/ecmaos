@@ -55,7 +55,15 @@ export interface WhileStatement extends Redirected {
 export interface ForStatement extends Redirected {
   type: 'for'
   variable: string
-  words: string[]
+  /**
+   * The list text exactly as written, e.g. `a "b c" $rest`.
+   *
+   * Deliberately unparsed. This used to be a `string[]` split by a regex with the quotes stripped,
+   * which meant `for f in $x` could never word-split (the quoting needed to decide that was already
+   * gone) and `for f in *.txt` could never glob. `Shell.executeFor` tokenizes and expands it with the
+   * same expander a command's arguments go through.
+   */
+  wordsText: string
   body: Statement[]
 }
 
@@ -225,13 +233,9 @@ class LineParser {
       this.advance()
     }
 
-    const words = wordsPart.trim().length ? (wordsPart.trim().match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []).map(w =>
-      (w.startsWith('"') && w.endsWith('"')) || (w.startsWith("'") && w.endsWith("'")) ? w.slice(1, -1) : w
-    ) : []
-
     const body = this.parseStatements(['done'])
     const redirect = this.expectKeywordLine('done')
-    return { type: 'for', variable, words, body, ...(redirect ? { redirect } : {}) }
+    return { type: 'for', variable, wordsText: wordsPart.trim(), body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseCase(): CaseStatement {

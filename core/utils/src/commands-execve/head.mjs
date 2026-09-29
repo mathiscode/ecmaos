@@ -11,16 +11,35 @@ Print the first 10 lines of each FILE to standard output.
   -c, -cNUMBER        print the first NUMBER bytes instead of lines
   --help             display this help and exit`
 
-function readAllStdin() {
+/**
+ * Reads stdin only until there is enough to answer, the way real `head` does.
+ *
+ * `limitBytes` stops after that many bytes (`-c`); `limitLines` stops once that many newlines have
+ * been seen (`-n`). Reading everything first meant `head -c 4 < /dev/zero` never returned at all, and
+ * made every `head` on a pipe wait for the writer to finish before printing a thing.
+ */
+function readStdinUntilEnough(limitBytes, limitLines) {
   const chunkSize = 65536
   const chunks = []
+  let total = 0
+  let newlines = 0
+
   while (true) {
+    if (limitBytes !== null && total >= limitBytes) break
+    if (limitBytes === null && newlines >= limitLines) break
+
     const buffer = new Uint8Array(chunkSize)
     const n = read(0, buffer, -1)
     if (n <= 0) break
-    chunks.push(buffer.subarray(0, n))
+
+    const chunk = buffer.subarray(0, n)
+    chunks.push(chunk)
+    total += n
+    if (limitBytes === null) {
+      for (let i = 0; i < chunk.length; i++) if (chunk[i] === 0x0a) newlines++
+    }
   }
-  const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
+
   const bytes = new Uint8Array(total)
   let offset = 0
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
@@ -91,7 +110,7 @@ function main() {
   }
 
   if (files.length === 0) {
-    const bytes = readAllStdin()
+    const bytes = readStdinUntilEnough(numBytes, numLines)
     const output = numBytes !== null ? bytes.subarray(0, numBytes) : firstNLines(bytes, numLines)
     writeAll(1, output)
     return 0

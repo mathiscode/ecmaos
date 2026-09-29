@@ -115,6 +115,61 @@ describe('$IFS, read, and command-prefix assignments', () => {
     })
   })
 
+  describe('a for list expands like command arguments', () => {
+    it('word-splits an unquoted variable', async () => {
+      // `parseFor` used to regex-split the list and strip its quotes, so by the time `executeFor` ran
+      // there was nothing left to split on and `$x` iterated once as a whole string.
+      const { output } = await runScript([
+        "x='a b c'",
+        `for f in $x; do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim().split('\n')).toEqual(['[a]', '[b]', '[c]'])
+    })
+
+    it('splits an unquoted variable on a custom IFS', async () => {
+      const { output } = await runScript([
+        'IFS=:',
+        "x='a:b:c'",
+        `for f in $x; do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim().split('\n')).toEqual(['[a]', '[b]', '[c]'])
+    })
+
+    it('keeps a quoted list word whole', async () => {
+      const { output } = await runScript([
+        `for f in a "b c" d; do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim().split('\n')).toEqual(['[a]', '[b c]', '[d]'])
+    })
+
+    it('does not split a quoted variable', async () => {
+      const { output } = await runScript([
+        "x='a b'",
+        `for f in "$x"; do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim()).toBe('[a b]')
+    })
+
+    it('globs a pattern in the list', async () => {
+      await kernel.filesystem.fs.mkdir('/tmp/for-glob').catch(() => {})
+      await kernel.filesystem.fs.writeFile('/tmp/for-glob/one.txt', '')
+      await kernel.filesystem.fs.writeFile('/tmp/for-glob/two.txt', '')
+      await kernel.filesystem.fs.writeFile('/tmp/for-glob/skip.md', '')
+
+      const { output } = await runScript([
+        `for f in /tmp/for-glob/*.txt; do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim().split('\n').sort()).toEqual(['[/tmp/for-glob/one.txt]', '[/tmp/for-glob/two.txt]'])
+    })
+
+    it('expands a command substitution in the list', async () => {
+      const { output } = await runScript([
+        `for f in $(echo p q); do echo "[$f]" >> ${OUT}; done`
+      ].join('\n'))
+      expect(output.trim().split('\n')).toEqual(['[p]', '[q]'])
+    })
+  })
+
   describe('read', () => {
     it('assigns the line to REPLY with no names', async () => {
       const { output } = await runScript([
@@ -165,8 +220,6 @@ describe('$IFS, read, and command-prefix assignments', () => {
     })
 
     it('exits non-zero at end of file', async () => {
-      // An empty regular file, not `/dev/null`: reading that device hangs, because its driver op
-      // reports a full buffer instead of 0 (see `createFileReadStream`). Tracked for Phase 4.
       const empty = '/tmp/ifs-read-empty.txt'
       await kernel.filesystem.fs.writeFile(empty, '')
 
@@ -175,6 +228,24 @@ describe('$IFS, read, and command-prefix assignments', () => {
         `echo "code=$?" >> ${OUT}`
       ].join('\n'))
       expect(output.trim()).toBe('code=1')
+    })
+
+    it('reads /dev/null as end of file instead of hanging', async () => {
+      // This used to spin forever: a character device read reports the full requested length no
+      // matter what its driver produced, so the read loop never saw the end.
+      const { output } = await runScript([
+        `read a < /dev/null`,
+        `echo "code=$?" >> ${OUT}`
+      ].join('\n'))
+      expect(output.trim()).toBe('code=1')
+    })
+
+    it('still reads a device that really does produce data', async () => {
+      // `/dev/zero` must NOT be treated as end-of-file; `head -c` bounds it so the test terminates.
+      const { output } = await runScript([
+        `head -c 4 < /dev/zero | wc -c >> ${OUT}`
+      ].join('\n'))
+      expect(output.trim()).toBe('4')
     })
 
     it('rejects an invalid identifier', async () => {

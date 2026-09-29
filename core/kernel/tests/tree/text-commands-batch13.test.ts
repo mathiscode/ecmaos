@@ -70,6 +70,32 @@ describe('text command batch 13: cal/date/printf/which/whoami/pwd/hostname/uname
     expect(out).toBe('hello-42\n')
   })
 
+  it('printf reuses its format until the arguments run out', async () => {
+    // POSIX: the format is applied repeatedly. This used to run one pass and drop every argument
+    // past the first set, so `printf '[%s]\n' a b c` printed only `[a]`.
+    const code = await kernel.shell.execute(`printf "[%s]\\n" a b c > /tmp/printf-cycle.txt`)
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/printf-cycle.txt', 'utf-8')).toBe('[a]\n[b]\n[c]\n')
+  })
+
+  it('printf pairs arguments across a multi-specifier format', async () => {
+    const code = await kernel.shell.execute(`printf "%s=%s;" a 1 b 2 > /tmp/printf-pairs.txt`)
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/printf-pairs.txt', 'utf-8')).toBe('a=1;b=2;')
+  })
+
+  it('printf treats a missing argument as empty, not as the specifier text', async () => {
+    const code = await kernel.shell.execute(`printf "[%s][%s]" only > /tmp/printf-missing.txt`)
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/printf-missing.txt', 'utf-8')).toBe('[only][]')
+  })
+
+  it('printf prints a format with no specifiers exactly once', async () => {
+    const code = await kernel.shell.execute(`printf "plain\\n" a b > /tmp/printf-plain.txt`)
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/printf-plain.txt', 'utf-8')).toBe('plain\n')
+  })
+
   it('which locates a real command on PATH', async () => {
     const code = await kernel.shell.execute('which cat > /tmp/which-out.txt')
     expect(code).toBe(0)

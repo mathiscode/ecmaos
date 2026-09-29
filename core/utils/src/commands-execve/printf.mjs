@@ -136,43 +136,63 @@ function main() {
   const format = args[0]
   const values = args.slice(1)
 
-  let result = ''
-  let argIndex = 0
-  let i = 0
+  /**
+   * One pass over the format, consuming arguments from `argIndex` onward.
+   *
+   * A specifier with no argument left formats an empty value (`%s` gives nothing, the numeric ones
+   * give `0`), which is what POSIX requires; printing the specifier text itself was wrong.
+   */
+  const formatOnce = (argIndex) => {
+    let result = ''
+    let i = 0
+    let consumed = argIndex
+    let sawSpecifier = false
 
-  while (i < format.length) {
-    if (format[i] === '%' && i + 1 < format.length) {
-      const next = format[i + 1]
-      if (next === '%') {
-        result += '%'
-        i += 2
-      } else {
-        const specifier = `%${next}`
-        if (argIndex < values.length) {
-          result += formatValue(specifier, values[argIndex] || '')
-          argIndex++
-        } else {
-          result += specifier
+    while (i < format.length) {
+      if (format[i] === '%' && i + 1 < format.length) {
+        const next = format[i + 1]
+        if (next === '%') {
+          result += '%'
+          i += 2
+          continue
         }
+        sawSpecifier = true
+        result += formatValue(`%${next}`, values[consumed] ?? '')
+        consumed++
         i += 2
+        continue
       }
-    } else if (format[i] === '\\' && i + 1 < format.length) {
-      const escapeSeq = format.slice(i)
-      const match = escapeSeq.match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{1,3})/)
-      if (match) {
-        result += interpretEscapes(match[0])
-        i += match[0].length
-      } else {
-        result += format[i]
-        i++
+
+      if (format[i] === '\\' && i + 1 < format.length) {
+        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{1,3})/)
+        if (match) {
+          result += interpretEscapes(match[0])
+          i += match[0].length
+          continue
+        }
       }
-    } else {
+
       result += format[i]
       i++
     }
+
+    return { result, consumed, sawSpecifier }
   }
 
-  writeAll(1, new TextEncoder().encode(result))
+  // POSIX reuses the format until the arguments run out, so `printf '[%s]\n' a b` prints two lines.
+  // A format with no specifiers consumes nothing, so it is printed exactly once and the extra
+  // arguments are ignored rather than looping forever.
+  let out = ''
+  let argIndex = 0
+  for (;;) {
+    const { result, consumed, sawSpecifier } = formatOnce(argIndex)
+    out += result
+    if (!sawSpecifier || consumed <= argIndex) break
+    argIndex = consumed
+    if (argIndex >= values.length) break
+  }
+
+  writeAll(1, new TextEncoder().encode(out))
   return 0
 }
 
