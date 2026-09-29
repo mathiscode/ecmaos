@@ -39,7 +39,9 @@ describe('text command batch 4: seq/factor/rmdir/join/paste/sleep/mktemp/shuf, r
   it('seq prints a numeric range', async () => {
     const code = await kernel.shell.execute('seq 1 5 > /tmp/seq.out')
     expect(code).toBe(0)
-    expect(await kernel.filesystem.fs.readFile('/tmp/seq.out', 'utf-8')).toBe('1\n2\n3\n4\n5')
+    // Newline-terminated, as GNU seq always is. It used to add the final newline only when `-s` had
+    // changed the separator, so `seq 1 200 > f` left no trailing newline and `wc -l < f` said 199.
+    expect(await kernel.filesystem.fs.readFile('/tmp/seq.out', 'utf-8')).toBe('1\n2\n3\n4\n5\n')
   })
 
   it('factor prints prime factors of a number', async () => {
@@ -95,6 +97,18 @@ describe('text command batch 4: seq/factor/rmdir/join/paste/sleep/mktemp/shuf, r
     const createdPath = (await kernel.filesystem.fs.readFile('/tmp/mktemp-d.out', 'utf-8')).trim()
     const stats = await kernel.filesystem.fs.stat(createdPath)
     expect(stats.isDirectory()).toBe(true)
+  })
+
+  it('seq terminates its last line even with a custom separator', async () => {
+    const code = await kernel.shell.execute('seq -s : 1 3 > /tmp/seq-sep.out')
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/seq-sep.out', 'utf-8')).toBe('1:2:3\n')
+  })
+
+  it('seq prints nothing at all for an empty range', async () => {
+    const code = await kernel.shell.execute('seq 5 1 > /tmp/seq-empty.out')
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/seq-empty.out', 'utf-8')).toBe('')
   })
 
   it('shuf -e treats each argument as an input line and echoes back the same set', async () => {

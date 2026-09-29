@@ -120,8 +120,7 @@ describe('redirections on aggregate commands', () => {
         '  ls /definitely-not-here',
         `done 2> ${ERR}`
       ].join('\n'))
-      expect(await read(ERR)).not.toBe('')
-      expect(await read(ERR)).not.toBe('<missing>')
+      expect(await read(ERR)).toContain('/definitely-not-here')
     })
   })
 

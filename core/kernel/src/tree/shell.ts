@@ -357,6 +357,17 @@ export class Shell implements IShell {
   private _arrays = new Map<string, Map<number, string>>()
 
   /**
+   * `local` frames for the array namespace, pushed and popped alongside `_localScopes`.
+   *
+   * `local` used to cover scalars only, so every array was shell-global no matter where it was
+   * assigned: a function that built up `arr` silently overwrote its caller's `arr`, and a recursive
+   * one overwrote its own. `declareLocal` now declares the name in both namespaces, so whichever kind
+   * it is later assigned as is local either way. A name mapped to `undefined` is declared local but
+   * holds no array yet, which is what hides the caller's while still shadowing the name.
+   */
+  private _localArrayScopes: Map<string, Map<number, string> | undefined>[] = []
+
+  /**
    * `trap 'cmd' SIG...` handlers, keyed by the signal name they were registered for (`INT`, `TERM`,
    * `EXIT`, ... -- `SIGINT` is normalized to `INT` on registration). A `''` handler means "ignore
    * the signal"; no entry means the default behavior. `runTrap` looks this up and runs the handler
@@ -554,22 +565,65 @@ export class Shell implements IShell {
     return visible
   }
 
-  /** Indexed arrays -- `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for `=(...)`, `a[i]=`, `unset a[i]`, `a+=(...)`. */
-  get arrays(): Map<string, Map<number, string>> { return this._arrays }
-  setArray(name: string, values: string[]): void { this._arrays.set(name, new Map(values.map((v, i) => [i, v]))) }
+  /**
+   * Indexed arrays -- `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for
+   * `=(...)`, `a[i]=`, `unset a[i]`, `a+=(...)`.
+   *
+   * Every one of these honors `local`: a name declared local in an active frame is read and written
+   * there, and the shell-global `_arrays` is only reached when no frame declares it.
+   */
+  get arrays(): Map<string, Map<number, string>> {
+    if (this._localArrayScopes.length === 0) return this._arrays
+    const visible = new Map(this._arrays)
+    for (const frame of this._localArrayScopes) {
+      for (const [key, value] of frame) {
+        if (value === undefined) visible.delete(key)
+        else visible.set(key, value)
+      }
+    }
+    return visible
+  }
+
+  /** The innermost `local` frame declaring `name` in the array namespace, if any. */
+  private localArrayFrameFor(name: string): Map<string, Map<number, string> | undefined> | undefined {
+    for (let i = this._localArrayScopes.length - 1; i >= 0; i--) {
+      const frame = this._localArrayScopes[i] as Map<string, Map<number, string> | undefined>
+      if (frame.has(name)) return frame
+    }
+    return undefined
+  }
+
+  /** Reads `name`'s array from the innermost frame that declares it, else from the shell's own. */
+  lookupArray(name: string): Map<number, string> | undefined {
+    const frame = this.localArrayFrameFor(name)
+    return frame ? frame.get(name) : this._arrays.get(name)
+  }
+
+  /** Writes `name`'s array to the innermost frame that declares it, else to the shell's own. */
+  private storeArray(name: string, array: Map<number, string>): void {
+    const frame = this.localArrayFrameFor(name)
+    if (frame) frame.set(name, array)
+    else this._arrays.set(name, array)
+  }
+
+  setArray(name: string, values: string[]): void { this.storeArray(name, new Map(values.map((v, i) => [i, v]))) }
   setArrayElement(name: string, index: number, value: string): void {
-    const array = this._arrays.get(name) ?? new Map<number, string>()
+    const array = this.lookupArray(name) ?? new Map<number, string>()
     array.set(index, value)
-    this._arrays.set(name, array)
+    this.storeArray(name, array)
   }
   appendArray(name: string, values: string[]): void {
-    const array = this._arrays.get(name) ?? new Map<number, string>()
+    const array = this.lookupArray(name) ?? new Map<number, string>()
     const nextIndex = array.size ? Math.max(...array.keys()) + 1 : 0
     values.forEach((v, i) => array.set(nextIndex + i, v))
-    this._arrays.set(name, array)
+    this.storeArray(name, array)
   }
-  unsetArrayElement(name: string, index: number): void { this._arrays.get(name)?.delete(index) }
-  unsetArray(name: string): void { this._arrays.delete(name) }
+  unsetArrayElement(name: string, index: number): void { this.lookupArray(name)?.delete(index) }
+  unsetArray(name: string): void {
+    const frame = this.localArrayFrameFor(name)
+    if (frame) frame.set(name, undefined)
+    else this._arrays.delete(name)
+  }
 
   /**
    * `trap 'cmd' SIG`/`trap - SIG`/`trap '' SIG`/bare `trap`. Signal names are normalized (leading
@@ -598,7 +652,7 @@ export class Shell implements IShell {
   expansionContext(): ExpansionContext {
     return {
       lookup: (name) => this.lookupVariable(name),
-      lookupArray: (name) => this._arrays.get(name),
+      lookupArray: (name) => this.lookupArray(name),
       positional: () => {
         const positional: string[] = []
         for (let i = 1; ; i++) {
@@ -619,13 +673,29 @@ export class Shell implements IShell {
   /** Declare `name` as local to the current function call, defaulting to '' until assigned. */
   declareLocal(name: string, value?: string): void {
     const frame = this._localScopes[this._localScopes.length - 1]
-    if (!frame) throw new Error('local: can only be used inside a function')
-    frame.set(name, value ?? '')
+    const arrayFrame = this._localArrayScopes[this._localArrayScopes.length - 1]
+    if (!frame || !arrayFrame) throw new Error('local: can only be used inside a function')
+    // `local NAME` with no value declares the name and leaves it *unset*, not set to the empty string,
+    // which is what bash does: `${NAME+set}` is empty and `set -u` still objects. Only `local NAME=`
+    // sets it to empty. Expansion reads an unset local as empty either way, so the visible difference
+    // is exactly the one a script can test for.
+    frame.set(name, value)
+    // Declared in the array namespace too, holding nothing. Scalars and arrays are separate stores
+    // here, so without this a `local arr` followed by `arr=(1 2)` would still write the caller's
+    // array -- which is how a recursive function used to overwrite its own.
+    if (!arrayFrame.has(name)) arrayFrame.set(name, undefined)
   }
 
   /** Pushes a fresh `local` frame. Used by `callFunction`, and by nothing else -- `local` needs a call. */
   private pushLocalScope(): void {
     this._localScopes.push(new Map<string, string | undefined>())
+    this._localArrayScopes.push(new Map<string, Map<number, string> | undefined>())
+  }
+
+  /** Pops the frame `pushLocalScope` pushed, both namespaces together. */
+  private popLocalScope(): void {
+    this._localScopes.pop()
+    this._localArrayScopes.pop()
   }
 
   /** Apply `set -e` / `-u` / `-o pipefail` style flags. Matches the subset scripts here use. */
@@ -1359,6 +1429,12 @@ export class Shell implements IShell {
       stdinIsTTY: boolean
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
+      /**
+       * Whether this stage's stdout has a final destination (a file, or the terminal) rather than a
+       * downstream reader, so the kernel should drain it fully before reporting the exit code. Only
+       * the last stage qualifies -- see `KernelExecuteOptions.drainStdout`.
+       */
+      drainStdout: boolean
       stderr: WritableStream<Uint8Array>
     } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined })
 
@@ -1429,7 +1505,7 @@ export class Shell implements IShell {
         : command.redirections
       const { stdout, stderr } = await this.buildOutputStreams(redirections, isLastCommand, pipeWritable)
       const stdoutIsTTY = isLastCommand && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
-      const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, stderr }
+      const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
       stages.push(builtinName
         ? {
             kind: 'builtin',
@@ -1443,7 +1519,7 @@ export class Shell implements IShell {
     }
 
     const results = await Promise.all(stages.map(async stage => {
-      const { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, stderr } = stage
+      const { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
 
       if (stage.kind === 'builtin') {
         const io = this.streamBuiltinIO(stdinSource ?? stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
@@ -1467,6 +1543,7 @@ export class Shell implements IShell {
         stdinIsTTY,
         stdout,
         stdoutIsTTY,
+        drainStdout,
         stderr,
         onProcess: job ? (process => { job.processes.push(process) }) : undefined,
         foreground: job ? !job.background : true
@@ -1684,7 +1761,7 @@ export class Shell implements IShell {
     } finally {
       this._signalCatchers.return--
       this._signalCatchers.loop = enclosingLoops
-      this._localScopes.pop()
+      this.popLocalScope()
       this.clearPositionalParameters()
       for (const [key, value] of savedPositional) this.env.set(key, value)
     }

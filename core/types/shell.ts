@@ -252,8 +252,13 @@ export interface Shell {
   /** Applies a `set -e` / `-u` / `-o pipefail` style flag. */
   applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void
 
-  /** Indexed arrays (`a=(x y)`, `${a[@]}`, `${#a[@]}`), keyed by name; never exported to the environment. */
+  /**
+   * Indexed arrays (`a=(x y)`, `${a[@]}`, `${#a[@]}`), keyed by name; never exported to the
+   * environment. `local` frames are layered over the shell's own, so this is what is visible now.
+   */
   readonly arrays: Map<string, Map<number, string>>
+  /** Reads one array by name, honoring `local`: the innermost frame declaring it, else the shell's own. */
+  lookupArray(name: string): Map<number, string> | undefined
   /** Replaces an array's entire contents. */
   setArray(name: string, values: string[]): void
   /** Sets one array element by index, creating the array if needed. */

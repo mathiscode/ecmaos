@@ -147,6 +147,124 @@ describe('variable scoping and the environment boundary', () => {
     })
   })
 
+  describe('bare local declares without setting', () => {
+    it('leaves the name unset, not set to empty', async () => {
+      // bash distinguishes the two: `local X` declares X and leaves it unset, `local X=` sets it to
+      // empty. `declareLocal` used to default to `''`, which made `${X+set}` claim it was set and
+      // `${#arr[@]}` count a declared-but-empty name as one element.
+      const { output } = await runScript([
+        'f() {',
+        '  local DECLARED',
+        '  local ASSIGNED=',
+        `  echo "declared=[${'${DECLARED+set}'}] assigned=[${'${ASSIGNED+set}'}]" >> ${OUT}`,
+        '}',
+        'f'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['declared=[] assigned=[set]'])
+    })
+
+    it('still expands as empty and still shadows the caller', async () => {
+      const { output } = await runScript([
+        'SHADOW=outer',
+        'f() {',
+        '  local SHADOW',
+        `  echo "inside=[$SHADOW]" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=[$SHADOW]" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inside=[]', 'after=[outer]'])
+    })
+  })
+
+  describe('local covers arrays', () => {
+    it('keeps a function\u2019s array out of its caller\u2019s', async () => {
+      // `local` used to cover scalars only, so every array was shell-global wherever it was assigned
+      // and a function building up `arr` silently overwrote its caller's.
+      const { output } = await runScript([
+        'arr=(outer1 outer2)',
+        'f() {',
+        '  local arr',
+        '  arr=(inner)',
+        `  echo "inside=${'${arr[0]}'} count=${'${#arr[@]}'}" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=${'${arr[0]}'} count=${'${#arr[@]}'}" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inside=inner count=1', 'after=outer1 count=2'])
+    })
+
+    it('hides the caller\u2019s array from the moment it is declared', async () => {
+      const { output } = await runScript([
+        'arr=(a b c)',
+        'f() {',
+        '  local arr',
+        `  echo "count=${'${#arr[@]}'}" >> ${OUT}`,
+        '}',
+        'f'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['count=0'])
+    })
+
+    it('lets a recursive function keep its own array', async () => {
+      const { output } = await runScript([
+        'walk() {',
+        '  local arr',
+        '  arr=($1)',
+        '  if test "$1" = outer; then',
+        '    walk inner',
+        '  fi',
+        `  echo "${'${arr[0]}'}" >> ${OUT}`,
+        '}',
+        'walk outer'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inner', 'outer'])
+    })
+
+    it('still writes the shell\u2019s own array when nothing declared it local', async () => {
+      const { output } = await runScript([
+        'arr=(start)',
+        'f() {',
+        '  arr=(changed)',
+        '}',
+        'f',
+        `echo "${'${arr[0]}'}" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['changed'])
+    })
+
+    it('appends and indexes into the local, not the global', async () => {
+      const { output } = await runScript([
+        'arr=(g)',
+        'f() {',
+        '  local arr',
+        '  arr=(x)',
+        '  arr+=(y)',
+        '  arr[5]=z',
+        `  echo "${'${arr[0]}${arr[1]}${arr[5]}'}" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=${'${arr[0]}'} count=${'${#arr[@]}'}" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['xyz', 'after=g count=1'])
+    })
+
+    it('unsets the local array without touching the caller\u2019s', async () => {
+      const { output } = await runScript([
+        'arr=(kept)',
+        'f() {',
+        '  local arr',
+        '  arr=(temp)',
+        '  unset arr',
+        `  echo "inside=${'${#arr[@]}'}" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=${'${arr[0]}'}" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inside=0', 'after=kept'])
+    })
+  })
+
   describe('env inside a function', () => {
     it('lists the local value, not the caller’s', async () => {
       const { output } = await runScript([

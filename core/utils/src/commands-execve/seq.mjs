@@ -71,8 +71,14 @@ function main() {
     return 1
   }
 
+  // An empty range prints nothing at all, not a bare newline.
+  if (numbers.length === 0) return 0
+
   const output = numbers.map(n => Number.isInteger(n) ? n.toString() : n.toFixed(10).replace(/\.?0+$/, '')).join(separator)
-  writeAll(1, new TextEncoder().encode(output + (separator === '\n' ? '' : '\n')))
+  // Always newline-terminated, whatever `-s` is: `seq -s : 1 3` prints `1:2:3` and *then* a newline.
+  // The trailing newline used to be added only for a non-default separator, so `seq 1 200 > f` left
+  // `f` without a final newline and `wc -l < f` reported 199.
+  writeAll(1, new TextEncoder().encode(output + '\n'))
 
   return 0
 }

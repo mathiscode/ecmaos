@@ -77,9 +77,23 @@ function main() {
   if (targets.length === 0) targets.push(cwd)
 
   const allEntries = []
+  // A missing operand is a real error, not something to pass over: `ls` reports it on stderr and
+  // exits 2. This used to `continue` silently on a comment claiming that was standard behavior, so
+  // `ls /nope` printed nothing and exited 0 -- and `isDirectory` on a missing path returns false
+  // rather than throwing, so the operand fell through to the file branch and was then quietly
+  // dropped for having no stats.
+  let missing = false
 
   for (const target of targets) {
     const fullPath = resolve(cwd, target === '' ? '.' : target)
+    try {
+      lstat(fullPath)
+    } catch {
+      writeAll(2, new TextEncoder().encode(`ls: cannot access '${target === '' ? '.' : target}': No such file or directory\n`))
+      missing = true
+      continue
+    }
+
     try {
       if (isDirectory(fullPath)) {
         const entries = readdir(fullPath)
@@ -87,9 +101,9 @@ function main() {
       } else {
         allEntries.push({ fullPath: dirname(fullPath), entry: basename(fullPath) })
       }
-    } catch {
-      // target doesn't exist -- skip it, matching standard ls behavior
-      continue
+    } catch (error) {
+      writeAll(2, new TextEncoder().encode(`ls: cannot open directory '${target === '' ? '.' : target}': ${error instanceof Error ? error.message : String(error)}\n`))
+      missing = true
     }
   }
 
@@ -149,7 +163,7 @@ function main() {
     writeAll(1, new TextEncoder().encode(table + '\n'))
   }
 
-  return 0
+  return missing ? 2 : 0
 }
 
 try {

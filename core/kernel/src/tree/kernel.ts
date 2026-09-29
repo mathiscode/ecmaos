@@ -1191,9 +1191,18 @@ export class Kernel implements IKernel {
       // Redirected/piped stdio: only bridge a standard descriptor the caller actually gave a real
       // stream for and that isn't just the plain console -- the overwhelmingly common case (a
       // foreground command with no `>`/`|`) needs no bridge at all.
-      if (options.stdin && !options.stdinIsTTY) stopBridges.push(this.bridgeStdio(proc, 0, options.stdin))
+      // Bridges whose output has a final destination rather than a downstream reader, so their drain
+      // is what decides whether the next statement sees every byte. See `drainBeforeExit` below.
+      const drainable: Array<Promise<void>> = []
+      const bridge = (fd: 0 | 1 | 2, stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>, drain: boolean) => {
+        const { stop, done } = this.bridgeStdio(proc, fd, stream)
+        stopBridges.push(stop)
+        if (drain) drainable.push(done)
+      }
+
+      if (options.stdin && !options.stdinIsTTY) bridge(0, options.stdin, false)
       const stdoutBridged = Boolean(options.stdout && !options.stdoutIsTTY)
-      if (stdoutBridged) stopBridges.push(this.bridgeStdio(proc, 1, options.stdout as WritableStream<Uint8Array>))
+      if (stdoutBridged) bridge(1, options.stdout as WritableStream<Uint8Array>, options.drainStdout === true)
       // `1>&2` (or any dup onto an fd with no redirect of its own) can hand back the *same*
       // `WritableStream` instance for both stdout and stderr (`Shell.buildOutputStreams`'s
       // `defaultFor` caches and reuses it) -- bridging it twice calls `.getWriter()` on an
@@ -1201,7 +1210,9 @@ export class Kernel implements IKernel {
       // bridged against that same stream just above (e.g. a foreground `2>&1` with stdout still a
       // real TTY leaves fd 1 unbridged, so fd 2 still needs its own bridge to that stream).
       if (options.stderr && !(stdoutBridged && options.stderr === options.stdout)) {
-        stopBridges.push(this.bridgeStdio(proc, 2, options.stderr))
+        // fd 2 is never a pipe to another stage -- `Shell.buildOutputStreams` only ever gives it the
+        // terminal or a file -- so its drain is always safe to await and always worth awaiting.
+        bridge(2, options.stderr, true)
       }
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)
@@ -1245,11 +1256,18 @@ export class Kernel implements IKernel {
         await options.shell.notifyInterrupted()
       }
 
-      // Give the stdout/stderr bridges a moment to drain whatever the program wrote right before
-      // exiting -- `bridgeStdio`'s own drain-on-exit path stops promptly on its own, but the
-      // pipeline's next stage (or a redirect target file) should see every byte before this stage
-      // is reported done.
-      await new Promise(resolve => setTimeout(resolve, 15))
+      // Wait for the bridges writing to a final destination to actually finish, so `cmd > f` has
+      // every byte in `f` before this returns and the next statement reads it.
+      //
+      // This used to be a flat `setTimeout(15)`, which is a guess, and not a good one: a loaded
+      // parallel test run intermittently read a half-written redirect target while the same case
+      // passed every time in isolation. Each pump already drains the pipe fully once the program's
+      // end closes, so there was a real completion signal to await all along.
+      //
+      // Mid-pipeline stdout is deliberately excluded (`drainStdout`): the next stage's own reads
+      // order the data already, and a downstream program that exits early (`producer | head -1`)
+      // stops reading, fills the pipe, and would leave the upstream drain waiting forever.
+      await Promise.all(drainable)
 
       return exitCode
     } catch (error) {
@@ -1308,9 +1326,9 @@ export class Kernel implements IKernel {
     proc: InstanceType<typeof ZenFSProcess>,
     stdFd: 0 | 1 | 2,
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
-  ): () => void {
+  ): { stop: () => void, done: Promise<void> } {
     // fd 0 is the program's stdin: it reads from the pipe we write into
-    return this.bridgeFd(proc, stdFd, stdFd === 0 ? 'read' : 'write', stream).stop
+    return this.bridgeFd(proc, stdFd, stdFd === 0 ? 'read' : 'write', stream)
   }
 
   /**
@@ -1371,7 +1389,7 @@ export class Kernel implements IKernel {
     // has drained (shutdown of the write side), instead of only when the program exits. Stdio
     // leaves this off -- it has always ended with the process -- but a socket needs it to half-close.
     { closeOnEof = false }: { closeOnEof?: boolean } = {}
-  ): { stop: () => void } {
+  ): { stop: () => void, done: Promise<void> } {
     const pipeProcCtx = this.pipeProcess.context
 
     const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
@@ -1391,17 +1409,24 @@ export class Kernel implements IKernel {
     const bridgeFile = bridgeHandle && pipefs._device(bridgeHandle.internalPath)
     if (!bridgeFile) {
       this.log.error(`bridgeStdio: could not resolve fd ${stdFd}'s pipe device; leaving it on the console`)
-      return { stop: () => {} }
+      return { stop: () => {}, done: Promise.resolve() }
     }
 
     let stopped = false
     const stop = () => { stopped = true }
+    /**
+     * Resolves when this pump has finished: for a `'write'` bridge, once the program's end is closed,
+     * every remaining byte has been written to `stream`, and the writer is closed.
+     *
+     * This is what a caller awaits instead of guessing at a delay. See `KernelExecuteOptions.drainStdout`.
+     */
+    let done: Promise<void>
 
     if (direction === 'write') {
       // stdout/stderr: drain the pipe's read end into `stream` until the program closes its write
       // end (proc.exited) and the pipe is empty.
       const writer = (stream as WritableStream<Uint8Array>).getWriter()
-      void (async () => {
+      done = (async () => {
         try {
           while (!stopped) {
             const buffer = new Uint8Array(65536)
@@ -1429,7 +1454,7 @@ export class Kernel implements IKernel {
       })()
     } else {
       const reader = (stream as ReadableStream<Uint8Array>).getReader()
-      void (async () => {
+      done = (async () => {
         try {
           while (!stopped) {
             const { done, value } = await reader.read()
@@ -1453,7 +1478,7 @@ export class Kernel implements IKernel {
       })()
     }
 
-    return { stop }
+    return { stop, done }
   }
 
   /**

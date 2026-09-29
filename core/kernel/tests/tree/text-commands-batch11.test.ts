@@ -72,9 +72,22 @@ describe('text command batch 11: ls, real execve', () => {
     expect(out).toContain('a.txt')
   })
 
-  it('skips a nonexistent target silently, matching standard ls behavior', async () => {
+  it('reports a nonexistent target on stderr and exits 2', async () => {
+    // This used to pass over a missing operand silently on a comment claiming that was standard `ls`
+    // behavior; it is not. GNU `ls` writes `cannot access` to stderr and exits 2. `isDirectory` on a
+    // missing path returns false rather than throwing, so the operand also fell through to the
+    // single-file branch and was then quietly dropped for having no stats.
     const code = await kernel.shell.execute('ls /tmp/ls-does-not-exist > /tmp/ls-missing.txt 2>/tmp/ls-missing.err')
-    expect(code).toBe(0)
+    expect(code).toBe(2)
+    const err = await kernel.filesystem.fs.readFile('/tmp/ls-missing.err', 'utf-8')
+    expect(err).toContain('/tmp/ls-does-not-exist')
+    expect(await kernel.filesystem.fs.readFile('/tmp/ls-missing.txt', 'utf-8')).toBe('')
+  })
+
+  it('still lists the targets that do exist alongside one that does not', async () => {
+    const code = await kernel.shell.execute('ls /tmp/ls-root /tmp/ls-also-missing > /tmp/ls-mixed.txt 2>/tmp/ls-mixed.err')
+    expect(code).toBe(2)
+    expect(await kernel.filesystem.fs.readFile('/tmp/ls-mixed.txt', 'utf-8')).toContain('a.txt')
   })
 
   it('shows a symlink target with an arrow', async () => {

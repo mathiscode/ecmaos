@@ -303,6 +303,19 @@ export interface KernelExecuteOptions {
   stdinIsTTY?: boolean
   stdout?: WritableStream<Uint8Array>
   stdoutIsTTY?: boolean
+  /**
+   * Whether this stage's `stdout` must be fully drained before its exit code is reported.
+   *
+   * True for a final destination -- a file, or the terminal -- where `cmd > f` has to leave every
+   * byte in `f` before the next statement reads it. False mid-pipeline, where the next stage's own
+   * reads already order the data and waiting would deadlock: a downstream program that exits early
+   * (`producer | head -1`) stops reading, the pipe fills, and the upstream drain would never finish.
+   *
+   * Before this existed the kernel slept a fixed 15ms instead, which is not long enough under load --
+   * `cat <<EOF > f` followed by reading `f` failed intermittently in a loaded parallel test run and
+   * passed every time in isolation.
+   */
+  drainStdout?: boolean
   stderr?: WritableStream<Uint8Array>
   /**
    * Called synchronously once a real `@zenfs/linux` `Process` has been constructed for this stage
