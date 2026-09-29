@@ -25,6 +25,7 @@ import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.
 import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
+import { expandBraces } from '#lib/brace-expansion.ts'
 import { evaluateConditional, type ConditionalFs } from '#lib/conditional-eval.ts'
 
 /**
@@ -1428,7 +1429,7 @@ export class Shell implements IShell {
       // string-based path only covers a caller that hand-builds a `Command` without it (none do
       // today, but this keeps `prepareCommand` total rather than throwing on an empty array).
       if (parts && parts.length) {
-        fields.push(...await expandWordFields(parts, ctx))
+        fields.push(...await this.expandFields(parts, ctx))
       } else {
         let expanded = await this.parseCommandSubstitution(word)
         expanded = await this.expandHistoryBang(expanded)
@@ -1797,13 +1798,30 @@ export class Shell implements IShell {
     return trueBuiltinNameFor(command.words[0])
   }
 
+  /**
+   * One word's fields, with brace expansion applied first.
+   *
+   * Brace expansion is the shell's first expansion and the only one that can turn one word into
+   * several *before* anything is looked up: `{a,b}` becomes two words whether or not anything by
+   * those names exists. Every path that turns a word into fields goes through here so that
+   * `cp a.{txt,bak}`, `mkdir -p src/{lib,bin}` and `for i in {1..5}` all behave the same way.
+   */
+  private async expandFields(parts: WordPart[], ctx: ExpansionContext): Promise<string[]> {
+    const braced = expandBraces(parts)
+    if (braced.length === 1) return await expandWordFields(parts, ctx)
+
+    const fields: string[] = []
+    for (const word of braced) fields.push(...await expandWordFields(word, ctx))
+    return fields
+  }
+
   /** Expands a command's argument words (index 1..) with the quote-aware expander -- true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
   private async expandCommandArgs(command: ParsedCommand): Promise<string[]> {
     const ctx = this.expansionContext()
     const fields: string[] = []
     for (let i = 1; i < command.words.length; i++) {
       const parts = command.wordParts[i]
-      fields.push(...(parts && parts.length ? await expandWordFields(parts, ctx) : [command.words[i] as string]))
+      fields.push(...(parts && parts.length ? await this.expandFields(parts, ctx) : [command.words[i] as string]))
     }
     return fields
   }
@@ -2020,7 +2038,8 @@ export class Shell implements IShell {
     if (arrayLiteral) {
       const [, name, append, body, remainder] = arrayLiteral as unknown as [string, string, string, string, string | undefined]
       const words = body.trim().length ? tokenize(body).filter(t => t.kind === 'word') : []
-      const values = await Promise.all(words.map(t => expandWordFields((t.parts as WordPart[]), this.expansionContext())))
+      const ctx = this.expansionContext()
+      const values = await Promise.all(words.map(t => this.expandFields(t.parts as WordPart[], ctx)))
       const flat = values.flat()
       if (append) this.appendArray(name, flat)
       else this.setArray(name, flat)
@@ -2465,7 +2484,7 @@ export class Shell implements IShell {
     const values: string[] = []
     for (const token of tokenize(wordsText)) {
       if (token.kind !== 'word') continue
-      values.push(...await expandWordFields(token.parts ?? [], ctx))
+      values.push(...await this.expandFields(token.parts ?? [], ctx))
     }
     return values
   }
