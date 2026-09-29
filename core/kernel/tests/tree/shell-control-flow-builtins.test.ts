@@ -552,5 +552,25 @@ describe('control-flow builtins: break/continue/return/exit/shift/source/eval/:'
       const code = await kernel.shell.execute('exit 8')
       expect(code).toBe(8)
     })
+
+    it('records that code as $? for the next line', async () => {
+      // Found in a browser, not here: these tests read `execute`'s return value, which was right all
+      // along. `$?` is normally set by `executeSimple` as it finishes a stage, and a control-flow
+      // signal unwinds straight past that -- so `exit 8` at the prompt was followed by an `echo $?`
+      // still printing whatever the command before it had returned.
+      await kernel.shell.execute('true')
+      await kernel.shell.execute('exit 8')
+      expect(kernel.shell.env.get('?')).toBe('8')
+    })
+
+    it('records $? for a stray return and a stray break too', async () => {
+      await kernel.shell.execute('true')
+      await kernel.shell.execute('return')
+      expect(kernel.shell.env.get('?')).toBe('1')
+
+      await kernel.shell.execute('false')
+      await kernel.shell.execute('break')
+      expect(kernel.shell.env.get('?')).toBe('0')
+    })
   })
 })

@@ -147,6 +147,67 @@ describe('variable scoping and the environment boundary', () => {
     })
   })
 
+  describe('an assignment that is not the first thing on the line', () => {
+    it('assigns after a `;` following an ordinary command', async () => {
+      // Found in a browser. `tryExecuteAssignment` only ever looked at the head of a line and handled
+      // a trailing assignment by recursing into the remainder -- which never happened when the head
+      // was a command, so `zz=5` reached the pipeline path and failed as a command not found.
+      const { output } = await runScript([
+        `echo one >> ${OUT}`,
+        'zz=5',
+        `echo z=$zz >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['one', 'z=5'])
+    })
+
+    it('assigns mid-line, which is the form a one-line function body uses', async () => {
+      const { output } = await runScript([
+        `k() { local v; v=42; echo v=$v >> ${OUT}; }`,
+        'k'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['v=42'])
+    })
+
+    it('handles an array literal mid-line', async () => {
+      // The reason this works on raw text rather than the parsed pipeline: `arr=(a b)` tokenizes into
+      // the two words `arr=(a` and `b)`, so there is no assignment left to recognize by then.
+      const { output } = await runScript([
+        `m() { local arr; arr=(x y z); echo n=${'${#arr[@]}'} first=${'${arr[0]}'} >> ${OUT}; }`,
+        'm'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['n=3 first=x'])
+    })
+
+    it('honors && and || before the assignment', async () => {
+      const { output } = await runScript([
+        'a=unset',
+        'b=unset',
+        'false && a=ran',
+        'false || b=ran',
+        `echo "a=$a b=$b" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['a=unset b=ran'])
+    })
+
+    it('leaves a command-prefix assignment alone', async () => {
+      // `X=1 cmd` is a command carrying a prefix, not a bare assignment: the value must be scoped to
+      // that command and gone afterwards.
+      const { output } = await runScript([
+        'PFX=outer',
+        `echo start >> ${OUT}`,
+        `PFX=inner env >> ${OUT}`,
+        `echo after=$PFX >> ${OUT}`
+      ].join('\n'))
+      expect(output).toContain('PFX=inner')
+      expect(lines(output).at(-1)).toBe('after=outer')
+    })
+
+    it('still runs an ordinary `;` list with no assignment in it', async () => {
+      const { output } = await runScript([`echo a >> ${OUT}; echo b >> ${OUT}; echo c >> ${OUT}`].join('\n'))
+      expect(lines(output)).toEqual(['a', 'b', 'c'])
+    })
+  })
+
   describe('bare local declares without setting', () => {
     it('leaves the name unset, not set to empty', async () => {
       // bash distinguishes the two: `local X` declares X and leaves it unset, `local X=` sets it to

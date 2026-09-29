@@ -1846,6 +1846,68 @@ export class Shell implements IShell {
     return assignmentPrefixLength(words, parts) > 0
   }
 
+  /**
+   * Whether `text` *starts* with a bare assignment -- `x=1`, `a=(x y)`, `a[i]=v` -- rather than a
+   * command. In other words, whether {@link tryExecuteAssignment} would claim it.
+   *
+   * `X=1 cmd` is deliberately not one: that is a command carrying prefix assignments, which belongs
+   * to `runPipeline` so the values are scoped to that command alone.
+   */
+  private beginsBareAssignment(text: string): boolean {
+    if (/^[A-Za-z_][A-Za-z0-9_]*\+?=\(/.test(text)) return true
+    if (/^[A-Za-z_][A-Za-z0-9_]*\[[^\]]+\]=/.test(text)) return true
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) return false
+    return !this.hasAssignmentPrefix(text)
+  }
+
+  /**
+   * Finds the first top-level operator that an assignment follows, so `echo hi; x=1` can be run as
+   * "the command, then the assignment".
+   *
+   * Only `;`, `&&` and `||` qualify. A `|` cannot be followed by an assignment in any meaningful
+   * sense, and a `&` backgrounds what came before it -- both keep their existing handling in
+   * `parseScript`, which is also why the common case (no assignment anywhere but the head) returns
+   * `undefined` here and nothing about it changes.
+   *
+   * An array literal's own parentheses are why this works on the raw text rather than on the parsed
+   * pipeline: `arr=(a b)` tokenizes into the two words `arr=(a` and `b)`, so by the time there are
+   * words to inspect the assignment is no longer recognizable as one.
+   */
+  private splitBeforeAssignment(line: string): { head: string, operator: string, rest: string } | undefined {
+    let offset = 0
+    while (offset < line.length) {
+      const relative = findTopLevelOperatorIndex(line.slice(offset))
+      if (relative === -1) return undefined
+
+      const index = offset + relative
+      const pair = line.slice(index, index + 2)
+      const operator = pair === '&&' || pair === '||' ? pair : (line[index] as string)
+      const rest = line.slice(index + operator.length).trim()
+
+      if (operator !== '|' && operator !== '&' && this.beginsBareAssignment(rest)) {
+        return { head: line.slice(0, index).trim(), operator, rest }
+      }
+
+      offset = index + operator.length
+    }
+
+    return undefined
+  }
+
+  /**
+   * Runs the command before a mid-line assignment, then the assignment and whatever follows it,
+   * honoring the operator between them exactly as the ordinary stage loop would: `&&` only continues
+   * on success, `||` only on failure, and `set -e` stops after a failing `;`.
+   */
+  private async executeAroundAssignment({ head, operator, rest }: { head: string, operator: string, rest: string }): Promise<number> {
+    const headExit = head ? await this.executeSimple(head) : 0
+    if (this._interrupted) return headExit
+    if (operator === '&&' && headExit !== 0) return headExit
+    if (operator === '||' && headExit === 0) return headExit
+    if (operator === ';' && this._shellOptions.errexit && headExit !== 0) return headExit
+    return await this.execute(rest)
+  }
+
   private async tryExecuteAssignment(line: string): Promise<number | undefined> {
     // Array forms: `a=(x y)`, `a+=(z)`, `a[i]=v`. Checked before the plain scalar match below,
     // since `a[i]=v` would otherwise fail the scalar regex and fall through unhandled, and
@@ -1940,19 +2002,34 @@ export class Shell implements IShell {
       // catch-all and printing an internal error in red. `break`/`continue`/`return` reaching here
       // means there was no enclosing loop or function to act on them, which bash reports and
       // otherwise ignores.
-      if (signal instanceof ExitSignal && this._signalCatchers.exit === 0) return signal.code
+      //
+      // `$?` has to be set here too. Every other exit code is recorded by `executeSimple` as it
+      // finishes a stage, and a signal unwound straight past that -- so `exit 8` at the prompt
+      // returned 8 to the caller while `echo $?` on the next line still printed the code from
+      // whatever ran before it. (Found in a browser, not by a unit test: the tests read `execute`'s
+      // return value, which was correct all along.)
+      if (signal instanceof ExitSignal && this._signalCatchers.exit === 0) return this.reportExit(signal.code)
       if (signal instanceof ReturnSignal && this._signalCatchers.return === 0) {
         await this.terminalBuiltinIO().writelnErr("return: can only `return' from a function or sourced script")
-        return 1
+        return this.reportExit(1)
       }
       if ((signal instanceof BreakSignal || signal instanceof ContinueSignal) && this._signalCatchers.loop === 0) {
         await this.terminalBuiltinIO().writelnErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
-        return 0
+        return this.reportExit(0)
       }
       throw signal
     } finally {
       this._executeDepth--
     }
+  }
+
+  /**
+   * Records `code` as `$?` and hands it back, for the paths that bypass `executeSimple`'s own
+   * per-stage bookkeeping -- i.e. a control-flow signal unwinding all the way out of `execute`.
+   */
+  private reportExit(code: number): number {
+    this.env.set('?', String(code))
+    return code
   }
 
   /** The body of {@link execute}, minus the interrupt bookkeeping that must not nest. */
@@ -1998,6 +2075,14 @@ export class Shell implements IShell {
 
     const assignmentExitCode = await this.tryExecuteAssignment(lineWithoutComments)
     if (assignmentExitCode !== undefined) return assignmentExitCode
+
+    // An assignment that isn't the *first* thing on the line (`echo hi; x=1`). `tryExecuteAssignment`
+    // above only ever looked at the head, and handled a trailing one by recursing into the remainder
+    // -- which never happened when the head was an ordinary command, so `x=1` reached `parseScript`
+    // and failed as a command not found. Splitting the line here hands the tail back through
+    // `execute`, where the assignment is once again at the head.
+    const split = this.splitBeforeAssignment(lineWithoutComments)
+    if (split) return await this.executeAroundAssignment(split)
 
     const script: Script = parseScript(lineWithoutComments)
     let lastPipelineExit = 0
