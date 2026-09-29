@@ -1,0 +1,244 @@
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+
+import { Kernel } from '#kernel.ts'
+import { DefaultFilesystemOptions } from '#filesystem.ts'
+
+import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+
+/**
+ * Variable scoping and the boundary between a shell's own state and a child process's environment.
+ *
+ * Four confirmed bugs, all in the same area:
+ *
+ * - `export` and `unset` called `shell.env` directly, bypassing `local` frames entirely. So
+ *   `local X=1; export X=2` left the local shadowing `X` at 1 and destroyed the *caller's* `X`, and
+ *   `unset X` on a local could not remove it at all -- the frame kept shadowing the name while the
+ *   global went away.
+ * - `env` and `export -p` read `shell.env` too, so inside a function they listed the caller's values
+ *   rather than what was actually visible.
+ * - `envObject`, which is every child process's `envp`, was the environment map wholesale. Every
+ *   command therefore started with `?=0` in its environment, and a script's positional parameters
+ *   arrived as `0=/bin/foo`, `1=arg`.
+ * - `globalThis.process.env` is one global object and ecmaOS runs a shell per virtual console, so
+ *   every shell wrote to it and whichever logged in last decided what `$PATH` the others saw.
+ */
+describe('variable scoping and the environment boundary', () => {
+  let kernel: Kernel
+
+  beforeAll(async () => {
+    kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+  })
+
+  const OUT = '/tmp/var-scope.out'
+
+  beforeEach(async () => {
+    try { await kernel.filesystem.fs.unlink(OUT) } catch { /* already absent */ }
+  })
+
+  async function runScript(script: string): Promise<{ code: number, output: string }> {
+    const path = '/tmp/var-scope.sh'
+    await kernel.filesystem.fs.writeFile(path, `#!ecmaos:bin:script:test\n${script}`)
+    const code = await kernel.execute({ command: path, shell: kernel.shell })
+    const output = await kernel.filesystem.fs.exists(OUT)
+      ? await kernel.filesystem.fs.readFile(OUT, 'utf-8') as unknown as string
+      : ''
+    return { code, output }
+  }
+
+  const lines = (output: string): string[] => output.split('\n').filter(line => line !== '')
+
+  describe('export inside a function', () => {
+    it('writes the local, not the caller’s variable', async () => {
+      const { output } = await runScript([
+        'OUTER=original',
+        'f() {',
+        '  local OUTER=localvalue',
+        '  export OUTER=exported',
+        `  echo "inside=$OUTER" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=$OUTER" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inside=exported', 'after=original'])
+    })
+
+    it('still reaches the real environment at the top level', async () => {
+      const { output } = await runScript([
+        'export TOP_LEVEL=visible',
+        `echo "$TOP_LEVEL" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['visible'])
+    })
+
+    it('lists what is visible, including a local shadow', async () => {
+      const { output } = await runScript([
+        'SHADOWED=outer',
+        'f() {',
+        '  local SHADOWED=inner',
+        `  export -p >> ${OUT}`,
+        '}',
+        'f'
+      ].join('\n'))
+      expect(output).toContain('SHADOWED=inner')
+      expect(output).not.toContain('SHADOWED=outer')
+    })
+  })
+
+  describe('unset inside a function', () => {
+    it('removes the local and leaves the caller’s value alone', async () => {
+      // bash keeps the outer value hidden for the rest of the call, which is why `inside` is empty
+      // rather than `original`: the frame still shadows the name, it just resolves to nothing now.
+      const { output } = await runScript([
+        'KEEP=original',
+        'f() {',
+        '  local KEEP=localvalue',
+        '  unset KEEP',
+        `  echo "inside=[$KEEP]" >> ${OUT}`,
+        '}',
+        'f',
+        `echo "after=[$KEEP]" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['inside=[]', 'after=[original]'])
+    })
+
+    it('removes a real variable at the top level', async () => {
+      const { output } = await runScript([
+        'GONE=here',
+        'unset GONE',
+        `echo "[$GONE]" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['[]'])
+    })
+
+    it('unsets a variable rather than a same-named function', async () => {
+      const { output } = await runScript([
+        'both() { echo function-survived; }',
+        'both=variable',
+        'unset both',
+        `both >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['function-survived'])
+    })
+
+    it('removes a function with -f', async () => {
+      const { code } = await runScript([
+        'doomed() { echo nope; }',
+        'unset -f doomed',
+        'doomed'
+      ].join('\n'))
+      expect(code).not.toBe(0)
+    })
+
+    it('still removes arrays and array elements', async () => {
+      const { output } = await runScript([
+        'arr=(a b c)',
+        'unset arr[1]',
+        `echo "count=${'${#arr[@]}'}" >> ${OUT}`,
+        'unset arr',
+        `echo "after=${'${#arr[@]}'}" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual(['count=2', 'after=0'])
+    })
+  })
+
+  describe('env inside a function', () => {
+    it('lists the local value, not the caller’s', async () => {
+      const { output } = await runScript([
+        'LISTED=outer',
+        'f() {',
+        '  local LISTED=inner',
+        `  env >> ${OUT}`,
+        '}',
+        'f'
+      ].join('\n'))
+      expect(output).toContain('LISTED=inner')
+      expect(output).not.toContain('LISTED=outer')
+    })
+  })
+
+  describe('what a child process receives', () => {
+    it('does not pass $? as an environment variable', async () => {
+      // `envObject` used to be the whole environment map, so every command started with `?=0` set.
+      const { output } = await runScript([`env >> ${OUT}`].join('\n'))
+      expect(lines(output).some(line => line.startsWith('?='))).toBe(false)
+    })
+
+    it('does not pass positional parameters as environment variables', async () => {
+      const { output } = await runScript([
+        'f() {',
+        `  env >> ${OUT}`,
+        '}',
+        'f one two'
+      ].join('\n'))
+      const names = lines(output).map(line => line.split('=')[0])
+      expect(names.filter(name => /^\d+$/.test(name ?? ''))).toEqual([])
+    })
+
+    it('still passes the variables a command actually needs', async () => {
+      const { output } = await runScript([`env >> ${OUT}`].join('\n'))
+      expect(output).toContain('PATH=')
+      expect(output).toContain('HOME=')
+    })
+
+    it('exposes $? and the positional parameters to expansion all the same', async () => {
+      const { output } = await runScript([
+        'f() {',
+        '  false',
+        `  echo "code=$? one=$1" >> ${OUT}`,
+        '}',
+        'f alpha'
+      ].join('\n'))
+      expect(lines(output)).toEqual(['code=1 one=alpha'])
+    })
+  })
+
+  describe('process.env across virtual consoles', () => {
+    // `createShell` mounts into a real per-TTY container, so TTY 1 needs one before it can exist.
+    beforeAll(() => {
+      const container = document.createElement('div')
+      container.id = 'terminal-tty1'
+      document.body.appendChild(container)
+    })
+
+    it('is owned by one shell, so a second shell does not overwrite it', async () => {
+      // Shell 0's TTY is the active one at boot, so it owns the mirror. Creating shell 1 (which
+      // `switchTty` does) must not repoint `process.env` at the new shell while TTY 0 is still active.
+      kernel.shell.env.set('OWNER_MARKER', 'tty0')
+      kernel.shell.publishEnv()
+      expect(globalThis.process.env['OWNER_MARKER']).toBe('tty0')
+
+      const second = await kernel.createShell(1)
+      expect(second).not.toBe(kernel.shell)
+
+      second.env.set('OWNER_MARKER', 'tty1')
+      second.publishEnv()
+      expect(globalThis.process.env['OWNER_MARKER']).toBe('tty0')
+    })
+
+    it('follows ownership when it is handed over', async () => {
+      const second = await kernel.createShell(1)
+      second.env.set('HANDOVER', 'second')
+      second.claimProcessEnv()
+      expect(globalThis.process.env['HANDOVER']).toBe('second')
+
+      kernel.shell.env.set('HANDOVER', 'first')
+      kernel.shell.claimProcessEnv()
+      expect(globalThis.process.env['HANDOVER']).toBe('first')
+    })
+
+    it('never mirrors the shell’s own internal state', async () => {
+      kernel.shell.env.set('?', '7')
+      kernel.shell.setPositionalParameters(['zero', 'one'])
+      kernel.shell.claimProcessEnv()
+      expect(globalThis.process.env['?']).toBeUndefined()
+      expect(globalThis.process.env['1']).toBeUndefined()
+      kernel.shell.clearPositionalParameters()
+    })
+  })
+})

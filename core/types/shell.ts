@@ -225,6 +225,30 @@ export interface Shell {
   /** Declares `name` as local to the current function call. Throws outside a function call. */
   declareLocal(name: string, value?: string): void
 
+  /**
+   * Removes `name`, honoring `local` scoping: the innermost frame that declared it is marked unset,
+   * otherwise it goes from the real environment. Deleting from `env` directly cannot remove a local --
+   * the frame keeps shadowing the name while the caller's value is destroyed.
+   */
+  unsetVariable(name: string): void
+
+  /**
+   * Every variable visible right now, `local` frames layered over the environment, with the shell's
+   * own internal names (`$?`, the positional parameters) left out. What `export -p` and bare `env`
+   * list.
+   */
+  visibleVariables(): Map<string, string>
+
+  /**
+   * Publishes this shell's exported environment to `globalThis.process.env`, if this shell is the one
+   * that owns that mirror; a no-op for every other shell. `process.env` is a single global and ecmaOS
+   * runs one shell per virtual console, so exactly one of them publishes to it.
+   */
+  publishEnv(): void
+
+  /** Makes this shell the one `globalThis.process.env` mirrors. Called when its TTY becomes active. */
+  claimProcessEnv(): void
+
   /** Applies a `set -e` / `-u` / `-o pipefail` style flag. */
   applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void
 

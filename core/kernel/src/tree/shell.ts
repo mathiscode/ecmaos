@@ -28,6 +28,35 @@ import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionCo
 import { evaluateConditional, type ConditionalFs } from '#lib/conditional-eval.ts'
 
 /**
+ * The one shell whose exported environment `globalThis.process.env` currently mirrors.
+ *
+ * `process.env` is a single global object and ecmaOS runs up to eight shells at once, one per virtual
+ * console. Every shell used to write to it directly, so two TTYs clobbered each other's `$PATH` and
+ * whichever logged in last won. It is a compatibility mirror for code written against Node, not a
+ * source of truth -- each shell's own `Map` is -- so exactly one shell publishes to it: the one whose
+ * TTY is active. `Kernel.switchTty` hands ownership over as consoles switch, the way `/proc/self`
+ * follows the current process rather than being shared between them.
+ */
+let processEnvOwner: object | undefined
+
+/**
+ * Names that live in a shell's environment `Map` for lookup's sake but are the shell's own state and
+ * must never reach a child process: `$?`, the positional parameters (`$0`, `$1`, ...), and the other
+ * one-character specials. A real shell keeps these out of the environment entirely -- `execve` passes
+ * `envp`, and `1=arg` is not an environment variable.
+ *
+ * Known limit: this is the boundary in the *other* direction only. A bare `X=1` still reaches a child
+ * here, where bash requires `export X` first, because ecmaOS has no exported-flag store yet and every
+ * `shell.env.set` call site would have to declare its intent.
+ */
+const SHELL_ONLY_VARIABLES: ReadonlySet<string> = new Set(['?', '$', '!', '-', '_'])
+
+/** Whether `name` is shell-internal state rather than an environment variable. See {@link SHELL_ONLY_VARIABLES}. */
+function isShellOnlyVariable(name: string): boolean {
+  return SHELL_ONLY_VARIABLES.has(name) || /^\d+$/.test(name)
+}
+
+/**
  * Finds the first top-level (unquoted, unescaped, not nested inside `$(...)`/`$((...))`)
  * `;`/`&`/`|` in `text`, for splitting a bare `VAR=value` assignment from whatever statement
  * follows it on the same line (`tryExecuteAssignment`). Deliberately simpler than
@@ -309,7 +338,12 @@ export class Shell implements IShell {
    */
   private _statementOutputs: Array<{ redirections: Redirection[], truncated: Set<number> }> = []
 
-  private _localScopes: Map<string, string>[] = []
+  /**
+   * `local` frames, innermost last. A name mapped to `undefined` is a local that `unset` removed:
+   * present in the frame, so it still shadows the caller's value, but resolving to nothing -- which is
+   * bash's behavior for `local X=1; unset X` (the outer `X` stays hidden until the function returns).
+   */
+  private _localScopes: Map<string, string | undefined>[] = []
   /** `set -e` / `set -u` / `set -o pipefail`, off by default (matches ecmaOS's prior behavior). */
   private _shellOptions = { errexit: false, nounset: false, pipefail: false }
 
@@ -397,8 +431,34 @@ export class Shell implements IShell {
     this._env.set('PWD', normalized)
   }
   get env() { return this._env }
-  set env(env: Map<string, string>) { this._env = env; globalThis.process.env = { ...globalThis.process.env, ...Object.fromEntries(env) } }
-  get envObject() { return Object.fromEntries(this._env) }
+  set env(env: Map<string, string>) { this._env = env; this.publishEnv() }
+  /**
+   * This shell's environment as a plain object: what every child process receives as its `envp`, and
+   * what `globalThis.process.env` mirrors.
+   *
+   * Shell-internal state is filtered out (see {@link SHELL_ONLY_VARIABLES}). It used to be handed
+   * over wholesale, so every command started with `?=0` in its environment and a script's positional
+   * parameters arrived as `0=/bin/foo`, `1=arg`.
+   */
+  get envObject() {
+    return Object.fromEntries([...this._env].filter(([key]) => !isShellOnlyVariable(key)))
+  }
+
+  /**
+   * Publishes this shell's exported environment to `globalThis.process.env`, if this shell is the one
+   * that owns that mirror. A no-op for every other shell, which is what keeps eight virtual consoles
+   * from overwriting each other. See {@link processEnvOwner}.
+   */
+  publishEnv(): void {
+    if (processEnvOwner !== this) return
+    globalThis.process.env = this.envObject
+  }
+
+  /** Makes this shell the one `globalThis.process.env` mirrors. Called when its TTY becomes active. */
+  claimProcessEnv(): void {
+    processEnvOwner = this
+    globalThis.process.env = this.envObject
+  }
   get id() { return this._id }
   get terminal() { return this._terminal }
   get username() { return this._users.get(this.credentials.uid)?.username || 'root' }
@@ -440,7 +500,7 @@ export class Shell implements IShell {
    */
   lookupVariable(name: string): string | undefined {
     for (let i = this._localScopes.length - 1; i >= 0; i--) {
-      const frame = this._localScopes[i] as Map<string, string>
+      const frame = this._localScopes[i] as Map<string, string | undefined>
       if (frame.has(name)) return frame.get(name)
     }
     return this._env.get(name)
@@ -450,7 +510,48 @@ export class Shell implements IShell {
   setVariable(name: string, value: string): void {
     const frame = this._localScopes[this._localScopes.length - 1]
     if (frame) frame.set(name, value)
-    else this._env.set(name, value)
+    else {
+      this._env.set(name, value)
+      this.publishEnv()
+    }
+  }
+
+  /**
+   * Removes `name`, honoring `local` scoping: the innermost frame that declared it is marked unset,
+   * otherwise it goes from the real environment.
+   *
+   * `unset` used to call `shell.env.delete` directly, which could not remove a local at all -- the
+   * frame still shadowed the name, so `$X` kept its local value while the *caller's* `X` was
+   * destroyed. Marking the frame instead is what bash does, which is why `$X` reads empty inside the
+   * function and the caller's value comes back when it returns.
+   */
+  unsetVariable(name: string): void {
+    for (let i = this._localScopes.length - 1; i >= 0; i--) {
+      const frame = this._localScopes[i] as Map<string, string | undefined>
+      if (frame.has(name)) { frame.set(name, undefined); return }
+    }
+    this._env.delete(name)
+    this.publishEnv()
+  }
+
+  /**
+   * Every variable visible right now, `local` frames layered over the environment, with the shell's
+   * own internal names left out (see {@link SHELL_ONLY_VARIABLES}).
+   *
+   * This is what `export -p` and bare `env` list. Reading `env` directly missed anything a `local`
+   * declaration was shadowing, so inside a function those two printed the caller's values.
+   */
+  visibleVariables(): Map<string, string> {
+    const visible = new Map<string, string>()
+    for (const [key, value] of this._env) if (!isShellOnlyVariable(key)) visible.set(key, value)
+    for (const frame of this._localScopes) {
+      for (const [key, value] of frame) {
+        if (isShellOnlyVariable(key)) continue
+        if (value === undefined) visible.delete(key)
+        else visible.set(key, value)
+      }
+    }
+    return visible
   }
 
   /** Indexed arrays -- `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for `=(...)`, `a[i]=`, `unset a[i]`, `a+=(...)`. */
@@ -522,6 +623,11 @@ export class Shell implements IShell {
     frame.set(name, value ?? '')
   }
 
+  /** Pushes a fresh `local` frame. Used by `callFunction`, and by nothing else -- `local` needs a call. */
+  private pushLocalScope(): void {
+    this._localScopes.push(new Map<string, string | undefined>())
+  }
+
   /** Apply `set -e` / `-u` / `-o pipefail` style flags. Matches the subset scripts here use. */
   applyShellOption(flag: 'errexit' | 'nounset' | 'pipefail', enabled: boolean): void {
     this._shellOptions[flag] = enabled
@@ -547,8 +653,6 @@ export class Shell implements IShell {
     // maintains `PWD` never ran for the initial value. Seed it here so `$PWD` is correct from the
     // first prompt rather than only after the first `cd`.
     this._env.set('PWD', this._cwd)
-
-    process.env = Object.fromEntries(this._env)
   }
 
   /**
@@ -580,7 +684,7 @@ export class Shell implements IShell {
         this._env.set(key, value)
       }
 
-      process.env = Object.fromEntries(this._env)
+      this.publishEnv()
     } catch {}
   }
 
@@ -1558,7 +1662,7 @@ export class Shell implements IShell {
     const savedPositional = new Map<string, string>()
     for (const key of this.env.keys()) if (!isNaN(parseInt(key))) savedPositional.set(key, this.env.get(key) as string)
 
-    this._localScopes.push(new Map())
+    this.pushLocalScope()
     // `setPositionalParameters` sets $0 to its first element (matching the device-CLI convention
     // for a device command line, where $0 is the invoked name and $1.. are the real arguments) -- so
     // the function's own name goes first, keeping $1 as the caller's first argument like bash.

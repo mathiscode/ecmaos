@@ -255,7 +255,7 @@ async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
     i++
   }
 
-  const baseEnv = ignoreEnvironment ? {} : Object.fromEntries(shell.env.entries())
+  const baseEnv = ignoreEnvironment ? {} : Object.fromEntries(shell.visibleVariables())
   for (const varName of unsetVars) delete baseEnv[varName]
   const modifiedEnv = { ...baseEnv, ...envVars }
 
@@ -274,25 +274,20 @@ async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (!command) { await io.writelnErr('env: missing command'); return 1 }
 
   const originalEnv = new Map(shell.env)
-  const originalProcessEnv = { ...globalThis.process.env }
 
-  for (const [key, value] of Object.entries(modifiedEnv)) {
-    shell.env.set(key, value)
-    globalThis.process.env[key] = value
-  }
-  for (const varName of unsetVars) {
-    shell.env.delete(varName)
-    delete globalThis.process.env[varName]
-  }
+  for (const [key, value] of Object.entries(modifiedEnv)) shell.env.set(key, value)
+  for (const varName of unsetVars) shell.env.delete(varName)
+  shell.publishEnv()
 
   try {
     const exitCode = await shell.execute(commandArgs.join(' '))
     return exitCode ?? 1
   } finally {
+    // `globalThis.process.env` needs no separate save/restore: it is a mirror of the owning shell's
+    // environment, republished from it, not a second copy to keep in step by hand.
     shell.env.clear()
     for (const [key, value] of originalEnv.entries()) shell.env.set(key, value)
-    for (const key in globalThis.process.env) if (!(key in originalProcessEnv)) delete globalThis.process.env[key]
-    for (const [key, value] of Object.entries(originalProcessEnv)) globalThis.process.env[key] = value
+    shell.publishEnv()
   }
 }
 
@@ -306,7 +301,7 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
   const printOnly = argv.includes('-p') || argv.filter(a => a !== '-n' && a !== '-p').length === 0
 
   if (printOnly) {
-    const entries = Array.from(shell.env.entries())
+    const entries = Array.from(shell.visibleVariables())
       .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key))
       .sort(([a], [b]) => a.localeCompare(b))
     for (const [key, value] of entries) await io.writeln(`${key}=${value}`)
@@ -318,8 +313,7 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
     if (unset) {
       const key = assignment.trim()
       if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) { await io.writelnErr(`export: invalid variable name: ${key}`); return 1 }
-      shell.env.delete(key)
-      delete globalThis.process.env[key]
+      shell.unsetVariable(key)
       continue
     }
 
@@ -335,8 +329,10 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
       value = value.slice(1, -1)
     }
 
-    shell.env.set(key, value)
-    globalThis.process.env[key] = value
+    // Through `setVariable`, so an active `local` frame is written rather than bypassed. `export`
+    // used to write `shell.env` directly: inside a function, `local X=1; export X=2` left the local
+    // shadowing `X` untouched at 1 and destroyed the *caller's* `X`, permanently.
+    shell.setVariable(key, value)
   }
 
   return 0
@@ -689,19 +685,43 @@ async function resolveSourcePath(shell: Shell, name: string): Promise<string | u
 
 async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    await io.writeln('Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
+    await io.writeln([
+      'Usage: unset [-f | -v] NAME[[INDEX]]...',
+      'Unset a variable, function, or array element.',
+      '',
+      '  -v      unset variables only',
+      '  -f      unset functions only',
+      '  --help  display this help and exit'
+    ].join('\n'))
     return 0
   }
 
+  const variablesOnly = argv.includes('-v')
+  const functionsOnly = argv.includes('-f')
+  if (variablesOnly && functionsOnly) {
+    await io.writelnErr('unset: cannot simultaneously unset a function and a variable')
+    return 1
+  }
+
   for (const arg of argv) {
+    if (arg === '-v' || arg === '-f') continue
+
     const element = /^([A-Za-z_][A-Za-z0-9_]*)\[(\d+)\]$/.exec(arg)
     if (element) {
-      shell.unsetArrayElement(element[1] as string, Number(element[2]))
+      if (!functionsOnly) shell.unsetArrayElement(element[1] as string, Number(element[2]))
       continue
     }
+
+    if (functionsOnly) { shell.functions.delete(arg); continue }
+
     if (shell.arrays.has(arg)) { shell.unsetArray(arg); continue }
-    shell.env.delete(arg)
-    shell.functions.delete(arg)
+
+    // Through `unsetVariable`, so a `local` declaration is what goes rather than the caller's value.
+    const hadVariable = shell.lookupVariable(arg) !== undefined
+    shell.unsetVariable(arg)
+    // bash unsets a variable if one exists by that name and only otherwise falls back to a function,
+    // rather than removing both -- `unset PATH` must not delete a `PATH` function too.
+    if (!hadVariable && !variablesOnly) shell.functions.delete(arg)
   }
 
   return 0

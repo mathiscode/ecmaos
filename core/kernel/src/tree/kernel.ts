@@ -322,6 +322,9 @@ export class Kernel implements IKernel {
 
     this.shell.attach(this.terminal)
     this._shells.set(0, this.shell)
+    // TTY 0 is the console that boots active, so its shell is the one `globalThis.process.env`
+    // mirrors until `switchTty` hands ownership to another -- see `Shell.claimProcessEnv`.
+    this.shell.claimProcessEnv()
 
     // Tier 4: subsystems whose real dependencies (terminal, shell) only exist now. Constructed
     // with context alone, then wired.
@@ -2423,7 +2426,7 @@ export class Kernel implements IKernel {
       shell.env.set('HOME', user.home || '/root')
       shell.env.set('USER', user.username)
       shell.env.set('HOSTNAME', globalThis.location.hostname || 'localhost')
-      process.env = Object.fromEntries(shell.env)
+      shell.publishEnv()
       await shell.loadEnvFile()
       await shell.loadConfig()
       this.updateLocaleFromEnv()
@@ -2549,8 +2552,8 @@ export class Kernel implements IKernel {
         shell.env.set('SHELL', userCred.user.shell || 'ecmaos')
         shell.env.set('HOME', userCred.user.home || '/root')
         shell.env.set('USER', userCred.user.username)
-        process.env = Object.fromEntries(shell.env)
-        
+        shell.publishEnv()
+
         const langEnv = shell.env.get('LANG')
         if (langEnv) {
           try {
@@ -2695,6 +2698,10 @@ export class Kernel implements IKernel {
 
     let targetShell = this._shells.get(ttyNumber)
     if (!targetShell) targetShell = await this.createShell(ttyNumber)
+
+    // The `globalThis.process.env` mirror follows the active console. Without this every shell wrote
+    // to that one global object and the last one to log in decided what `$PATH` every other one saw.
+    targetShell.claimProcessEnv()
 
     requestAnimationFrame(() => {
       if (targetShell.terminal.addons?.get('fit')) (targetShell.terminal.addons.get('fit') as FitAddon).fit()
