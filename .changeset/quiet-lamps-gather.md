@@ -87,3 +87,16 @@ expander a command's arguments use, so `for f in $x` iterates the fields,
 `for f in $(cmd)` works.
 
 `ForStatement.words: string[]` is therefore now `ForStatement.wordsText: string`.
+
+### One known divergence left
+
+Inside a redirected compound statement, only builtins read the statement's input.
+A real command gets an immediately-closed stdin, so `while read a; do cat; done < f`
+gives `cat` nothing where bash gives it the rest of the file. (Before this release
+the redirection was ignored altogether and the loop read the keyboard, so this is
+still a strict improvement.)
+
+Fixing it properly needs the file offset to be owned by the kernel and shared
+between processes, i.e. one real descriptor installed at fd 0 in each child, rather
+than bytes copied out of a stream into a per-process pipe that dies with it. That
+belongs with the work to expose `pipe`, `dup` and `dup2`.
