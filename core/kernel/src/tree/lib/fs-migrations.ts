@@ -60,7 +60,7 @@ export const PREVIOUS_DEFAULT_BOOT_INITS: readonly string[] = [
   ].join('\n')
 ]
 
-type Fs = Pick<typeof promises, 'exists' | 'readdir' | 'stat' | 'readFile' | 'writeFile' | 'unlink'>
+type Fs = Pick<typeof promises, 'exists' | 'readdir' | 'stat' | 'readFile' | 'writeFile' | 'unlink' | 'rename'>
 
 export interface FsMigrationContext {
   fs: Fs
@@ -173,6 +173,46 @@ async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {
   log.info(`Converted /etc/passwd to the 7-field format and wrote /etc/group (${entries.length} user(s))`)
 }
 
+/**
+ * Renames a persisted terminal config from `shell.toml` to `terminal.toml`.
+ *
+ * Every key in that file is an xterm.js terminal property, so `shell.toml` named the wrong layer.
+ * No `shell.toml` ships in initfs, but a persisted root holds whatever `theme <name>` wrote there,
+ * so an existing filesystem would silently lose its theme on the rename without this.
+ *
+ * A `terminal.toml` already in place wins: it is the newer file by definition, and the old one is
+ * removed rather than merged, since a partial merge of two generations of the same file is a worse
+ * outcome than keeping the current one.
+ */
+async function renameTerminalConfigs(ctx: FsMigrationContext): Promise<void> {
+  const { fs, log } = ctx
+
+  const homes = new Set<string>(['/root'])
+  if (await fs.exists('/etc/passwd')) {
+    const lines = (await fs.readFile('/etc/passwd', 'utf8')).split('\n').filter(line => line.trim() !== '')
+    for (const line of lines) {
+      const home = line.split(':')[5]
+      if (home) homes.add(home)
+    }
+  }
+
+  const pairs: Array<[string, string]> = [['/etc/shell.toml', '/etc/terminal.toml']]
+  for (const home of homes) pairs.push([`${home}/.config/shell.toml`, `${home}/.config/terminal.toml`])
+
+  let renamed = 0
+  for (const [from, to] of pairs) {
+    if (!await fs.exists(from)) continue
+    if (await fs.exists(to)) {
+      await fs.unlink(from)
+      continue
+    }
+    await fs.rename(from, to)
+    renamed++
+  }
+
+  if (renamed) log.info(`Renamed ${renamed} shell.toml to terminal.toml`)
+}
+
 export const FS_MIGRATIONS: readonly FsMigration[] = [
   {
     version: 1,
@@ -193,6 +233,13 @@ export const FS_MIGRATIONS: readonly FsMigration[] = [
     description: '1.0: convert /etc/passwd to the real 7-field format and split supplementary groups into /etc/group',
     async run(ctx) {
       await convertPasswdAndGroup(ctx)
+    }
+  },
+  {
+    version: 3,
+    description: '1.0: rename shell.toml to terminal.toml, which is the layer it actually configures',
+    async run(ctx) {
+      await renameTerminalConfigs(ctx)
     }
   }
 ]

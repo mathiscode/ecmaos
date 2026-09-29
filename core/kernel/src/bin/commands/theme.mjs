@@ -1,5 +1,5 @@
 /**
- * List or switch terminal themes. A successful switch is persisted to `~/.config/shell.toml` so it
+ * List or switch terminal themes. A successful switch is persisted to `~/.config/terminal.toml` so it
  * survives a reload; if persisting fails, a warning is printed but the switch itself still applies.
  */
 
@@ -10,7 +10,7 @@ import { parse, stringify } from 'smol-toml'
 const { argv, exit, write, custom, mkdir, stat, open, read, writeAll, close, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: theme [THEME_NAME]
-List or switch themes. Switching persists the choice to ~/.config/shell.toml.
+List or switch themes. Switching persists the choice to ~/.config/terminal.toml.
 
   -h, --help    display this help and exit`
 
@@ -95,7 +95,7 @@ async function main() {
     const configDir = join(home, '.config')
     if (!exists(configDir)) mkdir(configDir, 0o777)
 
-    const configPath = join(configDir, 'shell.toml')
+    const configPath = join(configDir, 'terminal.toml')
     let config = {}
 
     if (exists(configPath)) {

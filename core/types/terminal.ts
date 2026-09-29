@@ -388,4 +388,57 @@ export interface CommandIO {
   readonly isTTY: boolean
 }
 
+/**
+ * Terminal configuration, from `/etc/terminal.toml` and `~/.config/terminal.toml`.
+ *
+ * Every key here is an xterm.js property. It was called `ShellConfig` and read from `shell.toml`,
+ * which named the wrong layer: nothing in it is a shell setting.
+ */
+export interface TerminalConfig {
+  /** Disable the terminal bell */
+  noBell?: boolean
+  /** Font family for the terminal */
+  fontFamily?: string
+  /** Font size in pixels */
+  fontSize?: number
+  /** Whether the cursor should blink */
+  cursorBlink?: boolean
+  /** Style of the cursor */
+  cursorStyle?: 'block' | 'underline' | 'bar'
+  /** Terminal theme colors */
+  theme?: {
+    name?: string
+    background?: string
+    foreground?: string
+    selection?: string
+    cursor?: string
+    promptColor?: string
+  }
+  /** Duration of smooth scrolling in milliseconds */
+  smoothScrollDuration?: number
+  /** Whether Option key on Mac should act as Meta */
+  macOptionIsMeta?: boolean
+  /**
+   * Which xterm.js renderer to use. `webgl` is hardware-accelerated and falls back to `dom`
+   * automatically if the WebGL context is lost. `dom` is the escape hatch if WebGL misbehaves
+   * with a particular font/GPU combination.
+   * @default 'webgl'
+   */
+  renderer?: 'dom' | 'webgl'
+}
 
+/**
+ * Terminal configuration manager interface
+ */
+export interface TerminalConfigManager extends TerminalConfig {
+  /**
+   * Load configuration
+   */
+  load(): Promise<void>
+  
+  /**
+   * Set theme
+   * @param theme - Theme name or theme object
+   */
+  setTheme(theme: string | TerminalConfig['theme']): void
+}

@@ -5,7 +5,7 @@
 import type { BoundContext, Credentials } from '@zenfs/core'
 import type { Filesystem } from './filesystem.ts'
 import type { JobProcessHandle, KernelContext, KernelExecuteOptions } from './kernel.ts'
-import type { Terminal } from './terminal.ts'
+import type { Terminal, TerminalConfigManager } from './terminal.ts'
 import type { Users } from './users.ts'
 
 /**
@@ -162,7 +162,7 @@ export interface Shell {
   /** Terminal */
   terminal: Terminal
   /** Shell configuration */
-  readonly config: ShellConfigManager
+  readonly config: TerminalConfigManager
   /** The name of a `set` flag; see {@link ShellOptionState} for what each one does. */
   readonly shellOptions: ShellOptionState
   /** Registered `name() { ... }` function bodies, keyed by name */
@@ -364,54 +364,3 @@ export interface Shell {
   wait(spec?: string): Promise<number | undefined>
 }
 
-/**
- * Shell configuration
- */
-export interface ShellConfig {
-  /** Disable the terminal bell */
-  noBell?: boolean
-  /** Font family for the terminal */
-  fontFamily?: string
-  /** Font size in pixels */
-  fontSize?: number
-  /** Whether the cursor should blink */
-  cursorBlink?: boolean
-  /** Style of the cursor */
-  cursorStyle?: 'block' | 'underline' | 'bar'
-  /** Terminal theme colors */
-  theme?: {
-    name?: string
-    background?: string
-    foreground?: string
-    selection?: string
-    cursor?: string
-    promptColor?: string
-  }
-  /** Duration of smooth scrolling in milliseconds */
-  smoothScrollDuration?: number
-  /** Whether Option key on Mac should act as Meta */
-  macOptionIsMeta?: boolean
-  /**
-   * Which xterm.js renderer to use. `webgl` is hardware-accelerated and falls back to `dom`
-   * automatically if the WebGL context is lost. `dom` is the escape hatch if WebGL misbehaves
-   * with a particular font/GPU combination.
-   * @default 'webgl'
-   */
-  renderer?: 'dom' | 'webgl'
-}
-
-/**
- * Shell configuration manager interface
- */
-export interface ShellConfigManager extends ShellConfig {
-  /**
-   * Load configuration
-   */
-  load(): Promise<void>
-  
-  /**
-   * Set theme
-   * @param theme - Theme name or theme object
-   */
-  setTheme(theme: string | ShellConfig['theme']): void
-}

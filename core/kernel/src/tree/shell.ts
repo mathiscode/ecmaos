@@ -13,7 +13,7 @@ import type { BoundContext, Credentials } from '@zenfs/core'
 import { fromDev, Process as ZenFSProcess, Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
-  Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptionName, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
+  Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptionName, ShellOptions, TerminalConfig as ITerminalConfig, Terminal as ITerminal, Users
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
@@ -510,7 +510,7 @@ export class Shell implements IShell {
    */
   private _lineNumber = 0
 
-  public readonly config: ShellConfig
+  public readonly config: TerminalConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
   public context: BoundContext = bindContext({ root: '/', pwd: '/', credentials: this.credentials })
@@ -911,7 +911,7 @@ export class Shell implements IShell {
     this._users = options.users
     this._terminal = options.terminal as ITerminal
     this._terminalWriter = this._terminal?.stdout.getWriter() || new WritableStream().getWriter()
-    this.config = new ShellConfig(this)
+    this.config = new TerminalConfig(this)
 
     // `_cwd` was assigned directly above, before `_env` existed, so the `cwd` setter that normally
     // maintains `PWD` never ran for the initial value. Seed it here so `$PWD` is correct from the
@@ -1013,7 +1013,7 @@ export class Shell implements IShell {
   }
 
   /**
-   * Loads shell configuration from config files and applies to terminal
+   * Loads terminal configuration from config files and applies to terminal
    */
   async loadConfig() {
     await this.config.load()
@@ -3248,7 +3248,7 @@ export class Shell implements IShell {
 /**
  * Default configuration values
  */
-export const DefaultConfig: IShellConfig = {
+export const DefaultConfig: ITerminalConfig = {
   noBell: false,
   fontFamily: 'FiraCode Nerd Font Mono, Ubuntu Mono, courier-new, courier, monospace',
   fontSize: 16,
@@ -3264,13 +3264,13 @@ export const DefaultConfig: IShellConfig = {
   renderer: 'webgl'
 }
 
-export class ShellConfig implements IShellConfig {
+export class TerminalConfig implements ITerminalConfig {
   private _noBell: boolean = DefaultConfig.noBell! // Bang because we know default exists
   private _fontFamily: string = DefaultConfig.fontFamily!
   private _fontSize: number = DefaultConfig.fontSize!
   private _cursorBlink: boolean = DefaultConfig.cursorBlink!
   private _cursorStyle: 'block' | 'underline' | 'bar' = DefaultConfig.cursorStyle!
-  private _theme: IShellConfig['theme'] = { ...DefaultConfig.theme }
+  private _theme: ITerminalConfig['theme'] = { ...DefaultConfig.theme }
   private _smoothScrollDuration: number = DefaultConfig.smoothScrollDuration!
   private _macOptionIsMeta: boolean = DefaultConfig.macOptionIsMeta!
   private _renderer: 'dom' | 'webgl' = DefaultConfig.renderer!
@@ -3294,7 +3294,7 @@ export class ShellConfig implements IShellConfig {
   /**
    * Applies a partial configuration to the current config
    */
-  private applyConfig(config: Partial<IShellConfig>) {
+  private applyConfig(config: Partial<ITerminalConfig>) {
     if (typeof config.noBell === 'boolean') this._noBell = config.noBell
     if (typeof config.fontFamily === 'string') this._fontFamily = config.fontFamily
     if (typeof config.fontSize === 'number') this._fontSize = config.fontSize
@@ -3313,23 +3313,23 @@ export class ShellConfig implements IShellConfig {
   }
 
   /**
-   * Loads system-wide configuration from /etc/shell.toml only
+   * Loads system-wide configuration from /etc/terminal.toml only
    * Call this before terminal creation foapply system defaults
    */
   async loadSystemConfig() {
     try {
-      if (await this._shell.context.fs.promises.exists('/etc/shell.toml')) {
-        const content = await this._shell.context.fs.promises.readFile('/etc/shell.toml', 'utf-8')
-        const config = parse(content) as Partial<IShellConfig>
+      if (await this._shell.context.fs.promises.exists('/etc/terminal.toml')) {
+        const content = await this._shell.context.fs.promises.readFile('/etc/terminal.toml', 'utf-8')
+        const config = parse(content) as Partial<ITerminalConfig>
         this.applyConfig(config)
       }
     } catch (error) {
-      console.warn('Failed to load system shell config:', error)
+      console.warn('Failed to load system terminal config:', error)
     }
   }
 
   /**
-   * Loads configuration from /etc/shell.toml and ~/.config/shell.toml
+   * Loads configuration from /etc/terminal.toml and ~/.config/terminal.toml
    */
   async load() {
     // Load system default config first
@@ -3339,19 +3339,19 @@ export class ShellConfig implements IShellConfig {
     try {
       const home = this._shell.env.get('HOME')
       if (home) {
-        const configPath = `${home}/.config/shell.toml`
+        const configPath = `${home}/.config/terminal.toml`
         if (await this._shell.context.fs.promises.exists(configPath)) {
           const content = await this._shell.context.fs.promises.readFile(configPath, 'utf-8')
-          const config = parse(content) as Partial<IShellConfig>
+          const config = parse(content) as Partial<ITerminalConfig>
           this.applyConfig(config)
         }
       }
     } catch (error) {
-      console.warn('Failed to load user shell config:', error)
+      console.warn('Failed to load user terminal config:', error)
     }
   }
 
-  setTheme(theme: string | IShellConfig['theme']) {
+  setTheme(theme: string | ITerminalConfig['theme']) {
     if (typeof theme === 'string') {
       if (Object.prototype.hasOwnProperty.call(ThemePresets, theme)) {
         const preset = ThemePresets[theme]

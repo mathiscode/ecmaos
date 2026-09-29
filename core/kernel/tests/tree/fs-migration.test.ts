@@ -64,7 +64,7 @@ describe('boot over a persisted 0.x filesystem', () => {
 
   it('boots to RUNNING and records the filesystem as migrated', async () => {
     expect(kernel.state).toBe(KernelState.RUNNING)
-    expect(await readFsVersion(kernel.filesystem.fs)).toBe(2)
+    expect(await readFsVersion(kernel.filesystem.fs)).toBe(3)
   })
 
   it('writes a real 7-field /etc/passwd and an /etc/group for the fresh-boot root user (migration 2 is a no-op on an already-current file)', async () => {
@@ -97,7 +97,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([])
     await kernel.registerCommands()
 
-    expect(await readFsVersion(fs)).toBe(2)
+    expect(await readFsVersion(fs)).toBe(3)
     expect((await fs.readdir('/bin')).sort()).toEqual(binBefore)
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(DEFAULT_BOOT_INIT)
     expect(await fs.exists('/boot/init.new')).toBe(false)
@@ -117,7 +117,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     await fs.unlink(FS_VERSION_FILE)
     await fs.writeFile('/boot/init', edited)
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3])
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(edited)
     expect(await fs.readFile('/boot/init.new', 'utf8')).toBe(DEFAULT_BOOT_INIT)
   })
@@ -129,7 +129,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     // same primary group -- exercises both "primary group names itself" and "member list grows".
     await fs.writeFile('/etc/passwd', 'alice:1000:100:200:/home/alice:ecmaos\nbob:1001:100:200,300:/home/bob:ecmaos\n')
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3])
 
     const passwd = await fs.readFile('/etc/passwd', 'utf8')
     expect(passwd).toContain('alice:x:1000:100:alice:/home/alice:ecmaos')
@@ -146,6 +146,33 @@ describe('boot over a persisted 0.x filesystem', () => {
     await fs.unlink(FS_VERSION_FILE)
     await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })
     expect(await fs.readFile('/etc/passwd', 'utf8')).toBe(passwd)
+  })
+
+  it('migration 3 renames a persisted shell.toml to terminal.toml, keeping an existing terminal.toml', async () => {
+    const fs = kernel.filesystem.fs
+    await fs.unlink(FS_VERSION_FILE)
+    await fs.writeFile('/etc/passwd', 'root:x:0:0:root:/root:/bin/ecmash\ncarol:x:1002:100:carol:/home/carol:/bin/ecmash\n')
+    if (!await fs.exists('/home/carol/.config')) await fs.mkdir('/home/carol/.config', { recursive: true })
+    if (!await fs.exists('/root/.config')) await fs.mkdir('/root/.config', { recursive: true })
+
+    await fs.writeFile('/etc/shell.toml', 'fontSize = 14\n')
+    await fs.writeFile('/root/.config/shell.toml', 'fontSize = 18\n')
+    // carol already has the new name, so her old file is dropped rather than merged: a partial merge
+    // of two generations of the same file is a worse outcome than keeping the current one.
+    await fs.writeFile('/home/carol/.config/shell.toml', 'fontSize = 20\n')
+    await fs.writeFile('/home/carol/.config/terminal.toml', 'fontSize = 22\n')
+
+    await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })
+
+    expect(await fs.exists('/etc/shell.toml')).toBe(false)
+    expect(await fs.readFile('/etc/terminal.toml', 'utf8')).toBe('fontSize = 14\n')
+    expect(await fs.exists('/root/.config/shell.toml')).toBe(false)
+    expect(await fs.readFile('/root/.config/terminal.toml', 'utf8')).toBe('fontSize = 18\n')
+    expect(await fs.exists('/home/carol/.config/shell.toml')).toBe(false)
+    expect(await fs.readFile('/home/carol/.config/terminal.toml', 'utf8')).toBe('fontSize = 22\n')
+
+    await fs.unlink('/etc/terminal.toml')
+    await fs.unlink('/root/.config/terminal.toml')
   })
 
   it('removeStaleCommandStubs leaves real programs and the named stubs alone', async () => {

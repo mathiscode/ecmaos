@@ -1,10 +1,10 @@
 
-import { ShellConfig } from './shell.js'
+import { TerminalConfig } from './terminal.js'
 
 /**
  * Terminal theme presets
  */
-export const ThemePresets: Record<string, NonNullable<ShellConfig['theme']>> = {
+export const ThemePresets: Record<string, NonNullable<TerminalConfig['theme']>> = {
   'Ayu Mirage': { background: '#1f2430', foreground: '#cbccc6', promptColor: '#ffcc66' },
   'Catppuccin': { background: '#1e1e2e', foreground: '#cdd6f4', promptColor: '#cba6f7' },
   'Challenger Deep': { background: '#1e1c31', foreground: '#cbe3e7', promptColor: '#95ffa4' },

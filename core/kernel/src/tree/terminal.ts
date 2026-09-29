@@ -614,7 +614,7 @@ export class Terminal extends XTerm implements ITerminal {
 
   /**
    * Load or unload the WebGL renderer to match `shell.config.renderer`. `webgl` (the default) is
-   * hardware-accelerated; `dom` is the escape hatch documented in `shell.toml` for a GPU/font
+   * hardware-accelerated; `dom` is the escape hatch documented in `terminal.toml` for a GPU/font
    * combination that renders incorrectly under WebGL.
    *
    * Does nothing once WebGL has already fallen back to `dom` after a context loss this session

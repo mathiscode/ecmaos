@@ -946,7 +946,7 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `shell.config.setTheme()` mutates the calling `Shell`'s own live `ShellConfig` and immediately
+  // `shell.config.setTheme()` mutates the calling `Shell`'s own live `TerminalConfig` and immediately
   // calls `terminal.updateConfig()` -- both are main-thread-only `Shell`/`Terminal` state, unlike
   // every syscall above this needs `shellOf(proc)`, not just `kernelOf(proc)`. `setTheme()` itself
   // silently no-ops on an unrecognized preset name rather than throwing (`shell.ts`), so the calling

@@ -1,13 +1,13 @@
 # Shell Customization
 
-EcmaOS provides a flexible shell configuration system that allows for both system-wide defaults and user-specific customizations. Configuration is handled via [TOML](https://toml.io) files.
+EcmaOS provides a flexible terminal configuration system that allows for both system-wide defaults and user-specific customizations. Appearance is handled via [TOML](https://toml.io) files; behavior is handled by the shell startup files documented at the end.
 
 ## Configuration Files
 
-The shell looks for configuration files in the following order:
+The terminal looks for configuration files in the following order:
 
-1.  `/etc/shell.toml`: System-wide default configuration.
-2.  `~/.config/shell.toml`: User-specific configuration.
+1.  `/etc/terminal.toml`: System-wide default configuration.
+2.  `~/.config/terminal.toml`: User-specific configuration.
 
 Settings in the user configuration file override the system defaults.
 
@@ -99,7 +99,7 @@ promptColor = "green"
 
 ## Example Configuration
 
-Here is an example `~/.config/shell.toml` that sets the font size to 18 and uses the "Dracula" theme:
+Here is an example `~/.config/terminal.toml` that sets the font size to 18 and uses the "Dracula" theme:
 
 ```toml
 fontSize = 18
@@ -107,3 +107,24 @@ fontSize = 18
 [theme]
 name = "Dracula"
 ```
+
+## Startup Files
+
+Appearance is TOML; behavior is shell script. At login the shell runs, in order:
+
+1.  `/etc/profile`
+2.  the first of `~/.ecmash_profile` or `~/.profile` that exists
+3.  `/etc/ecmashrc`
+4.  `~/.ecmashrc`
+
+Each is an ordinary shell script, so aliases, functions, `export`, and `set` options all work:
+
+```sh
+export EDITOR=edit
+alias ll='ls -la'
+mkcd() { mkdir -p "$1" && cd "$1"; }
+set -o noclobber
+```
+
+A file that fails prints a warning and the remaining files still run, so a mistake in one of them
+costs you a message rather than a shell.
