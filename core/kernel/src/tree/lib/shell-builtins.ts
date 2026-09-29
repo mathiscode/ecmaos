@@ -23,20 +23,22 @@
 import chalk from 'chalk'
 import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
-import type { User } from '@ecmaos/types'
+import type { ShellBuiltinIO, User } from '@ecmaos/types'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'su', 'trap', 'unset'
 ])
 
-/** Writes a line to the shell's own terminal -- these run with no real `Process`/`CommandIO` at all. */
-function writeln(shell: Shell, text: string): void {
-  shell.terminal.writeln(text)
-}
+/**
+ * Shorthand for the fds every builtin below writes through. Usage text goes to fd 1 and diagnostics
+ * to fd 2, the way real shell builtins split them, so `cd /nope 2>/dev/null` is silent and
+ * `jobs > f` fills `f`. Both used to go straight to `shell.terminal`, ignoring redirections.
+ */
+type Io = ShellBuiltinIO
 
-async function runCd(shell: Shell, argv: string[]): Promise<number> {
+async function runCd(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
-    writeln(shell, 'Usage: cd [DIRECTORY]\nChange the shell working directory.\n\n  DIRECTORY  the directory to change to (default: $HOME)\n  --help     display this help and exit')
+    await io.writeln('Usage: cd [DIRECTORY]\nChange the shell working directory.\n\n  DIRECTORY  the directory to change to (default: $HOME)\n  --help     display this help and exit')
     return 0
   }
 
@@ -51,14 +53,14 @@ async function runCd(shell: Shell, argv: string[]): Promise<number> {
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    writeln(shell, `cd: ${destination}: ${message}`)
+    await io.writelnErr(`cd: ${destination}: ${message}`)
     return 1
   }
 }
 
-function runSet(shell: Shell, argv: string[]): number {
+async function runSet(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
-    writeln(shell, 'Usage: set [-e|+e] [-u|+u] [-o pipefail|+o pipefail]\nConfigure shell options for the current shell.')
+    await io.writeln('Usage: set [-e|+e] [-u|+u] [-o pipefail|+o pipefail]\nConfigure shell options for the current shell.')
     return 0
   }
 
@@ -71,12 +73,12 @@ function runSet(shell: Shell, argv: string[]): number {
     else if (arg === '-o' || arg === '+o') {
       const option = argv[++i]
       if (option !== 'pipefail') {
-        writeln(shell, `set: unsupported option: ${option ?? '<missing>'}`)
+        await io.writelnErr(`set: unsupported option: ${option ?? '<missing>'}`)
         return 1
       }
       shell.applyShellOption('pipefail', arg === '-o')
     } else {
-      writeln(shell, `set: unsupported option: ${arg}`)
+      await io.writelnErr(`set: unsupported option: ${arg}`)
       return 1
     }
   }
@@ -84,20 +86,20 @@ function runSet(shell: Shell, argv: string[]): number {
   return 0
 }
 
-function runBg(shell: Shell, argv: string[]): number {
+async function runBg(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: bg [%JOBSPEC]\nResume a stopped job in the background, without waiting for it.')
+    await io.writeln('Usage: bg [%JOBSPEC]\nResume a stopped job in the background, without waiting for it.')
     return 0
   }
 
   const spec = argv[0]
   const job = shell.getJob(spec)
   if (!job) {
-    writeln(shell, spec ? `bg: ${spec}: no such job` : 'bg: no current job')
+    await io.writelnErr(spec ? `bg: ${spec}: no such job` : 'bg: no current job')
     return 1
   }
   if (job.status !== 'stopped') {
-    writeln(shell, `bg: job ${job.id} already in background`)
+    await io.writelnErr(`bg: job ${job.id} already in background`)
     return 1
   }
 
@@ -105,19 +107,19 @@ function runBg(shell: Shell, argv: string[]): number {
   return 0
 }
 
-async function runFg(shell: Shell, argv: string[]): Promise<number> {
+async function runFg(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: fg [%JOBSPEC]\nResume a stopped or backgrounded job in the foreground and wait for it.')
+    await io.writeln('Usage: fg [%JOBSPEC]\nResume a stopped or backgrounded job in the foreground and wait for it.')
     return 0
   }
 
   const spec = argv[0]
   if (spec && !shell.getJob(spec)) {
-    writeln(shell, `fg: ${spec}: no such job`)
+    await io.writelnErr(`fg: ${spec}: no such job`)
     return 1
   }
   if (!spec && !shell.getJob()) {
-    writeln(shell, 'fg: no current job')
+    await io.writelnErr('fg: no current job')
     return 1
   }
 
@@ -134,9 +136,9 @@ function jobStatusLabel(job: import('@ecmaos/types').Job): string {
   }
 }
 
-function runJobs(shell: Shell, argv: string[]): number {
+async function runJobs(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, "Usage: jobs [-l]\nList the shell's tracked background/foreground jobs.")
+    await io.writeln("Usage: jobs [-l]\nList the shell's tracked background/foreground jobs.")
     return 0
   }
 
@@ -151,21 +153,21 @@ function runJobs(shell: Shell, argv: string[]): number {
     const marker = job.id === mostRecentId ? '+' : job.id === previousId ? '-' : ' '
     const pids = showPids && job.processes.length > 0 ? ` (${job.processes.map(p => p.pid).join(', ')})` : ''
     const suffix = job.background ? ' &' : ''
-    writeln(shell, `[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(24)}${job.commandLine}${suffix}${pids}`)
+    await io.writeln(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(24)}${job.commandLine}${suffix}${pids}`)
   }
 
   return 0
 }
 
-async function runWait(shell: Shell, argv: string[]): Promise<number> {
+async function runWait(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: wait [%JOBSPEC | PID]\nWait for a background job (or every tracked one) to finish.')
+    await io.writeln('Usage: wait [%JOBSPEC | PID]\nWait for a background job (or every tracked one) to finish.')
     return 0
   }
 
   const spec = argv[0]
   if (spec && !shell.getJob(spec)) {
-    writeln(shell, `wait: ${spec}: no such job or process`)
+    await io.writelnErr(`wait: ${spec}: no such job or process`)
     return 1
   }
 
@@ -173,10 +175,16 @@ async function runWait(shell: Shell, argv: string[]): Promise<number> {
   return code ?? 0
 }
 
-function runLocal(shell: Shell, argv: string[]): number {
-  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
-    writeln(shell, 'Usage: local NAME[=VALUE]...\nDeclare one or more variables local to the current function call.')
-    return argv.length === 0 ? 1 : 0
+async function runLocal(shell: Shell, argv: string[], io: Io): Promise<number> {
+  const usage = 'Usage: local NAME[=VALUE]...\nDeclare one or more variables local to the current function call.'
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln(usage)
+    return 0
+  }
+  // Misuse, not a help request, so the usage text is a diagnostic and belongs on fd 2.
+  if (argv.length === 0) {
+    await io.writelnErr(usage)
+    return 1
   }
 
   try {
@@ -187,14 +195,14 @@ function runLocal(shell: Shell, argv: string[]): number {
     }
     return 0
   } catch (error) {
-    writeln(shell, `local: ${error instanceof Error ? error.message : String(error)}`)
+    await io.writelnErr(`local: ${error instanceof Error ? error.message : String(error)}`)
     return 1
   }
 }
 
-async function runEnv(shell: Shell, argv: string[]): Promise<number> {
+async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-    writeln(shell, 'Usage: env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]\nSet each NAME to VALUE in the environment and run COMMAND.')
+    await io.writeln('Usage: env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]\nSet each NAME to VALUE in the environment and run COMMAND.')
     return 0
   }
 
@@ -217,7 +225,7 @@ async function runEnv(shell: Shell, argv: string[]): Promise<number> {
       else {
         i++
         varName = argv[i] || ''
-        if (!varName) { writeln(shell, "env: option requires an argument -- 'u'"); return 1 }
+        if (!varName) { await io.writelnErr("env: option requires an argument -- 'u'"); return 1 }
       }
       if (varName) unsetVars.push(varName)
     } else if (arg.includes('=')) {
@@ -240,13 +248,13 @@ async function runEnv(shell: Shell, argv: string[]): Promise<number> {
     let output = ''
     for (const [key, value] of entries) output += `${key}=${value}${separator}`
     if (!nullTerminated && entries.length > 0) output += '\n'
-    if (output) shell.terminal.write(output)
+    if (output) await io.write(output)
     return 0
   }
 
   const commandArgs = argv.slice(commandStartIndex)
   const command = commandArgs[0]
-  if (!command) { writeln(shell, 'env: missing command'); return 1 }
+  if (!command) { await io.writelnErr('env: missing command'); return 1 }
 
   const originalEnv = new Map(shell.env)
   const originalProcessEnv = { ...globalThis.process.env }
@@ -271,9 +279,9 @@ async function runEnv(shell: Shell, argv: string[]): Promise<number> {
   }
 }
 
-function runExport(shell: Shell, argv: string[]): number {
+async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: export [-n] [-p] [NAME=VALUE | NAME]...\nSet environment variables, or print/unset them.')
+    await io.writeln('Usage: export [-n] [-p] [NAME=VALUE | NAME]...\nSet environment variables, or print/unset them.')
     return 0
   }
 
@@ -284,7 +292,7 @@ function runExport(shell: Shell, argv: string[]): number {
     const entries = Array.from(shell.env.entries())
       .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key))
       .sort(([a], [b]) => a.localeCompare(b))
-    for (const [key, value] of entries) writeln(shell, `${key}=${value}`)
+    for (const [key, value] of entries) await io.writeln(`${key}=${value}`)
     return 0
   }
 
@@ -292,19 +300,19 @@ function runExport(shell: Shell, argv: string[]): number {
   for (const assignment of assignments) {
     if (unset) {
       const key = assignment.trim()
-      if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) { writeln(shell, `export: invalid variable name: ${key}`); return 1 }
+      if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) { await io.writelnErr(`export: invalid variable name: ${key}`); return 1 }
       shell.env.delete(key)
       delete globalThis.process.env[key]
       continue
     }
 
-    if (!assignment.includes('=')) { writeln(shell, `export: invalid assignment: ${assignment}`); return 1 }
+    if (!assignment.includes('=')) { await io.writelnErr(`export: invalid assignment: ${assignment}`); return 1 }
 
     const equalIndex = assignment.indexOf('=')
     const key = assignment.slice(0, equalIndex).trim()
     let value = assignment.slice(equalIndex + 1)
 
-    if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) { writeln(shell, `export: invalid variable name: ${key}`); return 1 }
+    if (!key || !/^[A-Z_][A-Z0-9_]*$/i.test(key)) { await io.writelnErr(`export: invalid variable name: ${key}`); return 1 }
 
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
       value = value.slice(1, -1)
@@ -317,22 +325,22 @@ function runExport(shell: Shell, argv: string[]): number {
   return 0
 }
 
-function runSu(shell: Shell, argv: string[]): number {
+async function runSu(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: su [USER]\nSwitch user.')
+    await io.writeln('Usage: su [USER]\nSwitch user.')
     return 0
   }
 
   const username = argv[0]
   const currentUser = shell.users.get(shell.credentials.suid) as User
   if (!currentUser || shell.credentials.suid !== 0) {
-    writeln(shell, chalk.red(shell.i18n.t('Unauthorized')))
+    await io.writelnErr(chalk.red(shell.i18n.t('Unauthorized')))
     return 1
   }
 
   const user = Array.from(shell.users.all.values()).find((u): u is User => (u as User).username === username)
   if (!user) {
-    writeln(shell, chalk.red(shell.i18n.t('User not found', { username })))
+    await io.writelnErr(chalk.red(shell.i18n.t('User not found', { username })))
     return 1
   }
 
@@ -342,14 +350,14 @@ function runSu(shell: Shell, argv: string[]): number {
   return 0
 }
 
-function runTrap(shell: Shell, argv: string[]): number {
+async function runTrap(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, "Usage: trap ['COMMAND'] [SIGNAL...]\n       trap - SIGNAL...\nSet, reset ('-'), or list (no args) signal handlers for this shell.")
+    await io.writeln("Usage: trap ['COMMAND'] [SIGNAL...]\n       trap - SIGNAL...\nSet, reset ('-'), or list (no args) signal handlers for this shell.")
     return 0
   }
 
   if (argv.length === 0) {
-    for (const [signal, handler] of shell.listTraps()) writeln(shell, `trap -- '${handler}' ${signal}`)
+    for (const [signal, handler] of shell.listTraps()) await io.writeln(`trap -- '${handler}' ${signal}`)
     return 0
   }
 
@@ -357,7 +365,7 @@ function runTrap(shell: Shell, argv: string[]): number {
   if (signals.length === 0) {
     // `trap` with exactly one arg and no recognized signal name after it isn't valid trap syntax
     // in this shell's subset -- report it rather than silently doing nothing.
-    writeln(shell, `trap: usage: trap ['COMMAND'] [SIGNAL...]`)
+    await io.writelnErr(`trap: usage: trap ['COMMAND'] [SIGNAL...]`)
     return 1
   }
 
@@ -366,9 +374,9 @@ function runTrap(shell: Shell, argv: string[]): number {
   return 0
 }
 
-function runUnset(shell: Shell, argv: string[]): number {
+async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    writeln(shell, 'Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
+    await io.writeln('Usage: unset NAME[[INDEX]]...\nUnset a variable, function, or array element.')
     return 0
   }
 
@@ -391,21 +399,24 @@ export function trueBuiltinNameFor(commandName: string | undefined): string | un
   return commandName && trueBuiltinNames.has(commandName) ? commandName : undefined
 }
 
-/** Runs a true shell builtin in-process against the calling `shell` -- never `execve`'d. */
-export async function runTrueBuiltin(shell: Shell, name: string, argv: string[]): Promise<number> {
+/**
+ * Runs a true shell builtin in-process against the calling `shell` -- never `execve`'d. `io` carries
+ * fds 0/1/2, so a builtin honors redirections and works inside a pipeline like any other command.
+ */
+export async function runTrueBuiltin(shell: Shell, name: string, argv: string[], io: Io): Promise<number> {
   switch (name) {
-    case 'cd': return runCd(shell, argv)
-    case 'set': return runSet(shell, argv)
-    case 'bg': return runBg(shell, argv)
-    case 'fg': return runFg(shell, argv)
-    case 'jobs': return runJobs(shell, argv)
-    case 'wait': return runWait(shell, argv)
-    case 'local': return runLocal(shell, argv)
-    case 'env': return runEnv(shell, argv)
-    case 'export': return runExport(shell, argv)
-    case 'su': return runSu(shell, argv)
-    case 'trap': return runTrap(shell, argv)
-    case 'unset': return runUnset(shell, argv)
+    case 'cd': return runCd(shell, argv, io)
+    case 'set': return runSet(shell, argv, io)
+    case 'bg': return runBg(shell, argv, io)
+    case 'fg': return runFg(shell, argv, io)
+    case 'jobs': return runJobs(shell, argv, io)
+    case 'wait': return runWait(shell, argv, io)
+    case 'local': return runLocal(shell, argv, io)
+    case 'env': return runEnv(shell, argv, io)
+    case 'export': return runExport(shell, argv, io)
+    case 'su': return runSu(shell, argv, io)
+    case 'trap': return runTrap(shell, argv, io)
+    case 'unset': return runUnset(shell, argv, io)
     default: throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)
   }
 }

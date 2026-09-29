@@ -58,6 +58,46 @@ export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Pr
 export type ShellCreatePipeStream = () => { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> }
 
 /**
+ * The three standard descriptors as a true shell builtin sees them.
+ *
+ * Builtins used to write straight to `shell.terminal`, which meant their output ignored
+ * redirections entirely (`jobs > f` printed to the screen and left `f` empty) and they could not
+ * appear in a pipeline at all. Everything a builtin emits or reads now goes through this, so a
+ * builtin stage is wired up exactly like any other pipeline stage.
+ *
+ * Two implementations back it (both in `Shell`): a direct terminal one for the common case of a
+ * lone builtin with no redirections, which costs nothing extra and keeps `cd` in a tight loop as
+ * cheap as it was; and a stream-backed one over the same `buildOutputStreams` result every
+ * `execve`'d command already gets.
+ *
+ * Kept deliberately text-shaped rather than byte-shaped: builtins deal in lines, and the encoding
+ * boundary belongs in one place instead of in fifteen of them.
+ */
+export interface ShellBuiltinIO {
+  /** Whether fd 1 is a terminal, i.e. `isatty(1)` -- `type`/`jobs` colorize only when it is */
+  readonly stdoutIsTTY: boolean
+  /** Whether fd 0 is a terminal, which is what makes `read` prompt and echo rather than slurp */
+  readonly stdinIsTTY: boolean
+  /** Write to fd 1 with no trailing newline */
+  write(text: string): Promise<void>
+  /** Write to fd 1, appending a newline */
+  writeln(text: string): Promise<void>
+  /** Write to fd 2 with no trailing newline */
+  writeErr(text: string): Promise<void>
+  /** Write to fd 2, appending a newline */
+  writelnErr(text: string): Promise<void>
+  /**
+   * One line from fd 0 with its trailing newline removed, or `undefined` at EOF. When
+   * {@link stdinIsTTY} it prompts and echoes like `readline`; otherwise it reads bytes.
+   */
+  readLine(prompt?: string): Promise<string | undefined>
+  /** Everything left on fd 0. Empty string when there is no stdin at all. */
+  readAll(): Promise<string>
+  /** Flushes and releases whatever backs this. Called exactly once, after the builtin returns. */
+  close(): Promise<void>
+}
+
+/**
  * Options for configuring the shell
  */
 export interface ShellOptions {

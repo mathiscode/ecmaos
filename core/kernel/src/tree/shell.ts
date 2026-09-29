@@ -13,7 +13,7 @@ import type { BoundContext, Credentials } from '@zenfs/core'
 import { Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
-  Shell as IShell, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
+  Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
@@ -1018,23 +1018,37 @@ export class Shell implements IShell {
    * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
   private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
-    const stages: Array<{
-      finalCommand: string
+    /**
+     * A stage is either a real command to hand `Kernel.execute`, or a true builtin to run in this
+     * shell's own tick. Both get an identically-wired set of fds, which is what lets `jobs > f` and
+     * `jobs | grep x` work at all -- a builtin used to bypass this whole method.
+     */
+    type Stage = {
       args: string[]
       stdin: ReadableStream<Uint8Array>
       stdinIsTTY: boolean
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
       stderr: WritableStream<Uint8Array>
-    }> = []
+    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string })
+
+    const stages: Stage[] = []
 
     let prevReadable: ReadableStream<Uint8Array> | undefined
 
     for (let i = 0; i < pipeline.commands.length; i++) {
       const command = pipeline.commands[i] as ParsedCommand
-      const { finalCommand, args } = await this.prepareCommand(command)
       const isFirstCommand = i === 0
       const isLastCommand = i === pipeline.commands.length - 1
+
+      // Builtins keep their own quote-aware/array-aware expansion (`expandCommandArgs`) and must
+      // not go through `prepareCommand`, which resolves a `$PATH` file that will never exist for
+      // them -- there is no `/bin/cd`, deliberately.
+      const builtinName = trueBuiltinNameFor(command.words[0])
+      const resolved = builtinName
+        ? { finalCommand: undefined, args: await this.expandCommandArgs(command) }
+        : await this.prepareCommand(command)
+      const args = resolved.args
 
       let stdin: ReadableStream<Uint8Array>
       let stdinIsTTY = false
@@ -1074,12 +1088,26 @@ export class Shell implements IShell {
 
       const { stdout, stderr } = await this.buildOutputStreams(command.redirections, isLastCommand, pipeWritable)
       const stdoutIsTTY = isLastCommand && !command.redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>&') && r.fd === 1)
-      stages.push({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr })
+      const fds = { args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }
+      stages.push(builtinName
+        ? { kind: 'builtin', name: builtinName, ...fds }
+        : { kind: 'command', finalCommand: resolved.finalCommand as string, ...fds })
     }
 
-    const results = await Promise.all(stages.map(({ finalCommand, args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr }) =>
-      this._execute({
-        command: finalCommand,
+    const results = await Promise.all(stages.map(async stage => {
+      const { args, stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr } = stage
+
+      if (stage.kind === 'builtin') {
+        const io = this.streamBuiltinIO(stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
+        try {
+          return await runTrueBuiltin(this, stage.name, args, io)
+        } finally {
+          await io.close()
+        }
+      }
+
+      return await this._execute({
+        command: stage.finalCommand,
         args,
         shell: this,
         terminal: this._terminal,
@@ -1091,7 +1119,7 @@ export class Shell implements IShell {
         onProcess: job ? (process => { job.processes.push(process) }) : undefined,
         foreground: job ? !job.background : true
       })
-    ))
+    }))
 
     return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
   }
@@ -1221,14 +1249,19 @@ export class Shell implements IShell {
   }
 
   /**
-   * A pipeline whose sole command names a true shell builtin (`cd`, `export`, ... -- see
-   * `lib/shell-builtins.ts`'s own doc comment for why these are permanent).
-   * Same single-command restriction as `functionNameFor`, for the same reason: piping into/out of
-   * something that mutates this shell's own state isn't meaningful the way it is for a real process.
+   * A builtin eligible for the cheap in-place path: the pipeline's sole command names a true shell
+   * builtin (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) *and* nothing is redirected, so it
+   * can write straight to the terminal without any stream being allocated. `cd` inside a `while`
+   * loop takes this path, and it costs what it always did.
+   *
+   * A builtin that is redirected or piped is not excluded, it just goes the ordinary way, through
+   * `runPipeline` as a builtin stage with real fds.
    */
-  private trueBuiltinNameFor(pipeline: Pipeline): string | undefined {
+  private fastPathBuiltinFor(pipeline: Pipeline): string | undefined {
     if (pipeline.commands.length !== 1) return undefined
-    return trueBuiltinNameFor(pipeline.commands[0]?.words[0])
+    const command = pipeline.commands[0]
+    if (!command || command.redirections.length > 0) return undefined
+    return trueBuiltinNameFor(command.words[0])
   }
 
   /** Expands a command's argument words (index 1..) with the quote-aware expander -- true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
@@ -1438,7 +1471,7 @@ export class Shell implements IShell {
         this.runInBackground(stage.pipeline)
       } else {
         const conditionalCommand = stage.pipeline.commands.length === 1 ? stage.pipeline.commands[0] : undefined
-        const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.trueBuiltinNameFor(stage.pipeline)
+        const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.fastPathBuiltinFor(stage.pipeline)
         const fnName = builtinName ? undefined : this.functionNameFor(stage.pipeline)
         let pipeStatus: number[]
 
@@ -1452,7 +1485,7 @@ export class Shell implements IShell {
           // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
           const command = stage.pipeline.commands[0] as ParsedCommand
           const args = await this.expandCommandArgs(command)
-          const code = await runTrueBuiltin(this, builtinName, args)
+          const code = await runTrueBuiltin(this, builtinName, args, this.terminalBuiltinIO())
           pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
         } else if (fnName) {
           const command = stage.pipeline.commands[0] as ParsedCommand
@@ -1733,6 +1766,107 @@ export class Shell implements IShell {
   /**
    * Creates a WritableStream that writes to the terminal
    */
+  /**
+   * A builtin's fds when it is a lone command with nothing redirected: straight to the terminal,
+   * allocating no streams at all. This is the path `cd` in a `while` loop takes, and it costs the
+   * same as the old `shell.terminal.writeln` did.
+   *
+   * `readLine` goes through `terminal.readline()`, which is the editor already used for login and
+   * password prompts, so an interactive `read` gets echo and line editing for free.
+   */
+  private terminalBuiltinIO(): ShellBuiltinIO {
+    const terminal = this._terminal
+    return {
+      stdoutIsTTY: true,
+      stdinIsTTY: true,
+      write: async (text: string) => { terminal.write(text) },
+      writeln: async (text: string) => { terminal.writeln(text) },
+      writeErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m`) },
+      writelnErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m\r\n`) },
+      readLine: async (prompt?: string) => await terminal.readline(prompt ?? '', false, true),
+      readAll: async () => await terminal.readline('', false, true),
+      close: async () => {}
+    }
+  }
+
+  /**
+   * A builtin's fds when it is redirected or part of a pipeline, over the same streams
+   * `buildOutputStreams` hands every `execve`'d command. Writers are acquired lazily so a builtin
+   * that never prints anything (the common `cd`/`export` case) doesn't lock a stream it won't use,
+   * and `close()` releases whatever was acquired exactly once.
+   */
+  private streamBuiltinIO(
+    stdin: ReadableStream<Uint8Array> | undefined,
+    stdinIsTTY: boolean,
+    stdout: WritableStream<Uint8Array>,
+    stdoutIsTTY: boolean,
+    stderr: WritableStream<Uint8Array>
+  ): ShellBuiltinIO {
+    const encoder = new TextEncoder()
+    let outWriter: WritableStreamDefaultWriter<Uint8Array> | undefined
+    let errWriter: WritableStreamDefaultWriter<Uint8Array> | undefined
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    // Bytes pulled from `stdin` that belong to the line after the one `readLine` just returned.
+    let pending = ''
+    let eof = false
+
+    const out = async (text: string) => {
+      outWriter ??= stdout.getWriter()
+      await outWriter.write(encoder.encode(text))
+    }
+    const err = async (text: string) => {
+      errWriter ??= stderr.getWriter()
+      await errWriter.write(encoder.encode(text))
+    }
+    const pull = async (): Promise<boolean> => {
+      if (eof || !stdin) return false
+      reader ??= stdin.getReader()
+      const { done, value } = await reader.read()
+      if (done) { eof = true; return false }
+      pending += new TextDecoder().decode(value)
+      return true
+    }
+
+    return {
+      stdoutIsTTY,
+      stdinIsTTY,
+      write: out,
+      writeln: async (text: string) => await out(text + '\n'),
+      writeErr: err,
+      writelnErr: async (text: string) => await err(text + '\n'),
+      readLine: async () => {
+        for (;;) {
+          const newline = pending.indexOf('\n')
+          if (newline !== -1) {
+            const line = pending.slice(0, newline)
+            pending = pending.slice(newline + 1)
+            return line
+          }
+          if (!await pull()) {
+            // A final line with no trailing newline is still a line; a truly empty tail is EOF.
+            if (pending.length === 0) return undefined
+            const line = pending
+            pending = ''
+            return line
+          }
+        }
+      },
+      readAll: async () => {
+        while (await pull()) { /* drain */ }
+        const text = pending
+        pending = ''
+        return text
+      },
+      close: async () => {
+        // Releasing rather than closing: the pipe's far end and the terminal are shared, and
+        // `runPipeline` owns their lifetime the same way it does for an execve'd stage.
+        try { await outWriter?.close() } catch { outWriter?.releaseLock() }
+        try { await errWriter?.close() } catch { errWriter?.releaseLock() }
+        reader?.releaseLock()
+      }
+    }
+  }
+
   private createTerminalOutputStream(): WritableStream<Uint8Array> {
     const writer = this._terminalWriter
     return new WritableStream({
