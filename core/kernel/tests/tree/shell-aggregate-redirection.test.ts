@@ -124,6 +124,41 @@ describe('redirections on aggregate commands', () => {
     })
   })
 
+  describe('the target word is expanded', () => {
+    it('expands a variable in an output target', async () => {
+      // The input side always expanded its target; the output side used the raw text, so
+      // `> $dir/out` created a file literally named `$dir/out` while every other reference to it
+      // expanded normally.
+      const code = await runScript([
+        'dir=/tmp',
+        'name=expanded-target.txt',
+        'echo written > $dir/$name',
+        `cat /tmp/expanded-target.txt > ${OUT}`
+      ].join('\n'))
+      expect(code).toBe(0)
+      expect(await read(OUT)).toBe('written\n')
+    })
+
+    it('keeps a quoted target with a space as one filename', async () => {
+      await runScript([
+        'dir=/tmp',
+        'echo spaced > "$dir/two words.txt"',
+        `cat "/tmp/two words.txt" > ${OUT}`
+      ].join('\n'))
+      expect(await read(OUT)).toBe('spaced\n')
+    })
+
+    it('expands an append target too', async () => {
+      await runScript([
+        'target=/tmp/append-target.txt',
+        'echo one > $target',
+        'echo two >> $target',
+        `cat /tmp/append-target.txt > ${OUT}`
+      ].join('\n'))
+      expect(await read(OUT)).toBe('one\ntwo\n')
+    })
+  })
+
   describe('function calls', () => {
     it('redirects a function’s whole body', async () => {
       const code = await runScript([

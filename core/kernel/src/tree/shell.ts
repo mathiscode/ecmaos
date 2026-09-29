@@ -10,7 +10,7 @@ import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
 import type { BoundContext, Credentials } from '@zenfs/core'
-import { fromDev, Signal } from '@zenfs/linux'
+import { fromDev, Process as ZenFSProcess, Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
   Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptions, ShellConfig as IShellConfig, Terminal as ITerminal, Users
@@ -422,6 +422,34 @@ export class Shell implements IShell {
    */
   private _signalCatchers = { exit: 0, return: 0, loop: 0 }
 
+  /**
+   * A real, registered `@zenfs/linux` `Process` standing for this shell, created on first use.
+   *
+   * `$$` and `$PPID` have to come from somewhere, and inventing a number would eventually collide
+   * with a real pid -- ecmaOS allocates pids from `@zenfs/linux`'s own table, so the only way to get
+   * one that is genuinely the shell's is to take one from that table. The process is registered and
+   * never exits, which is correct: a shell is a process, and Linux's `ps` shows it. Its standard
+   * descriptors go to `/dev/null` rather than the console, the same choice `Kernel.pipeProcess`
+   * makes, so holding it costs nothing and touches no terminal.
+   *
+   * When `/bin/ecmash` becomes a real program this stops being a stand-in and starts being the
+   * shell's actual process.
+   */
+  private _process?: InstanceType<typeof ZenFSProcess>
+
+  /** When this shell started, for `$SECONDS`. Rebased when a script assigns to `SECONDS`. */
+  private _secondsOrigin = Date.now()
+
+  /**
+   * `$RANDOM`'s generator state. bash seeds its own on assignment (`RANDOM=42`), so this shell does
+   * too -- the sequences do not match bash's (nothing portable could), but the contract does: reading
+   * gives a fresh value in 0..32767, and assigning makes the sequence that follows reproducible.
+   */
+  private _randomState = Math.floor(Math.random() * 0x7fffffff) + 1
+
+  /** `$!` -- the pid of the most recently backgrounded pipeline. Unset until one exists, as in bash. */
+  private _lastBackgroundPid?: number
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -514,17 +542,82 @@ export class Shell implements IShell {
       const frame = this._localScopes[i] as Map<string, string | undefined>
       if (frame.has(name)) return frame.get(name)
     }
+    // Computed parameters sit between the `local` frames and the environment: a `local RANDOM`
+    // shadows them the way bash lets you shadow any variable, but a plain `RANDOM=42` does not --
+    // that seeds the generator instead of replacing it, which is what `setVariable` does with it.
+    const computed = this.computedParameter(name)
+    if (computed !== undefined) return computed
     return this._env.get(name)
+  }
+
+  /**
+   * The special parameters whose value is produced at every read rather than stored.
+   *
+   * `$?`, `$$`, `$PPID` and `$SHLVL` are deliberately not here: they are ordinary entries in `_env`,
+   * written once when they change, so `env` lists them and a child inherits them the way it would in
+   * a real shell.
+   */
+  private computedParameter(name: string): string | undefined {
+    switch (name) {
+      // bash's range is 0..32767. A 32-bit xorshift keeps the sequence reproducible after a seed.
+      case 'RANDOM': {
+        let x = this._randomState
+        x ^= x << 13
+        x ^= x >>> 17
+        x ^= x << 5
+        this._randomState = x >>> 0 || 1
+        return String(this._randomState % 32768)
+      }
+      case 'SECONDS': return String(Math.floor((Date.now() - this._secondsOrigin) / 1000))
+      case '$': return String(this.process.pid)
+      case 'PPID': return String(this.process.ppid)
+      case '-': return this.optionFlags()
+      // Unset until something has been backgrounded, so `${!:-none}` behaves, rather than reading 0.
+      case '!': return this._lastBackgroundPid === undefined ? undefined : String(this._lastBackgroundPid)
+      default: return undefined
+    }
+  }
+
+  /**
+   * `$-` -- the single-letter flags currently in effect, in the order bash lists them.
+   *
+   * `h` (hashall) and `B` (brace expansion) are always on and have no `set` switch here, and `i`
+   * marks an interactive shell, which every ecmaOS shell is: each one owns a terminal.
+   */
+  private optionFlags(): string {
+    const flags: string[] = []
+    if (this._shellOptions.errexit) flags.push('e')
+    flags.push('h')
+    if (this._shellOptions.nounset) flags.push('u')
+    flags.push('B', 'i')
+    return flags.join('')
+  }
+
+  /**
+   * This shell's own `@zenfs/linux` process, created on first use. See {@link _process}.
+   *
+   * Created lazily rather than in the constructor because a `Process` opens its standard descriptors
+   * immediately, and a `Shell` is constructed before `Kernel.boot` has mounted `/dev`. Nothing reads
+   * `$$` that early, so by the time this runs the device is there.
+   */
+  get process(): InstanceType<typeof ZenFSProcess> {
+    this._process ??= new ZenFSProcess({ argv: ['ecmash'], cwd: this._cwd, console: '/dev/null' })
+    return this._process
   }
 
   /** `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env. */
   setVariable(name: string, value: string): void {
     const frame = this._localScopes[this._localScopes.length - 1]
-    if (frame) frame.set(name, value)
-    else {
-      this._env.set(name, value)
-      this.publishEnv()
-    }
+    if (frame) { frame.set(name, value); return }
+
+    // Assigning to a computed parameter adjusts what it computes rather than replacing it, which is
+    // bash's behavior: `RANDOM=42` seeds the generator and `SECONDS=0` restarts the clock. Storing
+    // the value as well would be invisible (the computed read wins) and misleading in `env`.
+    if (name === 'RANDOM' && /^\d+$/.test(value)) { this._randomState = Number(value) >>> 0 || 1; return }
+    if (name === 'SECONDS' && /^\d+$/.test(value)) { this._secondsOrigin = Date.now() - Number(value) * 1000; return }
+
+    this._env.set(name, value)
+    this.publishEnv()
   }
 
   /**
@@ -723,6 +816,13 @@ export class Shell implements IShell {
     // maintains `PWD` never ran for the initial value. Seed it here so `$PWD` is correct from the
     // first prompt rather than only after the first `cd`.
     this._env.set('PWD', this._cwd)
+
+    // `$SHLVL` counts shells deep, and unlike `$$`/`$PPID` it is a real environment entry: it only
+    // means anything because a child shell inherits it and adds one. Nothing nests shells yet, so
+    // every virtual console is level 1; the increment is here so `/bin/ecmash` reports 2 the day it
+    // can run inside another shell, with nothing else to change.
+    const inherited = Number(this._env.get('SHLVL'))
+    this._env.set('SHLVL', String(Number.isFinite(inherited) && inherited > 0 ? inherited + 1 : 1))
   }
 
   /**
@@ -1285,7 +1385,11 @@ export class Shell implements IShell {
       }
 
       if (redirection.type === '>' || redirection.type === '>>') {
-        const targetPath = path.resolve(this.cwd, redirection.target)
+        // Expanded, not taken literally: `> /tmp/work.$$` and `> "$dir/out"` have to name the file
+        // the script meant. The input side has always done this (`buildInputStream`); the output side
+        // used the raw text, so a redirect target containing a variable created a file named after
+        // the unexpanded word while every other reference to it expanded normally.
+        const targetPath = path.resolve(this.cwd, await this.expandRedirectionTarget(redirection))
         const append = redirection.type === '>>'
         fdStreams.set(redirection.fd, this.createFileWriteStream(targetPath, append))
         fdFiles.set(redirection.fd, { path: targetPath, append })
@@ -2173,6 +2277,9 @@ export class Shell implements IShell {
     // never produces a real process handle (an all-coreutils pipeline has nothing to report here).
     queueMicrotask(() => {
       const pid = job.processes[0]?.pid
+      // `$!` is whatever `[1] <pid>` just reported, including the job-id fallback for an
+      // all-coreutils pipeline that never produced a real process.
+      this._lastBackgroundPid = pid ?? job.id
       this._terminal.writeln(`[${job.id}] ${pid ?? job.id}`)
     })
   }
@@ -2531,6 +2638,13 @@ export class Shell implements IShell {
     return this._stdinSources[this._stdinSources.length - 1]
   }
 
+  /** A redirection target word, expanded. Quote-aware, so `> "$dir/a b"` is one filename. */
+  private async expandRedirectionTarget(redirection: Redirection): Promise<string> {
+    const parts = redirection.targetParts
+    if (!parts || parts.length === 0) return redirection.target
+    return await expandWordString(parts, this.expansionContext())
+  }
+
   /**
    * The stream behind one input redirection: a heredoc body, a here-string, or a real file. Shared by
    * a pipeline stage's `< f` and a compound statement's trailing `done < f`.
@@ -2545,8 +2659,7 @@ export class Shell implements IShell {
       return literal(heredoc.expand ? await expandHeredocBody(heredoc.body, this.expansionContext()) : heredoc.body)
     }
 
-    const parts = redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' as const }]
-    const target = await expandWordString(parts, this.expansionContext())
+    const target = await this.expandRedirectionTarget(redirection)
 
     if (redirection.type === '<<<') return literal(target + '\n')
 
