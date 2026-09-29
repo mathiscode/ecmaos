@@ -435,7 +435,19 @@ export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
  */
 const ATTACH_AND_CLOSE_LINE = new Set(['then', 'do'])
 /** Start a new line on their own; the word itself continues to accumulate normally afterward. */
-const START_NEW_LINE = new Set(['if', 'while', 'for', 'elif', 'fi', 'done'])
+const START_NEW_LINE = new Set(['if', 'while', 'for', 'elif'])
+
+/**
+ * Close a block, so they own their line up to the next top-level `;` and whatever follows that `;`
+ * starts a line of its own.
+ *
+ * Only up to the `;`, because a closing keyword can legitimately carry a redirection
+ * (`done < input.txt`) that belongs on its line. Before this they were treated like `if`/`while` --
+ * "start a new line, then keep accumulating" -- which left `done; shift 1` as a single line whose
+ * first word was `done;`, so the parser never recognized the block as closed. Unreachable while the
+ * only compact form was a whole statement on one line; a one-line function body made it routine.
+ */
+const CLOSE_LINE = new Set(['fi', 'done', 'esac'])
 /** Stands alone on its own line, with nothing else -- its body starts as a fresh line after it. */
 const ISOLATE_ALONE = new Set(['else'])
 
@@ -530,6 +542,32 @@ function normalizeOneLine(text: string): string {
       if (boundaryOk && START_NEW_LINE.has(word)) {
         flush()
         i = j
+        continue
+      }
+
+      if (boundaryOk && CLOSE_LINE.has(word)) {
+        flush()
+        // Take the keyword and anything up to the next top-level `;` (its redirection, if it has
+        // one) as one line, then carry on after that `;`.
+        let end = k
+        let nested = 0
+        while (end < text.length) {
+          const c = text[end] as string
+          if (c === '\\') { end += 2; continue }
+          if (c === "'" || c === '"') {
+            const close = text.indexOf(c, end + 1)
+            end = close === -1 ? text.length : close + 1
+            continue
+          }
+          if (c === '(') nested++
+          else if (c === ')') nested = Math.max(0, nested - 1)
+          else if (c === ';' && nested === 0) break
+          end++
+        }
+        lines.push(text.slice(j, end).trim())
+        // Step over the `;` too, so what follows starts a clean line rather than one beginning with
+        // a stray separator.
+        i = text[end] === ';' ? end + 1 : end
         continue
       }
 

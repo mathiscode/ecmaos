@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseStatements } from '#lib/control-flow-parser.ts'
-import type { CaseStatement, ForStatement, FunctionDef, IfStatement, WhileStatement } from '#lib/control-flow-parser.ts'
+import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, WhileStatement } from '#lib/control-flow-parser.ts'
 
 describe('parseStatements', () => {
   it('parses plain lines as simple statements, skipping blanks and comments', () => {
@@ -183,6 +183,33 @@ describe('parseStatements', () => {
       const stmt = parseStatements(['echo x', 'greet() { echo hi; }'].join('\n'))[1] as FunctionDef
       expect(stmt.lineNumber).toBe(2)
       expect(stmt.body[0]?.lineNumber).toBe(2)
+    })
+  })
+
+  describe('a closing keyword followed by more on the same line', () => {
+    it('recognizes `done; more` as a closed loop', () => {
+      // `fi`/`done`/`esac` used to be treated like `if`/`while`: start a new line and keep
+      // accumulating. That left `done; shift 1` as one line whose first word was `done;`, so the
+      // block was never seen as closed. A one-line function body makes this routine.
+      const statements = parseStatements('while false; do echo x; done; echo after')
+      expect(statements.map(s => s.type)).toEqual(['while', 'simple'])
+      expect((statements[1] as SimpleStatement).line).toBe('echo after')
+    })
+
+    it('recognizes `fi; more`', () => {
+      const statements = parseStatements('if true; then echo y; fi; echo after')
+      expect(statements.map(s => s.type)).toEqual(['if', 'simple'])
+    })
+
+    it('keeps a redirection attached to the closing keyword', () => {
+      const stmt = parseStatements('while read -r l; do echo $l; done < in.txt; echo after')[0] as WhileStatement
+      expect(stmt.redirect).toBe('< in.txt')
+    })
+
+    it('parses a one-line function whose body closes a loop and continues', () => {
+      const stmt = parseStatements('p() { while false; do echo x; done; echo tail; }')[0] as FunctionDef
+      expect(stmt.type).toBe('function')
+      expect(stmt.body.map(s => s.type)).toEqual(['while', 'simple'])
     })
   })
 
