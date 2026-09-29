@@ -243,6 +243,29 @@ export interface Shell {
    */
   lookupVariable(name: string): string | undefined
 
+  /** Whether `name` was marked `readonly`, so an assignment or an unset must be refused. */
+  isReadonly(name: string): boolean
+  /** Marks `name` readonly. There is deliberately no way back, as in bash. */
+  markReadonly(name: string): void
+  /** Every readonly name, for `readonly -p`. */
+  readonlyNames(): string[]
+
+  /** `alias name='...'` definitions, substituted at command position before a line is parsed. */
+  readonly aliases: Map<string, string>
+
+  /**
+   * How a command name would be resolved -- the first of alias, keyword, builtin, function or
+   * `$PATH` file that claims it, in the order the shell itself checks them. Backs `type` and
+   * `command -v`.
+   */
+  describeCommand(name: string): Promise<{ kind: 'alias' | 'keyword' | 'builtin' | 'function' | 'file', path?: string } | undefined>
+
+  /**
+   * `getopts`'s position within the argument it is currently reading, for clustered options like
+   * `-abc`. `$OPTIND` counts arguments and cannot express that; assigning `OPTIND=1` resets this too.
+   */
+  getoptsCharIndex: number
+
   /** Declares `name` as local to the current function call. Throws outside a function call. */
   declareLocal(name: string, value?: string): void
 

@@ -19,7 +19,7 @@ import { ThemePresets } from '@ecmaos/types'
 
 import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '#lib/shell-parser.ts'
 import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, WordPart } from '#lib/shell-parser.ts'
-import { parseStatements } from '#lib/control-flow-parser.ts'
+import { CONTROL_FLOW_KEYWORDS, parseStatements } from '#lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
 import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
 import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
@@ -308,6 +308,15 @@ export class Shell implements IShell {
 
   /** `name() { ... }` / `function name { ... }` bodies registered by `executeStatements`. */
   private _functions = new Map<string, Statement[]>()
+
+  /**
+   * `alias name='...'` definitions, substituted at command position before a line is parsed.
+   *
+   * Text substitution rather than a command-name lookup, because that is what an alias is: `alias
+   * ll='ls -la'` has to contribute *two* words, and `alias g='git '` (trailing space) has to let the
+   * word after it be an alias too. Neither is expressible by swapping one name for another.
+   */
+  private _aliases = new Map<string, string>()
   /**
    * `local` overlays pushed per function call: each frame is checked before falling through to
    * `_env` on read, and `local NAME=VALUE` writes only ever touch the top frame. Empty outside a
@@ -382,6 +391,14 @@ export class Shell implements IShell {
    * holds no array yet, which is what hides the caller's while still shadowing the name.
    */
   private _localArrayScopes: Map<string, Map<number, string> | undefined>[] = []
+
+  /**
+   * Names marked by `readonly` (or `declare -r`). Assigning to one fails, and so does unsetting it.
+   *
+   * A shell-wide set rather than a per-scope one: bash's readonly attribute lives on the variable,
+   * and a `local` declaration of a readonly name is an error there too.
+   */
+  private _readonly = new Set<string>()
 
   /**
    * `trap 'cmd' SIG...` handlers, keyed by the signal name they were registered for (`INT`, `TERM`,
@@ -466,6 +483,15 @@ export class Shell implements IShell {
   /** `$!` -- the pid of the most recently backgrounded pipeline. Unset until one exists, as in bash. */
   private _lastBackgroundPid?: number
 
+  /**
+   * How far into the *current* argument `getopts` has read, for clustered options like `-abc`.
+   *
+   * `$OPTIND` counts arguments, not characters, so it cannot express "halfway through `-abc`". bash
+   * keeps the same second cursor internally and resets it when a script assigns `OPTIND=1` to start
+   * a fresh parse, which is why `setVariable` watches for that.
+   */
+  private _getoptsCharIndex = 1
+
   public readonly config: ShellConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
@@ -520,6 +546,8 @@ export class Shell implements IShell {
   get tty() { return this._tty }
   get shellOptions() { return this._shellOptions }
   get functions() { return this._functions }
+  /** `alias`/`unalias`'s table. See {@link _aliases}. */
+  get aliases() { return this._aliases }
   get foregroundJob() { return this._foregroundJob }
 
   /** Whether the line currently running was interrupted by `^C`. */
@@ -609,6 +637,10 @@ export class Shell implements IShell {
     return flags.join('')
   }
 
+  /** `getopts`'s position within the argument it is currently reading. See {@link _getoptsCharIndex}. */
+  get getoptsCharIndex(): number { return this._getoptsCharIndex }
+  set getoptsCharIndex(index: number) { this._getoptsCharIndex = index }
+
   /**
    * This shell's own `@zenfs/linux` process, created on first use. See {@link _process}.
    *
@@ -621,8 +653,21 @@ export class Shell implements IShell {
     return this._process
   }
 
-  /** `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env. */
+  /** Whether `name` was marked `readonly`, so an assignment or an unset must be refused. */
+  isReadonly(name: string): boolean { return this._readonly.has(name) }
+
+  /** Marks `name` readonly. There is deliberately no way back, as in bash. */
+  markReadonly(name: string): void { this._readonly.add(name) }
+
+  /** Every readonly name, for `readonly -p`. */
+  readonlyNames(): string[] { return [...this._readonly].sort() }
+
+  /**
+   * `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env.
+   * @throws when `name` was marked `readonly`
+   */
   setVariable(name: string, value: string): void {
+    if (this._readonly.has(name)) throw new Error(`${name}: readonly variable`)
     const frame = this._localScopes[this._localScopes.length - 1]
     if (frame) { frame.set(name, value); return }
 
@@ -631,6 +676,8 @@ export class Shell implements IShell {
     // the value as well would be invisible (the computed read wins) and misleading in `env`.
     if (name === 'RANDOM' && /^\d+$/.test(value)) { this._randomState = Number(value) >>> 0 || 1; return }
     if (name === 'SECONDS' && /^\d+$/.test(value)) { this._secondsOrigin = Date.now() - Number(value) * 1000; return }
+    // Restarting the option scan restarts it fully, cluster cursor included.
+    if (name === 'OPTIND') this._getoptsCharIndex = 1
 
     this._env.set(name, value)
     this.publishEnv()
@@ -646,6 +693,7 @@ export class Shell implements IShell {
    * function and the caller's value comes back when it returns.
    */
   unsetVariable(name: string): void {
+    if (this._readonly.has(name)) throw new Error(`${name}: cannot unset: readonly variable`)
     for (let i = this._localScopes.length - 1; i >= 0; i--) {
       const frame = this._localScopes[i] as Map<string, string | undefined>
       if (frame.has(name)) { frame.set(name, undefined); return }
@@ -2130,7 +2178,14 @@ export class Shell implements IShell {
       value = value.slice(1, -1)
     }
 
-    this.setVariable(name, value)
+    // A readonly name refuses the write. Reported as a failed command rather than thrown, because a
+    // throw out of here unwinds the whole statement tree and bash just fails the assignment.
+    try {
+      this.setVariable(name, value)
+    } catch (error) {
+      await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
+      return this.reportExit(1)
+    }
     if (boundary === -1) return 0
 
     const opLen = (rest[boundary] === '&' && rest[boundary + 1] === '&') || (rest[boundary] === '|' && rest[boundary + 1] === '|') ? 2 : 1
@@ -2220,7 +2275,7 @@ export class Shell implements IShell {
     // with an empty body -- while the same text through `executeScriptText` (which goes via
     // `executeStatements`, and so uses `statement.line`) worked correctly.
     await this.traceVerbose(statements[0].line)
-    return this.executeSimple(statements[0].line)
+    return this.executeSimple(this.expandAliases(statements[0].line))
   }
 
   /**
@@ -2405,7 +2460,7 @@ export class Shell implements IShell {
       switch (statement.type) {
         case 'simple': {
           await this.traceVerbose(statement.line)
-          lastExit = await this.executeSimple(statement.line)
+          lastExit = await this.executeSimple(this.expandAliases(statement.line))
           break
         }
 
@@ -2930,6 +2985,75 @@ export class Shell implements IShell {
       stdout: createStream(),
       stderr: createStream()
     }
+  }
+
+  /**
+   * Substitutes aliases at every command position in `line`.
+   *
+   * A command position is the start of the line and whatever follows a top-level `;`, `&`, `|`,
+   * `&&` or `||` -- the same boundaries `findTopLevelOperatorIndex` already finds, so an alias name
+   * appearing as an *argument* (`echo ll`) is never touched.
+   *
+   * Applied once per *statement*, at the two places a statement reaches `executeSimple`, rather than
+   * inside `executeSimple` itself -- which is also reached recursively (by `executeAroundAssignment`)
+   * and would expand an already-expanded line a second time, turning `alias echo='echo [x]'` into a
+   * doubled prefix.
+   *
+   * Known limit: because it runs after `parseStatements` rather than before, an alias whose value is
+   * control flow (`alias loop='for i in 1 2; do'`) is not recognized as such. Real shells expand
+   * before parsing; doing that here would mean expanding the raw line and the parsed statement both.
+   *
+   * Two rules from real shells that are easy to miss:
+   *
+   * - Substitution repeats on the result, so one alias can name another. A name already substituted
+   *   on this pass is not substituted again, which is what stops `alias ls='ls -la'` looping forever
+   *   while still letting it mean "the real `ls`, with flags".
+   * - An alias whose value ends in a space makes the *next* word eligible too, which is the entire
+   *   reason `alias sudo='sudo '` works in bash.
+   */
+  private expandAliases(line: string): string {
+    if (this._aliases.size === 0 || !line) return line
+
+    const expandSegment = (text: string, seen: ReadonlySet<string>): string => {
+      const leading = text.length - text.trimStart().length
+      const rest = text.slice(leading)
+      const name = /^[^\s;&|<>()]+/.exec(rest)?.[0]
+      if (!name || seen.has(name)) return text
+
+      const value = this._aliases.get(name)
+      if (value === undefined) return text
+
+      const tail = rest.slice(name.length)
+      const next = new Set(seen).add(name)
+      // A trailing space in the value makes whatever follows eligible in turn.
+      const expandedTail = value.endsWith(' ') ? expandSegment(tail, next) : tail
+      return text.slice(0, leading) + expandSegment(value.trimEnd(), next) + (value.endsWith(' ') ? expandedTail : tail)
+    }
+
+    let out = ''
+    let remaining = line
+    for (;;) {
+      const index = findTopLevelOperatorIndex(remaining)
+      if (index === -1) return out + expandSegment(remaining, new Set())
+
+      const pair = remaining.slice(index, index + 2)
+      const operator = pair === '&&' || pair === '||' ? pair : (remaining[index] as string)
+      out += expandSegment(remaining.slice(0, index), new Set()) + operator
+      remaining = remaining.slice(index + operator.length)
+    }
+  }
+
+  /**
+   * How a command name would be resolved, for `type` and `command -v`: the first of alias, keyword,
+   * builtin, function or `$PATH` file that claims it, in the order the shell itself checks them.
+   */
+  async describeCommand(name: string): Promise<{ kind: 'alias' | 'keyword' | 'builtin' | 'function' | 'file', path?: string } | undefined> {
+    if (this._aliases.has(name)) return { kind: 'alias' }
+    if (CONTROL_FLOW_KEYWORDS.has(name)) return { kind: 'keyword' }
+    if (trueBuiltinNameFor(name)) return { kind: 'builtin' }
+    if (this._functions.has(name)) return { kind: 'function' }
+    const resolved = await this.resolveCommand(name)
+    return resolved ? { kind: 'file', path: resolved } : undefined
   }
 
   /**

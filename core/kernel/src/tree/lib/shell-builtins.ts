@@ -32,7 +32,8 @@ import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgum
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'read', 'su', 'trap', 'unset',
-  ':', '.', 'break', 'continue', 'eval', 'exit', 'return', 'shift', 'source'
+  ':', '.', 'break', 'continue', 'eval', 'exit', 'return', 'shift', 'source',
+  'alias', 'unalias', 'command', 'getopts', 'type', 'readonly', 'declare', 'typeset'
 ])
 
 /**
@@ -43,8 +44,11 @@ export const trueBuiltinNames: ReadonlySet<string> = new Set([
  * the same way it does for a redirected function call or a redirected compound statement. Without
  * that, `source setup.sh > log` would build fds for `source` itself -- which writes nothing but
  * diagnostics -- and let every command in `setup.sh` print to the terminal.
+ *
+ * `env` and `command` belong here for the same reason: `env FOO=bar cmd > log` and
+ * `command ls > log` both run their real work through `shell.execute`, which builds its own streams.
  */
-export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.'])
+export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.', 'env', 'command'])
 
 /**
  * Shorthand for the fds every builtin below writes through. Usage text goes to fd 1 and diagnostics
@@ -760,6 +764,408 @@ async function resolveSourcePath(shell: Shell, name: string): Promise<string | u
   return await exists(local) ? local : undefined
 }
 
+/**
+ * `alias`, `alias NAME`, `alias NAME=VALUE` -- prints, reads, or defines aliases.
+ *
+ * `Shell.expandAliases` does the substitution, at command position, before a line is parsed. That is
+ * what an alias is: text, not a name lookup. `alias ll='ls -la'` contributes two words, and a value
+ * ending in a space makes the next word eligible in turn, neither of which a rename could do.
+ */
+async function runAlias(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln("Usage: alias [NAME[=VALUE]]...\nDefine or display aliases. With no argument, print every alias.")
+    return 0
+  }
+
+  /** bash's own quoting for a listing, so the output can be fed back in verbatim. */
+  const show = async (name: string, value: string) => io.writeln(`alias ${name}='${value.replace(/'/g, `'\\''`)}'`)
+
+  if (argv.length === 0 || (argv.length === 1 && argv[0] === '-p')) {
+    for (const [name, value] of [...shell.aliases].sort(([a], [b]) => a.localeCompare(b))) await show(name, value)
+    return 0
+  }
+
+  let status = 0
+  for (const arg of argv) {
+    if (arg === '-p') continue
+
+    const equals = arg.indexOf('=')
+    if (equals === -1) {
+      const value = shell.aliases.get(arg)
+      if (value === undefined) { await io.writelnErr(`alias: ${arg}: not found`); status = 1; continue }
+      await show(arg, value)
+      continue
+    }
+
+    const name = arg.slice(0, equals)
+    if (!name || /[\s=$'"`|&;<>()]/.test(name)) { await io.writelnErr(`alias: \`${arg}': invalid alias name`); status = 1; continue }
+    // The value arrives already unquoted by the expander, so it is stored exactly as written.
+    shell.aliases.set(name, arg.slice(equals + 1))
+  }
+
+  return status
+}
+
+/** `unalias NAME...` / `unalias -a`. */
+async function runUnalias(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln('Usage: unalias [-a] NAME...\nRemove aliases.\n\n  -a  remove every alias')
+    return 0
+  }
+
+  if (argv.includes('-a')) { shell.aliases.clear(); return 0 }
+  if (argv.length === 0) { await io.writelnErr('unalias: usage: unalias [-a] name [name ...]'); return 2 }
+
+  let status = 0
+  for (const name of argv) {
+    if (!shell.aliases.delete(name)) { await io.writelnErr(`unalias: ${name}: not found`); status = 1 }
+  }
+  return status
+}
+
+/**
+ * `type NAME...` -- says how each name would be resolved, in the order the shell itself checks:
+ * alias, reserved word, builtin, function, then `$PATH`.
+ */
+async function runType(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln([
+      'Usage: type [-t] [-p] NAME...',
+      'Describe how each NAME would be interpreted if used as a command.',
+      '',
+      '  -t  print only the kind: alias, keyword, builtin, function or file',
+      '  -p  print only the path, and nothing for a name that is not a file'
+    ].join('\n'))
+    return 0
+  }
+
+  const typeOnly = argv.includes('-t')
+  const pathOnly = argv.includes('-p')
+  const names = argv.filter(a => a !== '-t' && a !== '-p')
+  if (names.length === 0) return 0
+
+  let status = 0
+  for (const name of names) {
+    const found = await shell.describeCommand(name)
+    if (!found) {
+      // `-t` and `-p` are the script-facing forms and stay silent on a miss, as in bash.
+      if (!typeOnly && !pathOnly) await io.writelnErr(`type: ${name}: not found`)
+      status = 1
+      continue
+    }
+
+    if (pathOnly) {
+      if (found.kind === 'file') await io.writeln(found.path as string)
+      continue
+    }
+    if (typeOnly) { await io.writeln(found.kind); continue }
+
+    switch (found.kind) {
+      case 'alias': await io.writeln(`${name} is aliased to \`${shell.aliases.get(name)}'`); break
+      case 'keyword': await io.writeln(`${name} is a shell keyword`); break
+      case 'builtin': await io.writeln(`${name} is a shell builtin`); break
+      case 'function': await io.writeln(`${name} is a function`); break
+      case 'file': await io.writeln(`${name} is ${found.path}`); break
+    }
+  }
+
+  return status
+}
+
+/**
+ * `command [-v] NAME [ARG...]` -- runs NAME ignoring any function of the same name, or with `-v`
+ * just reports what would run.
+ *
+ * The point of `command` is escaping a wrapper: `ls() { command ls -la "$@"; }` must not recurse.
+ * Aliases are already gone by the time any builtin runs (they are substituted before parsing), so
+ * only the function table has to be stepped over here.
+ */
+async function runCommand(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln([
+      'Usage: command [-v|-V] NAME [ARG]...',
+      'Run NAME with ARGs, ignoring any shell function by that name.',
+      '',
+      '  -v  print what would run instead of running it',
+      '  -V  print a fuller description, as `type` does'
+    ].join('\n'))
+    return 0
+  }
+
+  const verbose = argv.includes('-V')
+  const describe = verbose || argv.includes('-v')
+  const rest = argv.filter(a => a !== '-v' && a !== '-V' && a !== '-p')
+  const name = rest[0]
+  if (!name) { await io.writelnErr('command: usage: command [-v|-V] NAME [ARG]...'); return 2 }
+
+  if (describe) {
+    const found = await shell.describeCommand(name)
+    if (!found) return 1
+    if (verbose) return await runType(shell, [name], io)
+    await io.writeln(found.kind === 'file' ? found.path as string : name)
+    return 0
+  }
+
+  // Hide any same-named function for the duration, which is the whole job.
+  const body = shell.functions.get(name)
+  if (body) shell.functions.delete(name)
+  try {
+    return await shell.execute(rest.join(' '))
+  } finally {
+    if (body) shell.functions.set(name, body)
+  }
+}
+
+/**
+ * `getopts OPTSTRING NAME [ARG...]` -- one option per call, the loop condition of every script that
+ * takes flags.
+ *
+ * `$OPTIND` counts arguments and `$OPTARG` carries a value, exactly as in POSIX. A cluster (`-abc`)
+ * needs a second cursor that `$OPTIND` cannot express, so the shell keeps one; assigning `OPTIND=1`
+ * resets both, which is how a script starts a fresh parse.
+ *
+ * A leading `:` in OPTSTRING selects silent mode: a bad option reports `?` and a missing argument
+ * reports `:`, both with the offending letter in `$OPTARG`, instead of a message on stderr.
+ */
+async function runGetopts(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln([
+      'Usage: getopts OPTSTRING NAME [ARG]...',
+      'Parse the next option from ARGs (the positional parameters by default) into NAME.',
+      '',
+      'A letter followed by `:` in OPTSTRING takes an argument, delivered in $OPTARG.',
+      'A leading `:` reports errors through NAME and $OPTARG rather than on stderr.',
+      'Exits non-zero when there are no options left, which ends the enclosing while loop.'
+    ].join('\n'))
+    return 0
+  }
+
+  const [optstring, name] = argv
+  if (!optstring || !name) { await io.writelnErr('getopts: usage: getopts optstring name [arg ...]'); return 2 }
+
+  const silent = optstring.startsWith(':')
+  const spec = silent ? optstring.slice(1) : optstring
+  const args = argv.length > 2 ? argv.slice(2) : shell.positionalParameters
+
+  const fail = async (value: string, optarg: string, message: string): Promise<number> => {
+    shell.setVariable(name, value)
+    if (silent) shell.setVariable('OPTARG', optarg)
+    else { shell.env.delete('OPTARG'); await io.writelnErr(message) }
+    return 0
+  }
+
+  let index = Number(shell.lookupVariable('OPTIND') ?? '1')
+  if (!Number.isInteger(index) || index < 1) index = 1
+
+  const current = args[index - 1]
+  // Out of arguments, or the first non-option word, or an explicit `--`: the scan is over. bash
+  // leaves OPTIND pointing at the first operand so the caller can `shift $((OPTIND - 1))`.
+  if (current === undefined || current === '-' || !current.startsWith('-')) {
+    shell.setVariable('OPTIND', String(index))
+    shell.setVariable(name, '?')
+    return 1
+  }
+  if (current === '--') {
+    shell.setVariable('OPTIND', String(index + 1))
+    shell.setVariable(name, '?')
+    return 1
+  }
+
+  let charIndex = shell.getoptsCharIndex
+  if (charIndex < 1 || charIndex >= current.length + 1) charIndex = 1
+  const letter = current[charIndex] as string | undefined
+
+  if (letter === undefined) {
+    // Cluster exhausted: move to the next argument and try again.
+    shell.setVariable('OPTIND', String(index + 1))
+    shell.getoptsCharIndex = 1
+    return await runGetopts(shell, argv, io)
+  }
+
+  const position = spec.indexOf(letter)
+  const known = letter !== ':' && position !== -1
+  const takesArgument = known && spec[position + 1] === ':'
+  const atEndOfCluster = charIndex + 1 >= current.length
+
+  const advance = (consumedArgument: boolean) => {
+    if (atEndOfCluster || consumedArgument) {
+      shell.setVariable('OPTIND', String(index + (consumedArgument && atEndOfCluster ? 2 : 1)))
+      shell.getoptsCharIndex = 1
+    } else {
+      shell.getoptsCharIndex = charIndex + 1
+    }
+  }
+
+  if (!known) {
+    advance(false)
+    return await fail('?', letter, `getopts: illegal option -- ${letter}`)
+  }
+
+  if (!takesArgument) {
+    advance(false)
+    shell.setVariable(name, letter)
+    shell.env.delete('OPTARG')
+    return 0
+  }
+
+  // `-ovalue` carries its argument in the same word; `-o value` takes the next one.
+  const inline = current.slice(charIndex + 1)
+  if (inline) {
+    shell.setVariable('OPTIND', String(index + 1))
+    shell.getoptsCharIndex = 1
+    shell.setVariable(name, letter)
+    shell.setVariable('OPTARG', inline)
+    return 0
+  }
+
+  const value = args[index]
+  if (value === undefined) {
+    shell.setVariable('OPTIND', String(index + 1))
+    shell.getoptsCharIndex = 1
+    return await fail(silent ? ':' : '?', letter, `getopts: option requires an argument -- ${letter}`)
+  }
+
+  shell.setVariable('OPTIND', String(index + 2))
+  shell.getoptsCharIndex = 1
+  shell.setVariable(name, letter)
+  shell.setVariable('OPTARG', value)
+  return 0
+}
+
+/**
+ * `readonly NAME[=VALUE]...` and `readonly -p`.
+ *
+ * The attribute is shell-wide rather than per-scope, matching bash: it lives on the variable, and a
+ * later assignment fails wherever it happens. There is no way to take it back, also as in bash --
+ * the point of the flag is that a script can rely on the value not moving.
+ */
+async function runReadonly(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln('Usage: readonly [-p] [NAME[=VALUE]]...\nMark names unchangeable. With -p, or no name, list the ones already marked.')
+    return 0
+  }
+
+  const names = argv.filter(a => a !== '-p')
+  if (names.length === 0) {
+    for (const name of shell.readonlyNames()) {
+      const value = shell.lookupVariable(name)
+      await io.writeln(value === undefined ? `readonly ${name}` : `readonly ${name}="${value}"`)
+    }
+    return 0
+  }
+
+  let status = 0
+  for (const arg of names) {
+    const equals = arg.indexOf('=')
+    const name = equals === -1 ? arg : arg.slice(0, equals)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) { await io.writelnErr(`readonly: \`${arg}': not a valid identifier`); status = 1; continue }
+
+    if (equals !== -1) {
+      try {
+        shell.setVariable(name, arg.slice(equals + 1))
+      } catch (error) {
+        await io.writelnErr(`readonly: ${error instanceof Error ? error.message : String(error)}`)
+        status = 1
+        continue
+      }
+    }
+    shell.markReadonly(name)
+  }
+
+  return status
+}
+
+/**
+ * `declare`/`typeset` -- the subset that means something in this shell.
+ *
+ * `-r` is `readonly`, `-p` lists, `-f`/`-F` list functions, and a bare `NAME=VALUE` assigns. `-x`
+ * (export) is accepted and does nothing, because every variable here already reaches a child's
+ * environment; that gap is the missing exported-flag store, not something `declare` can fix on its
+ * own. `-i`, `-A`, `-l`, `-u` and `-n` are reported as unsupported rather than silently ignored --
+ * an integer or nameref attribute that quietly did nothing would be worse than an error.
+ */
+async function runDeclare(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv[0] === '--help' || argv[0] === '-h') {
+    await io.writeln([
+      'Usage: declare [-afFprx] [NAME[=VALUE]]...',
+      'Set variable values and attributes.',
+      '',
+      '  -r  make NAMEs readonly',
+      '  -a  declare NAMEs as indexed arrays',
+      '  -p  print each NAME with its attributes, or every variable',
+      '  -f  print function definitions by name',
+      '  -F  print function names only',
+      '  -x  accepted for compatibility; every variable here is already passed to a child'
+    ].join('\n'))
+    return 0
+  }
+
+  const flags = new Set<string>()
+  let i = 0
+  for (; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (!arg.startsWith('-') && !arg.startsWith('+')) break
+    if (arg === '--') { i++; break }
+    for (const letter of arg.slice(1)) {
+      if ('iAlun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
+      if (!'afFprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
+      flags.add(letter)
+    }
+  }
+
+  const names = argv.slice(i)
+
+  if (flags.has('F') || flags.has('f')) {
+    const wanted = names.length > 0 ? names : [...shell.functions.keys()].sort()
+    for (const name of wanted) {
+      if (!shell.functions.has(name)) continue
+      await io.writeln(flags.has('F') ? `declare -f ${name}` : `${name} ()`)
+    }
+    return 0
+  }
+
+  if (names.length === 0 || (flags.has('p') && names.length === 0)) {
+    for (const [key, value] of [...shell.visibleVariables()].sort(([a], [b]) => a.localeCompare(b))) {
+      await io.writeln(`declare -${shell.isReadonly(key) ? 'r' : '-'} ${key}="${value}"`)
+    }
+    return 0
+  }
+
+  let status = 0
+  for (const arg of names) {
+    const equals = arg.indexOf('=')
+    const name = equals === -1 ? arg : arg.slice(0, equals)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) { await io.writelnErr(`declare: \`${arg}': not a valid identifier`); status = 1; continue }
+
+    if (flags.has('p')) {
+      const value = shell.lookupVariable(name)
+      if (value === undefined) { await io.writelnErr(`declare: ${name}: not found`); status = 1; continue }
+      await io.writeln(`declare -${shell.isReadonly(name) ? 'r' : '-'} ${name}="${value}"`)
+      continue
+    }
+
+    if (equals !== -1) {
+      const raw = arg.slice(equals + 1)
+      try {
+        // `declare -a name=(x y)` is not reachable here: the array literal is split by the tokenizer
+        // long before a builtin sees it, so `-a` only declares the name.
+        if (flags.has('a')) shell.setArray(name, raw ? [raw] : [])
+        else shell.setVariable(name, raw)
+      } catch (error) {
+        await io.writelnErr(`declare: ${error instanceof Error ? error.message : String(error)}`)
+        status = 1
+        continue
+      }
+    } else if (flags.has('a') && !shell.arrays.has(name)) {
+      shell.setArray(name, [])
+    }
+
+    if (flags.has('r')) shell.markReadonly(name)
+  }
+
+  return status
+}
+
 async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
     await io.writeln([
@@ -780,6 +1186,7 @@ async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
     return 1
   }
 
+  let status = 0
   for (const arg of argv) {
     if (arg === '-v' || arg === '-f') continue
 
@@ -795,13 +1202,20 @@ async function runUnset(shell: Shell, argv: string[], io: Io): Promise<number> {
 
     // Through `unsetVariable`, so a `local` declaration is what goes rather than the caller's value.
     const hadVariable = shell.lookupVariable(arg) !== undefined
-    shell.unsetVariable(arg)
+    try {
+      shell.unsetVariable(arg)
+    } catch (error) {
+      // A readonly name refuses to go. Reported, not thrown: a throw would unwind the statement tree.
+      await io.writelnErr(`unset: ${error instanceof Error ? error.message : String(error)}`)
+      status = 1
+      continue
+    }
     // bash unsets a variable if one exists by that name and only otherwise falls back to a function,
     // rather than removing both -- `unset PATH` must not delete a `PATH` function too.
     if (!hadVariable && !variablesOnly) shell.functions.delete(arg)
   }
 
-  return 0
+  return status
 }
 
 /** Returns the true-builtin's name if `pipeline`'s sole command is one, else `undefined`. */
@@ -837,6 +1251,14 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'shift': return runShift(shell, argv, io)
     case 'source':
     case '.': return runSource(shell, argv, io, name)
+    case 'alias': return runAlias(shell, argv, io)
+    case 'unalias': return runUnalias(shell, argv, io)
+    case 'command': return runCommand(shell, argv, io)
+    case 'getopts': return runGetopts(shell, argv, io)
+    case 'type': return runType(shell, argv, io)
+    case 'readonly': return runReadonly(shell, argv, io)
+    case 'declare':
+    case 'typeset': return runDeclare(shell, argv, io)
     default: throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)
   }
 }
