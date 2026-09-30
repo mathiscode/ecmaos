@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { expandBraces } from '#lib/brace-expansion.ts'
-import { tokenize } from '#lib/shell-parser.ts'
-import type { WordPart } from '#lib/shell-parser.ts'
+import { expandBraces } from '../../src/lib/brace-expansion.ts'
+import { tokenize } from '../../src/lib/shell-parser.ts'
+import type { WordPart } from '../../src/lib/shell-parser.ts'
 
 /**
  * Brace expansion, the shell's first expansion and the only purely textual one: `{a,b}` becomes two

@@ -21,7 +21,7 @@
  * unchanged, so this parser never needs to know about pipes, redirections, or substitutions.
  */
 
-import { foldHeredocs, pendingHeredocDelimiter } from '#lib/shell-parser.ts'
+import { foldHeredocs, pendingHeredocDelimiter } from './shell-parser.js'
 
 export interface SimpleStatement extends Positioned {
   type: 'simple'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { needsMoreInput } from '#lib/control-flow-parser.ts'
+import { needsMoreInput } from '../../src/lib/control-flow-parser.ts'
 
 /**
  * `needsMoreInput` is what the interactive prompt asks before deciding whether Enter runs a line or

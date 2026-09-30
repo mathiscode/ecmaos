@@ -6,9 +6,9 @@
  * superset of it (plus `==`/`!=` globbing, `=~` regex, and `&&`/`||`/`!`/`(...)`).
  */
 
-import type { ConditionalToken, WordPart } from '#lib/shell-parser.ts'
-import { partsText } from '#lib/shell-parser.ts'
-import { expandWordPattern, expandWordString, globToRegExpSource, type ExpansionContext } from '#lib/word-expansion.ts'
+import type { ConditionalToken, WordPart } from './shell-parser.js'
+import { partsText } from './shell-parser.js'
+import { expandWordPattern, expandWordString, globToRegExpSource, type ExpansionContext } from './word-expansion.js'
 
 export interface ConditionalFs {
   exists(path: string): Promise<boolean>

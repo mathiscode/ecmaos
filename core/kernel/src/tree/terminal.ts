@@ -29,10 +29,10 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 
 import '@xterm/xterm/css/xterm.css'
 import { trueBuiltinNames } from '#lib/shell-builtins.ts'
-import { needsMoreInput } from '#lib/control-flow-parser.ts'
-import { completionMatches } from '#lib/completion.ts'
-import { History } from '#lib/history.ts'
-import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '#lib/line-editor.ts'
+import { needsMoreInput } from '@ecmaos/coreutils/lib/control-flow-parser'
+import { completionMatches } from '@ecmaos/coreutils/lib/completion'
+import { History } from '@ecmaos/coreutils/lib/history'
+import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '@ecmaos/coreutils/lib/line-editor'
 
 import { Events } from '#events.ts'
 

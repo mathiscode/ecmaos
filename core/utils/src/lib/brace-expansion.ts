@@ -18,8 +18,8 @@
  *   was typed, because `echo {}` and `echo {foo}` print themselves in every real shell.
  */
 
-import { scanExpansionEnd } from '#lib/shell-parser.ts'
-import type { Quoting, WordPart } from '#lib/shell-parser.ts'
+import { scanExpansionEnd } from './shell-parser.js'
+import type { Quoting, WordPart } from './shell-parser.js'
 
 /** One character of a word plus the quoting of the run it came from. */
 interface Char {

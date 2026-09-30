@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
-import { visibleWidth } from '#lib/line-editor.ts'
+import { visibleWidth } from '@ecmaos/coreutils/lib/line-editor'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 

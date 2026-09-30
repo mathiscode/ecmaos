@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { History, type HistoryHost } from '#lib/history.ts'
+import { History, type HistoryHost } from '../../src/lib/history.ts'
 
 /** An in-memory filesystem that counts reads, since not re-reading the file is half the point. */
 const setup = (initial?: string, variables: Record<string, string> = {}) => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { foldHeredocs, parseScript, tokenize } from '#lib/shell-parser.ts'
-import type { Command, Pipeline } from '#lib/shell-parser.ts'
+import { foldHeredocs, parseScript, tokenize } from '../../src/lib/shell-parser.ts'
+import type { Command, Pipeline } from '../../src/lib/shell-parser.ts'
 
 describe('shell-parser', () => {
   describe('tokenize', () => {

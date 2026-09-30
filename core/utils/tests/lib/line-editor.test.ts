@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '#lib/line-editor.ts'
+import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '../../src/lib/line-editor.ts'
 
 /**
  * The line editor against a recording host, so what it draws is asserted directly. No terminal, no

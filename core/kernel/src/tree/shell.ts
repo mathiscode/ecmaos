@@ -17,17 +17,17 @@ import type {
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
-import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '#lib/shell-parser.ts'
-import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, WordPart } from '#lib/shell-parser.ts'
-import { CONTROL_FLOW_KEYWORDS, parseStatements } from '#lib/control-flow-parser.ts'
-import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
-import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
+import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
+import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
+import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
+import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '@ecmaos/coreutils/lib/control-flow-parser'
+import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/expand-variables'
 import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
-import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
-import { expandBraces } from '#lib/brace-expansion.ts'
-import { evaluateConditional, type ConditionalFs } from '#lib/conditional-eval.ts'
+import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
+import { expandBraces } from '@ecmaos/coreutils/lib/brace-expansion'
+import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
 /**
  * The one shell whose exported environment `globalThis.process.env` currently mirrors.

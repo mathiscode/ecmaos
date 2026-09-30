@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
-import { tokenize } from '#lib/shell-parser.ts'
+import { tokenize } from '@ecmaos/coreutils/lib/shell-parser'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 

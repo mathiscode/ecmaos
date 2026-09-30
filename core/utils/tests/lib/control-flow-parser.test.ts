@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseStatements } from '#lib/control-flow-parser.ts'
-import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, WhileStatement } from '#lib/control-flow-parser.ts'
+import { parseStatements } from '../../src/lib/control-flow-parser.ts'
+import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, WhileStatement } from '../../src/lib/control-flow-parser.ts'
 
 describe('parseStatements', () => {
   it('parses plain lines as simple statements, skipping blanks and comments', () => {

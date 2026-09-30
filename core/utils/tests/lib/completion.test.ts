@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { completionMatches, type CompletionProvider } from '#lib/completion.ts'
+import { completionMatches, type CompletionProvider } from '../../src/lib/completion.ts'
 
 /** A provider over a tiny fake tree, so completion runs with no terminal and no shell. */
 const provider = (overrides: Partial<CompletionProvider> = {}): CompletionProvider => {

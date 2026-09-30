@@ -27,7 +27,7 @@ import chalk from 'chalk'
 import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
 import type { ShellBuiltinIO, ShellOptionName, User } from '@ecmaos/types'
-import { DEFAULT_IFS, splitOnIFS } from '#lib/word-expansion.ts'
+import { DEFAULT_IFS, splitOnIFS } from '@ecmaos/coreutils/lib/word-expansion'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from '#lib/shell-signals.ts'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([

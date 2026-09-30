@@ -25,11 +25,16 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./lib/*": {
+      "types": "./dist/lib/*.d.ts",
+      "default": "./dist/lib/*.js"
+    }
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "vitest run"
   },
   "publishConfig": {
     "access": "public"
@@ -59,6 +64,7 @@
     "@types/command-line-args": "^5.2.3",
     "@types/command-line-usage": "^5.0.4",
     "@types/node": "^22.7.4",
-    "user-agent-data-types": "^0.4.2"
+    "user-agent-data-types": "^0.4.2",
+    "vitest": "^5.0.2"
   }
 }

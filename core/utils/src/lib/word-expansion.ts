@@ -10,9 +10,9 @@
  *   them) are split on whitespace, and the result is globbed unless a glob character was quoted.
  */
 
-import { evaluateArithmeticExpression } from '#lib/expand-variables.ts'
-import type { WordPart } from '#lib/shell-parser.ts'
-import { scanExpansionEnd } from '#lib/shell-parser.ts'
+import { evaluateArithmeticExpression } from './expand-variables.js'
+import type { WordPart } from './shell-parser.js'
+import { scanExpansionEnd } from './shell-parser.js'
 
 export interface ExpansionContext {
   /** A scalar variable, or element 0 of an array; special parameters (`?`, `#`, digits) too */

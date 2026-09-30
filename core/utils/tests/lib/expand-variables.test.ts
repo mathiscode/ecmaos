@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { evaluateArithmeticExpression, expandArithmetic, expandVariables, expandWord } from '#lib/expand-variables.ts'
+import { evaluateArithmeticExpression, expandArithmetic, expandVariables, expandWord } from '../../src/lib/expand-variables.ts'
 
 describe('expandVariables', () => {
   const lookup = (name: string) => ({ FOO: 'bar', EMPTY: '', COUNT: '3', '?': '0', '1': 'first' }[name])
