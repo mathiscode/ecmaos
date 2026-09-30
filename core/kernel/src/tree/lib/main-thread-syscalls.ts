@@ -33,6 +33,7 @@ import { listMounts, mountFilesystem, type MountRequest } from './mount-backends
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
+import { installPtys } from './pty.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
@@ -190,6 +191,7 @@ export function installMainThreadSyscalls(): void {
   installed = true
   installFdLinks()
   installPipeWakeup()
+  installPtys()
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)

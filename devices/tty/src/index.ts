@@ -16,6 +16,10 @@ export const pkg = {
  * devices sharing that same major. Kept as an empty, documented no-op rather than removed outright,
  * since `DefaultDevices` still names this package.
  */
+/**
+ * Pseudo-terminals (`/dev/ptmx`, `/dev/pts/<n>`) are not registered here either: allocating a pair
+ * per `open` needs a syscall hook, so they live in the kernel (`lib/pty.ts`).
+ */
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
   return []
 }

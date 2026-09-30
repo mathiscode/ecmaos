@@ -36,8 +36,8 @@ export function pagerTty() {
 /**
  * The fd that is this program's terminal, or -1 if it has none. Tries stdin, then stderr, then
  * stdout, the way a libc-less `isatty` walk does: `cat file | less` has a pipe on fd 0 but a terminal
- * on fd 2, and `/dev/tty` cannot stand in here because ecmaOS's resolves to the first terminal, not
- * the caller's own.
+ * on fd 2. (`open('/dev/tty')` now reaches the caller's own controlling terminal, but a program with
+ * no controlling terminal still has to be told so, which this walk does.)
  */
 export function ttyFd() {
   for (const fd of [0, 2, 1]) {
