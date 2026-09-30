@@ -14,6 +14,7 @@ import type {
 } from '@ecmaos/types'
 import { createCredentials, Credentials } from '@zenfs/core'
 import { deriveAesKey, fromBase64, generateKeySalt, hashPassword, isLegacyHash, toBase64, verifyPassword } from './lib/credentials.ts'
+import { appendText } from './lib/append-file.ts'
 
 /** Shortest plaintext password accepted; the documented default login (root/root) is 4. */
 export const MIN_PASSWORD_LENGTH = 4
@@ -142,7 +143,7 @@ export class Users {
       const encryptedPrivateKey = `${toBase64(keySalt)}:${toBase64(iv)}:${toBase64(new Uint8Array(encryptedPrivateKeyBuffer))}`
 
       user.keypair = { publicKey }
-      if (!options.noWrite) await this.fs.appendFile('/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { encoding: 'utf-8', mode: 0o700 })
+      if (!options.noWrite) await appendText(this.fs, '/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { mode: 0o700 })
     }
 
     this._users.set(user.uid, user as User)

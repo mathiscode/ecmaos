@@ -23,6 +23,7 @@ import { CONTROL_FLOW_KEYWORDS, parseStatements } from '#lib/control-flow-parser
 import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '#lib/control-flow-parser.ts'
 import { expandWord, evaluateArithmeticExpression } from '#lib/expand-variables.ts'
 import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '#lib/word-expansion.ts'
 import { expandBraces } from '#lib/brace-expansion.ts'
@@ -601,6 +602,15 @@ export class Shell implements IShell {
   }
   /** The real user registry -- needed by `su` (a true shell builtin, see `lib/shell-builtins.ts`). */
   get users() { return this._users }
+
+  /** Files this console's login in `/run/utmp` and `/var/log/wtmp`. A failure to record is never a failure to log in. */
+  async recordLogin(username: string): Promise<void> {
+    try {
+      this._sessions ??= new SessionLog(this._filesystem.fs)
+      await this._sessions.login(username, this._tty)
+    } catch { /* the login itself already succeeded */ }
+  }
+  private _sessions?: SessionLog
   /** Translated strings -- needed by `su`'s error messages, the same way `resolveCommand` uses it. */
   get i18n() { return this._ctx.i18n }
 
@@ -2869,16 +2879,43 @@ export class Shell implements IShell {
   private createFileWriteStream(targetPath: string, append: boolean): WritableStream<Uint8Array> {
     const context = this.context
 
+    // The target is rewritten whole from what has been collected, never appended to. `appendFile`
+    // on the root filesystem writes each chunk at offset 0 of the file it has just grown, and a
+    // handle write at a nonzero offset lands at 0 as well (zenfs 2.7.6, reproduced in the browser
+    // and in tests). So `echo a >> f; echo b >> f` left `b` followed by NUL bytes, and a `>` whose
+    // output arrived in several chunks did the same. Rewriting is quadratic in the worst case, so it
+    // is throttled: at most every 250ms while output flows, and always on close or abort.
+    let base = new Uint8Array()
+    const chunks: Uint8Array[] = []
+    let dirty = false
+    let lastFlush = 0
+
+    const flush = async () => {
+      if (!dirty) return
+      dirty = false
+      lastFlush = Date.now()
+      const all = new Uint8Array(base.length + chunks.reduce((n, c) => n + c.length, 0))
+      all.set(base, 0)
+      let at = base.length
+      for (const chunk of chunks) { all.set(chunk, at); at += chunk.length }
+      await context.fs.promises.writeFile(targetPath, all)
+    }
+
     return new WritableStream({
       // A real shell opens (creating, and for `>` truncating) the target before the command runs,
       // so `cmd > f` leaves `f` empty even if `cmd` never writes a byte.
       start: async () => {
-        if (append && await context.fs.promises.exists(targetPath)) return
-        await context.fs.promises.writeFile(targetPath, new Uint8Array())
+        const existed = append && await context.fs.promises.exists(targetPath)
+        if (existed) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
+        else await context.fs.promises.writeFile(targetPath, new Uint8Array())
       },
       write: async (chunk) => {
-        await context.fs.promises.appendFile(targetPath, chunk)
-      }
+        chunks.push(chunk.slice())
+        dirty = true
+        if (Date.now() - lastFlush >= 250) await flush()
+      },
+      close: flush,
+      abort: flush
     })
   }
 

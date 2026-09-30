@@ -33,6 +33,8 @@ import { Auth } from '#auth.ts'
 import { Components } from '#components.ts'
 import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
+import { appendText } from '#lib/append-file.ts'
+import { SessionLog } from '#lib/sessions.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -437,6 +439,9 @@ export class Kernel implements IKernel {
       if (migrated.length) filesystemSpan.setAttribute('filesystem.migrations_applied', migrated.join(','))
       filesystemSpan.end()
 
+      // `/run/utmp` starts empty each boot and `wtmp` gets a boot line; consoles fill them in as they log in.
+      await new SessionLog(this.filesystem.fs).boot().catch(error => this.log.warn(`sessions: ${(error as Error).message}`))
+
       // Always rewritten (not gated on `exists`, unlike `/etc/hostname` below): on a persisted
       // filesystem this file survives across reboots, and a stale, only-written-once copy would
       // otherwise keep reporting whatever `this.version` was the very first time this origin ever
@@ -678,7 +683,7 @@ export class Kernel implements IKernel {
         }).replace(',', '')
 
         this.sudo(async () =>
-          await this.filesystem.fs.appendFile('/var/log/kernel.log',
+          await appendText(this.filesystem.fs, '/var/log/kernel.log',
             `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
           )
         )
@@ -2453,6 +2458,7 @@ export class Kernel implements IKernel {
       shell.env.set('USER', user.username)
       shell.env.set('HOSTNAME', globalThis.location.hostname || 'localhost')
       shell.publishEnv()
+      await shell.recordLogin(user.username)
       shell.cwd = shell.env.get('HOME') || '/'
       await shell.loadEnvFile()
       await shell.loadProfile()
@@ -2579,6 +2585,7 @@ export class Kernel implements IKernel {
         shell.env.set('HOME', userCred.user.home || '/root')
         shell.env.set('USER', userCred.user.username)
         shell.publishEnv()
+        await shell.recordLogin(userCred.user.username)
 
         // A login shell starts in `$HOME`, as on Linux. The cwd used to be restored from
         // `localStorage`, which meant a fresh login landed wherever that user last happened to be

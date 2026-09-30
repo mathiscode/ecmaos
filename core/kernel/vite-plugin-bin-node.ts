@@ -102,13 +102,13 @@ export const migratedCommands = [
   'id', 'groups',
   'chown',
   'zip', 'unzip', 'git', 'less', 'man',
-  'free'
+  'free', 'who', 'last'
 ] as const
 
 /**
  * The kernel-native commands that ship as real `execve` programs -- unlike `migratedCommands` above,
  * these live in `@ecmaos/kernel` itself (`src/bin/commands/<name>.mjs`), not `@ecmaos/coreutils`,
- * because their real logic needs a kernel-only custom syscall (`storage_usage`/`ps_list`/`reboot` --
+ * because their real logic needs a kernel-only custom syscall (`storage_usage`/`reboot` --
  * see `#lib/main-thread-syscalls.ts`) rather than the plain filesystem/stdio syscalls every
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
  * worker-hosted, syscall-only program.

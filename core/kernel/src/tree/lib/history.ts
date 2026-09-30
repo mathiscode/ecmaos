@@ -17,7 +17,6 @@ export interface HistoryFs {
   exists(path: string): Promise<boolean>
   readFile(path: string, encoding: 'utf-8'): Promise<string>
   writeFile(path: string, data: string, encoding: 'utf-8'): Promise<void>
-  appendFile(path: string, data: string, encoding: 'utf-8'): Promise<void>
 }
 
 export interface HistoryHost {
@@ -47,6 +46,13 @@ interface UserHistory {
    * *before* each command, so appending `cmd\n` blind onto one would glue two commands together.
    */
   terminated: boolean
+  /**
+   * The file's content as this holds it. Every save rewrites the file from this rather than using
+   * `appendFile`, which on the root filesystem writes each new chunk at offset 0 of the grown file
+   * and leaves NUL bytes behind (reproduced in the browser and in vitest). One read at load, no
+   * read per command.
+   */
+  text: string
 }
 
 export class History {
@@ -57,7 +63,7 @@ export class History {
   private of(uid: number): UserHistory {
     let user = this.users.get(uid)
     if (!user) {
-      user = { entries: [], fileLines: 0, position: 0, loaded: false, terminated: true }
+      user = { entries: [], fileLines: 0, position: 0, loaded: false, terminated: true, text: '' }
       this.users.set(uid, user)
     }
     return user
@@ -82,10 +88,12 @@ export class History {
     user.entries = []
     user.fileLines = 0
     user.terminated = true
+    user.text = ''
     try {
       const file = this.host.file(uid)
       if (await fs.exists(file)) {
-        const content = await fs.readFile(file, 'utf-8')
+        // NUL bytes are what a file damaged by the `appendFile` bug holds; dropping them heals it.
+        const content = (await fs.readFile(file, 'utf-8')).replaceAll('\0', '')
         user.terminated = content.length === 0 || content.endsWith('\n')
         let lines = content.split('\n').filter(line => line.length > 0)
 
@@ -96,6 +104,8 @@ export class History {
           user.terminated = true
         }
 
+        user.text = lines.length ? lines.join('\n') + '\n' : ''
+        user.terminated = true
         user.fileLines = lines.length
         user.entries = lines.slice(Math.max(0, lines.length - this.limit('HISTSIZE', DEFAULT_HISTSIZE)))
       }
@@ -174,7 +184,8 @@ export class History {
         user.entries = kept
         if (fs) {
           try {
-            await fs.writeFile(this.host.file(uid), kept.length ? kept.join('\n') + '\n' : '', 'utf-8')
+            user.text = kept.length ? kept.join('\n') + '\n' : ''
+            await fs.writeFile(this.host.file(uid), user.text, 'utf-8')
             user.fileLines = kept.length
             user.terminated = true
           } catch (error) { this.report(error, 'rewrite') }
@@ -189,10 +200,10 @@ export class History {
 
     if (fs) {
       try {
-        // Appended without reading the file back; the old code read all of it on every command just
-        // to check its last byte. `terminated` was learned at load, and every line written here
-        // ends in a newline, so it only matters for a file an older terminal wrote.
-        await fs.appendFile(this.host.file(uid), (user.terminated ? '' : '\n') + command + '\n', 'utf-8')
+        // Written from the cached text without reading the file back. `terminated` covers a file an
+        // older terminal wrote without a final newline.
+        user.text += (user.terminated ? '' : '\n') + command + '\n'
+        await fs.writeFile(this.host.file(uid), user.text, 'utf-8')
         user.terminated = true
         user.fileLines++
         // Trim once the file is well past its limit rather than on every command.
@@ -211,6 +222,7 @@ export class History {
     user.position = 0
     user.loaded = true
     user.terminated = true
+    user.text = ''
     const fs = this.host.fs()
     if (!fs) return
     try { await fs.writeFile(this.host.file(uid), '', 'utf-8') } catch (error) { this.report(error, 'clear') }

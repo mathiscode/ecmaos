@@ -13,7 +13,6 @@ const setup = (initial?: string, variables: Record<string, string> = {}) => {
       exists: async p => files.has(p),
       readFile: async p => { reads.count++; return files.get(p) ?? '' },
       writeFile: async (p, data) => { files.set(p, data) },
-      appendFile: async (p, data) => { files.set(p, (files.get(p) ?? '') + data) }
     }),
     file: () => '/h',
     variable: name => variables[name],
