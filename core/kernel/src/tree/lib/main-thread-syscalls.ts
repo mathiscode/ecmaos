@@ -25,12 +25,13 @@
  * integer a program passes back to the kernel rather than the open file itself.
  */
 
-import { define_syscall, kill as zenfsKill, processes as zenfsProcesses, spawn as zenfsSpawn, type Process } from '@zenfs/linux'
+import { define_syscall, kill as zenfsKill, spawn as zenfsSpawn, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
+import { installFdLinks } from './fd-links.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { presenters } from './presenters/index.ts'
@@ -47,7 +48,6 @@ declare module '@zenfs/linux/uapi/abi' {
     window_close(handle: number): number
     window_present(kind: string, paramsJson: string, path: string): number
     storage_usage(path: string): number
-    ps_list(path: string): number
     klog(level: string, message: string): number
     reboot(): number
     users_lookup(query: string, path: string): number
@@ -181,6 +181,7 @@ let installed = false
 export function installMainThreadSyscalls(): void {
   if (installed) return
   installed = true
+  installFdLinks()
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)
@@ -244,35 +245,15 @@ export function installMainThreadSyscalls(): void {
 
   // A syscall's return must be `number | bigint | void` (`dispatch`'s contract, enforced by
   // `SyscallHandler`'s own type) -- there's no string-returning custom syscall shape available, so
-  // `storage_usage`/`ps_list` write their JSON into a real file under `/tmp` instead (real `/proc` is
+  // `storage_usage` writes its JSON into a real file under `/tmp` instead (real `/proc` is
   // `@zenfs/linux`'s synthetic, read-only `ProcFS` -- not a place this can write into): a worker-
-  // hosted `df`/`ps` just `open`+`read`s the file back with the plain filesystem syscalls it already
+  // hosted `df` just `open`+`read`s the file back with the plain filesystem syscalls it already
   // has, no custom syscall needed on the read side at all. The write-then-signal-length return keeps
   // the caller from racing a read against an unfinished write.
   define_syscall('storage_usage', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const usage = await kernel.storage.usage()
     const text = JSON.stringify(usage ?? {})
-    await kernel.filesystem.fs.writeFile(path, text)
-    return text.length
-  })
-
-  // Reads `@zenfs/linux`'s own module-global `processes` map (`process.js`), the one real process
-  // table. Every execve'd program, `crond`, and `proc_spawn`'s children register there the moment
-  // they are spawned (ecmaOS creates processes by spawn only; there is no copy-on-write `fork()`).
-  // Apps (`/bin/app`) and device command lines (`/bin/devcli`) are real processes too.
-  define_syscall('ps_list', async (proc: Process, path: string) => {
-    const kernel = kernelOf(proc)
-    // `Process.comm` is derived from `exe`/`argv[0]`, so a Process that exists but was never
-    // `execve`'d into a program reports an empty string -- `ps` printed a row with a blank COMMAND.
-    // Label it the way Linux labels a process with no userspace image, in brackets, rather than
-    // emitting nothing.
-    const list = Array.from(zenfsProcesses.values()).map(p => ({
-      pid: p.pid,
-      command: p.comm || '[kernel]',
-      status: p.code !== undefined ? 'exited' : p.stopped ? 'stopped' : 'running'
-    }))
-    const text = JSON.stringify(list)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
   })
@@ -299,7 +280,7 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `kernel.activeTty` is a plain number already, so unlike `storage_usage`/`ps_list` this needs no
+  // `kernel.activeTty` is a plain number already, so unlike `storage_usage` this needs no
   // scratch-file round trip at all -- it fits `dispatch`'s `number` return directly.
   define_syscall('tty_get', async (proc: Process) => {
     const kernel = kernelOf(proc)
@@ -320,7 +301,7 @@ export function installMainThreadSyscalls(): void {
   })
 
   // `kernel.sockets` is a live, main-thread-only registry of real `WebSocket`/`WebTransport`
-  // instances -- reached the same way `storage_usage`/`ps_list` reach other live `Kernel` state,
+  // instances -- reached the same way `storage_usage` reach other live `Kernel` state,
   // via the write-JSON-to-a-scratch-file convention (a syscall's return must be `number | bigint |
   // void`, see that doc comment above).
   //
@@ -615,7 +596,7 @@ export function installMainThreadSyscalls(): void {
   // looking up a user other than the caller's own (`groups someoneelse`), so this can't be
   // pre-snapshotted into env at spawn time the way `id`/`groups`' *own*-process values could be.
   // `query` is a small JSON request object; the response (also JSON, written to `path` the same way
-  // `storage_usage`/`ps_list` do, per this module's own doc comment on why a custom syscall can't
+  // `storage_usage` do, per this module's own doc comment on why a custom syscall can't
   // just return a string) is a plain array of `{ uid, gid, groups, username }` entries -- password
   // hashes and keypairs are never included, this is a read-only identity lookup, not a full user
   // record dump.
@@ -1006,7 +987,7 @@ export function installMainThreadSyscalls(): void {
   // command line exactly the way the old `kernel.intervals`-based scheduler did (`kernel.shell.execute
   // (entry.command)`), preserving pipe/redirect support in a cron job with zero behavior change --
   // individual pipeline stages `kernel.shell.execute()` itself launches via `executeViaExecve` still
-  // get real pids visible in `ps` (see `ps_list`'s own doc comment above), even though the job as a
+  // get real pids visible in `ps` (visible in `ps`, which reads `/proc`), even though the job as a
   // whole has no single pid of its own, the same limitation real `crond`'s `sh -c` child has for a
   // multi-stage pipeline.
   define_syscall('shell_exec', async (proc: Process, command: string) => {

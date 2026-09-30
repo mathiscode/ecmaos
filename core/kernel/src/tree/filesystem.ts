@@ -84,6 +84,14 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
  * @see {@link https://github.com/zen-fs/core ZenFS}
  *
  */
+/** The links Linux puts in `/dev` for the calling process's own descriptors. */
+export const DevLinks: Record<string, string> = {
+  '/dev/fd': '/proc/self/fd',
+  '/dev/stdin': '/proc/self/fd/0',
+  '/dev/stdout': '/proc/self/fd/1',
+  '/dev/stderr': '/proc/self/fd/2'
+}
+
 export class Filesystem {
   private _config: Configuration<ConfigMounts> = DefaultFilesystemOptions
   private _fs: typeof fs = fs
@@ -452,14 +460,17 @@ export class Filesystem {
       ['/usr', t('User data')],
       ['/var', t('Variable data')],
 
+      ['/dev/fd', t('Open file descriptors of this process')],
+      ['/dev/stdin', t('Standard input')],
+      ['/dev/stdout', t('Standard output')],
+      ['/dev/stderr', t('Standard error')],
+
       ['/proc/connection', t('Network Connection Data')],
-      ['/proc/host', t('Hostname')],
-      ['/proc/language', t('Language Information')],
-      ['/proc/memory', t('Memory Information')],
+      ['/proc/cpuinfo', t('Processor Information')],
+      ['/proc/meminfo', t('Memory Information')],
       ['/proc/platform', t('Platform Information')],
-      ['/proc/querystring', t('Query String')],
+      ['/proc/self', t('This process')],
       ['/proc/userAgent', t('User Agent')],
-      ['/proc/userAgentData', t('User Agent Data')],
       ['/proc/version', t('Kernel Version')],
 
       ['.bin', t('Binary File')],

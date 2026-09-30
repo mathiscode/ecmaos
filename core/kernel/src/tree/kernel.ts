@@ -33,7 +33,7 @@ import { Auth } from '#auth.ts'
 import { Components } from '#components.ts'
 import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
-import { DefaultFilesystemOptions, Filesystem } from '#filesystem.ts'
+import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
 import { Events } from '#events.ts'
@@ -419,6 +419,13 @@ export class Kernel implements IKernel {
         if (!(await this.filesystem.fs.exists(path))) await this.filesystem.fs.mkdir(path, { recursive: true, mode })
       }
       filesystemSpan.setAttribute('filesystem.paths_created', requiredPaths.length)
+
+      // `/dev` is an in-memory devtmpfs rebuilt on every boot, so these are laid down every boot too.
+      // Each is the symlink Linux ships, into the per-process descriptor table procfs already serves;
+      // until now those names existed only inside the WASI shim.
+      for (const [link, target] of Object.entries(DevLinks)) {
+        if (!(await this.filesystem.fs.exists(link))) await this.filesystem.fs.symlink(target, link).catch(() => {})
+      }
 
       // A persisted root may have been laid down by an older release; bring it up to this one's
       // schema before anything below reads or rewrites what it holds.

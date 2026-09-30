@@ -1,6 +1,6 @@
 /**
  * The read-back half of the scratch-file bridge every kernel-native custom syscall that needs to
- * return more than a plain `number | bigint | void` uses (`storage_usage`/`ps_list`/`sockets_*`,
+ * return more than a plain `number | bigint | void` uses (`storage_usage`/`sockets_*`,
  * see `#lib/main-thread-syscalls.ts`'s own doc comment on why a custom syscall can't just return a
  * string): the main-thread handler writes its JSON result into a real file under `/tmp`, and this
  * reads it back with the plain filesystem syscalls a worker-hosted program already has, then

@@ -1,23 +1,18 @@
-/** List running processes. Plain text output, no ANSI coloring. */
+/** List running processes, read from `/proc`. Plain text output, no ANSI coloring. */
 
-import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
+import { listProcesses } from './lib/proc.mjs'
 
-const syscalls = globalThis.ecmaosSyscalls
-const { exit, write, custom } = syscalls
+const { exit, write } = globalThis.ecmaosSyscalls
 
-async function main() {
-  const path = scratchPath('ps')
-  await custom('ps_list', path)
-  const raw = await readBackAndDelete(syscalls, path)
-  const list = JSON.parse(raw)
-  const lines = ['PID\tCOMMAND\t\t\tSTATUS']
-  for (const { pid, command, status } of list) lines.push(`${pid}\t${command}\t\t\t${status}`)
+function main() {
+  const lines = ['PID\tPPID\tUID\tCOMMAND']
+  for (const { pid, ppid, uid, command } of listProcesses()) lines.push(`${pid}\t${ppid}\t${uid}\t${command}`)
   write(1, new TextEncoder().encode(lines.join('\n') + '\n'))
   return 0
 }
 
 try {
-  exit(await main())
+  exit(main())
 } catch (error) {
   write(2, new TextEncoder().encode(`ps: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)

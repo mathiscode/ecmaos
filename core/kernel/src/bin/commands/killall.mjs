@@ -1,7 +1,7 @@
 /** Send a signal to every process matching NAME. */
 
 import { SignalNumbers, parseSignalArg } from './lib/signals.mjs'
-import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
+import { listProcesses } from './lib/proc.mjs'
 
 const syscalls = globalThis.ecmaosSyscalls
 const { argv, exit, write, custom } = syscalls
@@ -14,13 +14,6 @@ Send a signal to every process matching NAME (SIGTERM by default).
   --help                display this help and exit`
 
 function writeStderr(text) { write(2, new TextEncoder().encode(text + '\n')) }
-
-async function listProcesses() {
-  const path = scratchPath('killall')
-  await custom('ps_list', path)
-  const raw = await readBackAndDelete(syscalls, path)
-  return JSON.parse(raw)
-}
 
 async function main() {
   const args = argv.slice(1)
@@ -65,7 +58,7 @@ async function main() {
     return 1
   }
 
-  const processes = await listProcesses()
+  const processes = listProcesses()
   let hasError = false
 
   for (const name of names) {
