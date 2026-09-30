@@ -1446,7 +1446,7 @@ export class Shell implements IShell {
    */
   private async expandHistoryBang(commandLine: string): Promise<string> {
     const home = this._env.get('HOME') || '/root'
-    const historyPath = path.join(home, '.history')
+    const historyPath = path.join(home, '.ecmash_history')
 
     try {
       if (!await this.context.fs.promises.exists(historyPath)) {

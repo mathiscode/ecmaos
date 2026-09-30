@@ -464,6 +464,12 @@ export class Kernel implements IKernel {
         await this.filesystem.fs.writeFile('/etc/hostname', `${location.hostname || 'ecmaos'}\n`, { mode: 0o644 })
       }
 
+      // The login shells `chsh` accepts. `ecmaos` is the shell built into the kernel and has no file;
+      // `/bin/ecmash` is the same language as a program.
+      if (!(await this.filesystem.fs.exists('/etc/shells'))) {
+        await this.filesystem.fs.writeFile('/etc/shells', '# Valid login shells; see chsh(1).\n/bin/ecmash\necmaos\n', { mode: 0o644 })
+      }
+
       try {
         await this.shell.config.loadSystemConfig()
         this.terminal.updateConfig()

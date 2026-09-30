@@ -1,0 +1,935 @@
+/**
+ * `ecmash`: the ecmaOS shell as a real program. It runs in a worker like every other command, on the
+ * same parsers and expander the kernel-integrated shell uses (`../lib/*`), and reaches the system
+ * only through syscalls: `spawn`/`waitpid`/`killpg` for processes, `pipe` for pipelines, `open` for
+ * redirections, and the terminal ioctls for its line editor.
+ *
+ *   ecmash [-l] [-c COMMAND [NAME [ARG...]]] [FILE [ARG...]]
+ *
+ * With no command and no file it reads commands from stdin; when that is a terminal it is
+ * interactive: a prompt, line editing, history in `~/.ecmash_history`, and a SIGINT that cancels the
+ * line instead of ending the shell.
+ *
+ * Covered: simple commands, pipelines, `&&`/`||`/`;`/`&`, redirections (`<`, `>`, `>>`, `2>`, `2>&1`,
+ * heredocs, here-strings), `$var`/`${...}`/`$(...)`/`$((...))`, globbing, `if`/`while`/`for`/`case`,
+ * `{ }` groups, functions, and the builtins listed in BUILTINS. Not covered here (the kernel shell
+ * has them): arrays, process substitution, aliases, `trap`, `set -e` and friends.
+ *
+ * Output redirected to a file goes through a scratch file and is copied over when the command ends.
+ * The root filesystem corrupts a file written in several chunks through a plain descriptor (see
+ * `lib/append-file.ts` in the kernel), and only a whole-file write is safe there.
+ */
+
+import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
+import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
+import { expandWordFields, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
+import { evaluateConditional } from '../lib/conditional-eval.ts'
+import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
+import { History } from '../lib/history.ts'
+import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
+
+const sys = globalThis.ecmaosSyscalls
+const { open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, getpid, getppid, onSignal } = sys
+const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+const SIGINT = 2
+
+// -- small fs helpers -----------------------------------------------------------------------------
+
+function readFileText(path) {
+  const fd = open(path, O_RDONLY, 0)
+  try { return readFd(fd) } finally { close(fd) }
+}
+
+function readFd(fd) {
+  const chunks = []
+  const buffer = new Uint8Array(65536)
+  for (;;) {
+    const n = read(fd, buffer, -1)
+    if (n <= 0) break
+    chunks.push(buffer.slice(0, n))
+  }
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const bytes = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length }
+  return decoder.decode(bytes)
+}
+
+function writeAllFd(fd, text) {
+  const bytes = typeof text === 'string' ? encoder.encode(text) : text
+  let offset = 0
+  while (offset < bytes.length) {
+    const n = write(fd, bytes.subarray(offset))
+    if (n <= 0) break
+    offset += n
+  }
+}
+
+function writeWholeFile(path, text) {
+  const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+  try { writeAllFd(fd, text) } finally { close(fd) }
+}
+
+const exists = path => { try { stat(path); return true } catch { return false } }
+const isDir = path => { try { return (stat(path).mode & 0xf000) === 0x4000 } catch { return false } }
+const isFile = path => { try { return (stat(path).mode & 0xf000) === 0x8000 } catch { return false } }
+const resolvePath = (path, cwd = getcwd()) => normalize(path.startsWith('/') ? path : `${cwd}/${path}`)
+
+function normalize(path) {
+  const out = []
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return '/' + out.join('/')
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+// -- shell state ----------------------------------------------------------------------------------
+
+class ControlSignal extends Error {
+  constructor(kind, value) { super(kind); this.kind = kind; this.value = value }
+}
+
+const BUILTINS = new Set([
+  ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
+  'return', 'break', 'continue', 'local', 'type', 'command', 'wait', 'jobs', 'test', '[', 'exec', 'pwd', 'env',
+])
+
+class Shell {
+  constructor(name, args) {
+    this.vars = new Map(Object.entries(sys.env))
+    this.exported = new Set(Object.keys(sys.env))
+    this.functions = new Map()
+    this.positional = args
+    this.name = name
+    this.status = 0
+    this.lastPid = undefined
+    this.jobs = []
+    this.scratch = 0
+    this.depth = 0
+    this.locals = []
+    this.interactive = false
+    this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
+    this.exported.add('SHLVL')
+    if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
+    if (!this.vars.has('IFS')) this.vars.set('IFS', ' \t\n')
+  }
+
+  // Descriptors a command runs with, by fd number in *this* process.
+  get stdio() { return this._stdio ?? { 0: 0, 1: 1, 2: 2 } }
+
+  get(name) {
+    switch (name) {
+      case '?': return String(this.status)
+      case '$': return String(getpid())
+      case '!': return this.lastPid === undefined ? undefined : String(this.lastPid)
+      case '#': return String(this.positional.length)
+      case '0': return this.name
+      case '*': case '@': return this.positional.join(' ')
+      case 'PPID': return String(getppid())
+      case 'RANDOM': return String(Math.floor(Math.random() * 32768))
+    }
+    if (/^\d+$/.test(name)) return this.positional[Number(name) - 1]
+    return this.vars.get(name)
+  }
+
+  set(name, value) {
+    const frame = this.locals[this.locals.length - 1]
+    if (frame && frame.has(name)) frame.set(name, value)
+    this.vars.set(name, value)
+  }
+
+  environment() {
+    const env = {}
+    for (const name of this.exported) {
+      const value = this.vars.get(name)
+      if (value !== undefined) env[name] = value
+    }
+    return env
+  }
+
+  // -- expansion ----------------------------------------------------------------------------------
+
+  context() {
+    return {
+      lookup: name => this.get(name),
+      lookupArray: () => undefined,
+      positional: () => this.positional,
+      assign: (name, value) => this.set(name, value),
+      substitute: command => this.substitute(command),
+      glob: pattern => this.glob(pattern),
+      home: () => this.vars.get('HOME'),
+    }
+  }
+
+  async fields(parts) { return await expandWordFields(parts, this.context()) }
+  async text(parts) { return await expandWordString(parts, this.context()) }
+
+  /** Expands a raw word of text (a `case` subject, a `for` list) into fields. */
+  async expandWords(text) {
+    const fields = []
+    for (const token of tokenize(text)) {
+      if (token.kind === 'word') fields.push(...await this.fields(token.parts))
+    }
+    return fields
+  }
+
+  /** `$(...)`: runs the command with stdout on a scratch file, so any amount of output is safe. */
+  async substitute(command) {
+    const file = this.scratchPath()
+    const fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+    const saved = this._stdio
+    this._stdio = { ...this.stdio, 1: fd }
+    try {
+      await this.runText(command)
+    } finally {
+      this._stdio = saved
+      close(fd)
+    }
+    const text = readFileText(file)
+    try { unlink(file) } catch { /* already gone */ }
+    return text.replace(/\n+$/, '')
+  }
+
+  scratchPath() { return `/tmp/.ecmash-${getpid()}-${this.scratch++}` }
+
+  async glob(pattern) {
+    if (!/[*?[]/.test(pattern)) return []
+    const absolute = pattern.startsWith('/')
+    const segments = pattern.split('/').filter(Boolean)
+    let bases = [absolute ? '/' : '']
+    for (const [index, segment] of segments.entries()) {
+      const last = index === segments.length - 1
+      const next = []
+      for (const base of bases) {
+        const dir = base === '' ? '.' : base
+        if (!/[*?[]/.test(segment)) {
+          const candidate = base === '' ? segment : base === '/' ? `/${segment}` : `${base}/${segment}`
+          if (exists(resolvePath(candidate))) next.push(candidate)
+          continue
+        }
+        let names
+        try { names = readdir(resolvePath(dir)) } catch { continue }
+        const regex = new RegExp(`^${globToRegExpSource(segment)}$`)
+        for (const name of names.sort()) {
+          if (name.startsWith('.') && !segment.startsWith('.')) continue
+          if (!regex.test(name)) continue
+          const candidate = base === '' ? name : base === '/' ? `/${name}` : `${base}/${name}`
+          if (last || isDir(resolvePath(candidate))) next.push(candidate)
+        }
+      }
+      bases = next
+    }
+    return bases
+  }
+
+  // -- running text -------------------------------------------------------------------------------
+
+  async runText(text) {
+    return await this.runStatements(parseStatements(text))
+  }
+
+  async runStatements(statements) {
+    let status = this.status
+    for (const statement of statements) {
+      status = await this.runStatement(statement)
+      this.status = status
+    }
+    return status
+  }
+
+  async runStatement(statement) {
+    switch (statement.type) {
+      case 'simple': return await this.runLine(statement.line)
+      case 'function': this.functions.set(statement.name, statement.body); return 0
+      case 'if': return await this.withRedirect(statement, async () => {
+        for (const branch of statement.branches) {
+          if (await this.runLine(branch.condition) === 0) return await this.runStatements(branch.body)
+        }
+        return statement.elseBody ? await this.runStatements(statement.elseBody) : 0
+      })
+      case 'while': return await this.withRedirect(statement, async () => {
+        let last = 0
+        while (await this.runLine(statement.condition) === 0) {
+          try { last = await this.runStatements(statement.body) } catch (signal) {
+            if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
+              if (signal.value > 1) { signal.value--; throw signal }
+              if (signal.kind === 'break') break
+              continue
+            }
+            throw signal
+          }
+        }
+        return last
+      })
+      case 'for': return await this.withRedirect(statement, async () => {
+        let last = 0
+        for (const value of await this.expandWords(statement.wordsText)) {
+          this.set(statement.variable, value)
+          try { last = await this.runStatements(statement.body) } catch (signal) {
+            if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
+              if (signal.value > 1) { signal.value--; throw signal }
+              if (signal.kind === 'break') break
+              continue
+            }
+            throw signal
+          }
+        }
+        return last
+      })
+      case 'case': return await this.withRedirect(statement, async () => {
+        const [subject = ''] = await this.expandWords(statement.word)
+        for (const clause of statement.clauses) {
+          const hit = clause.patterns.some(pattern => new RegExp(`^${globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))}$`).test(subject))
+          if (hit) return await this.runStatements(clause.body)
+        }
+        return 0
+      })
+      case 'group': return await this.withRedirect(statement, () => this.runStatements(statement.body))
+    }
+    return 0
+  }
+
+  /** A compound statement's trailing redirection, held over its whole body. */
+  async withRedirect(statement, run) {
+    if (!statement.redirect) return await run()
+    const saved = this._stdio
+    const applied = await this.openRedirections(parseRedirections(statement.redirect), { ...this.stdio })
+    this._stdio = applied.fds
+    try { return await run() } finally {
+      this._stdio = saved
+      await applied.finish()
+    }
+  }
+
+  async runLine(line) {
+    const script = parseScript(line)
+    let status = this.status
+    let skip = false
+    for (const stage of script.stages) {
+      if (!skip) {
+        if (stage.operator === '&') status = await this.runBackground(stage.pipeline)
+        else status = await this.runPipeline(stage.pipeline)
+        this.status = status
+      }
+      // `a && b || c`: a skipped stage leaves the status alone and the next operator decides again.
+      if (stage.operator === '&&') skip = status !== 0
+      else if (stage.operator === '||') skip = status === 0
+      else skip = false
+    }
+    return status
+  }
+
+  // -- pipelines ----------------------------------------------------------------------------------
+
+  async runBackground(pipeline) {
+    const job = await this.startPipeline(pipeline, true)
+    if (!job) return 1
+    const number = this.jobs.length + 1
+    this.jobs.push({ number, pids: job.pids, done: job.finish().then(status => { job.status = status }), line: '' })
+    this.lastPid = job.pids[job.pids.length - 1]
+    if (this.interactive) writeAllFd(2, `[${number}] ${this.lastPid}\n`)
+    return 0
+  }
+
+  async runPipeline(pipeline) {
+    const job = await this.startPipeline(pipeline, false)
+    if (!job) return 127
+    const status = await job.finish()
+    return pipeline.negated ? (status === 0 ? 1 : 0) : status
+  }
+
+  /**
+   * Spawns every stage of a pipeline, wiring stage N's stdout to stage N+1's stdin with `pipe`.
+   * Builtins run in this process, in order, with the same descriptors a program would get.
+   * Returns `{ pids, finish() }` or `undefined` when nothing could be started.
+   */
+  async startPipeline(pipeline, background) {
+    const commands = pipeline.commands
+    const pids = []
+    const cleanups = []
+    let inherited = this.stdio[0]
+    let leader = 0
+    let statusOfBuiltin
+    let failed = false
+
+    for (const [index, command] of commands.entries()) {
+      const last = index === commands.length - 1
+      let next
+      const fds = { ...this.stdio, 0: inherited }
+      if (!last) {
+        next = pipe()
+        fds[1] = next[1]
+      }
+
+      try {
+        const result = await this.runCommand(command, fds, { pgid: leader, background, single: commands.length === 1 })
+        if (result.pid !== undefined) {
+          pids.push(result.pid)
+          if (!leader) leader = result.pid
+        } else {
+          statusOfBuiltin = result.status
+        }
+        if (result.finish) cleanups.push(result.finish)
+      } catch (error) {
+        writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
+        statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
+        failed = true
+      }
+
+      // The parent's copies of a pipe's ends have to go, or a reader never sees EOF.
+      if (inherited !== this.stdio[0]) close(inherited)
+      if (next) { close(next[1]); inherited = next[0] }
+      if (failed) statusOfBuiltin = statusOfBuiltin ?? 1
+    }
+    if (inherited !== this.stdio[0]) { try { close(inherited) } catch { /* already closed */ } }
+
+    const finish = async () => {
+      let status = statusOfBuiltin ?? 0
+      let interrupted = false
+      let statusOfLast = status
+      await Promise.all(pids.map(async pid => {
+        const done = await waitpid(pid, false)
+        if (pid === pids[pids.length - 1]) statusOfLast = done.signal ? 128 + done.signal : done.code
+        // The terminal signals only its foreground process; the rest of the pipeline is ours to stop.
+        if (done.signal === SIGINT && !interrupted && leader) {
+          interrupted = true
+          try { killpg(leader, SIGINT) } catch { /* everyone already exited */ }
+        }
+      }))
+      status = statusOfLast
+      for (const cleanup of cleanups) await cleanup()
+      return status
+    }
+    return { pids, finish }
+  }
+
+  // -- one command --------------------------------------------------------------------------------
+
+  async runCommand(command, fds, options) {
+    if (command.conditional !== undefined) {
+      const ok = await evaluateConditional(tokenizeConditional(command.conditional), this.context(), {
+        exists: async p => exists(resolvePath(p)),
+        isFile: async p => isFile(resolvePath(p)),
+        isDirectory: async p => isDir(resolvePath(p)),
+        resolve: p => resolvePath(p),
+      }, () => {})
+      return { status: ok ? 0 : 1 }
+    }
+
+    const args = []
+    let assignments = 0
+    let collecting = true
+    const assign = []
+    for (const [index, parts] of command.wordParts.entries()) {
+      const first = parts[0]
+      if (collecting && first?.quoting === 'unquoted' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.text)) {
+        const [, name, rest] = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(first.text)
+        const valueParts = [{ ...first, text: rest }, ...parts.slice(1)]
+        assign.push([name, await this.text(valueParts)])
+        assignments++
+        continue
+      }
+      collecting = false
+      args.push(...await this.fields(parts))
+    }
+
+    if (!args.length) {
+      for (const [name, value] of assign) this.set(name, value)
+      return { status: 0 }
+    }
+
+    const applied = await this.openRedirections(command.redirections, fds)
+    const finish = async () => { await applied.finish() }
+    const name = args[0]
+
+    if (BUILTINS.has(name) || this.functions.has(name)) {
+      // A builtin or function runs here: its assignments are temporary, its descriptors are the ones
+      // this command was given.
+      const saved = this._stdio
+      const snapshot = new Map(assign.map(([n]) => [n, this.vars.get(n)]))
+      for (const [n, v] of assign) this.vars.set(n, v)
+      this._stdio = applied.fds
+      let status
+      try {
+        status = this.functions.has(name) ? await this.callFunction(name, args.slice(1)) : await this.builtin(name, args.slice(1))
+      } catch (signal) {
+        if (signal instanceof ControlSignal && signal.kind === 'return') status = signal.value
+        else throw signal
+      } finally {
+        this._stdio = saved
+        for (const [n, v] of snapshot) { if (v === undefined) this.vars.delete(n); else this.vars.set(n, v) }
+      }
+      await finish()
+      return { status }
+    }
+
+    const program = this.findProgram(name)
+    if (!program) {
+      writeAllFd(2, `ecmash: ${name}: command not found\n`)
+      await finish()
+      return { status: 127 }
+    }
+
+    const env = this.environment()
+    for (const [n, v] of assign) env[n] = v
+    const childFds = {}
+    for (const target of [0, 1, 2]) childFds[target] = applied.fds[target] ?? target
+    let pid
+    try {
+      pid = await spawn(program, [name, ...args.slice(1)], { env, fds: childFds, cwd: getcwd(), pgid: options.pgid })
+    } finally {
+      // The child holds its own references now.
+      await applied.release()
+    }
+    return { pid, finish }
+  }
+
+  findProgram(name) {
+    if (name.includes('/')) {
+      const path = resolvePath(name)
+      return isFile(path) ? path : undefined
+    }
+    for (const dir of (this.vars.get('PATH') ?? '/bin:/usr/bin').split(':')) {
+      if (!dir) continue
+      const candidate = `${dir}/${name}`
+      if (isFile(candidate)) return candidate
+    }
+    return undefined
+  }
+
+  async callFunction(name, args) {
+    const savedPositional = this.positional
+    this.positional = args
+    this.locals.push(new Map())
+    if (++this.depth > 200) { this.depth--; writeAllFd(2, `ecmash: ${name}: maximum function nesting exceeded\n`); return 1 }
+    try {
+      return await this.runStatements(this.functions.get(name))
+    } finally {
+      this.depth--
+      const frame = this.locals.pop()
+      for (const [n, v] of frame) { if (v === undefined) this.vars.delete(n); else this.vars.set(n, v) }
+      this.positional = savedPositional
+    }
+  }
+
+  // -- redirections -------------------------------------------------------------------------------
+
+  /**
+   * Opens what `redirections` name and returns the descriptor table to run with, `release()` to drop
+   * this process's copies once a child has its own, and `finish()` to copy scratch output into its
+   * destination file (see the file comment) and close what is left.
+   */
+  async openRedirections(redirections, base) {
+    const fds = { ...base }
+    const opened = []
+    const copies = []
+    const files = new Map()
+
+    for (const redirection of redirections) {
+      const fd = redirection.fd
+      if (redirection.type === '>&') {
+        const target = redirection.targetIsFd ? Number(redirection.target) : undefined
+        if (target !== undefined) fds[fd] = fds[target] ?? target
+        continue
+      }
+      if (redirection.type === '<') {
+        const path = resolvePath(await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }]))
+        const handle = open(path, O_RDONLY, 0)
+        opened.push(handle)
+        fds[fd] = handle
+        continue
+      }
+      if (redirection.type === '<<' || redirection.type === '<<<') {
+        let body
+        if (redirection.type === '<<<') body = (await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }])) + '\n'
+        else body = redirection.heredoc?.expand ? await expandHeredocBody(redirection.heredoc.body, this.context()) : (redirection.heredoc?.body ?? redirection.target)
+        // Small enough to sit in the pipe until the reader takes it.
+        const [r, w] = pipe()
+        writeAllFd(w, body.length > 60000 ? body.slice(0, 60000) : body)
+        close(w)
+        opened.push(r)
+        fds[fd] = r
+        continue
+      }
+      // > >> >|
+      const path = resolvePath(await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }]))
+      const direct = path.startsWith('/dev/') || path.startsWith('/tmp/') || path.startsWith('/proc/')
+      if (direct) {
+        const handle = open(path, O_WRONLY | O_CREAT | (redirection.type === '>>' ? 0 : O_TRUNC), 0o644)
+        if (redirection.type === '>>') sys.lseek(handle, 0, 2)
+        opened.push(handle)
+        fds[fd] = handle
+        continue
+      }
+      let record = files.get(path)
+      if (!record) {
+        const scratch = this.scratchPath()
+        const handle = open(scratch, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        opened.push(handle)
+        record = { scratch, handle, path, append: redirection.type === '>>' }
+        files.set(path, record)
+        copies.push(record)
+        // Creating the target now makes `> f` truncate immediately, as in every shell.
+        if (!record.append) writeWholeFile(path, '')
+        else if (!exists(path)) writeWholeFile(path, '')
+      }
+      fds[fd] = record.handle
+    }
+
+    return {
+      fds,
+      release: async () => { for (const handle of opened) { try { close(handle) } catch { /* shared */ } } opened.length = 0 },
+      finish: async () => {
+        for (const handle of opened) { try { close(handle) } catch { /* released already */ } }
+        opened.length = 0
+        for (const record of copies) {
+          const body = readFileText(record.scratch)
+          try { unlink(record.scratch) } catch { /* gone */ }
+          writeWholeFile(record.path, record.append && exists(record.path) ? readFileText(record.path) + body : body)
+        }
+        copies.length = 0
+      },
+    }
+  }
+
+  // -- builtins -----------------------------------------------------------------------------------
+
+  out(text, fd = 1) { writeAllFd(this.stdio[fd] ?? fd, text) }
+
+  async builtin(name, args) {
+    switch (name) {
+      case ':': case 'true': return 0
+      case 'false': return 1
+      case 'env': {
+        if (args.length) { this.out('ecmash: env: running a command with env is not supported\n', 2); return 2 }
+        const env = this.environment()
+        for (const key of Object.keys(env).sort()) this.out(`${key}=${env[key]}\n`)
+        return 0
+      }
+      case 'pwd': this.out(getcwd() + '\n'); return 0
+      case 'echo': {
+        let newline = true
+        let escapes = false
+        while (args[0] && /^-[neE]+$/.test(args[0])) {
+          const flags = args.shift()
+          if (flags.includes('n')) newline = false
+          if (flags.includes('e')) escapes = true
+        }
+        let text = args.join(' ')
+        if (escapes) text = text.replace(/\\(n|t|\\)/g, (_, c) => ({ n: '\n', t: '\t', '\\': '\\' })[c])
+        this.out(text + (newline ? '\n' : ''))
+        return 0
+      }
+      case 'cd': {
+        const target = args[0] === '-' ? this.vars.get('OLDPWD') : (args[0] ?? this.vars.get('HOME') ?? '/')
+        const path = resolvePath(target ?? '/')
+        if (!isDir(path)) { this.out(`ecmash: cd: ${target}: No such file or directory\n`, 2); return 1 }
+        this.vars.set('OLDPWD', getcwd())
+        chdir(path)
+        this.vars.set('PWD', path)
+        this.exported.add('PWD')
+        return 0
+      }
+      case 'exit': exit(args[0] === undefined ? this.status : Number(args[0]) & 0xff); return 0
+      case 'export': {
+        for (const arg of args) {
+          const [name, ...value] = arg.split('=')
+          if (value.length) this.vars.set(name, value.join('='))
+          this.exported.add(name)
+        }
+        if (!args.length) for (const name of [...this.exported].sort()) this.out(`export ${name}="${this.vars.get(name) ?? ''}"\n`)
+        return 0
+      }
+      case 'unset': for (const name of args.filter(a => !a.startsWith('-'))) { this.vars.delete(name); this.exported.delete(name); this.functions.delete(name) } return 0
+      case 'local': {
+        const frame = this.locals[this.locals.length - 1]
+        if (!frame) { this.out('ecmash: local: can only be used in a function\n', 2); return 1 }
+        for (const arg of args) {
+          const [name, ...value] = arg.split('=')
+          if (!frame.has(name)) frame.set(name, this.vars.get(name))
+          if (value.length) this.vars.set(name, value.join('=')); else this.vars.delete(name)
+        }
+        return 0
+      }
+      case 'set': {
+        if (args[0] === '--') { this.positional = args.slice(1); return 0 }
+        if (args.length) { this.out(`ecmash: set: ${args[0]}: options are not supported\n`, 2); return 2 }
+        for (const [n, v] of [...this.vars].sort()) this.out(`${n}=${v}\n`)
+        return 0
+      }
+      case 'shift': this.positional = this.positional.slice(Number(args[0] ?? 1)); return 0
+      case 'return': throw new ControlSignal('return', Number(args[0] ?? this.status))
+      case 'break': throw new ControlSignal('break', Number(args[0] ?? 1))
+      case 'continue': throw new ControlSignal('continue', Number(args[0] ?? 1))
+      case 'read': return this.read(args)
+      case 'source': case '.': {
+        const path = this.findSource(args[0])
+        if (!path) { this.out(`ecmash: ${args[0]}: No such file or directory\n`, 2); return 1 }
+        const saved = this.positional
+        if (args.length > 1) this.positional = args.slice(1)
+        try { return await this.runText(readFileText(path)) } finally { this.positional = saved }
+      }
+      case 'eval': return await this.runText(args.join(' '))
+      case 'exec': {
+        if (!args.length) return 0
+        const program = this.findProgram(args[0])
+        if (!program) { this.out(`ecmash: exec: ${args[0]}: not found\n`, 2); return 127 }
+        // No `execve` from a worker yet: run it, then leave with its status, which is what `exec` looks like from outside.
+        const pid = await spawn(program, args, { env: this.environment(), fds: { 0: this.stdio[0], 1: this.stdio[1], 2: this.stdio[2] }, cwd: getcwd() })
+        const done = await waitpid(pid, false)
+        exit(done.signal ? 128 + done.signal : done.code)
+        return 0
+      }
+      case 'type': case 'command': {
+        const names = args.filter(a => !a.startsWith('-'))
+        let status = 0
+        for (const n of names) {
+          if (this.functions.has(n)) this.out(`${n} is a function\n`)
+          else if (BUILTINS.has(n)) this.out(`${n} is a shell builtin\n`)
+          else { const p = this.findProgram(n); if (p) this.out(`${n} is ${p}\n`); else { this.out(`ecmash: type: ${n}: not found\n`, 2); status = 1 } }
+        }
+        return status
+      }
+      case 'test': case '[': {
+        const list = name === '[' ? args.slice(0, -1) : args
+        return this.test(list) ? 0 : 1
+      }
+      case 'wait': for (const job of this.jobs.splice(0)) await job.done; return 0
+      case 'jobs': for (const job of this.jobs) this.out(`[${job.number}]  Running  ${job.pids.join(' ')}\n`); return 0
+    }
+    return 127
+  }
+
+  findSource(name) {
+    if (name.includes('/')) return isFile(resolvePath(name)) ? resolvePath(name) : undefined
+    for (const dir of [getcwd(), ...(this.vars.get('PATH') ?? '').split(':')]) {
+      if (dir && isFile(`${dir}/${name}`)) return `${dir}/${name}`
+    }
+  }
+
+  read(args) {
+    let raw = false
+    const names = []
+    for (const arg of args) { if (arg === '-r') raw = true; else if (!arg.startsWith('-')) names.push(arg) }
+    // One byte at a time: `read` must not take more of the stream than its line.
+    const bytes = []
+    const one = new Uint8Array(1)
+    let got = false
+    for (;;) {
+      const n = read(this.stdio[0], one, -1)
+      if (n <= 0) break
+      got = true
+      if (one[0] === 10) break
+      bytes.push(one[0])
+    }
+    if (!got) return 1
+    let line = decoder.decode(new Uint8Array(bytes))
+    if (!raw) line = line.replace(/\\(.)/g, '$1')
+    const ifs = this.vars.get('IFS') ?? ' \t\n'
+    const fields = ifs === '' ? [line] : line.split(new RegExp(`[${ifs.replace(/[\]\\^-]/g, '\\$&')}]+`)).filter((f, i) => f !== '' || i > 0)
+    const targets = names.length ? names : ['REPLY']
+    targets.forEach((target, index) => {
+      const last = index === targets.length - 1
+      this.set(target, last ? fields.slice(index).join(' ').trim() : (fields[index] ?? ''))
+    })
+    return 0
+  }
+
+  test(list) {
+    const [a, b, c] = list
+    if (list.length === 0) return false
+    if (list.length === 1) return a !== ''
+    if (a === '!') return !this.test(list.slice(1))
+    if (list.length === 2) {
+      switch (a) {
+        case '-n': return b !== ''
+        case '-z': return b === ''
+        case '-e': return exists(resolvePath(b))
+        case '-f': return isFile(resolvePath(b))
+        case '-d': return isDir(resolvePath(b))
+        case '-r': case '-w': case '-x': case '-s': return exists(resolvePath(b))
+      }
+      return false
+    }
+    switch (b) {
+      case '=': case '==': return a === c
+      case '!=': return a !== c
+      case '-eq': return Number(a) === Number(c)
+      case '-ne': return Number(a) !== Number(c)
+      case '-lt': return Number(a) < Number(c)
+      case '-le': return Number(a) <= Number(c)
+      case '-gt': return Number(a) > Number(c)
+      case '-ge': return Number(a) >= Number(c)
+    }
+    return false
+  }
+}
+
+// -- interactive ----------------------------------------------------------------------------------
+
+function promptText(shell) {
+  const custom = shell.vars.get('PS1')
+  if (custom) {
+    const cwd = getcwd()
+    const home = shell.vars.get('HOME')
+    const tilde = home && cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd
+    return custom
+      .replace(/\\u/g, shell.vars.get('USER') ?? 'user')
+      .replace(/\\h/g, 'ecmaos')
+      .replace(/\\w/g, tilde)
+      .replace(/\\W/g, cwd.split('/').pop() || '/')
+      .replace(/\\\$/g, '$')
+      .replace(/\\\[|\\\]/g, '')
+  }
+  return `ecmash${shell.status ? `[${shell.status}]` : ''}$ `
+}
+
+async function interactive(shell, tty) {
+  shell.interactive = true
+  const home = shell.vars.get('HOME') ?? '/'
+  const historyFile = `${home}/.ecmash_history`
+  const history = new History({
+    fs: () => ({
+      exists: async p => exists(p),
+      readFile: async p => readFileText(p),
+      writeFile: async (p, data) => writeWholeFile(p, data),
+    }),
+    file: () => historyFile,
+    variable: name => shell.vars.get(name),
+    error: () => {},
+  })
+  await history.load(0)
+
+  // A handler has to exist for the signal to interrupt the read instead of ending the shell.
+  onSignal(SIGINT, () => {})
+
+  for (;;) {
+    const restore = rawMode(tty)
+    let line
+    try { line = await readLine(shell, tty, history) } finally { restore() }
+    if (line === undefined) { writeAllFd(1, '\nexit\n'); return }
+    if (!line.trim()) continue
+    await history.add(0, line)
+    try {
+      let text = line
+      while (needsMoreInput(text)) {
+        const restoreMore = rawMode(tty)
+        let more
+        try { more = await readLine(shell, tty, history, '> ') } finally { restoreMore() }
+        if (more === undefined) break
+        text += '\n' + more
+      }
+      await shell.runText(text)
+    } catch (error) {
+      if (error instanceof ControlSignal) continue
+      writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
+      shell.status = 2
+    }
+  }
+}
+
+/** One line from the terminal, edited in place. `undefined` on ^D at an empty line. */
+async function readLine(shell, tty, history, fixedPrompt) {
+  const prompt = fixedPrompt ?? promptText(shell)
+  writeAllFd(1, stripMarkers(prompt))
+  const host = {
+    write: data => writeAllFd(1, data),
+    get cols() { return terminalSize(tty).cols },
+    promptWidth: () => visibleWidth(prompt),
+  }
+  const editor = new LineEditor(host)
+  let position = 0
+  const entries = []
+  for (let i = 0; history.get(0, i) !== undefined; i++) entries.push(history.get(0, i))
+  position = entries.length
+  const buffer = new Uint8Array(1024)
+
+  for (;;) {
+    let n
+    try { n = read(tty, buffer, -1) } catch (error) {
+      // ^C: the line discipline raised SIGINT, which interrupts the read. Cancel the line.
+      if (error?.code === 'EINTR') { writeAllFd(1, '^C\r\n'); return '' }
+      throw error
+    }
+    if (n <= 0) return undefined
+    for (const key of decodeKeys(buffer.subarray(0, n))) {
+      switch (key) {
+        case 'Enter': case '\n': writeAllFd(1, '\r\n'); return editor.text
+        case '\x03': editor.reset(); writeAllFd(1, '^C\r\n'); return ''
+        case '\x04': if (editor.length === 0) return undefined; editor.deleteForward(); break
+        case '\x7f': case '\b': editor.backspace(); break
+        case '\x01': case 'Home': editor.home(); break
+        case '\x05': case 'End': editor.end(); break
+        case '\x0b': editor.killToEnd(); break
+        case '\x15': editor.killToStart(); break
+        case '\x17': editor.killWordBackward(); break
+        case '\x19': editor.yank(); break
+        case '\x0c': writeAllFd(1, '\x1b[2J\x1b[H' + stripMarkers(prompt) + editor.text); break
+        case 'ArrowLeft': editor.left(); break
+        case 'ArrowRight': editor.right(); break
+        case 'ArrowUp': case 'ArrowDown': {
+          const next = position + (key === 'ArrowUp' ? -1 : 1)
+          if (next < 0 || next > entries.length) break
+          position = next
+          editor.replace(entries[position] ?? '', text => text)
+          break
+        }
+        default:
+          if (key.length >= 1 && key >= ' ' && key !== '\x7f') editor.insert(key)
+      }
+    }
+  }
+}
+
+// -- entry ----------------------------------------------------------------------------------------
+
+async function main() {
+  const argv = sys.argv.slice(1)
+  let login = sys.argv[0]?.split('/').pop()?.startsWith('-') ?? false
+  let command
+  while (argv[0]?.startsWith('-') && argv[0].length > 1) {
+    const flag = argv.shift()
+    if (flag === '--') break
+    if (flag === '-c') { command = argv.shift(); break }
+    if (flag === '-l' || flag === '--login') login = true
+  }
+
+  const name = command !== undefined ? (argv.shift() ?? 'ecmash') : (argv[0] ?? 'ecmash')
+  const script = command === undefined && argv.length ? argv.shift() : undefined
+  const shell = new Shell(script ?? name, argv)
+
+  if (login) {
+    for (const file of ['/etc/profile', `${shell.vars.get('HOME') ?? ''}/.ecmash_profile`, `${shell.vars.get('HOME') ?? ''}/.profile`]) {
+      if (isFile(file)) { try { await shell.runText(readFileText(file)) } catch { /* a broken profile must not lock the shell out */ } }
+    }
+  }
+
+  let status = 0
+  try {
+    if (command !== undefined) status = await shell.runText(command)
+    else if (script !== undefined) {
+      if (!isFile(resolvePath(script))) { writeAllFd(2, `ecmash: ${script}: No such file or directory\n`); exit(127) }
+      status = await shell.runText(readFileText(resolvePath(script)))
+    } else if (isTty(0)) {
+      const rc = `${shell.vars.get('HOME') ?? ''}/.ecmashrc`
+      if (isFile(rc)) { try { await shell.runText(readFileText(rc)) } catch { /* ignore */ } }
+      await interactive(shell, ttyFd())
+    } else {
+      status = await shell.runText(readFd(0))
+    }
+  } catch (error) {
+    if (error instanceof ControlSignal) status = error.value ?? 0
+    else { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); status = 2 }
+  }
+  for (const job of shell.jobs) await job.done
+  exit(status & 0xff)
+}
+
+await main()

@@ -213,6 +213,32 @@ async function renameTerminalConfigs(ctx: FsMigrationContext): Promise<void> {
   if (renamed) log.info(`Renamed ${renamed} shell.toml to terminal.toml`)
 }
 
+/**
+ * Renames each home's `~/.history` to `~/.ecmash_history`, the name `ecmash` and the kernel shell now
+ * share. A history already at the new name wins and the old file is dropped, as with the terminal
+ * config rename above.
+ */
+async function renameHistoryFiles(ctx: FsMigrationContext): Promise<void> {
+  const { fs, log } = ctx
+  const homes = new Set<string>(['/root'])
+  if (await fs.exists('/etc/passwd')) {
+    for (const line of (await fs.readFile('/etc/passwd', 'utf8')).split('\n')) {
+      const home = line.split(':')[5]
+      if (home) homes.add(home)
+    }
+  }
+
+  let renamed = 0
+  for (const home of homes) {
+    const from = `${home}/.history`
+    if (!await fs.exists(from)) continue
+    const to = `${home}/.ecmash_history`
+    if (await fs.exists(to)) await fs.unlink(from)
+    else { await fs.rename(from, to); renamed++ }
+  }
+  if (renamed) log.info(`Renamed ${renamed} ~/.history to ~/.ecmash_history`)
+}
+
 export const FS_MIGRATIONS: readonly FsMigration[] = [
   {
     version: 1,
@@ -240,6 +266,13 @@ export const FS_MIGRATIONS: readonly FsMigration[] = [
     description: '1.0: rename shell.toml to terminal.toml, which is the layer it actually configures',
     async run(ctx) {
       await renameTerminalConfigs(ctx)
+    }
+  },
+  {
+    version: 4,
+    description: '1.0: rename ~/.history to ~/.ecmash_history',
+    async run(ctx) {
+      await renameHistoryFiles(ctx)
     }
   }
 ]

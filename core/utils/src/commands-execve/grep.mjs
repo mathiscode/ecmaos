@@ -8,6 +8,10 @@ const usage = `Usage: grep [OPTION]... PATTERN [FILE]...
 Search for PATTERN in each FILE.
 
   -i, --ignore-case   ignore case distinctions
+  -v                  select non-matching lines
+  -q                  print nothing; exit 0 if a line matched
+  -F                  PATTERN is a fixed string
+  -E                  PATTERN is an extended regular expression (the default)
   -n, --line-number   print line number with output lines
   -c, --count         print only a count of matching lines per FILE
   --help              display this help and exit`
@@ -60,6 +64,10 @@ function main() {
   let ignoreCase = false
   let showLineNumbers = false
   let countOnly = false
+  let invert = false
+  let quiet = false
+  let fixed = false
+  let selected = 0
   const positional = []
 
   for (const arg of args) {
@@ -77,7 +85,11 @@ function main() {
       if (flags.includes('i')) ignoreCase = true
       if (flags.includes('n')) showLineNumbers = true
       if (flags.includes('c')) countOnly = true
-      const invalid = flags.find(f => !['i', 'n', 'c'].includes(f))
+      if (flags.includes('v')) invert = true
+      if (flags.includes('q')) quiet = true
+      if (flags.includes('F')) fixed = true
+      // -E is the default: the pattern is a JavaScript regular expression, which is extended syntax.
+      const invalid = flags.find(f => !['i', 'n', 'c', 'v', 'q', 'F', 'E', 'G'].includes(f))
       if (invalid) {
         writeAll(2, new TextEncoder().encode(`grep: invalid option -- '${invalid}'\n`))
         return 1
@@ -97,7 +109,7 @@ function main() {
 
   let regex
   try {
-    regex = new RegExp(pattern, ignoreCase ? 'i' : '')
+    regex = new RegExp(fixed ? pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : pattern, ignoreCase ? 'i' : '')
   } catch (error) {
     writeAll(2, new TextEncoder().encode(`grep: invalid pattern: ${error instanceof Error ? error.message : String(error)}\n`))
     return 1
@@ -114,8 +126,9 @@ function main() {
     let lineNumber = 1
     let count = 0
     for (const line of lines) {
-      if (regex.test(line)) {
+      if (regex.test(line) !== invert) {
         count++
+        selected++
         if (!countOnly) output += showLineNumbers ? `${lineNumber}:${line}\n` : `${line}\n`
       }
       lineNumber++
@@ -134,8 +147,9 @@ function main() {
         let lineNumber = 1
         let count = 0
         for (const line of lines) {
-          if (regex.test(line)) {
+          if (regex.test(line) !== invert) {
             count++
+            selected++
             if (!countOnly) output += `${prefix}${showLineNumbers ? `${lineNumber}:` : ''}${line}\n`
           }
           lineNumber++
@@ -149,8 +163,9 @@ function main() {
     }
   }
 
-  writeAll(1, new TextEncoder().encode(output))
-  return exitCode
+  if (!quiet) writeAll(1, new TextEncoder().encode(output))
+  // GNU grep: 0 when a line was selected, 1 when none was, 2 on error.
+  return exitCode !== 0 ? 2 : selected > 0 ? 0 : 1
 }
 
 try {

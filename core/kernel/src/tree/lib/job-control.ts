@@ -94,6 +94,11 @@ export interface SpawnOptions {
 export async function spawnWithFds(parent: Process, command: string, argv: string[], env: Record<string, string>, options: SpawnOptions = {}): Promise<Process> {
   const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd })
   try {
+    // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
+    // pipe end open and a reader downstream of it would never see EOF.
+    for (const fd of [...child.context.descriptors.keys()]) {
+      if (fd > 2) fs.closeSync.call(child.context, fd)
+    }
     for (const [target, source] of Object.entries(options.fds ?? {})) {
       const handle = parent.context.descriptors.get(source)
       if (!handle) throw fail(Errno.EBADF, `Bad file descriptor: ${source}`)

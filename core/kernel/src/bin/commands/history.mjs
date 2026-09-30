@@ -58,7 +58,7 @@ function writeFile(path, content) {
 
 function historyPath() {
   const home = globalThis.ecmaosSyscalls.env['HOME'] || '/root'
-  return join(home, '.history')
+  return join(home, '.ecmash_history')
 }
 
 function readHistoryLines() {

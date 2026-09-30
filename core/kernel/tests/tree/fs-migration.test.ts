@@ -64,7 +64,7 @@ describe('boot over a persisted 0.x filesystem', () => {
 
   it('boots to RUNNING and records the filesystem as migrated', async () => {
     expect(kernel.state).toBe(KernelState.RUNNING)
-    expect(await readFsVersion(kernel.filesystem.fs)).toBe(3)
+    expect(await readFsVersion(kernel.filesystem.fs)).toBe(4)
   })
 
   it('writes a real 7-field /etc/passwd and an /etc/group for the fresh-boot root user (migration 2 is a no-op on an already-current file)', async () => {
@@ -97,7 +97,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([])
     await kernel.registerCommands()
 
-    expect(await readFsVersion(fs)).toBe(3)
+    expect(await readFsVersion(fs)).toBe(4)
     expect((await fs.readdir('/bin')).sort()).toEqual(binBefore)
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(DEFAULT_BOOT_INIT)
     expect(await fs.exists('/boot/init.new')).toBe(false)
@@ -117,7 +117,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     await fs.unlink(FS_VERSION_FILE)
     await fs.writeFile('/boot/init', edited)
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4])
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(edited)
     expect(await fs.readFile('/boot/init.new', 'utf8')).toBe(DEFAULT_BOOT_INIT)
   })
@@ -129,7 +129,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     // same primary group -- exercises both "primary group names itself" and "member list grows".
     await fs.writeFile('/etc/passwd', 'alice:1000:100:200:/home/alice:ecmaos\nbob:1001:100:200,300:/home/bob:ecmaos\n')
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4])
 
     const passwd = await fs.readFile('/etc/passwd', 'utf8')
     expect(passwd).toContain('alice:x:1000:100:alice:/home/alice:ecmaos')
@@ -181,5 +181,22 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await removeStaleCommandStubs(fs, liveStubs())).toEqual(['gone'])
     expect(await fs.exists('/bin/echo')).toBe(true)
     expect(await fs.exists('/bin/test')).toBe(true)
+  })
+
+  it('migration 4 renames ~/.history to ~/.ecmash_history and leaves an existing new file alone', async () => {
+    const fs = kernel.filesystem.fs
+    await fs.unlink(FS_VERSION_FILE)
+    await fs.writeFile('/root/.history', 'old\n')
+    await fs.rm('/root/.ecmash_history', { force: true })
+
+    await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })
+    expect(await fs.readFile('/root/.ecmash_history', 'utf8')).toBe('old\n')
+    expect(await fs.exists('/root/.history')).toBe(false)
+
+    await fs.unlink(FS_VERSION_FILE)
+    await fs.writeFile('/root/.history', 'stale\n')
+    await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })
+    expect(await fs.readFile('/root/.ecmash_history', 'utf8')).toBe('old\n')
+    expect(await fs.exists('/root/.history')).toBe(false)
   })
 })

@@ -32,6 +32,7 @@ import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
+import { installPipeWakeup } from './pipe-wakeup.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
@@ -66,6 +67,7 @@ declare module '@zenfs/linux/uapi/abi' {
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
     screensaver_run(name: string, set: number, path: string): number
+    users_chsh(username: string, shellValue: string, path: string): number
     users_password(oldPassword: string, newPassword: string, path: string): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
@@ -187,6 +189,7 @@ export function installMainThreadSyscalls(): void {
   if (installed) return
   installed = true
   installFdLinks()
+  installPipeWakeup()
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)
@@ -881,6 +884,29 @@ export function installMainThreadSyscalls(): void {
 
   // `passwd`: changes the password of the user the kernel is running as. The program does the
   // prompting (with echo off) and passes both passwords here; the result is `{}` or `{ error }`.
+  // `chsh`: a user may change their own login shell, root anyone's. The shell must be listed in
+  // `/etc/shells`; the change takes effect at the next login, as on Linux.
+  define_syscall('users_chsh', async (proc: Process, username: string, shellValue: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    let text: string
+    try {
+      if (!shell) throw new Error('no shell')
+      const name = username || shell.username
+      const target = Array.from(kernel.users.all.values()).find(u => u.username === name)
+      if (!target) throw new Error(`user '${name}' does not exist`)
+      if (target.uid !== shell.credentials.uid && shell.credentials.euid !== 0) throw new Error('permission denied')
+      const listed = (await kernel.filesystem.fs.readFile('/etc/shells', 'utf-8')).split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'))
+      if (!listed.includes(shellValue)) throw new Error(`${shellValue} is not listed in /etc/shells`)
+      await kernel.users.update(target.uid, { shell: shellValue })
+      text = JSON.stringify({ message: `shell for ${target.username} changed to ${shellValue}` })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+    }
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
   define_syscall('users_password', async (proc: Process, oldPassword: string, newPassword: string, path: string) => {
     const kernel = kernelOf(proc)
     let text: string

@@ -331,7 +331,7 @@ export class Terminal extends XTerm implements ITerminal {
     })
     this._history = new History({
       fs: () => this._shell?.context?.fs?.promises,
-      file: () => path.join(this._shell?.env.get('HOME') || '/root', '.history'),
+      file: () => path.join(this._shell?.env.get('HOME') || '/root', '.ecmash_history'),
       variable: name => this._shell?.env.get(name),
       error: message => this._ctx.log.error(message)
     })

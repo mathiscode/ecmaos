@@ -50,11 +50,11 @@ describe('appending on the root filesystem', () => {
     await history.add(0, 'first')
     await history.add(0, 'second')
     await history.add(0, 'third')
-    expect(await fs().readFile('/root/.history', 'utf-8')).toBe('first\nsecond\nthird\n')
+    expect(await fs().readFile('/root/.ecmash_history', 'utf-8')).toBe('first\nsecond\nthird\n')
   })
 
   it('load heals a history file already damaged by the bug', async () => {
-    await fs().writeFile('/root/.history', 'kept\n\0\0\0\0\0\0\0\0')
+    await fs().writeFile('/root/.ecmash_history', 'kept\n\0\0\0\0\0\0\0\0')
     const terminal = kernel.terminal as unknown as { reloadHistory(uid: number): Promise<void> }
     await terminal.reloadHistory(0)
     const history = (kernel.terminal as unknown as { _history: { entries(uid: number): string[] } })._history
