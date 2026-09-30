@@ -103,7 +103,17 @@ export interface GroupStatement extends Redirected, Positioned {
   body: Statement[]
 }
 
-export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | GroupStatement | FunctionDef
+/**
+ * `( list )`: a subshell. Its variable, function and directory changes, and any `exit`, stay inside
+ * it. Only the standalone form is parsed: a subshell inside a pipeline or an `&&` list is refused
+ * with a message, because the stage parser has no notion of a parenthesized command.
+ */
+export interface SubshellStatement extends Redirected, Positioned {
+  type: 'subshell'
+  body: Statement[]
+}
+
+export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -153,11 +163,53 @@ function preprocessLines(script: string, offset = 0): SourceLine[] {
 /** {@link normalizeInlineControlFlow}'s per-line rule, shared with {@link preprocessLines}. */
 function normalizeOneLineIfNeeded(line: string): string {
   const trimmed = line.trim()
-  return ONE_LINE_FUNCTION_BODY.test(trimmed) || BRACE_GROUP_OPEN.test(trimmed) ? line : normalizeOneLine(line)
+  return ONE_LINE_FUNCTION_BODY.test(trimmed) || BRACE_GROUP_OPEN.test(trimmed) || SUBSHELL_OPEN.test(trimmed) ? line : normalizeOneLine(line)
 }
 
 /** A line that opens a brace group: `{` followed by whitespace or the end of the line. */
 const BRACE_GROUP_OPEN = /^\{(?:\s|$)/
+
+/** A line that opens a subshell: `(` but not `((`, which is arithmetic. */
+const SUBSHELL_OPEN = /^\((?!\()/
+
+/**
+ * The index of the `)` closing the `(` at `start`, skipping quotes, escapes and nested parentheses
+ * (so `$(...)` inside the subshell is fine), or -1 when the line ends first.
+ */
+function closingParen(text: string, start: number): number {
+  let depth = 0
+  for (let i = start; i < text.length; i++) {
+    const char = text[i] as string
+    if (char === '\\') { i++; continue }
+    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) return -1; i = end; continue }
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
+      if (j >= text.length) return -1
+      i = j
+      continue
+    }
+    if (char === '(') depth++
+    else if (char === ')' && --depth === 0) return i
+  }
+  return -1
+}
+
+/** The index of the first `;` outside quotes, or -1. */
+function firstSemicolon(text: string): number {
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i] as string
+    if (char === '\\') { i++; continue }
+    if (char === "'" || char === '"') {
+      const end = text.indexOf(char, i + 1)
+      if (end === -1) return -1
+      i = end
+      continue
+    }
+    if (char === ';') return i
+  }
+  return -1
+}
 
 /** A whole group on one physical line, `{ echo a; echo b; } > f`. Greedy, so the last `}` closes it. */
 const INLINE_GROUP = /^\{\s+(.*)\}\s*(.*)$/
@@ -221,6 +273,7 @@ class LineParser {
       case 'function': return this.parseFunctionKeywordForm()
       case '{': return this.parseGroup()
       default: {
+        if (SUBSHELL_OPEN.test(line)) return this.parseSubshell()
         const inlineFn = INLINE_FUNCTION_DEF.exec(line)
         if (inlineFn) {
           const at = this.here() ?? 1
@@ -337,6 +390,33 @@ class LineParser {
     const body = this.parseStatements(['}'])
     const redirect = this.expectKeywordLine('}')
     return { type: 'group', body, ...(redirect ? { redirect } : {}) }
+  }
+
+  private parseSubshell(): SubshellStatement {
+    const at = this.here() ?? 1
+    const line = this.advance().trim()
+    const close = closingParen(line, 0)
+    if (close !== -1) {
+      let rest = line.slice(close + 1).trim()
+      // `(a) > f; b`: the redirection ends at the `;`, and what follows it is the next statement.
+      const semicolon = firstSemicolon(rest)
+      if (semicolon !== -1) {
+        const sequel = rest.slice(semicolon + 1).trim()
+        rest = rest.slice(0, semicolon).trim()
+        if (sequel) this.lines.splice(this.pos, 0, { text: sequel, line: at })
+      }
+      if (rest && !/^(?:\d*[<>]|&>)/.test(rest)) {
+        throw new ControlFlowParseError(`A subshell followed by "${rest.split(/\s/)[0]}" is not supported; put it on its own line`)
+      }
+      return { type: 'subshell', body: parseInlineBody(line.slice(1, close), at), ...(rest ? { redirect: rest } : {}) }
+    }
+
+    // The subshell opens here and closes on a later line holding only `)` (and any redirection).
+    const rest = line.replace(/^\(\s*/, '')
+    if (rest) this.lines.splice(this.pos, 0, { text: rest, line: at })
+    const body = this.parseStatements([')'])
+    const redirect = this.expectKeywordLine(')')
+    return { type: 'subshell', body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseCase(): CaseStatement {
@@ -575,6 +655,13 @@ function normalizeOneLine(text: string): string {
       while (k < text.length && /[A-Za-z]/.test(text[k] as string)) k++
       const word = text.slice(j, k)
       const boundaryOk = !text[k] || !/[A-Za-z0-9_]/.test(text[k] as string)
+
+      // A subshell after a `;` is a statement of its own (`a; (b; c)`), which the line parser takes.
+      if (text[j] === '(' && text[j + 1] !== '(') {
+        flush()
+        i = j
+        continue
+      }
 
       if (boundaryOk && ISOLATE_ALONE.has(word)) {
         flush()

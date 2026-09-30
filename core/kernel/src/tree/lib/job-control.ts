@@ -21,6 +21,22 @@ const SIGCHLD = 17
 /** Process group of each pid; a process with no entry is in its parent's group, as after `fork`. */
 const groups = new Map<number, number>()
 
+/** `waitpid` option bits, as on Linux */
+export const WNOHANG = 1
+export const WUNTRACED = 2
+const SIGTSTP = 20
+const SIGCONT = 18
+
+/**
+ * Children whose current stop has already been reported to a `WUNTRACED` wait. `killpg` clears a
+ * child's mark when it continues it; a wait clears it once it sees the child running, for a `SIGCONT`
+ * sent any other way.
+ */
+const stopReported = new WeakSet<Process>()
+
+/** A stopped child's status: `0x7f` in the low byte, the stopping signal above it */
+export function encodeStopped(signal: number): number { return (signal << 8) | 0x7f }
+
 export function encodeStatus(code: number | undefined, signal: number | undefined): number {
   if (signal) return signal & 0x7f
   return ((code ?? 0) & 0xff) << 8
@@ -50,6 +66,7 @@ export function killpg(pgid: number, signal: number): number {
   let count = 0
   for (const proc of [...processes.values()]) {
     if (proc.code !== undefined || getpgid(proc) !== pgid) continue
+    if (signal === SIGCONT) stopReported.delete(proc)
     if (zenfsKill(proc.pid, signal)) count++
   }
   if (!count) throw fail(Errno.ESRCH, 'No such process group')
@@ -57,18 +74,35 @@ export function killpg(pgid: number, signal: number): number {
 }
 
 /** `waitpid(2)`: `pid` -1 for any child; `nohang` returns 0 rather than waiting. */
-export async function waitpid(caller: Process, pid: number, nohang: boolean): Promise<number> {
+export async function waitpid(caller: Process, pid: number, flags: number | boolean): Promise<number> {
+  const bits = typeof flags === 'boolean' ? (flags ? WNOHANG : 0) : flags
+  const nohang = (bits & WNOHANG) !== 0
+  const untraced = (bits & WUNTRACED) !== 0
   const children = [...caller.children].filter(child => pid < 0 || child.pid === pid)
   if (!children.length) throw fail(Errno.ECHILD, 'No such child')
-  let ready = children.find(child => child.code !== undefined)
-  if (!ready) {
+  for (;;) {
+    const ready = children.find(child => child.code !== undefined)
+    if (ready) {
+      const reaped = ready.pid
+      const status = encodeStatus(ready.code, ready.killed_by)
+      ready.reap()
+      return reaped * 65536 + status
+    }
+    if (untraced) {
+      // A stop is reported once, then not again until the child has run and stopped anew.
+      for (const child of children) if (!child.stopped) stopReported.delete(child)
+      const stopped = children.find(child => child.stopped && !stopReported.has(child))
+      if (stopped) {
+        stopReported.add(stopped)
+        return stopped.pid * 65536 + encodeStopped(SIGTSTP)
+      }
+    }
     if (nohang) return 0
-    ready = await Promise.race(children.map(async child => (await child.exited, child)))
+    // `stopped` is a plain flag with no event behind it, so a wait that watches for stops has to poll.
+    const exits = children.map(async child => { await child.exited })
+    if (untraced) await Promise.race([...exits, new Promise(resolve => setTimeout(resolve, 25))])
+    else await Promise.race(exits)
   }
-  const status = encodeStatus(ready.code, ready.killed_by)
-  const reaped = ready.pid
-  ready.reap()
-  return reaped * 65536 + status
 }
 
 /** What a caller may signal: anything if root, otherwise only its own user's processes. */

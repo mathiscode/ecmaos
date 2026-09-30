@@ -2747,6 +2747,11 @@ export class Shell implements IShell {
           lastExit = await this.withStatementRedirection(statement, () => this.executeStatements(statement.body))
           break
         }
+
+        case 'subshell': {
+          lastExit = await this.withStatementRedirection(statement, () => this.executeSubshell(statement.body))
+          break
+        }
       }
 
       if (this._shellOptions.errexit && lastExit !== 0 && statement.type === 'simple') return lastExit
@@ -2921,6 +2926,33 @@ export class Shell implements IShell {
       }
     }
     return 0
+  }
+
+  /**
+   * Runs `( list )`. There is no fork here, so the subshell is a snapshot: variables (which is also
+   * where the positional parameters live), arrays, functions and the working directory are put back
+   * afterwards, and `exit` ends only the subshell. Options and traps are left shared.
+   */
+  private async executeSubshell(body: Statement[]): Promise<number> {
+    const env = new Map(this._env)
+    const arrays = new Map([...this._arrays].map(([name, array]) => [name, new Map(array)]))
+    const functions = new Map(this._functions)
+    const cwd = this._cwd
+    this._signalCatchers.exit++
+    let code: number
+    try {
+      code = await this.executeStatements(body)
+    } catch (signal) {
+      if (!(signal instanceof ExitSignal)) throw signal
+      code = signal.code
+    } finally {
+      this._signalCatchers.exit--
+      this._arrays = arrays
+      this._functions = functions
+      this._cwd = cwd
+      this.env = env
+    }
+    return this.reportExit(code)
   }
 
   /**

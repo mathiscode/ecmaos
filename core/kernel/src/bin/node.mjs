@@ -33,7 +33,7 @@ import {
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
   link, symlink, readlink, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
-import { syscall, syscall_async, copyOut, on_signal, off_signal } from '@zenfs/linux/uapi/base'
+import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
 
 /**
  * `poll(2)`: waits until one of `fds` (`[{ fd, events }]`) is ready or `timeout` ms pass (negative:
@@ -234,21 +234,28 @@ globalThis.ecmaosSyscalls = {
   // The job-control shim (`job-control.ts`), named for the POSIX call each stands in for. A wait
   // status is Linux-shaped; `waitpid` returns `{ pid, code, signal }`, or `null` for `WNOHANG` with
   // nothing ready. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`.
-  waitpid: async (pid, nohang = false) => {
-    const packed = await syscall_async('proc_waitpid', pid, nohang ? 1 : 0)
+  // `untraced` is `WUNTRACED`: also return when a child stops, as `{ pid, stopped: true, signal }`.
+  waitpid: async (pid, nohang = false, untraced = false) => {
+    const packed = await syscall_async('proc_waitpid', pid, (nohang ? 1 : 0) | (untraced ? 2 : 0))
     if (!packed) return null
     const status = packed % 65536
+    if ((status & 0xff) === 0x7f) return { pid: Math.floor(packed / 65536), stopped: true, signal: (status >> 8) & 0xff }
     const signal = status & 0x7f
     return { pid: Math.floor(packed / 65536), ...(signal ? { signal } : { code: (status >> 8) & 0xff }) }
   },
   setpgid: (pid, pgid) => syscall_async('proc_setpgid', pid, pgid),
   getpgid: (pid = 0) => syscall_async('proc_getpgid', pid),
   killpg: (pgid, signal) => syscall_async('proc_killpg', pgid, signal),
+  tcsetpgrp: pid => syscall_async('proc_tcsetpgrp', pid),
   spawn: (command, argv, options = {}) =>
     syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,
+  // The signals raised on this thread and not yet delivered, as `1 << sig`. A handler runs only when a
+  // *blocking* syscall returns, and the next one clears whatever is left, so a program that waits in an
+  // async syscall (`waitpid`) reads this afterwards to see what arrived meanwhile.
+  pendingSignals: pending_signals,
   // `poll(fds, timeout)` and its event bits: wait on several fds at once (a terminal and a socket).
   poll, POLLIN, POLLOUT, POLLERR, POLLHUP,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,

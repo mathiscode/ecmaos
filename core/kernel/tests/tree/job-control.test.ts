@@ -5,7 +5,7 @@ import '@zenfs/linux'
 import { Process, DevTmpFS } from '@zenfs/linux'
 import { defaultContext, configure, InMemory, fs } from '@zenfs/core'
 
-import { decodeStatus, getpgid, killpg, setpgid, spawnWithFds, waitpid } from '#lib/job-control.ts'
+import { WUNTRACED, decodeStatus, getpgid, killpg, setpgid, spawnWithFds, waitpid } from '#lib/job-control.ts'
 
 /** The process half of job control: wait statuses, process groups, and a spawn that wires fds. */
 describe('job-control shim', () => {
@@ -72,5 +72,31 @@ describe('job-control shim', () => {
     await waitpid(parent, child.pid, false)
     fs.closeSync.call(parent.context, r)
     expect(await fs.promises.readFile('/out', 'utf-8')).toBe('hello:bob')
+  })
+
+  it('WUNTRACED reports a stop once, not again until it has run and stopped anew', async () => {
+    const child = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {})
+    child.kill('SIGTSTP')
+    const stopped = await waitpid(parent, child.pid, WUNTRACED)
+    expect(Math.floor(stopped / 65536)).toBe(child.pid)
+    expect(stopped % 65536).toBe((20 << 8) | 0x7f)
+    // Reported already, so a non-blocking look finds nothing new, and the child is not reaped.
+    expect(await waitpid(parent, child.pid, WUNTRACED | 1)).toBe(0)
+    expect(child.code).toBeUndefined()
+    // Continued by `killpg`, which is what the shell uses, then stopped again before anyone looked.
+    setpgid(parent, child.pid, child.pid)
+    killpg(child.pid, 18)
+    child.kill('SIGTSTP')
+    expect((await waitpid(parent, child.pid, WUNTRACED)) % 65536).toBe((20 << 8) | 0x7f)
+    child.kill('SIGKILL')
+    expect(decodeStatus((await waitpid(parent, child.pid, WUNTRACED)) % 65536)).toEqual({ signal: 9 })
+  })
+
+  it('a wait without WUNTRACED does not report a stop', async () => {
+    const child = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {})
+    child.kill('SIGTSTP')
+    expect(await waitpid(parent, child.pid, 1)).toBe(0)
+    child.kill('SIGKILL')
+    await waitpid(parent, child.pid, false)
   })
 })

@@ -203,6 +203,13 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
+    // Every test file boots a whole kernel and spawns a worker per program, so a run is CPU-bound
+    // rather than I/O-bound. With one fork per core (8 here) roughly half of all full runs failed on
+    // a different timing-sensitive test each time (empty redirect output, a `stat` that briefly
+    // missed `/bin/tr`, `ps` not finding `crond` in time) and none of them failed in isolation;
+    // with 4 forks it is about one run in eight and the suite takes no longer, since the extra
+    // forks only competed with each other and with the programs' own workers.
+    maxWorkers: 4,
     deps: {
       optimizer: {
         client: {

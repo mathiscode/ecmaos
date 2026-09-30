@@ -283,3 +283,38 @@ describe('brace groups', () => {
     expect(parseStatements('echo {a,b}')).toEqual([{ type: 'simple', line: 'echo {a,b}', lineNumber: 1 }])
   })
 })
+
+describe('subshells', () => {
+  it('parses an inline subshell with a redirection', () => {
+    const [statement] = parseStatements('(echo a; echo b) > out')
+    expect(statement).toMatchObject({ type: 'subshell', redirect: '> out' })
+    expect((statement as { body: Array<{ line: string }> }).body[0]?.line).toBe('echo a; echo b')
+  })
+
+  it('parses a multi-line subshell closed by a line of its own', () => {
+    const [statement] = parseStatements('(\n  echo a\n  echo b\n) >> log')
+    expect(statement).toMatchObject({ type: 'subshell', redirect: '>> log' })
+    expect((statement as { body: unknown[] }).body).toHaveLength(2)
+  })
+
+  it('nests, and keeps $( ) and quoted parentheses inside', () => {
+    const [statement] = parseStatements('(echo "a)" $(echo b); (echo c))')
+    const body = (statement as { body: Array<{ type: string, line?: string }> }).body
+    expect(body).toHaveLength(2)
+    expect(body[0]?.line).toBe('echo "a)" $(echo b)')
+    expect(body[1]?.type).toBe('subshell')
+  })
+
+  it('takes a statement after a closing parenthesis and a semicolon', () => {
+    expect(parseStatements('(echo a); echo b').map(statement => statement.type)).toEqual(['subshell', 'simple'])
+    expect(parseStatements('echo a; (echo b)').map(statement => statement.type)).toEqual(['simple', 'subshell'])
+  })
+
+  it('leaves (( )) arithmetic alone', () => {
+    expect(parseStatements('((x = 1))')[0]?.type).toBe('simple')
+  })
+
+  it('refuses a subshell followed by an operator', () => {
+    expect(() => parseStatements('(echo a) && echo b')).toThrow(/subshell/)
+  })
+})

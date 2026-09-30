@@ -76,10 +76,11 @@ declare module '@zenfs/linux/uapi/abi' {
     dom_toast(kind: string, message: string): number
     shell_set_theme(theme: string): number
     proc_spawn(command: string, argvJson: string, cwd: string, optionsJson?: string): number
-    proc_waitpid(pid: number, nohang: number): number
+    proc_waitpid(pid: number, flags: number): number
     proc_setpgid(pid: number, pgid: number): number
     proc_getpgid(pid: number): number
     proc_killpg(pgid: number, signal: number): number
+    proc_tcsetpgrp(pid: number): number
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
     shell_exec(command: string): number
@@ -1011,12 +1012,20 @@ export function installMainThreadSyscalls(): void {
     return await proc.wait(pid)
   })
 
-  define_syscall('proc_waitpid', async (proc: Process, pid: number, nohang: number) => waitpid(proc, pid, !!nohang))
+  define_syscall('proc_waitpid', async (proc: Process, pid: number, flags: number) => waitpid(proc, pid, flags))
   define_syscall('proc_setpgid', (proc: Process, pid: number, pgid: number) => setpgid(proc, pid, pgid))
   define_syscall('proc_getpgid', (proc: Process, pid: number) => {
     const target = pid === 0 ? proc : processes.get(pid)
     if (!target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
     return getpgid(target)
+  })
+  // `tcsetpgrp(3)`: what the caller's terminal is in front of, which is who `^C` and `^Z` reach. Upstream
+  // holds a process here rather than a group, so this takes a pid.
+  define_syscall('proc_tcsetpgrp', (proc: Process, pid: number) => {
+    const target = processes.get(pid)
+    if (!proc.tty || !target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    proc.tty.foreground = target
+    return 0
   })
   define_syscall('proc_killpg', (_proc: Process, pgid: number, signal: number) => { killpg(pgid, signal); return 0 })
 

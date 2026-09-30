@@ -12,8 +12,9 @@
  *
  * Covered: simple commands, pipelines, `&&`/`||`/`;`/`&`, redirections (`<`, `>`, `>>`, `2>`, `2>&1`,
  * heredocs, here-strings), `$var`/`${...}`/`$(...)`/`$((...))`, globbing, `if`/`while`/`for`/`case`,
- * `{ }` groups, functions, and the builtins listed in BUILTINS. Not covered here (the kernel shell
- * has them): arrays, process substitution, aliases, `trap`, `set -e` and friends.
+ * `{ }` groups, `( )` subshells (a snapshot, see `runSubshell`), indexed arrays, `<(cmd)`/`>(cmd)`,
+ * aliases, `trap`, `set -e` and friends, job control (`^Z`, `fg`, `bg`), functions, and the builtins
+ * listed in BUILTINS.
  *
  * Output redirected to a file goes through a scratch file and is copied over when the command ends.
  * The root filesystem corrupts a file written in several chunks through a plain descriptor (see
@@ -23,6 +24,7 @@
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
+import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
@@ -30,12 +32,16 @@ import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, getpid, getppid, onSignal } = sys
+const { open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
 const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const SIGINT = 2
+const SIGTSTP = 20
+const SIGCONT = 18
+// Signals `trap` can name, and the number `onSignal` wants for each.
+const TRAP_SIGNALS = { HUP: 1, INT: 2, QUIT: 3, USR1: 10, USR2: 12, PIPE: 13, ALRM: 14, TERM: 15, CHLD: 17 }
 
 // -- small fs helpers -----------------------------------------------------------------------------
 
@@ -79,6 +85,20 @@ const isDir = path => { try { return (stat(path).mode & 0xf000) === 0x4000 } cat
 const isFile = path => { try { return (stat(path).mode & 0xf000) === 0x8000 } catch { return false } }
 const resolvePath = (path, cwd = getcwd()) => normalize(path.startsWith('/') ? path : `${cwd}/${path}`)
 
+/** The `)` closing the `(` at `start`, skipping quotes and nested parentheses; -1 when there is none. */
+function closingParen(text, start) {
+  let depth = 0
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+    if (char === '\\') { i++; continue }
+    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) return -1; i = end; continue }
+    if (char === '"') { let j = i + 1; while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1; if (j >= text.length) return -1; i = j; continue }
+    if (char === '(') depth++
+    else if (char === ')' && --depth === 0) return i
+  }
+  return -1
+}
+
 function normalize(path) {
   const out = []
   for (const part of path.split('/')) {
@@ -99,7 +119,7 @@ class ControlSignal extends Error {
 
 const BUILTINS = new Set([
   ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
-  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'test', '[', 'exec', 'pwd', 'env',
+  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'fg', 'bg', 'disown', 'test', '[', 'exec', 'pwd', 'env', 'declare',
 ])
 
 class Shell {
@@ -121,6 +141,12 @@ class Shell {
     this.traps = new Map()
     this.conditional = 0
     this.leaving = false
+    this.arrays = new Map()
+    this.subshell = 0
+    this.procsubs = []
+    this.procsubCount = 0
+    this.pending = []
+    this.inErrTrap = false
     this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
     this.exported.add('SHLVL')
     if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
@@ -165,10 +191,11 @@ class Shell {
   context() {
     return {
       lookup: name => this.get(name),
-      lookupArray: () => undefined,
+      lookupArray: name => this.arrays.get(name),
       positional: () => this.positional,
       assign: (name, value) => this.set(name, value),
       substitute: command => this.substitute(command),
+      processSubstitute: (direction, command) => this.processSubstitute(direction, command),
       glob: pattern => this.glob(pattern),
       home: () => this.vars.get('HOME'),
       nounset: this.opts.nounset,
@@ -205,6 +232,105 @@ class Shell {
   }
 
   scratchPath() { return `/tmp/.ecmash-${getpid()}-${this.scratch++}` }
+
+  /**
+   * `<(cmd)` and `>(cmd)` as a temporary file standing in for the far end of a pipe: a child gets
+   * only descriptors 0 to 2, so `/dev/fd/N` would name nothing in it. `<(cmd)` runs to completion
+   * into the file first; `>(cmd)` runs afterwards with the file as its stdin. Removed by
+   * `finishProcSubs` once the pipeline that used it is done. It does not stream.
+   */
+  async processSubstitute(direction, command) {
+    const path = `/tmp/.ecmash-procsub-${getpid()}-${this.procsubCount++}`
+    writeWholeFile(path, '')
+    if (direction === '<') {
+      const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+      const saved = this._stdio
+      this._stdio = { ...this.stdio, 1: fd }
+      try { await this.runSubshell(parseStatements(command)) } finally { this._stdio = saved; close(fd) }
+      this.procsubs.push({ path })
+    } else {
+      this.procsubs.push({ path, after: async () => {
+        const fd = open(path, O_RDONLY)
+        const saved = this._stdio
+        this._stdio = { ...this.stdio, 0: fd }
+        try { await this.runSubshell(parseStatements(command)) } finally { this._stdio = saved; close(fd) }
+      } })
+    }
+    return path
+  }
+
+  async finishProcSubs(mark) {
+    for (const { path, after } of this.procsubs.splice(mark)) {
+      try { await after?.() } finally { try { unlink(path) } catch { /* already gone */ } }
+    }
+  }
+
+  /**
+   * Runs a statement list as a subshell. There is no fork, so it is a snapshot: variables, arrays,
+   * functions, aliases, the positional parameters and the working directory are put back afterwards,
+   * and `exit` inside ends only the subshell.
+   */
+  async runSubshell(statements) {
+    const saved = {
+      vars: new Map(this.vars), exported: new Set(this.exported), functions: new Map(this.functions),
+      aliases: new Map(this.aliases), positional: this.positional, cwd: getcwd(), status: this.status,
+      arrays: new Map([...this.arrays].map(([name, array]) => [name, new Map(array)])),
+      traps: new Map(this.traps), opts: { ...this.opts }, leaving: this.leaving,
+    }
+    this.subshell++
+    try {
+      return await this.runStatements(statements)
+    } catch (signal) {
+      if (signal instanceof ControlSignal && signal.kind === 'exit') return signal.value
+      throw signal
+    } finally {
+      this.subshell--
+      Object.assign(this, { vars: saved.vars, exported: saved.exported, functions: saved.functions, aliases: saved.aliases,
+        positional: saved.positional, arrays: saved.arrays, traps: saved.traps, opts: saved.opts, leaving: saved.leaving })
+      if (getcwd() !== saved.cwd) chdir(saved.cwd)
+    }
+  }
+
+  // -- arrays -------------------------------------------------------------------------------------
+
+  /**
+   * `a=(x y)`, `a+=(z)` and `a[i]=v` at the start of a line. Returns the status, or `undefined` when
+   * the line is not one. The parser splits `a=(x y)` into two words, which is why this reads the raw
+   * text instead of the tokens.
+   */
+  async arrayAssignment(line) {
+    const head = /^(?:(?:declare|typeset|local|readonly)\s+(?:-[A-Za-z]+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(/.exec(line)
+    const close = head ? closingParen(line, head[0].length - 1) : -1
+    const tail = close === -1 ? undefined : /^\s*(?:(;|&&|\|\|)\s*([\s\S]*))?$/.exec(line.slice(close + 1))
+    if (head && tail) {
+      const [, name, append] = head
+      const body = line.slice(head[0].length, close)
+      const [, operator, rest] = tail
+      const values = []
+      for (const token of body.trim() ? tokenize(body) : []) if (token.kind === 'word') values.push(...await this.fields(token.parts))
+      const array = append ? (this.arrays.get(name) ?? new Map()) : new Map()
+      let next = array.size ? Math.max(...array.keys()) + 1 : 0
+      for (const value of values) array.set(next++, value)
+      this.arrays.set(name, array)
+      return await this.afterAssignment(operator, rest)
+    }
+    const element = /^(?:(?:declare|typeset|local|readonly)\s+(?:-[A-Za-z]+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]=(\S*)\s*(?:(;|&&|\|\|)\s*([\s\S]*))?$/.exec(line)
+    if (element) {
+      const [, name, subscript, raw, operator, rest] = element
+      const index = evaluateArithmeticExpression(subscript, variable => this.get(variable))
+      const array = this.arrays.get(name) ?? new Map()
+      array.set(index, await this.text((tokenize(raw || "''")[0] ?? { parts: [] }).parts))
+      this.arrays.set(name, array)
+      return await this.afterAssignment(operator, rest)
+    }
+    return undefined
+  }
+
+  async afterAssignment(operator, rest) {
+    if (!rest) return 0
+    if (operator === '||') return 0
+    return await this.runLine(rest)
+  }
 
   async glob(pattern) {
     if (!/[*?[]/.test(pattern)) return []
@@ -247,13 +373,18 @@ class Shell {
     for (const statement of statements) {
       status = await this.runStatement(statement)
       this.status = status
+      await this.runPendingTraps()
     }
     return status
   }
 
   async runStatement(statement) {
     switch (statement.type) {
-      case 'simple': return await this.runLine(statement.line)
+      case 'simple': {
+        const arrayStatus = await this.arrayAssignment(statement.line)
+        if (arrayStatus !== undefined) return arrayStatus
+        return await this.runLine(statement.line)
+      }
       case 'function': this.functions.set(statement.name, statement.body); return 0
       case 'if': return await this.withRedirect(statement, async () => {
         for (const branch of statement.branches) {
@@ -299,6 +430,7 @@ class Shell {
         return 0
       })
       case 'group': return await this.withRedirect(statement, () => this.runStatements(statement.body))
+      case 'subshell': return await this.withRedirect(statement, () => this.runSubshell(statement.body))
     }
     return 0
   }
@@ -307,11 +439,13 @@ class Shell {
   async withRedirect(statement, run) {
     if (!statement.redirect) return await run()
     const saved = this._stdio
+    const mark = this.procsubs.length
     const applied = await this.openRedirections(parseRedirections(statement.redirect), { ...this.stdio })
     this._stdio = applied.fds
     try { return await run() } finally {
       this._stdio = saved
       await applied.finish()
+      await this.finishProcSubs(mark)
     }
   }
 
@@ -333,7 +467,13 @@ class Shell {
             if (tested) this.conditional--
           }
           this.status = status
-          if (this.opts.errexit && status !== 0 && !this.conditional && !stage.pipeline.negated && !tested && index >= 0) await this.leave(status)
+          if (status !== 0 && !this.conditional && !stage.pipeline.negated && !tested) {
+            if (this.traps.has('ERR') && !this.inErrTrap) {
+              this.inErrTrap = true
+              try { await this.runText(this.traps.get('ERR')) } finally { this.inErrTrap = false; this.status = status }
+            }
+            if (this.opts.errexit) await this.leave(status)
+          }
         }
         // `a && b || c`: a skipped stage leaves the status alone and the next operator decides again.
         if (stage.operator === '&&') skip = status !== 0
@@ -348,6 +488,7 @@ class Shell {
 
   /** Runs the `EXIT` trap once, then ends the shell. */
   async leave(code) {
+    if (this.subshell) throw new ControlSignal('exit', code & 0xff)
     if (!this.leaving) {
       this.leaving = true
       const trap = this.traps.get('EXIT')
@@ -356,26 +497,85 @@ class Shell {
     exit(code & 0xff)
   }
 
+  /**
+   * Signals that arrived while this worker sat in an async syscall never reach their handler (the next
+   * blocking syscall clears them first), but they are still visible on the thread's page until then.
+   */
+  collectSignals() {
+    const mask = sys.pendingSignals?.() ?? 0
+    if (!mask) { this.seenMask = 0; return }
+    const fresh = mask & ~(this.seenMask ?? 0)
+    this.seenMask = mask
+    for (const [name, number] of Object.entries(TRAP_SIGNALS)) {
+      if ((fresh & (1 << number)) && this.traps.has(name) && !this.pending.includes(name)) this.pending.push(name)
+    }
+  }
+
+  /** Runs the traps for signals that arrived since the last look: between commands, as in bash. */
+  async runPendingTraps() {
+    this.collectSignals()
+    while (this.pending.length) {
+      const text = this.traps.get(this.pending.shift())
+      if (!text) continue
+      const status = this.status
+      await this.runText(text)
+      this.status = status
+    }
+  }
+
   // -- pipelines ----------------------------------------------------------------------------------
 
+  /** A job-table entry for a started pipeline. Numbers are never reused while an entry is alive. */
+  addJob(handle, pipeline, extra = {}) {
+    const number = Math.max(0, ...this.jobs.map(job => job.number)) + 1
+    const line = pipeline.commands.map(command => command.words.join(' ')).join(' | ')
+    const record = { number, handle, pids: handle.pids, pgid: handle.leader, line, finished: false, code: 0, reported: false, stopped: false, ...extra }
+    this.jobs.push(record)
+    return record
+  }
+
+  /** Waits for a background job in the background, recording how it ended. */
+  watch(record, untraced = false) {
+    record.done = record.handle.finish({ untraced }).then(status => {
+      if (record.handle.stopped) { record.stopped = true; return }
+      record.finished = true
+      record.code = status
+    })
+  }
+
   async runBackground(pipeline) {
+    const mark = this.procsubs.length
     const job = await this.startPipeline(pipeline, true)
     if (!job) return 1
-    const number = this.jobs.length + 1
-    const line = pipeline.commands.map(command => command.words.join(' ')).join(' | ')
-    const record = { number, pids: job.pids, line, finished: false, code: 0, reported: false }
-    record.done = job.finish().then(status => { record.finished = true; record.code = status })
-    this.jobs.push(record)
+    const record = this.addJob(job, pipeline, { background: true })
+    this.watch(record)
+    record.done = record.done.then(() => this.finishProcSubs(mark))
     this.lastPid = job.pids[job.pids.length - 1]
-    if (this.interactive) writeAllFd(2, `[${number}] ${this.lastPid}\n`)
+    if (this.interactive) writeAllFd(2, `[${record.number}] ${this.lastPid}\n`)
     return 0
   }
 
   async runPipeline(pipeline) {
+    const mark = this.procsubs.length
     const job = await this.startPipeline(pipeline, false)
-    if (!job) return 127
-    const status = await job.finish()
+    if (!job) { await this.finishProcSubs(mark); return 127 }
+    const status = await job.finish({ untraced: this.interactive })
+    await this.finishProcSubs(mark)
+    if (job.stopped) {
+      // ^Z: the job stays in the table, stopped, until `fg` or `bg` resumes it.
+      const record = this.addJob(job, pipeline, { stopped: true })
+      writeAllFd(1, `\r\n[${record.number}]+  Stopped    ${record.line}\r\n`)
+      this.restoreTerminal()
+      return 128 + SIGTSTP
+    }
+    this.restoreTerminal()
     return pipeline.negated ? (status === 0 ? 1 : 0) : status
+  }
+
+  /** The terminal goes back to this shell once a foreground job has finished or stopped. */
+  restoreTerminal() {
+    if (!this.interactive) return
+    try { tcsetpgrp(getpid()) } catch { /* no terminal */ }
   }
 
   /**
@@ -413,6 +613,7 @@ class Shell {
         }
         if (result.finish) cleanups.push(result.finish)
       } catch (error) {
+        if (error instanceof ControlSignal) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
         failed = true
@@ -425,29 +626,51 @@ class Shell {
     }
     if (inherited !== this.stdio[0]) { try { close(inherited) } catch { /* already closed */ } }
 
-    const finish = async () => {
-      let status = statusOfBuiltin ?? 0
+    const reaped = new Map()
+    const handle = { pids, leader, stopped: false, finish: null }
+    handle.finish = async ({ untraced = false } = {}) => {
+      handle.stopped = false
       let interrupted = false
-      let statusOfLast = status
+      await Promise.all(pids.filter(pid => !reaped.has(pid)).map(async pid => {
+        for (;;) {
+          let done
+          try { done = await waitpid(pid, false, untraced) } catch (error) {
+            // A signal with a trap set interrupts the wait; the trap runs, then the wait resumes.
+            if (error?.code === 'EINTR') { await this.runPendingTraps(); continue }
+            throw error
+          }
+          if (done.stopped) {
+            handle.stopped = true
+            // The terminal stops only its foreground process; the rest of the pipeline is ours to stop.
+            if (leader) { try { killpg(leader, SIGTSTP) } catch { /* already stopped */ } }
+            return
+          }
+          reaped.set(pid, done)
+          // The terminal signals only its foreground process; the rest of the pipeline is ours to stop.
+          if (done.signal === SIGINT && !interrupted && leader) {
+            interrupted = true
+            try { killpg(leader, SIGINT) } catch { /* everyone already exited */ }
+          }
+          return
+        }
+      }))
+      await this.runPendingTraps()
+      if (handle.stopped) return 128 + SIGTSTP
       let failure = builtinFailure
-      await Promise.all(pids.map(async pid => {
-        const done = await waitpid(pid, false)
+      let statusOfLast = statusOfBuiltin ?? 0
+      for (const pid of pids) {
+        const done = reaped.get(pid)
         const code = done.signal ? 128 + done.signal : done.code
         if (code !== 0) failure = code
         if (pid === pids[pids.length - 1]) statusOfLast = code
-        // The terminal signals only its foreground process; the rest of the pipeline is ours to stop.
-        if (done.signal === SIGINT && !interrupted && leader) {
-          interrupted = true
-          try { killpg(leader, SIGINT) } catch { /* everyone already exited */ }
-        }
-      }))
-      status = this.opts.pipefail && failure !== 0 ? failure : statusOfLast
+      }
+      const status = this.opts.pipefail && failure !== 0 ? failure : statusOfLast
       // A foreground stage killed by ^C runs the INT trap, as the kernel shell does.
       if (interrupted && this.traps.has('INT')) { try { await this.runText(this.traps.get('INT')) } catch { /* ignore */ } }
-      for (const cleanup of cleanups) await cleanup()
+      for (const cleanup of cleanups.splice(0)) await cleanup()
       return status
     }
-    return { pids, finish }
+    return handle
   }
 
   // -- one command --------------------------------------------------------------------------------
@@ -694,7 +917,26 @@ class Shell {
         if (!args.length) for (const name of [...this.exported].sort()) this.out(`export ${name}="${this.vars.get(name) ?? ''}"\n`)
         return 0
       }
-      case 'unset': for (const name of args.filter(a => !a.startsWith('-'))) { this.vars.delete(name); this.exported.delete(name); this.functions.delete(name) } return 0
+      case 'unset': {
+        for (const name of args.filter(a => !a.startsWith('-'))) {
+          const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name)
+          if (element) { this.arrays.get(element[1])?.delete(evaluateArithmeticExpression(element[2], v => this.get(v))); continue }
+          this.vars.delete(name); this.exported.delete(name); this.functions.delete(name); this.arrays.delete(name)
+        }
+        return 0
+      }
+      case 'declare': {
+        // Enough of `declare` for arrays and exports: `-a NAME` makes an empty array, `-x` exports,
+        // `NAME=value` assigns. Other flags are accepted and ignored.
+        const flags = args.filter(a => /^-[A-Za-z]+$/.test(a)).join('')
+        for (const arg of args.filter(a => !/^-[A-Za-z]+$/.test(a))) {
+          const [name, ...value] = arg.split('=')
+          if (flags.includes('a')) { if (!this.arrays.has(name)) this.arrays.set(name, new Map()) }
+          else if (value.length) this.vars.set(name, value.join('='))
+          if (flags.includes('x')) this.exported.add(name)
+        }
+        return 0
+      }
       case 'local': {
         const frame = this.locals[this.locals.length - 1]
         if (!frame) { this.out('ecmash: local: can only be used in a function\n', 2); return 1 }
@@ -740,13 +982,21 @@ class Shell {
       case 'unalias': for (const n of args) this.aliases.delete(n); return 0
       case 'trap': {
         if (!args.length || args[0] === '-p') { for (const [sig, cmd] of this.traps) this.out(`trap -- '${cmd}' ${sig}\n`); return 0 }
+        if (args[0] === '-l') { this.out(Object.keys(TRAP_SIGNALS).join(' ') + '\n'); return 0 }
         const [action, ...signals] = args
         for (const raw of signals) {
-          const sig = raw.replace(/^SIG/, '').toUpperCase()
-          if (sig !== 'EXIT' && sig !== 'INT' && sig !== '0') { this.out(`ecmash: trap: ${raw}: only EXIT and INT are supported\n`, 2); return 1 }
-          const key = sig === '0' ? 'EXIT' : sig
-          if (action === '-' || action === '') this.traps.delete(key)
-          else this.traps.set(key, action)
+          let sig = raw.replace(/^SIG/, '').toUpperCase()
+          if (/^\d+$/.test(sig)) sig = sig === '0' ? 'EXIT' : (Object.entries(TRAP_SIGNALS).find(([, n]) => n === Number(sig))?.[0] ?? sig)
+          if (sig !== 'EXIT' && sig !== 'ERR' && !(sig in TRAP_SIGNALS)) { this.out(`ecmash: trap: ${raw}: unsupported signal (EXIT, ERR and ${Object.keys(TRAP_SIGNALS).join(', ')} are)\n`, 2); return 1 }
+          if (action === '-' || action === '') {
+            if (action === '-') this.traps.delete(sig); else this.traps.set(sig, '')
+          } else this.traps.set(sig, action)
+          // INT is reported by the wait that saw the child die; the rest arrive as real signals.
+          if (sig in TRAP_SIGNALS && sig !== 'INT') {
+            const number = TRAP_SIGNALS[sig]
+            if (this.traps.has(sig)) onSignal(number, () => this.pending.push(sig))
+            else if (sys.offSignal) sys.offSignal(number)
+          }
         }
         return 0
       }
@@ -787,10 +1037,70 @@ class Shell {
         const list = name === '[' ? args.slice(0, -1) : args
         return this.test(list) ? 0 : 1
       }
-      case 'wait': for (const job of this.jobs.splice(0)) await job.done; return 0
-      case 'jobs': for (const job of this.jobs) this.out(`[${job.number}]  Running  ${job.pids.join(' ')}\n`); return 0
+      case 'wait': {
+        if (!args.length) { for (const job of this.jobs.filter(j => j.done && !j.stopped)) await job.done; this.jobs = this.jobs.filter(j => !j.finished); return 0 }
+        let status = 0
+        for (const arg of args) {
+          const job = this.pickJob(arg)
+          if (!job) { this.out(`ecmash: wait: ${arg}: no such job\n`, 2); status = 127; continue }
+          if (job.done) await job.done
+          status = job.code
+        }
+        return status
+      }
+      case 'jobs': {
+        for (const job of this.jobs) this.out(`[${job.number}]  ${job.stopped ? 'Stopped' : job.finished ? 'Done' : 'Running'}  ${job.line}${job.background && !job.stopped && !job.finished ? ' &' : ''}\n`)
+        return 0
+      }
+      case 'disown': {
+        const job = this.pickJob(args[0], true)
+        if (!job) { this.out('ecmash: disown: no such job\n', 2); return 1 }
+        this.jobs = this.jobs.filter(j => j !== job)
+        return 0
+      }
+      case 'bg': case 'fg': {
+        const job = this.pickJob(args[0], name === 'fg')
+        if (!job) { this.out(`ecmash: ${name}: no current job\n`, 2); return 1 }
+        const last = job.pids[job.pids.length - 1]
+        if (name === 'bg') {
+          if (!job.stopped) { this.out(`ecmash: bg: job ${job.number} already in background\n`, 2); return 1 }
+          job.stopped = false
+          job.background = true
+          try { killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
+          this.watch(job)
+          this.out(`[${job.number}]+ ${job.line} &\n`)
+          return 0
+        }
+        this.out(job.line + '\n')
+        this.jobs = this.jobs.filter(j => j !== job)
+        try { tcsetpgrp(last) } catch { /* no terminal */ }
+        let status
+        if (job.done && !job.stopped) { await job.done; status = job.code } else {
+          job.stopped = false
+          try { killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
+          status = await job.handle.finish({ untraced: this.interactive })
+          if (job.handle.stopped) {
+            job.stopped = true
+            this.jobs.push(job)
+            writeAllFd(1, `\r\n[${job.number}]+  Stopped    ${job.line}\r\n`)
+            this.restoreTerminal()
+            return 128 + SIGTSTP
+          }
+        }
+        this.restoreTerminal()
+        return status
+      }
     }
     return 127
+  }
+
+  /** `%n`, `n`, `%%`/nothing (the newest job; for `fg` and `bg` the newest stopped or background one). */
+  pickJob(spec, preferRunning = false) {
+    if (spec && /^%?\d+$/.test(spec)) return this.jobs.find(job => job.number === Number(spec.replace('%', '')) || job.pids.includes(Number(spec)))
+    const candidates = this.jobs.filter(job => !job.finished)
+    const stopped = candidates.filter(job => job.stopped)
+    const pool = stopped.length ? stopped : (preferRunning ? candidates : candidates.filter(job => job.stopped))
+    return pool[pool.length - 1]
   }
 
   findSource(name) {
@@ -895,6 +1205,7 @@ async function interactive(shell, tty) {
 
   // A handler has to exist for the signal to interrupt the read instead of ending the shell.
   onSignal(SIGINT, () => {})
+  onSignal(SIGTSTP, () => {})
 
   for (;;) {
     // A blocking read on the terminal holds this worker's event loop, so a job's completion message is
@@ -1044,7 +1355,7 @@ async function main() {
     if (error instanceof ControlSignal) status = error.value ?? 0
     else { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); status = 2 }
   }
-  for (const job of shell.jobs) await job.done
+  for (const job of shell.jobs) if (job.done && !job.stopped) await job.done
   await shell.leave(status)
 }
 
