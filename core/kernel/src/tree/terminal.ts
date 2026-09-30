@@ -1336,6 +1336,9 @@ export class Terminal extends XTerm implements ITerminal {
     // AltGr arrives as Ctrl+Alt on some layouts and is how `@`, `{` and `\` are typed there, so a
     // Ctrl+Alt chord is text, not a binding.
     if (domEvent.ctrlKey && !domEvent.altKey) {
+      // A chord we bind must not also reach the browser (`^A` select-all, `^U` view-source, `^K`
+      // the address bar). Harmless for one we do not, and the call is skipped by synthetic events.
+      if ('abfdkuwye'.includes(letter) && letter) domEvent.preventDefault?.()
       switch (letter) {
         case 'a': editor.home(); return true
         case 'e': editor.end(); return true
@@ -1486,6 +1489,7 @@ export class Terminal extends XTerm implements ITerminal {
         case 'v':
           return this.paste()
         case 'r': {
+          domEvent.preventDefault?.() // or the browser reloads the page
           const uid = this._shell.credentials.uid
           await this._history.load(uid)
           this._search = new ReverseSearch(this._history.entries(uid), this._editor.text)

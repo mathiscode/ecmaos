@@ -156,6 +156,21 @@ class LineParser {
 
   private peek(): string | undefined { return this.lines[this.pos]?.text }
   private advance(): string { return (this.lines[this.pos++] as SourceLine).text }
+
+  /**
+   * Consumes the leading `then`/`do` of the next line, which is on a line of its own after its
+   * header, and keeps whatever follows it there as the line's remaining text.
+   *
+   * `do echo hi` is one line in a script and means `do`, then `echo hi`. This used to consume the
+   * whole line, so a `for` body's first command vanished without an error, and the `if`/`while`
+   * forms refused the line outright.
+   */
+  private takeKeyword(): void {
+    const line = this.lines[this.pos] as SourceLine
+    const rest = line.text.trim().replace(/^\S+/, '').replace(/^\s*;?\s*/, '')
+    if (rest.length === 0) { this.pos++; return }
+    this.lines[this.pos] = { ...line, text: rest }
+  }
   private atEnd(): boolean { return this.pos >= this.lines.length }
   /** The physical line the next statement starts on, for `$LINENO`. */
   private here(): number | undefined { return this.lines[this.pos]?.line }
@@ -222,10 +237,7 @@ class LineParser {
     // Otherwise `then`/`do` must be the next line by itself (or the tail of this one via more lines --
     // scripts here are line-oriented, so a condition never itself spans multiple lines).
     if (this.firstWord(this.peek() ?? '') === throughKeyword) {
-      const next = this.advance()
-      if (next.trim() !== throughKeyword) {
-        throw new ControlFlowParseError(`Expected '${throughKeyword}' alone on its line, got: ${next}`)
-      }
+      this.takeKeyword()
       return line.trim()
     }
 
@@ -287,7 +299,7 @@ class LineParser {
       if (this.firstWord(this.peek() ?? '') !== 'do') {
         throw new ControlFlowParseError(`Expected 'do' after 'for ${header}'`, this.atEnd())
       }
-      this.advance()
+      this.takeKeyword()
     }
 
     const body = this.parseStatements(['done'])

@@ -140,8 +140,23 @@ export class History {
     return true
   }
 
+  /**
+   * A multi-line command as one history line. The file is one command per line, so a command holding
+   * newlines was stored as several entries after the next reload, and recalled with the cursor
+   * arithmetic wrong before it. bash's `cmdhist` joins them with `;`, which keeps the command
+   * runnable. A heredoc cannot be joined that way (its body lines are not commands), so it is not
+   * recorded; bash keeps those, but a mangled entry is worse than a missing one.
+   */
+  private flatten(command: string): string | undefined {
+    if (!command.includes('\n')) return command
+    if (/<<-?\s*['"]?\w/.test(command)) return undefined
+    return command.split('\n').map(line => line.trim()).filter(Boolean).join('; ')
+  }
+
   /** Records a command. Returns whether it was kept. */
-  async add(uid: number, command: string): Promise<boolean> {
+  async add(uid: number, rawCommand: string): Promise<boolean> {
+    const command = this.flatten(rawCommand)
+    if (command === undefined) { this.of(uid).position = this.of(uid).entries.length; return false }
     await this.load(uid)
     const user = this.of(uid)
 

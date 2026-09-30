@@ -92,6 +92,19 @@ describe('History', () => {
     expect(files.get('/h')).toBe('4\n5\n')
   })
 
+  it('stores a multi-line command as one line, joined with semicolons', async () => {
+    const { history, files } = setup('')
+    await history.add(0, 'for i in 1 2\ndo echo $i\ndone')
+    expect(history.entries(0)).toEqual(['for i in 1 2; do echo $i; done'])
+    expect(files.get('/h')).toBe('for i in 1 2; do echo $i; done\n')
+  })
+
+  it('does not record a heredoc, which cannot be joined without breaking it', async () => {
+    const { history } = setup('')
+    expect(await history.add(0, 'cat <<EOF\nbody\nEOF')).toBe(false)
+    expect(history.entries(0)).toEqual([])
+  })
+
   it('keeps a position per user', async () => {
     const { history } = setup('a\nb\n')
     await history.load(0)

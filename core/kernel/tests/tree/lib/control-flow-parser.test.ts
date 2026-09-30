@@ -231,6 +231,36 @@ describe('parseStatements', () => {
     expect(() => parseStatements('if true; then\n  echo hi')).toThrow()
   })
 
+  describe('then/do followed by a command on its own line', () => {
+    // Found by the browser pass for the line editor: typing `for i in 1 2`, then `do echo $i`, then
+    // `done` ran nothing and reported nothing. The parser consumed the whole `do echo $i` line as if
+    // it were a bare `do`, so the loop's first command vanished; `if`/`while` refused it outright.
+    it('keeps the command after `do` in a for loop', () => {
+      const [loop] = parseStatements('for i in 1 2\ndo echo n$i\ndone\n') as Array<{ body: Array<{ line: string }> }>
+      expect(loop?.body.map(s => s.line)).toEqual(['echo n$i'])
+    })
+
+    it('keeps it in a while loop', () => {
+      const [loop] = parseStatements('while true\ndo echo x\ndone\n') as Array<{ body: Array<{ line: string }> }>
+      expect(loop?.body.map(s => s.line)).toEqual(['echo x'])
+    })
+
+    it('keeps the command after `then` in an if', () => {
+      const [branch] = parseStatements('if true\nthen echo yes\nfi\n') as Array<{ branches: Array<{ body: Array<{ line: string }> }> }>
+      expect(branch?.branches[0]?.body.map(s => s.line)).toEqual(['echo yes'])
+    })
+
+    it('still accepts do alone on its line', () => {
+      const [loop] = parseStatements('for i in 1 2\ndo\necho n$i\ndone\n') as Array<{ body: Array<{ line: string }> }>
+      expect(loop?.body.map(s => s.line)).toEqual(['echo n$i'])
+    })
+
+    it('keeps the following body lines too', () => {
+      const [loop] = parseStatements('for i in 1\ndo echo a\necho b\ndone\n') as Array<{ body: Array<{ line: string }> }>
+      expect(loop?.body.map(s => s.line)).toEqual(['echo a', 'echo b'])
+    })
+  })
+
   it('throws on a malformed for-loop header', () => {
     expect(() => parseStatements('for x; do\necho hi\ndone')).toThrow()
   })
