@@ -26,6 +26,7 @@ import { expandWordFields, expandWordString, expandHeredocBody, globToRegExpSour
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
+import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
 const sys = globalThis.ecmaosSyscalls
@@ -98,7 +99,7 @@ class ControlSignal extends Error {
 
 const BUILTINS = new Set([
   ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
-  'return', 'break', 'continue', 'local', 'type', 'command', 'wait', 'jobs', 'test', '[', 'exec', 'pwd', 'env',
+  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'test', '[', 'exec', 'pwd', 'env',
 ])
 
 class Shell {
@@ -115,6 +116,11 @@ class Shell {
     this.depth = 0
     this.locals = []
     this.interactive = false
+    this.opts = { errexit: false, nounset: false, xtrace: false, pipefail: false }
+    this.aliases = new Map()
+    this.traps = new Map()
+    this.conditional = 0
+    this.leaving = false
     this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
     this.exported.add('SHLVL')
     if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
@@ -165,6 +171,7 @@ class Shell {
       substitute: command => this.substitute(command),
       glob: pattern => this.glob(pattern),
       home: () => this.vars.get('HOME'),
+      nounset: this.opts.nounset,
     }
   }
 
@@ -250,13 +257,13 @@ class Shell {
       case 'function': this.functions.set(statement.name, statement.body); return 0
       case 'if': return await this.withRedirect(statement, async () => {
         for (const branch of statement.branches) {
-          if (await this.runLine(branch.condition) === 0) return await this.runStatements(branch.body)
+          if (await this.runLine(branch.condition, { condition: true }) === 0) return await this.runStatements(branch.body)
         }
         return statement.elseBody ? await this.runStatements(statement.elseBody) : 0
       })
       case 'while': return await this.withRedirect(statement, async () => {
         let last = 0
-        while (await this.runLine(statement.condition) === 0) {
+        while (await this.runLine(statement.condition, { condition: true }) === 0) {
           try { last = await this.runStatements(statement.body) } catch (signal) {
             if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
               if (signal.value > 1) { signal.value--; throw signal }
@@ -308,22 +315,45 @@ class Shell {
     }
   }
 
-  async runLine(line) {
+  async runLine(line, { condition = false } = {}) {
     const script = parseScript(line)
     let status = this.status
     let skip = false
-    for (const stage of script.stages) {
-      if (!skip) {
-        if (stage.operator === '&') status = await this.runBackground(stage.pipeline)
-        else status = await this.runPipeline(stage.pipeline)
-        this.status = status
+    if (condition) this.conditional++
+    try {
+      for (const [index, stage] of script.stages.entries()) {
+        if (!skip) {
+          // A failure that an `&&`/`||` or an `if` is about to look at is not an error to exit on.
+          const tested = stage.operator === '&&' || stage.operator === '||'
+          if (tested) this.conditional++
+          try {
+            if (stage.operator === '&') status = await this.runBackground(stage.pipeline)
+            else status = await this.runPipeline(stage.pipeline)
+          } finally {
+            if (tested) this.conditional--
+          }
+          this.status = status
+          if (this.opts.errexit && status !== 0 && !this.conditional && !stage.pipeline.negated && !tested && index >= 0) await this.leave(status)
+        }
+        // `a && b || c`: a skipped stage leaves the status alone and the next operator decides again.
+        if (stage.operator === '&&') skip = status !== 0
+        else if (stage.operator === '||') skip = status === 0
+        else skip = false
       }
-      // `a && b || c`: a skipped stage leaves the status alone and the next operator decides again.
-      if (stage.operator === '&&') skip = status !== 0
-      else if (stage.operator === '||') skip = status === 0
-      else skip = false
+    } finally {
+      if (condition) this.conditional--
     }
     return status
+  }
+
+  /** Runs the `EXIT` trap once, then ends the shell. */
+  async leave(code) {
+    if (!this.leaving) {
+      this.leaving = true
+      const trap = this.traps.get('EXIT')
+      if (trap) { try { await this.runText(trap) } catch { /* the shell is going anyway */ } }
+    }
+    exit(code & 0xff)
   }
 
   // -- pipelines ----------------------------------------------------------------------------------
@@ -332,7 +362,10 @@ class Shell {
     const job = await this.startPipeline(pipeline, true)
     if (!job) return 1
     const number = this.jobs.length + 1
-    this.jobs.push({ number, pids: job.pids, done: job.finish().then(status => { job.status = status }), line: '' })
+    const line = pipeline.commands.map(command => command.words.join(' ')).join(' | ')
+    const record = { number, pids: job.pids, line, finished: false, code: 0, reported: false }
+    record.done = job.finish().then(status => { record.finished = true; record.code = status })
+    this.jobs.push(record)
     this.lastPid = job.pids[job.pids.length - 1]
     if (this.interactive) writeAllFd(2, `[${number}] ${this.lastPid}\n`)
     return 0
@@ -357,6 +390,7 @@ class Shell {
     let inherited = this.stdio[0]
     let leader = 0
     let statusOfBuiltin
+    let builtinFailure = 0
     let failed = false
 
     for (const [index, command] of commands.entries()) {
@@ -375,6 +409,7 @@ class Shell {
           if (!leader) leader = result.pid
         } else {
           statusOfBuiltin = result.status
+          if (result.status) builtinFailure = result.status
         }
         if (result.finish) cleanups.push(result.finish)
       } catch (error) {
@@ -394,16 +429,21 @@ class Shell {
       let status = statusOfBuiltin ?? 0
       let interrupted = false
       let statusOfLast = status
+      let failure = builtinFailure
       await Promise.all(pids.map(async pid => {
         const done = await waitpid(pid, false)
-        if (pid === pids[pids.length - 1]) statusOfLast = done.signal ? 128 + done.signal : done.code
+        const code = done.signal ? 128 + done.signal : done.code
+        if (code !== 0) failure = code
+        if (pid === pids[pids.length - 1]) statusOfLast = code
         // The terminal signals only its foreground process; the rest of the pipeline is ours to stop.
         if (done.signal === SIGINT && !interrupted && leader) {
           interrupted = true
           try { killpg(leader, SIGINT) } catch { /* everyone already exited */ }
         }
       }))
-      status = statusOfLast
+      status = this.opts.pipefail && failure !== 0 ? failure : statusOfLast
+      // A foreground stage killed by ^C runs the INT trap, as the kernel shell does.
+      if (interrupted && this.traps.has('INT')) { try { await this.runText(this.traps.get('INT')) } catch { /* ignore */ } }
       for (const cleanup of cleanups) await cleanup()
       return status
     }
@@ -445,6 +485,13 @@ class Shell {
       return { status: 0 }
     }
 
+    // An alias stands in for the command word once (no chains), as in a POSIX shell.
+    if (this.aliases.has(args[0])) {
+      const expansion = await this.expandWords(this.aliases.get(args[0]))
+      args.splice(0, 1, ...expansion)
+      if (!args.length) return { status: 0 }
+    }
+    if (this.opts.xtrace) writeAllFd(2, `+ ${args.join(' ')}\n`)
     const applied = await this.openRedirections(command.redirections, fds)
     const finish = async () => { await applied.finish() }
     const name = args[0]
@@ -637,7 +684,7 @@ class Shell {
         this.exported.add('PWD')
         return 0
       }
-      case 'exit': exit(args[0] === undefined ? this.status : Number(args[0]) & 0xff); return 0
+      case 'exit': await this.leave(args[0] === undefined ? this.status : Number(args[0])); return 0
       case 'export': {
         for (const arg of args) {
           const [name, ...value] = arg.split('=')
@@ -659,9 +706,48 @@ class Shell {
         return 0
       }
       case 'set': {
+        if (!args.length) { for (const [n, v] of [...this.vars].sort()) this.out(`${n}=${v}\n`); return 0 }
         if (args[0] === '--') { this.positional = args.slice(1); return 0 }
-        if (args.length) { this.out(`ecmash: set: ${args[0]}: options are not supported\n`, 2); return 2 }
-        for (const [n, v] of [...this.vars].sort()) this.out(`${n}=${v}\n`)
+        const letters = { e: 'errexit', u: 'nounset', x: 'xtrace' }
+        for (let i = 0; i < args.length; i++) {
+          const arg = args[i]
+          if (arg === '-o' || arg === '+o') {
+            const name = args[++i]
+            if (name === 'pipefail') this.opts.pipefail = arg === '-o'
+            else if (name === 'errexit' || name === 'nounset' || name === 'xtrace') this.opts[name] = arg === '-o'
+            else { this.out(`ecmash: set: ${name}: unsupported option\n`, 2); return 2 }
+            continue
+          }
+          if (!/^[-+][a-z]+$/.test(arg)) { this.positional = args.slice(i); break }
+          for (const letter of arg.slice(1)) {
+            if (!letters[letter]) { this.out(`ecmash: set: ${arg[0]}${letter}: unsupported option\n`, 2); return 2 }
+            this.opts[letters[letter]] = arg[0] === '-'
+          }
+        }
+        return 0
+      }
+      case 'alias': {
+        if (!args.length) { for (const [n, v] of [...this.aliases].sort()) this.out(`alias ${n}='${v}'\n`); return 0 }
+        let status = 0
+        for (const arg of args) {
+          const at = arg.indexOf('=')
+          if (at > 0) this.aliases.set(arg.slice(0, at), arg.slice(at + 1))
+          else if (this.aliases.has(arg)) this.out(`alias ${arg}='${this.aliases.get(arg)}'\n`)
+          else { this.out(`ecmash: alias: ${arg}: not found\n`, 2); status = 1 }
+        }
+        return status
+      }
+      case 'unalias': for (const n of args) this.aliases.delete(n); return 0
+      case 'trap': {
+        if (!args.length || args[0] === '-p') { for (const [sig, cmd] of this.traps) this.out(`trap -- '${cmd}' ${sig}\n`); return 0 }
+        const [action, ...signals] = args
+        for (const raw of signals) {
+          const sig = raw.replace(/^SIG/, '').toUpperCase()
+          if (sig !== 'EXIT' && sig !== 'INT' && sig !== '0') { this.out(`ecmash: trap: ${raw}: only EXIT and INT are supported\n`, 2); return 1 }
+          const key = sig === '0' ? 'EXIT' : sig
+          if (action === '-' || action === '') this.traps.delete(key)
+          else this.traps.set(key, action)
+        }
         return 0
       }
       case 'shift': this.positional = this.positional.slice(Number(args[0] ?? 1)); return 0
@@ -811,6 +897,17 @@ async function interactive(shell, tty) {
   onSignal(SIGINT, () => {})
 
   for (;;) {
+    // A blocking read on the terminal holds this worker's event loop, so a job's completion message is
+    // still waiting; one turn of the loop lets it land before the jobs are looked at.
+    await sleep(20)
+    // Like bash, finished background jobs are reported when the next prompt is about to be drawn.
+    for (const job of shell.jobs) {
+      if (job.finished && !job.reported) {
+        job.reported = true
+        writeAllFd(1, `[${job.number}]+  ${job.code === 0 ? 'Done' : `Exit ${job.code}`}    ${job.line} &\r\n`)
+      }
+    }
+    shell.jobs = shell.jobs.filter(job => !job.reported)
     const restore = rawMode(tty)
     let line
     try { line = await readLine(shell, tty, history) } finally { restore() }
@@ -872,13 +969,32 @@ async function readLine(shell, tty, history, fixedPrompt) {
         case '\x17': editor.killWordBackward(); break
         case '\x19': editor.yank(); break
         case '\x0c': writeAllFd(1, '\x1b[2J\x1b[H' + stripMarkers(prompt) + editor.text); break
+        case '\t': {
+          const provider = {
+            listDir: async dir => readdir(resolvePath(dir)),
+            isDirectory: async target => isDir(resolvePath(target)),
+            variable: name => shell.vars.get(name),
+            get cwd() { return getcwd() },
+            expandTilde: text => (text.startsWith('~') ? (shell.vars.get('HOME') ?? '') + text.slice(1) : text),
+            builtins: BUILTINS,
+          }
+          let matches = []
+          try { matches = await completionMatches(editor.text, provider) } catch { /* nothing to offer */ }
+          if (matches.length === 1) {
+            editor.replace(matches[0], text => stripMarkers(prompt) + text)
+          } else if (matches.length > 1) {
+            const words = matches.map(match => match.split(' ').pop())
+            writeAllFd(1, '\r\n' + words.join('  ') + '\r\n' + stripMarkers(prompt) + editor.text)
+          }
+          break
+        }
         case 'ArrowLeft': editor.left(); break
         case 'ArrowRight': editor.right(); break
         case 'ArrowUp': case 'ArrowDown': {
           const next = position + (key === 'ArrowUp' ? -1 : 1)
           if (next < 0 || next > entries.length) break
           position = next
-          editor.replace(entries[position] ?? '', text => text)
+          editor.replace(entries[position] ?? '', text => stripMarkers(prompt) + text)
           break
         }
         default:
@@ -929,7 +1045,7 @@ async function main() {
     else { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); status = 2 }
   }
   for (const job of shell.jobs) await job.done
-  exit(status & 0xff)
+  await shell.leave(status)
 }
 
 await main()

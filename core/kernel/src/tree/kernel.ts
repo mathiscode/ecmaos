@@ -881,6 +881,8 @@ export class Kernel implements IKernel {
         this.storage.local.setItem('ecmaos:first-boot', Date.now().toString())
       }
 
+      await this.enterLoginShell(this.shell)
+
       this.terminal.write(ansi.erase.inLine(2) + this.terminal.prompt())
       this.terminal.focus()
       this.terminal.listen()
@@ -2748,10 +2750,23 @@ export class Kernel implements IKernel {
 
     if (motd) terminal.writeln('\n' + motd)
 
-    terminal.write(ansi.erase.inLine(2) + terminal.prompt())
     terminal.focus()
+    await this.enterLoginShell(shell)
+    terminal.write(ansi.erase.inLine(2) + terminal.prompt())
 
     return shell
+  }
+
+  /**
+   * Runs the user's login shell when it is `/bin/ecmash`: the program is the shell for as long as it
+   * lives, and leaving it (`exit`, `^D`) lands at the shell built into the kernel rather than
+   * logging out, which is the one place ecmaOS differs from Linux here (there is no getty to return to).
+   * The built-in `ecmaos` shell has no file to run, so it is simply the one already at the prompt.
+   */
+  private async enterLoginShell(shell: IShell): Promise<void> {
+    if (shell.env.get('SHELL') !== '/bin/ecmash') return
+    if (!await this.filesystem.fs.exists('/bin/ecmash')) return
+    await shell.execute('ecmash -l')
   }
 
   /**

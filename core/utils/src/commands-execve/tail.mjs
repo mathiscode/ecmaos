@@ -73,6 +73,9 @@ function main() {
         const num = parseInt(arg.slice(2), 10)
         if (!isNaN(num)) numLines = num
       }
+    } else if (/^-\d+$/.test(arg)) {
+      // The obsolete `tail -3` spelling of `-n 3`.
+      numLines = parseInt(arg.slice(1), 10)
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     }

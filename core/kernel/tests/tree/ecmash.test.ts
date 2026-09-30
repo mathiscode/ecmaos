@@ -125,3 +125,98 @@ describe('chsh and /etc/shells', () => {
     expect(await fs().readFile('/tmp/cs-lvl', 'utf-8')).toBe('5\n')
   })
 })
+
+describe('ecmash options, aliases and traps', () => {
+  let kernel: Kernel
+  beforeAll(async () => {
+    kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
+  })
+
+  const fs = () => kernel.filesystem.fs
+  const run = async (script: string) => {
+    await fs().writeFile('/tmp/eo-script', script)
+    const code = await kernel.shell.execute('ecmash /tmp/eo-script > /tmp/eo-out 2> /tmp/eo-err')
+    return { code, out: await fs().readFile('/tmp/eo-out', 'utf-8'), err: await fs().readFile('/tmp/eo-err', 'utf-8') }
+  }
+
+  it('set -e stops at the first failure but not inside a condition or an ||', async () => {
+    const { code, out } = await run('set -e\nif false; then echo no; fi\nfalse || echo recovered\necho before\nfalse\necho after\n')
+    expect(out).toBe('recovered\nbefore\n')
+    expect(code).toBe(1)
+  })
+
+  it('set -u fails on an unset variable', async () => {
+    const { code, err } = await run('set -u\necho "$nope"\n')
+    expect(code).not.toBe(0)
+    expect(err).toMatch(/nope|unbound|unset/i)
+  })
+
+  it('set -x traces commands to stderr', async () => {
+    expect((await run('set -x\necho hi\n')).err).toContain('+ echo hi')
+  })
+
+  it('set -o pipefail reports a failing early stage', async () => {
+    const { out } = await run('false | cat\necho "a=$?"\nset -o pipefail\nfalse | cat\necho "b=$?"\n')
+    expect(out).toBe('a=0\nb=1\n')
+  })
+
+  it('aliases expand the command word', async () => {
+    expect((await run('alias hi="echo hello"\nhi world\n')).out).toBe('hello world\n')
+  })
+
+  it('an EXIT trap runs once on exit, including through exit', async () => {
+    expect((await run("trap 'echo bye' EXIT\necho work\nexit 3\n")).out).toBe('work\nbye\n')
+  })
+
+  it('reports an unsupported option instead of ignoring it', async () => {
+    const { err } = await run('set -f\n')
+    expect(err).toContain('unsupported option')
+  })
+})
+
+describe('head and tail take -NUMBER', () => {
+  it('reads the obsolete -3 form', async () => {
+    const kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
+    await kernel.shell.execute('seq 1 10 > /tmp/hn-in; head -3 /tmp/hn-in > /tmp/hn-h; tail -2 /tmp/hn-in > /tmp/hn-t')
+    expect(await kernel.filesystem.fs.readFile('/tmp/hn-h', 'utf-8')).toBe('1\n2\n3\n')
+    expect(await kernel.filesystem.fs.readFile('/tmp/hn-t', 'utf-8')).toBe('9\n10\n')
+  })
+})
+
+describe('ecmash background jobs', () => {
+  it('wait returns once a background job is done, and the job records its status', async () => {
+    const kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
+    await kernel.filesystem.fs.writeFile('/tmp/bg-script', 'sleep 1 &\njobs\nwait\njobs\necho ok\n')
+    await kernel.shell.execute('ecmash /tmp/bg-script > /tmp/bg-out 2>&1')
+    const out = await kernel.filesystem.fs.readFile('/tmp/bg-out', 'utf-8')
+    expect(out).toMatch(/\[1\]\s+Running/)
+    expect(out.trim().endsWith('ok')).toBe(true)
+  }, 20000)
+})

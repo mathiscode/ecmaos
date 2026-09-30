@@ -8,6 +8,7 @@ const usage = `Usage: head [OPTION]... [FILE]...
 Print the first 10 lines of each FILE to standard output.
 
   -n, -nNUMBER        print the first NUMBER lines instead of 10
+  -NUMBER             the same as -nNUMBER
   -c, -cNUMBER        print the first NUMBER bytes instead of lines
   --help             display this help and exit`
 
@@ -104,6 +105,9 @@ function main() {
         const num = parseInt(arg.slice(2), 10)
         if (!isNaN(num)) numBytes = num
       }
+    } else if (/^-\d+$/.test(arg)) {
+      // The obsolete `head -3` spelling of `-n 3`, which scripts still use.
+      numLines = parseInt(arg.slice(1), 10)
     } else if (!arg.startsWith('-')) {
       files.push(arg)
     }

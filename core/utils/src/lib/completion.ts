@@ -10,7 +10,27 @@
  * cycles through them by replacing the line, which is how the terminal has always behaved.
  */
 
-import path from 'path'
+/** The three path operations this needs, so the module bundles for a worker (there is no `path` there). */
+const normalize = (text: string): string => {
+  const out: string[] = []
+  for (const part of text.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return '/' + out.join('/')
+}
+const path = {
+  resolve: (base: string, next: string): string => normalize(next.startsWith('/') ? next : `${base}/${next}`),
+  join: (a: string, b: string): string => normalize(`${a}/${b}`),
+  relative: (from: string, to: string): string => {
+    const a = normalize(from).split('/').filter(Boolean)
+    const b = normalize(to).split('/').filter(Boolean)
+    let i = 0
+    while (i < a.length && i < b.length && a[i] === b[i]) i++
+    return [...a.slice(i).map(() => '..'), ...b.slice(i)].join('/')
+  },
+}
 
 export interface CompletionProvider {
   /** Directory entries, or a rejection if `dir` is not readable. */
