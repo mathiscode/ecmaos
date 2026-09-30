@@ -265,3 +265,21 @@ describe('parseStatements', () => {
     expect(() => parseStatements('for x; do\necho hi\ndone')).toThrow()
   })
 })
+
+describe('brace groups', () => {
+  it('parses a one-line group with its redirection', () => {
+    const [group] = parseStatements('{ echo a; echo b; } > out')
+    expect(group).toMatchObject({ type: 'group', redirect: '> out' })
+    expect((group as { body: Array<{ line: string }> }).body.map(s => s.line)).toEqual(['echo a; echo b'])
+  })
+
+  it('parses a multi-line group and keeps a nested block whole', () => {
+    const [group] = parseStatements('{\n  if true; then echo a; fi\n  echo b\n} 2> err')
+    expect(group).toMatchObject({ type: 'group', redirect: '2> err' })
+    expect((group as { body: Array<{ type: string }> }).body.map(s => s.type)).toEqual(['if', 'simple'])
+  })
+
+  it('does not mistake a brace expansion for a group', () => {
+    expect(parseStatements('echo {a,b}')).toEqual([{ type: 'simple', line: 'echo {a,b}', lineNumber: 1 }])
+  })
+})

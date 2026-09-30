@@ -77,3 +77,10 @@ describe('needsMoreInput', () => {
     expect(needsMoreInput('echo "a << b"')).toBe(false)
   })
 })
+
+describe('needsMoreInput: brace groups', () => {
+  it('asks for more while a group is open, and not once it closes', () => {
+    expect(needsMoreInput('{ echo a')).toBe(true)
+    expect(needsMoreInput('{ echo a; }')).toBe(false)
+  })
+})

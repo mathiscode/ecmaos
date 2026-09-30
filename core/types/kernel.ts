@@ -301,6 +301,8 @@ export interface KernelExecuteOptions {
   terminal?: Terminal
   stdin?: ReadableStream<Uint8Array>
   stdinIsTTY?: boolean
+  /** Called with the bytes of `stdin` the program never read, once it has exited; for a stdin the shell shares with later commands */
+  stdinLeftover?: (bytes: Uint8Array) => void
   stdout?: WritableStream<Uint8Array>
   stdoutIsTTY?: boolean
   /**

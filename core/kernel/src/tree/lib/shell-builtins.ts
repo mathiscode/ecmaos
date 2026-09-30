@@ -225,7 +225,7 @@ async function runFg(shell: Shell, argv: string[], io: Io): Promise<number> {
 }
 
 /** bash-style status label: `Running`, `Stopped`, or `Done`. */
-function jobStatusLabel(job: import('@ecmaos/types').Job): string {
+export function jobStatusLabel(job: import('@ecmaos/types').Job): string {
   switch (job.status) {
     case 'running': return 'Running'
     case 'stopped': return 'Stopped'
@@ -240,7 +240,7 @@ async function runJobs(shell: Shell, argv: string[], io: Io): Promise<number> {
   }
 
   const showPids = argv.includes('-l')
-  const jobs = shell.listJobs().filter(job => job.background || job.status === 'stopped')
+  const jobs = shell.listJobs().filter(job => !job.notified && (job.background || job.status === 'stopped'))
   if (jobs.length === 0) return 0
 
   const mostRecentId = jobs[jobs.length - 1]?.id

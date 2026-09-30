@@ -27,11 +27,11 @@
  * without a second, unresolvable copy of `uapi`'s init handshake.
  */
 
-import { ready, exit } from '@zenfs/linux/uapi/process'
+import { ready, exit, getpid, getppid, getuid, geteuid, getgid, getegid } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
+  link, symlink, readlink, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal } from '@zenfs/linux/uapi/base'
 
@@ -229,6 +229,23 @@ globalThis.ecmaosSyscalls = {
   // wires a child's stdin and stdout; the child inherits fds 0 to 2 only, so a pipe is handed over
   // by `dup2`ing its end onto one of those before the spawn.
   pipe, dup, dup2,
+  // Process identity, and the fd/cwd calls a shell needs.
+  getpid, getppid, getuid, geteuid, getgid, getegid, chdir, lseek,
+  // The job-control shim (`job-control.ts`), named for the POSIX call each stands in for. A wait
+  // status is Linux-shaped; `waitpid` returns `{ pid, code, signal }`, or `null` for `WNOHANG` with
+  // nothing ready. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`.
+  waitpid: async (pid, nohang = false) => {
+    const packed = await syscall_async('proc_waitpid', pid, nohang ? 1 : 0)
+    if (!packed) return null
+    const status = packed % 65536
+    const signal = status & 0x7f
+    return { pid: Math.floor(packed / 65536), ...(signal ? { signal } : { code: (status >> 8) & 0xff }) }
+  },
+  setpgid: (pid, pgid) => syscall_async('proc_setpgid', pid, pgid),
+  getpgid: (pid = 0) => syscall_async('proc_getpgid', pid),
+  killpg: (pgid, signal) => syscall_async('proc_killpg', pgid, signal),
+  spawn: (command, argv, options = {}) =>
+    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

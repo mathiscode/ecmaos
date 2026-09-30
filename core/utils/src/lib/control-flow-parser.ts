@@ -7,11 +7,12 @@
  * Grammar (line-oriented; each production consumes whole lines, not characters):
  * ```
  * Statements := Statement*
- * Statement  := If | While | For | Case | FunctionDef | Simple
+ * Statement  := If | While | For | Case | Group | FunctionDef | Simple
  * If         := 'if' Line 'then' Statements ('elif' Line 'then' Statements)* ('else' Statements)? 'fi'
  * While      := 'while' Line 'do' Statements 'done'
  * For        := 'for' NAME 'in' Word* ';'? 'do' Statements 'done'
  * Case       := 'case' Word 'in' (Pattern ('|' Pattern)* ')' Statements ';;')* 'esac'
+ * Group      := '{' Statements '}'
  * FunctionDef:= NAME '()' '{' Statements '}'   |   'function' NAME '{' Statements '}'
  * Simple     := <any other non-blank, non-comment line, handed to Shell.execute verbatim>
  * ```
@@ -96,7 +97,13 @@ export interface FunctionDef extends Positioned {
   body: Statement[]
 }
 
-export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | FunctionDef
+/** `{ list; }`: a brace group. It runs in the current shell and can take a redirection as a whole. */
+export interface GroupStatement extends Redirected, Positioned {
+  type: 'group'
+  body: Statement[]
+}
+
+export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | GroupStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -145,8 +152,15 @@ function preprocessLines(script: string, offset = 0): SourceLine[] {
 
 /** {@link normalizeInlineControlFlow}'s per-line rule, shared with {@link preprocessLines}. */
 function normalizeOneLineIfNeeded(line: string): string {
-  return ONE_LINE_FUNCTION_BODY.test(line.trim()) ? line : normalizeOneLine(line)
+  const trimmed = line.trim()
+  return ONE_LINE_FUNCTION_BODY.test(trimmed) || BRACE_GROUP_OPEN.test(trimmed) ? line : normalizeOneLine(line)
 }
+
+/** A line that opens a brace group: `{` followed by whitespace or the end of the line. */
+const BRACE_GROUP_OPEN = /^\{(?:\s|$)/
+
+/** A whole group on one physical line, `{ echo a; echo b; } > f`. Greedy, so the last `}` closes it. */
+const INLINE_GROUP = /^\{\s+(.*)\}\s*(.*)$/
 
 const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
 
@@ -205,6 +219,7 @@ class LineParser {
       case 'for': return this.parseFor()
       case 'case': return this.parseCase()
       case 'function': return this.parseFunctionKeywordForm()
+      case '{': return this.parseGroup()
       default: {
         const inlineFn = INLINE_FUNCTION_DEF.exec(line)
         if (inlineFn) {
@@ -305,6 +320,23 @@ class LineParser {
     const body = this.parseStatements(['done'])
     const redirect = this.expectKeywordLine('done')
     return { type: 'for', variable, wordsText: wordsPart.trim(), body, ...(redirect ? { redirect } : {}) }
+  }
+
+  private parseGroup(): GroupStatement {
+    const at = this.here() ?? 1
+    const line = this.advance().trim()
+    const inline = INLINE_GROUP.exec(line)
+    if (inline) {
+      const redirect = (inline[2] as string).trim()
+      return { type: 'group', body: parseInlineBody(inline[1] as string, at), ...(redirect ? { redirect } : {}) }
+    }
+
+    // The group opens here and closes on a later line; whatever follows the brace is the body's start.
+    const rest = line.replace(/^\{\s*/, '')
+    if (rest) this.lines.splice(this.pos, 0, { text: rest, line: at })
+    const body = this.parseStatements(['}'])
+    const redirect = this.expectKeywordLine('}')
+    return { type: 'group', body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseCase(): CaseStatement {

@@ -1206,7 +1206,14 @@ export class Kernel implements IKernel {
         if (drain) drainable.push(done)
       }
 
-      if (options.stdin && !options.stdinIsTTY) bridge(0, options.stdin, false)
+      // A stdin shared with the shell (a redirected block's) is not consumed by the process, only
+      // read from: whatever it left in the pipe goes back to the shell once it has exited.
+      let unreadStdin: (() => Promise<Uint8Array>) | undefined
+      if (options.stdin && !options.stdinIsTTY) {
+        const bridged = this.bridgeStdio(proc, 0, options.stdin)
+        stopBridges.push(bridged.stop)
+        if (options.stdinLeftover) unreadStdin = bridged.unread
+      }
       const stdoutBridged = Boolean(options.stdout && !options.stdoutIsTTY)
       if (stdoutBridged) bridge(1, options.stdout as WritableStream<Uint8Array>, options.drainStdout === true)
       // `1>&2` (or any dup onto an fd with no redirect of its own) can hand back the *same*
@@ -1274,6 +1281,10 @@ export class Kernel implements IKernel {
       // order the data already, and a downstream program that exits early (`producer | head -1`)
       // stops reading, fills the pipe, and would leave the upstream drain waiting forever.
       await Promise.all(drainable)
+      if (unreadStdin && options.stdinLeftover) {
+        const rest = await unreadStdin()
+        if (rest.byteLength) options.stdinLeftover(rest)
+      }
 
       return exitCode
     } catch (error) {
@@ -1332,7 +1343,7 @@ export class Kernel implements IKernel {
     proc: InstanceType<typeof ZenFSProcess>,
     stdFd: 0 | 1 | 2,
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
-  ): { stop: () => void, done: Promise<void> } {
+  ): { stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
     // fd 0 is the program's stdin: it reads from the pipe we write into
     return this.bridgeFd(proc, stdFd, stdFd === 0 ? 'read' : 'write', stream)
   }
@@ -1395,7 +1406,7 @@ export class Kernel implements IKernel {
     // has drained (shutdown of the write side), instead of only when the program exits. Stdio
     // leaves this off -- it has always ended with the process -- but a socket needs it to half-close.
     { closeOnEof = false }: { closeOnEof?: boolean } = {}
-  ): { stop: () => void, done: Promise<void> } {
+  ): { stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
     const pipeProcCtx = this.pipeProcess.context
 
     const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
@@ -1415,7 +1426,7 @@ export class Kernel implements IKernel {
     const bridgeFile = bridgeHandle && pipefs._device(bridgeHandle.internalPath)
     if (!bridgeFile) {
       this.log.error(`bridgeStdio: could not resolve fd ${stdFd}'s pipe device; leaving it on the console`)
-      return { stop: () => {}, done: Promise.resolve() }
+      return { stop: () => {}, done: Promise.resolve(), unread: async () => new Uint8Array(0) }
     }
 
     let stopped = false
@@ -1427,6 +1438,8 @@ export class Kernel implements IKernel {
      * This is what a caller awaits instead of guessing at a delay. See `KernelExecuteOptions.drainStdout`.
      */
     let done: Promise<void>
+    /** A `'read'` pump's chunk that was taken from the stream but not fully written when it stopped */
+    let remainder: Uint8Array | undefined
 
     if (direction === 'write') {
       // stdout/stderr: drain the pipe's read end into `stream` until the program closes its write
@@ -1467,10 +1480,12 @@ export class Kernel implements IKernel {
             if (done) break
             let offset = 0
             while (offset < value.byteLength) {
+              if (stopped) { remainder = value.subarray(offset); break }
               const n = pipefs.write_device(bridgeFile, value.subarray(offset), 0)
               if (n > 0) { offset += n; continue }
               await new Promise(resolve => setTimeout(resolve, 10))
             }
+            if (remainder) break
           }
         } catch (error) {
           this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
@@ -1484,7 +1499,25 @@ export class Kernel implements IKernel {
       })()
     }
 
-    return { stop, done }
+    /**
+     * What a stopped `'read'` pump put in the pipe that the program never read, then the chunk it had
+     * not finished writing: the bytes a program left behind, which a shared descriptor hands back
+     * so the next reader carries on from where this one stopped.
+     */
+    const unread = async () => {
+      stopped = true
+      await done
+      // `buffer` is `protected` in the types only; it is the pipe's plain unread bytes.
+      const pipe = pipefs._end(bridgeFile.path)?.pipe as unknown as { buffer: Uint8Array } | undefined
+      const inPipe = pipe ? pipe.buffer : new Uint8Array(0)
+      if (pipe) pipe.buffer = new Uint8Array(0)
+      const rest = new Uint8Array(inPipe.byteLength + (remainder?.byteLength ?? 0))
+      rest.set(inPipe)
+      if (remainder) rest.set(remainder, inPipe.byteLength)
+      return rest
+    }
+
+    return { stop, done, unread }
   }
 
   /**

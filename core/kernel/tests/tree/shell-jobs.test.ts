@@ -177,3 +177,22 @@ describe('Shell job control — & background execution and the job table', () =>
     await kernel.shell.wait()
   })
 })
+
+describe('Shell job control - Done notices at the next prompt', () => {
+  it('reports a finished background job once and retires it from `jobs`', async () => {
+    const kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+    await kernel.shell.execute('true &')
+    const job = kernel.shell.listJobs().at(-1)!
+    await job.done
+    const first = kernel.shell.takeJobNotifications()
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatch(/^\[\d+\][+ -]  Done\s+true &$/)
+    expect(kernel.shell.takeJobNotifications()).toEqual([])
+  })
+})

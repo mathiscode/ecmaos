@@ -39,6 +39,8 @@ export interface Job {
   done: Promise<number[]>
   /** Whether this job was launched with a trailing `&` (vs. promoted to background later) */
   background: boolean
+  /** Set once a `Done` notice has been printed at a prompt; the job is then gone from `jobs`, as in bash */
+  notified?: boolean
 }
 
 /**
@@ -339,6 +341,8 @@ export interface Shell {
 
   /** All tracked jobs (running, stopped, and not-yet-reaped done), oldest first. */
   listJobs(): Job[]
+  /** `[n]+  Done  cmd` lines for background jobs that finished since the last prompt; each is reported once */
+  takeJobNotifications(): string[]
 
   /**
    * Resolves a job spec the way bash does: `%N` (job N), `%%`/`%+` (current/most recent job),

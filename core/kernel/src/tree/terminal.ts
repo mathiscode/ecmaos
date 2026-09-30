@@ -1301,6 +1301,12 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalInputEvent>(TerminalEvents.INPUT, { terminal: this, data: clip })
   }
 
+  /** Finished background jobs, reported once as bash does just before it draws PS1. */
+  private jobNotices(): string {
+    const lines = this._shell?.takeJobNotifications?.() ?? []
+    return lines.map(line => line + '\r\n').join('')
+  }
+
   /**
    * Bookkeeping for a foreground job whose process just got stopped (`^Z`): it gives up the
    * controlling terminal (same as `bg`; `fg` reclaims it -- see `JobProcessHandle.setForeground`),
@@ -1562,11 +1568,11 @@ export class Terminal extends XTerm implements ITerminal {
             this.writeln(chalk.red(`${error}`))
           } finally {
             this._editor.reset()
-            this.write(ansi.erase.inLine(2) + this.prompt())
+            this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
           }
         } else {
           editor.reset()
-          this.write(ansi.erase.inLine(2) + this.prompt())
+          this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
         }
         break
       }

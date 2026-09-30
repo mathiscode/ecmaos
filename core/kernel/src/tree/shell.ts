@@ -22,7 +22,7 @@ import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, Wo
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/expand-variables'
-import { aggregateBuiltinNames, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
 import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
@@ -236,6 +236,28 @@ class StdinSource {
     }
   }
 
+  /**
+   * Everything buffered, or the next chunk when nothing is: what a real command is handed as its
+   * stdin. It reads on demand (one chunk per pull), and the command's own kernel bridge returns
+   * whatever the command left unread through `unread`, so a body's `cat` and `read` share one
+   * position the way processes sharing a file descriptor do.
+   */
+  chunks(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      pull: async controller => {
+        if (this.pending === '') await this.fill()
+        if (this.pending === '') return controller.close()
+        controller.enqueue(new TextEncoder().encode(this.pending))
+        this.pending = ''
+      }
+    }, { highWaterMark: 0 })
+  }
+
+  /** Puts bytes a command did not consume back at the front. */
+  unread(bytes: Uint8Array): void {
+    this.pending = new TextDecoder().decode(bytes) + this.pending
+  }
+
   async readAll(): Promise<string> {
     while (await this.fill()) { /* drain */ }
     const text = this.pending
@@ -255,6 +277,7 @@ class StdinSource {
  * itself `done` with the right exit codes exactly once.
  */
 class JobImpl implements Job {
+  notified?: boolean
   id: number
   commandLine: string
   status: JobStatus = 'running'
@@ -342,6 +365,12 @@ export class Shell implements IShell {
    * from their own input and restore the outer one on the way out.
    */
   private _stdinSources: StdinSource[] = []
+  /**
+   * Each active aggregate builtin (`eval`, `source`, ...) that feeds a pipe, as a factory for a
+   * non-closing view of that pipe. The commands it runs write their stdout through one of these, so
+   * `eval 'echo x' | grep x` reaches `grep`; the pipe itself is closed once, by the builtin's stage.
+   */
+  private _heldStdout: Array<() => WritableStream<Uint8Array>> = []
 
   /**
    * Output redirections belonging to an enclosing *aggregate* command -- a redirected compound
@@ -1542,8 +1571,9 @@ export class Shell implements IShell {
     const defaultFor = (fd: number): WritableStream<Uint8Array> => {
       const existing = fdStreams.get(fd)
       if (existing) return existing
+      const held = this._heldStdout[this._heldStdout.length - 1]
       const created = fd === 1
-        ? (isLastCommand ? this.createTerminalOutputStream() : (pipeWritable as WritableStream<Uint8Array>))
+        ? (isLastCommand ? (held ? held() : this.createTerminalOutputStream()) : (pipeWritable as WritableStream<Uint8Array>))
         : this.createTerminalErrorStream()
       fdStreams.set(fd, created)
       return created
@@ -1776,6 +1806,7 @@ export class Shell implements IShell {
        * the same chunk, so `while read -r line; done < f` only ever saw the first one.
        */
       stdinSource: StdinSource | undefined
+      stdinLeftover: ((bytes: Uint8Array) => void) | undefined
       stdinIsTTY: boolean
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
@@ -1819,6 +1850,7 @@ export class Shell implements IShell {
 
       let stdin: ReadableStream<Uint8Array> | undefined
       let stdinSource: StdinSource | undefined
+      let stdinLeftover: ((bytes: Uint8Array) => void) | undefined
       let stdinIsTTY = false
       // Applies to *any* stage, not only the first -- `a | b < f` redirects b's stdin, discarding
       // whatever a's stdout would have fed it, exactly like a real shell.
@@ -1841,7 +1873,8 @@ export class Shell implements IShell {
           // bash gives it the rest of `f`. Making that work needs a stdin bridge driven by the
           // process's own reads.
           stdinSource = builtinName ? source : undefined
-          stdin = builtinName ? undefined : new ReadableStream({ start: controller => controller.close() })
+          stdin = builtinName ? undefined : source.chunks()
+          stdinLeftover = builtinName ? undefined : bytes => source.unread(bytes)
         } else {
           stdin = this._terminal.getInputStream()
           stdinIsTTY = true
@@ -1871,10 +1904,10 @@ export class Shell implements IShell {
       }
 
       const { stdout, stderr } = await this.buildOutputStreams(redirections, isLastCommand, pipeWritable)
-      const stdoutIsTTY = isLastCommand && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
+      const stdoutIsTTY = isLastCommand && this._heldStdout.length === 0 && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
       // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
       await this.trace([command.words[0] ?? '', ...args])
-      const fds = { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
+      const fds = { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
       stages.push(builtinName
         ? {
             kind: 'builtin',
@@ -1888,18 +1921,32 @@ export class Shell implements IShell {
     }
 
     const results = await Promise.all(stages.map(async stage => {
-      const { args, stdin, stdinSource, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
+      const { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
 
       if (stage.kind === 'builtin') {
-        const io = this.streamBuiltinIO(stdinSource ?? stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
         const name = stage.name
         const aggregate = stage.aggregate
+        if (!aggregate) {
+          const io = this.streamBuiltinIO(stdinSource ?? stdin, stdinIsTTY, stdout, stdoutIsTTY, stderr)
+          try { return await runTrueBuiltin(this, name, args, io) } finally { await io.close() }
+        }
+
+        // An aggregate builtin runs commands of its own, so what its stage was wired to has to reach
+        // them: a pipe on its stdout is written through by every command inside, and a pipe or file
+        // on its stdin is one shared input they read in turn (`echo x | eval cat`).
+        const source = stdinSource ?? (stdin && !stdinIsTTY ? new StdinSource(stdin) : undefined)
+        const sharedOut = drainStdout ? undefined : stdout.getWriter()
+        const view = () => new WritableStream<Uint8Array>({ write: async chunk => { await sharedOut?.write(chunk) } })
+        const io = this.streamBuiltinIO(source ?? stdin, stdinIsTTY, sharedOut ? view() : stdout, stdoutIsTTY, stderr)
+        if (sharedOut) this._heldStdout.push(view)
+        if (source && !stdinSource) this._stdinSources.push(source)
         try {
-          return aggregate
-            ? await this.withStatementRedirections(aggregate, () => runTrueBuiltin(this, name, args, io))
-            : await runTrueBuiltin(this, name, args, io)
+          return await this.withStatementRedirections(aggregate, () => runTrueBuiltin(this, name, args, io))
         } finally {
+          if (source && !stdinSource) this._stdinSources.pop()
+          if (sharedOut) this._heldStdout.pop()
           await io.close()
+          if (sharedOut) { try { await sharedOut.close() } catch { sharedOut.releaseLock() } }
         }
       }
 
@@ -1909,6 +1956,7 @@ export class Shell implements IShell {
         shell: this,
         terminal: this._terminal,
         stdin,
+        stdinLeftover,
         stdinIsTTY,
         stdout,
         stdoutIsTTY,
@@ -1920,6 +1968,24 @@ export class Shell implements IShell {
     }))
 
     return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
+  }
+
+  /**
+   * bash reports a finished background job only when it next draws PS1, so this is polled at prompt
+   * time rather than pushed from `SIGCHLD`. Reporting retires the job from `jobs`.
+   */
+  takeJobNotifications(): string[] {
+    const background = this._jobs.filter(job => job.background || job.status === 'stopped')
+    const current = background[background.length - 1]?.id
+    const previous = background.length > 1 ? background[background.length - 2]?.id : undefined
+    const lines: string[] = []
+    for (const job of this._jobs) {
+      if (job.status !== 'done' || !job.background || job.notified) continue
+      job.notified = true
+      const marker = job.id === current ? '+' : job.id === previous ? '-' : ' '
+      lines.push(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(24)}${job.commandLine} &`)
+    }
+    return lines
   }
 
   /** All tracked jobs, oldest first. See `_jobs`'s doc comment for retention behavior. */
@@ -2674,6 +2740,11 @@ export class Shell implements IShell {
 
         case 'case': {
           lastExit = await this.withStatementRedirection(statement, () => this.executeCase(statement))
+          break
+        }
+
+        case 'group': {
+          lastExit = await this.withStatementRedirection(statement, () => this.executeStatements(statement.body))
           break
         }
       }

@@ -25,13 +25,14 @@
  * integer a program passes back to the kernel rather than the open file itself.
  */
 
-import { define_syscall, kill as zenfsKill, spawn as zenfsSpawn, type Process } from '@zenfs/linux'
+import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
+import { getpgid, killpg, mayKill, setpgid, spawnWithFds, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { presenters } from './presenters/index.ts'
@@ -71,7 +72,11 @@ declare module '@zenfs/linux/uapi/abi' {
     device_cli_wait(): number
     dom_toast(kind: string, message: string): number
     shell_set_theme(theme: string): number
-    proc_spawn(command: string, argvJson: string, cwd: string): number
+    proc_spawn(command: string, argvJson: string, cwd: string, optionsJson?: string): number
+    proc_waitpid(pid: number, nohang: number): number
+    proc_setpgid(pid: number, pgid: number): number
+    proc_getpgid(pid: number): number
+    proc_killpg(pgid: number, signal: number): number
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
     shell_exec(command: string): number
@@ -961,11 +966,15 @@ export function installMainThreadSyscalls(): void {
   // own `syscall_async` (`uapi/base.js`) reconstructs a real, correctly-named error (`ENOENT`,
   // `ECHILD`, `ESRCH`, ...) from that `-errno` automatically -- so a program calling `custom('proc_wait',
   // ...)` on a pid that was never its child gets a real `ECHILD` back, not a generic failure.
-  define_syscall('proc_spawn', async (proc: Process, command: string, argvJson: string, cwd: string) => {
+  // `optionsJson` is `{ env?, fds? }`: `env` replaces the shell's snapshot (so `FOO=bar cmd` and a
+  // per-command environment work from a worker) and `fds` maps child fd -> caller fd (`posix_spawn`
+  // file actions, how a pipeline is wired). See `job-control.ts` for the removal path.
+  define_syscall('proc_spawn', async (proc: Process, command: string, argvJson: string, cwd: string, optionsJson?: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const child = await zenfsSpawn(proc, command, argv, shell?.envObject ?? proc.env, { cwd: cwd || proc.cwd })
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number } : {}
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid })
     registerProcessKernel(child, kernel, shell)
     return child.pid
   })
@@ -974,7 +983,19 @@ export function installMainThreadSyscalls(): void {
     return await proc.wait(pid)
   })
 
-  define_syscall('proc_kill', async (_proc: Process, pid: number, signal: number) => {
+  define_syscall('proc_waitpid', async (proc: Process, pid: number, nohang: number) => waitpid(proc, pid, !!nohang))
+  define_syscall('proc_setpgid', (proc: Process, pid: number, pgid: number) => setpgid(proc, pid, pgid))
+  define_syscall('proc_getpgid', (proc: Process, pid: number) => {
+    const target = pid === 0 ? proc : processes.get(pid)
+    if (!target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    return getpgid(target)
+  })
+  define_syscall('proc_killpg', (_proc: Process, pgid: number, signal: number) => { killpg(pgid, signal); return 0 })
+
+  define_syscall('proc_kill', async (proc: Process, pid: number, signal: number) => {
+    const target = processes.get(pid)
+    if (!target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    if (!mayKill(proc, target)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
     zenfsKill(pid, signal)
     return 0
   })
