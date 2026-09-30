@@ -25,6 +25,11 @@ export interface ExpansionContext {
   assign(name: string, value: string): void
   /** Run a command and return its stdout with trailing newlines removed */
   substitute(command: string): Promise<string>
+  /**
+   * `<(cmd)` / `>(cmd)`: a path the surrounding command can open, standing for `cmd`'s output or
+   * input. Absent where process substitution has no meaning, and the word stays literal.
+   */
+  processSubstitute?(direction: '<' | '>', command: string): Promise<string>
   /** Paths matching a glob pattern, relative the same way the pattern is; empty if none */
   glob(pattern: string): Promise<string[]>
   /** `$HOME`, for tilde expansion */
@@ -260,6 +265,11 @@ class Expander {
 
     for (const [index, part] of parts.entries()) {
       const quoted = part.quoting !== 'unquoted'
+      if (part.procSub && this.ctx.processSubstitute) {
+        add({ text: await this.ctx.processSubstitute(part.procSub.direction, part.procSub.command), split: false, glob: false })
+        keep[keep.length - 1] = true
+        continue
+      }
       if (part.quoting === 'single' || part.quoting === 'escaped') {
         add({ text: part.text, split: false, glob: false })
         keep[keep.length - 1] = true

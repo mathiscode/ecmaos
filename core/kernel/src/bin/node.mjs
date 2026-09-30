@@ -31,7 +31,7 @@ import { ready, exit } from '@zenfs/linux/uapi/process'
 import {
   open, read, close, write, getcwd,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink, ioctl, tcgetattr, tcsetattr, winsize
+  link, symlink, readlink, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal } from '@zenfs/linux/uapi/base'
 
@@ -225,6 +225,10 @@ globalThis.ecmaosSyscalls = {
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
   // (`TCGETS`/`TCSETS`, `lflag`/`iflag`/`oflag`/`cc`), `winsize` (`TIOCGWINSZ`), and the bare `ioctl`.
   ioctl, tcgetattr, tcsetattr, winsize,
+  // `pipe()` returns `[read, write]`; `dup`/`dup2` copy a descriptor. Together they are how a shell
+  // wires a child's stdin and stdout; the child inherits fds 0 to 2 only, so a pipe is handed over
+  // by `dup2`ing its end onto one of those before the spawn.
+  pipe, dup, dup2,
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

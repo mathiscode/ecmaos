@@ -861,6 +861,7 @@ export class Shell implements IShell {
       },
       assign: (name, value) => this.setVariable(name, value),
       substitute: (command) => this.executeCommandSubstitution(command),
+      processSubstitute: (direction, command) => this.processSubstitute(direction, command),
       glob: (pattern) => this.expandGlob(pattern),
       home: () => this._env.get('HOME'),
       nounset: this._shellOptions.nounset
@@ -1658,6 +1659,70 @@ export class Shell implements IShell {
    * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
   private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
+    // Process substitutions expanded for this pipeline's words live until it has finished.
+    const mark = this._processSubstitutions.length
+    try {
+      return await this.runPipelineWithPrefixes(pipeline, job)
+    } finally {
+      await this.finishProcessSubstitutions(mark)
+    }
+  }
+
+  /**
+   * `<(cmd)` and `>(cmd)`, as bash does when `/dev/fd` is not usable: a path in `/tmp` standing in
+   * for the far end of a pipe. A real process would get an fd number into its own table, but a child
+   * here inherits only fds 0 to 2, so `/dev/fd/63` would name nothing in it.
+   *
+   * The trade is that this does not stream. `<(cmd)` runs `cmd` to completion into the file before
+   * the command that reads it starts, so an endless producer never yields a path; `>(cmd)` runs
+   * after the command that wrote to it has finished, with the file as its stdin. For `diff <(a)
+   * <(b)`, `while read l; do ...; done < <(cmd)`, `tee >(a) >(b)` and everything else that reads or
+   * writes a finite stream, the result is the same. Removed once the pipeline finishes.
+   */
+  private async processSubstitute(direction: '<' | '>', command: string): Promise<string> {
+    const fs = this.context.fs.promises
+    const path = `/tmp/.procsub-${this._id.slice(0, 8)}-${this._processSubstitutionCount++}`
+    await fs.writeFile(path, new Uint8Array())
+    const redirection: Redirection = {
+      type: '>',
+      fd: 1,
+      target: path,
+      targetParts: [{ text: path, quoting: 'single' }]
+    }
+    // `>(cmd)` needs the file as *cmd's* stdin. A redirection held over a statement tree reaches only
+    // builtins (a real command gets a closed stdin; see the Phase 6 note on a shared fd 0), so the
+    // redirection is written into the line instead, on the command that reads first: `< file a | b`.
+    // A compound command or a list cannot take one there, and falls back to the held redirection.
+    const firstWord = command.trim().split(/\s+/)[0] ?? ''
+    const simple = !CONTROL_FLOW_KEYWORDS.has(firstWord) && !/[;\n]|&&|\|\|/.test(command)
+    const run = async () => {
+      try {
+        if (direction === '>' && simple) await this.executeStatements(parseStatements(`< '${path}' ${command}`))
+        else await this.withStatementRedirections([redirection], () => this.executeStatements(parseStatements(command)))
+      } catch (error) {
+        // `exit` inside the substitution ends only the substitution.
+        if (!(error instanceof ExitSignal)) throw error
+      }
+    }
+
+    if (direction === '<') await run()
+    this._processSubstitutions.push({ path, after: direction === '>' ? run : undefined })
+    return path
+  }
+
+  private async finishProcessSubstitutions(mark: number): Promise<void> {
+    const finished = this._processSubstitutions.splice(mark)
+    for (const { path, after } of finished) {
+      try { await after?.() } finally {
+        await this.context.fs.promises.unlink(path).catch(() => {})
+      }
+    }
+  }
+
+  private _processSubstitutions: Array<{ path: string, after?: () => Promise<void> }> = []
+  private _processSubstitutionCount = 0
+
+  private async runPipelineWithPrefixes(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
     const { commands, prefixes } = stripAssignmentPrefixes(pipeline.commands)
     if (prefixes.length === 0) return await this.runPipelineStages(pipeline, commands, job)
 
@@ -1797,7 +1862,7 @@ export class Shell implements IShell {
       // the same "later wins" rule applied across nesting levels. Resolved once per command, since
       // `inheritedOutputRedirections` also records which fds have already been truncated.
       const redirections = this._statementOutputs.length > 0 || this._execOutputs
-        ? [...this.inheritedOutputRedirections(), ...command.redirections]
+        ? [...this.inheritedOutputRedirections(!isLastCommand), ...command.redirections]
         : command.redirections
       const blocked = await this.noclobberTarget(redirections)
       if (blocked) {
@@ -2671,15 +2736,22 @@ export class Shell implements IShell {
    * single set of fds.
    */
   private async withStatementRedirections(redirections: readonly Redirection[], run: () => Promise<number>): Promise<number> {
-    return await this.withStatementOutputs(redirections, async () => {
-      const pop = await this.pushStatementStdin(redirections)
-      if (!pop) return await run()
-      try {
-        return await run()
-      } finally {
-        await pop()
-      }
-    })
+    // A `done < <(cmd)` expands its target here, outside any pipeline, so its substitution has to be
+    // cleaned up here too.
+    const mark = this._processSubstitutions.length
+    try {
+      return await this.withStatementOutputs(redirections, async () => {
+        const pop = await this.pushStatementStdin(redirections)
+        if (!pop) return await run()
+        try {
+          return await run()
+        } finally {
+          await pop()
+        }
+      })
+    } finally {
+      await this.finishProcessSubstitutions(mark)
+    }
   }
 
   private async executeIf(statement: IfStatement): Promise<number> {
@@ -2996,12 +3068,20 @@ export class Shell implements IShell {
    * The rewrite is what makes a body of several commands behave like one redirected stream: without
    * it `for f in a b; do echo $f; done > out` would leave only `b` in `out`, because each `echo`
    * would reopen the file from the top.
+   *
+   * `notLast` is for a stage that feeds a pipe: fd 1 redirections are left out. Applying them there
+   * sent `echo a` in `for ...; do echo a | cat; done > f` to the file instead of the pipe, leaving
+   * `cat` waiting on a pipe that never received a byte.
    */
-  private inheritedOutputRedirections(): Redirection[] {
+  private inheritedOutputRedirections(notLast = false): Redirection[] {
     const inherited: Redirection[] = []
     const levels = this._execOutputs ? [this._execOutputs, ...this._statementOutputs] : this._statementOutputs
     for (const level of levels) {
       for (const redirection of level.redirections) {
+        // A stage before the last has its stdout on the pipe, so the block's redirection of fd 1 is
+        // not its to apply (bash applies it to the last stage only). Skipped before the truncation
+        // bookkeeping below, or the stage that does own the file would wrongly append.
+        if (notLast && redirection.fd === 1) continue
         if (redirection.type !== '>' && redirection.type !== '>|') { inherited.push(redirection); continue }
         if (level.truncated.has(redirection.fd)) inherited.push({ ...redirection, type: '>>' })
         else { inherited.push(redirection); level.truncated.add(redirection.fd) }

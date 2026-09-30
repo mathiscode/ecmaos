@@ -30,6 +30,8 @@ export type Quoting = 'unquoted' | 'single' | 'double' | 'escaped'
 export interface WordPart {
   text: string
   quoting: Quoting
+  /** Set on a whole-word part that is a process substitution, `<(cmd)` or `>(cmd)`. `text` keeps the source. */
+  procSub?: { direction: '<' | '>', command: string }
 }
 
 /** A heredoc's body and whether it undergoes expansion (its delimiter was unquoted). */
@@ -240,6 +242,25 @@ const isWordBoundary = (line: string, i: number) => {
   return /\s/.test(c) || c === ';' || c === '&' || c === '|' || c === '<' || c === '>'
 }
 
+/**
+ * Index of the `)` closing the `(` at `open`, skipping quoted text and nested parentheses, or -1.
+ */
+function scanProcessSubstitution(line: string, open: number): number {
+  let depth = 0
+  for (let i = open; i < line.length; i++) {
+    const c = line[i] as string
+    if (c === '\\') { i++; continue }
+    if (c === "'") { const end = line.indexOf("'", i + 1); if (end === -1) return -1; i = end; continue }
+    if (c === '"') {
+      for (i++; i < line.length && line[i] !== '"'; i++) if (line[i] === '\\') i++
+      continue
+    }
+    if (c === '(') depth++
+    else if (c === ')' && --depth === 0) return i
+  }
+  return -1
+}
+
 /** Concatenated text of a word's parts: what the word says once quotes are removed. */
 export function partsText(parts: WordPart[]): string {
   return parts.map(p => p.text).join('')
@@ -288,6 +309,19 @@ export function tokenize(line: string): Token[] {
       if (end === -1) throw new ParseError("Unterminated '[[': expected ']]'")
       tokens.push({ kind: 'conditional', value: line.slice(i + 2, end - 2).trim() })
       i = end
+      continue
+    }
+
+    // Process substitution: `<(cmd)` / `>(cmd)` where a word can begin. It is one word, so `cat <(a)` is
+    // a command with an argument, while `cat < (a)` stays a redirection followed by a syntax error.
+    if ((char === '<' || char === '>') && line[i + 1] === '(' && (i === 0 || /[\s<>|&;(]/.test(line[i - 1] as string))) {
+      const close = scanProcessSubstitution(line, i + 1)
+      if (close === -1) throw new ParseError(`Unterminated process substitution: expected ')'`)
+      const source = line.slice(i, close + 1)
+      const part: WordPart = { text: source, quoting: 'unquoted', procSub: { direction: char, command: line.slice(i + 2, close) } }
+      // Glued to more word text (`<(a)b`) is not a form worth supporting; the tail is its own word.
+      tokens.push({ kind: 'word', value: source, quoted: false, parts: [part] })
+      i = close + 1
       continue
     }
 
