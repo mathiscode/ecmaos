@@ -30,6 +30,9 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { trueBuiltinNames } from '#lib/shell-builtins.ts'
 import { needsMoreInput } from '#lib/control-flow-parser.ts'
+import { completionMatches } from '#lib/completion.ts'
+import { History } from '#lib/history.ts'
+import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '#lib/line-editor.ts'
 
 import { Events } from '#events.ts'
 
@@ -167,13 +170,19 @@ export const DefaultTerminalOptions: Omit<TerminalOptions, 'context' | 'dom' | '
 export class Terminal extends XTerm implements ITerminal {
   private _addons: TerminalOptions['addons'] = new Map()
   private _ansi: typeof ansi = ansi
-  private _cmd: string = ''
-  private _cursorPosition: number = 0
+  /**
+   * The line being edited. Everything that changes it goes through this, so `_cmd`/`_cursorPosition`
+   * below are only views of it: five other methods used to mutate those two fields directly, which is
+   * how the four editors drifted apart.
+   */
+  private _editor: LineEditor
+  private _history: History
+  /** Active `^R` search, if any. */
+  private _search: ReverseSearch | undefined
+  /** How many commands this terminal has run, for `\#` in a prompt. */
+  private _commandNumber = 1
+  private _shortcutListener: IDisposable | undefined
   private _events: Events
-  private _historyCache: Record<number, string[]> = {}
-  private _historyLineCount: Record<number, number> = {}
-  private _historyFilePath: Record<number, string> = {}
-  private _historyPosition: number = 0
   private _ctx: KernelContext
   private _dom: Dom
   private _id: string = crypto.randomUUID()
@@ -294,6 +303,12 @@ export class Terminal extends XTerm implements ITerminal {
   /** Whether the `@zenfs/linux` line discipline currently owns the keyboard (see `attachInput`) */
   get ttyInputAttached() { return this._ttyInput !== undefined }
 
+  /** The line as typed. Kept as a property because `Kernel` and the tests read and set it directly. */
+  private get _cmd() { return this._editor.text }
+  private set _cmd(value: string) { this._editor.set(value) }
+  private get _cursorPosition() { return this._editor.cursor }
+  private set _cursorPosition(value: number) { this._editor.set(this._editor.text, value) }
+
   get promptTemplate() { return this._promptTemplate }
   set promptTemplate(value: string) { this._promptTemplate = value }
 
@@ -304,6 +319,22 @@ export class Terminal extends XTerm implements ITerminal {
     this._users = options.users
     this._tty = options.tty ?? 0
     globalThis.terminals?.set(this.id, this)
+
+    // The editor reads the terminal's width and the prompt's width afresh on every operation, so a
+    // resize or a prompt change (`PS1`, a new cwd, entering a continuation line) is picked up without
+    // anyone telling it.
+    const terminal = this
+    this._editor = new LineEditor({
+      write: data => this.write(data),
+      get cols() { return terminal.cols },
+      promptWidth: () => this.promptWidth()
+    })
+    this._history = new History({
+      fs: () => this._shell?.context?.fs?.promises,
+      file: () => path.join(this._shell?.env.get('HOME') || '/root', '.history'),
+      variable: name => this._shell?.env.get(name),
+      error: message => this._ctx.log.error(message)
+    })
 
     this._detectMobileSupport()
 
@@ -499,7 +530,7 @@ export class Terminal extends XTerm implements ITerminal {
       attachSocket()
     }
 
-    this.onKey(this.shortcutKeyHandler.bind(this))
+    this._shortcutListener = this.onKey(this.shortcutKeyHandler.bind(this))
     if (!this._isMobile) this._keyListener = this.onKey(this.keyHandler.bind(this))
 
     // A shell may not exist yet (Kernel.createShell constructs Terminal first, the same way
@@ -509,12 +540,7 @@ export class Terminal extends XTerm implements ITerminal {
       this._shell = options.shell
       this.updateConfig()
 
-      const uid = this._shell.credentials.uid
-      this._historyCache[uid] = []
-      this._historyLineCount[uid] = 0
-      this._historyPosition = 0
-
-      this._initializeHistory(uid).catch(() => {
+      this._history.load(this._shell.credentials.uid).catch(() => {
         // Silently fail if filesystem isn't ready yet - will initialize on first use
       })
     }
@@ -579,13 +605,7 @@ export class Terminal extends XTerm implements ITerminal {
     this._shell = shell
     this.updateConfig()
     this._applyRenderer()
-    const uid = this._shell.credentials.uid
-    if (!this._historyCache[uid]) {
-      this._historyCache[uid] = []
-      this._historyLineCount[uid] = 0
-      this._historyPosition = 0
-      this._initializeHistory(uid)
-    }
+    this._history.load(this._shell.credentials.uid).catch(() => {})
   }
 
   /** Supply the `Kernel`-level capabilities not available at construction time; see {@link TerminalWiring}. */
@@ -655,36 +675,6 @@ export class Terminal extends XTerm implements ITerminal {
    * (`right`), the readline/shell convention for Option+Arrow (macOS) and Ctrl+Arrow (elsewhere).
    * Word boundaries follow whitespace, matching bash's default `word-boundary` behavior.
    */
-  private _wordJump(direction: 'left' | 'right') {
-    const isWordChar = (char: string | undefined) => !!char && !/\s/.test(char)
-    let target = this._cursorPosition
-
-    if (direction === 'left') {
-      while (target > 0 && !isWordChar(this._cmd[target - 1])) target--
-      while (target > 0 && isWordChar(this._cmd[target - 1])) target--
-    } else {
-      while (target < this._cmd.length && isWordChar(this._cmd[target])) target++
-      while (target < this._cmd.length && !isWordChar(this._cmd[target])) target++
-    }
-
-    if (target === this._cursorPosition) return
-
-    const promptText = this.prompt()
-    const promptLen = promptText.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-    const cols = this.cols
-
-    const fromLine = Math.floor((promptLen + this._cursorPosition) / cols)
-    const toLine = Math.floor((promptLen + target) / cols)
-    const toColumn = (promptLen + target) % cols
-
-    this._cursorPosition = target
-
-    const lineDelta = toLine - fromLine
-    if (lineDelta > 0) this.write(`\x1b[${lineDelta}B`)
-    else if (lineDelta < 0) this.write(`\x1b[${-lineDelta}A`)
-    this.write(`\x1b[${toColumn + 1}G`)
-  }
-
   /**
    * Write a chunk of program output atomically, using DEC private mode 2026 (Synchronized Output,
    * `CSI ? 2026 h` / `l`). A command that writes many lines in one chunk -- `cat` on a large file
@@ -708,6 +698,11 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   dispose() {
+    // Not in `unlisten()`: this is the handler behind `Ctrl+Shift+F1`, which is how a terminal that
+    // has been unlistened gets listening again, so it has to outlive `unlisten`. It did outlive
+    // `dispose` too, though, which left a live key handler on a terminal that no longer existed.
+    try { this._shortcutListener?.dispose() } catch {}
+    this._shortcutListener = undefined
     this._cleanupViewportListeners()
     this._webglAddon?.dispose()
     this._webglAddon = undefined
@@ -985,16 +980,18 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   async readline(prompt: string = '', hide: boolean = false, noListen: boolean = false) {
-    if (hide && this._isMobile) {
-      return this._readlineWithPasswordInput(prompt, noListen)
-    }
+    if (this._isMobile) return this._readlineWithDomInput(prompt, noListen, hide)
 
-    if (this._isMobile) {
-      return this._readlineWithMobileInput(prompt, noListen)
-    }
+    // A private editor for this one call: the prompt's own line (`_editor`) is untouched, which is
+    // what lets `readline()` run while a command is executing. `hide` turns the screen off entirely
+    // rather than masking it, so nothing about a password -- its length included -- is drawn.
+    const terminal = this
+    const editor = new LineEditor({
+      write: data => { if (!hide) this.write(data) },
+      get cols() { return terminal.cols },
+      promptWidth: () => visibleWidth(prompt)
+    })
 
-    let input = ''
-    let cursor = 0
     const wasListening = this._keyListener !== undefined
     this.unlisten()
 
@@ -1013,103 +1010,32 @@ export class Terminal extends XTerm implements ITerminal {
         })()
       : undefined
 
-    this.write(prompt)
+    this.write(stripMarkers(prompt))
     this.focus()
-    if (this._isMobile) {
-      setTimeout(() => this._scrollTerminalToBottom(), 100)
-      setTimeout(() => this._scrollTerminalToBottom(), 300)
-    }
 
     const result = await new Promise<string>((resolve) => {
-      const disposable = this.onKey(({ domEvent }) => {
+      const disposable = this.onKey(({ key, domEvent }) => {
         if (domEvent.target && this._passwordInputElement && domEvent.target === this._passwordInputElement) {
           return
         }
-        
+
         domEvent.preventDefault()
         domEvent.stopPropagation()
-        
-        switch(domEvent.key) {
+
+        switch (domEvent.key) {
           case 'Enter': {
-            const finalInput = input
             disposable.dispose()
             this.write('\n')
-            resolve(finalInput)
-            break
+            resolve(editor.text)
+            return
           }
-          case 'ArrowLeft': 
-            if (cursor > 0) {
-              this.write(ansi.cursor.back())
-              cursor--
-            }
-            break
-          case 'ArrowRight': 
-            if (cursor < input.length) {
-              this.write(ansi.cursor.forward())
-              cursor++
-            }
-            break
-          case 'Home': 
-            this.write(ansi.cursor.horizontalAbsolute(prompt.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length + 1))
-            cursor = 0
-            break
-          case 'End': 
-            this.write(ansi.cursor.horizontalAbsolute(prompt.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length + input.length + 1))
-            cursor = input.length
-            break
-          case 'Escape': 
+          case 'Escape':
             disposable.dispose()
             resolve('')
-            break
-          case 'Backspace':
-            if (cursor > 0) {
-              cursor--
-              input = input.slice(0, cursor) + input.slice(cursor + 1)
-              // `hide` (a password prompt) suppresses echo entirely, the same way the typed-
-              // character branch below does -- redrawing `input.slice(cursor)` here regardless of
-              // `hide` used to leak the real plaintext onto the terminal on every edit.
-              if (!hide) {
-                this.write(ansi.cursor.back() + ansi.erase.inLine(0) + input.slice(cursor))
-                if (input.length - cursor > 0) {
-                  this.write(`\x1b[${input.length - cursor}D`)
-                }
-              }
-            } else this.write('\x07')
-            break
-          case 'Delete':
-            if (cursor < input.length) {
-              input = input.slice(0, cursor) + input.slice(cursor + 1)
-              if (!hide) {
-                this.write(ansi.erase.inLine(0) + input.slice(cursor))
-                if (input.length - cursor > 0) {
-                  this.write(`\x1b[${input.length - cursor}D`)
-                }
-              }
-            }
-            break
-          default:
-            if (domEvent.key.length === 1 && !domEvent.ctrlKey && !domEvent.metaKey && !domEvent.altKey) {
-              const charCode = domEvent.key.charCodeAt(0)
-              if (charCode >= 32 && charCode <= 126) {
-                input = input.slice(0, cursor) + domEvent.key + input.slice(cursor)
-                if (!hide) {
-                  if (cursor === input.length - 1) {
-                    this.write(domEvent.key)
-                  } else {
-                    const promptLen = prompt.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-                    this.write(ansi.cursor.horizontalAbsolute(promptLen + 1) + ansi.erase.inLine(0) + input)
-                    if (cursor < input.length - 1) {
-                      this.write(`\x1b[${input.length - cursor - 1}D`)
-                    }
-                  }
-                }
-                cursor++
-              }
-            }
+            return
         }
 
-        if (cursor < 0) cursor = 0
-        if (cursor > input.length) cursor = input.length
+        this._editKey(editor, key, domEvent)
       })
     })
 
@@ -1218,12 +1144,58 @@ export class Terminal extends XTerm implements ITerminal {
             output += char
             i++
             break
-          case '[': // Start non-printing sequence
-            output += '\\['
+          case '[': // start of a run that occupies no columns
+            output += NONPRINTING_START
             i += 2
             break
-          case ']': // End non-printing sequence
-            output += '\\]'
+          case ']':
+            output += NONPRINTING_END
+            i += 2
+            break
+          case 't': // 24-hour time, HH:MM:SS
+            output += new Date().toTimeString().slice(0, 8)
+            i += 2
+            break
+          case 'T': { // 12-hour time, HH:MM:SS
+            const hours = new Date().getHours() % 12 || 12
+            output += String(hours).padStart(2, '0') + new Date().toTimeString().slice(2, 8)
+            i += 2
+            break
+          }
+          case 'A': // 24-hour time, HH:MM
+            output += new Date().toTimeString().slice(0, 5)
+            i += 2
+            break
+          case 'd': // date, "Tue May 26"
+            output += new Date().toDateString().slice(0, 10)
+            i += 2
+            break
+          case '!': // history number of this command
+            output += String(this._history.length(this._shell.credentials.uid) + 1)
+            i += 2
+            break
+          case '#': // command number
+            output += String(this._commandNumber)
+            i += 2
+            break
+          case 'j': // jobs the shell is managing
+            output += String(this._shell.listJobs().filter(job => job.status !== 'done').length)
+            i += 2
+            break
+          case 'e': // escape, for hand-written color codes; wrap them in \[ \] to keep them out of the width
+            output += '\x1b'
+            i += 2
+            break
+          case 'a': // bell
+            output += '\x07'
+            i += 2
+            break
+          case 'r':
+            output += '\r'
+            i += 2
+            break
+          case '\\':
+            output += '\\'
             i += 2
             break
           default:
@@ -1242,9 +1214,45 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * Gets the prompt string, loading from PROMPT environment variable if available
+   * The prompt to write. It is {@link _rawPrompt} without the non-printing markers, which exist only
+   * so {@link promptWidth} can tell how many columns the text occupies.
    */
   prompt(text?: string): string {
+    return stripMarkers(this._rawPrompt(text))
+  }
+
+  /** Columns the current prompt line occupies before the cursor: `$PS1`, or `$PS2` while continuing. */
+  promptWidth(): number {
+    return visibleWidth(this._multiLineMode ? this._rawContinuation() : this._rawPrompt())
+  }
+
+  /** `$PS2`, the prompt for the second and later lines of a command. Defaults to `> `. */
+  continuationPrompt(): string {
+    return stripMarkers(this._rawContinuation())
+  }
+
+  private _rawContinuation(): string {
+    const ps2 = this._shell?.env.get('PS2')
+    if (ps2 === undefined) return '> '
+    try { return this.parsePromptFormat(ps2) } catch { return ps2 }
+  }
+
+  /** What precedes the line being edited: `$PS1` normally, `$PS2` on a continuation line. */
+  private _linePrefix(): string {
+    return this._multiLineMode ? this.continuationPrompt() : this.prompt()
+  }
+
+  /** A command line as it is drawn: everything from the first `#` dimmed, as a comment. */
+  private _renderCommand(text: string): string {
+    const parts = text.split('#')
+    return parts.length > 1 ? parts[0] + chalk.gray('#' + parts.slice(1).join('#')) : text
+  }
+
+  /**
+   * The prompt with its non-printing markers still in place. Loads `PROMPT` from the environment if
+   * one is set.
+   */
+  private _rawPrompt(text?: string): string {
     // Try to get PROMPT from environment
     const envPrompt = this._shell.env.get('PROMPT')
     const hasEnvPrompt = envPrompt && envPrompt.trim().length > 0
@@ -1286,9 +1294,9 @@ export class Terminal extends XTerm implements ITerminal {
 
   override async paste(data?: string) {
     const clip = data ? data : await navigator.clipboard.readText()
-    this.write(clip)
-    this._cmd += clip
-    this._cursorPosition += clip.length
+    // Newlines become spaces: the editor models one logical line, and a raw newline written to the
+    // screen moved the cursor without the model knowing, so every repaint after it landed wrong.
+    this._editor.insert(clip.replace(/\r?\n/g, ' '))
     this.events.dispatch<TerminalPasteEvent>(TerminalEvents.PASTE, { text: clip })
     this.events.dispatch<TerminalInputEvent>(TerminalEvents.INPUT, { terminal: this, data: clip })
   }
@@ -1307,14 +1315,125 @@ export class Terminal extends XTerm implements ITerminal {
       this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
     }
 
-    this._cmd = ''
-    this._cursorPosition = 0
+    this._editor.reset()
     this.unlisten()
     this.write(this.prompt())
     this.listen()
   }
 
-  async keyHandler({ key, domEvent }: { key: string; domEvent: KeyboardEvent }) {
+  /**
+   * The editing keys, shared by the prompt and by `readline()` so the two cannot disagree about what
+   * a key does. Returns whether it handled the key.
+   *
+   * Emacs bindings as in readline: `^A`/`^E` line ends, `^B`/`^F` character, `^D` delete, `^K`/`^U`
+   * kill to the end/start, `^W` kill the word before, `^Y` yank, and `Alt-B`/`Alt-F`/`Alt-D`/
+   * `Alt-Backspace` for words. Killed text goes on a ring, so `^W^W^Y` puts both words back.
+   */
+  private _editKey(editor: LineEditor, key: string, domEvent: KeyboardEvent): boolean {
+    const name = domEvent.key
+    const letter = name.length === 1 ? name.toLowerCase() : ''
+
+    // AltGr arrives as Ctrl+Alt on some layouts and is how `@`, `{` and `\` are typed there, so a
+    // Ctrl+Alt chord is text, not a binding.
+    if (domEvent.ctrlKey && !domEvent.altKey) {
+      switch (letter) {
+        case 'a': editor.home(); return true
+        case 'e': editor.end(); return true
+        case 'b': editor.left(); return true
+        case 'f': editor.right(); return true
+        case 'd': editor.deleteForward(); return true
+        case 'k': editor.killToEnd(); return true
+        case 'u': editor.killToStart(); return true
+        case 'w': editor.killWordBackward(); return true
+        case 'y': editor.yank(); return true
+      }
+    }
+
+    if (domEvent.altKey && !domEvent.ctrlKey) {
+      switch (name) {
+        case 'ArrowLeft': case 'b': editor.wordLeft(); return true
+        case 'ArrowRight': case 'f': editor.wordRight(); return true
+        case 'd': editor.killWordForward(); return true
+        case 'Backspace': editor.killWordBackward(); return true
+      }
+    }
+
+    switch (name) {
+      case 'Backspace': editor.backspace(); return true
+      case 'Delete': editor.deleteForward(); return true
+      case 'ArrowLeft': editor.left(); return true
+      case 'ArrowRight': editor.right(); return true
+      case 'Home': editor.home(); return true
+      case 'End': editor.end(); return true
+    }
+
+    // Anything else that is a single printable character. A control character (a `^X` we do not
+    // bind) used to be inserted into the line and drawn as garbage.
+    if ((!domEvent.ctrlKey || domEvent.altKey) && !domEvent.metaKey) {
+      if ([...key].length === 1 && key >= ' ' && key !== '\x7f') {
+        editor.insert(key)
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Recalls the previous (`-1`) or next (`+1`) history entry into the line. */
+  private async _recall(direction: -1 | 1) {
+    const uid = this._shell.credentials.uid
+    await this._history.load(uid)
+
+    const target = this._history.position(uid) + direction
+    const length = this._history.length(uid)
+    if (target < 0 || target > length) return
+
+    this._history.setPosition(uid, target)
+    const text = target === length ? '' : this._history.get(uid, target) ?? ''
+    this._editor.replace(text, line => this._linePrefix() + this._renderCommand(line))
+  }
+
+  /** Draws the `^R` search line in place of the prompt. */
+  private _drawSearch(first = false) {
+    if (!this._search) return
+    if (first) this._editor.eraseBlock()
+    else this.write('\r\x1b[2K')
+    this.write(this._search.render())
+  }
+
+  /** Leaves `^R`, putting `text` back on the prompt line. */
+  private _endSearch(text: string) {
+    this._search = undefined
+    this.write('\r\x1b[2K')
+    this._editor.set(text)
+    this.write(this._linePrefix() + this._renderCommand(text))
+  }
+
+  /**
+   * Keys while `^R` is active: printable characters extend the query, `^R` steps to an older match,
+   * Backspace shortens it, Enter runs the match, and `^G`/Escape cancel back to what was typed. Any
+   * other key accepts the match into the line and then does what it normally would.
+   */
+  private async _searchKey(key: string, domEvent: KeyboardEvent): Promise<void> {
+    const search = this._search
+    if (!search) return
+    const name = domEvent.key
+    const letter = name.length === 1 ? name.toLowerCase() : ''
+
+    if (domEvent.ctrlKey && (letter === 'r')) { search.next(); return this._drawSearch() }
+    if (domEvent.ctrlKey && (letter === 'g' || letter === 'c') || name === 'Escape') {
+      return this._endSearch(search.originalText)
+    }
+    if (name === 'Backspace') { search.backspace(); return this._drawSearch() }
+    if (!domEvent.ctrlKey && !domEvent.altKey && [...key].length === 1 && key >= ' ') {
+      search.type(key)
+      return this._drawSearch()
+    }
+
+    this._endSearch(search.match ?? search.originalText)
+    return this.keyHandler({ key, domEvent })
+  }
+
+  async keyHandler({ key, domEvent }: { key: string; domEvent: KeyboardEvent }): Promise<void> {
     const keyName = domEvent.key
     if (!key && !keyName) return
     if (domEvent.ctrlKey && domEvent.shiftKey) {
@@ -1324,6 +1443,8 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalKeyEvent>(TerminalEvents.KEY, { key, domEvent })
 
     if (this._ttyInput) return // the line discipline owns the keyboard; see `attachInput`
+
+    if (this._search) return this._searchKey(key, domEvent)
 
     if (domEvent.ctrlKey) {
       switch (keyName) {
@@ -1344,8 +1465,9 @@ export class Terminal extends XTerm implements ITerminal {
           // method where the real signal lands.
           void this._shell?.notifyInterrupted()
 
-          this._cmd = ''
-          this._cursorPosition = 0
+          this._editor.reset()
+          this._multiLineMode = false
+          this._multiLineBuffer = ''
           this.unlisten()
           this.write('\n' + this.prompt())
           this.listen()
@@ -1363,29 +1485,34 @@ export class Terminal extends XTerm implements ITerminal {
           return this.clear()
         case 'v':
           return this.paste()
+        case 'r': {
+          const uid = this._shell.credentials.uid
+          await this._history.load(uid)
+          this._search = new ReverseSearch(this._history.entries(uid), this._editor.text)
+          return this._drawSearch(true)
+        }
         case 'Escape':
           return this.write(ansi.erase.display(2) + ansi.cursor.position() + this.prompt())
       }
     }
 
-    // Option/Alt+Left/Right: word-wise motion. Handled ahead of the plain-arrow cases below so it
-    // takes priority, since `macOptionIsMeta` otherwise leaves Option+Arrow with no built-in
-    // meaning in this line editor beyond the single-character jump.
-    if (domEvent.altKey && (keyName === 'ArrowLeft' || keyName === 'ArrowRight')) {
-      return this._wordJump(keyName === 'ArrowLeft' ? 'left' : 'right')
+    this._isTabCycling = keyName === 'Tab' ? this._isTabCycling : false
+
+    if (keyName !== 'Enter' && keyName !== 'Tab' && keyName !== 'ArrowUp' && keyName !== 'ArrowDown') {
+      if (this._editKey(this._editor, key, domEvent)) return
     }
 
     switch (keyName) {
       case 'Enter': {
-        if (this._cmd.trim().endsWith('\\')) {
+        const editor = this._editor
+        if (editor.text.trim().endsWith('\\')) {
           // A backslash-newline is *removed*, not turned into a newline: `echo one \` then `two`
           // is the single line `echo one two`, as in every real shell. Joining with `\n` instead
           // made it two separate commands, so the continuation silently ran `two` as its own.
-          this._multiLineBuffer += this._cmd.replace(/\\\s*$/, '')
+          this._multiLineBuffer += editor.text.replace(/\\\s*$/, '')
           this._multiLineMode = true
-          this._cmd = ''
-          this._cursorPosition = 0
-          this.write('\n> ')
+          editor.reset()
+          this.write('\n' + this.continuationPrompt())
           break
         }
 
@@ -1395,44 +1522,34 @@ export class Terminal extends XTerm implements ITerminal {
         // no terminator yet) or an open block (`for ...; do` with no `done`) keeps the prompt in
         // continuation mode; a genuine syntax error does not, so a typo can't trap the user in a
         // `>` prompt with no way out. See `needsMoreInput` in `lib/control-flow-parser.ts`.
-        const candidate = this._multiLineMode ? this._multiLineBuffer + this._cmd : this._cmd
+        const candidate = this._multiLineMode ? this._multiLineBuffer + editor.text : editor.text
         if (candidate.trim().length > 0 && needsMoreInput(candidate)) {
           this._multiLineBuffer = candidate + '\n'
           this._multiLineMode = true
-          this._cmd = ''
-          this._cursorPosition = 0
-          this.write('\n> ')
+          editor.reset()
+          this.write('\n' + this.continuationPrompt())
           break
         }
 
         if (this._multiLineMode) {
-          this._multiLineBuffer += this._cmd
-          this._cmd = this._multiLineBuffer
+          this._multiLineBuffer += editor.text
+          editor.set(this._multiLineBuffer)
           this._multiLineMode = false
           this._multiLineBuffer = ''
         }
 
         this.write('\n')
 
-        if (this._cmd.trim().length > 0) {
-          const cmdToExecute = this._cmd
+        if (editor.text.trim().length > 0) {
+          const cmdToExecute = editor.text
           const uid = this._shell.credentials.uid
-          
-          this._cmd = ''
-          
-          // Don't save history if the command begins with a space or is the same as the last command
-          const lastCommand = this._historyCache[uid]?.[this._historyCache[uid].length - 1]
-          if (cmdToExecute[0] !== ' ' && cmdToExecute !== lastCommand) {
-            // Initialize history if not already done (filesystem might not have been ready earlier)
-            if (this._historyLineCount[uid] === undefined || this._historyLineCount[uid] === 0) {
-              await this._initializeHistory(uid).catch(() => {
-                // Silently fail if filesystem still isn't ready
-              })
-            }
-            await this._appendToHistory(uid, cmdToExecute)
-          }
 
-          this._historyPosition = this._historyLineCount[uid] || 0
+          editor.reset()
+
+          // `HISTCONTROL` decides whether it is kept (a leading space, a repeat of the last line);
+          // either way the position returns to "the line being typed".
+          await this._history.add(uid, cmdToExecute)
+          this._commandNumber++
 
           try {
             this.events.dispatch<TerminalExecuteEvent>(TerminalEvents.EXECUTE, { terminal: this, command: cmdToExecute })
@@ -1440,323 +1557,42 @@ export class Terminal extends XTerm implements ITerminal {
           } catch (error) {
             this.writeln(chalk.red(`${error}`))
           } finally {
-            this._cursorPosition = 0
+            this._editor.reset()
             this.write(ansi.erase.inLine(2) + this.prompt())
           }
         } else {
-          this._cmd = ''
-          this._cursorPosition = 0
+          editor.reset()
           this.write(ansi.erase.inLine(2) + this.prompt())
         }
         break
       }
-      case 'Backspace':
-        if (this._cursorPosition > 0) {
-          const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-          const oldPosLen = promptLen + this._cursorPosition
-          const newPosLen = promptLen + this._cursorPosition - 1
-          
-          const oldLine = Math.floor(oldPosLen / this.cols)
-          const newLine = Math.floor(newPosLen / this.cols)
-          
-          // Update model
-          this._cmd = this._cmd.slice(0, this._cursorPosition - 1) + this._cmd.slice(this._cursorPosition)
-          this._cursorPosition--
-          
-          // Move cursor to new edit position
-          if (oldLine > newLine) {
-             this.write('\x1b[A') // Move up one line
-          }
-          const newCol = (newPosLen % this.cols) + 1
-          this.write(`\x1b[${newCol}G`)
-          
-          // Clear everything from here down to ensure no garbage artifacts on wrapped lines
-          this.write('\x1b[J') // Erase Data (Cursor Down)
-          
-          // Rewrite the tail of the command
-          this.write(this._cmd.slice(this._cursorPosition))
-          
-          // Restore cursor to the correct position (after the edit)
-          // We are currently at the END of the command.
-          const currentTotalLen = promptLen + this._cmd.length
-          const cursorTargetLen = promptLen + this._cursorPosition
-          
-          const endLine = Math.floor(currentTotalLen / this.cols)
-          const targetLine = Math.floor(cursorTargetLen / this.cols)
-          
-          const linesUp = endLine - targetLine
-          const targetCol = (cursorTargetLen % this.cols) + 1
-          
-          if (linesUp > 0) this.write(`\x1b[${linesUp}A`)
-          this.write(`\x1b[${targetCol}G`)
-        } else this.write('\x07')
+      case 'ArrowUp':
+        await this._recall(-1)
         break
-      case 'Delete':
-        if (this._cursorPosition < this._cmd.length) {
-          // Update model
-          this._cmd = this._cmd.slice(0, this._cursorPosition) + this._cmd.slice(this._cursorPosition + 1)
-          
-          // We are at the cursor position. Clear down and rewrite.
-          this.write('\x1b[J') // Erase Data (Cursor Down)
-          this.write(this._cmd.slice(this._cursorPosition))
-          
-          // Restore cursor
-          const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-          const currentTotalLen = promptLen + this._cmd.length
-          const cursorTargetLen = promptLen + this._cursorPosition
-          
-          const endLine = Math.floor(currentTotalLen / this.cols)
-          const targetLine = Math.floor(cursorTargetLen / this.cols)
-          
-          const linesUp = endLine - targetLine
-          const targetCol = (cursorTargetLen % this.cols) + 1
-          
-          if (linesUp > 0) this.write(`\x1b[${linesUp}A`)
-          this.write(`\x1b[${targetCol}G`)
-        }
+      case 'ArrowDown':
+        await this._recall(1)
         break
-      case 'ArrowUp': {
-        const uid = this._shell.credentials.uid
-        
-        // Initialize history if not already done (filesystem might not have been ready earlier)
-        if (this._historyLineCount[uid] === undefined || this._historyLineCount[uid] === 0) {
-          await this._initializeHistory(uid).catch(() => {
-            // Silently fail if filesystem still isn't ready
-          })
-        }
-        
-        const totalLines = this._historyLineCount[uid] || 0
-        if (this._historyPosition > 0 && totalLines > 0) {
-          this._historyPosition--
-          const cache = this._historyCache[uid] || []
-          const cacheStart = Math.max(0, totalLines - cache.length)
-          const cacheIndex = this._historyPosition - cacheStart
-          
-          let cmd: string
-          if (cacheIndex >= 0 && cacheIndex < cache.length) {
-            cmd = cache[cacheIndex] || ''
-          } else {
-            const line = await this._readHistoryLine(uid, this._historyPosition)
-            cmd = line || ''
-          }
-          
-          this._clearCurrentCommand()
-          this._cmd = cmd
-          this._cursorPosition = this._cmd.length
-          if (this._multiLineMode) {
-            const parts = this._cmd.split('#')
-            if (parts.length > 1) {
-              this.write('> ' + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-            } else {
-              this.write('> ' + this._cmd)
-            }
-          } else {
-            const parts = this._cmd.split('#')
-            if (parts.length > 1) {
-              this.write(this.prompt() + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-            } else {
-              this.write(this.prompt() + this._cmd)
-            }
-          }
-        }
-        break
-      }
-      case 'ArrowDown': {
-        const uid = this._shell.credentials.uid
-        
-        // Initialize history if not already done (filesystem might not have been ready earlier)
-        if (this._historyLineCount[uid] === undefined || this._historyLineCount[uid] === 0) {
-          await this._initializeHistory(uid).catch(() => {
-            // Silently fail if filesystem still isn't ready
-          })
-        }
-        
-        const totalLines = this._historyLineCount[uid] || 0
-        if (this._historyPosition < totalLines) {
-          this._historyPosition++
-          const cache = this._historyCache[uid] || []
-          const cacheStart = Math.max(0, totalLines - cache.length)
-          const cacheIndex = this._historyPosition - cacheStart
-          
-          let cmd: string
-          if (this._historyPosition === totalLines) {
-            cmd = ''
-          } else if (cacheIndex >= 0 && cacheIndex < cache.length) {
-            cmd = cache[cacheIndex] || ''
-          } else {
-            const line = await this._readHistoryLine(uid, this._historyPosition)
-            cmd = line || ''
-          }
-          
-          this._clearCurrentCommand()
-          this._cmd = cmd
-          this._cursorPosition = this._cmd.length
-          if (this._multiLineMode) {
-            const parts = this._cmd.split('#')
-            if (parts.length > 1) {
-              this.write('> ' + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-            } else {
-              this.write('> ' + this._cmd)
-            }
-          } else {
-            const parts = this._cmd.split('#')
-            if (parts.length > 1) {
-              this.write(this.prompt() + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-            } else {
-              this.write(this.prompt() + this._cmd)
-            }
-          }
-        }
-        break
-      }
-      case 'ArrowLeft':
-        if (this._cursorPosition > 0) {
-          const promptText = this.prompt()
-          const promptLen = promptText.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-          const cols = this.cols
-          
-          const currentColumn = (promptLen + this._cursorPosition) % cols
-          const isAtLineStart = currentColumn === 0 && this._cursorPosition > 0
-          
-          this._cursorPosition--
-          
-          if (isAtLineStart) {
-            this.write('\x1b[1A\r' + ansi.cursor.horizontalAbsolute(promptLen + this._cursorPosition + 1))
-          } else {
-            this.write('\b')
-          }
-        }
-        break
-      case 'ArrowRight':
-        if (this._cursorPosition < this._cmd.length) {
-          const promptText = this.prompt()
-          const promptLen = promptText.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-          const cols = this.cols
-          
-          const currentColumn = (promptLen + this._cursorPosition) % cols
-          const isAtLineEnd = currentColumn === cols - 1
-          
-          this._cursorPosition++
-          
-          if (isAtLineEnd) {
-            this.write('\n\r')
-          } else {
-            this.write(key)
-          }
-        }
-        break
-      case 'Home': {
-        const promptTextHome = this.prompt()
-        const promptLenHome = promptTextHome.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-        const colsHome = this.cols
-        const currentLineHome = Math.floor((promptLenHome + this._cursorPosition) / colsHome)
-        
-        this._cursorPosition = 0
-        
-        if (currentLineHome > 0) {
-          this.write(`\x1b[${currentLineHome}A`)
-        }
-        this.write(`\x1b[${promptLenHome + 1}G`)
-        break
-      }
-      case 'End': {
-        const promptTextEnd = this.prompt()
-        const promptLenEnd = promptTextEnd.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-        const colsEnd = this.cols
-        const currentLineEnd = Math.floor((promptLenEnd + this._cursorPosition) / colsEnd)
-        
-        this._cursorPosition = this._cmd.length
-        
-        const targetLineEnd = Math.floor((promptLenEnd + this._cursorPosition) / colsEnd)
-        const targetColumnEnd = (promptLenEnd + this._cursorPosition) % colsEnd
-        
-        if (targetLineEnd !== currentLineEnd) {
-          const lineDiff = targetLineEnd - currentLineEnd
-          if (lineDiff > 0) {
-            this.write(`\x1b[${lineDiff}B`)
-          } else {
-            this.write(`\x1b[${-lineDiff}A`)
-          }
-        }
-        this.write(`\x1b[${targetColumnEnd + 1}G`)
-        break
-      }
       case 'Tab': {
         domEvent.preventDefault()
 
         // If this is a new tab completion attempt (not cycling)
         if (!this._isTabCycling) {
           this._tabCompletionIndex = -1 // Start at -1 so first increment gets us to 0
-          this._lastTabCommand = this._cmd
+          this._lastTabCommand = this._editor.text
           this._isTabCycling = true
         }
 
+        // A line ending in `/` is completed like any other: with nothing after the slash every entry
+        // matches, and Tab cycles through them. It used to run `ls` instead, which no real shell does
+        // and which printed over the prompt.
         const matches = await this.getCompletionMatches(this._lastTabCommand) // Use original command for matches
-        if (this._cmd.endsWith('/')) { // show possible entries in directory
-          const pathArg = this._cmd.split(' ').slice(-1)[0]
-          if (!pathArg) break
-          const expandedPath = this._shell.expandTilde(pathArg)
-          if (!(await this._shell.context.fs.promises.exists(expandedPath))) break
-          await this.write('\n')
-          await this._shell.execute(`ls ${expandedPath}`)
-          this.write(this.prompt() + this._cmd)
-        } else if (matches.length > 0) {
-          this.write('\r' + ansi.erase.inLine())
+        if (matches.length > 0) {
           this._tabCompletionIndex = (this._tabCompletionIndex + 1) % matches.length
-          const newCmd = matches[this._tabCompletionIndex] || ''
-          this._cmd = newCmd
-          this._cursorPosition = newCmd.length
-          const parts = newCmd.split('#')
-          if (parts.length > 1) {
-            this.write(this.prompt() + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-          } else {
-            this.write(this.prompt() + newCmd)
-          }
+          const next = matches[this._tabCompletionIndex] || ''
+          this._editor.replace(next, line => this._linePrefix() + this._renderCommand(line))
         }
-
         break
       }
-      default:
-        this._isTabCycling = false // Reset cycling state on other keypresses
-        if (key.length === 1) {
-          const wasAtEnd = this._cursorPosition === this._cmd.length
-          this._cmd = this._cmd.slice(0, this._cursorPosition) + key + this._cmd.slice(this._cursorPosition)
-          this._cursorPosition++
-
-          if (wasAtEnd) {
-            this.write(key)
-          } else {
-            // Write the key (so it appears)
-            this.write(key)
-            
-            // Now we need to rewrite the tail and fix the cursor.
-            // We are currently physically at _cursorPosition (because we just wrote `key`).
-            
-            // Clear everything after cursor (lines below included)
-            this.write('\x1b[J') 
-            
-            // Write the rest of the command
-            const textFromInsertion = this._cmd.slice(this._cursorPosition)
-            this.write(textFromInsertion)
-            
-            // Restore Cursor to the correct position (after the insertion)
-            const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-            const currentTotalLen = promptLen + this._cmd.length
-            const cursorTargetLen = promptLen + this._cursorPosition
-            
-            // Calculate where the cursor IS (End of command) vs where it SHOULD BE (Target)
-            const endLine = Math.floor(currentTotalLen / this.cols)
-            const targetLine = Math.floor(cursorTargetLen / this.cols)
-            
-            const linesUp = endLine - targetLine
-            const targetCol = (cursorTargetLen % this.cols) + 1 // 1-based ANSI
-            
-            if (linesUp > 0) {
-              this.write(`\x1b[${linesUp}A`)
-            }
-            this.write(`\x1b[${targetCol}G`)
-          }
-        }
     }
   }
 
@@ -1866,23 +1702,15 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
+  /** Erases the line being typed from the screen and returns it. `Kernel` uses this to make room for output. */
   clearCommand() {
-    const currentLine = this._cmd
-    this._cmd = ''
-    this._cursorPosition = 0
-    this.write('\r' + ansi.erase.inLine(2))
-    return currentLine
+    return this._editor.clear()
   }
 
+  /** Puts a line back on the prompt, as `clearCommand` took it. */
   restoreCommand(cmd: string) {
-    this._cmd = cmd
-    this._cursorPosition = cmd.length
-    const parts = cmd.split('#')
-    if (parts.length > 1) {
-      this.write(this.prompt() + parts[0] + chalk.gray('#' + parts.slice(1).join('#')))
-    } else {
-      this.write(this.prompt() + cmd)
-    }
+    this._editor.set(cmd)
+    this.write(this._linePrefix() + this._renderCommand(cmd))
   }
 
   private _detectMobileSupport() {
@@ -1930,28 +1758,6 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
-  private _clearCurrentCommand() {
-    const promptLen = this.prompt().replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-    const cursorTargetLen = promptLen + this._cursorPosition
-
-    // Rows the prompt/command block occupies, with the cursor (always at the end after a history
-    // recall) on the last of them. `Math.ceil(len / cols) - 1` gives that last row's zero-indexed
-    // offset from the first -- unlike `Math.floor(len / cols)`, it doesn't overcount by one when
-    // `len` is an exact multiple of `cols`: a real terminal leaves the cursor on the last column of
-    // the current row in that case (deferred wrap), it doesn't advance to the next row until another
-    // character is actually written there. Overcounting moved the cursor one row too far up, so the
-    // subsequent erase-down wiped out whatever was printed just above the prompt.
-    const targetLine = Math.max(0, Math.ceil(cursorTargetLen / this.cols) - 1)
-
-    // Move up to the first line of the prompt/command block
-    if (targetLine > 0) {
-      this.write(`\x1b[${targetLine}A`)
-    }
-
-    // Move to start of line and clear everything down
-    this.write('\r\x1b[J')
-  }
-  
   private _resizeTerminalToViewport() {
     if (!this._isMobile || this._isResizing) return
     
@@ -1999,106 +1805,96 @@ export class Terminal extends XTerm implements ITerminal {
     this.scrollToBottom()
   }
 
-  private async _readlineWithMobileInput(prompt: string, noListen: boolean): Promise<string> {
+  /**
+   * `readline()` on a phone. The on-screen keyboard cannot produce the key events the desktop editor
+   * reads, so a real (invisible) text field is focused instead and the browser does the editing;
+   * what this draws is just the field's value after each change.
+   *
+   * There used to be two copies of this, one for text and one for passwords, identical apart from the
+   * input's `type`, the echo (the value or a row of `*`), and whether the field is registered as
+   * `_passwordInputElement`. That flag matters to the desktop path: it is how a key event aimed at the
+   * field is recognized and left alone.
+   */
+  private async _readlineWithDomInput(prompt: string, noListen: boolean, secret: boolean): Promise<string> {
     const wasListening = this._keyListener !== undefined
     this.unlisten()
-    this.write(prompt)
-    
-    const textInput = document.createElement('input')
-    textInput.type = 'text'
-    textInput.style.position = 'fixed'
-    textInput.style.top = '0'
-    textInput.style.left = '0'
-    textInput.style.width = '1px'
-    textInput.style.height = '1px'
-    textInput.style.opacity = '0'
-    textInput.style.pointerEvents = 'auto'
-    textInput.style.zIndex = '-1'
-    textInput.setAttribute('inputmode', 'text')
-    textInput.setAttribute('autocapitalize', 'off')
-    textInput.setAttribute('autocorrect', 'off')
-    textInput.setAttribute('spellcheck', 'false')
-    textInput.setAttribute('enterkeyhint', 'send')
-    
-    document.body.appendChild(textInput)
-    
+    this.write(stripMarkers(prompt))
+
+    const field = document.createElement('input')
+    field.type = secret ? 'password' : 'text'
+    field.style.position = 'fixed'
+    field.style.top = '0'
+    field.style.left = '0'
+    field.style.width = '1px'
+    field.style.height = '1px'
+    field.style.opacity = '0'
+    field.style.pointerEvents = 'auto'
+    field.style.zIndex = '-1'
+    field.setAttribute('inputmode', 'text')
+    field.setAttribute('autocapitalize', 'off')
+    field.setAttribute('autocorrect', 'off')
+    field.setAttribute('spellcheck', 'false')
+    field.setAttribute('enterkeyhint', 'send')
+
+    document.body.appendChild(field)
+    if (secret) this._passwordInputElement = field
+
     this._scrollTerminalToBottom()
     this._resizeTerminalToViewport()
-    
-    setTimeout(() => {
-      textInput.focus()
-    }, 100)
+
+    setTimeout(() => { field.focus() }, 100)
 
     const result = await new Promise<string>((resolve) => {
       let resolved = false
       let keyListener: IDisposable | null = null
-      
+
       const cleanup = () => {
         if (resolved) return
         resolved = true
-        textInput.removeEventListener('input', handleInput)
-        textInput.removeEventListener('keydown', handleKeyDown)
-        textInput.removeEventListener('blur', handleBlur)
+        field.removeEventListener('input', handleInput)
+        field.removeEventListener('keydown', handleKeyDown)
+        field.removeEventListener('blur', handleBlur)
         if (keyListener) {
           keyListener.dispose()
           keyListener = null
         }
-        textInput.remove()
-      }
-      
-      const updateDisplay = () => {
-        const promptLen = prompt.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-        const displayText = textInput.value
-        this.write('\r' + ansi.cursor.horizontalAbsolute(promptLen + 1) + ansi.erase.inLine(0) + displayText)
+        field.remove()
+        if (secret) this._passwordInputElement = null
       }
 
       const handleInput = () => {
-        updateDisplay()
+        const shown = secret ? '*'.repeat(field.value.length) : field.value
+        this.write('\r' + ansi.cursor.horizontalAbsolute(visibleWidth(prompt) + 1) + ansi.erase.inLine(0) + shown)
       }
 
       const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.target !== textInput) {
+        if (e.target !== field) {
           e.preventDefault()
           e.stopPropagation()
           return
         }
-        
-        switch (e.key) {
-          case 'Enter': {
-            e.preventDefault()
-            e.stopPropagation()
-            const inputValue = textInput.value.trim()
-            cleanup()
-            this.write('\n')
-            setTimeout(() => {
-              resolve(inputValue)
-            }, 0)
-            break
-          }
-          case 'Escape': {
-            e.preventDefault()
-            e.stopPropagation()
-            cleanup()
-            resolve('')
-            break
-          }
-        }
+
+        if (e.key !== 'Enter' && e.key !== 'Escape') return
+        e.preventDefault()
+        e.stopPropagation()
+        const value = e.key === 'Enter' ? field.value.trim() : ''
+        cleanup()
+        if (e.key === 'Enter') this.write('\n')
+        setTimeout(() => resolve(value), e.key === 'Enter' ? 0 : undefined)
       }
-      
+
       const handleBlur = () => {
         setTimeout(() => {
-          if (textInput && document.body.contains(textInput) && !resolved) {
-            textInput.focus()
-          }
+          if (field && document.body.contains(field) && !resolved) field.focus()
         }, 100)
       }
 
-      textInput.addEventListener('input', handleInput)
-      textInput.addEventListener('keydown', handleKeyDown)
-      textInput.addEventListener('blur', handleBlur)
+      field.addEventListener('input', handleInput)
+      field.addEventListener('keydown', handleKeyDown)
+      field.addEventListener('blur', handleBlur)
 
       keyListener = this.onKey(({ domEvent }) => {
-        if (domEvent.target !== textInput) {
+        if (domEvent.target !== field) {
           domEvent.preventDefault()
           domEvent.stopPropagation()
         }
@@ -2109,387 +1905,26 @@ export class Terminal extends XTerm implements ITerminal {
     return result
   }
 
-  private async _readlineWithPasswordInput(prompt: string, noListen: boolean): Promise<string> {
-    const wasListening = this._keyListener !== undefined
-    this.unlisten()
-    this.write(prompt)
-    
-    const passwordInput = document.createElement('input')
-    passwordInput.type = 'password'
-    passwordInput.style.position = 'fixed'
-    passwordInput.style.top = '0'
-    passwordInput.style.left = '0'
-    passwordInput.style.width = '1px'
-    passwordInput.style.height = '1px'
-    passwordInput.style.opacity = '0'
-    passwordInput.style.pointerEvents = 'auto'
-    passwordInput.style.zIndex = '-1'
-    passwordInput.setAttribute('inputmode', 'text')
-    passwordInput.setAttribute('autocapitalize', 'off')
-    passwordInput.setAttribute('autocorrect', 'off')
-    passwordInput.setAttribute('spellcheck', 'false')
-    passwordInput.setAttribute('enterkeyhint', 'send')
-    
-    document.body.appendChild(passwordInput)
-    this._passwordInputElement = passwordInput
-    
-    this._scrollTerminalToBottom()
-    this._resizeTerminalToViewport()
-    
-    setTimeout(() => {
-      passwordInput.focus()
-    }, 100)
-
-    const result = await new Promise<string>((resolve) => {
-      let resolved = false
-      let keyListener: IDisposable | null = null
-      
-      const cleanup = () => {
-        if (resolved) return
-        resolved = true
-        passwordInput.removeEventListener('input', handleInput)
-        passwordInput.removeEventListener('keydown', handleKeyDown)
-        passwordInput.removeEventListener('blur', handleBlur)
-        if (keyListener) {
-          keyListener.dispose()
-          keyListener = null
-        }
-        passwordInput.remove()
-        this._passwordInputElement = null
-      }
-      
-      const updateDisplay = () => {
-        const promptLen = prompt.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').length
-        const stars = '*'.repeat(passwordInput.value.length)
-        this.write('\r' + ansi.cursor.horizontalAbsolute(promptLen + 1) + ansi.erase.inLine(0) + stars)
-      }
-
-      const handleInput = () => {
-        updateDisplay()
-      }
-
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.target !== passwordInput) {
-          e.preventDefault()
-          e.stopPropagation()
-          return
-        }
-        
-        switch (e.key) {
-          case 'Enter': {
-            e.preventDefault()
-            e.stopPropagation()
-            const passwordValue = passwordInput.value.trim()
-            cleanup()
-            this.write('\n')
-            setTimeout(() => {
-              resolve(passwordValue)
-            }, 0)
-            break
-          }
-          case 'Escape':
-            e.preventDefault()
-            e.stopPropagation()
-            cleanup()
-            resolve('')
-            break
-        }
-      }
-      
-      const handleBlur = () => {
-        setTimeout(() => {
-          if (passwordInput && document.body.contains(passwordInput) && !resolved) {
-            passwordInput.focus()
-          }
-        }, 100)
-      }
-
-      passwordInput.addEventListener('input', handleInput)
-      passwordInput.addEventListener('keydown', handleKeyDown)
-      passwordInput.addEventListener('blur', handleBlur)
-
-      keyListener = this.onKey(({ domEvent }) => {
-        if (domEvent.target !== passwordInput) {
-          domEvent.preventDefault()
-          domEvent.stopPropagation()
-        }
-      })
-    })
-
-    if (this._passwordInputElement) {
-      this._passwordInputElement.remove()
-      this._passwordInputElement = null
-    }
-
-    if (wasListening && !noListen) this.listen()
-    return result
-  }
-
-  private async _initializeHistory(uid: number): Promise<void> {
-    await this._loadHistoryCache(uid)
-    this._historyLineCount[uid] = await this._getHistoryLineCount(uid)
-    this._historyPosition = this._historyLineCount[uid]
-  }
-
-  private _getHistoryFilePath(uid: number): string {
-    if (this._historyFilePath[uid]) {
-      return this._historyFilePath[uid]
-    }
-    const home = this._shell.env.get('HOME') || '/root'
-    const historyPath = path.join(home, '.history')
-    this._historyFilePath[uid] = historyPath
-    return historyPath
-  }
-
-  private async _loadHistoryCache(uid: number): Promise<void> {
-    const historyPath = this._getHistoryFilePath(uid)
-    this._historyCache[uid] = []
-
-    try {
-      if (!this._shell.context?.fs?.promises) {
-        return
-      }
-
-      const exists = await this._shell.context.fs.promises.exists(historyPath)
-      if (!exists) {
-        return
-      }
-
-      const content = await this._shell.context.fs.promises.readFile(historyPath, 'utf-8')
-      const lines = content.split('\n').filter(line => line.length > 0)
-      
-      const cacheSize = 100
-      const startIndex = Math.max(0, lines.length - cacheSize)
-      this._historyCache[uid] = lines.slice(startIndex)
-    } catch (error) {
-      const err = error as { code?: string; message?: string }
-      if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
-      }
-    }
-  }
-
-  private async _getHistoryLineCount(uid: number): Promise<number> {
-    const historyPath = this._getHistoryFilePath(uid)
-
-    try {
-      const exists = await this._shell.context.fs.promises.exists(historyPath)
-      if (!exists) {
-        return 0
-      }
-
-      const content = await this._shell.context.fs.promises.readFile(historyPath, 'utf-8')
-      const lines = content.split('\n').filter(line => line.length > 0)
-      return lines.length
-    } catch (error) {
-      const err = error as { code?: string; message?: string }
-      if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
-      }
-      return 0
-    }
-  }
-
-  private async _readHistoryLine(uid: number, lineIndex: number): Promise<string | null> {
-    const historyPath = this._getHistoryFilePath(uid)
-
-    try {
-      if (!this._shell.context?.fs?.promises) {
-        return null
-      }
-
-      const exists = await this._shell.context.fs.promises.exists(historyPath)
-      if (!exists) {
-        return null
-      }
-
-      const content = await this._shell.context.fs.promises.readFile(historyPath, 'utf-8')
-      const lines = content.split('\n').filter(line => line.length > 0)
-      
-      if (lineIndex >= 0 && lineIndex < lines.length) {
-        const line = lines[lineIndex]
-        if (line) {
-          if (!this._historyCache[uid]) {
-            this._historyCache[uid] = []
-          }
-          if (!this._historyCache[uid].includes(line)) {
-            this._historyCache[uid].push(line)
-            if (this._historyCache[uid].length > 100) {
-              this._historyCache[uid].shift()
-            }
-          }
-        }
-        return line || null
-      }
-      return null
-    } catch (error) {
-      const err = error as { code?: string; message?: string }
-      if (err.code !== 'ENOENT' && !err.message?.includes('No file system')) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToLoadHistory')}: ${errorMessage}`)
-      }
-      return null
-    }
-  }
-
-  private async _appendToHistory(uid: number, command: string): Promise<void> {
-    if (!this._shell.context?.fs?.promises) {
-      return
-    }
-
-    const historyPath = this._getHistoryFilePath(uid)
-
-    try {
-      let content = ''
-      let exists = false
-      
-      try {
-        exists = await this._shell.context.fs.promises.exists(historyPath)
-        if (exists) {
-          content = await this._shell.context.fs.promises.readFile(historyPath, 'utf-8')
-        }
-      } catch {
-        exists = false
-      }
-
-      const needsNewline = content.length > 0 && !content.endsWith('\n')
-      const newContent = needsNewline ? `\n${command}` : command
-      
-      await this._shell.context.fs.promises.appendFile(historyPath, newContent, 'utf-8')
-      
-      this._historyCache[uid] = this._historyCache[uid] || []
-      this._historyCache[uid].push(command)
-      if (this._historyCache[uid].length > 100) {
-        this._historyCache[uid].shift()
-      }
-      
-      this._historyLineCount[uid] = (this._historyLineCount[uid] || 0) + 1
-    } catch (error) {
-      const err = error as { code?: string; message?: string }
-      if (!err.message?.includes('No file system')) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        this._ctx.log.error(`${this._ctx.i18n.ns.terminal('failedToSaveHistory')}: ${errorMessage}`)
-      }
-    }
-  }
-
+  /** Empties `uid`'s history, in memory and on disk (the `history -c` syscall). */
   async clearHistory(uid: number): Promise<void> {
-    const historyPath = this._getHistoryFilePath(uid)
-    
-    if (!this._shell.context?.fs?.promises) {
-      return
-    }
-
-    try {
-      await this._shell.context.fs.promises.writeFile(historyPath, '', 'utf-8')
-      this._historyCache[uid] = []
-      this._historyLineCount[uid] = 0
-      this._historyPosition = 0
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      this._ctx.log.error(`Failed to clear history: ${errorMessage}`)
-    }
+    await this._history.clear(uid)
   }
 
+  /** Re-reads `uid`'s history file, after something else (`history -r`) changed it. */
   async reloadHistory(uid: number): Promise<void> {
-    await this._initializeHistory(uid)
+    await this._history.load(uid, true)
   }
-
 
   private async getCompletionMatches(partial: string): Promise<string[]> {
-    const parts = partial.split(' ')
-    const lastWord = parts[parts.length - 1]
-    if (!lastWord) return []
-    
-    // Check if the last word is a path (starts with ./ or / or ~)
-    const isPath = lastWord.startsWith('./') || lastWord.startsWith('/') || lastWord.startsWith('~')
-    
-    // If this is the first word (command), search in PATH (unless it's a path)
-    if (parts.length === 1 && !isPath) {
-      const pathDirs = (this._shell.env.get('PATH') || '').split(':')
-      const matches: string[] = []
-      
-      // True shell builtins first (cd, export, ... -- see `lib/shell-builtins.ts`) -- these get no
-      // real `/bin/<name>` file at all (matching real bash having no `/bin/cd`), so they'd never
-      // show up in the `$PATH` scan below on their own. Every other command -- migrated to real
-      // `execve` or still on the legacy shim -- already has a real file under `/bin`
-      // (`Kernel.registerCommands`), so the `$PATH` scan alone finds those; no in-memory command
-      // registry is consulted here at all anymore.
-      const builtinMatches = [...trueBuiltinNames].filter(cmd =>
-        cmd.toLowerCase().startsWith(lastWord.toLowerCase())
-      )
-      matches.push(...builtinMatches)
-
-      // Then check executables in PATH
-      for (const dir of pathDirs) {
-        try {
-          const entries = await this._shell.context.fs.promises.readdir(dir)
-          const dirMatches = entries.filter((entry: string) => 
-            entry.toLowerCase().startsWith(lastWord.toLowerCase())
-          )
-          matches.push(...dirMatches)
-        } catch {
-          continue // Skip invalid directories
-        }
-      }
-
-      return [...new Set(matches)].map(match => match) // Remove duplicates
-    }
-
-    // Expand tilde in the last word for filesystem operations
-    const expandedLastWord = this._shell.expandTilde(lastWord)
-    const home = this._shell.env.get('HOME') || ''
-    
-    // Existing file/directory completion logic
-    const lastSlashIndex = expandedLastWord.lastIndexOf('/')
-    const searchDir = lastSlashIndex !== -1 ? 
-      path.resolve(this._shell.cwd, expandedLastWord.substring(0, lastSlashIndex + 1)) : 
-      this._shell.cwd
-    const searchTerm = lastSlashIndex !== -1 ? 
-      expandedLastWord.substring(lastSlashIndex + 1) : 
-      expandedLastWord
-
-    try {
-      const entries = await this._shell.context.fs.promises.readdir(searchDir)
-      const matches = entries.filter((entry: string) => {
-        if (!searchTerm) return true
-        return entry.toLowerCase().startsWith(searchTerm.toLowerCase())
-      })
-
-      // Determine the prefix to use - preserve tilde if original had it
-      const hadTilde = lastWord.startsWith('~')
-      const expandedPrefix = lastSlashIndex !== -1 ? expandedLastWord.substring(0, lastSlashIndex + 1) : ''
-      
-      const matchesMap = await Promise.all(matches.map(async (match: string) => {
-        const fullPath = path.join(searchDir, match)
-        const isDirectory = (await this._shell.context.fs.promises.stat(fullPath)).isDirectory()
-        const escapedMatch = match.replace(/([ ()[\]{}|&;<>`$"'\\])/g, '\\$1')
-        const matchWithSlash = isDirectory ? escapedMatch + '/' : escapedMatch
-        
-        // If the original had tilde and the path is within HOME, convert back to tilde notation
-        let completionPath: string
-        if (hadTilde && home && fullPath.startsWith(home + '/')) {
-          const relativePath = path.relative(home, fullPath)
-          const tildePath = `~/${relativePath}`
-          completionPath = isDirectory && !tildePath.endsWith('/') ? tildePath + '/' : tildePath
-        } else if (hadTilde && home && fullPath === home) {
-          completionPath = '~' + (isDirectory ? '/' : '')
-        } else {
-          // Use the expanded prefix
-          completionPath = expandedPrefix + matchWithSlash
-        }
-        
-        const newParts = [...parts]
-        newParts[newParts.length - 1] = completionPath
-        return newParts.join(' ')
-      }))
-
-      return matchesMap
-    } catch {
-      return []
-    }
+    const shell = this._shell
+    return completionMatches(partial, {
+      listDir: dir => shell.context.fs.promises.readdir(dir),
+      isDirectory: async target => (await shell.context.fs.promises.stat(target)).isDirectory(),
+      variable: name => shell.env.get(name),
+      get cwd() { return shell.cwd },
+      expandTilde: text => shell.expandTilde(text),
+      builtins: trueBuiltinNames
+    })
   }
 }
 
