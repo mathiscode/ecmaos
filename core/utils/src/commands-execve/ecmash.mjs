@@ -22,6 +22,7 @@
  */
 
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
+import { splitAssignments, parseArrayAssignment } from '../lib/shell-core/prepare.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
 import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
@@ -87,20 +88,6 @@ const exists = path => { try { stat(path); return true } catch { return false } 
 const isDir = path => { try { return (stat(path).mode & 0xf000) === 0x4000 } catch { return false } }
 const isFile = path => { try { return (stat(path).mode & 0xf000) === 0x8000 } catch { return false } }
 const resolvePath = (path, cwd = getcwd()) => normalize(path.startsWith('/') ? path : `${cwd}/${path}`)
-
-/** The `)` closing the `(` at `start`, skipping quotes and nested parentheses; -1 when there is none. */
-function closingParen(text, start) {
-  let depth = 0
-  for (let i = start; i < text.length; i++) {
-    const char = text[i]
-    if (char === '\\') { i++; continue }
-    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) return -1; i = end; continue }
-    if (char === '"') { let j = i + 1; while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1; if (j >= text.length) return -1; i = j; continue }
-    if (char === '(') depth++
-    else if (char === ')' && --depth === 0) return i
-  }
-  return -1
-}
 
 function normalize(path) {
   const out = []
@@ -223,7 +210,8 @@ class Shell {
     const saved = this._stdio
     this._stdio = { ...this.stdio, 1: fd }
     try {
-      await this.runText(command)
+      // A subshell: `exit` inside ends only the substitution, and its status is what `x=$(cmd)` reports.
+      this.substStatus = await this.runSubshell(parseStatements(command))
     } finally {
       this._stdio = saved
       close(fd)
@@ -275,26 +263,18 @@ class Shell {
    * text instead of the tokens.
    */
   async arrayAssignment(line) {
-    const head = /^(?:(?:declare|typeset|local|readonly)\s+(?:-[A-Za-z]+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(/.exec(line)
-    const close = head ? closingParen(line, head[0].length - 1) : -1
-    const tail = close === -1 ? undefined : /^\s*(?:(;|&&|\|\|)\s*([\s\S]*))?$/.exec(line.slice(close + 1))
-    if (head && tail) {
-      const [, name, append] = head
-      const body = line.slice(head[0].length, close)
-      const [, operator, rest] = tail
+    const found = parseArrayAssignment(line)
+    if (!found) return undefined
+    if (found.local) this.state.declareLocal(found.name)
+    if (found.kind === 'list') {
       const values = []
-      for (const token of body.trim() ? tokenize(body) : []) if (token.kind === 'word') values.push(...await this.fields(token.parts))
-      if (append) this.state.appendArray(name, values); else this.state.setArray(name, values)
-      return await this.afterAssignment(operator, rest)
+      for (const token of found.body.trim() ? tokenize(found.body) : []) if (token.kind === 'word') values.push(...await this.fields(token.parts))
+      if (found.append) this.state.appendArray(found.name, values); else this.state.setArray(found.name, values)
+    } else {
+      const index = evaluateArithmeticExpression(found.subscript, variable => this.get(variable))
+      this.state.setArrayElement(found.name, index, await this.text((tokenize(found.raw || "''")[0] ?? { parts: [] }).parts))
     }
-    const element = /^(?:(?:declare|typeset|local|readonly)\s+(?:-[A-Za-z]+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]=(\S*)\s*(?:(;|&&|\|\|)\s*([\s\S]*))?$/.exec(line)
-    if (element) {
-      const [, name, subscript, raw, operator, rest] = element
-      const index = evaluateArithmeticExpression(subscript, variable => this.get(variable))
-      this.state.setArrayElement(name, index, await this.text((tokenize(raw || "''")[0] ?? { parts: [] }).parts))
-      return await this.afterAssignment(operator, rest)
-    }
-    return undefined
+    return await this.afterAssignment(found.operator, found.rest)
   }
 
   async afterAssignment(operator, rest) {
@@ -594,22 +574,15 @@ class Shell {
       return { status: ok ? 0 : 1 }
     }
 
-    const args = []
-    let assignments = 0
-    let collecting = true
+    this.substStatus = undefined
+    const split = splitAssignments(command)
     const assign = []
-    for (const [index, parts] of command.wordParts.entries()) {
-      const first = parts[0]
-      if (collecting && first?.quoting === 'unquoted' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.text)) {
-        const [, name, rest] = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(first.text)
-        const valueParts = [{ ...first, text: rest }, ...parts.slice(1)]
-        assign.push([name, await this.text(valueParts)])
-        assignments++
-        continue
-      }
-      collecting = false
-      args.push(...await this.fields(parts))
+    for (const { name, append, parts } of split.assignments) {
+      const value = await this.text(parts)
+      assign.push([name, append ? (this.get(name) ?? '') + value : value])
     }
+    const args = []
+    for (const parts of split.command.wordParts) args.push(...await this.fields(parts))
 
     if (!args.length) {
       for (const [name, value] of assign) {
@@ -618,7 +591,7 @@ class Shell {
         if (!this.interactive) await this.leave(1)
         return { status: 1 }
       }
-      return { status: 0 }
+      return { status: this.substStatus ?? 0 }
     }
 
     // An alias stands in for the command word once (no chains), as in a POSIX shell.

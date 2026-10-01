@@ -311,7 +311,7 @@ const SUBSHELL_OPEN = /^\((?!\()/
  * The index of the `)` closing the `(` at `start`, skipping quotes, escapes and nested parentheses
  * (so `$(...)` inside the subshell is fine), or -1 when the line ends first.
  */
-function closingParen(text: string, start: number): number {
+export function closingParen(text: string, start: number): number {
   let depth = 0
   for (let i = start; i < text.length; i++) {
     const char = text[i] as string

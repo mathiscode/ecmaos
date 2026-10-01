@@ -17,8 +17,8 @@ import type {
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
-import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
-import type { Command as ParsedCommand, Pipeline, Redirection, Token, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
+import { parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
+import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/expand-variables'
@@ -27,6 +27,7 @@ import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
+import { parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
@@ -100,73 +101,6 @@ function findTopLevelOperatorIndex(text: string): number {
 function tokenizeSingleWord(text: string): WordPart[] {
   const tokens = tokenize(text)
   return tokens.length === 1 && tokens[0]?.kind === 'word' ? (tokens[0].parts ?? []) : [{ text, quoting: 'unquoted' }]
-}
-
-/**
- * Whether word `index` of `words` is a `NAME=VALUE` assignment rather than a command word.
- *
- * POSIX: a leading word is an assignment only while it has the shape `NAME=`, with the `=` itself
- * unquoted -- `"X=1" cmd` runs a command literally named `X=1`, it does not assign anything. The
- * first word that isn't an assignment is the command name, which is why `X=a b` runs `b` rather
- * than assigning the two words `a b`.
- */
-function isAssignmentWord(words: string[], wordParts: WordPart[][], index: number): boolean {
-  const text = words[index]
-  const parts = wordParts[index]
-  if (!text || !parts || parts.length === 0) return false
-  const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(text)
-  if (!match) return false
-  // The name and its `=` have to live entirely inside the word's first part, and that part has to
-  // be unquoted, or the `=` came from quoted text and this is an ordinary word.
-  const first = parts[0] as WordPart
-  return first.quoting === 'unquoted' && first.text.length >= (match[0] as string).length
-}
-
-/** How many of `command`'s leading words are `NAME=VALUE` assignment prefixes. */
-function assignmentPrefixLength(words: string[], wordParts: WordPart[][]): number {
-  let n = 0
-  while (n < words.length && isAssignmentWord(words, wordParts, n)) n++
-  // A line that is nothing but assignments is a plain assignment, not a prefixed command.
-  return n === words.length ? 0 : n
-}
-
-/**
- * Lifts every command's leading `NAME=VALUE` words out of a pipeline, returning the commands with
- * those words removed alongside the assignments they stood for.
- *
- * The value keeps its `WordPart[]` rather than being re-parsed from text, so quoting still decides
- * what expands: `X='$HOME' cmd` passes the literal `$HOME` and `X="$HOME" cmd` passes the path.
- */
-function stripAssignmentPrefixes(
-  commands: readonly ParsedCommand[]
-): { commands: readonly ParsedCommand[], prefixes: Array<{ name: string, parts: WordPart[] }> } {
-  const prefixes: Array<{ name: string, parts: WordPart[] }> = []
-  const stripped = commands.map(command => {
-    const n = assignmentPrefixLength(command.words, command.wordParts)
-    if (n === 0) return command
-
-    for (let k = 0; k < n; k++) {
-      const text = command.words[k] as string
-      const parts = command.wordParts[k] as WordPart[]
-      const first = parts[0] as WordPart
-      const eq = text.indexOf('=')
-      prefixes.push({
-        name: text.slice(0, eq),
-        // `isAssignmentWord` guarantees `NAME=` sits entirely inside part 0, so the value is that
-        // part past the `=` plus every later part untouched.
-        parts: [{ ...first, text: first.text.slice(eq + 1) }, ...parts.slice(1)]
-      })
-    }
-
-    return {
-      ...command,
-      words: command.words.slice(n),
-      wordsQuoted: command.wordsQuoted.slice(n),
-      wordParts: command.wordParts.slice(n)
-    }
-  })
-
-  return { commands: stripped, prefixes }
 }
 
 /**
@@ -890,183 +824,32 @@ export class Shell implements IShell {
   }
 
   /**
-   * Parses and executes command substitutions in the format $(command)
-   * Supports nested substitutions
-   */
-  private async parseCommandSubstitution(commandLine: string): Promise<string> {
-    let result = commandLine
-    let hasSubstitution = true
-    
-    // Process substitutions iteratively to handle nested cases
-    while (hasSubstitution) {
-      hasSubstitution = false
-      const matches: Array<{ match: string; command: string; start: number; end: number }> = []
-      
-      // Find all $(...) patterns by tracking parentheses depth
-      // Need to track quote state to skip substitutions inside single quotes
-      let inSingleQuote = false
-      let inDoubleQuote = false
-      let escaped = false
-      
-      for (let i = 0; i < result.length - 1; i++) {
-        const char = result[i]
-        
-        // Track quote state
-        if (escaped) {
-          escaped = false
-          continue
-        }
-        
-        if (char === '\\') {
-          escaped = true
-          continue
-        }
-        
-        if (char === "'" && !inDoubleQuote) {
-          inSingleQuote = !inSingleQuote
-        } else if (char === '"' && !inSingleQuote) {
-          inDoubleQuote = !inDoubleQuote
-        }
-        
-        // Only process substitutions outside single quotes. `$((` is arithmetic expansion
-        // (`expand-variables.ts`'s job, applied later in `prepareCommand`/`tryExecuteAssignment`),
-        // not command substitution -- without this guard, `$((I + 1))` gets misread as `$(...)`
-        // with body `(I + 1)`, executed as a command, and silently replaced with '' when it fails.
-        if (!inSingleQuote && char === '$' && result[i + 1] === '(' && result[i + 2] !== '(') {
-          // Found start of substitution, find matching closing paren
-          let depth = 1
-          let j = i + 2
-          let subInString = false
-          let subStringChar = ''
-          let subEscaped = false
-          
-          while (j < result.length && depth > 0) {
-            const subChar = result[j]
-            
-            if (subEscaped) {
-              subEscaped = false
-              j++
-              continue
-            }
-            
-            if (subChar === '\\') {
-              subEscaped = true
-              j++
-              continue
-            }
-            
-            if (!subInString && (subChar === '"' || subChar === "'")) {
-              subInString = true
-              subStringChar = subChar
-            } else if (subInString && subChar === subStringChar) {
-              subInString = false
-              subStringChar = ''
-            } else if (!subInString) {
-              if (subChar === '(') {
-                depth++
-              } else if (subChar === ')') {
-                depth--
-              }
-            }
-            
-            j++
-          }
-          
-          if (depth === 0) {
-            // Found complete substitution
-            hasSubstitution = true
-            const command = result.slice(i + 2, j - 1)
-            matches.push({
-              match: result.slice(i, j),
-              command,
-              start: i,
-              end: j
-            })
-            i = j - 1 // Skip past this substitution
-          }
-        }
-      }
-      
-      // Process matches from right to left to preserve indices
-      matches.reverse()
-      
-      for (const { command, start, end } of matches) {
-        // Execute the command substitution
-        const output = await this.executeCommandSubstitution(command)
-        
-        // Replace the substitution with the output
-        // Ensure the output is treated as a separate word by checking boundaries
-        const beforeChar = start > 0 ? result[start - 1] : ' '
-        const afterChar = end < result.length ? result[end] : ' '
-        const needsSpaceBefore = beforeChar !== ' ' && beforeChar !== '\t' && beforeChar !== '\n'
-        const needsSpaceAfter = afterChar !== ' ' && afterChar !== '\t' && afterChar !== '\n' && afterChar !== ''
-        
-        const replacement = (needsSpaceBefore ? ' ' : '') + output + (needsSpaceAfter ? ' ' : '')
-        result = result.slice(0, start) + replacement + result.slice(end)
-      }
-    }
-    
-    return result
-  }
-
-  /**
-   * Executes a command substitution and returns its output
+   * `$(...)`: runs `command` in a subshell with its stdout held on a scratch file, so any amount of
+   * output is safe and builtins, functions, pipelines, lists and nested substitutions all work.
+   * The substitution's status is kept for `x=$(cmd)`, which reports it as `$?`.
    */
   private async executeCommandSubstitution(command: string): Promise<string> {
-    // Create a temporary stream to capture output
-    const chunks: Uint8Array[] = []
-    const outputStream = new WritableStream<Uint8Array>({
-      write(chunk) {
-        chunks.push(chunk)
-      }
-    })
-    
-    // Create a dummy error stream (we'll ignore stderr for substitutions)
-    const errorStream = new WritableStream<Uint8Array>({
-      write() {
-        // Ignore stderr in command substitutions
-      }
-    })
-    
-    // Execute the command
+    const fs = this.context.fs.promises
+    const path = `/tmp/.subst-${this._id.slice(0, 8)}-${this._substitutionCount++}`
+    await fs.writeFile(path, new Uint8Array())
+    const redirection: Redirection = { type: '>', fd: 1, target: path, targetParts: [{ text: path, quoting: 'single' }] }
+    let status = 0
     try {
-      // Parse the command to get command name and args
-      const script = parseScript(command)
-      const parsedCommand = script.stages[0]?.pipeline.commands[0]
-      const [commandName, ...rawWords] = parsedCommand?.words ?? []
-      if (!commandName) return ''
-
-      const args = await this.expandGlobWords(rawWords, parsedCommand?.wordsQuoted.slice(1) ?? [])
-      const finalCommand = await this.resolveCommand(commandName)
-      if (!finalCommand) return ''
-      
-      // Execute the command
-      await this._execute({
-        command: finalCommand,
-        args,
-        shell: this,
-        terminal: this._terminal,
-        stdin: new ReadableStream<Uint8Array>(),
-        stdout: outputStream,
-        stderr: errorStream
-      })
-      
-      // Combine all chunks and convert to string
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-      const combined = new Uint8Array(totalLength)
-      let offset = 0
-      for (const chunk of chunks) {
-        combined.set(chunk, offset)
-        offset += chunk.length
-      }
-      
-      // Decode and trim trailing newlines (standard shell behavior)
-      const output = new TextDecoder().decode(combined)
-      return output.replace(/\n+$/, '')
-    } catch {
-      return ''
+      status = await this.withStatementRedirections([redirection], () => this.interpreter.runSubshell(parseStatements(command)))
+      this._substitutionStatus = status
+      const text = await fs.readFile(path, 'utf-8')
+      return text.replace(/\n+$/, '')
+    } catch (error) {
+      if (error instanceof ExitSignal) { this._substitutionStatus = error.code; return '' }
+      throw error
+    } finally {
+      await fs.unlink(path).catch(() => {})
     }
   }
+
+  private _substitutionCount = 0
+  /** The status of the last `$(...)` run while expanding the current command; read by an assignment-only command. */
+  private _substitutionStatus: number | undefined
 
   /**
    * Expands tilde (~) to the user's home directory
@@ -1182,139 +965,6 @@ export class Shell implements IShell {
   }
 
   /**
-   * Expands glob patterns in a command's words, in place of the file(s) they match.
-   * A word only globs if it is not fully quoted (`echo *.txt` globs; `echo "*.txt"` does not),
-   * matching `parseScript`'s per-word quote tracking.
-   * @param words - The command's words, already quote-stripped by the parser
-   * @param wordsQuoted - Whether each word (by index) was fully quoted
-   * @returns The words with any eligible glob patterns expanded to matching paths
-   */
-  private async expandGlobWords(words: string[], wordsQuoted: boolean[]): Promise<string[]> {
-    const expanded: string[] = []
-    for (let i = 0; i < words.length; i++) {
-      const word = words[i] as string
-      const quoted = wordsQuoted[i] ?? false
-      if (!quoted && (word.includes('*') || word.includes('?'))) {
-        const matches = await this.expandGlob(word)
-        expanded.push(...(matches.length > 0 ? matches : [word]))
-      } else {
-        expanded.push(word)
-      }
-    }
-    return expanded
-  }
-
-  /**
-   * Expands history bang syntax (e.g., !10) to the corresponding command from history
-   * Supports patterns like !N where N is a history line number (1-indexed)
-   * Recursively expands history bangs until no more expansions are possible
-   */
-  private async expandHistoryBang(commandLine: string): Promise<string> {
-    const home = this._env.get('HOME') || '/root'
-    const historyPath = path.join(home, '.ecmash_history')
-
-    try {
-      if (!await this.context.fs.promises.exists(historyPath)) {
-        return commandLine
-      }
-
-      const content = await this.context.fs.promises.readFile(historyPath, 'utf-8')
-      const historyLines = content.split('\n').filter(line => line.length > 0)
-
-      if (historyLines.length === 0) {
-        return commandLine
-      }
-
-      let result = commandLine
-      let hasExpansion = true
-      const maxIterations = 100
-      let iterations = 0
-
-      while (hasExpansion && iterations < maxIterations) {
-        iterations++
-        hasExpansion = false
-        let inSingleQuote = false
-        let inDoubleQuote = false
-        let escaped = false
-        let i = 0
-
-        while (i < result.length) {
-          const char = result[i]
-
-          if (escaped) {
-            escaped = false
-            i++
-            continue
-          }
-
-          if (char === '\\') {
-            escaped = true
-            i++
-            continue
-          }
-
-          if (char === "'" && !inDoubleQuote) {
-            inSingleQuote = !inSingleQuote
-            i++
-            continue
-          }
-
-          if (char === '"' && !inSingleQuote) {
-            inDoubleQuote = !inDoubleQuote
-            i++
-            continue
-          }
-
-          if (!inSingleQuote && char === '!') {
-            const nextChar = result[i + 1]
-            
-            if (nextChar && /[0-9]/.test(nextChar)) {
-              let numStr = ''
-              let j = i + 1
-              
-              while (j < result.length) {
-                const char = result[j]
-                if (char && /[0-9]/.test(char)) {
-                  numStr += char
-                  j++
-                } else {
-                  break
-                }
-              }
-
-              const historyNum = parseInt(numStr, 10)
-              
-              if (historyNum >= 1 && historyNum <= historyLines.length) {
-                const historyCommand = historyLines[historyNum - 1]
-                if (historyCommand) {
-                  result = result.slice(0, i) + historyCommand + result.slice(j)
-                  hasExpansion = true
-                  break
-                }
-              }
-              
-              throw new Error(`!${historyNum}: event not found`)
-            }
-          }
-
-          i++
-        }
-      }
-
-      if (iterations >= maxIterations) {
-        throw new Error('History expansion exceeded maximum iterations (possible circular reference)')
-      }
-
-      return result
-    } catch (error) {
-      if (error instanceof Error && (error.message.includes('event not found') || error.message.includes('maximum iterations'))) {
-        throw error
-      }
-      return commandLine
-    }
-  }
-
-  /**
    * Builds the (fd -> writable stream) map for one pipeline command, following its redirections in
    * order so later ones win — the same left-to-right rule real shells apply (`> f 2>&1` and
    * `2>&1 > f` mean different things, and both are expressible this way).
@@ -1401,18 +1051,7 @@ export class Shell implements IShell {
     for (const [index, word] of command.words.entries()) {
       const parts = command.wordParts[index]
       if (this._shellOptions.nounset) this.assertNoUnsetReferences(word)
-      // `wordParts` (quote-aware) is what the parser actually produced; falling back to the old
-      // string-based path only covers a caller that hand-builds a `Command` without it (none do
-      // today, but this keeps `prepareCommand` total rather than throwing on an empty array).
-      if (parts && parts.length) {
-        fields.push(...await this.expandFields(parts, ctx))
-      } else {
-        let expanded = await this.parseCommandSubstitution(word)
-        expanded = await this.expandHistoryBang(expanded)
-        expanded = this.expandTilde(expanded)
-        if (!command.wordsQuoted[index]) expanded = expandWord(expanded, (name) => this.lookupVariable(name))
-        fields.push(expanded)
-      }
+      fields.push(...await this.expandFields(parts?.length ? parts : [{ text: word, quoting: 'unquoted' }], ctx))
     }
 
     const [commandName, ...args] = fields
@@ -1518,7 +1157,12 @@ export class Shell implements IShell {
   private _processSubstitutionCount = 0
 
   private async runPipelineWithPrefixes(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
-    const { commands, prefixes } = stripAssignmentPrefixes(pipeline.commands)
+    const prefixes: Assignment[] = []
+    const commands = pipeline.commands.map(command => {
+      const split = splitAssignments(command)
+      prefixes.push(...split.assignments)
+      return split.command
+    })
     if (prefixes.length === 0) return await this.runPipelineStages(pipeline, commands, job)
 
     const restore = await this.applyAssignmentPrefixes(prefixes)
@@ -1543,10 +1187,11 @@ export class Shell implements IShell {
    * because the stages start concurrently and share one `env`. `IFS=: a | IFS=, b` is therefore
    * approximate; a single command, which is what `IFS= read` needs, is exact.
    */
-  private async applyAssignmentPrefixes(entries: Array<{ name: string, parts: WordPart[] }>): Promise<() => void> {
+  private async applyAssignmentPrefixes(entries: Assignment[]): Promise<() => void> {
     const saved = entries.map(({ name }) => ({ name, had: this.env.has(name), previous: this.env.get(name), unexported: this.state.unexported.has(name) }))
-    for (const { name, parts } of entries) {
-      this.env.set(name, await expandWordString(parts, this.expansionContext()))
+    for (const { name, append, parts } of entries) {
+      const value = await expandWordString(parts, this.expansionContext())
+      this.env.set(name, append ? (this.env.get(name) ?? '') + value : value)
       // A prefix assignment is part of the environment of that one command, whatever the variable was before.
       this.state.markExported(name)
     }
@@ -1973,184 +1618,6 @@ export class Shell implements IShell {
   }
 
   /**
-   * `VAR=value` (and `VAR=` for an empty assignment) as a bare statement -- not `env VAR=value cmd`,
-   * which already works today by other means, but a line that *starts* with an assignment. A real
-   * shell recognizes this at the parser level (it's not a command at all, and `=` is not an
-   * operator); recognizing it here, at the same point `execute` decides what kind of line this is,
-   * avoids teaching `shell-parser.ts` a whole new statement kind for something that never pipes or
-   * redirects. Returns the exit code if `line` started with an assignment, else `undefined` so
-   * `execute` falls through to normal pipeline parsing.
-   *
-   * The value only extends up to the first top-level (unquoted, not inside `$(...)`/`$((...))`)
-   * `;`/`&&`/`||`/`&`/`|` -- `x=5; echo $x` must run `echo $x` as its own statement, not swallow it
-   * into `x`'s value. Whatever follows that boundary is hand back to `execute` recursively; an
-   * assignment always "succeeds" (exit 0) unless expansion itself throws, so `;`/`&&` both continue
-   * into the remainder and `||` skips it, matching how a real shell treats a successful command.
-   */
-  /**
-   * Whether `line` is `NAME=VALUE... command args` rather than a plain assignment: after its run of
-   * leading assignment words, a command word remains.
-   *
-   * Only the words before the first operator or redirection are considered, so `X=1; cmd` stays a
-   * plain assignment while `X=1 cmd` does not.
-   */
-  private hasAssignmentPrefix(line: string): boolean {
-    let tokens: Token[]
-    try {
-      tokens = tokenize(line)
-    } catch {
-      // Unparseable here is not this method's problem to report; let the normal path raise it.
-      return false
-    }
-
-    const words: string[] = []
-    const parts: WordPart[][] = []
-    for (const token of tokens) {
-      if (token.kind !== 'word') break
-      words.push(token.value)
-      parts.push(token.parts ?? [])
-    }
-
-    return assignmentPrefixLength(words, parts) > 0
-  }
-
-  /**
-   * Whether `text` *starts* with a bare assignment -- `x=1`, `a=(x y)`, `a[i]=v` -- rather than a
-   * command. In other words, whether {@link tryExecuteAssignment} would claim it.
-   *
-   * `X=1 cmd` is deliberately not one: that is a command carrying prefix assignments, which belongs
-   * to `runPipeline` so the values are scoped to that command alone.
-   */
-  private beginsBareAssignment(text: string): boolean {
-    if (/^[A-Za-z_][A-Za-z0-9_]*\+?=\(/.test(text)) return true
-    if (/^[A-Za-z_][A-Za-z0-9_]*\[[^\]]+\]=/.test(text)) return true
-    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(text)) return false
-    return !this.hasAssignmentPrefix(text)
-  }
-
-  /**
-   * Finds the first top-level operator that an assignment follows, so `echo hi; x=1` can be run as
-   * "the command, then the assignment".
-   *
-   * Only `;`, `&&` and `||` qualify. A `|` cannot be followed by an assignment in any meaningful
-   * sense, and a `&` backgrounds what came before it -- both keep their existing handling in
-   * `parseScript`, which is also why the common case (no assignment anywhere but the head) returns
-   * `undefined` here and nothing about it changes.
-   *
-   * An array literal's own parentheses are why this works on the raw text rather than on the parsed
-   * pipeline: `arr=(a b)` tokenizes into the two words `arr=(a` and `b)`, so by the time there are
-   * words to inspect the assignment is no longer recognizable as one.
-   */
-  private splitBeforeAssignment(line: string): { head: string, operator: string, rest: string } | undefined {
-    let offset = 0
-    while (offset < line.length) {
-      const relative = findTopLevelOperatorIndex(line.slice(offset))
-      if (relative === -1) return undefined
-
-      const index = offset + relative
-      const pair = line.slice(index, index + 2)
-      const operator = pair === '&&' || pair === '||' ? pair : (line[index] as string)
-      const rest = line.slice(index + operator.length).trim()
-
-      if (operator !== '|' && operator !== '&' && this.beginsBareAssignment(rest)) {
-        return { head: line.slice(0, index).trim(), operator, rest }
-      }
-
-      offset = index + operator.length
-    }
-
-    return undefined
-  }
-
-  /**
-   * Runs the command before a mid-line assignment, then the assignment and whatever follows it,
-   * honoring the operator between them exactly as the ordinary stage loop would: `&&` only continues
-   * on success, `||` only on failure, and `set -e` stops after a failing `;`.
-   */
-  private async executeAroundAssignment({ head, operator, rest }: { head: string, operator: string, rest: string }): Promise<number> {
-    const headExit = head ? await this.executeSimple(head) : 0
-    if (this._interrupted) return headExit
-    if (operator === '&&' && headExit !== 0) return headExit
-    if (operator === '||' && headExit === 0) return headExit
-    if (operator === ';' && this._shellOptions.errexit && headExit !== 0) return headExit
-    return await this.execute(rest)
-  }
-
-  private async tryExecuteAssignment(line: string): Promise<number | undefined> {
-    // Array forms: `a=(x y)`, `a+=(z)`, `a[i]=v`. Checked before the plain scalar match below,
-    // since `a[i]=v` would otherwise fail the scalar regex and fall through unhandled, and
-    // `a=(...)`/`a+=(...)` would otherwise be treated as a scalar assigned the literal text `(x y)`.
-    const arrayLiteral = /^([A-Za-z_][A-Za-z0-9_]*)(\+?)=\(([\s\S]*?)\)(?:\s*(?:;|&&|\|\||&|\|)\s*([\s\S]*))?$/.exec(line)
-    if (arrayLiteral) {
-      const [, name, append, body, remainder] = arrayLiteral as unknown as [string, string, string, string, string | undefined]
-      const words = body.trim().length ? tokenize(body).filter(t => t.kind === 'word') : []
-      const ctx = this.expansionContext()
-      const values = await Promise.all(words.map(t => this.expandFields(t.parts as WordPart[], ctx)))
-      const flat = values.flat()
-      if (append) this.appendArray(name, flat)
-      else this.setArray(name, flat)
-      return remainder ? await this.execute(remainder.trim()) : 0
-    }
-
-    const elementAssignment = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]=/.exec(line)
-    if (elementAssignment) {
-      const [full, name, subscript] = elementAssignment as unknown as [string, string, string]
-      const rest = line.slice(full.length)
-      const boundary = findTopLevelOperatorIndex(rest)
-      const rawValue = boundary === -1 ? rest : rest.slice(0, boundary)
-      const index = evaluateArithmeticExpression(subscript, (n) => this.lookupVariable(n))
-      const value = await expandWordString(tokenizeSingleWord(rawValue), this.expansionContext())
-      this.setArrayElement(name, index, value)
-      if (boundary === -1) return 0
-      const opLen = (rest[boundary] === '&' && rest[boundary + 1] === '&') || (rest[boundary] === '|' && rest[boundary + 1] === '|') ? 2 : 1
-      const operator = rest.slice(boundary, boundary + opLen)
-      if (operator === '||') return 0
-      const remainder = rest.slice(boundary + opLen).trim()
-      return remainder ? await this.execute(remainder) : 0
-    }
-
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)
-    if (!match) return undefined
-
-    // `NAME=VALUE... command args` is a command carrying prefix assignments, not an assignment, so
-    // it belongs to `parseScript`/`runPipeline` (which scopes those assignments to that pipeline and
-    // gets `;`/`&&`/`||` semantics for free). Without this, `findTopLevelOperatorIndex` finds no
-    // operator in `IFS= read -r line` and stores the whole `read -r line` as IFS's value.
-    if (this.hasAssignmentPrefix(line)) return undefined
-
-    const name = match[0].slice(0, -1)
-    const rest = line.slice(match[0].length)
-    const boundary = findTopLevelOperatorIndex(rest)
-    const rawValue = boundary === -1 ? rest : rest.slice(0, boundary)
-
-    let value = await this.parseCommandSubstitution(rawValue)
-    value = this.expandTilde(value)
-    value = expandWord(value, (varName) => this.lookupVariable(varName))
-    // Strip one layer of surrounding quotes the way word-splitting elsewhere in this file does --
-    // `X="a b"` should store `a b`, not `"a b"`.
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-
-    // A readonly name refuses the write. Reported as a failed command rather than thrown, because a
-    // throw out of here unwinds the whole statement tree and bash just fails the assignment.
-    try {
-      this.setVariable(name, value)
-    } catch (error) {
-      await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
-      return this.reportExit(1)
-    }
-    if (boundary === -1) return 0
-
-    const opLen = (rest[boundary] === '&' && rest[boundary + 1] === '&') || (rest[boundary] === '|' && rest[boundary + 1] === '|') ? 2 : 1
-    const operator = rest.slice(boundary, boundary + opLen)
-    if (operator === '||') return 0
-
-    const remainder = rest.slice(boundary + opLen).trim()
-    return remainder ? await this.execute(remainder) : 0
-  }
-
-  /**
    * Executes a line typed at the prompt (or handed in by any other single-line caller). Most lines
    * are a plain pipeline and go straight to `executeSimple`; a line that itself contains control
    * flow (`if`/`while`/`for`/`case`/a function definition -- whether spread across real `\n`s or
@@ -2261,18 +1728,8 @@ export class Shell implements IShell {
       prepareLine: line => stripComments(line).trim(),
       expandStatement: line => this.expandAliases(line),
       onStatement: async statement => { if (statement.type === 'simple') await this.traceVerbose(statement.line) },
-      // An assignment is not a command: it is recognized here, before the line is parsed as a list.
-      runSpecial: async line => {
-        const assignment = await this.tryExecuteAssignment(line)
-        if (assignment !== undefined) return assignment
-
-        // An assignment that isn't the *first* thing on the line (`echo hi; x=1`). `tryExecuteAssignment`
-        // only looks at the head, so splitting here hands the tail back through `execute`, where the
-        // assignment is once again at the head.
-        const split = this.splitBeforeAssignment(line)
-        if (split) return await this.executeAroundAssignment(split)
-        return undefined
-      },
+      // Array assignments are read from the raw text: the tokenizer splits `a=(x y)` in two.
+      runSpecial: line => this.runArrayAssignment(line),
       withRedirect: (statement, run) => this.withStatementRedirection(statement, run),
       expandWords: text => this.expandForWords(text),
       caseSubject: async word => expandWord(word, name => this.lookupVariable(name)),
@@ -2316,6 +1773,46 @@ export class Shell implements IShell {
     }
   }
 
+  /** `a=(x y)`, `a+=(z)` and `a[i]=v`. `undefined` when the line is not one. */
+  private async runArrayAssignment(line: string): Promise<number | undefined> {
+    const found = parseArrayAssignment(line)
+    if (!found) return undefined
+    const ctx = this.expansionContext()
+    if (found.local) this.declareLocal(found.name)
+    if (found.kind === 'list') {
+      const values: string[] = []
+      for (const token of found.body.trim() ? tokenize(found.body) : []) {
+        if (token.kind === 'word') values.push(...await this.expandFields(token.parts as WordPart[], ctx))
+      }
+      if (found.append) this.appendArray(found.name, values)
+      else this.setArray(found.name, values)
+    } else {
+      const index = evaluateArithmeticExpression(found.subscript, name => this.lookupVariable(name))
+      this.setArrayElement(found.name, index, await expandWordString(tokenizeSingleWord(found.raw || "''"), ctx))
+    }
+    if (!found.rest || found.operator === '||') return 0
+    return await this.interpreter.runLine(found.rest)
+  }
+
+  /**
+   * `X=1 Y=2` with no command after it: sets the variables in this shell. A readonly name fails the
+   * command instead of throwing, because a throw unwinds the whole statement tree and bash carries
+   * on. The status is that of the last `$(...)` in the values, as in bash.
+   */
+  private async runAssignments(assignments: Assignment[]): Promise<number> {
+    this._substitutionStatus = undefined
+    for (const { name, append, parts } of assignments) {
+      const value = await expandWordString(parts, this.expansionContext())
+      try {
+        this.setVariable(name, append ? (this.lookupVariable(name) ?? '') + value : value)
+      } catch (error) {
+        await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
+        return 1
+      }
+    }
+    return this._substitutionStatus ?? 0
+  }
+
   /**
    * Runs one foreground pipeline of a list and reports each stage's status. Which kind of command
    * it is decides how: `exec`, a `[[ ]]`, a true builtin, a function, or a real program.
@@ -2330,6 +1827,11 @@ export class Shell implements IShell {
     const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.fastPathBuiltinFor(pipeline)
     const fnName = builtinName ? undefined : this.functionNameFor(pipeline)
     const negate = (code: number) => pipeline.negated ? (code === 0 ? 1 : 0) : code
+
+    if (pipeline.commands.length === 1) {
+      const split = splitAssignments(pipeline.commands[0] as ParsedCommand)
+      if (split.assignments.length > 0 && split.command.words.length === 0) return [negate(await this.runAssignments(split.assignments))]
+    }
 
     if (execCommand) return [negate(await this.runExec(execCommand))]
     if (conditionalCommand?.conditional !== undefined) return [negate(await this.evaluateConditionalCommand(conditionalCommand.conditional))]

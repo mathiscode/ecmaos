@@ -87,7 +87,7 @@ echo one; zz=5; echo $zz
 ### functions/local
 f() { local x=1; echo $x; }; x=0; f; echo $x
 ### functions/recursion
-fact() { if [ $1 -le 1 ]; then echo 1; else echo $(( $1 * $(fact $(( $1 - 1 ))) )); fi; }; fact 5
+fact() { if test $1 -le 1; then echo 1; else echo $(( $1 * $(fact $(( $1 - 1 ))) )); fi; }; fact 5
 ### functions/return
 f() { return 3; }; f; echo $?
 ### functions/args

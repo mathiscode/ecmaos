@@ -14,8 +14,6 @@ export interface KnownDivergence {
 export type KnownTable = Record<string, KnownDivergence>
 
 export const knownKernel: KnownTable = {
-  "assign/append-string": { stdout: "a\n", status: 0, why: "s+=value on a scalar is not supported" },
-  "assign/local-array": { stdout: "(1\n9\n", status: 0, why: "local with an array literal (local a=(1 2)) is not parsed as an array" },
   "assign/prefix-function": { stdout: "[]\n", status: 0, why: "NAME=v before a shell function call is not visible inside the function" },
   "assign/readonly": { stdout: "1 1\n", status: 0, why: "a failed assignment to a readonly variable does not end the script (bash exits with status 1)" },
   "builtins/background-status": { stdout: "THREW A subshell followed by \"&\" is not supported; put it on its own line", status: -1, why: "a subshell run in the background ((cmd) &) is not supported" },
@@ -33,13 +31,9 @@ export const knownKernel: KnownTable = {
   "control/test-operators": { stdout: "noent\n", status: 127, why: "[ ... ] does not exist (127)" },
   "control/while-counter": { stdout: "", status: 0, why: "[ ... ] does not exist (127)" },
   "control/while-read": { stdout: "got \n", status: 127, why: "a compound command as a pipeline stage is not supported (run as a command named while)" },
-  "expansion/command-subst": { stdout: "a\na\n", status: 0, why: "$(...) runs only the first command of a ; list" },
-  "expansion/command-subst-nested": { stdout: "$(echo deep)\none two\n", status: 0, why: "a $(...) nested inside double quotes inside $(...) is not expanded" },
-  "expansion/command-subst-status": { stdout: "0\n0\n", status: 0, why: "$? after x=$(false) or x=$(exit 4) is 0: the assignment ignores the substitution's status" },
   "expansion/glob": { stdout: "a.txt b.txt\na.txt b.txt c.md\n*\nc.md\n[ab].txt\n", status: 0, why: "[ab] bracket globs are not expanded" },
   "expansion/glob-dot": { stdout: ".hid vis\n", status: 0, why: "* matches dotfiles" },
   "expansion/lineno": { stdout: "2\n3\n", status: 0, why: "$LINENO is wrong" },
-  "functions/recursion": { stdout: "THREW unexpected end of expression", status: -1, why: "$(...) nested inside $(( )) fails to evaluate (unexpected end of expression)" },
   "functions/stdin": { stdout: "", status: 127, why: "a shell function used as a pipeline stage is looked up as a command (127)" },
   "options/dollar-dash": { stdout: "no-e\n", status: 0, why: "$- is not supported inside case patterns (script fails to parse)" },
   "options/errexit-subshell": { stdout: "after\n", status: 0, why: "set -e is not inherited by a subshell" },
@@ -50,15 +44,12 @@ export const knownKernel: KnownTable = {
 }
 
 export const knownEcmash: KnownTable = {
-  "assign/append-string": { stdout: "a\n", status: 0, why: "s+=value on a scalar is not supported" },
-  "assign/local-array": { stdout: "1 2\n1 2\n", status: 0, why: "local with an array literal (local a=(1 2)) is not parsed as an array" },
   "builtins/background-status": { stdout: "", status: 2, why: "a subshell run in the background ((cmd) &) is not supported" },
   "control/for-c-style": { stdout: "", status: 2, why: "C-style for ((;;)) is not supported" },
   "control/group": { stdout: "", status: 2, why: "{ ...; } followed by a pipe is not parsed" },
   "control/pipe-into-loop": { stdout: " \n", status: 127, why: "a compound command as a pipeline stage is not supported (a brace group after a pipe)" },
   "control/pipestatus": { stdout: "0\n0\n", status: 0, why: "PIPESTATUS holds one entry: a pipeline reports a single status here" },
   "control/while-read": { stdout: "got \n", status: 127, why: "a compound command as a pipeline stage is not supported (run as a command named while)" },
-  "expansion/command-subst-status": { stdout: "0\n", status: 4, why: "exit inside $(...) ends the whole shell, and $? after x=$(false) is 0" },
   "getopts/basic": { stdout: "i=\n", status: 0, why: "getopts is not a builtin in ecmash (the loop never runs)" },
   "getopts/error": { stdout: "", status: 0, why: "getopts is not a builtin in ecmash (the loop never runs)" },
   "options/errexit-subshell": { stdout: "after\n", status: 0, why: "set -e is not inherited by a subshell" },
