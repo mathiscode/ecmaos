@@ -22,13 +22,13 @@ import { parseRedirections, stripComments, tokenize, tokenizeConditional } from 
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
-import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/expand-variables'
+import { expandWord } from '@ecmaos/coreutils/lib/expand-variables'
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
-import { parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
+import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
@@ -96,12 +96,6 @@ function findTopLevelOperatorIndex(text: string): number {
   }
 
   return -1
-}
-
-/** Tokenizes `text` as a single word (for `a[i]=value`'s right-hand side) and returns its parts. */
-function tokenizeSingleWord(text: string): WordPart[] {
-  const tokens = tokenize(text)
-  return tokens.length === 1 && tokens[0]?.kind === 'word' ? (tokens[0].parts ?? []) : [{ text, quoting: 'unquoted' }]
 }
 
 /**
@@ -412,7 +406,7 @@ export class Shell implements IShell {
   private get _aliases() { return this.state.aliases }
   private get _shellOptions() { return this.state.options }
   private get _arrays() { return this.state.arrays }
-  private set _arrays(arrays: Map<string, Map<number, string>>) { this.state.arrays = arrays }
+  private set _arrays(arrays: Map<string, Map<number | string, string>>) { this.state.arrays = arrays }
   private get _lastBackgroundPid() { return this.state.lastBackgroundPid }
   private set _lastBackgroundPid(pid: number | undefined) { this.state.lastBackgroundPid = pid }
 
@@ -570,12 +564,12 @@ export class Shell implements IShell {
    * Every one of these honors `local`: a name declared local in an active frame is read and written
    * there, and the shell-global `_arrays` is only reached when no frame declares it.
    */
-  get arrays(): Map<string, Map<number, string>> {
+  get arrays(): Map<string, Map<number | string, string>> {
     return this.state.visibleArrays()
   }
 
   /** Reads `name`'s array from the innermost frame that declares it, else from the shell's own. */
-  lookupArray(name: string): Map<number, string> | undefined {
+  lookupArray(name: string): Map<number | string, string> | undefined {
     return this.state.lookupArray(name)
   }
 
@@ -609,6 +603,7 @@ export class Shell implements IShell {
     return {
       lookup: (name) => this.lookupVariable(name),
       lookupArray: (name) => this.lookupArray(name),
+      isAssoc: (name) => this.state.isAssoc(name),
       positional: () => {
         const positional: string[] = []
         for (let i = 1; ; i++) {
@@ -1788,18 +1783,11 @@ export class Shell implements IShell {
     const found = parseArrayAssignment(line)
     if (!found) return undefined
     const ctx = this.expansionContext()
-    if (found.local) this.declareLocal(found.name)
-    if (found.kind === 'list') {
-      const values: string[] = []
-      for (const token of found.body.trim() ? tokenize(found.body) : []) {
-        if (token.kind === 'word') values.push(...await this.expandFields(token.parts as WordPart[], ctx))
-      }
-      if (found.append) this.appendArray(found.name, values)
-      else this.setArray(found.name, values)
-    } else {
-      const index = evaluateArithmeticExpression(found.subscript, name => this.lookupVariable(name))
-      this.setArrayElement(found.name, index, await expandWordString(tokenizeSingleWord(found.raw || "''"), ctx))
-    }
+    await applyArrayAssignment(found, this.state, {
+      fields: parts => this.expandFields(parts, ctx),
+      text: parts => expandWordString(parts, ctx),
+      lookup: name => this.lookupVariable(name)
+    })
     if (!found.rest || found.operator === '||') return 0
     return await this.interpreter.runLine(found.rest)
   }

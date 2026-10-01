@@ -78,6 +78,38 @@ describe('ShellState integer variables', () => {
   })
 })
 
+describe('ShellState associative arrays', () => {
+  it('keys by string, appends, and unsets one element', () => {
+    const state = make()
+    state.declareAssoc('m')
+    state.setAssoc('m', [['a', '1'], ['b c', '2']], false)
+    state.setAssoc('m', [['d', '3']], true)
+    expect([...state.lookupArray('m')!.entries()]).toEqual([['a', '1'], ['b c', '2'], ['d', '3']])
+    state.unsetArrayElement('m', 'a')
+    expect(state.lookupArray('m')!.has('a')).toBe(false)
+    expect(state.isAssoc('m')).toBe(true)
+    state.unsetArray('m')
+    expect(state.isAssoc('m')).toBe(false)
+  })
+
+  it('is scoped by local and restored with a subshell snapshot', () => {
+    const state = make()
+    state.declareAssoc('m')
+    state.setArrayElement('m', 'k', 'outer')
+    const snapshot = state.snapshot()
+    state.pushLocalScope()
+    state.declareLocal('m')
+    state.declareAssoc('m')
+    state.setArrayElement('m', 'k', 'inner')
+    expect(state.lookupArray('m')!.get('k')).toBe('inner')
+    state.popLocalScope()
+    expect(state.lookupArray('m')!.get('k')).toBe('outer')
+    state.setArrayElement('m', 'k', 'changed')
+    state.restore(snapshot)
+    expect(state.lookupArray('m')!.get('k')).toBe('outer')
+  })
+})
+
 describe('ShellState local scopes', () => {
   it('shadows in a frame and restores on pop', () => {
     const state = make({ x: '0' })

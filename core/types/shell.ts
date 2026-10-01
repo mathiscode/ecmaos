@@ -285,9 +285,9 @@ export interface Shell {
    * Indexed arrays (`a=(x y)`, `${a[@]}`, `${#a[@]}`), keyed by name; never exported to the
    * environment. `local` frames are layered over the shell's own, so this is what is visible now.
    */
-  readonly arrays: Map<string, Map<number, string>>
+  readonly arrays: Map<string, Map<number | string, string>>
   /** Reads one array by name, honoring `local`: the innermost frame declaring it, else the shell's own. */
-  lookupArray(name: string): Map<number, string> | undefined
+  lookupArray(name: string): Map<number | string, string> | undefined
   /** Replaces an array's entire contents. */
   setArray(name: string, values: string[]): void
   /** Sets one array element by index, creating the array if needed. */

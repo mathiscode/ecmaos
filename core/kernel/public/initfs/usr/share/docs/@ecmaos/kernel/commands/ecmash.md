@@ -33,7 +33,7 @@ Builtins: `:`, `true`, `false`, `cd`, `pwd`, `echo`, `env`, `exit`, `export`, `u
 
 ## Differences from the shell built into the kernel
 
-Not implemented: associative arrays, arithmetic `(( ))` as a command, a subshell inside a pipeline or list, `declare -A`, and `read -t` (refused with a message). `declare -i` converts assignments to arithmetic, and `read -n` and `-d` take their input from a file or pipe. `set` takes `-e`, `-u`, `-x`, `-f`, `-C`, `-v` and `-o pipefail`; any other option is refused rather than ignored. `exec COMMAND` runs the command and exits with its status, since a worker cannot replace itself.
+Associative arrays (`declare -A`, `m[key]=v`, `m=([k]=v)`, `${!m[@]}`) work, though a key listing is in insertion order, not bash's hash order. Not implemented: arithmetic `(( ))` as a command, a subshell inside a pipeline or list, `declare -A`, and `read -t` (refused with a message). `declare -i` converts assignments to arithmetic, and `read -n` and `-d` take their input from a file or pipe. `set` takes `-e`, `-u`, `-x`, `-f`, `-C`, `-v` and `-o pipefail`; any other option is refused rather than ignored. `exec COMMAND` runs the command and exits with its status, since a worker cannot replace itself.
 
 Output redirected to a file is written to a scratch file and copied over when the command finishes. The root filesystem loses data when a file is written in several chunks through a plain descriptor, and a whole-file write is the safe way.
 

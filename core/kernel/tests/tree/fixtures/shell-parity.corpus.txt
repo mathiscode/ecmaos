@@ -320,3 +320,14 @@ read -d , x < f; echo "[$x] $?"
 read -rd ';' y < f; echo "[$y] $?"
 read -n 3 z < f; echo "[$z] $?"
 read -d '' w < f; echo "[$w] $?"
+
+### arrays/associative
+declare -A m=([x]=1 [y]=2)
+m[z]=3
+m["a b"]=7
+echo ${m[x]} ${m[y]} ${m[z]} "${m[a b]}" ${#m[@]}
+k=y; echo ${m[$k]}
+unset m[x]; echo ${#m[@]} "${m[x]:-gone}"
+n=0; for key in "${!m[@]}"; do n=$((n+${m[$key]})); done; echo $n
+m+=([w]=4); echo ${#m[@]}
+f() { local -A loc=([a]=1); echo ${loc[a]}; }; f; echo "[${loc[a]}]"

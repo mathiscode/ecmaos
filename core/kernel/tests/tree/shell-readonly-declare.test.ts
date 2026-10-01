@@ -155,9 +155,9 @@ describe('readonly and declare', () => {
     })
 
     it('reports an unsupported attribute rather than ignoring it', async () => {
-      // An associative or nameref attribute that silently did nothing would be worse than an error.
+      // A nameref attribute that silently did nothing would be worse than an error.
       const output = await runScript([
-        'declare -A NUM',
+        'declare -n NUM',
         `echo "code=$?" >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['code=2'])

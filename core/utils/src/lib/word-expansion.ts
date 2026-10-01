@@ -15,11 +15,25 @@ import { expandBraces } from './brace-expansion.js'
 import type { WordPart } from './shell-parser.js'
 import { scanExpansionEnd } from './shell-parser.js'
 
+/** An array's keys: numeric order for an indexed array, insertion order for an associative one. */
+function orderedKeys(array: Map<number | string, string>): Array<number | string> {
+  const keys = [...array.keys()]
+  return typeof keys[0] === 'string' ? keys : (keys as number[]).sort((a, b) => a - b)
+}
+
+/** `"a b"` and `'a b'` as written in a subscript, without the quotes. */
+function stripQuotes(text: string): string {
+  const match = /^(["'])([\s\S]*)\1$/.exec(text.trim())
+  return match ? match[2] as string : text
+}
+
 export interface ExpansionContext {
   /** A scalar variable, or element 0 of an array; special parameters (`?`, `#`, digits) too */
   lookup(name: string): string | undefined
   /** An indexed array's elements in index order, or `undefined` if `name` isn't an array */
-  lookupArray(name: string): Map<number, string> | undefined
+  lookupArray(name: string): Map<number | string, string> | undefined
+  /** Whether `name` is an associative array (`declare -A`), whose subscripts are strings, not arithmetic */
+  isAssoc?(name: string): boolean
   /** `$1`..`$n` */
   positional(): string[]
   /** Assign a scalar (for `${name:=word}`) */
@@ -142,17 +156,18 @@ class Expander {
 
   private arrayValues(name: string): string[] {
     const array = this.ctx.lookupArray(name)
-    if (array) return [...array.entries()].sort(([a], [b]) => a - b).map(([, v]) => v)
+    if (array) return orderedKeys(array).map(key => array.get(key) as string)
     if (name === '@' || name === '*') return this.ctx.positional()
     const value = this.ctx.lookup(name)
     return value === undefined ? [] : [value]
   }
 
   private async element(name: string, subscript: string): Promise<string | undefined> {
+    if (this.ctx.isAssoc?.(name)) return this.ctx.lookupArray(name)?.get(await this.expandText(stripQuotes(subscript), 'double'))
     const index = evaluateArithmeticExpression(await this.expandText(subscript, 'double'), n => this.ctx.lookup(n))
     const array = this.ctx.lookupArray(name)
     if (array) {
-      const indices = [...array.keys()].sort((a, b) => a - b)
+      const indices = orderedKeys(array) as number[]
       const resolved = index < 0 ? (indices[indices.length + index] ?? -1) : index
       return array.get(resolved)
     }
@@ -279,7 +294,7 @@ class Expander {
     const indices = /^!([A-Za-z_][A-Za-z0-9_]*)\[[@*]\]$/.exec(body)
     if (indices) {
       const array = this.ctx.lookupArray(indices[1] as string)
-      const keys = array ? [...array.keys()].sort((a, b) => a - b).map(String) : (this.ctx.lookup(indices[1] as string) === undefined ? [] : ['0'])
+      const keys = array ? orderedKeys(array).map(String) : (this.ctx.lookup(indices[1] as string) === undefined ? [] : ['0'])
       return { values: keys, multi: true }
     }
     const indirect = /^!([A-Za-z_][A-Za-z0-9_]*)$/.exec(body)

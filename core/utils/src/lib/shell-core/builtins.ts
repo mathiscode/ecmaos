@@ -337,7 +337,12 @@ async function unset(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
 
     const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(arg)
     if (element) {
-      if (!functionsOnly) state.unsetArrayElement(element[1] as string, evaluateArithmeticExpression(element[2] as string, name => state.lookup(name)))
+      if (!functionsOnly) {
+        const key = state.isAssoc(element[1] as string)
+          ? (element[2] as string).replace(/^(["'])([\s\S]*)\1$/, '$2')
+          : evaluateArithmeticExpression(element[2] as string, name => state.lookup(name))
+        state.unsetArrayElement(element[1] as string, key)
+      }
       continue
     }
 
@@ -404,11 +409,12 @@ function attributes(state: ShellState, name: string): string {
 async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
     await io.writeln([
-      'Usage: declare [-afFiprx] [NAME[=VALUE]]...',
+      'Usage: declare [-aAfFiprx] [NAME[=VALUE]]...',
       'Set variable values and attributes.',
       '',
       '  -r  make NAMEs readonly',
       '  -a  declare NAMEs as indexed arrays',
+      '  -A  declare NAMEs as associative arrays',
       '  -i  evaluate assignments to NAMEs as arithmetic',
       '  -p  print each NAME with its attributes, or every variable',
       '  -f  print function definitions by name',
@@ -428,8 +434,8 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     if (arg === '--') { i++; break }
     if (arg === '+i') { off.add('i'); continue }
     for (const letter of arg.slice(1)) {
-      if ('Alun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
-      if (!'afFiprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
+      if ('lun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
+      if (!'aAfFiprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
       flags.add(letter)
     }
   }
@@ -458,6 +464,12 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     if (!IDENTIFIER.test(name)) { await io.writelnErr(`declare: \`${arg}': not a valid identifier`); status = 1; continue }
 
     if (flags.has('p')) {
+      const array = state.lookupArray(name)
+      if (array) {
+        const items = [...array].map(([key, value]) => `[${key}]="${value}"`).join(' ')
+        await io.writeln(`declare -${state.isAssoc(name) ? 'A' : 'a'} ${name}=(${items})`)
+        continue
+      }
       const value = state.lookup(name)
       if (value === undefined) { await io.writelnErr(`declare: ${name}: not found`); status = 1; continue }
       await io.writeln(`declare -${attributes(state, name)} ${name}="${value}"`)
@@ -479,6 +491,8 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
         status = 1
         continue
       }
+    } else if (flags.has('A')) {
+      state.declareAssoc(name)
     } else if (flags.has('a') && !state.lookupArray(name)) {
       state.setArray(name, [])
     }

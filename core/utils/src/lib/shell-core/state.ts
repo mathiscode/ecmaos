@@ -28,6 +28,12 @@ export interface ShellOptions {
   verbose: boolean
 }
 
+/**
+ * An array's elements. An indexed array is keyed by number; an associative one (`declare -A`) by
+ * string, and is listed in {@link ShellState.assocNames}.
+ */
+export type ArrayStore = Map<number | string, string>
+
 export type ShellOptionName = keyof ShellOptions
 
 /** What the shell cannot know for itself and its host has to say. */
@@ -58,8 +64,11 @@ export class ShellState {
    */
   readonly unexported = new Set<string>()
 
-  /** Indexed arrays. Never inherited by a child. */
-  arrays = new Map<string, Map<number, string>>()
+  /** Names declared `-A`: their {@link arrays} entry is keyed by string rather than number. */
+  readonly assocNames = new Set<string>()
+
+  /** Indexed and associative arrays. Never inherited by a child. */
+  arrays = new Map<string, ArrayStore>()
 
   /**
    * `local` frames, innermost last. A name mapped to `undefined` is a local that `unset` removed:
@@ -69,7 +78,7 @@ export class ShellState {
   localScopes: Array<Map<string, string | undefined>> = []
 
   /** `local` frames for arrays, pushed and popped with {@link localScopes}. */
-  localArrayScopes: Array<Map<string, Map<number, string> | undefined>> = []
+  localArrayScopes: Array<Map<string, ArrayStore | undefined>> = []
 
   /** Names marked `readonly`: assigning to or unsetting one fails. */
   readonly readonlyNames = new Set<string>()
@@ -282,7 +291,7 @@ export class ShellState {
   // -- arrays -------------------------------------------------------------------------------------
 
   /** Every array currently visible, `local` frames applied. */
-  visibleArrays(): Map<string, Map<number, string>> {
+  visibleArrays(): Map<string, ArrayStore> {
     if (this.localArrayScopes.length === 0) return this.arrays
     const visible = new Map(this.arrays)
     for (const frame of this.localArrayScopes) {
@@ -294,20 +303,20 @@ export class ShellState {
     return visible
   }
 
-  private arrayFrameFor(name: string): Map<string, Map<number, string> | undefined> | undefined {
+  private arrayFrameFor(name: string): Map<string, ArrayStore | undefined> | undefined {
     for (let i = this.localArrayScopes.length - 1; i >= 0; i--) {
-      const frame = this.localArrayScopes[i] as Map<string, Map<number, string> | undefined>
+      const frame = this.localArrayScopes[i] as Map<string, ArrayStore | undefined>
       if (frame.has(name)) return frame
     }
     return undefined
   }
 
-  lookupArray(name: string): Map<number, string> | undefined {
+  lookupArray(name: string): ArrayStore | undefined {
     const frame = this.arrayFrameFor(name)
     return frame ? frame.get(name) : this.arrays.get(name)
   }
 
-  private storeArray(name: string, array: Map<number, string>): void {
+  private storeArray(name: string, array: ArrayStore): void {
     const frame = this.arrayFrameFor(name)
     if (frame) frame.set(name, array)
     else this.arrays.set(name, array)
@@ -317,27 +326,42 @@ export class ShellState {
     this.storeArray(name, new Map(values.map((value, index) => [index, value])))
   }
 
-  setArrayElement(name: string, index: number, value: string): void {
-    const array = this.lookupArray(name) ?? new Map<number, string>()
+  isAssoc(name: string): boolean { return this.assocNames.has(name) }
+
+  /** `declare -A NAME`: an empty associative array, unless one is already there. */
+  declareAssoc(name: string): void {
+    this.assocNames.add(name)
+    if (!this.lookupArray(name)) this.storeArray(name, new Map())
+  }
+
+  /** `NAME=([k]=v ...)` and, with `append`, `NAME+=(...)`. */
+  setAssoc(name: string, entries: Array<[string, string]>, append: boolean): void {
+    const array: ArrayStore = append ? (this.lookupArray(name) ?? new Map()) : new Map()
+    for (const [key, value] of entries) array.set(key, value)
+    this.storeArray(name, array)
+  }
+
+  setArrayElement(name: string, index: number | string, value: string): void {
+    const array = this.lookupArray(name) ?? new Map() as ArrayStore
     array.set(index, value)
     this.storeArray(name, array)
   }
 
   appendArray(name: string, values: string[]): void {
-    const array = this.lookupArray(name) ?? new Map<number, string>()
-    const nextIndex = array.size ? Math.max(...array.keys()) + 1 : 0
+    const array = this.lookupArray(name) ?? new Map() as ArrayStore
+    const nextIndex = array.size ? Math.max(...[...array.keys()].map(Number)) + 1 : 0
     values.forEach((value, i) => array.set(nextIndex + i, value))
     this.storeArray(name, array)
   }
 
-  unsetArrayElement(name: string, index: number): void {
+  unsetArrayElement(name: string, index: number | string): void {
     this.lookupArray(name)?.delete(index)
   }
 
   unsetArray(name: string): void {
     const frame = this.arrayFrameFor(name)
     if (frame) frame.set(name, undefined)
-    else this.arrays.delete(name)
+    else { this.arrays.delete(name); this.assocNames.delete(name) }
   }
 
   // -- traps and options --------------------------------------------------------------------------
@@ -368,7 +392,8 @@ export class ShellState {
     return {
       vars: new Map(this.vars),
       unexported: new Set(this.unexported),
-      arrays: new Map([...this.arrays].map(([name, array]) => [name, new Map(array)])),
+      assoc: new Set(this.assocNames),
+      arrays: new Map([...this.arrays].map(([name, array]) => [name, new Map(array) as ArrayStore])),
       functions: new Map(this.functions),
       aliases: new Map(this.aliases),
       traps: new Map(this.traps),
@@ -381,6 +406,8 @@ export class ShellState {
     this.unexported.clear()
     for (const name of snapshot.unexported) this.unexported.add(name)
     this.arrays = snapshot.arrays
+    this.assocNames.clear()
+    for (const name of snapshot.assoc) this.assocNames.add(name)
     this.functions = snapshot.functions
     this.aliases = snapshot.aliases
     this.traps = snapshot.traps
@@ -391,7 +418,8 @@ export class ShellState {
 export interface ShellSnapshot {
   vars: Map<string, string>
   unexported: Set<string>
-  arrays: Map<string, Map<number, string>>
+  arrays: Map<string, ArrayStore>
+  assoc: Set<string>
   functions: Map<string, Statement[]>
   aliases: Map<string, string>
   traps: Map<string, string>

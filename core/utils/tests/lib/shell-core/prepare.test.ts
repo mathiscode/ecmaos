@@ -31,7 +31,7 @@ describe('splitAssignments', () => {
 
 describe('parseArrayAssignment', () => {
   it('reads a list with a ) inside a quote and what follows it', () => {
-    expect(parseArrayAssignment("a=(x 'y)' z); echo hi")).toEqual({ kind: 'list', name: 'a', append: false, local: false, body: "x 'y)' z", operator: ';', rest: 'echo hi' })
+    expect(parseArrayAssignment("a=(x 'y)' z); echo hi")).toEqual({ kind: 'list', name: 'a', append: false, local: false, assoc: false, body: "x 'y)' z", operator: ';', rest: 'echo hi' })
   })
 
   it('reads +=( and elements', () => {

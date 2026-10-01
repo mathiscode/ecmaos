@@ -24,7 +24,7 @@
  */
 
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
-import { splitAssignments, parseArrayAssignment } from '../lib/shell-core/prepare.ts'
+import { splitAssignments, parseArrayAssignment, applyArrayAssignment } from '../lib/shell-core/prepare.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
 import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
@@ -185,6 +185,7 @@ class Shell {
     return {
       lookup: name => this.get(name),
       lookupArray: name => this.state.lookupArray(name),
+      isAssoc: name => this.state.isAssoc(name),
       positional: () => this.positional,
       assign: (name, value) => this.set(name, value),
       substitute: command => this.substitute(command),
@@ -269,15 +270,11 @@ class Shell {
   async arrayAssignment(line) {
     const found = parseArrayAssignment(line)
     if (!found) return undefined
-    if (found.local) this.state.declareLocal(found.name)
-    if (found.kind === 'list') {
-      const values = []
-      for (const token of found.body.trim() ? tokenize(found.body) : []) if (token.kind === 'word') values.push(...await this.fields(token.parts))
-      if (found.append) this.state.appendArray(found.name, values); else this.state.setArray(found.name, values)
-    } else {
-      const index = evaluateArithmeticExpression(found.subscript, variable => this.get(variable))
-      this.state.setArrayElement(found.name, index, await this.text((tokenize(found.raw || "''")[0] ?? { parts: [] }).parts))
-    }
+    await applyArrayAssignment(found, this.state, {
+      fields: parts => this.fields(parts),
+      text: parts => this.text(parts),
+      lookup: variable => this.get(variable)
+    })
     return await this.afterAssignment(found.operator, found.rest)
   }
 

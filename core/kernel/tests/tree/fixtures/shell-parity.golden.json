@@ -566,5 +566,9 @@
   "builtins/read-delimiter-count": {
     "stdout": "[ab] 0\n[ab,cd] 0\n[ab,] 0\n[ab,cd;ef] 1\n",
     "status": 0
+  },
+  "arrays/associative": {
+    "stdout": "1 2 3 7 4\n2\n3 gone\n12\n4\n1\n[]\n",
+    "status": 0
   }
 }
