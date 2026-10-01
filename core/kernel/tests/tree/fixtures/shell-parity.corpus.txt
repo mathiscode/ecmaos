@@ -309,3 +309,14 @@ for ((i=1, j=10; i<=2; i++, j--))
 do
   echo $i $j
 done
+
+### builtins/declare-integer
+declare -i n=3+4; echo $n; n=n*2; echo $n; n+=1; echo $n; declare -i m; m=abc; echo $m
+declare +i n; n=1+1; echo $n
+
+### builtins/read-delimiter-count fs
+printf 'ab,cd;ef' > f
+read -d , x < f; echo "[$x] $?"
+read -rd ';' y < f; echo "[$y] $?"
+read -n 3 z < f; echo "[$z] $?"
+read -d '' w < f; echo "[$w] $?"

@@ -166,9 +166,9 @@ class Shell {
    * Assigns a variable. A readonly name fails the assignment: the error is printed, and a script ends
    * there (as bash does when not interactive) while an interactive shell carries on.
    */
-  set(name, value) {
+  set(name, value, append = false) {
     try {
-      this.state.set(name, value)
+      this.state.set(name, value, append)
       return true
     } catch (error) {
       writeAllFd(2, `ecmash: ${error.message}\n`)
@@ -584,14 +584,14 @@ class Shell {
     const assign = []
     for (const { name, append, parts } of split.assignments) {
       const value = await this.text(parts)
-      assign.push([name, append ? (this.get(name) ?? '') + value : value])
+      assign.push([name, append ? (this.get(name) ?? '') + value : value, append, value])
     }
     const args = []
     for (const parts of split.command.wordParts) args.push(...await this.fields(parts))
 
     if (!args.length) {
-      for (const [name, value] of assign) {
-        if (this.set(name, value)) continue
+      for (const [name, , append, value] of assign) {
+        if (this.set(name, value, append)) continue
         // A readonly assignment ends a script, as in bash; an interactive shell just reports it.
         if (!this.interactive) await this.leave(1)
         return { status: 1 }
@@ -766,16 +766,21 @@ class Shell {
       // One byte at a time: `read` must not take more of the stream than its line.
       readLine: async options => {
         if (options?.prompt) to(2, options.prompt)
+        const stop = options?.delimiter === undefined ? 10 : options.delimiter === '' ? 0 : options.delimiter.charCodeAt(0)
         const bytes = []
         const one = new Uint8Array(1)
         let got = false
+        let terminated = false
         for (;;) {
+          // `-n` counts bytes here, which is characters for ASCII.
+          if (options?.count !== undefined && bytes.length >= options.count) { terminated = true; break }
           const n = read(stdio[0] ?? 0, one, -1)
           if (n <= 0) break
           got = true
-          if (one[0] === 10) break
+          if (one[0] === stop) { terminated = true; break }
           bytes.push(one[0])
         }
+        if (options?.result) options.result.terminated = terminated
         return got ? decoder.decode(new Uint8Array(bytes)) : undefined
       },
     }

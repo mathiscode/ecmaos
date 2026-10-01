@@ -257,9 +257,23 @@ describe('$IFS, read, and command-prefix assignments', () => {
       expect(output.trim()).toBe('code=1')
     })
 
-    it('rejects the options it does not implement rather than misreading them', async () => {
+    it('read -n and -d stop at a count or a delimiter, taking nothing more of the input', async () => {
       const { output } = await runScript([
-        `read -n 3 a <<< 'abcdef' 2>/dev/null`,
+        `read -n 3 a <<< 'abcdef'`,
+        `read -d , b <<< 'x,y'`,
+        `echo "$a $b" >> ${OUT}`,
+        `printf 'p,q' > /tmp/ifs-read-d.txt`,
+        `read -d , c < /tmp/ifs-read-d.txt; echo "$c $?" >> ${OUT}`,
+        `read -d , d < /tmp/ifs-read-d.txt; echo "$d $?" >> ${OUT}`,
+        `printf 'tail' > /tmp/ifs-read-d.txt`,
+        `read -d , e < /tmp/ifs-read-d.txt; echo "$e $?" >> ${OUT}`
+      ].join('\n'))
+      expect(output.trim().split('\n')).toEqual(['abc x', 'p 0', 'p 0', 'tail 1'])
+    })
+
+    it('still refuses -t, which needs a timed read', async () => {
+      const { output } = await runScript([
+        `read -t 1 a <<< 'abcdef' 2>/dev/null`,
         `echo "code=$?" >> ${OUT}`
       ].join('\n'))
       expect(output.trim()).toBe('code=2')

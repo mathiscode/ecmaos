@@ -15,14 +15,26 @@ import type { Interpreter } from './interpreter.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
 import type { ShellOptionName, ShellState } from './state.js'
 
+export interface ReadLineOptions {
+  prompt?: string
+  silent?: boolean
+  delimiter?: string
+  count?: number
+  result?: { terminated: boolean }
+}
+
 /** The three descriptors a builtin runs with. Usage goes to fd 1 and diagnostics to fd 2. */
 export interface BuiltinIO {
   write(text: string): Promise<void> | void
   writeln(text: string): Promise<void> | void
   writeErr(text: string): Promise<void> | void
   writelnErr(text: string): Promise<void> | void
-  /** One line from fd 0 without its newline, or `undefined` at end of file. */
-  readLine(options?: { prompt?: string, silent?: boolean }): Promise<string | undefined>
+  /**
+   * One line from fd 0 without its newline, or `undefined` at end of file. `delimiter` replaces the
+   * newline (an empty string means NUL), `count` stops after that many characters, and `result`
+   * reports whether a delimiter (or the count) ended the read rather than end of file.
+   */
+  readLine(options?: ReadLineOptions): Promise<string | undefined>
 }
 
 export interface CommandDescription {
@@ -383,14 +395,21 @@ async function readonly(host: BuiltinHost, argv: string[], io: BuiltinIO): Promi
   return status
 }
 
+/** The attribute letters `declare -p` prints, or `-` for none. */
+function attributes(state: ShellState, name: string): string {
+  const letters = (state.isInteger(name) ? 'i' : '') + (state.isReadonly(name) ? 'r' : '')
+  return letters || '-'
+}
+
 async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
     await io.writeln([
-      'Usage: declare [-afFprx] [NAME[=VALUE]]...',
+      'Usage: declare [-afFiprx] [NAME[=VALUE]]...',
       'Set variable values and attributes.',
       '',
       '  -r  make NAMEs readonly',
       '  -a  declare NAMEs as indexed arrays',
+      '  -i  evaluate assignments to NAMEs as arithmetic',
       '  -p  print each NAME with its attributes, or every variable',
       '  -f  print function definitions by name',
       '  -F  print function names only',
@@ -401,14 +420,16 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
 
   const state = host.state
   const flags = new Set<string>()
+  const off = new Set<string>()
   let i = 0
   for (; i < argv.length; i++) {
     const arg = argv[i] as string
     if (!arg.startsWith('-') && !arg.startsWith('+')) break
     if (arg === '--') { i++; break }
+    if (arg === '+i') { off.add('i'); continue }
     for (const letter of arg.slice(1)) {
-      if ('iAlun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
-      if (!'afFprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
+      if ('Alun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
+      if (!'afFiprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
       flags.add(letter)
     }
   }
@@ -425,7 +446,7 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
 
   if (names.length === 0) {
     for (const [key, value] of [...state.visibleVariables()].sort(([a], [b]) => a.localeCompare(b))) {
-      await io.writeln(`declare -${state.isReadonly(key) ? 'r' : '-'} ${key}="${value}"`)
+      await io.writeln(`declare -${attributes(state, key)} ${key}="${value}"`)
     }
     return 0
   }
@@ -439,9 +460,13 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     if (flags.has('p')) {
       const value = state.lookup(name)
       if (value === undefined) { await io.writelnErr(`declare: ${name}: not found`); status = 1; continue }
-      await io.writeln(`declare -${state.isReadonly(name) ? 'r' : '-'} ${name}="${value}"`)
+      await io.writeln(`declare -${attributes(state, name)} ${name}="${value}"`)
       continue
     }
+
+    // The flag goes on first so that `declare -i n=3+4` stores the sum.
+    if (flags.has('i')) state.setInteger(name, true)
+    if (off.has('i')) state.setInteger(name, false)
 
     if (equals !== -1) {
       const raw = arg.slice(equals + 1)
@@ -538,12 +563,14 @@ function trimIFSWhitespace(text: string, ifs: string): string {
 
 async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   const usage = [
-    'Usage: read [-r] [-s] [-a ARRAY] [-p PROMPT] [NAME...]',
+    'Usage: read [-rs] [-a ARRAY] [-d DELIM] [-n COUNT] [-p PROMPT] [NAME...]',
     'Read one line from standard input and split it into NAMEs using $IFS.',
     '',
     '  -r          do not treat backslash as an escape character',
     '  -s          do not echo input coming from a terminal',
     '  -a ARRAY    assign the fields to an indexed array',
+    '  -d DELIM    stop at the first character of DELIM instead of a newline (empty: NUL)',
+    '  -n COUNT    stop after COUNT characters; input must come from a file or a pipe',
     '  -p PROMPT   write PROMPT before reading, without a trailing newline',
     '  --help      display this help and exit',
     '',
@@ -554,26 +581,38 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   let silent = false
   let prompt: string | undefined
   let arrayName: string | undefined
+  let delimiter: string | undefined
+  let count: number | undefined
   const names: string[] = []
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string
     if (arg === '--help' || arg === '-h') { await io.writeln(usage); return 0 }
-    if (arg === '-r') { raw = true; continue }
-    if (arg === '-s') { silent = true; continue }
-    if (arg === '-p') {
-      prompt = argv[++i]
-      if (prompt === undefined) { await io.writelnErr("read: option requires an argument -- 'p'"); return 2 }
+    if (arg.startsWith('-') && arg.length > 1 && !/^-\d/.test(arg)) {
+      // A cluster such as `-rd ''` or `-rn1`: an option that takes a value uses the rest of the
+      // cluster, or else the next word.
+      for (let j = 1; j < arg.length; j++) {
+        const letter = arg[j] as string
+        if (letter === 'r') { raw = true; continue }
+        if (letter === 's') { silent = true; continue }
+        if ('padn'.includes(letter)) {
+          const value = j + 1 < arg.length ? arg.slice(j + 1) : argv[++i]
+          if (value === undefined) { await io.writelnErr(`read: option requires an argument -- '${letter}'`); return 2 }
+          if (letter === 'p') prompt = value
+          else if (letter === 'a') arrayName = value
+          else if (letter === 'd') delimiter = value.slice(0, 1)
+          else {
+            if (!/^\d+$/.test(value)) { await io.writelnErr(`read: ${value}: invalid number`); return 1 }
+            count = Number(value)
+          }
+          break
+        }
+        if (letter === 't') { await io.writelnErr('read: -t: not supported yet'); return 2 }
+        await io.writelnErr(`read: -${letter}: invalid option`)
+        return 2
+      }
       continue
     }
-    if (arg === '-a') {
-      arrayName = argv[++i]
-      if (arrayName === undefined) { await io.writelnErr("read: option requires an argument -- 'a'"); return 2 }
-      continue
-    }
-    // `-n`/`-d`/`-t` need character-level and timed reads, which neither shell's input can do.
-    if (/^-[ndt]/.test(arg)) { await io.writelnErr(`read: ${arg}: not supported yet`); return 2 }
-    if (arg.startsWith('-') && arg.length > 1) { await io.writelnErr(`read: ${arg}: invalid option`); return 2 }
     names.push(arg)
   }
 
@@ -581,7 +620,13 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
     if (!IDENTIFIER.test(name)) { await io.writelnErr(`read: ${name}: not a valid identifier`); return 1 }
   }
 
-  let line = await io.readLine(prompt !== undefined || silent ? { prompt, silent } : undefined)
+  const bounded = delimiter !== undefined || count !== undefined
+  if (bounded && (io as { stdinIsTTY?: boolean }).stdinIsTTY) {
+    await io.writelnErr('-n and -d need input from a file or a pipe; a terminal only delivers whole lines')
+    return 1
+  }
+  const result = { terminated: true }
+  let line = await io.readLine(prompt !== undefined || silent || bounded ? { prompt, silent, delimiter, count, result } : undefined)
   if (line === undefined) return 1
   // Without `-r`, a backslash escapes the next character and disappears.
   if (!raw) line = line.replace(/\\(.)/g, '$1')
@@ -601,7 +646,8 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
     return 1
   }
   host.changed?.()
-  return 0
+  // With `-d`, data that ran out before the delimiter is still assigned but reports end of file.
+  return delimiter !== undefined && !result.terminated ? 1 : 0
 }
 
 // -- control flow -----------------------------------------------------------------------------------

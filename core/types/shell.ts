@@ -93,7 +93,7 @@ export interface ShellBuiltinIO {
    * {@link stdinIsTTY} it prompts and echoes like `readline`; otherwise it reads bytes and both
    * options are ignored, since there is nobody to prompt and nothing echoing.
    */
-  readLine(options?: { prompt?: string, silent?: boolean }): Promise<string | undefined>
+  readLine(options?: { prompt?: string, silent?: boolean, delimiter?: string, count?: number, result?: { terminated: boolean } }): Promise<string | undefined>
   /** Everything left on fd 0. Empty string when there is no stdin at all. */
   readAll(): Promise<string>
   /** Flushes and releases whatever backs this. Called exactly once, after the builtin returns. */
@@ -197,12 +197,6 @@ export interface Shell {
   readonly positionalParameters: string[]
 
   /**
-   * `shift [N]`: drops the first N positional parameters and renumbers the rest, leaving `$0` alone.
-   * @returns false, changing nothing, when N exceeds `$#` -- which is how bash's `shift` fails
-   */
-  shiftPositionalParameters(count: number): boolean
-
-  /**
    * Runs `text` in this shell the way `source`/`.` and `eval` do: nothing is forked, so variables,
    * functions, `cd` and options all persist afterwards.
    *
@@ -232,7 +226,7 @@ export interface Shell {
    * Sets a variable, honoring an active `local` scope if one exists (writes to the innermost
    * function frame rather than the real environment).
    */
-  setVariable(name: string, value: string): void
+  setVariable(name: string, value: string, append?: boolean): void
 
   /**
    * Reads `name` the way an expansion does: innermost `local` scope first, then the environment.
@@ -266,13 +260,6 @@ export interface Shell {
 
   /** Declares `name` as local to the current function call. Throws outside a function call. */
   declareLocal(name: string, value?: string): void
-
-  /**
-   * Removes `name`, honoring `local` scoping: the innermost frame that declared it is marked unset,
-   * otherwise it goes from the real environment. Deleting from `env` directly cannot remove a local --
-   * the frame keeps shadowing the name while the caller's value is destroyed.
-   */
-  unsetVariable(name: string): void
 
   /**
    * Every variable visible right now, `local` frames layered over the environment, with the shell's

@@ -558,5 +558,13 @@
   "control/for-c-multiline": {
     "stdout": "1 10\n2 9\n",
     "status": 0
+  },
+  "builtins/declare-integer": {
+    "stdout": "7\n14\n15\n0\n1+1\n",
+    "status": 0
+  },
+  "builtins/read-delimiter-count": {
+    "stdout": "[ab] 0\n[ab,cd] 0\n[ab,] 0\n[ab,cd;ef] 1\n",
+    "status": 0
   }
 }

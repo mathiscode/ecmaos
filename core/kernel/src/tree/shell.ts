@@ -17,6 +17,7 @@ import type {
 } from '@ecmaos/types' // TODO: Consistency
 import { ThemePresets } from '@ecmaos/types'
 
+import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
@@ -146,17 +147,31 @@ class StdinSource {
     return true
   }
 
-  /** The next line without its newline, or `undefined` at EOF. */
-  async readLine(): Promise<string | undefined> {
+  /**
+   * The next line without its newline, or `undefined` at EOF. `delimiter` replaces the newline (an
+   * empty string is NUL), `count` returns after that many characters, and `result.terminated` says
+   * whether one of those ended the read rather than the end of the stream.
+   */
+  async readLine(options: { delimiter?: string, count?: number, result?: { terminated: boolean } } = {}): Promise<string | undefined> {
+    const delimiter = options.delimiter === undefined ? '\n' : options.delimiter === '' ? '\0' : options.delimiter
     for (;;) {
-      const newline = this.pending.indexOf('\n')
-      if (newline !== -1) {
-        const line = this.pending.slice(0, newline)
-        this.pending = this.pending.slice(newline + 1)
+      const found = this.pending.indexOf(delimiter)
+      const available = found === -1 ? this.pending.length : found
+      if (options.count !== undefined && available >= options.count) {
+        const line = this.pending.slice(0, options.count)
+        this.pending = this.pending.slice(options.count)
+        if (options.result) options.result.terminated = true
+        return line
+      }
+      if (found !== -1) {
+        const line = this.pending.slice(0, found)
+        this.pending = this.pending.slice(found + 1)
+        if (options.result) options.result.terminated = true
         return line
       }
       if (!await this.fill()) {
         // A final line with no trailing newline is still a line; an empty tail is EOF.
+        if (options.result) options.result.terminated = false
         if (this.pending === '') return undefined
         const line = this.pending
         this.pending = ''
@@ -532,8 +547,8 @@ export class Shell implements IShell {
    * `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env.
    * @throws when `name` was marked `readonly`
    */
-  setVariable(name: string, value: string): void {
-    this.state.set(name, value)
+  setVariable(name: string, value: string, append = false): void {
+    this.state.set(name, value, append)
     this.publishEnv()
   }
 
@@ -1797,7 +1812,7 @@ export class Shell implements IShell {
     for (const { name, append, parts } of assignments) {
       const value = await expandWordString(parts, this.expansionContext())
       try {
-        this.setVariable(name, append ? (this.lookupVariable(name) ?? '') + value : value)
+        this.setVariable(name, value, append)
       } catch (error) {
         await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
         return 1
@@ -2308,9 +2323,9 @@ export class Shell implements IShell {
       writeln: async (text: string) => { terminal.writeln(text) },
       writeErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m`) },
       writelnErr: async (text: string) => { terminal.write(`\x1b[31m${DIAGNOSTIC_PREFIX}${text}\x1b[0m\r\n`) },
-      readLine: async (options?: { prompt?: string, silent?: boolean }) => {
+      readLine: async (options?: ReadLineOptions) => {
         const source = this.currentStdin
-        if (source) return await source.readLine()
+        if (source) return await source.readLine(options)
         return await terminal.readline(options?.prompt ?? '', options?.silent ?? false, true)
       },
       readAll: async () => {
@@ -2357,7 +2372,7 @@ export class Shell implements IShell {
       writeln: async (text: string) => await out(text + '\n'),
       writeErr: err,
       writelnErr: async (text: string) => await err(`${DIAGNOSTIC_PREFIX}${text}\n`),
-      readLine: async () => await source?.readLine(),
+      readLine: async (options?: ReadLineOptions) => await source?.readLine(options),
       readAll: async () => await source?.readAll() ?? '',
       close: async () => {
         // Releasing rather than closing on failure: the pipe's far end and the terminal are shared,

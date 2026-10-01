@@ -54,6 +54,30 @@ describe('ShellState variables', () => {
   })
 })
 
+describe('ShellState integer variables', () => {
+  it('evaluates assignments as arithmetic, and += adds', () => {
+    const state = make()
+    state.setInteger('n', true)
+    state.set('n', '3+4')
+    expect(state.lookup('n')).toBe('7')
+    state.set('n', '5', true)
+    expect(state.lookup('n')).toBe('12')
+    state.set('n', '')
+    expect(state.lookup('n')).toBe('0')
+  })
+
+  it('appends text to an ordinary variable and stops converting after +i', () => {
+    const state = make()
+    state.set('s', 'a')
+    state.set('s', 'b', true)
+    expect(state.lookup('s')).toBe('ab')
+    state.setInteger('s', true)
+    state.setInteger('s', false)
+    state.set('s', '1+1')
+    expect(state.lookup('s')).toBe('1+1')
+  })
+})
+
 describe('ShellState local scopes', () => {
   it('shadows in a frame and restores on pop', () => {
     const state = make({ x: '0' })

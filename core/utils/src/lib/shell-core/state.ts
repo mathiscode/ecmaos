@@ -9,6 +9,7 @@
  */
 
 import type { Statement } from '../control-flow-parser.js'
+import { evaluateArithmeticExpression } from '../expand-variables.js'
 
 export interface ShellOptions {
   /** `-e`: a failing command ends the shell */
@@ -72,6 +73,9 @@ export class ShellState {
 
   /** Names marked `readonly`: assigning to or unsetting one fails. */
   readonly readonlyNames = new Set<string>()
+
+  /** Names declared `-i`: every assignment is evaluated as arithmetic, and `+=` adds. */
+  readonly integerNames = new Set<string>()
 
   functions = new Map<string, Statement[]>()
 
@@ -169,8 +173,10 @@ export class ShellState {
    * innermost frame, which is only correct for a name that frame declared; callers that mean "global
    * unless local" go through {@link declareLocal} first.
    */
-  set(name: string, value: string): void {
+  set(name: string, value: string, append = false): void {
     if (this.readonlyNames.has(name)) throw new Error(`${name}: readonly variable`)
+    if (this.integerNames.has(name)) value = this.integerValue(name, value, append)
+    else if (append) value = (this.lookup(name) ?? '') + value
     const frame = this.localScopes[this.localScopes.length - 1]
     if (frame) { frame.set(name, value); return }
 
@@ -185,6 +191,22 @@ export class ShellState {
     this.vars.set(name, value)
   }
 
+  /** What an assignment to a `-i` name stores: the right side evaluated as arithmetic, added to the old value for `+=`. */
+  private integerValue(name: string, value: string, append: boolean): string {
+    const result = value.trim() === '' ? 0 : evaluateArithmeticExpression(value, n => this.lookup(n))
+    return String(append ? (Number(this.lookup(name)) || 0) + result : result)
+  }
+
+  isInteger(name: string): boolean { return this.integerNames.has(name) }
+
+  /** `declare -i` / `declare +i`; marking an existing value converts it, as bash does. */
+  setInteger(name: string, on: boolean): void {
+    if (!on) { this.integerNames.delete(name); return }
+    this.integerNames.add(name)
+    const current = this.lookup(name)
+    if (current !== undefined && !this.readonlyNames.has(name)) this.set(name, current)
+  }
+
   /** Removes a variable; inside a function, one a frame declared is hidden rather than deleted. */
   unset(name: string): void {
     if (this.readonlyNames.has(name)) throw new Error(`${name}: cannot unset: readonly variable`)
@@ -194,6 +216,7 @@ export class ShellState {
     }
     this.vars.delete(name)
     this.unexported.delete(name)
+    this.integerNames.delete(name)
   }
 
   /** `export NAME`: children inherit it from now on. */
