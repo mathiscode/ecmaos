@@ -28,6 +28,7 @@ import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
+import { ShellState } from '../lib/shell-core/state.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
@@ -119,39 +120,41 @@ class ControlSignal extends Error {
 
 const BUILTINS = new Set([
   ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
-  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'fg', 'bg', 'disown', 'test', '[', 'exec', 'pwd', 'env', 'declare',
+  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'fg', 'bg', 'disown', 'test', '[', 'exec', 'pwd', 'env', 'declare', 'readonly',
 ])
 
 class Shell {
   constructor(name, args) {
-    this.vars = new Map(Object.entries(sys.env))
-    this.exported = new Set(Object.keys(sys.env))
-    this.functions = new Map()
+    // What the process was started with is inherited by its children; what the shell assigns is not, until `export`.
+    this.state = new ShellState({ pid: getpid, ppid: getppid }, new Map(Object.entries(sys.env)))
     this.positional = args
     this.name = name
     this.status = 0
-    this.lastPid = undefined
     this.jobs = []
     this.scratch = 0
     this.depth = 0
-    this.locals = []
     this.interactive = false
-    this.opts = { errexit: false, nounset: false, xtrace: false, pipefail: false }
-    this.aliases = new Map()
-    this.traps = new Map()
     this.conditional = 0
     this.leaving = false
-    this.arrays = new Map()
     this.subshell = 0
     this.procsubs = []
     this.procsubCount = 0
     this.pending = []
     this.inErrTrap = false
+    // Written straight into the store, so they count as inherited: a child shell nests one deeper, and PWD is exported.
     this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
-    this.exported.add('SHLVL')
     if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
-    if (!this.vars.has('IFS')) this.vars.set('IFS', ' \t\n')
+    if (!this.vars.has('IFS')) this.state.set('IFS', ' \t\n')
   }
+
+  // Views onto the shared state, so the rest of this class reads as it always did.
+  get vars() { return this.state.vars }
+  get functions() { return this.state.functions }
+  get aliases() { return this.state.aliases }
+  get traps() { return this.state.traps }
+  get opts() { return this.state.options }
+  get lastPid() { return this.state.lastBackgroundPid }
+  set lastPid(pid) { this.state.lastBackgroundPid = pid }
 
   // Descriptors a command runs with, by fd number in *this* process.
   get stdio() { return this._stdio ?? { 0: 0, 1: 1, 2: 2 } }
@@ -159,39 +162,37 @@ class Shell {
   get(name) {
     switch (name) {
       case '?': return String(this.status)
-      case '$': return String(getpid())
-      case '!': return this.lastPid === undefined ? undefined : String(this.lastPid)
       case '#': return String(this.positional.length)
       case '0': return this.name
       case '*': case '@': return this.positional.join(' ')
-      case 'PPID': return String(getppid())
-      case 'RANDOM': return String(Math.floor(Math.random() * 32768))
     }
     if (/^\d+$/.test(name)) return this.positional[Number(name) - 1]
-    return this.vars.get(name)
+    return this.state.lookup(name)
   }
 
+  /**
+   * Assigns a variable. A readonly name fails the assignment: the error is printed, and a script ends
+   * there (as bash does when not interactive) while an interactive shell carries on.
+   */
   set(name, value) {
-    const frame = this.locals[this.locals.length - 1]
-    if (frame && frame.has(name)) frame.set(name, value)
-    this.vars.set(name, value)
+    try {
+      this.state.set(name, value)
+      return true
+    } catch (error) {
+      writeAllFd(2, `ecmash: ${error.message}\n`)
+      this.failedAssignment = true
+      return false
+    }
   }
 
-  environment() {
-    const env = {}
-    for (const name of this.exported) {
-      const value = this.vars.get(name)
-      if (value !== undefined) env[name] = value
-    }
-    return env
-  }
+  environment() { return this.state.environment() }
 
   // -- expansion ----------------------------------------------------------------------------------
 
   context() {
     return {
       lookup: name => this.get(name),
-      lookupArray: name => this.arrays.get(name),
+      lookupArray: name => this.state.lookupArray(name),
       positional: () => this.positional,
       assign: (name, value) => this.set(name, value),
       substitute: command => this.substitute(command),
@@ -271,12 +272,8 @@ class Shell {
    * and `exit` inside ends only the subshell.
    */
   async runSubshell(statements) {
-    const saved = {
-      vars: new Map(this.vars), exported: new Set(this.exported), functions: new Map(this.functions),
-      aliases: new Map(this.aliases), positional: this.positional, cwd: getcwd(), status: this.status,
-      arrays: new Map([...this.arrays].map(([name, array]) => [name, new Map(array)])),
-      traps: new Map(this.traps), opts: { ...this.opts }, leaving: this.leaving,
-    }
+    const saved = this.state.snapshot()
+    const outside = { positional: this.positional, cwd: getcwd(), leaving: this.leaving }
     this.subshell++
     try {
       return await this.runStatements(statements)
@@ -285,9 +282,10 @@ class Shell {
       throw signal
     } finally {
       this.subshell--
-      Object.assign(this, { vars: saved.vars, exported: saved.exported, functions: saved.functions, aliases: saved.aliases,
-        positional: saved.positional, arrays: saved.arrays, traps: saved.traps, opts: saved.opts, leaving: saved.leaving })
-      if (getcwd() !== saved.cwd) chdir(saved.cwd)
+      this.state.restore(saved)
+      this.positional = outside.positional
+      this.leaving = outside.leaving
+      if (getcwd() !== outside.cwd) chdir(outside.cwd)
     }
   }
 
@@ -308,19 +306,14 @@ class Shell {
       const [, operator, rest] = tail
       const values = []
       for (const token of body.trim() ? tokenize(body) : []) if (token.kind === 'word') values.push(...await this.fields(token.parts))
-      const array = append ? (this.arrays.get(name) ?? new Map()) : new Map()
-      let next = array.size ? Math.max(...array.keys()) + 1 : 0
-      for (const value of values) array.set(next++, value)
-      this.arrays.set(name, array)
+      if (append) this.state.appendArray(name, values); else this.state.setArray(name, values)
       return await this.afterAssignment(operator, rest)
     }
     const element = /^(?:(?:declare|typeset|local|readonly)\s+(?:-[A-Za-z]+\s+)*)?([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]=(\S*)\s*(?:(;|&&|\|\|)\s*([\s\S]*))?$/.exec(line)
     if (element) {
       const [, name, subscript, raw, operator, rest] = element
       const index = evaluateArithmeticExpression(subscript, variable => this.get(variable))
-      const array = this.arrays.get(name) ?? new Map()
-      array.set(index, await this.text((tokenize(raw || "''")[0] ?? { parts: [] }).parts))
-      this.arrays.set(name, array)
+      this.state.setArrayElement(name, index, await this.text((tokenize(raw || "''")[0] ?? { parts: [] }).parts))
       return await this.afterAssignment(operator, rest)
     }
     return undefined
@@ -704,7 +697,12 @@ class Shell {
     }
 
     if (!args.length) {
-      for (const [name, value] of assign) this.set(name, value)
+      for (const [name, value] of assign) {
+        if (this.set(name, value)) continue
+        // A readonly assignment ends a script, as in bash; an interactive shell just reports it.
+        if (!this.interactive) await this.leave(1)
+        return { status: 1 }
+      }
       return { status: 0 }
     }
 
@@ -777,14 +775,13 @@ class Shell {
   async callFunction(name, args) {
     const savedPositional = this.positional
     this.positional = args
-    this.locals.push(new Map())
-    if (++this.depth > 200) { this.depth--; writeAllFd(2, `ecmash: ${name}: maximum function nesting exceeded\n`); return 1 }
+    if (++this.depth > 200) { this.depth--; this.positional = savedPositional; writeAllFd(2, `ecmash: ${name}: maximum function nesting exceeded\n`); return 1 }
+    this.state.pushLocalScope()
     try {
       return await this.runStatements(this.functions.get(name))
     } finally {
       this.depth--
-      const frame = this.locals.pop()
-      for (const [n, v] of frame) { if (v === undefined) this.vars.delete(n); else this.vars.set(n, v) }
+      this.state.popLocalScope()
       this.positional = savedPositional
     }
   }
@@ -904,26 +901,28 @@ class Shell {
         this.vars.set('OLDPWD', getcwd())
         chdir(path)
         this.vars.set('PWD', path)
-        this.exported.add('PWD')
         return 0
       }
       case 'exit': await this.leave(args[0] === undefined ? this.status : Number(args[0])); return 0
       case 'export': {
         for (const arg of args) {
           const [name, ...value] = arg.split('=')
-          if (value.length) this.vars.set(name, value.join('='))
-          this.exported.add(name)
+          if (value.length) this.set(name, value.join('='))
+          this.state.markExported(name)
         }
-        if (!args.length) for (const name of [...this.exported].sort()) this.out(`export ${name}="${this.vars.get(name) ?? ''}"\n`)
+        if (!args.length) for (const [name, value] of Object.entries(this.state.environment()).sort()) this.out(`export ${name}="${value}"\n`)
         return 0
       }
       case 'unset': {
+        let status = 0
         for (const name of args.filter(a => !a.startsWith('-'))) {
           const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name)
-          if (element) { this.arrays.get(element[1])?.delete(evaluateArithmeticExpression(element[2], v => this.get(v))); continue }
-          this.vars.delete(name); this.exported.delete(name); this.functions.delete(name); this.arrays.delete(name)
+          if (element) { this.state.unsetArrayElement(element[1], evaluateArithmeticExpression(element[2], v => this.get(v))); continue }
+          try { this.state.unset(name) } catch (error) { this.out(`ecmash: ${error.message}\n`, 2); status = 1; continue }
+          this.functions.delete(name)
+          this.state.unsetArray(name)
         }
-        return 0
+        return status
       }
       case 'declare': {
         // Enough of `declare` for arrays and exports: `-a NAME` makes an empty array, `-x` exports,
@@ -931,21 +930,32 @@ class Shell {
         const flags = args.filter(a => /^-[A-Za-z]+$/.test(a)).join('')
         for (const arg of args.filter(a => !/^-[A-Za-z]+$/.test(a))) {
           const [name, ...value] = arg.split('=')
-          if (flags.includes('a')) { if (!this.arrays.has(name)) this.arrays.set(name, new Map()) }
-          else if (value.length) this.vars.set(name, value.join('='))
-          if (flags.includes('x')) this.exported.add(name)
+          if (flags.includes('a')) { if (!this.state.lookupArray(name)) this.state.setArray(name, []) }
+          else if (value.length) this.set(name, value.join('='))
+          if (flags.includes('x')) this.state.markExported(name)
+          if (flags.includes('r')) this.state.markReadonly(name)
         }
         return 0
       }
       case 'local': {
-        const frame = this.locals[this.locals.length - 1]
-        if (!frame) { this.out('ecmash: local: can only be used in a function\n', 2); return 1 }
         for (const arg of args) {
           const [name, ...value] = arg.split('=')
-          if (!frame.has(name)) frame.set(name, this.vars.get(name))
-          if (value.length) this.vars.set(name, value.join('=')); else this.vars.delete(name)
+          try { this.state.declareLocal(name, value.length ? value.join('=') : undefined) } catch {
+            this.out('ecmash: local: can only be used in a function\n', 2)
+            return 1
+          }
         }
         return 0
+      }
+      case 'readonly': {
+        if (!args.length) { for (const name of [...this.state.readonlyNames].sort()) this.out(`readonly ${name}="${this.get(name) ?? ''}"\n`); return 0 }
+        let status = 0
+        for (const arg of args.filter(a => !a.startsWith('-'))) {
+          const [name, ...value] = arg.split('=')
+          if (value.length && !this.set(name, value.join('='))) { status = 1; continue }
+          this.state.markReadonly(name)
+        }
+        return status
       }
       case 'set': {
         if (!args.length) { for (const [n, v] of [...this.vars].sort()) this.out(`${n}=${v}\n`); return 0 }

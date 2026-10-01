@@ -335,7 +335,8 @@ async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
     i++
   }
 
-  const baseEnv = ignoreEnvironment ? {} : Object.fromEntries(shell.visibleVariables())
+  // `env` lists, and passes on, only what the shell exports: a plain `X=1` is not part of the environment.
+  const baseEnv = ignoreEnvironment ? {} : Object.fromEntries([...shell.visibleVariables()].filter(([key]) => shell.state.isExported(key)))
   for (const varName of unsetVars) delete baseEnv[varName]
   const modifiedEnv = { ...baseEnv, ...envVars }
 
@@ -382,7 +383,7 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
 
   if (printOnly) {
     const entries = Array.from(shell.visibleVariables())
-      .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key))
+      .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key) && shell.state.isExported(key))
       .sort(([a], [b]) => a.localeCompare(b))
     for (const [key, value] of entries) await io.writeln(`${key}=${value}`)
     return 0
@@ -397,7 +398,14 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
       continue
     }
 
-    if (!assignment.includes('=')) { await io.writelnErr(`export: invalid assignment: ${assignment}`); return 1 }
+    // `export NAME` marks an existing variable for inheritance without changing its value.
+    if (!assignment.includes('=')) {
+      const bare = assignment.trim()
+      if (!/^[A-Z_][A-Z0-9_]*$/i.test(bare)) { await io.writelnErr(`export: invalid variable name: ${bare}`); return 1 }
+      shell.state.markExported(bare)
+      shell.publishEnv()
+      continue
+    }
 
     const equalIndex = assignment.indexOf('=')
     const key = assignment.slice(0, equalIndex).trim()
@@ -413,6 +421,8 @@ async function runExport(shell: Shell, argv: string[], io: Io): Promise<number> 
     // used to write `shell.env` directly: inside a function, `local X=1; export X=2` left the local
     // shadowing `X` untouched at 1 and destroyed the *caller's* `X`, permanently.
     shell.setVariable(key, value)
+    shell.state.markExported(key)
+    shell.publishEnv()
   }
 
   return 0
@@ -1078,10 +1088,8 @@ async function runReadonly(shell: Shell, argv: string[], io: Io): Promise<number
 /**
  * `declare`/`typeset` -- the subset that means something in this shell.
  *
- * `-r` is `readonly`, `-p` lists, `-f`/`-F` list functions, and a bare `NAME=VALUE` assigns. `-x`
- * (export) is accepted and does nothing, because every variable here already reaches a child's
- * environment; that gap is the missing exported-flag store, not something `declare` can fix on its
- * own. `-i`, `-A`, `-l`, `-u` and `-n` are reported as unsupported rather than silently ignored --
+ * `-r` is `readonly`, `-x` exports, `-p` lists, `-f`/`-F` list functions, and a bare `NAME=VALUE`
+ * assigns. `-i`, `-A`, `-l`, `-u` and `-n` are reported as unsupported rather than silently ignored --
  * an integer or nameref attribute that quietly did nothing would be worse than an error.
  */
 async function runDeclare(shell: Shell, argv: string[], io: Io): Promise<number> {
@@ -1095,7 +1103,7 @@ async function runDeclare(shell: Shell, argv: string[], io: Io): Promise<number>
       '  -p  print each NAME with its attributes, or every variable',
       '  -f  print function definitions by name',
       '  -F  print function names only',
-      '  -x  accepted for compatibility; every variable here is already passed to a child'
+      '  -x  mark NAMEs for export to child processes'
     ].join('\n'))
     return 0
   }
@@ -1160,6 +1168,7 @@ async function runDeclare(shell: Shell, argv: string[], io: Io): Promise<number>
       shell.setArray(name, [])
     }
 
+    if (flags.has('x')) { shell.state.markExported(name); shell.publishEnv() }
     if (flags.has('r')) shell.markReadonly(name)
   }
 

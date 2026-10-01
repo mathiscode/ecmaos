@@ -54,8 +54,9 @@ describe('shell parity with bash', () => {
     for (const option of ['errexit', 'nounset', 'pipefail', 'xtrace', 'noglob', 'noclobber', 'verbose'] as const) shell.applyShellOption(option, false)
     for (const [signal] of shell.listTraps()) shell.setTrap(undefined, signal)
     shell.clearPositionalParameters()
-    const internals = shell as unknown as { _readonly: Set<string>, _execOutputs?: unknown, _interrupted: boolean, _jobs: unknown[], _nextJobId: number }
-    internals._readonly.clear()
+    const internals = shell as unknown as { _execOutputs?: unknown, _interrupted: boolean, _jobs: unknown[], _nextJobId: number }
+    shell.state.readonlyNames.clear()
+    shell.state.unexported.clear()
     internals._execOutputs = undefined
     internals._interrupted = false
     // `wait` reports the jobs of earlier cases too, including ones that failed.

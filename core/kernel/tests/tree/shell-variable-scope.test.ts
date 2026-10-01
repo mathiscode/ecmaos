@@ -78,7 +78,7 @@ describe('variable scoping and the environment boundary', () => {
 
     it('lists what is visible, including a local shadow', async () => {
       const { output } = await runScript([
-        'SHADOWED=outer',
+        'export SHADOWED=outer',
         'f() {',
         '  local SHADOWED=inner',
         `  export -p >> ${OUT}`,
@@ -329,7 +329,7 @@ describe('variable scoping and the environment boundary', () => {
   describe('env inside a function', () => {
     it('lists the local value, not the caller’s', async () => {
       const { output } = await runScript([
-        'LISTED=outer',
+        'export LISTED=outer',
         'f() {',
         '  local LISTED=inner',
         `  env >> ${OUT}`,

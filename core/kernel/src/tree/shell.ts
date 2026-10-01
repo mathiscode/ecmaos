@@ -25,6 +25,7 @@ import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
+import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
@@ -50,12 +51,6 @@ let processEnvOwner: object | undefined
  * here, where bash requires `export X` first, because ecmaOS has no exported-flag store yet and every
  * `shell.env.set` call site would have to declare its intent.
  */
-const SHELL_ONLY_VARIABLES: ReadonlySet<string> = new Set(['?', '$', '!', '-', '_'])
-
-/** Whether `name` is shell-internal state rather than an environment variable. See {@link SHELL_ONLY_VARIABLES}. */
-function isShellOnlyVariable(name: string): boolean {
-  return SHELL_ONLY_VARIABLES.has(name) || /^\d+$/.test(name)
-}
 
 /**
  * Finds the first top-level (unquoted, unescaped, not nested inside `$(...)`/`$((...))`)
@@ -331,7 +326,6 @@ export class Shell implements IShell {
   private _createPipeStream: ShellCreatePipeStream
   private _ctx: KernelContext
   private _cwd: string
-  private _env: Map<string, string>
   private _execute: ShellExecute
   private _filesystem: Filesystem
   private _id: string = crypto.randomUUID()
@@ -340,17 +334,6 @@ export class Shell implements IShell {
   private _tty: number
   private _users: Users
 
-  /** `name() { ... }` / `function name { ... }` bodies registered by `executeStatements`. */
-  private _functions = new Map<string, Statement[]>()
-
-  /**
-   * `alias name='...'` definitions, substituted at command position before a line is parsed.
-   *
-   * Text substitution rather than a command-name lookup, because that is what an alias is: `alias
-   * ll='ls -la'` has to contribute *two* words, and `alias g='git '` (trailing space) has to let the
-   * word after it be an alias too. Neither is expressible by swapping one name for another.
-   */
-  private _aliases = new Map<string, string>()
   /**
    * `local` overlays pushed per function call: each frame is checked before falling through to
    * `_env` on read, and `local NAME=VALUE` writes only ever touch the top frame. Empty outside a
@@ -397,66 +380,6 @@ export class Shell implements IShell {
    * outermost layer, so a command's own redirection and any enclosing statement's both still win.
    */
   private _execOutputs?: { redirections: Redirection[], truncated: Set<number> }
-
-  /**
-   * `local` frames, innermost last. A name mapped to `undefined` is a local that `unset` removed:
-   * present in the frame, so it still shadows the caller's value, but resolving to nothing -- which is
-   * bash's behavior for `local X=1; unset X` (the outer `X` stays hidden until the function returns).
-   */
-  private _localScopes: Map<string, string | undefined>[] = []
-  /**
-   * The `set` options, all off by default (which matches ecmaOS's prior behavior, and bash's for
-   * every one of these except in specific invocation modes).
-   */
-  private _shellOptions = {
-    errexit: false,
-    nounset: false,
-    pipefail: false,
-    /** `-x`: print each command, prefixed by `$PS4`, to stderr before running it. */
-    xtrace: false,
-    /** `-f`: pathname expansion off, so `*` and `?` stay literal. */
-    noglob: false,
-    /** `-C`: `>` refuses to truncate an existing file. `>|` overrides it, as in bash. */
-    noclobber: false,
-    /** `-v`: echo each line of input to stderr as it is read. */
-    verbose: false
-  }
-
-  /**
-   * Indexed arrays (`a=(x y)`, `a[i]=v`, `${a[@]}`). Kept apart from `_env` (which is scalars
-   * only) because arrays are never exported to the process environment -- a real shell rejects
-   * `export a` for an array too, and this shell simply has no path that would put one in `envObject`.
-   * `local` scoping doesn't currently cover arrays; every array is shell/function-global, matching
-   * the pre-existing scoping ecmaOS had for everything before `local` was added.
-   */
-  private _arrays = new Map<string, Map<number, string>>()
-
-  /**
-   * `local` frames for the array namespace, pushed and popped alongside `_localScopes`.
-   *
-   * `local` used to cover scalars only, so every array was shell-global no matter where it was
-   * assigned: a function that built up `arr` silently overwrote its caller's `arr`, and a recursive
-   * one overwrote its own. `declareLocal` now declares the name in both namespaces, so whichever kind
-   * it is later assigned as is local either way. A name mapped to `undefined` is declared local but
-   * holds no array yet, which is what hides the caller's while still shadowing the name.
-   */
-  private _localArrayScopes: Map<string, Map<number, string> | undefined>[] = []
-
-  /**
-   * Names marked by `readonly` (or `declare -r`). Assigning to one fails, and so does unsetting it.
-   *
-   * A shell-wide set rather than a per-scope one: bash's readonly attribute lives on the variable,
-   * and a `local` declaration of a readonly name is an error there too.
-   */
-  private _readonly = new Set<string>()
-
-  /**
-   * `trap 'cmd' SIG...` handlers, keyed by the signal name they were registered for (`INT`, `TERM`,
-   * `EXIT`, ... -- `SIGINT` is normalized to `INT` on registration). A `''` handler means "ignore
-   * the signal"; no entry means the default behavior. `runTrap` looks this up and runs the handler
-   * as an ordinary shell command line.
-   */
-  private _traps = new Map<string, string>()
 
   /**
    * All jobs this shell has ever launched, insertion order (oldest first), keyed by job number.
@@ -520,35 +443,24 @@ export class Shell implements IShell {
    */
   private _process?: InstanceType<typeof ZenFSProcess>
 
-  /** When this shell started, for `$SECONDS`. Rebased when a script assigns to `SECONDS`. */
-  private _secondsOrigin = Date.now()
-
   /**
-   * `$RANDOM`'s generator state. bash seeds its own on assignment (`RANDOM=42`), so this shell does
-   * too -- the sequences do not match bash's (nothing portable could), but the contract does: reading
-   * gives a fresh value in 0..32767, and assigning makes the sequence that follows reproducible.
+   * The language state: variables, arrays, `local` frames, `readonly`, functions, aliases, traps and
+   * `set` options, shared with `/bin/ecmash`. The underscore names below are views onto it, so the
+   * rest of this class reads as it always did.
    */
-  private _randomState = Math.floor(Math.random() * 0x7fffffff) + 1
-
-  /** `$!` -- the pid of the most recently backgrounded pipeline. Unset until one exists, as in bash. */
-  private _lastBackgroundPid?: number
-
-  /**
-   * How far into the *current* argument `getopts` has read, for clustered options like `-abc`.
-   *
-   * `$OPTIND` counts arguments, not characters, so it cannot express "halfway through `-abc`". bash
-   * keeps the same second cursor internally and resets it when a script assigns `OPTIND=1` to start
-   * a fresh parse, which is why `setVariable` watches for that.
-   */
-  private _getoptsCharIndex = 1
-
-  /**
-   * The physical script line of the statement running right now, for `$LINENO`.
-   *
-   * Set by `executeStatements` as it walks, since that is the only place that knows which statement
-   * is current. Zero before anything has run, which is what `$LINENO` reads at the prompt.
-   */
-  private _lineNumber = 0
+  readonly state = new ShellState({ pid: () => this.process.pid, ppid: () => this.process.ppid })
+  private get _env(): Map<string, string> { return this.state.vars }
+  private set _env(vars: Map<string, string>) { this.state.adopt(vars) }
+  private get _functions() { return this.state.functions }
+  private set _functions(functions: Map<string, Statement[]>) { this.state.functions = functions }
+  private get _aliases() { return this.state.aliases }
+  private get _shellOptions() { return this.state.options }
+  private get _arrays() { return this.state.arrays }
+  private set _arrays(arrays: Map<string, Map<number, string>>) { this.state.arrays = arrays }
+  private get _lastBackgroundPid() { return this.state.lastBackgroundPid }
+  private set _lastBackgroundPid(pid: number | undefined) { this.state.lastBackgroundPid = pid }
+  private get _lineNumber() { return this.state.lineNumber }
+  private set _lineNumber(line: number) { this.state.lineNumber = line }
 
   public readonly config: TerminalConfig
 
@@ -569,8 +481,8 @@ export class Shell implements IShell {
     if (previous !== undefined && previous !== normalized) this._env.set('OLDPWD', previous)
     this._env.set('PWD', normalized)
   }
-  get env() { return this._env }
-  set env(env: Map<string, string>) { this._env = env; this.publishEnv() }
+  get env() { return this.state.vars }
+  set env(env: Map<string, string>) { this.state.adopt(env); this.publishEnv() }
   /**
    * This shell's environment as a plain object: what every child process receives as its `envp`, and
    * what `globalThis.process.env` mirrors.
@@ -580,7 +492,7 @@ export class Shell implements IShell {
    * parameters arrived as `0=/bin/foo`, `1=arg`.
    */
   get envObject() {
-    return Object.fromEntries([...this._env].filter(([key]) => !isShellOnlyVariable(key)))
+    return this.state.environment()
   }
 
   /**
@@ -649,65 +561,12 @@ export class Shell implements IShell {
    * ones exactly where a real shell would.
    */
   lookupVariable(name: string): string | undefined {
-    for (let i = this._localScopes.length - 1; i >= 0; i--) {
-      const frame = this._localScopes[i] as Map<string, string | undefined>
-      if (frame.has(name)) return frame.get(name)
-    }
-    // Computed parameters sit between the `local` frames and the environment: a `local RANDOM`
-    // shadows them the way bash lets you shadow any variable, but a plain `RANDOM=42` does not --
-    // that seeds the generator instead of replacing it, which is what `setVariable` does with it.
-    const computed = this.computedParameter(name)
-    if (computed !== undefined) return computed
-    return this._env.get(name)
-  }
-
-  /**
-   * The special parameters whose value is produced at every read rather than stored.
-   *
-   * `$?`, `$$`, `$PPID` and `$SHLVL` are deliberately not here: they are ordinary entries in `_env`,
-   * written once when they change, so `env` lists them and a child inherits them the way it would in
-   * a real shell.
-   */
-  private computedParameter(name: string): string | undefined {
-    switch (name) {
-      // bash's range is 0..32767. A 32-bit xorshift keeps the sequence reproducible after a seed.
-      case 'RANDOM': {
-        let x = this._randomState
-        x ^= x << 13
-        x ^= x >>> 17
-        x ^= x << 5
-        this._randomState = x >>> 0 || 1
-        return String(this._randomState % 32768)
-      }
-      case 'SECONDS': return String(Math.floor((Date.now() - this._secondsOrigin) / 1000))
-      case 'LINENO': return String(this._lineNumber)
-      case '$': return String(this.process.pid)
-      case 'PPID': return String(this.process.ppid)
-      case '-': return this.optionFlags()
-      // Unset until something has been backgrounded, so `${!:-none}` behaves, rather than reading 0.
-      case '!': return this._lastBackgroundPid === undefined ? undefined : String(this._lastBackgroundPid)
-      default: return undefined
-    }
-  }
-
-  /**
-   * `$-` -- the single-letter flags currently in effect, in the order bash lists them.
-   *
-   * `h` (hashall) and `B` (brace expansion) are always on and have no `set` switch here, and `i`
-   * marks an interactive shell, which every ecmaOS shell is: each one owns a terminal.
-   */
-  private optionFlags(): string {
-    const flags: string[] = []
-    if (this._shellOptions.errexit) flags.push('e')
-    flags.push('h')
-    if (this._shellOptions.nounset) flags.push('u')
-    flags.push('B', 'i')
-    return flags.join('')
+    return this.state.lookup(name)
   }
 
   /** `getopts`'s position within the argument it is currently reading. See {@link _getoptsCharIndex}. */
-  get getoptsCharIndex(): number { return this._getoptsCharIndex }
-  set getoptsCharIndex(index: number) { this._getoptsCharIndex = index }
+  get getoptsCharIndex(): number { return this.state.getoptsCharIndex }
+  set getoptsCharIndex(index: number) { this.state.getoptsCharIndex = index }
 
   /**
    * This shell's own `@zenfs/linux` process, created on first use. See {@link _process}.
@@ -722,32 +581,20 @@ export class Shell implements IShell {
   }
 
   /** Whether `name` was marked `readonly`, so an assignment or an unset must be refused. */
-  isReadonly(name: string): boolean { return this._readonly.has(name) }
+  isReadonly(name: string): boolean { return this.state.isReadonly(name) }
 
   /** Marks `name` readonly. There is deliberately no way back, as in bash. */
-  markReadonly(name: string): void { this._readonly.add(name) }
+  markReadonly(name: string): void { this.state.markReadonly(name) }
 
   /** Every readonly name, for `readonly -p`. */
-  readonlyNames(): string[] { return [...this._readonly].sort() }
+  readonlyNames(): string[] { return [...this.state.readonlyNames].sort() }
 
   /**
    * `set NAME=VALUE`: writes to the innermost `local` frame if one is active, else the real env.
    * @throws when `name` was marked `readonly`
    */
   setVariable(name: string, value: string): void {
-    if (this._readonly.has(name)) throw new Error(`${name}: readonly variable`)
-    const frame = this._localScopes[this._localScopes.length - 1]
-    if (frame) { frame.set(name, value); return }
-
-    // Assigning to a computed parameter adjusts what it computes rather than replacing it, which is
-    // bash's behavior: `RANDOM=42` seeds the generator and `SECONDS=0` restarts the clock. Storing
-    // the value as well would be invisible (the computed read wins) and misleading in `env`.
-    if (name === 'RANDOM' && /^\d+$/.test(value)) { this._randomState = Number(value) >>> 0 || 1; return }
-    if (name === 'SECONDS' && /^\d+$/.test(value)) { this._secondsOrigin = Date.now() - Number(value) * 1000; return }
-    // Restarting the option scan restarts it fully, cluster cursor included.
-    if (name === 'OPTIND') this._getoptsCharIndex = 1
-
-    this._env.set(name, value)
+    this.state.set(name, value)
     this.publishEnv()
   }
 
@@ -761,12 +608,7 @@ export class Shell implements IShell {
    * function and the caller's value comes back when it returns.
    */
   unsetVariable(name: string): void {
-    if (this._readonly.has(name)) throw new Error(`${name}: cannot unset: readonly variable`)
-    for (let i = this._localScopes.length - 1; i >= 0; i--) {
-      const frame = this._localScopes[i] as Map<string, string | undefined>
-      if (frame.has(name)) { frame.set(name, undefined); return }
-    }
-    this._env.delete(name)
+    this.state.unset(name)
     this.publishEnv()
   }
 
@@ -778,16 +620,7 @@ export class Shell implements IShell {
    * declaration was shadowing, so inside a function those two printed the caller's values.
    */
   visibleVariables(): Map<string, string> {
-    const visible = new Map<string, string>()
-    for (const [key, value] of this._env) if (!isShellOnlyVariable(key)) visible.set(key, value)
-    for (const frame of this._localScopes) {
-      for (const [key, value] of frame) {
-        if (isShellOnlyVariable(key)) continue
-        if (value === undefined) visible.delete(key)
-        else visible.set(key, value)
-      }
-    }
-    return visible
+    return this.state.visibleVariables()
   }
 
   /**
@@ -798,69 +631,27 @@ export class Shell implements IShell {
    * there, and the shell-global `_arrays` is only reached when no frame declares it.
    */
   get arrays(): Map<string, Map<number, string>> {
-    if (this._localArrayScopes.length === 0) return this._arrays
-    const visible = new Map(this._arrays)
-    for (const frame of this._localArrayScopes) {
-      for (const [key, value] of frame) {
-        if (value === undefined) visible.delete(key)
-        else visible.set(key, value)
-      }
-    }
-    return visible
-  }
-
-  /** The innermost `local` frame declaring `name` in the array namespace, if any. */
-  private localArrayFrameFor(name: string): Map<string, Map<number, string> | undefined> | undefined {
-    for (let i = this._localArrayScopes.length - 1; i >= 0; i--) {
-      const frame = this._localArrayScopes[i] as Map<string, Map<number, string> | undefined>
-      if (frame.has(name)) return frame
-    }
-    return undefined
+    return this.state.visibleArrays()
   }
 
   /** Reads `name`'s array from the innermost frame that declares it, else from the shell's own. */
   lookupArray(name: string): Map<number, string> | undefined {
-    const frame = this.localArrayFrameFor(name)
-    return frame ? frame.get(name) : this._arrays.get(name)
+    return this.state.lookupArray(name)
   }
 
-  /** Writes `name`'s array to the innermost frame that declares it, else to the shell's own. */
-  private storeArray(name: string, array: Map<number, string>): void {
-    const frame = this.localArrayFrameFor(name)
-    if (frame) frame.set(name, array)
-    else this._arrays.set(name, array)
-  }
-
-  setArray(name: string, values: string[]): void { this.storeArray(name, new Map(values.map((v, i) => [i, v]))) }
-  setArrayElement(name: string, index: number, value: string): void {
-    const array = this.lookupArray(name) ?? new Map<number, string>()
-    array.set(index, value)
-    this.storeArray(name, array)
-  }
-  appendArray(name: string, values: string[]): void {
-    const array = this.lookupArray(name) ?? new Map<number, string>()
-    const nextIndex = array.size ? Math.max(...array.keys()) + 1 : 0
-    values.forEach((v, i) => array.set(nextIndex + i, v))
-    this.storeArray(name, array)
-  }
-  unsetArrayElement(name: string, index: number): void { this.lookupArray(name)?.delete(index) }
-  unsetArray(name: string): void {
-    const frame = this.localArrayFrameFor(name)
-    if (frame) frame.set(name, undefined)
-    else this._arrays.delete(name)
-  }
+  setArray(name: string, values: string[]): void { this.state.setArray(name, values) }
+  setArrayElement(name: string, index: number, value: string): void { this.state.setArrayElement(name, index, value) }
+  appendArray(name: string, values: string[]): void { this.state.appendArray(name, values) }
+  unsetArrayElement(name: string, index: number): void { this.state.unsetArrayElement(name, index) }
+  unsetArray(name: string): void { this.state.unsetArray(name) }
 
   /**
    * `trap 'cmd' SIG`/`trap - SIG`/`trap '' SIG`/bare `trap`. Signal names are normalized (leading
    * `SIG` stripped, uppercased) so `trap ... SIGINT` and `trap ... INT` register the same handler.
    */
-  setTrap(handler: string | undefined, signal: string): void {
-    const name = signal.replace(/^SIG/, '').toUpperCase()
-    if (handler === undefined) this._traps.delete(name)
-    else this._traps.set(name, handler)
-  }
-  getTrap(signal: string): string | undefined { return this._traps.get(signal.replace(/^SIG/, '').toUpperCase()) }
-  listTraps(): Array<[string, string]> { return [...this._traps.entries()] }
+  setTrap(handler: string | undefined, signal: string): void { this.state.setTrap(handler, signal) }
+  getTrap(signal: string): string | undefined { return this.state.getTrap(signal) }
+  listTraps(): Array<[string, string]> { return this.state.listTraps() }
 
   /** Runs the handler registered for `signal`, if any (and it isn't the `''` ignore marker). Errors from the handler are swallowed -- a bad trap must not crash the shell. */
   async runTrap(signal: string): Promise<void> {
@@ -897,37 +688,16 @@ export class Shell implements IShell {
   }
 
   /** Declare `name` as local to the current function call, defaulting to '' until assigned. */
-  declareLocal(name: string, value?: string): void {
-    const frame = this._localScopes[this._localScopes.length - 1]
-    const arrayFrame = this._localArrayScopes[this._localArrayScopes.length - 1]
-    if (!frame || !arrayFrame) throw new Error('local: can only be used inside a function')
-    // `local NAME` with no value declares the name and leaves it *unset*, not set to the empty string,
-    // which is what bash does: `${NAME+set}` is empty and `set -u` still objects. Only `local NAME=`
-    // sets it to empty. Expansion reads an unset local as empty either way, so the visible difference
-    // is exactly the one a script can test for.
-    frame.set(name, value)
-    // Declared in the array namespace too, holding nothing. Scalars and arrays are separate stores
-    // here, so without this a `local arr` followed by `arr=(1 2)` would still write the caller's
-    // array -- which is how a recursive function used to overwrite its own.
-    if (!arrayFrame.has(name)) arrayFrame.set(name, undefined)
-  }
+  declareLocal(name: string, value?: string): void { this.state.declareLocal(name, value) }
 
   /** Pushes a fresh `local` frame. Used by `callFunction`, and by nothing else -- `local` needs a call. */
-  private pushLocalScope(): void {
-    this._localScopes.push(new Map<string, string | undefined>())
-    this._localArrayScopes.push(new Map<string, Map<number, string> | undefined>())
-  }
+  private pushLocalScope(): void { this.state.pushLocalScope() }
 
   /** Pops the frame `pushLocalScope` pushed, both namespaces together. */
-  private popLocalScope(): void {
-    this._localScopes.pop()
-    this._localArrayScopes.pop()
-  }
+  private popLocalScope(): void { this.state.popLocalScope() }
 
   /** Apply a `set` flag. See {@link _shellOptions} for what each one does. */
-  applyShellOption(flag: ShellOptionName, enabled: boolean): void {
-    this._shellOptions[flag] = enabled
-  }
+  applyShellOption(flag: ShellOptionName, enabled: boolean): void { this.state.setOption(flag, enabled) }
 
   /**
    * `set -x` -- writes `$PS4` followed by the command about to run to stderr.
@@ -1778,14 +1548,17 @@ export class Shell implements IShell {
    * approximate; a single command, which is what `IFS= read` needs, is exact.
    */
   private async applyAssignmentPrefixes(entries: Array<{ name: string, parts: WordPart[] }>): Promise<() => void> {
-    const saved = entries.map(({ name }) => ({ name, had: this.env.has(name), previous: this.env.get(name) }))
+    const saved = entries.map(({ name }) => ({ name, had: this.env.has(name), previous: this.env.get(name), unexported: this.state.unexported.has(name) }))
     for (const { name, parts } of entries) {
       this.env.set(name, await expandWordString(parts, this.expansionContext()))
+      // A prefix assignment is part of the environment of that one command, whatever the variable was before.
+      this.state.markExported(name)
     }
     return () => {
-      for (const { name, had, previous } of saved) {
+      for (const { name, had, previous, unexported } of saved) {
         if (had) this.env.set(name, previous as string)
         else this.env.delete(name)
+        if (unexported) this.state.unexported.add(name)
       }
     }
   }

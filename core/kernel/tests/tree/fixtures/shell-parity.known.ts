@@ -15,7 +15,6 @@ export type KnownTable = Record<string, KnownDivergence>
 
 export const knownKernel: KnownTable = {
   "assign/append-string": { stdout: "a\n", status: 0, why: "s+=value on a scalar is not supported" },
-  "assign/export-visibility": { stdout: "X=1\nY=2\n", status: 0, why: "unexported variables reach child processes: there is no exported flag (Phase 9 step A)" },
   "assign/local-array": { stdout: "(1\n9\n", status: 0, why: "local with an array literal (local a=(1 2)) is not parsed as an array" },
   "assign/prefix-function": { stdout: "[]\n", status: 0, why: "NAME=v before a shell function call is not visible inside the function" },
   "assign/readonly": { stdout: "1 1\n", status: 0, why: "a failed assignment to a readonly variable does not end the script (bash exits with status 1)" },
@@ -55,7 +54,6 @@ export const knownKernel: KnownTable = {
 export const knownEcmash: KnownTable = {
   "assign/append-string": { stdout: "a\n", status: 0, why: "s+=value on a scalar is not supported" },
   "assign/local-array": { stdout: "1 2\n1 2\n", status: 0, why: "local with an array literal (local a=(1 2)) is not parsed as an array" },
-  "assign/readonly": { stdout: "0 2\n", status: 0, why: "readonly is not supported (the assignment succeeds)" },
   "builtins/background-status": { stdout: "", status: 2, why: "a subshell run in the background ((cmd) &) is not supported" },
   "control/for-c-style": { stdout: "", status: 2, why: "C-style for ((;;)) is not supported" },
   "control/group": { stdout: "", status: 2, why: "{ ...; } followed by a pipe is not parsed" },
@@ -63,10 +61,9 @@ export const knownEcmash: KnownTable = {
   "control/pipestatus": { stdout: "\n\n", status: 0, why: "PIPESTATUS is not supported" },
   "control/while-read": { stdout: "got \n", status: 127, why: "a compound command as a pipeline stage is not supported (run as a command named while)" },
   "expansion/command-subst-status": { stdout: "0\n", status: 4, why: "exit inside $(...) ends the whole shell, and $? after x=$(false) is 0" },
-  "expansion/lineno": { stdout: "\n\n", status: 0, why: "$LINENO is empty" },
+  "expansion/lineno": { stdout: "0\n0\n", status: 0, why: "$LINENO is always 0" },
   "getopts/basic": { stdout: "i=\n", status: 0, why: "getopts is not a builtin in ecmash (the loop never runs)" },
   "getopts/error": { stdout: "", status: 0, why: "getopts is not a builtin in ecmash (the loop never runs)" },
-  "options/dollar-dash": { stdout: "no-e\n", status: 0, why: "$- is not supported (script fails to parse)" },
   "options/errexit-subshell": { stdout: "after\n", status: 0, why: "set -e is not inherited by a subshell" },
   "options/noclobber": { stdout: "0\nb\nc\n", status: 0, why: "set -C is not supported" },
   "options/noglob": { stdout: "a b\na b\n", status: 0, why: "set -f is not supported" },
