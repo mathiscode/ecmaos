@@ -570,5 +570,25 @@
   "arrays/associative": {
     "stdout": "1 2 3 7 4\n2\n3 gone\n12\n4\n1\n[]\n",
     "status": 0
+  },
+  "control/pipeline-compounds": {
+    "stdout": "got a\ngot b\nhi\nend\n2\n3\n2\n1\np\nq\n",
+    "status": 0
+  },
+  "control/pipeline-scope": {
+    "stdout": "n=0\nin=x\nout=unset\n",
+    "status": 0
+  },
+  "control/pipeline-two-compounds": {
+    "stdout": "a\nb\nend\nGOT ONE\nGOT TWO\n3000\n",
+    "status": 0
+  },
+  "control/pipeline-function-stage": {
+    "stdout": "HI\nfrom-g\n",
+    "status": 0
+  },
+  "control/pipeline-status": {
+    "stdout": "st=0\nst=0\n",
+    "status": 0
   }
 }

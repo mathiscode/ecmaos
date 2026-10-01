@@ -380,3 +380,45 @@ describe('a stray semicolon after a block opener', () => {
     expect((branch.elseBody?.[0] as SimpleStatement).line).toBe('echo b')
   })
 })
+
+describe('parseStatements: pipelines with compound stages', () => {
+  const kinds = (script: string) => {
+    const [statement] = parseStatements(script)
+    return statement?.type === 'pipeline' ? statement.stages.map(stage => stage.type) : [statement?.type]
+  }
+
+  it('reads a compound after a pipe, in one line and across lines', () => {
+    expect(kinds("printf 'a\\n' | while read x; do echo $x; done")).toEqual(['simple', 'while'])
+    expect(kinds('seq 3 |\nwhile read x\ndo\n  echo $x\ndone')).toEqual(['simple', 'while'])
+    expect(kinds('echo hi | { cat; echo end; }')).toEqual(['simple', 'group'])
+    expect(kinds('echo hi | (cat)')).toEqual(['simple', 'subshell'])
+  })
+
+  it('reads a compound before a pipe, and chains of them', () => {
+    expect(kinds('for i in 1 2; do echo $i; done | sort -r')).toEqual(['for', 'simple'])
+    expect(kinds('{ echo a; } | cat | wc -l')).toEqual(['group', 'simple'])
+    expect(kinds('{ echo a; } | { cat; }')).toEqual(['group', 'group'])
+    expect(kinds('(echo a) | while read x; do echo $x; done | tr a b')).toEqual(['subshell', 'while', 'simple'])
+  })
+
+  it('keeps a redirection that comes before the pipe on the compound', () => {
+    const [statement] = parseStatements('while read l; do echo $l; done < f | cat')
+    expect(statement).toMatchObject({ type: 'pipeline', stages: [{ type: 'while', redirect: '< f' }, { type: 'simple', line: 'cat' }] })
+  })
+
+  it('marks a trailing & as a background pipeline, and reads what follows it', () => {
+    expect(parseStatements('(sleep 1; echo x) &')[0]).toMatchObject({ type: 'pipeline', background: true })
+    const followed = parseStatements('(sleep 1) & wait')
+    expect(followed.map(statement => statement.type)).toEqual(['pipeline', 'simple'])
+  })
+
+  it('leaves a plain pipeline and a compound with a redirect alone', () => {
+    expect(kinds('a | b | c')).toEqual(['simple'])
+    expect(kinds('while read l; do echo $l; done < f')).toEqual(['while'])
+    expect(kinds('echo a || echo b')).toEqual(['simple'])
+  })
+
+  it('refuses a compound stage after && or ||, which it cannot split from the list', () => {
+    expect(() => parseStatements('x && echo a | while read l; do echo $l; done')).toThrow(/not supported/)
+  })
+})

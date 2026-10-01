@@ -432,6 +432,11 @@ class Shell {
   }
 
   async runBackground(pipeline) {
+    if (pipeline.commands.some(command => command.compound)) {
+      // A compound command runs in this process, which cannot also carry on with the next prompt.
+      writeAllFd(2, 'ecmash: a compound command or subshell cannot run in the background here\n')
+      return 1
+    }
     const mark = this.procsubs.length
     const job = await this.startPipeline(pipeline, true)
     if (!job) return 1
@@ -482,6 +487,10 @@ class Shell {
     let statusOfBuiltin
     let builtinFailure = 0
     let failed = false
+    // Compound stages (`... | while read x; do ...; done`) run here, in this process. They wait until
+    // every program in the pipeline has been spawned, so a producer's output has a reader by the time
+    // it is written, and their ends of the pipes stay open until they have run.
+    const deferred = []
 
     for (const [index, command] of commands.entries()) {
       const last = index === commands.length - 1
@@ -490,6 +499,15 @@ class Shell {
       if (!last) {
         next = pipe()
         fds[1] = next[1]
+      }
+
+      if (command.compound) {
+        const closing = []
+        if (inherited !== this.stdio[0]) closing.push(inherited)
+        if (next) closing.push(next[1])
+        deferred.push({ command, fds, closing })
+        if (next) inherited = next[0]
+        continue
       }
 
       try {
@@ -513,6 +531,21 @@ class Shell {
       if (inherited !== this.stdio[0]) close(inherited)
       if (next) { close(next[1]); inherited = next[0] }
       if (failed) statusOfBuiltin = statusOfBuiltin ?? 1
+    }
+    for (const stage of deferred) {
+      const saved = this._stdio
+      this._stdio = stage.fds
+      try {
+        statusOfBuiltin = await this.interpreter.runStage(stage.command.compound)
+        if (statusOfBuiltin) builtinFailure = statusOfBuiltin
+      } catch (error) {
+        if (isUnwind(error)) throw error
+        writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
+        statusOfBuiltin = 1
+      } finally {
+        this._stdio = saved
+        for (const fd of stage.closing) { try { close(fd) } catch { /* already closed */ } }
+      }
     }
     if (inherited !== this.stdio[0]) { try { close(inherited) } catch { /* already closed */ } }
 

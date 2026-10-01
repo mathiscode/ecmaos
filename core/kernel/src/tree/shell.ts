@@ -124,6 +124,32 @@ function readsAsEof(rdev: number): boolean {
  * Only builtins read it. See `runPipelineStages` for why a real command in the same statement
  * cannot be handed this source.
  */
+/**
+ * A pipe that holds whatever is written to it, so the writer never waits for the reader. Used when
+ * pipeline stages run one after another rather than together.
+ */
+function unboundedPipe(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> } {
+  const queue: Uint8Array[] = []
+  let closed = false
+  let wake: (() => void) | undefined
+  const notify = () => { const resolve = wake; wake = undefined; resolve?.() }
+  const readable = new ReadableStream<Uint8Array>({
+    pull: async controller => {
+      while (queue.length === 0 && !closed) await new Promise<void>(resolve => { wake = resolve })
+      const next = queue.shift()
+      if (next) controller.enqueue(next)
+      else controller.close()
+    },
+    cancel: () => { queue.length = 0; closed = true }
+  }, { highWaterMark: 0 })
+  const writable = new WritableStream<Uint8Array>({
+    write: chunk => { queue.push(chunk.slice()); notify() },
+    close: () => { closed = true; notify() },
+    abort: () => { closed = true; notify() }
+  })
+  return { readable, writable }
+}
+
 class StdinSource {
   private pending = ''
   private eof = false
@@ -317,6 +343,12 @@ export class Shell implements IShell {
    * `eval 'echo x' | grep x` reaches `grep`; the pipe itself is closed once, by the builtin's stage.
    */
   private _heldStdout: Array<() => WritableStream<Uint8Array>> = []
+  /**
+   * For each entry of {@link _heldStdout}, how many statement redirections were in force when it was
+   * pushed. A pipe a stage holds is where its commands' stdout goes, so redirections set *outside*
+   * the stage (`( a | { b; } ) > f`) must not reclaim fd 1 from it; ones set inside still do.
+   */
+  private _heldFloor: number[] = []
 
   /**
    * Output redirections belonging to an enclosing *aggregate* command -- a redirected compound
@@ -426,6 +458,7 @@ export class Shell implements IShell {
   private get _shellOptions() { return this.state.options }
   private get _arrays() { return this.state.arrays }
   private set _arrays(arrays: Map<string, Map<number | string, string>>) { this.state.arrays = arrays }
+  private _lastBackgroundJob: JobImpl | undefined
   private get _lastBackgroundPid() { return this.state.lastBackgroundPid }
   private set _lastBackgroundPid(pid: number | undefined) { this.state.lastBackgroundPid = pid }
 
@@ -1250,9 +1283,17 @@ export class Shell implements IShell {
        */
       drainStdout: boolean
       stderr: WritableStream<Uint8Array>
-    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined })
+    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined } | { kind: 'compound', run: () => Promise<number> })
 
     const stages: Stage[] = []
+
+    // Two compound stages cannot both run at once: what a stage's commands write to and read from is
+    // kept in per-shell stacks, which concurrent stages would interleave. So they run one after the
+    // other in pipeline order, over pipes that hold whatever is written (see `unboundedPipe`), which
+    // is also what keeps a producer from blocking on a consumer that has not started.
+    const inProcessCount = commands.filter(c => c.compound || (commands.length > 1 && !trueBuiltinNameFor(c.words[0]) && this._functions.has(c.words[0] ?? ''))).length
+    const buffered = inProcessCount >= 2
+    let compoundTurn: Promise<unknown> = Promise.resolve()
 
     let prevReadable: ReadableStream<Uint8Array> | undefined
 
@@ -1264,12 +1305,18 @@ export class Shell implements IShell {
       // Builtins keep their own quote-aware/array-aware expansion (`expandCommandArgs`) and must
       // not go through `prepareCommand`, which resolves a `$PATH` file that will never exist for
       // them -- there is no `/bin/cd`, deliberately.
-      const builtinName = trueBuiltinNameFor(command.words[0])
+      const builtinName = command.compound ? undefined : trueBuiltinNameFor(command.words[0])
+      // A shell function as one stage of a pipeline (`f | cat`) is run in this shell, in a subshell.
+      const functionName = !command.compound && !builtinName && commands.length > 1 && this._functions.has(command.words[0] ?? '') ? command.words[0] : undefined
+      // A compound stage (`... | while read x; do ...; done`) runs in this shell like a builtin does.
+      const inProcess = Boolean(builtinName) || Boolean(command.compound) || Boolean(functionName)
       let resolved: { finalCommand: string | undefined, args: string[] }
       try {
-        resolved = builtinName
-          ? { finalCommand: undefined, args: await this.expandCommandArgs(command) }
-          : await this.prepareCommand(command)
+        resolved = command.compound
+          ? { finalCommand: undefined, args: [] }
+          : builtinName || functionName
+            ? { finalCommand: undefined, args: await this.expandCommandArgs(command) }
+            : await this.prepareCommand(command)
       } catch (error) {
         // A command that does not exist fails *this command*, exit 127, and the script carries on.
         // It used to throw all the way out of the statement tree, so one typo in a script silently
@@ -1307,9 +1354,9 @@ export class Shell implements IShell {
           // Known divergence: `while read a; do cat; done < f` therefore gives `cat` nothing, where
           // bash gives it the rest of `f`. Making that work needs a stdin bridge driven by the
           // process's own reads.
-          stdinSource = builtinName ? source : undefined
-          stdin = builtinName ? undefined : source.chunks()
-          stdinLeftover = builtinName ? undefined : bytes => source.unread(bytes)
+          stdinSource = inProcess ? source : undefined
+          stdin = inProcess ? undefined : source.chunks()
+          stdinLeftover = inProcess ? undefined : bytes => source.unread(bytes)
         } else {
           stdin = this._terminal.getInputStream()
           stdinIsTTY = true
@@ -1321,7 +1368,7 @@ export class Shell implements IShell {
 
       let pipeWritable: WritableStream<Uint8Array> | undefined
       if (!isLastCommand) {
-        const pipe = this._createPipeStream()
+        const pipe = buffered ? unboundedPipe() : this._createPipeStream()
         pipeWritable = pipe.writable
         prevReadable = pipe.readable
       }
@@ -1343,6 +1390,15 @@ export class Shell implements IShell {
       // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
       await this.trace([command.words[0] ?? '', ...args])
       const fds = { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
+      if (command.compound) {
+        const statement = command.compound
+        stages.push({ kind: 'compound', run: () => this.interpreter.runStage(statement), ...fds })
+        continue
+      }
+      if (functionName) {
+        stages.push({ kind: 'compound', run: () => this.interpreter.runFunctionStage(functionName, args), ...fds })
+        continue
+      }
       stages.push(builtinName
         ? {
             kind: 'builtin',
@@ -1357,6 +1413,31 @@ export class Shell implements IShell {
 
     const results = await Promise.all(stages.map(async stage => {
       const { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
+
+      if (stage.kind === 'compound') {
+        // What the stage was wired to has to reach the commands inside it: a pipe on its stdout is
+        // written through by every one of them, and a pipe on its stdin is one shared input they read
+        // in turn (`printf 'a\nb\n' | while read x; do echo $x; done`). The same wiring as `eval`.
+        const turn = compoundTurn
+        let release: () => void = () => {}
+        compoundTurn = new Promise<void>(resolve => { release = resolve })
+        await turn
+        const source = stdinSource ?? (stdin && !stdinIsTTY ? new StdinSource(stdin) : undefined)
+        const sharedOut = drainStdout ? undefined : stdout.getWriter()
+        const view = () => new WritableStream<Uint8Array>({ write: async chunk => { await sharedOut?.write(chunk) } })
+        if (sharedOut) { this._heldStdout.push(view); this._heldFloor.push(this._statementOutputs.length) }
+        if (source && !stdinSource) this._stdinSources.push(source)
+        try {
+          return await stage.run()
+        } finally {
+          release()
+          if (source && !stdinSource) { this._stdinSources.pop(); await source.close() }
+          if (sharedOut) {
+            this._heldStdout.pop(); this._heldFloor.pop()
+            try { await sharedOut.close() } catch { sharedOut.releaseLock() }
+          }
+        }
+      }
 
       if (stage.kind === 'builtin') {
         const name = stage.name
@@ -1373,13 +1454,13 @@ export class Shell implements IShell {
         const sharedOut = drainStdout ? undefined : stdout.getWriter()
         const view = () => new WritableStream<Uint8Array>({ write: async chunk => { await sharedOut?.write(chunk) } })
         const io = this.streamBuiltinIO(source ?? stdin, stdinIsTTY, sharedOut ? view() : stdout, stdoutIsTTY, stderr)
-        if (sharedOut) this._heldStdout.push(view)
+        if (sharedOut) { this._heldStdout.push(view); this._heldFloor.push(this._statementOutputs.length) }
         if (source && !stdinSource) this._stdinSources.push(source)
         try {
           return await this.withStatementRedirections(aggregate, () => runTrueBuiltin(this, name, args, io))
         } finally {
           if (source && !stdinSource) this._stdinSources.pop()
-          if (sharedOut) this._heldStdout.pop()
+          if (sharedOut) { this._heldStdout.pop(); this._heldFloor.pop() }
           await io.close()
           if (sharedOut) { try { await sharedOut.close() } catch { sharedOut.releaseLock() } }
         }
@@ -1472,7 +1553,11 @@ export class Shell implements IShell {
     }
 
     const pid = Number(spec)
-    if (!Number.isNaN(pid)) return this._jobs.find(job => job.processes.some(process => process.pid === pid))
+    if (!Number.isNaN(pid)) {
+      const byProcess = this._jobs.find(job => job.processes.some(process => process.pid === pid))
+      // `$!` of a job with no process of its own is its job id, which names that job.
+      return byProcess ?? (pid === this._lastBackgroundPid ? this._lastBackgroundJob : undefined)
+    }
 
     return undefined
   }
@@ -1911,6 +1996,7 @@ export class Shell implements IShell {
       // `$!` is whatever `[1] <pid>` just reported, including the job-id fallback for an
       // all-coreutils pipeline that never produced a real process.
       this._lastBackgroundPid = pid ?? job.id
+      this._lastBackgroundJob = job
       this._terminal.writeln(`[${job.id}] ${pid ?? job.id}`)
     })
   }
@@ -2280,8 +2366,13 @@ export class Shell implements IShell {
   private inheritedOutputRedirections(notLast = false): Redirection[] {
     const inherited: Redirection[] = []
     const levels = this._execOutputs ? [this._execOutputs, ...this._statementOutputs] : this._statementOutputs
-    for (const level of levels) {
+    const floor = this._heldFloor[this._heldFloor.length - 1]
+    // `levels` starts with the `exec` layer when there is one, which counts as below every floor.
+    const offset = this._execOutputs ? 1 : 0
+    for (const [position, level] of levels.entries()) {
+      const outsideHeldPipe = floor !== undefined && position < floor + offset
       for (const redirection of level.redirections) {
+        if (outsideHeldPipe && redirection.fd === 1) continue
         // A stage before the last has its stdout on the pipe, so the block's redirection of fd 1 is
         // not its to apply (bash applies it to the last stage only). Skipped before the truncation
         // bookkeeping below, or the stage that does own the file would wrongly append.

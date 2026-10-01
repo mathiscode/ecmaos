@@ -331,3 +331,28 @@ unset m[x]; echo ${#m[@]} "${m[x]:-gone}"
 n=0; for key in "${!m[@]}"; do n=$((n+${m[$key]})); done; echo $n
 m+=([w]=4); echo ${#m[@]}
 f() { local -A loc=([a]=1); echo ${loc[a]}; }; f; echo "[${loc[a]}]"
+
+### control/pipeline-compounds
+printf 'a\nb\n' | while read x; do echo "got $x"; done
+echo hi | { cat; echo end; }
+{ echo 1; echo 2; } | cat | tail -1
+for i in 1 2 3; do echo $i; done | sort -r
+(echo p; echo q) | cat
+
+### control/pipeline-scope
+n=0; printf 'a\nb\n' | while read l; do n=$((n+1)); done; echo "n=$n"
+printf 'x\n' | { read v; echo "in=$v"; }; echo "out=${v:-unset}"
+
+### control/pipeline-two-compounds
+{ echo a; echo b; } | { cat; echo end; }
+(echo one; echo two) | while read x; do echo "got $x"; done | tr a-z A-Z
+seq 1 3000 | { read first; tail -1; }
+
+### control/pipeline-function-stage
+f() { cat | tr a-z A-Z; }; echo hi | f
+g() { echo from-g; }; g | cat
+
+### control/pipeline-status
+false | { cat; }; echo "st=$?"
+{ exit 3; } | cat; echo "st=$?"
+

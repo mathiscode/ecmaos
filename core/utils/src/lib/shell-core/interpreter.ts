@@ -8,8 +8,8 @@
  * descriptors) and stays with each host, reached through {@link InterpreterHost}.
  */
 
-import { parseStatements, type Statement } from '../control-flow-parser.js'
-import { parseScript, type Pipeline } from '../shell-parser.js'
+import { parseStatements, type PipelineStatement, type Statement } from '../control-flow-parser.js'
+import { parseScript, type Command, type Pipeline, type Script } from '../shell-parser.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
 
@@ -172,6 +172,8 @@ export class Interpreter {
         return 0
       })
 
+      case 'pipeline': return await this.runPipelineStatement(statement)
+
       case 'group': return await host.withRedirect(statement, () => this.runStatements(statement.body))
       case 'subshell': return await host.withRedirect(statement, () => this.runSubshell(statement.body))
     }
@@ -214,7 +216,51 @@ export class Interpreter {
     const special = await host.runSpecial?.(prepared)
     if (special !== undefined) return special
 
-    const script = parseScript(prepared)
+    return await this.runScript(parseScript(prepared))
+  }
+
+  /**
+   * A pipeline with compound stages in it (`cmd | while read x; do ...; done`, `(a; b) &`). The plain
+   * stages are parsed as ordinary command lines and the compound ones become stages the host runs
+   * through {@link runStage}; the result goes through {@link runScript}, so the status, `PIPESTATUS`,
+   * `set -e` and the `ERR` trap treat it like any other pipeline.
+   */
+  private async runPipelineStatement(statement: PipelineStatement): Promise<number> {
+    const host = this.host
+    const commands: Command[] = []
+    let background = Boolean(statement.background)
+    for (const stage of statement.stages) {
+      if (stage.type !== 'simple') {
+        commands.push({ type: 'command', words: [], wordsQuoted: [], wordParts: [], redirections: [], compound: stage })
+        continue
+      }
+      const expanded = host.expandStatement ? host.expandStatement(stage.line) : stage.line
+      const prepared = host.prepareLine ? host.prepareLine(expanded) : expanded
+      const script = parseScript(prepared)
+      const only = script.stages[0]
+      if (script.stages.length !== 1 || !only) throw new Error(`unsupported pipeline stage: ${stage.line}`)
+      if (only.operator === '&') background = true
+      commands.push(...only.pipeline.commands)
+    }
+    const pipeline: Pipeline = { type: 'pipeline', commands, negated: false }
+    return await this.runScript({ type: 'script', stages: [{ pipeline, operator: background ? '&' : null }] })
+  }
+
+  /**
+   * Runs one compound stage of a pipeline. It is a subshell, as in bash: what the stage assigns or
+   * changes does not outlive it, and `exit` inside it ends only the stage.
+   */
+  async runStage(statement: Statement): Promise<number> {
+    return await this.inSubshell(() => this.runStatements([statement]))
+  }
+
+  /** A shell function used as a pipeline stage (`f | cat`, `cat | f`): called in a subshell, as in bash. */
+  async runFunctionStage(name: string, args: string[]): Promise<number> {
+    return await this.inSubshell(() => this.callFunction(name, args))
+  }
+
+  private async runScript(script: Script): Promise<number> {
+    const host = this.host
     let status = host.getStatus()
     let skip = false
 
@@ -323,12 +369,16 @@ export class Interpreter {
    * ends only the subshell.
    */
   async runSubshell(statements: Statement[]): Promise<number> {
+    return await this.inSubshell(() => this.runStatements(statements))
+  }
+
+  private async inSubshell(run: () => Promise<number>): Promise<number> {
     const restore = this.host.snapshot()
     this.catchers.exit++
     this.subshellDepth++
     let code: number
     try {
-      code = await this.runStatements(statements)
+      code = await run()
     } catch (signal) {
       if (!(signal instanceof ExitSignal)) throw signal
       code = signal.code

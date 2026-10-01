@@ -125,7 +125,23 @@ export interface SubshellStatement extends Redirected, Positioned {
   body: Statement[]
 }
 
-export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
+/**
+ * A pipeline with a compound command in it: `cmd | while read x; do ...; done`, `{ a; b; } | cmd`,
+ * `done | sort`, `(a; b) &`. A pipeline of plain commands stays a {@link SimpleStatement}, since the
+ * line parser already handles it; this exists for the stages that line parser cannot see, because
+ * they span lines.
+ *
+ * Each stage is a plain command line or a compound statement. A compound stage runs in a subshell,
+ * as in bash, so what it assigns does not outlive it.
+ */
+export interface PipelineStatement extends Positioned {
+  type: 'pipeline'
+  stages: Statement[]
+  /** A trailing `&`: the whole pipeline runs as a background job */
+  background?: boolean
+}
+
+export type Statement = PipelineStatement | SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -340,26 +356,106 @@ export function closingParen(text: string, start: number): number {
   return -1
 }
 
-/** The index of the first `;` outside quotes, or -1. */
-function firstSemicolon(text: string): number {
+/** A whole group on one physical line, `{ echo a; echo b; } > f`. Greedy, so the last `}` closes it. */
+/**
+ * The index of the `}` closing the `{` that opens `text`, or -1 when the line ends first. Skips
+ * quotes and `${...}`, and counts nested groups, so `{ a; } | { b; }` closes at the first `}`.
+ */
+function closingBrace(text: string): number {
+  let depth = 0
   for (let i = 0; i < text.length; i++) {
     const char = text[i] as string
     if (char === '\\') { i++; continue }
-    if (char === "'" || char === '"') {
-      const end = text.indexOf(char, i + 1)
-      if (end === -1) return -1
-      i = end
+    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) return -1; i = end; continue }
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
+      i = j
       continue
     }
-    if (char === ';') return i
+    if (char === '{' && text[i - 1] !== '$' && /\s/.test(text[i + 1] ?? '')) depth++
+    else if (char === '}' && (i === 0 || /[\s;]/.test(text[i - 1] as string)) && /^(?:$|[\s;|&<>)])/.test(text.slice(i + 1, i + 2))) {
+      depth--
+      if (depth === 0) return i
+    }
   }
   return -1
 }
 
-/** A whole group on one physical line, `{ echo a; echo b; } > f`. Greedy, so the last `}` closes it. */
-const INLINE_GROUP = /^\{\s+(.*)\}\s*(.*)$/
-
 const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'until', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
+
+/** Indices of the `|` in `text` that join pipeline stages: not `||`, and not inside quotes, `( )`, `{ }` or `$( )`. */
+function pipeIndexes(text: string): number[] {
+  const found: number[] = []
+  let paren = 0
+  let brace = 0
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i] as string
+    if (char === '\\') { i++; continue }
+    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) break; i = end; continue }
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
+      i = j
+      continue
+    }
+    if (char === '(') paren++
+    else if (char === ')') paren = Math.max(0, paren - 1)
+    else if (char === '{' && text[i - 1] !== '$' && /\s|$/.test(text[i + 1] ?? '')) brace++
+    else if (char === '}' && brace > 0 && (i === 0 || /[\s;]/.test(text[i - 1] as string))) brace--
+    else if (char === '|' && paren === 0 && brace === 0) {
+      if (text[i + 1] === '|') { i++; continue }
+      found.push(i)
+    }
+  }
+  return found
+}
+
+/** Whether `text` starts a compound command, so a `|` before it joins a compound stage. */
+function startsCompound(text: string): boolean {
+  return /^(?:if|while|until|for|case)(?:\s|$)/.test(text) || BRACE_GROUP_OPEN.test(text) || SUBSHELL_OPEN.test(text)
+}
+
+/**
+ * A plain line that is part of a pipeline with a compound stage in it: the first `|` followed by a
+ * compound opener, or a trailing `|` that continues on the next line. `head` is what stays here and
+ * `rest` is the remainder, empty when it is on the following lines.
+ */
+function splitSimplePipe(line: string): { head: string, rest: string } | undefined {
+  const pipes = pipeIndexes(line)
+  const trailing = /\|\s*$/.test(line) && !/\|\|\s*$/.test(line)
+  for (const index of pipes) {
+    const tail = line.slice(index + 1).trim()
+    const isTrailing = trailing && index === pipes[pipes.length - 1] && tail === ''
+    if (!isTrailing && !startsCompound(tail)) continue
+    const head = line.slice(0, index).trim()
+    if (/&&|\|\||;/.test(head.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, ''))) {
+      throw new ControlFlowParseError('A pipeline stage after && or || is not supported; put the pipeline on its own line')
+    }
+    return { head, rest: tail }
+  }
+  return undefined
+}
+
+/**
+ * What follows a compound statement's closing keyword when it is more than redirections: a `|` that
+ * continues the pipeline, and a trailing `&` that backgrounds it. `redirect` keeps what came before.
+ */
+function splitCompoundTail(text: string): { redirect: string, rest?: string, background: boolean, after?: string } | undefined {
+  const pipes = pipeIndexes(text)
+  if (pipes.length > 0) {
+    const index = pipes[0] as number
+    return { redirect: text.slice(0, index).trim(), rest: text.slice(index + 1).trim(), background: false }
+  }
+  // A lone `&`: not `&&`, and not part of `>&`, `&>` or `2>&1`.
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== '&') continue
+    if (text[i + 1] === '&') { i++; continue }
+    if (text[i + 1] === '>' || text[i - 1] === '>') continue
+    return { redirect: text.slice(0, i).trim(), background: true, after: text.slice(i + 1).trim() }
+  }
+  return undefined
+}
 
 class LineParser {
   private pos = 0
@@ -383,6 +479,17 @@ class LineParser {
     this.lines[this.pos] = { ...line, text: rest }
   }
   private atEnd(): boolean { return this.pos >= this.lines.length }
+
+  /**
+   * Puts text that followed an opening `{` or `(` back in front of the remaining lines. It never went
+   * through the per-line normalization, so `( while read x; do ...; done` would otherwise stay one
+   * line the parser cannot read.
+   */
+  private pushBack(text: string, line: number): void {
+    const pieces = splitTopLevel(text).flatMap(segment => normalizeOneLineIfNeeded(segment).split('\n'))
+      .map(piece => piece.trim()).filter(piece => piece.length > 0)
+    this.lines.splice(this.pos, 0, ...pieces.map(piece => ({ text: piece, line })))
+  }
   /** The physical line the next statement starts on, for `$LINENO`. */
   private here(): number | undefined { return this.lines[this.pos]?.line }
 
@@ -401,9 +508,51 @@ class LineParser {
   /** {@link parseStatement}, tagged with the physical line it started on. See {@link Positioned}. */
   private parsePositionedStatement(): Statement {
     const lineNumber = this.here()
-    const statement = this.parseStatement()
+    const statement = this.finishPipeline(this.parseStatement(), lineNumber)
     if (lineNumber !== undefined) statement.lineNumber = lineNumber
     return statement
+  }
+
+  /**
+   * Turns a statement that continues into a pipeline (`a | while ...`, `done | sort`, `(x) &`) into a
+   * {@link PipelineStatement}, parsing the remaining stages after it. A statement that does not is
+   * returned as it is.
+   *
+   * The continuation shows up in two places: after a compound statement's closing keyword (the text
+   * kept as its `redirect`), and in a plain line that has a `|` before a compound opener or ends on
+   * one. In both the rest of the pipeline is put back in front of the remaining lines and parsed as
+   * the next statement, which is what lets it open another multi-line compound.
+   */
+  private finishPipeline(first: Statement, lineNumber: number | undefined): Statement {
+    let rest: string | undefined
+    let background = false
+
+    if (first.type === 'simple') {
+      const split = splitSimplePipe(first.line)
+      if (!split) return first
+      first = { type: 'simple', line: split.head }
+      rest = split.rest
+    } else if (first.type !== 'function' && first.type !== 'pipeline' && first.redirect) {
+      const split = splitCompoundTail(first.redirect)
+      if (!split) return first
+      first.redirect = split.redirect || undefined
+      rest = split.rest
+      background = split.background
+      // `(a) & b`: what follows the `&` is the next statement.
+      if (split.after) this.pushBack(split.after, lineNumber ?? 1)
+    } else {
+      return first
+    }
+
+    const stages: Statement[] = [first]
+    if (rest !== undefined) {
+      if (rest.trim()) this.pushBack(rest.trim(), lineNumber ?? 1)
+      if (this.atEnd()) throw new ControlFlowParseError('Expected a command after |', true)
+      const next = this.parsePositionedStatement()
+      if (next.type === 'function') throw new ControlFlowParseError('A function definition cannot be a pipeline stage')
+      if (next.type === 'pipeline') { stages.push(...next.stages); background = Boolean(next.background) } else stages.push(next)
+    }
+    return { type: 'pipeline', stages, ...(background ? { background: true } : {}) }
   }
 
   private parseStatement(): Statement {
@@ -538,15 +687,15 @@ class LineParser {
   private parseGroup(): GroupStatement {
     const at = this.here() ?? 1
     const line = this.advance().trim()
-    const inline = INLINE_GROUP.exec(line)
-    if (inline) {
-      const redirect = (inline[2] as string).trim()
-      return { type: 'group', body: parseInlineBody(inline[1] as string, at), ...(redirect ? { redirect } : {}) }
+    const close = /^\{\s/.test(line) ? closingBrace(line) : -1
+    if (close !== -1) {
+      const redirect = line.slice(close + 1).trim()
+      return { type: 'group', body: parseInlineBody(line.slice(1, close), at), ...(redirect ? { redirect } : {}) }
     }
 
     // The group opens here and closes on a later line; whatever follows the brace is the body's start.
     const rest = line.replace(/^\{\s*/, '')
-    if (rest) this.lines.splice(this.pos, 0, { text: rest, line: at })
+    if (rest) this.pushBack(rest, at)
     const body = this.parseStatements(['}'])
     const redirect = this.expectKeywordLine('}')
     return { type: 'group', body, ...(redirect ? { redirect } : {}) }
@@ -559,13 +708,13 @@ class LineParser {
     if (close !== -1) {
       let rest = line.slice(close + 1).trim()
       // `(a) > f; b`: the redirection ends at the `;`, and what follows it is the next statement.
-      const semicolon = firstSemicolon(rest)
-      if (semicolon !== -1) {
-        const sequel = rest.slice(semicolon + 1).trim()
-        rest = rest.slice(0, semicolon).trim()
-        if (sequel) this.lines.splice(this.pos, 0, { text: sequel, line: at })
+      // Split the way a line is: a `;` inside `| while ...; do ...; done` belongs to that loop.
+      const pieces = splitTopLevel(rest)
+      if (pieces.length > 1) {
+        rest = pieces[0] as string
+        for (const piece of pieces.slice(1).reverse()) this.pushBack(piece, at)
       }
-      if (rest && !/^(?:\d*[<>]|&>)/.test(rest)) {
+      if (rest && !/^(?:\d*[<>]|&>|\||&(?![&>]))/.test(rest)) {
         throw new ControlFlowParseError(`A subshell followed by "${rest.split(/\s/)[0]}" is not supported; put it on its own line`)
       }
       return { type: 'subshell', body: parseInlineBody(line.slice(1, close), at), ...(rest ? { redirect: rest } : {}) }
@@ -573,7 +722,7 @@ class LineParser {
 
     // The subshell opens here and closes on a later line holding only `)` (and any redirection).
     const rest = line.replace(/^\(\s*/, '')
-    if (rest) this.lines.splice(this.pos, 0, { text: rest, line: at })
+    if (rest) this.pushBack(rest, at)
     const body = this.parseStatements([')'])
     const redirect = this.expectKeywordLine(')')
     return { type: 'subshell', body, ...(redirect ? { redirect } : {}) }

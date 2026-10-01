@@ -21,6 +21,8 @@
  * command's own line.
  */
 
+import type { Statement } from './control-flow-parser.js'
+
 export type RedirectionType = '>' | '>>' | '>|' | '<' | '<<' | '<<<' | '>&'
 
 /** How a run of characters inside a word was quoted. */
@@ -64,6 +66,11 @@ export interface Command {
   redirections: Redirection[]
   /** For a `[[ ... ]]` command: the raw text between the brackets */
   conditional?: string
+  /**
+   * Set on a stage that is a compound statement (`... | while read x; do ...; done`, `{ ...; } | cmd`):
+   * `words` is empty and the host runs this instead of a program.
+   */
+  compound?: Statement
 }
 
 export interface Pipeline {
