@@ -2290,9 +2290,11 @@ export class Shell implements IShell {
         }
       },
       // There is no fork, so a subshell is a snapshot: variables (which is also where the positional
-      // parameters live), arrays, functions and the working directory are put back afterwards. Options
-      // and traps are left shared.
+      // parameters live), arrays, functions, options, traps and the working directory are put back
+      // afterwards, so `(set -e; ...)` does not leave `set -e` on in the shell around it.
       snapshot: () => {
+        const options = { ...this.state.options }
+        const traps = new Map(this.state.traps)
         const env = new Map(this._env)
         const arrays = new Map([...this._arrays].map(([name, array]) => [name, new Map(array)]))
         const functions = new Map(this._functions)
@@ -2302,6 +2304,8 @@ export class Shell implements IShell {
           this._functions = functions
           this._cwd = cwd
           this.env = env
+          this.state.options = options
+          this.state.traps = traps
         }
       },
       getStatus: () => Number(this.env.get('?') ?? 0),

@@ -136,6 +136,8 @@ class Shell {
     this.depth = 0
     this.interactive = false
     this.leaving = false
+    // Set when a foreground command died of ^C; the interpreter stops the current line, and the prompt clears it.
+    this.sigint = false
     this.procsubs = []
     this.procsubCount = 0
     this.pending = []
@@ -370,7 +372,7 @@ class Shell {
       },
       getStatus: () => shell.status,
       setStatus: code => { shell.status = code },
-      checkpoint: async () => { await shell.runPendingTraps(); return false },
+      checkpoint: async () => { await shell.runPendingTraps(); return shell.sigint },
       exitShell: code => shell.leave(code),
       writeErr: message => { writeAllFd(2, `ecmash: ${message}\n`) },
     }
@@ -464,6 +466,8 @@ class Shell {
     const job = await this.startPipeline(pipeline, false)
     if (!job) { await this.finishProcSubs(mark); return 127 }
     const status = await job.finish({ untraced: this.interactive })
+    // A foreground command killed by ^C ends the list or loop it is in, as in bash (its INT trap has already run).
+    if (status === 128 + SIGINT) this.sigint = true
     await this.finishProcSubs(mark)
     if (job.stopped) {
       // ^Z: the job stays in the table, stopped, until `fg` or `bg` resumes it.
@@ -1136,6 +1140,7 @@ async function interactive(shell, tty) {
         if (more === undefined) break
         text += '\n' + more
       }
+      shell.sigint = false
       await shell.runText(text)
     } catch (error) {
       if (isUnwind(error)) continue
