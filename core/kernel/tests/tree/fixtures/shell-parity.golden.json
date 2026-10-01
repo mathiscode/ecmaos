@@ -1,0 +1,510 @@
+{
+  "quoting/single-double": {
+    "stdout": "a b $x a b\n",
+    "status": 0
+  },
+  "quoting/escapes": {
+    "stdout": "a$b it's q\"q\n",
+    "status": 0
+  },
+  "quoting/word-splitting": {
+    "stdout": "3\n1\n",
+    "status": 0
+  },
+  "expansion/defaults": {
+    "stdout": "hello d alt 5\n",
+    "status": 0
+  },
+  "expansion/assign-default": {
+    "stdout": "set\nset\n",
+    "status": 0
+  },
+  "expansion/substring": {
+    "stdout": "bcd cdef def abc def abc\n",
+    "status": 0
+  },
+  "expansion/replace": {
+    "stdout": "bXnana bXnXnX Banana bananA\n",
+    "status": 0
+  },
+  "expansion/case-modify": {
+    "stdout": "HELLO hello Hello\n",
+    "status": 0
+  },
+  "expansion/arithmetic": {
+    "stdout": "14 3 1 8 16 9\n",
+    "status": 0
+  },
+  "expansion/arithmetic-vars": {
+    "stdout": "15 1 0 5 6\n",
+    "status": 0
+  },
+  "expansion/command-subst": {
+    "stdout": "a b\na\nb\n",
+    "status": 0
+  },
+  "expansion/command-subst-nested": {
+    "stdout": "deep\none two\n",
+    "status": 0
+  },
+  "expansion/command-subst-status": {
+    "stdout": "1\n4\n",
+    "status": 0
+  },
+  "expansion/brace": {
+    "stdout": "a b c 1 2 3 4 x1y x2y a1 a2 b1 b2 c1 c2\n",
+    "status": 0
+  },
+  "expansion/brace-nested": {
+    "stdout": "a b1 b2 01 02 03\n",
+    "status": 0
+  },
+  "expansion/tilde": {
+    "stdout": "/h /h/x\n",
+    "status": 0
+  },
+  "expansion/glob": {
+    "stdout": "a.txt b.txt\na.txt b.txt c.md\n*\nc.md\na.txt b.txt\n",
+    "status": 0
+  },
+  "expansion/glob-nomatch": {
+    "stdout": "*.zzz\n",
+    "status": 0
+  },
+  "expansion/glob-dot": {
+    "stdout": "vis\n",
+    "status": 0
+  },
+  "expansion/positional": {
+    "stdout": "3 a c a b c\n2 b c\n0\n",
+    "status": 0
+  },
+  "expansion/special-params": {
+    "stdout": "0\n1\n",
+    "status": 0
+  },
+  "expansion/lineno": {
+    "stdout": "1\n2\n",
+    "status": 0
+  },
+  "assign/array-literal": {
+    "stdout": "y z 3 x y z w\n",
+    "status": 0
+  },
+  "assign/array-append": {
+    "stdout": "1 2 3 6 4\n",
+    "status": 0
+  },
+  "assign/array-indices": {
+    "stdout": "0 1 2\n0 2 2\n",
+    "status": 0
+  },
+  "assign/array-subst": {
+    "stdout": "2 p-q\n",
+    "status": 0
+  },
+  "assign/array-loop": {
+    "stdout": "<a b>\n<c>\n[a]\n[b]\n[c]\n",
+    "status": 0
+  },
+  "assign/prefix-function": {
+    "stdout": "[1]\n[]\n",
+    "status": 0
+  },
+  "assign/prefix-builtin": {
+    "stdout": "[]\n",
+    "status": 0
+  },
+  "assign/export-visibility": {
+    "stdout": "Y=2\n",
+    "status": 0
+  },
+  "assign/export-later": {
+    "stdout": "X=1\n",
+    "status": 0
+  },
+  "assign/unset": {
+    "stdout": "[unset]\n",
+    "status": 0
+  },
+  "assign/readonly": {
+    "stdout": "",
+    "status": 1
+  },
+  "assign/local-array": {
+    "stdout": "1 2\n9\n",
+    "status": 0
+  },
+  "assign/append-string": {
+    "stdout": "abc\n",
+    "status": 0
+  },
+  "assign/in-list": {
+    "stdout": "one\n5\n",
+    "status": 0
+  },
+  "functions/local": {
+    "stdout": "1\n0\n",
+    "status": 0
+  },
+  "functions/recursion": {
+    "stdout": "120\n",
+    "status": 0
+  },
+  "functions/return": {
+    "stdout": "3\n",
+    "status": 0
+  },
+  "functions/args": {
+    "stdout": "3 a b\nb c\n",
+    "status": 0
+  },
+  "functions/at-vs-star": {
+    "stdout": "<a b>\n<c>\n[a b c]\n",
+    "status": 0
+  },
+  "functions/keyword-form": {
+    "stdout": "in-g x\n",
+    "status": 0
+  },
+  "functions/one-line-after-semicolon": {
+    "stdout": "a\n",
+    "status": 0
+  },
+  "functions/redefine": {
+    "stdout": "one\ntwo\n",
+    "status": 0
+  },
+  "functions/unset": {
+    "stdout": "1\n",
+    "status": 0
+  },
+  "functions/stdin": {
+    "stdout": "piped\n",
+    "status": 0
+  },
+  "functions/redirect": {
+    "stdout": "",
+    "status": 1
+  },
+  "functions/nested-call": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "control/if-elif": {
+    "stdout": "two\n",
+    "status": 0
+  },
+  "control/test-operators": {
+    "stdout": "f\nd\nnoent\nz\nn\neq\nlt\n",
+    "status": 0
+  },
+  "control/double-bracket": {
+    "stdout": "glob\nre\nand\nor\n",
+    "status": 0
+  },
+  "control/while-read": {
+    "stdout": "got a\ngot b\n",
+    "status": 0
+  },
+  "control/while-counter": {
+    "stdout": "0\n1\n2\n",
+    "status": 0
+  },
+  "control/until": {
+    "stdout": "0\n1\n2\n",
+    "status": 0
+  },
+  "control/for-list": {
+    "stdout": "a\nb\nc\n",
+    "status": 0
+  },
+  "control/for-glob": {
+    "stdout": "x1\nx2\n",
+    "status": 0
+  },
+  "control/for-seq": {
+    "stdout": "1\n2\n3\n",
+    "status": 0
+  },
+  "control/for-c-style": {
+    "stdout": "0\n1\n2\n",
+    "status": 0
+  },
+  "control/break-continue": {
+    "stdout": "1\n3\n",
+    "status": 0
+  },
+  "control/break-levels": {
+    "stdout": "1a\n",
+    "status": 0
+  },
+  "control/case": {
+    "stdout": "ab\nc-star\nother\n",
+    "status": 0
+  },
+  "control/case-quoted": {
+    "stdout": "yes\n",
+    "status": 0
+  },
+  "control/and-or": {
+    "stdout": "a\nb\nc\nd\n",
+    "status": 0
+  },
+  "control/negation": {
+    "stdout": "1\n0\n",
+    "status": 0
+  },
+  "control/group": {
+    "stdout": "A\nB\n",
+    "status": 0
+  },
+  "control/group-redirect": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "control/subshell-vars": {
+    "stdout": "in 2\nout 1\n",
+    "status": 0
+  },
+  "control/subshell-cd": {
+    "stdout": "/tmp/pc/d\n/tmp/pc\n",
+    "status": 0
+  },
+  "control/subshell-exit": {
+    "stdout": "in\nafter 3\n",
+    "status": 0
+  },
+  "control/subshell-nested": {
+    "stdout": "3\n2\n1\n",
+    "status": 0
+  },
+  "control/subshell-func": {
+    "stdout": "inner\nouter\n",
+    "status": 0
+  },
+  "control/subshell-redirect": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "control/exit-status": {
+    "stdout": "1\n3\n0\n",
+    "status": 0
+  },
+  "control/pipeline": {
+    "stdout": "A\n",
+    "status": 0
+  },
+  "control/pipestatus": {
+    "stdout": "1 0\n0 1 0\n",
+    "status": 0
+  },
+  "control/pipefail": {
+    "stdout": "1\n0\n",
+    "status": 0
+  },
+  "control/pipe-into-loop": {
+    "stdout": "y x\n",
+    "status": 0
+  },
+  "options/errexit": {
+    "stdout": "a\n",
+    "status": 1
+  },
+  "options/errexit-tested": {
+    "stdout": "yes\n",
+    "status": 0
+  },
+  "options/errexit-subshell": {
+    "stdout": "",
+    "status": 1
+  },
+  "options/nounset": {
+    "stdout": "before\n",
+    "status": 1
+  },
+  "options/noglob": {
+    "stdout": "*\na b\n",
+    "status": 0
+  },
+  "options/noclobber": {
+    "stdout": "1\na\nc\n",
+    "status": 0
+  },
+  "options/dollar-dash": {
+    "stdout": "has-e\nno-e\n",
+    "status": 0
+  },
+  "traps/exit": {
+    "stdout": "hi\nbye\n",
+    "status": 0
+  },
+  "traps/exit-subshell": {
+    "stdout": "sub\nhi\nbye\n",
+    "status": 0
+  },
+  "traps/err": {
+    "stdout": "err\nafter\n",
+    "status": 0
+  },
+  "traps/err-not-tested": {
+    "stdout": "done\n",
+    "status": 0
+  },
+  "traps/reset": {
+    "stdout": "done\n",
+    "status": 0
+  },
+  "traps/exit-status": {
+    "stdout": "st=5\n",
+    "status": 5
+  },
+  "traps/signal": {
+    "stdout": "got-usr1\nafter\n",
+    "status": 0
+  },
+  "redirect/out-append": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "redirect/in": {
+    "stdout": "x\ny\n2\n",
+    "status": 0
+  },
+  "redirect/heredoc": {
+    "stdout": "line v\n3\n",
+    "status": 0
+  },
+  "redirect/heredoc-quoted": {
+    "stdout": "line $x\n",
+    "status": 0
+  },
+  "redirect/heredoc-tabs": {
+    "stdout": "indented\n",
+    "status": 0
+  },
+  "redirect/here-string": {
+    "stdout": "hi there\nx=1\n",
+    "status": 0
+  },
+  "redirect/dup": {
+    "stdout": "out\nerr\n",
+    "status": 0
+  },
+  "redirect/stderr-file": {
+    "stdout": "out\nerr\n",
+    "status": 0
+  },
+  "redirect/devnull": {
+    "stdout": "0\n0\n",
+    "status": 0
+  },
+  "redirect/compound": {
+    "stdout": "1\n2\n",
+    "status": 0
+  },
+  "redirect/while-input": {
+    "stdout": "[a]\n[b]\n",
+    "status": 0
+  },
+  "redirect/clobber-order": {
+    "stdout": "b\n",
+    "status": 0
+  },
+  "read/ifs-split": {
+    "stdout": "x|y:z\n",
+    "status": 0
+  },
+  "read/ifs-empty": {
+    "stdout": "[  a b  ]\n",
+    "status": 0
+  },
+  "read/raw": {
+    "stdout": "a\\b\nab\n",
+    "status": 0
+  },
+  "read/eof-status": {
+    "stdout": "1\n",
+    "status": 0
+  },
+  "read/ifs-star": {
+    "stdout": "a,b,c\na b c\n",
+    "status": 0
+  },
+  "read/ifs-fields": {
+    "stdout": "3\n",
+    "status": 0
+  },
+  "read/array": {
+    "stdout": "3 r\n",
+    "status": 0
+  },
+  "getopts/basic": {
+    "stdout": "a=\nb=val\ni=4\n",
+    "status": 0
+  },
+  "getopts/error": {
+    "stdout": "[?]\n",
+    "status": 0
+  },
+  "builtins/echo-flags": {
+    "stdout": "ab\nx\ty\na\nb\n",
+    "status": 0
+  },
+  "builtins/printf": {
+    "stdout": "a-1\nb-2\n   ab|cd   |\nff 10\n",
+    "status": 0
+  },
+  "builtins/eval": {
+    "stdout": "5\n2\nhi\n",
+    "status": 0
+  },
+  "builtins/source": {
+    "stdout": "in-source arg\nsourced\n",
+    "status": 0
+  },
+  "builtins/type": {
+    "stdout": "echo is a shell builtin\n1\n",
+    "status": 0
+  },
+  "builtins/command-v": {
+    "stdout": "0\n1\n",
+    "status": 0
+  },
+  "builtins/test-bracket": {
+    "stdout": "0\n1\n1\n",
+    "status": 0
+  },
+  "builtins/shift": {
+    "stdout": "c d\nd\n",
+    "status": 0
+  },
+  "builtins/colon": {
+    "stdout": "0\n",
+    "status": 0
+  },
+  "builtins/exit-code": {
+    "stdout": "before\n",
+    "status": 7
+  },
+  "builtins/cd-pwd": {
+    "stdout": "/tmp/pc/a/b\n/tmp/pc/a\n/tmp/pc/a/b\n",
+    "status": 0
+  },
+  "builtins/declare": {
+    "stdout": "1\n1\n",
+    "status": 0
+  },
+  "builtins/wait": {
+    "stdout": "done\n",
+    "status": 0
+  },
+  "builtins/background-status": {
+    "stdout": "3\n",
+    "status": 0
+  },
+  "builtins/test-negations": {
+    "stdout": "yes\nno2\n",
+    "status": 0
+  }
+}

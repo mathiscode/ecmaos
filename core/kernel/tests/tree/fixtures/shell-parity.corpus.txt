@@ -1,0 +1,281 @@
+# Shell parity corpus.
+#
+# Each entry is `### group/name [flags]` followed by a script. Flags: `fs` runs the script in a fresh
+# /tmp/pc directory. The golden output (stdout and exit status) comes from real bash 5.3 through
+# `node generate-shell-parity.mjs`, so this is a conformance corpus: both the kernel shell and
+# `/bin/ecmash` are checked against bash, not against each other. A shell that differs is listed in
+# the `known` table of shell-parity.test.ts with its actual output and a reason, so a fix forces the
+# entry to be removed from that table.
+#
+# Scripts must be deterministic and use only builtins and commands both shells have.
+
+### quoting/single-double
+x="a b"; echo "$x" '$x' $x
+### quoting/escapes
+echo "a\$b" 'it'"'"'s' "q\"q"
+### quoting/word-splitting
+x="a   b    c"; set -- $x; echo $#; set -- "$x"; echo $#
+### expansion/defaults
+x=hello; echo ${x:-d} ${y:-d} ${x:+alt} ${y:+alt} ${#x}
+### expansion/assign-default
+echo ${z:=set}; echo $z
+### expansion/substring
+x=abcdef; echo ${x:1:3} ${x:2} ${x#abc} ${x%def} ${x##*c} ${x%%d*}
+### expansion/replace
+x=banana; echo ${x/a/X} ${x//a/X} ${x/#b/B} ${x/%a/A}
+### expansion/case-modify
+x=Hello; echo ${x^^} ${x,,} ${x^}
+### expansion/arithmetic
+echo $((2+3*4)) $((10/3)) $((10%3)) $((2**3)) $((1<<4)) $(( (1+2)*3 ))
+### expansion/arithmetic-vars
+x=5; y=3; echo $((x*y)) $((x>y)) $((x==y)) $((x++)) $x
+### expansion/command-subst
+echo $(echo a; echo b); echo "$(echo a; echo b)"
+### expansion/command-subst-nested
+echo "$(echo "$(echo deep)")"; x=$(echo one two); echo "$x"
+### expansion/command-subst-status
+x=$(false); echo $?; x=$(exit 4); echo $?
+### expansion/brace
+echo {a,b,c} {1..4} x{1,2}y {a..c}{1,2}
+### expansion/brace-nested
+echo {a,b{1,2}} {01..03}
+### expansion/tilde
+HOME=/h; echo ~ ~/x
+### expansion/glob fs
+touch a.txt b.txt c.md; echo *.txt; echo *; echo "*"; echo ?.md; echo [ab].txt
+### expansion/glob-nomatch fs
+echo *.zzz
+### expansion/glob-dot fs
+touch .hid vis; echo *
+### expansion/positional
+set -- a b c; echo $# $1 $3 "$*"; shift; echo $# $@; set --; echo $#
+### expansion/special-params
+true; echo $?; false; echo $?
+### expansion/lineno
+echo $LINENO
+echo $LINENO
+
+### assign/array-literal
+a=(x "y z" w); echo ${a[1]} ${#a[@]} "${a[@]}"
+### assign/array-append
+a=(1 2); a+=(3); a[5]=6; echo ${a[@]} ${#a[@]}
+### assign/array-indices
+a=(p q r); echo ${!a[@]}; unset a[1]; echo ${!a[@]} ${#a[@]}
+### assign/array-subst
+a=($(echo p q)); echo ${#a[@]} ${a[0]}-${a[1]}
+### assign/array-loop
+a=("a b" c); for v in "${a[@]}"; do echo "<$v>"; done; for v in ${a[@]}; do echo "[$v]"; done
+### assign/prefix-function
+f() { echo "[$X]"; }; X=1 f; echo "[$X]"
+### assign/prefix-builtin
+X=1 true; echo "[$X]"
+### assign/export-visibility
+X=1; export Y=2; env | grep -E '^(X|Y)='
+### assign/export-later
+X=1; export X; env | grep -E '^X='
+### assign/unset
+X=1; unset X; echo "[${X-unset}]"
+### assign/readonly
+readonly R=1; R=2; echo $? $R
+### assign/local-array
+f() { local a=(1 2); echo ${a[@]}; }; a=(9); f; echo ${a[@]}
+### assign/append-string
+s=a; s+=b; s+=c; echo $s
+### assign/in-list
+echo one; zz=5; echo $zz
+
+### functions/local
+f() { local x=1; echo $x; }; x=0; f; echo $x
+### functions/recursion
+fact() { if [ $1 -le 1 ]; then echo 1; else echo $(( $1 * $(fact $(( $1 - 1 ))) )); fi; }; fact 5
+### functions/return
+f() { return 3; }; f; echo $?
+### functions/args
+f() { echo $# $1 $2; shift; echo $@; }; f a b c
+### functions/at-vs-star
+f() { for a in "$@"; do echo "<$a>"; done; for a in "$*"; do echo "[$a]"; done; }; f "a b" c
+### functions/keyword-form
+function g { echo in-g $1; }; g x
+### functions/one-line-after-semicolon
+X=1; h() { echo a; }; h
+### functions/redefine
+f() { echo one; }; f; f() { echo two; }; f
+### functions/unset
+f() { echo hi; }; unset -f f; type f > /dev/null 2>&1; echo $?
+### functions/stdin
+f() { cat; }; echo piped | f
+### functions/redirect
+f() { echo a; echo b; }; f > out; cat out
+### functions/nested-call
+a() { echo a; b; }; b() { echo b; }; a
+
+### control/if-elif
+x=2; if [ $x -eq 1 ]; then echo one; elif [ $x -eq 2 ]; then echo two; else echo other; fi
+### control/test-operators fs
+touch f; mkdir d; [ -f f ] && echo f; [ -d d ] && echo d; [ -e nope ] || echo noent; [ -z "" ] && echo z; [ -n "x" ] && echo n; [ a = a ] && echo eq; [ 1 -lt 2 ] && echo lt
+### control/double-bracket
+[[ abc == a* ]] && echo glob; [[ abc =~ ^a.c$ ]] && echo re; [[ -n x && -z "" ]] && echo and; [[ a == b || b == b ]] && echo or
+### control/while-read
+printf 'a\nb\n' | while read l; do echo "got $l"; done
+### control/while-counter
+i=0; while [ $i -lt 3 ]; do echo $i; i=$((i+1)); done
+### control/until
+i=0; until [ $i -ge 3 ]; do echo $i; i=$((i+1)); done
+### control/for-list
+for i in a b c; do echo $i; done
+### control/for-glob fs
+touch x1 x2; for f in x*; do echo $f; done
+### control/for-seq
+for i in $(seq 1 3); do echo $i; done
+### control/for-c-style
+for ((i=0; i<3; i++)); do echo $i; done
+### control/break-continue
+for i in 1 2 3 4; do [ $i -eq 2 ] && continue; [ $i -eq 4 ] && break; echo $i; done
+### control/break-levels
+for i in 1 2; do for j in a b; do echo $i$j; break 2; done; done
+### control/case
+f() { case $1 in a|b) echo ab;; c*) echo c-star;; *) echo other;; esac; }; f a; f cat; f z
+### control/case-quoted
+x="a b"; case "$x" in "a b") echo yes;; *) echo no;; esac
+### control/and-or
+true && echo a; false || echo b; false && echo no || echo c; true || echo no && echo d
+### control/negation
+! true; echo $?; ! false; echo $?
+### control/group
+{ echo a; echo b; } | tr a-z A-Z
+### control/group-redirect fs
+{ echo a; echo b; } > out; cat out
+### control/subshell-vars
+x=1; (x=2; echo in $x); echo out $x
+### control/subshell-cd fs
+mkdir d; (cd d; pwd); pwd
+### control/subshell-exit
+(echo in; exit 3; echo no); echo "after $?"
+### control/subshell-nested
+x=1; ( x=2; ( x=3; echo $x ); echo $x ); echo $x
+### control/subshell-func
+f() { echo outer; }; ( f() { echo inner; }; f ); f
+### control/subshell-redirect fs
+(echo a; echo b) > out; cat out
+### control/exit-status
+false; echo $?; (exit 3); echo $?; true; echo $?
+### control/pipeline
+echo a | tr a-z A-Z | cat
+### control/pipestatus
+false | true; echo ${PIPESTATUS[@]}; true | false | true; echo ${PIPESTATUS[@]}
+### control/pipefail
+set -o pipefail; false | true; echo $?; set +o pipefail; false | true; echo $?
+### control/pipe-into-loop
+echo "x y" | { read a b; echo "$b $a"; }
+
+### options/errexit
+set -e; echo a; false; echo no
+### options/errexit-tested
+set -e; false || true; if false; then :; fi; false && true; echo yes
+### options/errexit-subshell
+set -e; (false; echo no); echo after
+### options/nounset
+set -u; echo before; echo $nope; echo no
+### options/noglob fs
+touch a b; set -f; echo *; set +f; echo *
+### options/noclobber fs
+set -C; echo a > f; echo b > f; echo $?; cat f; echo c >| f; cat f
+### options/dollar-dash
+set -e; case $- in *e*) echo has-e;; esac; set +e; case $- in *e*) echo still;; *) echo no-e;; esac
+
+### traps/exit
+trap 'echo bye' EXIT; echo hi
+### traps/exit-subshell
+trap 'echo bye' EXIT; (echo sub); echo hi
+### traps/err
+trap 'echo err' ERR; false; echo after
+### traps/err-not-tested
+trap 'echo err' ERR; if false; then :; fi; false || true; echo done
+### traps/reset
+trap 'echo x' EXIT; trap - EXIT; echo done
+### traps/exit-status
+trap 'echo "st=$?"' EXIT; exit 5
+### traps/signal
+trap 'echo got-usr1' USR1; kill -USR1 $$; echo after
+
+### redirect/out-append fs
+echo a > f; echo b >> f; cat f
+### redirect/in fs
+printf 'x\ny\n' > f; cat < f; wc -l < f
+### redirect/heredoc
+x=v; cat <<EOF
+line $x
+$((1+2))
+EOF
+### redirect/heredoc-quoted
+x=v; cat <<'EOF'
+line $x
+EOF
+### redirect/heredoc-tabs
+cat <<-EOF
+	indented
+	EOF
+### redirect/here-string
+cat <<< "hi there"; x=1; cat <<< "x=$x"
+### redirect/dup
+{ echo out; echo err >&2; } 2>&1 | cat
+### redirect/stderr-file fs
+{ echo out; echo err >&2; } 2> e; cat e
+### redirect/devnull
+echo x > /dev/null; echo $?; cat < /dev/null; echo $?
+### redirect/compound fs
+for i in 1 2; do echo $i; done > out; cat out
+### redirect/while-input fs
+printf 'a\nb\n' > in; while read l; do echo "[$l]"; done < in
+### redirect/clobber-order fs
+echo a > f; echo b > f; cat f
+
+### read/ifs-split
+IFS=: read a b <<< "x:y:z"; echo "$a|$b"
+### read/ifs-empty
+while IFS= read -r l; do echo "[$l]"; done <<< "  a b  "
+### read/raw
+read -r l <<< 'a\b'; echo "$l"; read l <<< 'a\b'; echo "$l"
+### read/eof-status
+read x < /dev/null; echo $?
+### read/ifs-star
+IFS=,; set -- a b c; echo "$*"; echo "$@"
+### read/ifs-fields
+IFS=:; x="a::b"; set -- $x; echo $#
+### read/array
+read -a arr <<< "p q r"; echo ${#arr[@]} ${arr[2]}
+### getopts/basic
+f() { while getopts "ab:" o; do echo "$o=$OPTARG"; done; echo "i=$OPTIND"; }; f -a -b val rest
+### getopts/error
+f() { while getopts "a" o; do echo "[$o]"; done; }; f -z 2>/dev/null
+
+### builtins/echo-flags
+echo -n a; echo b; echo -e 'x\ty'; echo -e 'a\nb'
+### builtins/printf
+printf '%s-%d\n' a 1 b 2; printf '%5s|%-5s|\n' ab cd; printf '%x %o\n' 255 8
+### builtins/eval
+eval 'x=5'; echo $x; eval "echo \$((1+1))"; y='echo hi'; eval $y
+### builtins/source fs
+echo 'v=sourced; echo in-source $1' > s.sh; . ./s.sh arg; echo $v
+### builtins/type
+type echo | head -1; type nosuchthing > /dev/null 2>&1; echo $?
+### builtins/command-v
+command -v echo > /dev/null; echo $?; command -v nosuchthing > /dev/null; echo $?
+### builtins/test-bracket
+test 1 -eq 1; echo $?; [ 1 -eq 2 ]; echo $?; [ ]; echo $?
+### builtins/shift
+set -- a b c d; shift 2; echo $@; shift; echo $1
+### builtins/colon
+: anything; echo $?
+### builtins/exit-code
+echo before; exit 7; echo after
+### builtins/cd-pwd fs
+mkdir -p a/b; cd a/b; pwd; cd ..; pwd; cd - > /dev/null; pwd
+### builtins/declare
+declare -a arr; arr[2]=x; echo ${#arr[@]}; declare v=1; echo $v
+### builtins/wait
+sleep 0.1 & wait; echo done
+### builtins/background-status
+(exit 3) & wait $!; echo $?
+### builtins/test-negations
+[ ! -e /nonexistent ] && echo yes; [ ! 1 -eq 2 ] && echo no2
