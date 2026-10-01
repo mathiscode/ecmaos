@@ -100,4 +100,11 @@ describe('two-tier command dispatch: true shell builtins + real execve/$PATH res
     expect(code1).toBe(0)
     expect(code2).toBe(0)
   })
+
+  it('prefixes the shell\'s own diagnostics with its name, as ecmash does', async () => {
+    const shell = kernel.shell
+    await shell.execute('cd /nonexistent-dir 2> /tmp/diag.err; nosuchcmd-xyz 2>> /tmp/diag.err')
+    const text = await kernel.filesystem.fs.readFile('/tmp/diag.err', 'utf-8')
+    expect(text).toContain('ecmaos: cd: ')
+  })
 })

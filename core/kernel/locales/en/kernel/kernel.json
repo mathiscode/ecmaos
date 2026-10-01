@@ -14,7 +14,7 @@
   "recommendedApps": "Recommended apps:",
   "installRecommendedApps": "Do you want to install the recommended apps? (Y/n)",
   "connectionDataFailed": "Failed to get connection data",
-  "commandNotFound": "Command not found: {{command}}",
+  "commandNotFound": "{{command}}: command not found",
   "modules": {
     "blacklisted": "Skipping blacklisted module {{module}}"
   }

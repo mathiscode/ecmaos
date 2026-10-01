@@ -14,7 +14,7 @@
   "recommendedApps": "Empfohlene Apps:",
   "installRecommendedApps": "Möchten Sie die empfohlenen Apps installieren? (Y/n)",
   "connectionDataFailed": "Fehler beim Abrufen der Verbindungsdaten",
-  "commandNotFound": "Befehl nicht gefunden: {{command}}",
+  "commandNotFound": "{{command}}: Befehl nicht gefunden",
   "modules": {
     "blacklisted": "Überspringe blockiertes Modul {{module}}"
   }

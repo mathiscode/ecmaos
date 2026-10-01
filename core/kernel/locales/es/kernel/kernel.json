@@ -30,7 +30,7 @@
   "recommendedApps": "Aplicaciones recomendadas:",
   "installRecommendedApps": "¿Quieres instalar las aplicaciones recomendadas? (S/n)",
   "connectionDataFailed": "Error al obtener datos de conexión",
-  "commandNotFound": "Comando no encontrado: {{command}}",
+  "commandNotFound": "{{command}}: comando no encontrado",
   "modules": {
     "blacklisted": "Omitiendo módulo en lista negra {{module}}"
   }

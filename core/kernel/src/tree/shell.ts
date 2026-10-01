@@ -235,6 +235,9 @@ const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin
  * command was being prepared. A missing command fails that one command with exit 127 and lets the
  * script continue, as in bash; anything else still unwinds.
  */
+/** What the shell itself puts before a diagnostic, as `ecmash` does with its own name: `<name>: <message>`. */
+const DIAGNOSTIC_PREFIX = 'ecmaos: '
+
 class CommandNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = 'CommandNotFoundError' }
 }
@@ -2299,7 +2302,7 @@ export class Shell implements IShell {
       write: async (text: string) => { terminal.write(text) },
       writeln: async (text: string) => { terminal.writeln(text) },
       writeErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m`) },
-      writelnErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m\r\n`) },
+      writelnErr: async (text: string) => { terminal.write(`\x1b[31m${DIAGNOSTIC_PREFIX}${text}\x1b[0m\r\n`) },
       readLine: async (options?: { prompt?: string, silent?: boolean }) => {
         const source = this.currentStdin
         if (source) return await source.readLine()
@@ -2348,7 +2351,7 @@ export class Shell implements IShell {
       write: out,
       writeln: async (text: string) => await out(text + '\n'),
       writeErr: err,
-      writelnErr: async (text: string) => await err(text + '\n'),
+      writelnErr: async (text: string) => await err(`${DIAGNOSTIC_PREFIX}${text}\n`),
       readLine: async () => await source?.readLine(),
       readAll: async () => await source?.readAll() ?? '',
       close: async () => {
