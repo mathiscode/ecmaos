@@ -124,6 +124,19 @@ function readsAsEof(rdev: number): boolean {
  * Only builtins read it. See `runPipelineStages` for why a real command in the same statement
  * cannot be handed this source.
  */
+/** What `jobs` shows for a compound command, whose source text is not kept. */
+function compoundLabel(statement: Statement): string {
+  switch (statement.type) {
+    case 'subshell': return '( ... )'
+    case 'group': return '{ ...; }'
+    case 'if': return 'if ...; fi'
+    case 'case': return 'case ...; esac'
+    case 'while': return `${statement.until ? 'until' : 'while'} ...; done`
+    case 'for': case 'cfor': return 'for ...; done'
+    default: return '...'
+  }
+}
+
 /**
  * A pipe that holds whatever is written to it, so the writer never waits for the reader. Used when
  * pipeline stages run one after another rather than together.
@@ -2012,7 +2025,7 @@ export class Shell implements IShell {
    * it's reported to the terminal directly and folded into `job.done` as a synthetic failure instead.
    */
   private createJob(pipeline: Pipeline, background: boolean, rethrow: boolean): JobImpl {
-    const commandLine = pipeline.commands.map(command => command.words.join(' ')).join(' | ')
+    const commandLine = pipeline.commands.map(command => command.compound ? compoundLabel(command.compound) : command.words.join(' ')).join(' | ')
     const job = new JobImpl(this._nextJobId++, commandLine, background)
     const settle = (codes: number[]) => {
       job.exitCodes = codes

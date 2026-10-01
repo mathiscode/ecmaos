@@ -193,6 +193,13 @@ describe('Shell job control — & background execution and the job table', () =>
     expect(await kernel.filesystem.fs.readFile(out, 'utf-8')).toBe('done\n')
   }, 10000)
 
+  it('a background subshell is a job labelled by its kind, not by an empty command', async () => {
+    await kernel.shell.execute('(true) &')
+    const job = kernel.shell.listJobs().at(-1)!
+    expect(job.commandLine).toBe('( ... )')
+    await job.done
+  })
+
   it('a pure-coreutil job never acquires a real process handle', async () => {
     await kernel.shell.execute('true &')
     await new Promise(resolve => setTimeout(resolve, 10))

@@ -1313,12 +1313,16 @@ export class Terminal extends XTerm implements ITerminal {
    * is marked stopped, and control returns to the prompt. Idempotent, so both the keyboard path
    * above and the process-side `SIGTSTP` hook in `Kernel.executeViaExecve` can call it.
    */
+  /** Counts jobs stopped with `^Z`; see the prompt drawn after a command finishes. */
+  private _stopEpoch = 0
+
   foregroundStopped() {
     const job = this._shell?.foregroundJob
     if (job && job.status !== 'stopped') {
       for (const process of job.processes) process.setForeground?.(false)
       job.status = 'stopped'
       this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
+      this._stopEpoch++
     }
 
     this._editor.reset()
@@ -1561,14 +1565,20 @@ export class Terminal extends XTerm implements ITerminal {
           await this._history.add(uid, cmdToExecute)
           this._commandNumber++
 
+          const epoch = this._stopEpoch
           try {
             this.events.dispatch<TerminalExecuteEvent>(TerminalEvents.EXECUTE, { terminal: this, command: cmdToExecute })
             await this._shell.execute(cmdToExecute)
           } catch (error) {
             this.writeln(chalk.red(`${error}`))
           } finally {
-            this._editor.reset()
-            this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
+            // A command that was stopped (`^Z`) already got its prompt back then. When it finally
+            // finishes, after an `fg` and a `^C` say, the `fg` that resumed it draws the prompt; a
+            // second one here landed after the first, indented by its width.
+            if (epoch === this._stopEpoch) {
+              this._editor.reset()
+              this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
+            }
           }
         } else {
           editor.reset()
