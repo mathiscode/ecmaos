@@ -833,9 +833,8 @@ export class Shell implements IShell {
     const path = `/tmp/.subst-${this._id.slice(0, 8)}-${this._substitutionCount++}`
     await fs.writeFile(path, new Uint8Array())
     const redirection: Redirection = { type: '>', fd: 1, target: path, targetParts: [{ text: path, quoting: 'single' }] }
-    let status = 0
     try {
-      status = await this.withStatementRedirections([redirection], () => this.interpreter.runSubshell(parseStatements(command)))
+      const status = await this.withStatementRedirections([redirection], () => this.interpreter.runSubshell(parseStatements(command)))
       this._substitutionStatus = status
       const text = await fs.readFile(path, 'utf-8')
       return text.replace(/\n+$/, '')

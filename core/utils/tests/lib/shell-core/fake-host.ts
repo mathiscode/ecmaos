@@ -1,5 +1,6 @@
 import { Interpreter, type InterpreterHost } from '../../../src/lib/shell-core/interpreter.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../../../src/lib/shell-core/signals.ts'
+import { runSharedBuiltin, sharedBuiltinNames, type BuiltinHost } from '../../../src/lib/shell-core/builtins.ts'
 import { ShellState } from '../../../src/lib/shell-core/state.ts'
 import type { Pipeline } from '../../../src/lib/shell-parser.ts'
 
@@ -31,9 +32,63 @@ export class FakeHost implements InterpreterHost {
     return 0
   }
 
+  /** When set, the shared builtins run for their names, over an in-memory file system. */
+  shared = false
+  readonly files = new Map<string, string>()
+  readonly directories = new Set<string>(['/'])
+  stdin: string[] = []
+  cwd = '/'
+
+  builtinHost(): BuiltinHost {
+    return {
+      state: this.state,
+      interpreter: this.interpreter,
+      cwd: () => this.cwd,
+      chdir: async target => {
+        if (!this.directories.has(target)) return 'No such file or directory'
+        this.cwd = target
+        return undefined
+      },
+      resolvePath: path => path.startsWith('/') ? path : `${this.cwd === '/' ? '' : this.cwd}/${path}`,
+      stat: async path => {
+        if (this.directories.has(path)) return { file: false, directory: true, size: 0 }
+        const body = this.files.get(path)
+        return body === undefined ? undefined : { file: true, directory: false, size: body.length }
+      },
+      readFile: async path => this.files.get(path) ?? '',
+      positional: () => this.params,
+      setPositional: args => { this.params = args },
+      getStatus: () => this.status,
+      describe: async name => {
+        if (this.state.aliases.has(name)) return { kind: 'alias' }
+        if (sharedBuiltinNames.has(name)) return { kind: 'builtin' }
+        if (this.state.functions.has(name)) return { kind: 'function' }
+        return this.files.has(`/bin/${name}`) ? { kind: 'file', path: `/bin/${name}` } : undefined
+      },
+      runArgv: argv => this.run(argv.join(' ')),
+    }
+  }
+
   private async command(words: string[]): Promise<number> {
     const [name = '', ...args] = words
     this.onCommand?.(words)
+    if (this.shared) {
+      const assignment = /^([A-Za-z_]\w*)=(.*)$/.exec(name)
+      if (assignment) { this.state.set(assignment[1] as string, assignment[2] as string); return 0 }
+      if (name === 'echo') {
+        this.out.push(args.map(word => word.replace(/\$(\w+|\?)/g, (_, key: string) => key === '?' ? String(this.status) : (this.state.lookup(key) ?? ''))).join(' '))
+        return 0
+      }
+    }
+    if (this.shared && sharedBuiltinNames.has(name)) {
+      return await runSharedBuiltin(this.builtinHost(), name, args, {
+        write: text => { this.out.push(text) },
+        writeln: text => { this.out.push(text) },
+        writeErr: text => { this.errors.push(text) },
+        writelnErr: text => { this.errors.push(text) },
+        readLine: async () => this.stdin.shift(),
+      })
+    }
     switch (name) {
       case 'true': return 0
       case 'false': return 1

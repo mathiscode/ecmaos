@@ -178,8 +178,8 @@ describe('ecmash options, aliases and traps', () => {
   })
 
   it('reports an unsupported option instead of ignoring it', async () => {
-    const { err } = await run('set -f\n')
-    expect(err).toContain('unsupported option')
+    const { err } = await run('set -Z\n')
+    expect(err).toContain('invalid option')
   })
 })
 

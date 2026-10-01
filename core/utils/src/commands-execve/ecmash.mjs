@@ -31,6 +31,8 @@ import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
 import { ShellState } from '../lib/shell-core/state.ts'
 import { Interpreter } from '../lib/shell-core/interpreter.ts'
+import { runSharedBuiltin, sharedBuiltinNames, shellQuote } from '../lib/shell-core/builtins.ts'
+import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../lib/shell-core/signals.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
@@ -106,10 +108,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 /** A `break`, `continue`, `return` or `exit` unwinding: not an error to report. */
 const isUnwind = error => error instanceof BreakSignal || error instanceof ContinueSignal || error instanceof ReturnSignal || error instanceof ExitSignal
 
-const BUILTINS = new Set([
-  ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
-  'return', 'break', 'continue', 'local', 'alias', 'unalias', 'trap', 'type', 'command', 'wait', 'jobs', 'fg', 'bg', 'disown', 'test', '[', 'exec', 'pwd', 'env', 'declare', 'readonly',
-])
+// The ones that need this shell's own machinery (its job table, its descriptors, `exec`); every other
+// builtin is shared with the kernel shell (`../lib/shell-core/builtins.ts`).
+const OWN_BUILTINS = ['true', 'false', 'echo', 'pwd', 'env', 'wait', 'jobs', 'fg', 'bg', 'disown', 'exec']
+const BUILTINS = new Set([...sharedBuiltinNames, ...OWN_BUILTINS])
 
 class Shell {
   constructor(name, args) {
@@ -284,6 +286,7 @@ class Shell {
   }
 
   async glob(pattern) {
+    if (this.opts.noglob) return []
     if (!/[*?[]/.test(pattern)) return []
     const absolute = pattern.startsWith('/')
     const segments = pattern.split('/').filter(Boolean)
@@ -601,6 +604,14 @@ class Shell {
       if (!args.length) return { status: 0 }
     }
     if (this.opts.xtrace) writeAllFd(2, `+ ${args.join(' ')}\n`)
+    // `set -C`: a plain `>` refuses an existing regular file (`>|` overrides, `>>` appends).
+    if (this.opts.noclobber) {
+      for (const redirection of command.redirections) {
+        if (redirection.type !== '>') continue
+        const target = resolvePath(await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }]))
+        if (isFile(target)) { writeAllFd(2, `ecmash: ${target}: cannot overwrite existing file\n`); return { status: 1 } }
+      }
+    }
     const applied = await this.openRedirections(command.redirections, fds)
     const finish = async () => { await applied.finish() }
     const name = args[0]
@@ -741,9 +752,86 @@ class Shell {
 
   out(text, fd = 1) { writeAllFd(this.stdio[fd] ?? fd, text) }
 
+  /** The three descriptors as the shared builtins see them. A diagnostic carries this shell's name. */
+  builtinIO() {
+    const stdio = this.stdio
+    const to = (fd, text) => writeAllFd(stdio[fd] ?? fd, text)
+    return {
+      write: text => to(1, text),
+      writeln: text => to(1, text + '\n'),
+      writeErr: text => to(2, text),
+      writelnErr: text => to(2, `ecmash: ${text}\n`),
+      // One byte at a time: `read` must not take more of the stream than its line.
+      readLine: async options => {
+        if (options?.prompt) to(2, options.prompt)
+        const bytes = []
+        const one = new Uint8Array(1)
+        let got = false
+        for (;;) {
+          const n = read(stdio[0] ?? 0, one, -1)
+          if (n <= 0) break
+          got = true
+          if (one[0] === 10) break
+          bytes.push(one[0])
+        }
+        return got ? decoder.decode(new Uint8Array(bytes)) : undefined
+      },
+    }
+  }
+
+  /** What the shared builtins need from this shell. */
+  builtinHost() {
+    const shell = this
+    return {
+      state: shell.state,
+      interpreter: shell.interpreter,
+      cwd: () => getcwd(),
+      chdir: async target => {
+        if (!isDir(target)) return exists(target) ? 'Not a directory' : 'No such file or directory'
+        chdir(target)
+        return undefined
+      },
+      resolvePath: path => resolvePath(path),
+      stat: async path => {
+        try {
+          const info = stat(path)
+          const kind = info.mode & 0xf000
+          return { file: kind === 0x8000, directory: kind === 0x4000, size: Number(info.size ?? 0) }
+        } catch { return undefined }
+      },
+      readFile: async path => readFileText(path),
+      positional: () => shell.positional,
+      setPositional: args => { shell.positional = args },
+      getStatus: () => shell.status,
+      describe: async name => {
+        if (shell.aliases.has(name)) return { kind: 'alias' }
+        if (CONTROL_FLOW_KEYWORDS.has(name)) return { kind: 'keyword' }
+        if (BUILTINS.has(name)) return { kind: 'builtin' }
+        if (shell.functions.has(name)) return { kind: 'function' }
+        const program = shell.findProgram(name)
+        return program ? { kind: 'file', path: program } : undefined
+      },
+      runArgv: argv => shell.interpreter.runText(argv.map(shellQuote).join(' ')),
+      signalName: number => Object.entries(TRAP_SIGNALS).find(([, n]) => n === number)?.[0],
+      signalNames: () => Object.keys(TRAP_SIGNALS),
+      // INT is reported by the wait that saw the child die; the rest arrive as real signals.
+      trapSignal: (signal, handler) => {
+        if (signal !== 'EXIT' && signal !== 'ERR' && !(signal in TRAP_SIGNALS)) {
+          return `unsupported signal (EXIT, ERR and ${Object.keys(TRAP_SIGNALS).join(', ')} are)`
+        }
+        if (signal in TRAP_SIGNALS && signal !== 'INT') {
+          const number = TRAP_SIGNALS[signal]
+          if (handler !== undefined) onSignal(number, () => shell.pending.push(signal))
+          else if (sys.offSignal) sys.offSignal(number)
+        }
+        return undefined
+      },
+    }
+  }
+
   async builtin(name, args) {
     switch (name) {
-      case ':': case 'true': return 0
+      case 'true': return 0
       case 'false': return 1
       case 'env': {
         if (args.length) { this.out('ecmash: env: running a command with env is not supported\n', 2); return 2 }
@@ -765,133 +853,6 @@ class Shell {
         this.out(text + (newline ? '\n' : ''))
         return 0
       }
-      case 'cd': {
-        const target = args[0] === '-' ? this.vars.get('OLDPWD') : (args[0] ?? this.vars.get('HOME') ?? '/')
-        const path = resolvePath(target ?? '/')
-        if (!isDir(path)) { this.out(`ecmash: cd: ${target}: No such file or directory\n`, 2); return 1 }
-        this.vars.set('OLDPWD', getcwd())
-        chdir(path)
-        this.vars.set('PWD', path)
-        return 0
-      }
-      case 'exit': await this.leave(args[0] === undefined ? this.status : Number(args[0])); return 0
-      case 'export': {
-        for (const arg of args) {
-          const [name, ...value] = arg.split('=')
-          if (value.length) this.set(name, value.join('='))
-          this.state.markExported(name)
-        }
-        if (!args.length) for (const [name, value] of Object.entries(this.state.environment()).sort()) this.out(`export ${name}="${value}"\n`)
-        return 0
-      }
-      case 'unset': {
-        let status = 0
-        for (const name of args.filter(a => !a.startsWith('-'))) {
-          const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(name)
-          if (element) { this.state.unsetArrayElement(element[1], evaluateArithmeticExpression(element[2], v => this.get(v))); continue }
-          try { this.state.unset(name) } catch (error) { this.out(`ecmash: ${error.message}\n`, 2); status = 1; continue }
-          this.functions.delete(name)
-          this.state.unsetArray(name)
-        }
-        return status
-      }
-      case 'declare': {
-        // Enough of `declare` for arrays and exports: `-a NAME` makes an empty array, `-x` exports,
-        // `NAME=value` assigns. Other flags are accepted and ignored.
-        const flags = args.filter(a => /^-[A-Za-z]+$/.test(a)).join('')
-        for (const arg of args.filter(a => !/^-[A-Za-z]+$/.test(a))) {
-          const [name, ...value] = arg.split('=')
-          if (flags.includes('a')) { if (!this.state.lookupArray(name)) this.state.setArray(name, []) }
-          else if (value.length) this.set(name, value.join('='))
-          if (flags.includes('x')) this.state.markExported(name)
-          if (flags.includes('r')) this.state.markReadonly(name)
-        }
-        return 0
-      }
-      case 'local': {
-        for (const arg of args) {
-          const [name, ...value] = arg.split('=')
-          try { this.state.declareLocal(name, value.length ? value.join('=') : undefined) } catch {
-            this.out('ecmash: local: can only be used in a function\n', 2)
-            return 1
-          }
-        }
-        return 0
-      }
-      case 'readonly': {
-        if (!args.length) { for (const name of [...this.state.readonlyNames].sort()) this.out(`readonly ${name}="${this.get(name) ?? ''}"\n`); return 0 }
-        let status = 0
-        for (const arg of args.filter(a => !a.startsWith('-'))) {
-          const [name, ...value] = arg.split('=')
-          if (value.length && !this.set(name, value.join('='))) { status = 1; continue }
-          this.state.markReadonly(name)
-        }
-        return status
-      }
-      case 'set': {
-        if (!args.length) { for (const [n, v] of [...this.vars].sort()) this.out(`${n}=${v}\n`); return 0 }
-        if (args[0] === '--') { this.positional = args.slice(1); return 0 }
-        const letters = { e: 'errexit', u: 'nounset', x: 'xtrace' }
-        for (let i = 0; i < args.length; i++) {
-          const arg = args[i]
-          if (arg === '-o' || arg === '+o') {
-            const name = args[++i]
-            if (name === 'pipefail') this.opts.pipefail = arg === '-o'
-            else if (name === 'errexit' || name === 'nounset' || name === 'xtrace') this.opts[name] = arg === '-o'
-            else { this.out(`ecmash: set: ${name}: unsupported option\n`, 2); return 2 }
-            continue
-          }
-          if (!/^[-+][a-z]+$/.test(arg)) { this.positional = args.slice(i); break }
-          for (const letter of arg.slice(1)) {
-            if (!letters[letter]) { this.out(`ecmash: set: ${arg[0]}${letter}: unsupported option\n`, 2); return 2 }
-            this.opts[letters[letter]] = arg[0] === '-'
-          }
-        }
-        return 0
-      }
-      case 'alias': {
-        if (!args.length) { for (const [n, v] of [...this.aliases].sort()) this.out(`alias ${n}='${v}'\n`); return 0 }
-        let status = 0
-        for (const arg of args) {
-          const at = arg.indexOf('=')
-          if (at > 0) this.aliases.set(arg.slice(0, at), arg.slice(at + 1))
-          else if (this.aliases.has(arg)) this.out(`alias ${arg}='${this.aliases.get(arg)}'\n`)
-          else { this.out(`ecmash: alias: ${arg}: not found\n`, 2); status = 1 }
-        }
-        return status
-      }
-      case 'unalias': for (const n of args) this.aliases.delete(n); return 0
-      case 'trap': {
-        if (!args.length || args[0] === '-p') { for (const [sig, cmd] of this.traps) this.out(`trap -- '${cmd}' ${sig}\n`); return 0 }
-        if (args[0] === '-l') { this.out(Object.keys(TRAP_SIGNALS).join(' ') + '\n'); return 0 }
-        const [action, ...signals] = args
-        for (const raw of signals) {
-          let sig = raw.replace(/^SIG/, '').toUpperCase()
-          if (/^\d+$/.test(sig)) sig = sig === '0' ? 'EXIT' : (Object.entries(TRAP_SIGNALS).find(([, n]) => n === Number(sig))?.[0] ?? sig)
-          if (sig !== 'EXIT' && sig !== 'ERR' && !(sig in TRAP_SIGNALS)) { this.out(`ecmash: trap: ${raw}: unsupported signal (EXIT, ERR and ${Object.keys(TRAP_SIGNALS).join(', ')} are)\n`, 2); return 1 }
-          if (action === '-' || action === '') {
-            if (action === '-') this.traps.delete(sig); else this.traps.set(sig, '')
-          } else this.traps.set(sig, action)
-          // INT is reported by the wait that saw the child die; the rest arrive as real signals.
-          if (sig in TRAP_SIGNALS && sig !== 'INT') {
-            const number = TRAP_SIGNALS[sig]
-            if (this.traps.has(sig)) onSignal(number, () => this.pending.push(sig))
-            else if (sys.offSignal) sys.offSignal(number)
-          }
-        }
-        return 0
-      }
-      case 'shift': this.positional = this.positional.slice(Number(args[0] ?? 1)); return 0
-      case 'return': throw new ReturnSignal(Number(args[0] ?? this.status))
-      case 'break': throw new BreakSignal(Number(args[0] ?? 1))
-      case 'continue': throw new ContinueSignal(Number(args[0] ?? 1))
-      case 'read': return this.read(args)
-      case 'source': case '.': {
-        const path = this.findSource(args[0])
-        if (!path) { this.out(`ecmash: ${args[0]}: No such file or directory\n`, 2); return 1 }
-        return await this.interpreter.runSourced(readFileText(path), args.length > 1 ? args.slice(1) : undefined)
-      }
-      case 'eval': return await this.interpreter.runSourced(args.join(' '))
       case 'exec': {
         if (!args.length) return 0
         const program = this.findProgram(args[0])
@@ -901,20 +862,6 @@ class Shell {
         const done = await waitpid(pid, false)
         exit(done.signal ? 128 + done.signal : done.code)
         return 0
-      }
-      case 'type': case 'command': {
-        const names = args.filter(a => !a.startsWith('-'))
-        let status = 0
-        for (const n of names) {
-          if (this.functions.has(n)) this.out(`${n} is a function\n`)
-          else if (BUILTINS.has(n)) this.out(`${n} is a shell builtin\n`)
-          else { const p = this.findProgram(n); if (p) this.out(`${n} is ${p}\n`); else { this.out(`ecmash: type: ${n}: not found\n`, 2); status = 1 } }
-        }
-        return status
-      }
-      case 'test': case '[': {
-        const list = name === '[' ? args.slice(0, -1) : args
-        return this.test(list) ? 0 : 1
       }
       case 'wait': {
         if (!args.length) { for (const job of this.jobs.filter(j => j.done && !j.stopped)) await job.done; this.jobs = this.jobs.filter(j => !j.finished); return 0 }
@@ -970,7 +917,7 @@ class Shell {
         return status
       }
     }
-    return 127
+    return await runSharedBuiltin(this.builtinHost(), name, args, this.builtinIO())
   }
 
   /** `%n`, `n`, `%%`/nothing (the newest job; for `fg` and `bg` the newest stopped or background one). */
@@ -982,69 +929,6 @@ class Shell {
     return pool[pool.length - 1]
   }
 
-  findSource(name) {
-    if (name.includes('/')) return isFile(resolvePath(name)) ? resolvePath(name) : undefined
-    for (const dir of [getcwd(), ...(this.vars.get('PATH') ?? '').split(':')]) {
-      if (dir && isFile(`${dir}/${name}`)) return `${dir}/${name}`
-    }
-  }
-
-  read(args) {
-    let raw = false
-    const names = []
-    for (const arg of args) { if (arg === '-r') raw = true; else if (!arg.startsWith('-')) names.push(arg) }
-    // One byte at a time: `read` must not take more of the stream than its line.
-    const bytes = []
-    const one = new Uint8Array(1)
-    let got = false
-    for (;;) {
-      const n = read(this.stdio[0], one, -1)
-      if (n <= 0) break
-      got = true
-      if (one[0] === 10) break
-      bytes.push(one[0])
-    }
-    if (!got) return 1
-    let line = decoder.decode(new Uint8Array(bytes))
-    if (!raw) line = line.replace(/\\(.)/g, '$1')
-    const ifs = this.vars.get('IFS') ?? ' \t\n'
-    const fields = ifs === '' ? [line] : line.split(new RegExp(`[${ifs.replace(/[\]\\^-]/g, '\\$&')}]+`)).filter((f, i) => f !== '' || i > 0)
-    const targets = names.length ? names : ['REPLY']
-    targets.forEach((target, index) => {
-      const last = index === targets.length - 1
-      this.set(target, last ? fields.slice(index).join(' ').trim() : (fields[index] ?? ''))
-    })
-    return 0
-  }
-
-  test(list) {
-    const [a, b, c] = list
-    if (list.length === 0) return false
-    if (list.length === 1) return a !== ''
-    if (a === '!') return !this.test(list.slice(1))
-    if (list.length === 2) {
-      switch (a) {
-        case '-n': return b !== ''
-        case '-z': return b === ''
-        case '-e': return exists(resolvePath(b))
-        case '-f': return isFile(resolvePath(b))
-        case '-d': return isDir(resolvePath(b))
-        case '-r': case '-w': case '-x': case '-s': return exists(resolvePath(b))
-      }
-      return false
-    }
-    switch (b) {
-      case '=': case '==': return a === c
-      case '!=': return a !== c
-      case '-eq': return Number(a) === Number(c)
-      case '-ne': return Number(a) !== Number(c)
-      case '-lt': return Number(a) < Number(c)
-      case '-le': return Number(a) <= Number(c)
-      case '-gt': return Number(a) > Number(c)
-      case '-ge': return Number(a) >= Number(c)
-    }
-    return false
-  }
 }
 
 // -- interactive ----------------------------------------------------------------------------------
