@@ -10,7 +10,7 @@ ecmash [-l] [-c COMMAND [NAME [ARG...]]] [FILE [ARG...]]
 
 ## Description
 
-The ecmaOS shell as a real program. It runs in its own worker like any other command, uses the same parsers as the shell built into the kernel, and reaches the system only through syscalls: `spawn`, `waitpid` and `killpg` for processes, `pipe` for pipelines, `open` for redirections, and the terminal ioctls for its line editor.
+The ecmaOS shell as a real program. It runs in its own worker like any other command, runs the same shell language as the shell built into the kernel (one shared parser, expander, interpreter and set of builtins), and reaches the system only through syscalls: `spawn`, `waitpid` and `killpg` for processes, `pipe` for pipelines, `open` for redirections, and the terminal ioctls for its line editor.
 
 With no command and no file it reads commands from standard input. When that is a terminal it is interactive: a prompt (`$PS1`), line editing, and history in `~/.ecmash_history`. `^C` cancels the line being typed; while a pipeline runs, a stage killed by `SIGINT` stops the rest of that pipeline.
 
@@ -29,11 +29,11 @@ Job control: `^Z` stops the foreground job, `jobs` lists, `fg` and `bg` resume, 
 
 `trap` takes `EXIT`, `ERR`, `INT`, `HUP`, `QUIT`, `USR1`, `USR2`, `PIPE`, `ALRM`, `TERM` and `CHLD`; `DEBUG` and `RETURN` are refused. A trap for a signal runs between commands, not in the middle of one.
 
-Builtins: `:`, `true`, `false`, `cd`, `pwd`, `echo`, `env`, `exit`, `export`, `unset`, `local`, `set --`, `shift`, `read`, `source`, `.`, `eval`, `exec`, `return`, `break`, `continue`, `type`, `command`, `test`, `[`, `wait`, `jobs`, `fg`, `bg`, `disown`, `alias`, `unalias`, `trap`, `declare`.
+Builtins: `:`, `true`, `false`, `cd`, `pwd`, `echo`, `env`, `exit`, `export`, `unset`, `local`, `set --`, `shift`, `read`, `source`, `.`, `eval`, `exec`, `return`, `break`, `continue`, `type`, `command`, `test`, `[`, `wait`, `jobs`, `fg`, `bg`, `disown`, `alias`, `unalias`, `trap`, `declare`, `typeset`, `readonly`, `getopts`.
 
 ## Differences from the shell built into the kernel
 
-Not implemented: associative arrays, arithmetic `(( ))` as a command, a subshell inside a pipeline or list, `local` scoping for arrays (they are shell-wide), and `set` options other than `-e`, `-u`, `-x` and `-o pipefail` (`set` says so rather than ignoring them). `exec COMMAND` runs the command and exits with its status, since a worker cannot replace itself.
+Not implemented: associative arrays, arithmetic `(( ))` as a command, a subshell inside a pipeline or list, and `read -n`, `-d` and `-t` (refused with a message). `set` takes `-e`, `-u`, `-x`, `-f`, `-C`, `-v` and `-o pipefail`; any other option is refused rather than ignored. `exec COMMAND` runs the command and exits with its status, since a worker cannot replace itself.
 
 Output redirected to a file is written to a scratch file and copied over when the command finishes. The root filesystem loses data when a file is written in several chunks through a plain descriptor, and a whole-file write is the safe way.
 

@@ -1,6 +1,7 @@
 /**
  * `ecmash`: the ecmaOS shell as a real program. It runs in a worker like every other command, on the
- * same parsers and expander the kernel-integrated shell uses (`../lib/*`), and reaches the system
+ * same shell language the kernel-integrated shell uses (`../lib/*`: parsers, expander, and the shared
+ * `shell-core` state, interpreter and builtins), and reaches the system
  * only through syscalls: `spawn`/`waitpid`/`killpg` for processes, `pipe` for pipelines, `open` for
  * redirections, and the terminal ioctls for its line editor.
  *
@@ -14,7 +15,8 @@
  * heredocs, here-strings), `$var`/`${...}`/`$(...)`/`$((...))`, globbing, `if`/`while`/`for`/`case`,
  * `{ }` groups, `( )` subshells (a snapshot, see `runSubshell`), indexed arrays, `<(cmd)`/`>(cmd)`,
  * aliases, `trap`, `set -e` and friends, job control (`^Z`, `fg`, `bg`), functions, and the builtins
- * listed in BUILTINS.
+ * in BUILTINS: the shared ones from `shell-core/builtins`, plus the few that need a process or a job
+ * table (`echo`, `pwd`, `env`, `wait`, `jobs`, `fg`, `bg`, `disown`, `exec`).
  *
  * Output redirected to a file goes through a scratch file and is copied over when the command ends.
  * The root filesystem corrupts a file written in several chunks through a plain descriptor (see

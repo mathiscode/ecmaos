@@ -535,20 +535,6 @@ export class Shell implements IShell {
   }
 
   /**
-   * Removes `name`, honoring `local` scoping: the innermost frame that declared it is marked unset,
-   * otherwise it goes from the real environment.
-   *
-   * `unset` used to call `shell.env.delete` directly, which could not remove a local at all -- the
-   * frame still shadowed the name, so `$X` kept its local value while the *caller's* `X` was
-   * destroyed. Marking the frame instead is what bash does, which is why `$X` reads empty inside the
-   * function and the caller's value comes back when it returns.
-   */
-  unsetVariable(name: string): void {
-    this.state.unset(name)
-    this.publishEnv()
-  }
-
-  /**
    * Every variable visible right now, `local` frames layered over the environment, with the shell's
    * own internal names left out (see {@link SHELL_ONLY_VARIABLES}).
    *
@@ -2545,21 +2531,6 @@ export class Shell implements IShell {
       values.push(value)
     }
     return values
-  }
-
-  /**
-   * `shift [N]`: drops the first N positional parameters and renumbers the rest, leaving `$0` alone.
-   *
-   * Returns false without changing anything when N exceeds `$#`, which is how bash's `shift` reports
-   * failure -- and what makes `while [ $# -gt 0 ]; do ...; shift; done` terminate rather than spin.
-   */
-  shiftPositionalParameters(count: number): boolean {
-    const positional = this.positionalParameters
-    if (count < 0 || count > positional.length) return false
-    const zero = this.env.get('0')
-    this.setPositionalParameters([zero ?? '', ...positional.slice(count)])
-    if (zero === undefined) this.env.delete('0')
-    return true
   }
 }
 
