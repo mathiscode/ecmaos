@@ -14,7 +14,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * from its parent's function, or leave a variable behind in its parent, which is exactly why every
  * real shell keeps this set in-process. They are thrown as signals rather than reported as exit
  * codes because an exit code cannot distinguish "exited 1" from "stop the loop" -- see
- * `lib/shell-signals.ts`.
+ * `@ecmaos/coreutils/lib/shell-core/signals`.
  *
  * `break`/`continue` existed before this, but only as a comparison of the statement's whole trimmed
  * text against `'break'` in `executeStatements`, so `break 2`, `break;` and `cond && break` all fell

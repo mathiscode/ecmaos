@@ -13,7 +13,7 @@
  * caller's variables), and `shift`/`source`/`eval` (the caller's positional parameters and its
  * statement stream). `break`/`continue`/`exit`/`return` belong for a different reason: they alter
  * the interpreter's own control flow, which a child process cannot do to its parent -- see
- * `lib/shell-signals.ts`. `theme`/`history` were checked too and found NOT structurally blocked:
+ * `@ecmaos/coreutils/lib/shell-core/signals`. `theme`/`history` were checked too and found NOT structurally blocked:
  * they are real programs that reach the shell through custom syscalls, not builtins.
  *
  * Dispatched from `Shell.execute` exactly the way `functionNameFor`/`callFunction` already dispatch
@@ -28,7 +28,7 @@ import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
 import type { ShellBuiltinIO, ShellOptionName, User } from '@ecmaos/types'
 import { DEFAULT_IFS, splitOnIFS } from '@ecmaos/coreutils/lib/word-expansion'
-import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from '#lib/shell-signals.ts'
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from '@ecmaos/coreutils/lib/shell-core/signals'
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'read', 'su', 'trap', 'unset',
@@ -621,7 +621,7 @@ async function runRead(shell: Shell, argv: string[], io: Io): Promise<number> {
  * Builtins rather than a special case in `Shell.executeStatements`, which is what they used to be:
  * that check compared the statement's whole trimmed text to `'break'`, so `break 2`, `break;` and
  * `test -d "$d" && break` all missed it and went looking for a `/bin/break`. As builtins they work
- * anywhere a command works, and `N` reaches the right loop -- see `lib/shell-signals.ts`.
+ * anywhere a command works, and `N` reaches the right loop -- see `@ecmaos/coreutils/lib/shell-core/signals`.
  */
 async function runBreak(argv: string[], io: Io, keyword: 'break' | 'continue'): Promise<number> {
   if (argv[0] === '--help') {

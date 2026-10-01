@@ -29,6 +29,8 @@ import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
 import { ShellState } from '../lib/shell-core/state.ts'
+import { Interpreter } from '../lib/shell-core/interpreter.ts'
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../lib/shell-core/signals.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
@@ -114,9 +116,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // -- shell state ----------------------------------------------------------------------------------
 
-class ControlSignal extends Error {
-  constructor(kind, value) { super(kind); this.kind = kind; this.value = value }
-}
+/** A `break`, `continue`, `return` or `exit` unwinding: not an error to report. */
+const isUnwind = error => error instanceof BreakSignal || error instanceof ContinueSignal || error instanceof ReturnSignal || error instanceof ExitSignal
 
 const BUILTINS = new Set([
   ':', 'true', 'false', 'cd', 'exit', 'export', 'unset', 'set', 'shift', 'read', 'echo', 'source', '.', 'eval',
@@ -134,13 +135,11 @@ class Shell {
     this.scratch = 0
     this.depth = 0
     this.interactive = false
-    this.conditional = 0
     this.leaving = false
-    this.subshell = 0
     this.procsubs = []
     this.procsubCount = 0
     this.pending = []
-    this.inErrTrap = false
+    this.interpreter = new Interpreter(this.hostInterface(), this.state, { maxFunctionDepth: 200 })
     // Written straight into the store, so they count as inherited: a child shell nests one deeper, and PWD is exported.
     this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
     if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
@@ -266,29 +265,6 @@ class Shell {
     }
   }
 
-  /**
-   * Runs a statement list as a subshell. There is no fork, so it is a snapshot: variables, arrays,
-   * functions, aliases, the positional parameters and the working directory are put back afterwards,
-   * and `exit` inside ends only the subshell.
-   */
-  async runSubshell(statements) {
-    const saved = this.state.snapshot()
-    const outside = { positional: this.positional, cwd: getcwd(), leaving: this.leaving }
-    this.subshell++
-    try {
-      return await this.runStatements(statements)
-    } catch (signal) {
-      if (signal instanceof ControlSignal && signal.kind === 'exit') return signal.value
-      throw signal
-    } finally {
-      this.subshell--
-      this.state.restore(saved)
-      this.positional = outside.positional
-      this.leaving = outside.leaving
-      if (getcwd() !== outside.cwd) chdir(outside.cwd)
-    }
-  }
-
   // -- arrays -------------------------------------------------------------------------------------
 
   /**
@@ -357,75 +333,47 @@ class Shell {
 
   // -- running text -------------------------------------------------------------------------------
 
-  async runText(text) {
-    return await this.runStatements(parseStatements(text))
-  }
+  async runText(text) { return await this.interpreter.runText(text) }
+  async runStatements(statements) { return await this.interpreter.runStatements(statements) }
+  async runSubshell(statements) { return await this.interpreter.runSubshell(statements) }
+  async runLine(line) { return await this.interpreter.runLine(line) }
+  async callFunction(name, args) { return await this.interpreter.callFunction(name, args) }
 
-  async runStatements(statements) {
-    let status = this.status
-    for (const statement of statements) {
-      status = await this.runStatement(statement)
-      this.status = status
-      await this.runPendingTraps()
+  /** What the shared interpreter needs from this shell: how to run a pipeline, and the per-process pieces of state. */
+  hostInterface() {
+    const shell = this
+    return {
+      runPipeline: async pipeline => [await shell.runPipeline(pipeline)],
+      runBackground: pipeline => shell.runBackground(pipeline),
+      runSpecial: line => shell.arrayAssignment(line),
+      withRedirect: (statement, run) => shell.withRedirect(statement, run),
+      expandWords: text => shell.expandWords(text),
+      caseSubject: async word => (await shell.expandWords(word))[0] ?? '',
+      matchesPattern: (subject, pattern) => new RegExp(`^${globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))}$`).test(subject),
+      assign: (name, value) => { shell.set(name, value) },
+      enterParameters: args => {
+        const saved = shell.positional
+        shell.positional = args
+        return () => { shell.positional = saved }
+      },
+      // There is no fork, so a subshell is a snapshot: variables, arrays, functions, aliases, the
+      // positional parameters and the working directory are put back afterwards.
+      snapshot: () => {
+        const saved = shell.state.snapshot()
+        const outside = { positional: shell.positional, cwd: getcwd(), leaving: shell.leaving }
+        return () => {
+          shell.state.restore(saved)
+          shell.positional = outside.positional
+          shell.leaving = outside.leaving
+          if (getcwd() !== outside.cwd) chdir(outside.cwd)
+        }
+      },
+      getStatus: () => shell.status,
+      setStatus: code => { shell.status = code },
+      checkpoint: async () => { await shell.runPendingTraps(); return false },
+      exitShell: code => shell.leave(code),
+      writeErr: message => { writeAllFd(2, `ecmash: ${message}\n`) },
     }
-    return status
-  }
-
-  async runStatement(statement) {
-    switch (statement.type) {
-      case 'simple': {
-        const arrayStatus = await this.arrayAssignment(statement.line)
-        if (arrayStatus !== undefined) return arrayStatus
-        return await this.runLine(statement.line)
-      }
-      case 'function': this.functions.set(statement.name, statement.body); return 0
-      case 'if': return await this.withRedirect(statement, async () => {
-        for (const branch of statement.branches) {
-          if (await this.runLine(branch.condition, { condition: true }) === 0) return await this.runStatements(branch.body)
-        }
-        return statement.elseBody ? await this.runStatements(statement.elseBody) : 0
-      })
-      case 'while': return await this.withRedirect(statement, async () => {
-        let last = 0
-        while ((await this.runLine(statement.condition, { condition: true }) === 0) !== Boolean(statement.until)) {
-          try { last = await this.runStatements(statement.body) } catch (signal) {
-            if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
-              if (signal.value > 1) { signal.value--; throw signal }
-              if (signal.kind === 'break') break
-              continue
-            }
-            throw signal
-          }
-        }
-        return last
-      })
-      case 'for': return await this.withRedirect(statement, async () => {
-        let last = 0
-        for (const value of await this.expandWords(statement.wordsText)) {
-          this.set(statement.variable, value)
-          try { last = await this.runStatements(statement.body) } catch (signal) {
-            if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
-              if (signal.value > 1) { signal.value--; throw signal }
-              if (signal.kind === 'break') break
-              continue
-            }
-            throw signal
-          }
-        }
-        return last
-      })
-      case 'case': return await this.withRedirect(statement, async () => {
-        const [subject = ''] = await this.expandWords(statement.word)
-        for (const clause of statement.clauses) {
-          const hit = clause.patterns.some(pattern => new RegExp(`^${globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))}$`).test(subject))
-          if (hit) return await this.runStatements(clause.body)
-        }
-        return 0
-      })
-      case 'group': return await this.withRedirect(statement, () => this.runStatements(statement.body))
-      case 'subshell': return await this.withRedirect(statement, () => this.runSubshell(statement.body))
-    }
-    return 0
   }
 
   /** A compound statement's trailing redirection, held over its whole body. */
@@ -442,46 +390,9 @@ class Shell {
     }
   }
 
-  async runLine(line, { condition = false } = {}) {
-    const script = parseScript(line)
-    let status = this.status
-    let skip = false
-    if (condition) this.conditional++
-    try {
-      for (const [index, stage] of script.stages.entries()) {
-        if (!skip) {
-          // A failure that an `&&`/`||` or an `if` is about to look at is not an error to exit on.
-          const tested = stage.operator === '&&' || stage.operator === '||'
-          if (tested) this.conditional++
-          try {
-            if (stage.operator === '&') status = await this.runBackground(stage.pipeline)
-            else status = await this.runPipeline(stage.pipeline)
-          } finally {
-            if (tested) this.conditional--
-          }
-          this.status = status
-          if (status !== 0 && !this.conditional && !stage.pipeline.negated && !tested) {
-            if (this.traps.has('ERR') && !this.inErrTrap) {
-              this.inErrTrap = true
-              try { await this.runText(this.traps.get('ERR')) } finally { this.inErrTrap = false; this.status = status }
-            }
-            if (this.opts.errexit) await this.leave(status)
-          }
-        }
-        // `a && b || c`: a skipped stage leaves the status alone and the next operator decides again.
-        if (stage.operator === '&&') skip = status !== 0
-        else if (stage.operator === '||') skip = status === 0
-        else skip = false
-      }
-    } finally {
-      if (condition) this.conditional--
-    }
-    return status
-  }
-
   /** Runs the `EXIT` trap once, then ends the shell. */
   async leave(code) {
-    if (this.subshell) throw new ControlSignal('exit', code & 0xff)
+    if (this.interpreter.subshellDepth) throw new ExitSignal(code & 0xff)
     if (!this.leaving) {
       this.leaving = true
       const trap = this.traps.get('EXIT')
@@ -606,7 +517,7 @@ class Shell {
         }
         if (result.finish) cleanups.push(result.finish)
       } catch (error) {
-        if (error instanceof ControlSignal) throw error
+        if (isUnwind(error)) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
         failed = true
@@ -727,9 +638,6 @@ class Shell {
       let status
       try {
         status = this.functions.has(name) ? await this.callFunction(name, args.slice(1)) : await this.builtin(name, args.slice(1))
-      } catch (signal) {
-        if (signal instanceof ControlSignal && signal.kind === 'return') status = signal.value
-        else throw signal
       } finally {
         this._stdio = saved
         for (const [n, v] of snapshot) { if (v === undefined) this.vars.delete(n); else this.vars.set(n, v) }
@@ -770,20 +678,6 @@ class Shell {
       if (isFile(candidate)) return candidate
     }
     return undefined
-  }
-
-  async callFunction(name, args) {
-    const savedPositional = this.positional
-    this.positional = args
-    if (++this.depth > 200) { this.depth--; this.positional = savedPositional; writeAllFd(2, `ecmash: ${name}: maximum function nesting exceeded\n`); return 1 }
-    this.state.pushLocalScope()
-    try {
-      return await this.runStatements(this.functions.get(name))
-    } finally {
-      this.depth--
-      this.state.popLocalScope()
-      this.positional = savedPositional
-    }
   }
 
   // -- redirections -------------------------------------------------------------------------------
@@ -1011,18 +905,16 @@ class Shell {
         return 0
       }
       case 'shift': this.positional = this.positional.slice(Number(args[0] ?? 1)); return 0
-      case 'return': throw new ControlSignal('return', Number(args[0] ?? this.status))
-      case 'break': throw new ControlSignal('break', Number(args[0] ?? 1))
-      case 'continue': throw new ControlSignal('continue', Number(args[0] ?? 1))
+      case 'return': throw new ReturnSignal(Number(args[0] ?? this.status))
+      case 'break': throw new BreakSignal(Number(args[0] ?? 1))
+      case 'continue': throw new ContinueSignal(Number(args[0] ?? 1))
       case 'read': return this.read(args)
       case 'source': case '.': {
         const path = this.findSource(args[0])
         if (!path) { this.out(`ecmash: ${args[0]}: No such file or directory\n`, 2); return 1 }
-        const saved = this.positional
-        if (args.length > 1) this.positional = args.slice(1)
-        try { return await this.runText(readFileText(path)) } finally { this.positional = saved }
+        return await this.interpreter.runSourced(readFileText(path), args.length > 1 ? args.slice(1) : undefined)
       }
-      case 'eval': return await this.runText(args.join(' '))
+      case 'eval': return await this.interpreter.runSourced(args.join(' '))
       case 'exec': {
         if (!args.length) return 0
         const program = this.findProgram(args[0])
@@ -1246,7 +1138,7 @@ async function interactive(shell, tty) {
       }
       await shell.runText(text)
     } catch (error) {
-      if (error instanceof ControlSignal) continue
+      if (isUnwind(error)) continue
       writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
       shell.status = 2
     }
@@ -1362,7 +1254,8 @@ async function main() {
       status = await shell.runText(readFd(0))
     }
   } catch (error) {
-    if (error instanceof ControlSignal) status = error.value ?? 0
+    if (error instanceof ExitSignal) status = error.code
+    else if (isUnwind(error)) status = 0
     else { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); status = 2 }
   }
   for (const job of shell.jobs) if (job.done && !job.stopped) await job.done

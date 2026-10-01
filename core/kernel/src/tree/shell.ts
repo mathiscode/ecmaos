@@ -18,14 +18,15 @@ import type {
 import { ThemePresets } from '@ecmaos/types'
 
 import { parseRedirections, parseScript, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
-import type { Command as ParsedCommand, Pipeline, Redirection, Script, Token, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
+import type { Command as ParsedCommand, Pipeline, Redirection, Token, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
-import type { CaseStatement, ForStatement, IfStatement, Redirected, Statement, WhileStatement } from '@ecmaos/coreutils/lib/control-flow-parser'
+import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/expand-variables'
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
-import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
+import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
@@ -416,7 +417,7 @@ export class Shell implements IShell {
 
   /**
    * How many frames are currently on the stack that will catch each kind of control-flow signal
-   * (see `lib/shell-signals.ts`): a script or sourced file for `exit`, a function call or sourced
+   * (see `@ecmaos/coreutils/lib/shell-core/signals`): a script or sourced file for `exit`, a function call or sourced
    * file for `return`, an enclosing loop for `break`/`continue`.
    *
    * `execute()`'s outermost frame is the last-resort handler for all three, and it needs to know
@@ -426,7 +427,7 @@ export class Shell implements IShell {
    * handler sits outside `execute()` entirely (`executeScriptText` walks `executeStatements`
    * directly). Counting the real handlers is exact where counting depth is a guess.
    */
-  private _signalCatchers = { exit: 0, return: 0, loop: 0 }
+  private get _signalCatchers() { return this.interpreter.catchers }
 
   /**
    * A real, registered `@zenfs/linux` `Process` standing for this shell, created on first use.
@@ -449,6 +450,9 @@ export class Shell implements IShell {
    * rest of this class reads as it always did.
    */
   readonly state = new ShellState({ pid: () => this.process.pid, ppid: () => this.process.ppid })
+
+  /** The shared statement walk. This shell supplies how a pipeline runs (see {@link hostInterface}). */
+  readonly interpreter = new Interpreter(this.hostInterface(), this.state)
   private get _env(): Map<string, string> { return this.state.vars }
   private set _env(vars: Map<string, string>) { this.state.adopt(vars) }
   private get _functions() { return this.state.functions }
@@ -459,8 +463,6 @@ export class Shell implements IShell {
   private set _arrays(arrays: Map<string, Map<number, string>>) { this.state.arrays = arrays }
   private get _lastBackgroundPid() { return this.state.lastBackgroundPid }
   private set _lastBackgroundPid(pid: number | undefined) { this.state.lastBackgroundPid = pid }
-  private get _lineNumber() { return this.state.lineNumber }
-  private set _lineNumber(line: number) { this.state.lineNumber = line }
 
   public readonly config: TerminalConfig
 
@@ -689,12 +691,6 @@ export class Shell implements IShell {
 
   /** Declare `name` as local to the current function call, defaulting to '' until assigned. */
   declareLocal(name: string, value?: string): void { this.state.declareLocal(name, value) }
-
-  /** Pushes a fresh `local` frame. Used by `callFunction`, and by nothing else -- `local` needs a call. */
-  private pushLocalScope(): void { this.state.pushLocalScope() }
-
-  /** Pops the frame `pushLocalScope` pushed, both namespaces together. */
-  private popLocalScope(): void { this.state.popLocalScope() }
 
   /** Apply a `set` flag. See {@link _shellOptions} for what each one does. */
   applyShellOption(flag: ShellOptionName, enabled: boolean): void { this.state.setOption(flag, enabled) }
@@ -1955,38 +1951,7 @@ export class Shell implements IShell {
    * time `process` happened to contain a stray `break`.
    */
   private async callFunction(name: string, argv: string[]): Promise<number> {
-    const body = this._functions.get(name)
-    if (!body) throw new Error(`${name}: function not found`)
-
-    const savedPositional = new Map<string, string>()
-    for (const key of this.env.keys()) if (!isNaN(parseInt(key))) savedPositional.set(key, this.env.get(key) as string)
-
-    this.pushLocalScope()
-    // `setPositionalParameters` sets $0 to its first element (matching the device-CLI convention
-    // for a device command line, where $0 is the invoked name and $1.. are the real arguments) -- so
-    // the function's own name goes first, keeping $1 as the caller's first argument like bash.
-    this.setPositionalParameters([name, ...argv])
-    this._signalCatchers.return++
-    // A function body is a loop boundary as far as `break` is concerned, so its own last-resort
-    // handler must not defer to a loop in the *caller* that it will never reach.
-    const enclosingLoops = this._signalCatchers.loop
-    this._signalCatchers.loop = 0
-    try {
-      return await this.executeStatements(body)
-    } catch (signal) {
-      if (signal instanceof ReturnSignal) return signal.code
-      if (signal instanceof BreakSignal || signal instanceof ContinueSignal) {
-        await this.terminalBuiltinIO().writelnErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
-        return 0
-      }
-      throw signal
-    } finally {
-      this._signalCatchers.return--
-      this._signalCatchers.loop = enclosingLoops
-      this.popLocalScope()
-      this.clearPositionalParameters()
-      for (const [key, value] of savedPositional) this.env.set(key, value)
-    }
+    return await this.interpreter.callFunction(name, argv)
   }
 
   /**
@@ -2004,26 +1969,7 @@ export class Shell implements IShell {
    * `positional` replaces `$1..` for the duration (`source f a b`), restored on the way out.
    */
   async executeSourced(text: string, positional?: string[]): Promise<number> {
-    const statements = parseStatements(text)
-
-    const savedPositional = positional
-      ? new Map([...this.env.entries()].filter(([key]) => !isNaN(parseInt(key))))
-      : undefined
-    if (positional) this.setPositionalParameters([this.env.get('0') ?? 'ecmaos', ...positional])
-
-    this._signalCatchers.return++
-    try {
-      return await this.executeStatements(statements)
-    } catch (signal) {
-      if (signal instanceof ReturnSignal) return signal.code
-      throw signal
-    } finally {
-      this._signalCatchers.return--
-      if (savedPositional) {
-        this.clearPositionalParameters()
-        for (const [key, value] of savedPositional) this.env.set(key, value)
-      }
-    }
+    return await this.interpreter.runSourced(text, positional)
   }
 
   /**
@@ -2301,90 +2247,110 @@ export class Shell implements IShell {
    * `jobs`.
    */
   private async executeSimple(line: string): Promise<number> {
-    const lineWithoutComments = stripComments(line).trim()
-    if (!lineWithoutComments) return 0
+    return await this.interpreter.runLine(line)
+  }
 
-    const assignmentExitCode = await this.tryExecuteAssignment(lineWithoutComments)
-    if (assignmentExitCode !== undefined) return assignmentExitCode
+  /**
+   * What the shared interpreter needs from this shell: how a pipeline runs, and the pieces of state
+   * that live in the kernel's variable map (`$?`, the positional parameters).
+   */
+  private hostInterface(): InterpreterHost {
+    return {
+      runPipeline: pipeline => this.runStage(pipeline),
+      runBackground: async pipeline => { this.runInBackground(pipeline); return 0 },
+      prepareLine: line => stripComments(line).trim(),
+      expandStatement: line => this.expandAliases(line),
+      onStatement: async statement => { if (statement.type === 'simple') await this.traceVerbose(statement.line) },
+      // An assignment is not a command: it is recognized here, before the line is parsed as a list.
+      runSpecial: async line => {
+        const assignment = await this.tryExecuteAssignment(line)
+        if (assignment !== undefined) return assignment
 
-    // An assignment that isn't the *first* thing on the line (`echo hi; x=1`). `tryExecuteAssignment`
-    // above only ever looked at the head, and handled a trailing one by recursing into the remainder
-    // -- which never happened when the head was an ordinary command, so `x=1` reached `parseScript`
-    // and failed as a command not found. Splitting the line here hands the tail back through
-    // `execute`, where the assignment is once again at the head.
-    const split = this.splitBeforeAssignment(lineWithoutComments)
-    if (split) return await this.executeAroundAssignment(split)
-
-    const script: Script = parseScript(lineWithoutComments)
-    let lastPipelineExit = 0
-    let skipNext = false
-
-    for (const stage of script.stages) {
-      if (skipNext) {
-        skipNext = false
-      } else if (stage.operator === '&') {
-        this.runInBackground(stage.pipeline)
-      } else {
-        // `exec` never reaches the builtin table: its redirections are the point, so they must be
-        // installed rather than handed to it as its own fds the way every other builtin's are.
-        const execCommand = stage.pipeline.commands.length === 1 && stage.pipeline.commands[0]?.words[0] === 'exec'
-          ? stage.pipeline.commands[0]
-          : undefined
-        const conditionalCommand = execCommand ? undefined : (stage.pipeline.commands.length === 1 ? stage.pipeline.commands[0] : undefined)
-        const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.fastPathBuiltinFor(stage.pipeline)
-        const fnName = builtinName ? undefined : this.functionNameFor(stage.pipeline)
-        let pipeStatus: number[]
-
-        if (execCommand) {
-          const code = await this.runExec(execCommand)
-          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
-        } else if (conditionalCommand?.conditional !== undefined) {
-          const code = await this.evaluateConditionalCommand(conditionalCommand.conditional)
-          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
-        } else if (builtinName) {
-          // True builtins (see `lib/shell-builtins.ts`'s own doc comment) always win over a
-          // same-named function or real file, the same way bash's POSIX "special builtins"
-          // (cd/export/set/...) can never be shadowed -- checked before `functionNameFor` so a
-          // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
-          const command = stage.pipeline.commands[0] as ParsedCommand
-          const args = await this.expandCommandArgs(command)
-          await this.trace([builtinName, ...args])
-          const code = await runTrueBuiltin(this, builtinName, args, this.terminalBuiltinIO())
-          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
-        } else if (fnName) {
-          // A function's body is a statement tree, not a command with fds, so `greet > f` has to be
-          // held as an aggregate redirection for the whole call. It used to be parsed and dropped.
-          const command = stage.pipeline.commands[0] as ParsedCommand
-          const args = await this.expandCommandArgs(command)
-          await this.trace([fnName, ...args])
-          const code = await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args))
-          pipeStatus = [stage.pipeline.negated ? (code === 0 ? 1 : 0) : code]
-        } else {
-          pipeStatus = await this.runForeground(stage.pipeline)
+        // An assignment that isn't the *first* thing on the line (`echo hi; x=1`). `tryExecuteAssignment`
+        // only looks at the head, so splitting here hands the tail back through `execute`, where the
+        // assignment is once again at the head.
+        const split = this.splitBeforeAssignment(line)
+        if (split) return await this.executeAroundAssignment(split)
+        return undefined
+      },
+      withRedirect: (statement, run) => this.withStatementRedirection(statement, run),
+      expandWords: text => this.expandForWords(text),
+      caseSubject: async word => expandWord(word, name => this.lookupVariable(name)),
+      matchesPattern: (subject, pattern) => this.matchesCasePattern(subject, pattern),
+      assign: (name, value) => this.setVariable(name, value),
+      enterParameters: (args, zero) => {
+        const saved = new Map<string, string>()
+        for (const key of this.env.keys()) if (!isNaN(parseInt(key))) saved.set(key, this.env.get(key) as string)
+        // `setPositionalParameters` sets $0 to its first element, so the caller's own name goes first and
+        // $1 stays the first real argument.
+        this.setPositionalParameters([zero ?? this.env.get('0') ?? 'ecmaos', ...args])
+        return () => {
+          this.clearPositionalParameters()
+          for (const [key, value] of saved) this.env.set(key, value)
         }
-
-        lastPipelineExit = this._shellOptions.pipefail
-          ? ([...pipeStatus].reverse().find(code => code !== 0) ?? 0)
-          : pipeStatus[pipeStatus.length - 1] ?? 0
-
-        this.setArray('PIPESTATUS', pipeStatus.map(String))
-        this.env.set('?', String(lastPipelineExit))
-
-        if (this._shellOptions.errexit && lastPipelineExit !== 0 && stage.operator !== '&&' && stage.operator !== '||') {
-          return lastPipelineExit
+      },
+      // There is no fork, so a subshell is a snapshot: variables (which is also where the positional
+      // parameters live), arrays, functions and the working directory are put back afterwards. Options
+      // and traps are left shared.
+      snapshot: () => {
+        const env = new Map(this._env)
+        const arrays = new Map([...this._arrays].map(([name, array]) => [name, new Map(array)]))
+        const functions = new Map(this._functions)
+        const cwd = this._cwd
+        return () => {
+          this._arrays = arrays
+          this._functions = functions
+          this._cwd = cwd
+          this.env = env
         }
+      },
+      getStatus: () => Number(this.env.get('?') ?? 0),
+      setStatus: code => { this.env.set('?', String(code)) },
+      checkpoint: async () => this._interrupted,
+      exitShell: async code => { throw new ExitSignal(code) },
+      writeErr: message => this.terminalBuiltinIO().writelnErr(message),
+    }
+  }
 
-        // `^C` aborts the whole list, as in bash -- `sleep 25; echo done` must not print `done`.
-        if (this._interrupted) return lastPipelineExit
-      }
+  /**
+   * Runs one foreground pipeline of a list and reports each stage's status. Which kind of command
+   * it is decides how: `exec`, a `[[ ]]`, a true builtin, a function, or a real program.
+   */
+  private async runStage(pipeline: Pipeline): Promise<number[]> {
+    // `exec` never reaches the builtin table: its redirections are the point, so they must be
+    // installed rather than handed to it as its own fds the way every other builtin's are.
+    const execCommand = pipeline.commands.length === 1 && pipeline.commands[0]?.words[0] === 'exec'
+      ? pipeline.commands[0]
+      : undefined
+    const conditionalCommand = execCommand ? undefined : (pipeline.commands.length === 1 ? pipeline.commands[0] : undefined)
+    const builtinName = conditionalCommand?.conditional !== undefined ? undefined : this.fastPathBuiltinFor(pipeline)
+    const fnName = builtinName ? undefined : this.functionNameFor(pipeline)
+    const negate = (code: number) => pipeline.negated ? (code === 0 ? 1 : 0) : code
 
-      // && only runs its next stage on success; || only on failure. A skipped stage's own trailing
-      // operator still governs what comes after it, so `a && b || c` runs c when a fails too.
-      if (stage.operator === '&&' && lastPipelineExit !== 0) skipNext = true
-      else if (stage.operator === '||' && lastPipelineExit === 0) skipNext = true
+    if (execCommand) return [negate(await this.runExec(execCommand))]
+    if (conditionalCommand?.conditional !== undefined) return [negate(await this.evaluateConditionalCommand(conditionalCommand.conditional))]
+
+    if (builtinName) {
+      // True builtins (see `lib/shell-builtins.ts`'s own doc comment) always win over a
+      // same-named function or real file, the same way bash's POSIX "special builtins"
+      // (cd/export/set/...) can never be shadowed -- checked before `functionNameFor` so a
+      // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
+      const command = pipeline.commands[0] as ParsedCommand
+      const args = await this.expandCommandArgs(command)
+      await this.trace([builtinName, ...args])
+      return [negate(await runTrueBuiltin(this, builtinName, args, this.terminalBuiltinIO()))]
     }
 
-    return lastPipelineExit
+    if (fnName) {
+      // A function's body is a statement tree, not a command with fds, so `greet > f` has to be
+      // held as an aggregate redirection for the whole call. It used to be parsed and dropped.
+      const command = pipeline.commands[0] as ParsedCommand
+      const args = await this.expandCommandArgs(command)
+      await this.trace([fnName, ...args])
+      return [negate(await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args)))]
+    }
+
+    return await this.runForeground(pipeline)
   }
 
   /**
@@ -2457,76 +2423,14 @@ export class Shell implements IShell {
    * itself. This is what `Kernel.executeScript` walks instead of its old flat `line.split('\n')`,
    * and what a function body runs through when called.
    *
-   * `break`/`continue`/`return`/`exit` are real builtins that throw (see `lib/shell-signals.ts`),
+   * `break`/`continue`/`return`/`exit` are real builtins that throw (see `@ecmaos/coreutils/lib/shell-core/signals`),
    * caught by the nearest loop here, by `callFunction`, or by `executeScriptText`. They used to be
    * recognized at this level by comparing the statement's whole trimmed text to `'break'` and
    * `'continue'`, which meant `break 2`, `break;` and `test -n x && break` all fell through to a
    * `$PATH` lookup for a `/bin/break` that does not exist.
    */
   async executeStatements(statements: Statement[]): Promise<number> {
-    let lastExit = 0
-
-    for (const statement of statements) {
-      // `^C` unwinds the whole statement tree, not just the pipeline it landed on -- a `for` loop
-      // whose body was interrupted stops, rather than starting its next iteration. Checked here (at
-      // every nesting level) as well as in `executeSimple`'s stage loop, since a loop body is its
-      // own `executeStatements` call and would otherwise continue on its own.
-      if (this._interrupted) return lastExit
-
-      if (statement.lineNumber !== undefined) this._lineNumber = statement.lineNumber
-
-      switch (statement.type) {
-        case 'simple': {
-          await this.traceVerbose(statement.line)
-          lastExit = await this.executeSimple(this.expandAliases(statement.line))
-          break
-        }
-
-        case 'function': {
-          this._functions.set(statement.name, statement.body)
-          lastExit = 0
-          break
-        }
-
-        // The four compound statements can carry a redirection on their closing keyword
-        // (`done < f`), which opens one input for the whole statement -- see `withStatementStdin`.
-        case 'if': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeIf(statement))
-          break
-        }
-
-        case 'while': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeWhile(statement))
-          break
-        }
-
-        case 'for': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeFor(statement))
-          break
-        }
-
-        case 'case': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeCase(statement))
-          break
-        }
-
-        case 'group': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeStatements(statement.body))
-          break
-        }
-
-        case 'subshell': {
-          lastExit = await this.withStatementRedirection(statement, () => this.executeSubshell(statement.body))
-          break
-        }
-      }
-
-      // `set -e` stops the list on a failed plain command. A line holding `&&` or `||` decides that for
-      // itself inside `executeSimple` (a failing left-hand side is tested, not fatal), so it is skipped here.
-      if (this._shellOptions.errexit && lastExit !== 0 && statement.type === 'simple' && !/&&|\|\|/.test(statement.line)) return lastExit
-    }
-
-    return lastExit
+    return await this.interpreter.runStatements(statements)
   }
 
   /**
@@ -2599,50 +2503,6 @@ export class Shell implements IShell {
     }
   }
 
-  private async executeIf(statement: IfStatement): Promise<number> {
-    for (const branch of statement.branches) {
-      if (await this.execute(branch.condition) === 0) return this.executeStatements(branch.body)
-    }
-    if (statement.elseBody) return this.executeStatements(statement.elseBody)
-    return 0
-  }
-
-  private async executeWhile(statement: WhileStatement): Promise<number> {
-    let lastExit = 0
-    while ((await this.execute(statement.condition) === 0) !== Boolean(statement.until)) {
-      this._signalCatchers.loop++
-      try {
-        lastExit = await this.executeStatements(statement.body)
-      } catch (signal) {
-        const unwind = this.unwindLoop(signal)
-        if (unwind === 'break') break
-        if (unwind === 'continue') continue
-        throw signal
-      } finally {
-        this._signalCatchers.loop--
-      }
-    }
-    return lastExit
-  }
-
-  /**
-   * How an enclosing loop should react to a thrown signal: `break`/`continue` this loop, or
-   * `undefined` for "not mine, rethrow".
-   *
-   * `break N`/`continue N` target the Nth enclosing loop, so a signal with `level` still above 1 is
-   * counted down one and rethrown for the loop outside this one to act on. That is why the count
-   * lives on the signal rather than on the shell: it unwinds with the exception, so it cannot be
-   * left behind by a loop that exits some other way.
-   */
-  private unwindLoop(signal: unknown): 'break' | 'continue' | undefined {
-    if (!(signal instanceof BreakSignal) && !(signal instanceof ContinueSignal)) return undefined
-    if (signal.level > 1) {
-      signal.level--
-      throw signal
-    }
-    return signal instanceof BreakSignal ? 'break' : 'continue'
-  }
-
   /**
    * A `for` list's values, expanded the way a command's arguments are: quote-aware, with word
    * splitting on `$IFS`, command substitution, arithmetic and globbing.
@@ -2661,67 +2521,11 @@ export class Shell implements IShell {
     return values
   }
 
-  private async executeFor(statement: ForStatement): Promise<number> {
-    let lastExit = 0
-    for (const word of await this.expandForWords(statement.wordsText)) {
-      this.setVariable(statement.variable, word)
-      this._signalCatchers.loop++
-      try {
-        lastExit = await this.executeStatements(statement.body)
-      } catch (signal) {
-        const unwind = this.unwindLoop(signal)
-        if (unwind === 'break') break
-        if (unwind === 'continue') continue
-        throw signal
-      } finally {
-        this._signalCatchers.loop--
-      }
-    }
-    return lastExit
-  }
-
   /** `*` matches anything; other patterns are matched as shell globs (`?` any char, literal else). */
   private matchesCasePattern(value: string, pattern: string): boolean {
     if (pattern === '*') return true
     const regex = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
     return regex.test(value)
-  }
-
-  private async executeCase(statement: CaseStatement): Promise<number> {
-    const value = expandWord(statement.word, (name) => this.lookupVariable(name))
-    for (const clause of statement.clauses) {
-      if (clause.patterns.some(pattern => this.matchesCasePattern(value, pattern))) {
-        return this.executeStatements(clause.body)
-      }
-    }
-    return 0
-  }
-
-  /**
-   * Runs `( list )`. There is no fork here, so the subshell is a snapshot: variables (which is also
-   * where the positional parameters live), arrays, functions and the working directory are put back
-   * afterwards, and `exit` ends only the subshell. Options and traps are left shared.
-   */
-  private async executeSubshell(body: Statement[]): Promise<number> {
-    const env = new Map(this._env)
-    const arrays = new Map([...this._arrays].map(([name, array]) => [name, new Map(array)]))
-    const functions = new Map(this._functions)
-    const cwd = this._cwd
-    this._signalCatchers.exit++
-    let code: number
-    try {
-      code = await this.executeStatements(body)
-    } catch (signal) {
-      if (!(signal instanceof ExitSignal)) throw signal
-      code = signal.code
-    } finally {
-      this._signalCatchers.exit--
-      this._arrays = arrays
-      this._functions = functions
-      this._cwd = cwd
-      this.env = env
-    }
-    return this.reportExit(code)
   }
 
   /**
@@ -2736,7 +2540,7 @@ export class Shell implements IShell {
     } catch (signal) {
       // `exit N` ends the script with code N. The `EXIT` trap still runs, in the `finally` below,
       // because that is precisely when bash runs it.
-      if (signal instanceof ExitSignal) return signal.code
+      if (signal instanceof ExitSignal) { this.reportExit(signal.code); return signal.code }
       throw signal
     } finally {
       this._signalCatchers.exit--
