@@ -169,6 +169,17 @@ describe('Shell job control — & background execution and the job table', () =>
     expect(code).toBeUndefined()
   })
 
+  it('disown drops a job from the table and prints no Done notice', async () => {
+    kernel.shell.takeJobNotifications()
+    await kernel.shell.execute('true &')
+    const job = kernel.shell.listJobs().at(-1)!
+    expect(await kernel.shell.execute(`disown %${job.id}`)).toBe(0)
+    expect(kernel.shell.listJobs()).not.toContain(job)
+    await job.done
+    expect(kernel.shell.takeJobNotifications()).toEqual([])
+    expect(await kernel.shell.execute('disown %99')).toBe(1)
+  })
+
   it('a pure-coreutil job never acquires a real process handle', async () => {
     await kernel.shell.execute('true &')
     await new Promise(resolve => setTimeout(resolve, 10))

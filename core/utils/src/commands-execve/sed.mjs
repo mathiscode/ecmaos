@@ -73,37 +73,38 @@ function readAllStdin() {
   return bytes
 }
 
+/**
+ * `[addr]s<d>pattern<d>replacement<d>[flags]` with any delimiter `<d>` (`s|a|b|`, `s#a#b#`), where a
+ * backslash-escaped delimiter inside the pattern or replacement stands for the delimiter itself.
+ */
+function parseSubstitute(expr) {
+  const head = expr.match(/^(\d+)?(?:,(\d+|\$))?s([^\s\\a-zA-Z0-9])/)
+  if (!head) return undefined
+  const [prefix, startLine, endLine, delim] = head
+  const parts = ['']
+  for (let i = prefix.length; i < expr.length; i++) {
+    const ch = expr[i]
+    if (ch === '\\' && i + 1 < expr.length) {
+      if (expr[i + 1] === delim) parts[parts.length - 1] += delim
+      else parts[parts.length - 1] += ch + expr[i + 1]
+      i++
+    } else if (ch === delim && parts.length < 3) parts.push('')
+    else parts[parts.length - 1] += ch
+  }
+  if (parts.length !== 3 || !parts[0] || !/^[gip]*\d*$/.test(parts[2])) return undefined
+  const address = startLine ? {
+    type: endLine ? 'range' : 'line',
+    start: parseInt(startLine, 10),
+    ...(endLine && { end: endLine === '$' ? Infinity : parseInt(endLine, 10) })
+  } : undefined
+  return { type: 'substitute', pattern: parts[0], replacement: parts[1], flags: parts[2], address }
+}
+
 function parseSedExpression(expr) {
   expr = expr.trim()
 
-  const substituteMatch = expr.match(/^(\d+)?(,(\d+|\$))?s\/(.+?)\/(.*?)\/([gip]*\d*)$/)
-  if (substituteMatch) {
-    const [, startLine, , endLine, pattern, replacement, flags] = substituteMatch
-    const address = startLine ? {
-      type: endLine ? 'range' : 'line',
-      start: parseInt(startLine, 10),
-      ...(endLine && { end: endLine === '$' ? Infinity : parseInt(endLine, 10) })
-    } : undefined
-
-    return {
-      type: 'substitute',
-      pattern,
-      replacement: replacement || '',
-      flags: flags || '',
-      address
-    }
-  }
-
-  const simpleSubstituteMatch = expr.match(/^s\/(.+?)\/(.*?)\/([gip]*\d*)$/)
-  if (simpleSubstituteMatch) {
-    const [, pattern, replacement, flags] = simpleSubstituteMatch
-    return {
-      type: 'substitute',
-      pattern,
-      replacement: replacement || '',
-      flags: flags || ''
-    }
-  }
+  const substituteMatch = parseSubstitute(expr)
+  if (substituteMatch) return substituteMatch
 
   const deleteMatch = expr.match(/^(\d+)?(,(\d+|\$))?d$/)
   if (deleteMatch) {
@@ -241,12 +242,12 @@ function main() {
     if (!arg) return false
     const trimmed = arg.trim()
     return (
-      trimmed.startsWith('s/') ||
+      /^s[^\s\\a-zA-Z0-9]/.test(trimmed) ||
       /^\/.+?\/[dp]$/.test(trimmed) ||
       /^\d+[sd]$/.test(trimmed) ||
       /^\d+,\d*[sd]$/.test(trimmed) ||
-      /^\d+s\//.test(trimmed) ||
-      /^\d+,\d*s\//.test(trimmed)
+      /^\d+s[^\s\\a-zA-Z0-9]/.test(trimmed) ||
+      /^\d+,\d*s[^\s\\a-zA-Z0-9]/.test(trimmed)
     )
   }
 

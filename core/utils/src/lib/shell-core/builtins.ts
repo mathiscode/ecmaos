@@ -648,7 +648,7 @@ async function shift(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
   if (raw !== undefined && !/^\d+$/.test(raw)) { await io.writelnErr(`shift: ${raw}: numeric argument required`); return 2 }
   const count = raw === undefined ? 1 : Number(raw)
   const positional = host.positional()
-  if (count > positional.length) return 1
+  if (count > positional.length) { await io.writelnErr(`shift: ${count}: shift count out of range`); return 1 }
   host.setPositional(positional.slice(count))
   return 0
 }

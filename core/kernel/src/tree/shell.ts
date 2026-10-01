@@ -1389,6 +1389,11 @@ export class Shell implements IShell {
     return lines
   }
 
+  /** Forgets a job without touching its processes (`disown`): no more `jobs` entry and no Done notice. */
+  removeJob(job: Job): void {
+    this._jobs = this._jobs.filter(candidate => candidate !== job)
+  }
+
   /** All tracked jobs, oldest first. See `_jobs`'s doc comment for retention behavior. */
   listJobs(): Job[] {
     return [...this._jobs]

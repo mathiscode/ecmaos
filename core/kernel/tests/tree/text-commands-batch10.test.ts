@@ -99,6 +99,13 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     expect(out).toContain('hello there')
   })
 
+  it('sed accepts any delimiter and an escaped delimiter inside the pattern', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/sed-delim.txt', 'a/b x\n')
+    await kernel.shell.execute('sed "s|a/b|c|" /tmp/sed-delim.txt > /tmp/sed-delim.out')
+    await kernel.shell.execute('sed "s#x#y\\##" /tmp/sed-delim.txt >> /tmp/sed-delim.out')
+    expect(await kernel.filesystem.fs.readFile('/tmp/sed-delim.out', 'utf-8')).toBe('c x\na/b y#\n')
+  })
+
   it('sed -i edits a file in place', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/sed-inplace.txt', 'foo\nbar\n')
     const code = await kernel.shell.execute('sed -i "s/foo/baz/" /tmp/sed-inplace.txt')

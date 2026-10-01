@@ -19,7 +19,7 @@ import type { ShellBuiltinIO, User } from '@ecmaos/types'
 import { sharedBuiltinNames, runSharedBuiltin, shellQuote, type BuiltinHost } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import path from 'path'
 
-const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'env', 'su']
+const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown', 'env', 'su']
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNames, ...kernelOnlyNames])
 
@@ -167,6 +167,31 @@ async function runWait(shell: Shell, argv: string[], io: Io): Promise<number> {
   return code ?? 0
 }
 
+async function runDisown(shell: Shell, argv: string[], io: Io): Promise<number> {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    await io.writeln('Usage: disown [-a] [%JOBSPEC | PID]...\nForget jobs: they leave the job table and no longer print a Done notice.')
+    return 0
+  }
+
+  if (argv.includes('-a')) {
+    for (const job of shell.listJobs()) shell.removeJob(job)
+    return 0
+  }
+
+  const specs = argv.length > 0 ? argv : [undefined]
+  let status = 0
+  for (const spec of specs) {
+    const job = shell.getJob(spec)
+    if (!job) {
+      await io.writelnErr(spec ? `disown: ${spec}: no such job` : 'disown: no current job')
+      status = 1
+      continue
+    }
+    shell.removeJob(job)
+  }
+  return status
+}
+
 async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
     await io.writeln('Usage: env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]\nSet each NAME to VALUE in the environment and run COMMAND.')
@@ -283,6 +308,7 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'fg': return runFg(shell, argv, io)
     case 'jobs': return runJobs(shell, argv, io)
     case 'wait': return runWait(shell, argv, io)
+    case 'disown': return runDisown(shell, argv, io)
     case 'env': return runEnv(shell, argv, io)
     case 'su': return runSu(shell, argv, io)
   }

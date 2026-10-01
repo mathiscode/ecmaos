@@ -53,7 +53,9 @@ describe('shared builtins: set and shift', () => {
     const { host, status } = await run('set -- a b c; shift 2')
     expect(host.params).toEqual(['c'])
     expect(status).toBe(0)
-    expect((await run('set -- a; shift 2')).status).toBe(1)
+    const failed = await run('set -- a; shift 2')
+    expect(failed.status).toBe(1)
+    expect(failed.err).toContain('shift: 2: shift count out of range')
   })
 })
 
