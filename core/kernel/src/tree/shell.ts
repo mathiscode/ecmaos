@@ -131,22 +131,39 @@ class StdinSource {
 
   constructor(private readonly stream: ReadableStream<Uint8Array>) {}
 
-  /** Appends one more chunk to the buffer. False once the stream is exhausted. */
-  private async fill(): Promise<boolean> {
+  /** A read that a timeout abandoned: kept, so the chunk it eventually gets is not lost. */
+  private inflight: Promise<ReadableStreamReadResult<Uint8Array>> | undefined
+
+  /**
+   * Appends one more chunk to the buffer. False once the stream is exhausted, or when `timeoutMs`
+   * ran out first, in which case `timedOut` is set.
+   */
+  private async fill(timeoutMs?: number): Promise<boolean> {
     if (this.eof) return false
     this.reader ??= this.stream.getReader()
-    const { done, value } = await this.reader.read()
-    if (done) { this.eof = true; return false }
-    this.pending += new TextDecoder().decode(value)
+    this.inflight ??= this.reader.read()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const outcome = timeoutMs === undefined
+      ? await this.inflight
+      : await Promise.race([this.inflight, new Promise<'timeout'>(resolve => { timer = setTimeout(() => resolve('timeout'), timeoutMs) })])
+    clearTimeout(timer)
+    if (outcome === 'timeout') { this.timedOut = true; return false }
+    this.inflight = undefined
+    if (outcome.done) { this.eof = true; return false }
+    this.pending += new TextDecoder().decode(outcome.value)
     return true
   }
+
+  private timedOut = false
 
   /**
    * The next line without its newline, or `undefined` at EOF. `delimiter` replaces the newline (an
    * empty string is NUL), `count` returns after that many characters, and `result.terminated` says
    * whether one of those ended the read rather than the end of the stream.
    */
-  async readLine(options: { delimiter?: string, count?: number, result?: { terminated: boolean } } = {}): Promise<string | undefined> {
+  async readLine(options: { delimiter?: string, count?: number, timeoutMs?: number, result?: { terminated: boolean, timedOut?: boolean } } = {}): Promise<string | undefined> {
+    const deadline = options.timeoutMs === undefined ? undefined : Date.now() + options.timeoutMs
+    this.timedOut = false
     const delimiter = options.delimiter === undefined ? '\n' : options.delimiter === '' ? '\0' : options.delimiter
     for (;;) {
       const found = this.pending.indexOf(delimiter)
@@ -163,9 +180,9 @@ class StdinSource {
         if (options.result) options.result.terminated = true
         return line
       }
-      if (!await this.fill()) {
+      if (!await this.fill(deadline === undefined ? undefined : Math.max(0, deadline - Date.now()))) {
         // A final line with no trailing newline is still a line; an empty tail is EOF.
-        if (options.result) options.result.terminated = false
+        if (options.result) { options.result.terminated = false; options.result.timedOut = this.timedOut }
         if (this.pending === '') return undefined
         const line = this.pending
         this.pending = ''
@@ -342,6 +359,8 @@ export class Shell implements IShell {
    * Set when a pipeline starts running in the foreground (`execute()`'s non-`&` path), cleared when
    * it finishes; a job moved to the background (via trailing `&`, or `bg`) is never foreground here.
    */
+  /** The startup file being sourced, so a diagnostic can name it. */
+  private _sourceFile: string | undefined
   private _foregroundJob: Job | undefined
 
   /**
@@ -747,6 +766,7 @@ export class Shell implements IShell {
       try {
         if (!await this.context.fs.promises.exists(file)) continue
         const content = await this.context.fs.promises.readFile(file, 'utf-8')
+        this._sourceFile = file
         await this.executeSourced(content)
       } catch (error) {
         // `exit` in a startup file stops startup, as in bash -- there is no process to end here, so
@@ -755,6 +775,8 @@ export class Shell implements IShell {
         try {
           this.terminal?.writeln(`ecmash: ${file}: ${(error as Error).message}`)
         } catch {}
+      } finally {
+        this._sourceFile = undefined
       }
     }
 
@@ -1254,7 +1276,9 @@ export class Shell implements IShell {
         // dropped every line after it -- the same unwinding problem readonly and noclobber had, and
         // the reason a typo in a startup file cost you the rest of the file.
         if (!(error instanceof CommandNotFoundError)) throw error
-        await this.terminalBuiltinIO().writelnErr(error.message)
+        // From a startup file bash names the file and line: `/etc/ecmashrc: line 2: foo: command not found`.
+        const where = this._sourceFile ? `${this._sourceFile}: line ${this.state.lineNumber}: ` : ''
+        await this.terminalBuiltinIO().writelnErr(where + error.message)
         return commands.map(() => 127)
       }
       const args = resolved.args
@@ -2308,6 +2332,7 @@ export class Shell implements IShell {
     const terminal = this._terminal
     return {
       stdoutIsTTY: true,
+      canTimeout: true,
       get stdinIsTTY() { return kernelShell.currentStdin === undefined },
       write: async (text: string) => { terminal.write(text) },
       writeln: async (text: string) => { terminal.writeln(text) },
@@ -2358,6 +2383,7 @@ export class Shell implements IShell {
     return {
       stdoutIsTTY,
       stdinIsTTY,
+      canTimeout: true,
       write: out,
       writeln: async (text: string) => await out(text + '\n'),
       writeErr: err,

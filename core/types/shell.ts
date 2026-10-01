@@ -93,7 +93,9 @@ export interface ShellBuiltinIO {
    * {@link stdinIsTTY} it prompts and echoes like `readline`; otherwise it reads bytes and both
    * options are ignored, since there is nobody to prompt and nothing echoing.
    */
-  readLine(options?: { prompt?: string, silent?: boolean, delimiter?: string, count?: number, result?: { terminated: boolean } }): Promise<string | undefined>
+  readLine(options?: { prompt?: string, silent?: boolean, delimiter?: string, count?: number, timeoutMs?: number, result?: { terminated: boolean, timedOut?: boolean } }): Promise<string | undefined>
+  /** Whether `readLine` honors `timeoutMs`. */
+  readonly canTimeout?: boolean
   /** Everything left on fd 0. Empty string when there is no stdin at all. */
   readAll(): Promise<string>
   /** Flushes and releases whatever backs this. Called exactly once, after the builtin returns. */

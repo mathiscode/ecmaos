@@ -271,12 +271,13 @@ describe('$IFS, read, and command-prefix assignments', () => {
       expect(output.trim().split('\n')).toEqual(['abc x', 'p 0', 'p 0', 'tail 1'])
     })
 
-    it('still refuses -t, which needs a timed read', async () => {
+    it('read -t gives up on a silent pipe with status 142, and still reads a ready one', async () => {
       const { output } = await runScript([
-        `read -t 1 a <<< 'abcdef' 2>/dev/null`,
-        `echo "code=$?" >> ${OUT}`
+        `sleep 1 | read -t 0.2 a; echo "late=$?" >> ${OUT}`,
+        `echo hi | read -t 5 b; echo "ready=$?" >> ${OUT}`,
+        `read -t abc c 2>/dev/null; echo "bad=$?" >> ${OUT}`
       ].join('\n'))
-      expect(output.trim()).toBe('code=2')
+      expect(output.trim().split('\n')).toEqual(['late=142', 'ready=0', 'bad=1'])
     })
   })
 

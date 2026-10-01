@@ -20,7 +20,8 @@ export interface ReadLineOptions {
   silent?: boolean
   delimiter?: string
   count?: number
-  result?: { terminated: boolean }
+  timeoutMs?: number
+  result?: { terminated: boolean, timedOut?: boolean }
 }
 
 /** The three descriptors a builtin runs with. Usage goes to fd 1 and diagnostics to fd 2. */
@@ -35,6 +36,8 @@ export interface BuiltinIO {
    * reports whether a delimiter (or the count) ended the read rather than end of file.
    */
   readLine(options?: ReadLineOptions): Promise<string | undefined>
+  /** Whether {@link ReadLineOptions.timeoutMs} is honored; a host without a timed read leaves it unset. */
+  readonly canTimeout?: boolean
 }
 
 export interface CommandDescription {
@@ -577,7 +580,7 @@ function trimIFSWhitespace(text: string, ifs: string): string {
 
 async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   const usage = [
-    'Usage: read [-rs] [-a ARRAY] [-d DELIM] [-n COUNT] [-p PROMPT] [NAME...]',
+    'Usage: read [-rs] [-a ARRAY] [-d DELIM] [-n COUNT] [-t SECONDS] [-p PROMPT] [NAME...]',
     'Read one line from standard input and split it into NAMEs using $IFS.',
     '',
     '  -r          do not treat backslash as an escape character',
@@ -585,6 +588,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
     '  -a ARRAY    assign the fields to an indexed array',
     '  -d DELIM    stop at the first character of DELIM instead of a newline (empty: NUL)',
     '  -n COUNT    stop after COUNT characters; input must come from a file or a pipe',
+    '  -t SECONDS  give up after SECONDS (may be fractional), exiting with status 142',
     '  -p PROMPT   write PROMPT before reading, without a trailing newline',
     '  --help      display this help and exit',
     '',
@@ -597,6 +601,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   let arrayName: string | undefined
   let delimiter: string | undefined
   let count: number | undefined
+  let timeoutMs: number | undefined
   const names: string[] = []
 
   for (let i = 0; i < argv.length; i++) {
@@ -609,19 +614,21 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
         const letter = arg[j] as string
         if (letter === 'r') { raw = true; continue }
         if (letter === 's') { silent = true; continue }
-        if ('padn'.includes(letter)) {
+        if ('padnt'.includes(letter)) {
           const value = j + 1 < arg.length ? arg.slice(j + 1) : argv[++i]
           if (value === undefined) { await io.writelnErr(`read: option requires an argument -- '${letter}'`); return 2 }
           if (letter === 'p') prompt = value
           else if (letter === 'a') arrayName = value
           else if (letter === 'd') delimiter = value.slice(0, 1)
-          else {
+          else if (letter === 't') {
+            if (!/^\d+(\.\d+)?$/.test(value)) { await io.writelnErr(`read: ${value}: invalid timeout specification`); return 1 }
+            timeoutMs = Number(value) * 1000
+          } else {
             if (!/^\d+$/.test(value)) { await io.writelnErr(`read: ${value}: invalid number`); return 1 }
             count = Number(value)
           }
           break
         }
-        if (letter === 't') { await io.writelnErr('read: -t: not supported yet'); return 2 }
         await io.writelnErr(`read: -${letter}: invalid option`)
         return 2
       }
@@ -634,14 +641,19 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
     if (!IDENTIFIER.test(name)) { await io.writelnErr(`read: ${name}: not a valid identifier`); return 1 }
   }
 
-  const bounded = delimiter !== undefined || count !== undefined
+  if (timeoutMs !== undefined && !io.canTimeout) {
+    await io.writelnErr('-t is not supported here: this shell cannot time out a read')
+    return 2
+  }
+  const bounded = delimiter !== undefined || count !== undefined || timeoutMs !== undefined
   if (bounded && (io as { stdinIsTTY?: boolean }).stdinIsTTY) {
-    await io.writelnErr('-n and -d need input from a file or a pipe; a terminal only delivers whole lines')
+    await io.writelnErr('-n, -d and -t need input from a file or a pipe; a terminal only delivers whole lines')
     return 1
   }
-  const result = { terminated: true }
-  let line = await io.readLine(prompt !== undefined || silent || bounded ? { prompt, silent, delimiter, count, result } : undefined)
-  if (line === undefined) return 1
+  const result: { terminated: boolean, timedOut?: boolean } = { terminated: true }
+  let line = await io.readLine(prompt !== undefined || silent || bounded ? { prompt, silent, delimiter, count, timeoutMs, result } : undefined)
+  // Nothing arrived in time: bash reports a status above 128 and assigns nothing.
+  if (line === undefined) return result.timedOut ? 142 : 1
   // Without `-r`, a backslash escapes the next character and disappears.
   if (!raw) line = line.replace(/\\(.)/g, '$1')
 
@@ -661,6 +673,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   }
   host.changed?.()
   // With `-d`, data that ran out before the delimiter is still assigned but reports end of file.
+  if (result.timedOut) return 142
   return delimiter !== undefined && !result.terminated ? 1 : 0
 }
 

@@ -60,6 +60,12 @@ describe('shared builtins: set and shift', () => {
 })
 
 describe('shared builtins: read', () => {
+  it('read -t is refused by a host that cannot time out a read', async () => {
+    const { status, err } = await run('read -t 1 x', h => { h.stdin = ['a'] })
+    expect(status).toBe(2)
+    expect(err).toContain('-t is not supported here')
+  })
+
   it('splits a line on IFS into names, the last taking the rest', async () => {
     const { host } = await run('read a b', h => { h.stdin = ['1 2 3'] })
     expect(host.state.lookup('a')).toBe('1')

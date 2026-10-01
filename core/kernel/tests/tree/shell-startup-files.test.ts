@@ -100,6 +100,17 @@ describe('startup files', () => {
     expect(shell().env.get('NEXT_FILE')).toBe('reached')
   })
 
+  it('names the file and line of a missing command in a startup file', async () => {
+    await write('/etc/profile', 'A=1\nthis-command-does-not-exist\n')
+    await write('/root/.ecmashrc', '')
+    const written: string[] = []
+    const terminal = shell().terminal as unknown as { write: (text: string) => void }
+    const original = terminal.write.bind(terminal)
+    terminal.write = (text: string) => { written.push(text); original(text) }
+    try { await shell().loadProfile() } finally { terminal.write = original }
+    expect(written.join('')).toContain('/etc/profile: line 2: this-command-does-not-exist: command not found')
+  })
+
   it('reports a missing command as exit 127 without ending the script', async () => {
     const OUT = '/tmp/startup-127.out'
     try { await fs().unlink(OUT) } catch {}
