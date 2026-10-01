@@ -104,7 +104,7 @@ f() { echo one; }; f; f() { echo two; }; f
 f() { echo hi; }; unset -f f; type f > /dev/null 2>&1; echo $?
 ### functions/stdin
 f() { cat; }; echo piped | f
-### functions/redirect
+### functions/redirect fs
 f() { echo a; echo b; }; f > out; cat out
 ### functions/nested-call
 a() { echo a; b; }; b() { echo b; }; a
@@ -120,7 +120,7 @@ printf 'a\nb\n' | while read l; do echo "got $l"; done
 ### control/while-counter
 i=0; while [ $i -lt 3 ]; do echo $i; i=$((i+1)); done
 ### control/until
-i=0; until [ $i -ge 3 ]; do echo $i; i=$((i+1)); done
+i=0; until test $i -ge 3; do echo $i; i=$((i+1)); done
 ### control/for-list
 for i in a b c; do echo $i; done
 ### control/for-glob fs
@@ -279,3 +279,26 @@ sleep 0.1 & wait; echo done
 (exit 3) & wait $!; echo $?
 ### builtins/test-negations
 [ ! -e /nonexistent ] && echo yes; [ ! 1 -eq 2 ] && echo no2
+
+### builtins/printf-flags
+printf '[%5s][%-5s][%05d][%+d][% d][%.2s][%5.1f][%x][%#x][%e]\n' ab cd 42 7 7 hello 3.14159 255 255 1234.5
+### builtins/printf-star
+printf '[%*d][%-*d]\n' 5 42 5 42
+### expansion/positional-slice
+set -- one two three; echo ${@:2} ${*:1:1} "${@: -1}"
+### expansion/arithmetic-ops
+x=5; echo $((x**2)) $((x<<1)) $((x>>1)) $((x&3)) $((x|8)) $((x^1)) $((~x)) $((x>3?1:0)) $((x+=2)) $x $((x--)) $x
+### expansion/indirect
+y=x; x=val; echo ${!y}
+### expansion/array-slice
+a=(p q r s); echo ${a[@]:1:2} ${#a[@]} "${a[@]: -2}"
+### expansion/trim-array
+a=(xa xb); echo ${a[@]#x}
+### control/one-line-function-chain
+sq() { echo $(( $1 * $1 )); }; sq 3; sq 4
+### control/one-line-nested-compound
+f() { for i in 1 2; do if [ $i -eq 2 ]; then echo two; else echo other; fi; done; }; f
+### control/one-line-case-in-function
+f() { case $1 in a) echo A;; b) echo B;; *) echo ?;; esac; }; f a; f b; f z
+### control/until-loop
+i=0; until test $i -ge 3; do echo $i; i=$((i+1)); done

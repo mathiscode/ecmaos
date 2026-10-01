@@ -113,12 +113,12 @@ describe('parseStatements', () => {
     expect(stmt.body).toEqual([expect.objectContaining({ type: 'simple', line: 'echo hi' })])
   })
 
-  it('keeps a `;`-joined one-line body as one simple statement', () => {
-    // This parser only splits `;` where a control-flow keyword follows it; a plain `;` list is one
-    // statement, which `Shell.executeSimple` then walks stage by stage. So the body stays whole here
-    // and both commands still run -- see the runtime coverage in shell-control-flow-builtins.
+  it('splits a `;`-joined one-line body into one statement per command', () => {
     const stmt = parseStatements('greet() { echo one; echo two; }')[0] as FunctionDef
-    expect(stmt.body).toEqual([expect.objectContaining({ type: 'simple', line: 'echo one; echo two' })])
+    expect(stmt.body).toEqual([
+      expect.objectContaining({ type: 'simple', line: 'echo one' }),
+      expect.objectContaining({ type: 'simple', line: 'echo two' }),
+    ])
   })
 
   it('keeps a nested block inside a one-line body', () => {
@@ -270,7 +270,7 @@ describe('brace groups', () => {
   it('parses a one-line group with its redirection', () => {
     const [group] = parseStatements('{ echo a; echo b; } > out')
     expect(group).toMatchObject({ type: 'group', redirect: '> out' })
-    expect((group as { body: Array<{ line: string }> }).body.map(s => s.line)).toEqual(['echo a; echo b'])
+    expect((group as { body: Array<{ line: string }> }).body.map(s => s.line)).toEqual(['echo a', 'echo b'])
   })
 
   it('parses a multi-line group and keeps a nested block whole', () => {
@@ -288,7 +288,7 @@ describe('subshells', () => {
   it('parses an inline subshell with a redirection', () => {
     const [statement] = parseStatements('(echo a; echo b) > out')
     expect(statement).toMatchObject({ type: 'subshell', redirect: '> out' })
-    expect((statement as { body: Array<{ line: string }> }).body[0]?.line).toBe('echo a; echo b')
+    expect((statement as { body: Array<{ line: string }> }).body.map(s => s.line)).toEqual(['echo a', 'echo b'])
   })
 
   it('parses a multi-line subshell closed by a line of its own', () => {
@@ -316,5 +316,42 @@ describe('subshells', () => {
 
   it('refuses a subshell followed by an operator', () => {
     expect(() => parseStatements('(echo a) && echo b')).toThrow(/subshell/)
+  })
+})
+
+describe('one-line forms followed by more commands', () => {
+  const types = (text: string) => parseStatements(text).map(statement => statement.type)
+
+  it('a function definition then commands', () => {
+    expect(types('f() { echo a; }; x=0; f; echo $x')).toEqual(['function', 'simple', 'simple', 'simple'])
+    expect(types('function g { echo in-g $1; }; g x')).toEqual(['function', 'simple'])
+    expect(types('X=1; h() { echo a; }; h')).toEqual(['simple', 'function', 'simple'])
+  })
+
+  it('control flow inside a one-line function body', () => {
+    const [fn] = parseStatements('f() { if [ $1 -le 1 ]; then echo 1; else echo 2; fi; }; f 1') as [FunctionDef]
+    expect(fn.body.map(statement => statement.type)).toEqual(['if'])
+    const [loop] = parseStatements('f() { for a in "$@"; do echo "<$a>"; done; for a in "$*"; do echo "[$a]"; done; }; f x') as [FunctionDef]
+    expect(loop.body.map(statement => statement.type)).toEqual(['for', 'for'])
+    const [loopWhile] = parseStatements('f() { while getopts "ab:" o; do echo "$o"; done; echo "i=$OPTIND"; }; f -a') as [FunctionDef]
+    expect(loopWhile.body.map(statement => statement.type)).toEqual(['while', 'simple'])
+  })
+
+  it('a one-line case', () => {
+    const [statement] = parseStatements('case $1 in a|b) echo ab;; c*) echo c;; *) echo other;; esac') as [CaseStatement]
+    expect(statement.type).toBe('case')
+    expect(statement.clauses.map(clause => clause.patterns)).toEqual([['a', 'b'], ['c*'], ['*']])
+    expect(parseStatements('f() { case $1 in a) echo a;; esac; }; f a').map(s => s.type)).toEqual(['function', 'simple'])
+  })
+
+  it('a group or subshell with a redirection, then more commands', () => {
+    expect(types('{ echo a; echo b; } > out; cat out')).toEqual(['group', 'simple'])
+    expect(types('{ echo out; echo err >&2; } 2> e; cat e')).toEqual(['group', 'simple'])
+  })
+
+  it('a ; inside a comment, a quote, or $( ) does not split', () => {
+    expect(types('echo a # one; two')).toEqual(['simple'])
+    expect(types('echo "a; b" \'c; d\'')).toEqual(['simple'])
+    expect(types('x=$(echo a; echo b); echo $x')).toEqual(['simple', 'simple'])
   })
 })

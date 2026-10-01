@@ -20,24 +20,79 @@ export type VariableLookup = (name: string) => string | undefined
 class ArithmeticError extends Error {}
 
 /**
- * A small recursive-descent arithmetic evaluator over the POSIX `$((...))` operator set that
- * scripts actually use: `+ - * / %`, unary `+ -`, `!`, comparisons, `&& ||`, and parentheses.
- * Bitwise operators and `**` are intentionally out of scope -- not used anywhere in ecmaOS's own
- * scripts/tests, and easy to add later without touching the surrounding expansion logic.
+ * A recursive-descent arithmetic evaluator over bash's `$((...))` operator set, in C precedence:
+ * assignment (`= += -= *= /= %= <<= >>= &= ^= |=`), `?:`, `||`, `&&`, `|`, `^`, `&`, equality,
+ * comparison, shifts, `+ -`, `* / %`, `**` (right associative), unary `+ - ! ~`, and pre/post `++`
+ * `--`. Integers only, in decimal, `0x` hex or leading-`0` octal; bitwise work is done on 64 bits
+ * like bash's. `assign` is what lets `x++` and `x+=2` write back; without it they still evaluate.
  */
-function evaluateArithmetic(expr: string, lookup: VariableLookup): number {
-  const tokens = expr.match(/\d+\.?\d*|[A-Za-z_][A-Za-z0-9_]*|&&|\|\||==|!=|<=|>=|[-+*/%()<>!]/g) ?? []
+function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
+  const tokens = expr.match(/0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=]/g) ?? []
   let pos = 0
 
   const peek = () => tokens[pos]
   const next = () => tokens[pos++]
+  const isName = (token: string | undefined): token is string => token !== undefined && /^[A-Za-z_]/.test(token)
 
-  const resolveOperand = (token: string): number => {
-    if (/^\d/.test(token)) return Number(token)
-    const value = lookup(token)
+  const read = (name: string): number => {
+    const value = lookup(name)
     if (value === undefined || value === '') return 0
     const n = Number(value)
     return Number.isNaN(n) ? 0 : n
+  }
+  const write = (name: string, value: number) => { assign?.(name, String(value)) }
+
+  const number = (token: string): number => {
+    if (/^0[xX]/.test(token)) return parseInt(token, 16)
+    if (/^0\d/.test(token)) return parseInt(token, 8)
+    return Number(token)
+  }
+
+  const big = (n: number) => BigInt.asIntN(64, BigInt(Math.trunc(n)))
+  const bitwise = (op: string, l: number, r: number): number => {
+    const a = big(l)
+    const b = big(r)
+    switch (op) {
+      case '&': return Number(BigInt.asIntN(64, a & b))
+      case '|': return Number(BigInt.asIntN(64, a | b))
+      case '^': return Number(BigInt.asIntN(64, a ^ b))
+      case '<<': return Number(BigInt.asIntN(64, a << BigInt.asUintN(6, b)))
+      default: return Number(BigInt.asIntN(64, a >> BigInt.asUintN(6, b)))
+    }
+  }
+
+  const apply = (op: string, left: number, right: number): number => {
+    switch (op) {
+      case '+': return left + right
+      case '-': return left - right
+      case '*': return left * right
+      case '/': case '%':
+        if (right === 0) throw new ArithmeticError('division by zero')
+        return op === '/' ? Math.trunc(left / right) : left % right
+      default: return bitwise(op, left, right)
+    }
+  }
+
+  function parseAssignment(): number {
+    if (isName(peek()) && /^(?:[-+*/%&|^]|<<|>>)?=$/.test(tokens[pos + 1] ?? '') && tokens[pos + 1] !== '==') {
+      const name = next() as string
+      const op = next() as string
+      const right = parseAssignment()
+      const value = op === '=' ? right : apply(op.slice(0, -1), read(name), right)
+      write(name, value)
+      return value
+    }
+    return parseTernary()
+  }
+
+  function parseTernary(): number {
+    const condition = parseOr()
+    if (peek() !== '?') return condition
+    next()
+    const yes = parseAssignment()
+    if (next() !== ':') throw new ArithmeticError('expected :')
+    const no = parseAssignment()
+    return condition ? yes : no
   }
 
   function parseOr(): number {
@@ -47,19 +102,45 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup): number {
   }
 
   function parseAnd(): number {
+    let left = parseBitOr()
+    while (peek() === '&&') { next(); const right = parseBitOr(); left = (left && right) ? 1 : 0 }
+    return left
+  }
+
+  function parseBitOr(): number {
+    let left = parseBitXor()
+    while (peek() === '|') { next(); left = bitwise('|', left, parseBitXor()) }
+    return left
+  }
+
+  function parseBitXor(): number {
+    let left = parseBitAnd()
+    while (peek() === '^') { next(); left = bitwise('^', left, parseBitAnd()) }
+    return left
+  }
+
+  function parseBitAnd(): number {
+    let left = parseEquality()
+    while (peek() === '&') { next(); left = bitwise('&', left, parseEquality()) }
+    return left
+  }
+
+  function parseEquality(): number {
     let left = parseComparison()
-    while (peek() === '&&') { next(); const right = parseComparison(); left = (left && right) ? 1 : 0 }
+    while (peek() === '==' || peek() === '!=') {
+      const op = next()
+      const right = parseComparison()
+      left = (op === '==' ? left === right : left !== right) ? 1 : 0
+    }
     return left
   }
 
   function parseComparison(): number {
-    let left = parseAdditive()
-    while (['==', '!=', '<', '>', '<=', '>='].includes(peek() ?? '')) {
+    let left = parseShift()
+    while (['<', '>', '<=', '>='].includes(peek() ?? '')) {
       const op = next() as string
-      const right = parseAdditive()
+      const right = parseShift()
       switch (op) {
-        case '==': left = left === right ? 1 : 0; break
-        case '!=': left = left !== right ? 1 : 0; break
         case '<': left = left < right ? 1 : 0; break
         case '>': left = left > right ? 1 : 0; break
         case '<=': left = left <= right ? 1 : 0; break
@@ -69,31 +150,64 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup): number {
     return left
   }
 
+  function parseShift(): number {
+    let left = parseAdditive()
+    while (peek() === '<<' || peek() === '>>') { const op = next() as string; left = bitwise(op, left, parseAdditive()) }
+    return left
+  }
+
   function parseAdditive(): number {
     let left = parseMultiplicative()
     while (peek() === '+' || peek() === '-') {
-      const op = next()
-      const right = parseMultiplicative()
-      left = op === '+' ? left + right : left - right
+      const op = next() as string
+      left = apply(op, left, parseMultiplicative())
     }
     return left
   }
 
   function parseMultiplicative(): number {
-    let left = parseUnary()
+    let left = parsePower()
     while (peek() === '*' || peek() === '/' || peek() === '%') {
-      const op = next()
-      const right = parseUnary()
-      if ((op === '/' || op === '%') && right === 0) throw new ArithmeticError('division by zero')
-      left = op === '*' ? left * right : op === '/' ? Math.trunc(left / right) : left % right
+      const op = next() as string
+      left = apply(op, left, parsePower())
     }
     return left
   }
 
+  /** `**` binds tighter than `* /` and looser than unary, and groups to the right. */
+  function parsePower(): number {
+    const base = parseUnary()
+    if (peek() !== '**') return base
+    next()
+    const exponent = parsePower()
+    if (exponent < 0) throw new ArithmeticError('exponent less than 0')
+    return base ** exponent
+  }
+
   function parseUnary(): number {
-    if (peek() === '-') { next(); return -parseUnary() }
-    if (peek() === '+') { next(); return parseUnary() }
-    if (peek() === '!') { next(); return parseUnary() === 0 ? 1 : 0 }
+    const token = peek()
+    if (token === '-') { next(); return -parseUnary() }
+    if (token === '+') { next(); return parseUnary() }
+    if (token === '!') { next(); return parseUnary() === 0 ? 1 : 0 }
+    if (token === '~') { next(); return Number(BigInt.asIntN(64, ~big(parseUnary()))) }
+    if ((token === '++' || token === '--') && isName(tokens[pos + 1])) {
+      next()
+      const name = next() as string
+      const value = read(name) + (token === '++' ? 1 : -1)
+      write(name, value)
+      return value
+    }
+    return parsePostfix()
+  }
+
+  function parsePostfix(): number {
+    if (isName(peek()) && (tokens[pos + 1] === '++' || tokens[pos + 1] === '--')) {
+      const name = next() as string
+      const op = next()
+      const value = read(name)
+      write(name, value + (op === '++' ? 1 : -1))
+      return value
+    }
     return parsePrimary()
   }
 
@@ -101,21 +215,21 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup): number {
     const token = next()
     if (token === undefined) throw new ArithmeticError('unexpected end of expression')
     if (token === '(') {
-      const value = parseOr()
+      const value = parseAssignment()
       if (next() !== ')') throw new ArithmeticError('expected )')
       return value
     }
-    return resolveOperand(token)
+    return isName(token) ? read(token) : number(token)
   }
 
-  const result = parseOr()
+  const result = parseAssignment()
   if (pos < tokens.length) throw new ArithmeticError(`unexpected token: ${tokens[pos]}`)
   return result
 }
 
 /** Evaluate a `$((...))` body. Thrown errors are the caller's to decide how to surface. */
-export function evaluateArithmeticExpression(expr: string, lookup: VariableLookup): number {
-  return evaluateArithmetic(expr, lookup)
+export function evaluateArithmeticExpression(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
+  return evaluateArithmetic(expr, lookup, assign)
 }
 
 /**

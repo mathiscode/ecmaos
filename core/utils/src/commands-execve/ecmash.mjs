@@ -23,7 +23,7 @@
 
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
-import { expandWordFields, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
 import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
@@ -202,7 +202,7 @@ class Shell {
     }
   }
 
-  async fields(parts) { return await expandWordFields(parts, this.context()) }
+  async fields(parts) { return await expandWordFieldsBraced(parts, this.context()) }
   async text(parts) { return await expandWordString(parts, this.context()) }
 
   /** Expands a raw word of text (a `case` subject, a `for` list) into fields. */
@@ -394,7 +394,7 @@ class Shell {
       })
       case 'while': return await this.withRedirect(statement, async () => {
         let last = 0
-        while (await this.runLine(statement.condition, { condition: true }) === 0) {
+        while ((await this.runLine(statement.condition, { condition: true }) === 0) !== Boolean(statement.until)) {
           try { last = await this.runStatements(statement.body) } catch (signal) {
             if (signal instanceof ControlSignal && (signal.kind === 'break' || signal.kind === 'continue')) {
               if (signal.value > 1) { signal.value--; throw signal }

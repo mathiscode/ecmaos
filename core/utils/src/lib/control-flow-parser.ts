@@ -63,6 +63,8 @@ export interface WhileStatement extends Redirected, Positioned {
   type: 'while'
   condition: string
   body: Statement[]
+  /** `until`: the body runs while the condition *fails* */
+  until?: boolean
 }
 
 export interface ForStatement extends Redirected, Positioned {
@@ -152,9 +154,12 @@ interface SourceLine {
 function preprocessLines(script: string, offset = 0): SourceLine[] {
   const out: SourceLine[] = []
   script.split('\n').forEach((physical, index) => {
-    for (const normalized of normalizeOneLineIfNeeded(physical).split('\n')) {
-      const text = normalized.trim()
-      if (text.length > 0 && !text.startsWith('#')) out.push({ text, line: offset || index + 1 })
+    const segments = physical.trim().startsWith('#') ? [physical] : splitTopLevel(physical)
+    for (const segment of segments) {
+      for (const normalized of normalizeOneLineIfNeeded(segment).split('\n')) {
+        const text = normalized.trim()
+        if (text.length > 0 && !text.startsWith('#')) out.push({ text, line: offset || index + 1 })
+      }
     }
   })
   return out
@@ -163,7 +168,137 @@ function preprocessLines(script: string, offset = 0): SourceLine[] {
 /** {@link normalizeInlineControlFlow}'s per-line rule, shared with {@link preprocessLines}. */
 function normalizeOneLineIfNeeded(line: string): string {
   const trimmed = line.trim()
+  if (/^case\s/.test(trimmed)) {
+    const normalized = normalizeOneLineCase(trimmed)
+    if (normalized) return normalized
+  }
   return ONE_LINE_FUNCTION_BODY.test(trimmed) || BRACE_GROUP_OPEN.test(trimmed) || SUBSHELL_OPEN.test(trimmed) ? line : normalizeOneLine(line)
+}
+
+
+/** Words that open a compound command when they stand where a command could start. */
+const COMPOUND_OPENERS = new Set(['if', 'while', 'until', 'for', 'case'])
+/** Words after which a new command starts, so a following `if`/`while`/... opens a compound. */
+const COMMAND_STARTERS = new Set(['then', 'do', 'else', 'elif', '!', 'time'])
+
+/**
+ * Splits one physical line into its top-level commands: at each `;` that is not inside quotes, a
+ * `( )`, `{ }`, `$( )`, or an unfinished `if`/`while`/`until`/`for`/`case`. This is what lets
+ * `f() { a; b; }; x=0; f` become `f() { a; b; }`, `x=0`, `f` instead of one unparseable line, and
+ * keeps `if a; then b; fi` and `case $x in a) b;; esac` whole for the keyword-aware normalizer.
+ *
+ * A `#` that starts a word is a comment, so a `;` after it does not split.
+ */
+export function splitTopLevel(line: string): string[] {
+  const segments: string[] = []
+  let current = ''
+  let paren = 0
+  let brace = 0
+  const keywords: string[] = []
+  let commandStart = true
+  let i = 0
+
+  const word = () => {
+    let end = i
+    while (end < line.length && /[A-Za-z0-9_!]/.test(line[end] as string)) end++
+    return line.slice(i, end)
+  }
+  const flush = () => {
+    if (current.trim().length) segments.push(current.trim())
+    current = ''
+    commandStart = true
+  }
+
+  while (i < line.length) {
+    const char = line[i] as string
+
+    if (char === '\\' && i + 1 < line.length) { current += line.slice(i, i + 2); i += 2; commandStart = false; continue }
+    if (char === "'") {
+      const end = line.indexOf("'", i + 1)
+      const stop = end === -1 ? line.length : end + 1
+      current += line.slice(i, stop); i = stop; commandStart = false; continue
+    }
+    if (char === '"') {
+      let j = i + 1
+      while (j < line.length && line[j] !== '"') j += line[j] === '\\' && j + 1 < line.length ? 2 : 1
+      const stop = Math.min(j + 1, line.length)
+      current += line.slice(i, stop); i = stop; commandStart = false; continue
+    }
+    if (char === '#' && (i === 0 || /\s/.test(line[i - 1] as string))) { current += line.slice(i); i = line.length; continue }
+
+    if (char === '(') { paren++; current += char; i++; commandStart = true; continue }
+    if (char === ')') { paren = Math.max(0, paren - 1); current += char; i++; commandStart = false; continue }
+    if (char === '{') { brace++; current += char; i++; commandStart = line[i - 2] !== '$' ; continue }
+    if (char === '}') { brace = Math.max(0, brace - 1); current += char; i++; commandStart = false; continue }
+
+    if (char === ';') {
+      if (line[i + 1] === ';') { current += ';;'; i += 2; commandStart = true; continue }
+      if (paren === 0 && brace === 0 && keywords.length === 0) { i++; flush(); continue }
+      current += char; i++; commandStart = true; continue
+    }
+    if (char === '&' || char === '|') {
+      const pair = line.slice(i, i + 2)
+      const length = pair === '&&' || pair === '||' ? 2 : 1
+      current += line.slice(i, i + length); i += length
+      // `>&` and `&>` are redirections, not command separators.
+      commandStart = !(char === '&' && (line[i - length - 1] === '>' || line[i] === '>'))
+      continue
+    }
+
+    if (/[A-Za-z!]/.test(char) && (i === 0 || /[\s;&|({]/.test(line[i - 1] as string))) {
+      const w = word()
+      if (commandStart) {
+        if (COMPOUND_OPENERS.has(w)) keywords.push(w)
+        else if ((w === 'fi' && keywords[keywords.length - 1] === 'if')
+          || (w === 'done' && ['while', 'until', 'for'].includes(keywords[keywords.length - 1] ?? ''))
+          || (w === 'esac' && keywords[keywords.length - 1] === 'case')) keywords.pop()
+      }
+      current += w
+      i += w.length
+      commandStart = COMMAND_STARTERS.has(w) || (commandStart && COMPOUND_OPENERS.has(w) && false)
+      continue
+    }
+
+    current += char
+    i++
+    if (!/\s/.test(char)) commandStart = false
+  }
+  flush()
+  return segments
+}
+
+/**
+ * One-line `case WORD in a|b) cmds;; c) cmds;; esac` as the lines the parser reads: the header, one
+ * line per clause (`pattern) body ;;`), and `esac`. Anything that is not a one-line case is returned as is.
+ */
+function normalizeOneLineCase(segment: string): string | undefined {
+  const header = /^case\s+(.*?)\s+in\s+([\s\S]*?)\s*esac\s*(.*)$/.exec(segment)
+  if (!header) return undefined
+  const [, subject, body, rest] = header as unknown as [string, string, string, string]
+  if (rest.trim()) return undefined
+  const clauses: string[] = []
+  let current = ''
+  let depth = 0
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i] as string
+    if (char === '\\') { current += body.slice(i, i + 2); i++; continue }
+    if (char === "'" || char === '"') {
+      const end = body.indexOf(char, i + 1)
+      const stop = end === -1 ? body.length : end + 1
+      current += body.slice(i, stop); i = stop - 1; continue
+    }
+    if (char === '(') depth++
+    else if (char === ')') depth = Math.max(0, depth - 1)
+    if (char === ';' && body[i + 1] === ';' && depth === 0) {
+      if (current.trim()) clauses.push(current.trim() + ' ;;')
+      current = ''
+      i++
+      continue
+    }
+    current += char
+  }
+  if (current.trim()) clauses.push(current.trim() + ' ;;')
+  return [`case ${subject} in`, ...clauses, 'esac'].join('\n')
 }
 
 /** A line that opens a brace group: `{` followed by whitespace or the end of the line. */
@@ -214,7 +349,7 @@ function firstSemicolon(text: string): number {
 /** A whole group on one physical line, `{ echo a; echo b; } > f`. Greedy, so the last `}` closes it. */
 const INLINE_GROUP = /^\{\s+(.*)\}\s*(.*)$/
 
-const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
+const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'until', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
 
 class LineParser {
   private pos = 0
@@ -268,6 +403,7 @@ class LineParser {
     switch (keyword) {
       case 'if': return this.parseIf()
       case 'while': return this.parseWhile()
+      case 'until': return this.parseWhile(true)
       case 'for': return this.parseFor()
       case 'case': return this.parseCase()
       case 'function': return this.parseFunctionKeywordForm()
@@ -350,11 +486,11 @@ class LineParser {
     return { type: 'if', branches, elseBody, ...(redirect ? { redirect } : {}) }
   }
 
-  private parseWhile(): WhileStatement {
-    const condition = this.consumeConditionThroughKeyword('while', 'do')
+  private parseWhile(until = false): WhileStatement {
+    const condition = this.consumeConditionThroughKeyword(until ? 'until' : 'while', 'do')
     const body = this.parseStatements(['done'])
     const redirect = this.expectKeywordLine('done')
-    return { type: 'while', condition, body, ...(redirect ? { redirect } : {}) }
+    return { type: 'while', condition, body, ...(until ? { until: true } : {}), ...(redirect ? { redirect } : {}) }
   }
 
   private parseFor(): ForStatement {
@@ -559,7 +695,7 @@ export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
  */
 const ATTACH_AND_CLOSE_LINE = new Set(['then', 'do'])
 /** Start a new line on their own; the word itself continues to accumulate normally afterward. */
-const START_NEW_LINE = new Set(['if', 'while', 'for', 'elif'])
+const START_NEW_LINE = new Set(['if', 'while', 'until', 'for', 'elif'])
 
 /**
  * Close a block, so they own their line up to the next top-level `;` and whatever follows that `;`
@@ -594,13 +730,10 @@ export function normalizeInlineControlFlow(text: string): string {
   //
   // Splitting per physical line changes nothing else: the loop below already flushes at every `\n`,
   // so it never carried state across one.
-  if (text.includes('\n') || ONE_LINE_FUNCTION_BODY.test(text.trim())) {
-    return text.split('\n')
-      .map(line => ONE_LINE_FUNCTION_BODY.test(line.trim()) ? line : normalizeOneLine(line))
-      .join('\n')
-  }
-
-  return normalizeOneLine(text)
+  return text.split('\n')
+    .flatMap(line => line.trim().startsWith('#') ? [line] : splitTopLevel(line))
+    .map(segment => normalizeOneLineIfNeeded(segment))
+    .join('\n')
 }
 
 /** {@link normalizeInlineControlFlow} for exactly one physical line. */

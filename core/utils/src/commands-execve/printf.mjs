@@ -121,6 +121,47 @@ function formatValue(format, value) {
   }
 }
 
+/** One conversion's text, before padding: precision cuts a string and pads a number with zeros. */
+function convert(conversion, value, flags, precision) {
+  if (conversion === 's' || conversion === 'b' || conversion === 'c') {
+    const text = formatValue(`%${conversion}`, value)
+    return precision === undefined ? text : text.slice(0, precision)
+  }
+  if ('fFeEgG'.includes(conversion)) {
+    const num = parseFloat(value)
+    const n = isNaN(num) ? 0 : num
+    const digits = precision ?? 6
+    const text = conversion === 'f' || conversion === 'F' ? n.toFixed(digits)
+      : conversion === 'e' || conversion === 'E' ? n.toExponential(digits).replace(/e([+-])(\d)$/, 'e$10$2')
+      : String(Number(n.toPrecision(digits || 1)))
+    const out = conversion === 'E' || conversion === 'G' ? text.toUpperCase() : text
+    return sign(out, n < 0, flags)
+  }
+  let text = formatValue(`%${conversion}`, value)
+  const negative = text.startsWith('-')
+  if (negative) text = text.slice(1)
+  if (precision !== undefined && text.length < precision) text = text.padStart(precision, '0')
+  if (flags.includes('#') && conversion === 'x' && text !== '0') text = '0x' + text
+  if (flags.includes('#') && conversion === 'X' && text !== '0') text = '0X' + text
+  if (flags.includes('#') && conversion === 'o' && !text.startsWith('0')) text = '0' + text
+  return sign(negative ? '-' + text : text, negative, flags, 'diu'.includes(conversion))
+}
+
+/** A `+` or space flag puts a sign on a non-negative number. */
+function sign(text, negative, flags, numeric = true) {
+  if (!numeric || negative || text.startsWith('-')) return text
+  return flags.includes('+') ? '+' + text : flags.includes(' ') ? ' ' + text : text
+}
+
+/** Pads to `width`; zero padding goes after a sign, space padding before it. */
+function pad(text, width, left, zero) {
+  if (text.length >= width) return text
+  if (left) return text.padEnd(width)
+  if (!zero) return text.padStart(width)
+  const signed = /^[-+ ]/.test(text) ? text[0] : ''
+  return signed + text.slice(signed.length).padStart(width - signed.length, '0')
+}
+
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
@@ -154,6 +195,20 @@ function main() {
         if (next === '%') {
           result += '%'
           i += 2
+          continue
+        }
+        // %[flags][width][.precision]conversion, where width and precision may be `*` (taken from an argument)
+        const spec = /^%([-+ 0#]*)(\d+|\*)?(?:\.(\d*|\*))?([bcdioxXsufFeEgG])/.exec(format.slice(i))
+        if (spec) {
+          sawSpecifier = true
+          const [text, flags = '', widthSpec, precisionSpec, conversion] = spec
+          const take = () => values[consumed++] ?? ''
+          let width = widthSpec === '*' ? parseInt(take(), 10) || 0 : widthSpec ? parseInt(widthSpec, 10) : 0
+          const precision = precisionSpec === '*' ? parseInt(take(), 10) || 0 : precisionSpec === undefined ? undefined : parseInt(precisionSpec || '0', 10)
+          let left = flags.includes('-')
+          if (width < 0) { left = true; width = -width }
+          result += pad(convert(conversion, take(), flags, precision), width, left, flags.includes('0') && !left && !'sbc'.includes(conversion))
+          i += text.length
           continue
         }
         sawSpecifier = true

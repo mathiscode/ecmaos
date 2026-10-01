@@ -184,8 +184,8 @@
     "status": 0
   },
   "functions/redirect": {
-    "stdout": "",
-    "status": 1
+    "stdout": "a\nb\n",
+    "status": 0
   },
   "functions/nested-call": {
     "stdout": "a\nb\n",
@@ -505,6 +505,50 @@
   },
   "builtins/test-negations": {
     "stdout": "yes\nno2\n",
+    "status": 0
+  },
+  "builtins/printf-flags": {
+    "stdout": "[   ab][cd   ][00042][+7][ 7][he][  3.1][ff][0xff][1.234500e+03]\n",
+    "status": 0
+  },
+  "builtins/printf-star": {
+    "stdout": "[   42][42   ]\n",
+    "status": 0
+  },
+  "expansion/positional-slice": {
+    "stdout": "two three one three\n",
+    "status": 0
+  },
+  "expansion/arithmetic-ops": {
+    "stdout": "25 10 2 1 13 4 -6 1 7 7 7 6\n",
+    "status": 0
+  },
+  "expansion/indirect": {
+    "stdout": "val\n",
+    "status": 0
+  },
+  "expansion/array-slice": {
+    "stdout": "q r 4 r s\n",
+    "status": 0
+  },
+  "expansion/trim-array": {
+    "stdout": "a b\n",
+    "status": 0
+  },
+  "control/one-line-function-chain": {
+    "stdout": "9\n16\n",
+    "status": 0
+  },
+  "control/one-line-nested-compound": {
+    "stdout": "other\ntwo\n",
+    "status": 0
+  },
+  "control/one-line-case-in-function": {
+    "stdout": "A\nB\n?\n",
+    "status": 0
+  },
+  "control/until-loop": {
+    "stdout": "0\n1\n2\n",
     "status": 0
   }
 }

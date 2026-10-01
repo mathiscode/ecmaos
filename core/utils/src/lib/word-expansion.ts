@@ -11,6 +11,7 @@
  */
 
 import { evaluateArithmeticExpression } from './expand-variables.js'
+import { expandBraces } from './brace-expansion.js'
 import type { WordPart } from './shell-parser.js'
 import { scanExpansionEnd } from './shell-parser.js'
 
@@ -128,9 +129,15 @@ class Expander {
   private special(name: string): Expanded | undefined {
     const positional = this.ctx.positional()
     if (name === '@') return { values: positional, multi: true }
-    if (name === '*') return { values: [positional.join(' ')], multi: false }
+    if (name === '*') return { values: [this.starJoin(positional)], multi: false }
     if (name === '#') return { values: [String(positional.length)], multi: false }
     return undefined
+  }
+
+  /** `$*` and `${a[*]}` in one field: joined with the first character of IFS (a space when it is unset, nothing when it is empty). */
+  private starJoin(values: string[]): string {
+    const ifs = this.ctx.lookup('IFS')
+    return values.join(ifs === undefined ? ' ' : ifs.slice(0, 1))
   }
 
   private arrayValues(name: string): string[] {
@@ -152,6 +159,108 @@ class Expander {
     return index === 0 ? this.ctx.lookup(name) : undefined
   }
 
+
+  /** The value-transforming parameter operators. Applied to each element when the target is a list. */
+  private async transform(name: string, subscript: string | undefined, operator: string, rest: string): Promise<Expanded> {
+    const isList = subscript === '@' || subscript === '*' || name === '@' || name === '*'
+    const multi = subscript === '@' || (subscript === undefined && name === '@')
+    let values: string[]
+    if (subscript === '@' || subscript === '*') values = this.arrayValues(name)
+    else if (name === '@' || name === '*') values = this.ctx.positional()
+    else if (subscript !== undefined) values = [(await this.element(name, subscript)) ?? '']
+    else values = [this.scalar(name) ?? '']
+
+    const finish = (out: string[]): Expanded => isList ? (multi ? { values: out, multi: true } : { values: [this.starJoin(out)], multi: false }) : { values: [out[0] ?? ''], multi: false }
+    const arithmetic = async (text: string) => evaluateArithmeticExpression(await this.expandText(text, 'double'), n => this.ctx.lookup(n))
+
+    if (operator === ':') {
+      const colon = rest.indexOf(':')
+      const offset = await arithmetic(colon === -1 ? rest : rest.slice(0, colon))
+      const length = colon === -1 ? undefined : await arithmetic(rest.slice(colon + 1))
+      if (isList) {
+        // Positional parameters count from $1, and offset 0 is $0; an array counts from its first element.
+        const positional = subscript === undefined
+        const list = positional ? [this.ctx.lookup('0') ?? '', ...values] : values
+        const start = offset < 0 ? Math.max(0, list.length + offset) : offset
+        return finish(list.slice(start, length === undefined ? undefined : start + length))
+      }
+      const text = values[0] as string
+      const start = offset < 0 ? Math.max(0, text.length + offset) : Math.min(offset, text.length)
+      const end = length === undefined ? text.length : length < 0 ? text.length + length : start + length
+      return finish([text.slice(start, Math.max(start, end))])
+    }
+
+    if (operator === '#' || operator === '##' || operator === '%' || operator === '%%') {
+      const pattern = new RegExp(globToRegExpSource(await this.expandText(rest, 'double')), 's')
+      const trim = (text: string): string => {
+        const prefix = operator[0] === '#'
+        const longest = operator.length === 2
+        // The candidate cut points, shortest first; the longest match is the last one that fits.
+        const cuts = Array.from({ length: text.length + 1 }, (_, i) => i)
+        const order = prefix === longest ? cuts.reverse() : cuts
+        for (const cut of order) {
+          const piece = prefix ? text.slice(0, cut) : text.slice(text.length - cut)
+          if (pattern.test(piece)) return prefix ? text.slice(cut) : text.slice(0, text.length - cut)
+        }
+        return text
+      }
+      return finish(values.map(trim))
+    }
+
+    if (operator === '/') {
+      let mode: 'first' | 'all' | 'start' | 'end' = 'first'
+      let body = rest
+      if (body.startsWith('/')) { mode = 'all'; body = body.slice(1) }
+      else if (body.startsWith('#')) { mode = 'start'; body = body.slice(1) }
+      else if (body.startsWith('%')) { mode = 'end'; body = body.slice(1) }
+      let slash = -1
+      for (let i = 0; i < body.length; i++) {
+        if (body[i] === '\\') { i++; continue }
+        if (body[i] === '/') { slash = i; break }
+      }
+      const patternText = await this.expandText(slash === -1 ? body : body.slice(0, slash), 'double')
+      const replacement = slash === -1 ? '' : await this.expandText(body.slice(slash + 1), 'double')
+      if (patternText === '') return finish(values)
+      const pattern = new RegExp(globToRegExpSource(patternText), 's')
+      const replace = (text: string): string => {
+        if (mode === 'start') {
+          for (let end = text.length; end >= 0; end--) if (pattern.test(text.slice(0, end))) return replacement + text.slice(end)
+          return text
+        }
+        if (mode === 'end') {
+          for (let start = 0; start <= text.length; start++) if (pattern.test(text.slice(start))) return text.slice(0, start) + replacement
+          return text
+        }
+        let out = ''
+        let at = 0
+        while (at < text.length) {
+          let matched = -1
+          for (let end = text.length; end > at; end--) if (pattern.test(text.slice(at, end))) { matched = end; break }
+          if (matched === -1) { out += text[at]; at++; continue }
+          out += replacement
+          at = matched
+          if (mode === 'first') { out += text.slice(at); return out }
+        }
+        return out
+      }
+      return finish(values.map(replace))
+    }
+
+    // ^ ^^ , ,,: case conversion, of every character matching the optional pattern
+    const upper = operator[0] === '^'
+    const all = operator.length === 2
+    const only = rest ? new RegExp(globToRegExpSource(await this.expandText(rest, 'double')), 's') : undefined
+    const convert = (text: string): string => {
+      let done = false
+      return Array.from(text).map(char => {
+        if ((done && !all) || (only && !only.test(char))) return char
+        done = true
+        return upper ? char.toUpperCase() : char.toLowerCase()
+      }).join('')
+    }
+    return finish(values.map(convert))
+  }
+
   /** `${...}`'s body: `#name`, `name[i]`, `name[@]`, `name:-word` and friends. */
   private async parameter(body: string): Promise<Expanded> {
     // ${#...}: length
@@ -166,6 +275,23 @@ class Expander {
       return { values: [String((this.scalar(rest) ?? '').length)], multi: false }
     }
 
+    // ${!name[@]}: the indices of an array; ${!name}: indirection through the variable's value
+    const indices = /^!([A-Za-z_][A-Za-z0-9_]*)\[[@*]\]$/.exec(body)
+    if (indices) {
+      const array = this.ctx.lookupArray(indices[1] as string)
+      const keys = array ? [...array.keys()].sort((a, b) => a - b).map(String) : (this.ctx.lookup(indices[1] as string) === undefined ? [] : ['0'])
+      return { values: keys, multi: true }
+    }
+    const indirect = /^!([A-Za-z_][A-Za-z0-9_]*)$/.exec(body)
+    if (indirect) {
+      const target = this.ctx.lookup(indirect[1] as string)
+      return { values: [target === undefined ? '' : (this.scalar(target) ?? '')], multi: false }
+    }
+
+    // ${name:off:len}, ${name#pat}, ${name%pat}, ${name/pat/rep}, ${name^^}: operators that transform the value
+    const modified = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(?:\[([^\]]*)\])?(:(?![-+=?])|##?|%%?|\/|\^\^?|,,?)([\s\S]*)$/.exec(body)
+    if (modified) return await this.transform(modified[1] as string, modified[2], modified[3] as string, modified[4] as string)
+
     const match = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])(?:\[([^\]]*)\])?(:?[-+=?])?([\s\S]*)$/.exec(body)
     if (!match) throw new Error(`\${${body}}: bad substitution`)
     const [, name, subscript, operator, word] = match as unknown as [string, string, string | undefined, string | undefined, string]
@@ -175,7 +301,7 @@ class Expander {
     let result: Expanded
     if (subscript === '@' || subscript === '*') {
       const values = this.arrayValues(name)
-      result = subscript === '@' ? { values, multi: true } : { values: [values.join(' ')], multi: false }
+      result = subscript === '@' ? { values, multi: true } : { values: [this.starJoin(values)], multi: false }
       value = values.length ? values.join(' ') : undefined
     } else if (subscript !== undefined) {
       value = await this.element(name, subscript)
@@ -219,7 +345,7 @@ class Expander {
       const end = scanExpansionEnd(text, 0)
       if (end > 0 && text[end - 2] === ')') {
         const expression = await this.expandText(text.slice(3, end - 2), 'double')
-        return { expanded: { values: [String(evaluateArithmeticExpression(expression, n => this.ctx.lookup(n)))], multi: false }, length: end }
+        return { expanded: { values: [String(evaluateArithmeticExpression(expression, n => this.ctx.lookup(n), (n, v) => this.ctx.assign(n, v)))], multi: false }, length: end }
       }
     }
     if (text.startsWith('$(') || text.startsWith('`')) {
@@ -383,6 +509,18 @@ class Expander {
 /** Expands a word into its final fields (arguments): splitting and globbing included. */
 export async function expandWordFields(parts: WordPart[], ctx: ExpansionContext): Promise<string[]> {
   return new Expander(ctx).fields(parts, { split: true, glob: true, tilde: true })
+}
+
+/**
+ * {@link expandWordFields} with brace expansion first: the only expansion that turns one word into
+ * several before anything is looked up, so `cp a.{txt,bak}` and `for i in {1..5}` agree in every shell.
+ */
+export async function expandWordFieldsBraced(parts: WordPart[], ctx: ExpansionContext): Promise<string[]> {
+  const braced = expandBraces(parts)
+  if (braced.length === 1) return await expandWordFields(parts, ctx)
+  const fields: string[] = []
+  for (const word of braced) fields.push(...await expandWordFields(word, ctx))
+  return fields
 }
 
 /** Expands a word to one string, with no splitting or globbing: assignments, `[[ ]]`, `<<<`. */

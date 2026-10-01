@@ -25,8 +25,7 @@ import { expandWord, evaluateArithmeticExpression } from '@ecmaos/coreutils/lib/
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '#lib/shell-signals.ts'
-import { expandWordFields, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
-import { expandBraces } from '@ecmaos/coreutils/lib/brace-expansion'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
 /**
@@ -2140,12 +2139,7 @@ export class Shell implements IShell {
    * `cp a.{txt,bak}`, `mkdir -p src/{lib,bin}` and `for i in {1..5}` all behave the same way.
    */
   private async expandFields(parts: WordPart[], ctx: ExpansionContext): Promise<string[]> {
-    const braced = expandBraces(parts)
-    if (braced.length === 1) return await expandWordFields(parts, ctx)
-
-    const fields: string[] = []
-    for (const word of braced) fields.push(...await expandWordFields(word, ctx))
-    return fields
+    return await expandWordFieldsBraced(parts, ctx)
   }
 
   /** Expands a command's argument words (index 1..) with the quote-aware expander -- true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
@@ -2754,7 +2748,9 @@ export class Shell implements IShell {
         }
       }
 
-      if (this._shellOptions.errexit && lastExit !== 0 && statement.type === 'simple') return lastExit
+      // `set -e` stops the list on a failed plain command. A line holding `&&` or `||` decides that for
+      // itself inside `executeSimple` (a failing left-hand side is tested, not fatal), so it is skipped here.
+      if (this._shellOptions.errexit && lastExit !== 0 && statement.type === 'simple' && !/&&|\|\|/.test(statement.line)) return lastExit
     }
 
     return lastExit
@@ -2840,7 +2836,7 @@ export class Shell implements IShell {
 
   private async executeWhile(statement: WhileStatement): Promise<number> {
     let lastExit = 0
-    while (await this.execute(statement.condition) === 0) {
+    while ((await this.execute(statement.condition) === 0) !== Boolean(statement.until)) {
       this._signalCatchers.loop++
       try {
         lastExit = await this.executeStatements(statement.body)
