@@ -150,6 +150,20 @@ export class Interpreter {
         return last
       })
 
+      case 'cfor': return await host.withRedirect(statement, async () => {
+        let last = 0
+        const arithmetic = async (text: string): Promise<number> => Number((await host.expandWords(`$(( ${text} ))`))[0] ?? 0)
+        if (statement.init) await arithmetic(statement.init)
+        while (!statement.cond || await arithmetic(statement.cond) !== 0) {
+          if (await host.checkpoint()) break
+          const turn = await this.runLoopBody(statement.body)
+          if (turn.status !== undefined) last = turn.status
+          if (turn.stop) break
+          if (statement.step) await arithmetic(statement.step)
+        }
+        return last
+      })
+
       case 'case': return await host.withRedirect(statement, async () => {
         const subject = await host.caseSubject(statement.word)
         for (const clause of statement.clauses) {

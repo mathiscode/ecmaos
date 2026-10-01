@@ -302,3 +302,10 @@ f() { for i in 1 2; do if [ $i -eq 2 ]; then echo two; else echo other; fi; done
 f() { case $1 in a) echo A;; b) echo B;; *) echo ?;; esac; }; f a; f b; f z
 ### control/until-loop
 i=0; until test $i -ge 3; do echo $i; i=$((i+1)); done
+### control/for-c-continue
+for ((i=0; i<5; i++)); do [ $i -eq 1 ] && continue; [ $i -eq 4 ] && break; echo $i; done; echo end=$i
+### control/for-c-multiline
+for ((i=1, j=10; i<=2; i++, j--))
+do
+  echo $i $j
+done

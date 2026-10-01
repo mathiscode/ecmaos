@@ -11,6 +11,7 @@
  * If         := 'if' Line 'then' Statements ('elif' Line 'then' Statements)* ('else' Statements)? 'fi'
  * While      := 'while' Line 'do' Statements 'done'
  * For        := 'for' NAME 'in' Word* ';'? 'do' Statements 'done'
+ * ArithFor   := 'for' '((' Arith ';' Arith ';' Arith '))' ';'? 'do' Statements 'done'
  * Case       := 'case' Word 'in' (Pattern ('|' Pattern)* ')' Statements ';;')* 'esac'
  * Group      := '{' Statements '}'
  * FunctionDef:= NAME '()' '{' Statements '}'   |   'function' NAME '{' Statements '}'
@@ -67,6 +68,15 @@ export interface WhileStatement extends Redirected, Positioned {
   until?: boolean
 }
 
+/** `for (( init; cond; step )); do ... done`: the three parts are arithmetic text, any of them may be empty. */
+export interface ArithmeticForStatement extends Redirected, Positioned {
+  type: 'cfor'
+  init: string
+  cond: string
+  step: string
+  body: Statement[]
+}
+
 export interface ForStatement extends Redirected, Positioned {
   type: 'for'
   variable: string
@@ -115,7 +125,7 @@ export interface SubshellStatement extends Redirected, Positioned {
   body: Statement[]
 }
 
-export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
+export type Statement = SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -493,8 +503,22 @@ class LineParser {
     return { type: 'while', condition, body, ...(until ? { until: true } : {}), ...(redirect ? { redirect } : {}) }
   }
 
-  private parseFor(): ForStatement {
+  private parseFor(): ForStatement | ArithmeticForStatement {
     const header = this.restAfterKeyword(this.advance(), 'for')
+    const arithmetic = /^\(\(\s*(.*?)\s*\)\)\s*;?\s*(do)?$/.exec(header)
+    if (arithmetic) {
+      const parts = (arithmetic[1] as string).split(';').map(part => part.trim())
+      if (parts.length !== 3) throw new ControlFlowParseError(`Malformed for-loop header: for ${header}`)
+      if (!arithmetic[2]) {
+        if (this.firstWord(this.peek() ?? '') !== 'do') {
+          throw new ControlFlowParseError(`Expected 'do' after 'for ${header}'`, this.atEnd())
+        }
+        this.takeKeyword()
+      }
+      const body = this.parseStatements(['done'])
+      const redirect = this.expectKeywordLine('done')
+      return { type: 'cfor', init: parts[0] as string, cond: parts[1] as string, step: parts[2] as string, body, ...(redirect ? { redirect } : {}) }
+    }
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.*?);?\s*(do)?$/.exec(header)
     if (!match) throw new ControlFlowParseError(`Malformed for-loop header: for ${header}`)
 

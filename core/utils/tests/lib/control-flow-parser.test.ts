@@ -3,6 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { parseStatements } from '../../src/lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, WhileStatement } from '../../src/lib/control-flow-parser.ts'
 
+describe('parseStatements: C-style for', () => {
+  it('parses the three arithmetic parts, inline and multi-line', () => {
+    for (const text of ['for ((i=0; i<3; i++)); do echo $i; done', 'for (( i=0; i<3; i++ ))\ndo\n  echo $i\ndone']) {
+      const [statement] = parseStatements(text)
+      expect(statement).toMatchObject({ type: 'cfor', init: 'i=0', cond: 'i<3', step: 'i++' })
+    }
+  })
+
+  it('allows empty parts and rejects a header without three', () => {
+    expect(parseStatements('for ((;;)); do break; done')[0]).toMatchObject({ type: 'cfor', init: '', cond: '', step: '' })
+    expect(() => parseStatements('for ((i=0; i<3)); do :; done')).toThrow(/Malformed for-loop header/)
+  })
+})
+
 describe('parseStatements', () => {
   it('parses plain lines as simple statements, skipping blanks and comments', () => {
     const statements = parseStatements('echo one\n\n# a comment\necho two')

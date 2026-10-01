@@ -44,6 +44,13 @@ describe('expandVariables', () => {
 describe('evaluateArithmeticExpression', () => {
   const lookup = (name: string) => ({ x: '5', y: '2' }[name])
 
+  it('evaluates the comma operator left to right', () => {
+    const seen: string[] = []
+    expect(evaluateArithmeticExpression('i=1, j=10, 7', lookup, (n, v) => seen.push(`${n}=${v}`))).toBe(7)
+    expect(seen).toEqual(['i=1', 'j=10'])
+    expect(evaluateArithmeticExpression('(1, 2) + 3', lookup)).toBe(5)
+  })
+
   it('evaluates basic arithmetic', () => {
     expect(evaluateArithmeticExpression('1 + 2 * 3', lookup)).toBe(7)
     expect(evaluateArithmeticExpression('(1 + 2) * 3', lookup)).toBe(9)

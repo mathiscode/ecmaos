@@ -19,7 +19,6 @@ export const knownKernel: KnownTable = {
   "builtins/background-status": { stdout: "THREW A subshell followed by \"&\" is not supported; put it on its own line", status: -1, why: "a subshell run in the background ((cmd) &) is not supported" },
   "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
   "builtins/wait": { stdout: "TIMEOUT", status: -2, why: "wait after a background sleep exits 7 and prints nothing (a bare `sleep & wait` has also been seen to never return)" },
-  "control/for-c-style": { stdout: "THREW Malformed for-loop header: for ((i=0; i<3; i++)) do", status: -1, why: "C-style for ((;;)) is not supported" },
   "control/group": { stdout: "THREW Expected a redirection, got: |", status: -1, why: "{ ...; } followed by a pipe is not parsed" },
   "control/pipe-into-loop": { stdout: " \n", status: 127, why: "a compound command as a pipeline stage is not supported (a brace group after a pipe)" },
   "control/while-read": { stdout: "got \n", status: 127, why: "a compound command as a pipeline stage is not supported (run as a command named while)" },
@@ -36,7 +35,6 @@ export const knownKernel: KnownTable = {
 
 export const knownEcmash: KnownTable = {
   "builtins/background-status": { stdout: "", status: 2, why: "a subshell run in the background ((cmd) &) is not supported" },
-  "control/for-c-style": { stdout: "", status: 2, why: "C-style for ((;;)) is not supported" },
   "control/group": { stdout: "", status: 2, why: "{ ...; } followed by a pipe is not parsed" },
   "control/pipe-into-loop": { stdout: " \n", status: 127, why: "a compound command as a pipeline stage is not supported (a brace group after a pipe)" },
   "control/pipestatus": { stdout: "0\n0\n", status: 0, why: "PIPESTATUS holds one entry: a pipeline reports a single status here" },

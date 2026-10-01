@@ -27,7 +27,7 @@ class ArithmeticError extends Error {}
  * like bash's. `assign` is what lets `x++` and `x+=2` write back; without it they still evaluate.
  */
 function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
-  const tokens = expr.match(/0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=]/g) ?? []
+  const tokens = expr.match(/0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=,]/g) ?? []
   let pos = 0
 
   const peek = () => tokens[pos]
@@ -211,18 +211,25 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
     return parsePrimary()
   }
 
+  /** The comma operator: evaluates each side in turn and yields the last. */
+  function parseComma(): number {
+    let value = parseAssignment()
+    while (peek() === ',') { next(); value = parseAssignment() }
+    return value
+  }
+
   function parsePrimary(): number {
     const token = next()
     if (token === undefined) throw new ArithmeticError('unexpected end of expression')
     if (token === '(') {
-      const value = parseAssignment()
+      const value = parseComma()
       if (next() !== ')') throw new ArithmeticError('expected )')
       return value
     }
     return isName(token) ? read(token) : number(token)
   }
 
-  const result = parseAssignment()
+  const result = parseComma()
   if (pos < tokens.length) throw new ArithmeticError(`unexpected token: ${tokens[pos]}`)
   return result
 }

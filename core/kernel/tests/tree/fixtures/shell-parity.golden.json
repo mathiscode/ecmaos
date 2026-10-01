@@ -550,5 +550,13 @@
   "control/until-loop": {
     "stdout": "0\n1\n2\n",
     "status": 0
+  },
+  "control/for-c-continue": {
+    "stdout": "0\n2\n3\nend=4\n",
+    "status": 0
+  },
+  "control/for-c-multiline": {
+    "stdout": "1 10\n2 9\n",
+    "status": 0
   }
 }
