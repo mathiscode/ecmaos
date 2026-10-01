@@ -18,7 +18,6 @@ export const knownKernel: KnownTable = {
   "assign/readonly": { stdout: "1 1\n", status: 0, why: "a failed assignment to a readonly variable does not end the script (bash exits with status 1)" },
   "builtins/background-status": { stdout: "THREW A subshell followed by \"&\" is not supported; put it on its own line", status: -1, why: "a subshell run in the background ((cmd) &) is not supported" },
   "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
-  "builtins/wait": { stdout: "TIMEOUT", status: -2, why: "wait after a background sleep exits 7 and prints nothing (a bare `sleep & wait` has also been seen to never return)" },
   "control/group": { stdout: "THREW Expected a redirection, got: |", status: -1, why: "{ ...; } followed by a pipe is not parsed" },
   "control/pipe-into-loop": { stdout: " \n", status: 127, why: "a compound command as a pipeline stage is not supported (a brace group after a pipe)" },
   "control/while-read": { stdout: "got \n", status: 127, why: "a compound command as a pipeline stage is not supported (run as a command named while)" },
