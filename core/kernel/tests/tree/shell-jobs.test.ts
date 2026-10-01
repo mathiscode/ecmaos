@@ -180,6 +180,19 @@ describe('Shell job control — & background execution and the job table', () =>
     expect(await kernel.shell.execute('disown %99')).toBe(1)
   })
 
+  it('a bare wait inside a script under `exec >` waits for background jobs, not for itself', async () => {
+    // Under `exec > file` a builtin runs as a foreground pipeline, which is in the job table too.
+    const out = '/tmp/wait-exec.out'
+    try { await kernel.filesystem.fs.unlink(out) } catch { /* absent */ }
+    await kernel.filesystem.fs.writeFile('/tmp/wait-exec.sh', `#!ecmaos:bin:script:test\nexec > ${out}\nsleep 0.1 &\nwait\necho done`)
+    const code = await Promise.race([
+      kernel.execute({ command: '/tmp/wait-exec.sh', shell: kernel.shell }),
+      new Promise<string>(resolve => setTimeout(() => resolve('hung'), 5000))
+    ])
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile(out, 'utf-8')).toBe('done\n')
+  }, 10000)
+
   it('a pure-coreutil job never acquires a real process handle', async () => {
     await kernel.shell.execute('true &')
     await new Promise(resolve => setTimeout(resolve, 10))

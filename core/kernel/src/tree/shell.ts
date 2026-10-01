@@ -1509,7 +1509,9 @@ export class Shell implements IShell {
    */
   async wait(spec?: string): Promise<number | undefined> {
     if (!spec) {
-      await Promise.all(this._jobs.filter(job => job.status !== 'done').map(job => job.done))
+      // Background jobs only: a foreground pipeline is also in the table, and `wait` itself (or the
+      // script that called it) is one whenever it runs through `runPipeline`, as it does under `exec >`.
+      await Promise.all(this._jobs.filter(job => job.background && job.status !== 'done').map(job => job.done))
       return undefined
     }
 
