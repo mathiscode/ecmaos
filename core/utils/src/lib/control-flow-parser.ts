@@ -736,6 +736,16 @@ export function normalizeInlineControlFlow(text: string): string {
     .join('\n')
 }
 
+/**
+ * `do;`, `then;` and `else;` carry a separator that bash rejects but a history entry joined line by
+ * line used to contain; it is dropped so such an entry still runs.
+ */
+function skipStraySemicolon(text: string, from: number): number {
+  let at = from
+  while (at < text.length && /\s/.test(text[at] as string)) at++
+  return text[at] === ';' && text[at + 1] !== ';' ? at + 1 : from
+}
+
 /** {@link normalizeInlineControlFlow} for exactly one physical line. */
 function normalizeOneLine(text: string): string {
   const lines: string[] = []
@@ -799,7 +809,7 @@ function normalizeOneLine(text: string): string {
       if (boundaryOk && ISOLATE_ALONE.has(word)) {
         flush()
         lines.push(word)
-        i = k
+        i = skipStraySemicolon(text, k)
         continue
       }
 
@@ -838,7 +848,7 @@ function normalizeOneLine(text: string): string {
       if (boundaryOk && ATTACH_AND_CLOSE_LINE.has(word)) {
         current += (current.length && !/\s$/.test(current) ? ' ' : '') + word
         flush()
-        i = k
+        i = skipStraySemicolon(text, k)
         continue
       }
 

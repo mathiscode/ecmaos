@@ -98,6 +98,18 @@ describe('History', () => {
     expect(files.get('/h')).toBe('for i in 1 2; do echo $i; done\n')
   })
 
+  it('joins after a block opener with a space, so the recalled line is valid shell', async () => {
+    const { history } = setup('')
+    await history.add(0, 'for i in 1 2; do\n  echo n$i\ndone')
+    await history.add(0, 'if true; then\n  echo a\nelse\n  echo b\nfi')
+    await history.add(0, 'a &&\nb\nc | \nd')
+    expect(history.entries(0)).toEqual([
+      'for i in 1 2; do echo n$i; done',
+      'if true; then echo a; else echo b; fi',
+      'a && b; c | d',
+    ])
+  })
+
   it('does not record a heredoc, which cannot be joined without breaking it', async () => {
     const { history } = setup('')
     expect(await history.add(0, 'cat <<EOF\nbody\nEOF')).toBe(false)

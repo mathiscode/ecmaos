@@ -15,3 +15,5 @@ Found by checking both shells against bash. Both the kernel shell and `ecmash` n
 - **`ecmash`** applies brace expansion, which only the kernel shell did.
 
 A `;`-joined line is now one statement per command. A subshell followed by `&&`, `||` or `|` is still refused, and so is a compound command as a pipeline stage.
+
+A multi-line command recalled from history joins after a block opener with a space (`do echo`, not `do; echo`), and the parser accepts a stray `;` after `do`, `then` and `else`, so an entry saved by an earlier version still runs.

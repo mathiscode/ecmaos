@@ -355,3 +355,14 @@ describe('one-line forms followed by more commands', () => {
     expect(types('x=$(echo a; echo b); echo $x')).toEqual(['simple', 'simple'])
   })
 })
+
+describe('a stray semicolon after a block opener', () => {
+  it('runs `do;`, `then;` and `else;` as if the semicolon were not there', () => {
+    const [loop] = parseStatements('for i in 1 2; do; echo n$i; done') as [ForStatement]
+    expect(loop.body.map(statement => statement.type)).toEqual(['simple'])
+    expect((loop.body[0] as SimpleStatement).line).toBe('echo n$i')
+    const [branch] = parseStatements('if true; then; echo a; else; echo b; fi') as [IfStatement]
+    expect((branch.branches[0]?.body[0] as SimpleStatement).line).toBe('echo a')
+    expect((branch.elseBody?.[0] as SimpleStatement).line).toBe('echo b')
+  })
+})

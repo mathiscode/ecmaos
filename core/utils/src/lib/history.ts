@@ -160,7 +160,14 @@ export class History {
   private flatten(command: string): string | undefined {
     if (!command.includes('\n')) return command
     if (/<<-?\s*['"]?\w/.test(command)) return undefined
-    return command.split('\n').map(line => line.trim()).filter(Boolean).join('; ')
+    let joined = ''
+    for (const line of command.split('\n').map(line => line.trim()).filter(Boolean)) {
+      // A line that opens a block takes the next one with a space: `do; echo` is not valid shell,
+      // `do echo` is. Everything else is a new command and gets the `;`.
+      const opens = /(?:^|[\s;({&|])(?:do|then|else|\{|\(|in)$|&&$|\|\|$|\|$|\\$/.test(joined)
+      joined = joined === '' ? line : joined + (opens ? ' ' : '; ') + line
+    }
+    return joined
   }
 
   /** Records a command. Returns whether it was kept. */
