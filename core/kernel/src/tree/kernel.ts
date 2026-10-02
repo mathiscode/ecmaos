@@ -116,7 +116,7 @@ const DefaultKernelOptions: KernelOptions = {
 const DefaultBootOptions: BootOptions = { silent: false }
 
 /** Commands that live in `/sbin` rather than `/bin`. */
-const SbinCommands = new Set(['init'])
+const SbinCommands = new Set(['init', 'getty'])
 const DefaultFigletFonts = [
   '3-D',
   '3x5',
@@ -1954,7 +1954,7 @@ export class Kernel implements IKernel {
         // `binfmt_js` (fs/exec.ts) already accepts this content unconditionally by matching "not
         // WASM, no null byte" -- this only teaches ecmaOS's own pre-execve classification
         // (`readFileHeader`) the same rule for this one directory.
-        else if (filePath.startsWith('/bin/')) return 'js'
+        else if (filePath.startsWith('/bin/') || filePath.startsWith('/sbin/')) return 'js'
         else return 'application/octet-stream'
       }
       
@@ -2717,13 +2717,13 @@ export class Kernel implements IKernel {
    * Second half: authenticates (the passkey from `beginLogin`, or `password`) and starts the session on
    * the tty's shell. Resolves to what getty needs to run the user's shell; rejects with the message to show.
    */
-  async finishLogin(ttyNumber: number, username: string, password: string): Promise<{ shell: string, home: string, username: string }> {
+  async finishLogin(ttyNumber: number, username: string, password: string): Promise<{ shell: string, home: string, username: string, env: Record<string, string> }> {
     const shell = await this.shellForTty(ttyNumber)
     const pending = this._pendingLogins.get(ttyNumber)
     this._pendingLogins.delete(ttyNumber)
     const session = pending?.username === username ? pending.session : await this.users.login(username, password)
     await this.startSession(shell, session.user, session.cred)
-    return { shell: session.user.shell || 'ecmaos', home: session.user.home || '/root', username: session.user.username }
+    return { shell: session.user.shell || 'ecmaos', home: session.user.home || '/root', username: session.user.username, env: shell.envObject }
   }
 
   /** A login on `ttyNumber` has ended: the session record goes, and the shell holds no user until the next login. */

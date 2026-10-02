@@ -109,7 +109,9 @@ const host = {
       return await call(custom, 'init_script', path, JSON.stringify(args))
     }
     // Its own process group, as a shell gives each job: init's children would otherwise all share pgid 1.
-    return await call(spawn, path, entry.argv, { cwd: '/', pgid: 0 })
+    // As in BusyBox, an entry whose id names a terminal (`tty2`) runs on it.
+    const terminal = /^tty(\d+)$/.exec(entry.id)
+    return await call(spawn, path, entry.argv, { cwd: '/', pgid: 0, ...(terminal ? { tty: Number(terminal[1]) } : {}) })
   },
 
   async wait(timeoutMs) {

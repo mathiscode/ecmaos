@@ -102,7 +102,7 @@ export const migratedCommands = [
   'id', 'groups',
   'chown',
   'zip', 'unzip', 'git', 'less', 'man',
-  'free', 'who', 'last', 'ecmash', 'init'
+  'free', 'who', 'last', 'ecmash', 'init', 'getty'
 ] as const
 
 /**
