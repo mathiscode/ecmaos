@@ -248,7 +248,7 @@ globalThis.ecmaosSyscalls = {
   killpg: (pgid, signal) => syscall_async('proc_killpg', pgid, signal),
   tcsetpgrp: pid => syscall_async('proc_tcsetpgrp', pid),
   spawn: (command, argv, options = {}) =>
-    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid })),
+    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, tty: options.tty })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

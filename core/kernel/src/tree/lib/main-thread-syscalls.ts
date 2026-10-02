@@ -90,6 +90,9 @@ declare module '@zenfs/linux/uapi/abi' {
     init_killall(signal: number): number
     init_alive(): number
     system_stop(mode: string): number
+    login_begin(tty: number, username: string): number
+    login_session(tty: number, username: string, password: string, path: string): number
+    login_end(tty: number): number
     terminal_clear_history(): number
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
@@ -1008,8 +1011,10 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number } : {}
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid })
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number } : {}
+    const terminal = options.tty === undefined ? undefined : kernel.getShell(options.tty)?.terminal
+    if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal })
     registerProcessKernel(child, kernel, shell)
     return child.pid
   })
@@ -1090,6 +1095,32 @@ export function installMainThreadSyscalls(): void {
     if (proc !== kernel.init.process && !root) throw Object.assign(new Error('Permission denied (requires root)'), { errno: Errno.EPERM })
     if (mode !== 'reboot' && mode !== 'halt' && mode !== 'poweroff') throw Object.assign(new Error(`Unknown mode: ${mode}`), { errno: Errno.EINVAL })
     await kernel.stop(mode)
+    return 0
+  })
+
+  // `/sbin/getty`'s half of a login. The prompts and the password are the program's; authenticating (and
+  // a passkey, which needs the page rather than a worker) and starting the session are the kernel's.
+  // `login_begin` is 1 when a passkey already settled it; `login_session` writes `{ ok, ... }` to `path`,
+  // a failure carrying the message to show, since an errno would lose it.
+  define_syscall('login_begin', async (proc: Process, tty: number, username: string) => {
+    return await kernelOf(proc).beginLogin(tty, username) ? 1 : 0
+  })
+
+  define_syscall('login_session', async (proc: Process, tty: number, username: string, password: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let result: unknown
+    try {
+      result = { ok: true, ...await kernel.finishLogin(tty, username, password) }
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+    const text = JSON.stringify(result)
+    await kernel.filesystem.fs.writeFile(path, text)
+    return text.length
+  })
+
+  define_syscall('login_end', async (proc: Process, tty: number) => {
+    await kernelOf(proc).endLogin(tty)
     return 0
   })
 

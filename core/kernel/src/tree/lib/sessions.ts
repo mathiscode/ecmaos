@@ -61,6 +61,16 @@ export class SessionLog {
     return this.serialized(() => this.record(user, tty))
   }
 
+  /** Removes the login on console `tty` from `utmp`. `wtmp` keeps no logout record (see the file comment). */
+  logout(tty: number): Promise<void> {
+    return this.serialized(async () => {
+      if (!await this.fs.exists(UTMP)) return
+      const name = `tty${tty}`
+      const lines = (await this.fs.readFile(UTMP, 'utf-8')).split('\n').filter(Boolean).filter(line => line.split('\t')[1] !== name)
+      await this.fs.writeFile(UTMP, lines.length ? lines.join('\n') + '\n' : '', 'utf-8')
+    })
+  }
+
   private async record(user: string, tty: number): Promise<void> {
     const name = `tty${tty}`
     const time = this.now()

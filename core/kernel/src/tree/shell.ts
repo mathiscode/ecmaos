@@ -580,6 +580,12 @@ export class Shell implements IShell {
       await this._sessions.login(username, this._tty)
     } catch { /* the login itself already succeeded */ }
   }
+  async recordLogout(): Promise<void> {
+    try {
+      this._sessions ??= new SessionLog(this._filesystem.fs)
+      await this._sessions.logout(this._tty)
+    } catch { /* nothing to undo */ }
+  }
   private _sessions?: SessionLog
   /** Translated strings -- needed by `su`'s error messages, the same way `resolveCommand` uses it. */
   get i18n() { return this._ctx.i18n }

@@ -2510,8 +2510,8 @@ export class Kernel implements IKernel {
    * Updates the i18n language from the LANG environment variable if present
    * This allows users to override the system-wide locale with their LANG env var
    */
-  private updateLocaleFromEnv(): void {
-    const langEnv = this.shell.env.get('LANG')
+  private updateLocaleFromEnv(shell: Shell): void {
+    const langEnv = shell.env.get('LANG')
     if (langEnv) {
       try {
         this.i18n.setLanguage(langEnv)
@@ -2529,29 +2529,10 @@ export class Kernel implements IKernel {
    */
   async loginShell(shell: Shell, options?: { autoLogin?: { username: string, password: string } }): Promise<void> {
     const terminal = shell.terminal
-    const t = this.i18n.i18next.getFixedT(this.i18n.language, 'kernel')
 
     if (options?.autoLogin) {
       const { user, cred } = await this.users.login(options.autoLogin.username, options.autoLogin.password)
-      shell.credentials = cred
-      shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
-      shell.env.set('UID', user.uid.toString())
-      shell.env.set('GID', user.gid.toString())
-      shell.env.set('SUID', cred.suid.toString())
-      shell.env.set('SGID', cred.sgid.toString())
-      shell.env.set('EUID', cred.euid.toString())
-      shell.env.set('EGID', cred.egid.toString())
-      shell.env.set('SHELL', user.shell || 'ecmaos')
-      shell.env.set('HOME', user.home || '/root')
-      shell.env.set('USER', user.username)
-      shell.env.set('HOSTNAME', globalThis.location.hostname || 'localhost')
-      shell.publishEnv()
-      await shell.recordLogin(user.username)
-      shell.cwd = shell.env.get('HOME') || '/'
-      await shell.loadEnvFile()
-      await shell.loadProfile()
-      await shell.loadConfig()
-      this.updateLocaleFromEnv()
+      await this.startSession(shell, user, cred)
       return
     }
 
@@ -2610,49 +2591,8 @@ export class Kernel implements IKernel {
         terminal.writeln(`${icon}  ${protocolStr}//${hostname}${port}`)
 
         const username = await terminal.readline(`👤  ${this.i18n.ns.common('Username')}: `)
-        const user = Array.from(this.users.all.values()).find(u => u.username === username)
-        
-        let loginSuccess = false
-        let userCred: { user: User, cred: Credentials } | null = null
-
-        if (user) {
-          const passkeys = await this.users.getPasskeys(user.uid)
-          if (passkeys.length > 0 && this.auth.passkey.isSupported()) {
-            try {
-              const challenge = crypto.getRandomValues(new Uint8Array(32))
-              const rpId = globalThis.location.hostname || 'localhost'
-              
-              const allowCredentials = passkeys.map(pk => {
-                const credentialIdBytes = Uint8Array.from(atob(pk.credentialId), c => c.charCodeAt(0))
-                return {
-                  id: credentialIdBytes.buffer,
-                  type: 'public-key' as const,
-                  transports: ['usb', 'nfc', 'ble', 'internal'] as AuthenticatorTransport[]
-                }
-              })
-
-              const requestOptions: PublicKeyCredentialRequestOptions = {
-                challenge,
-                allowCredentials,
-                rpId,
-                userVerification: 'preferred',
-                timeout: 60000
-              }
-
-              terminal.writeln(chalk.yellow(`🔐  ${this.i18n.ns.kernel('passkeyAuthenticate')}`))
-              const credential = await this.auth.passkey.get(requestOptions)
-              
-              if (credential && credential instanceof PublicKeyCredential) {
-                userCred = await this.users.login(username, undefined, credential)
-                loginSuccess = true
-              } else {
-                terminal.writeln(chalk.yellow(t('kernel.passkeyCancelled', 'Passkey authentication cancelled or failed. Falling back to password...')))
-              }
-            } catch (err) {
-              terminal.writeln(chalk.yellow(t('kernel.passkeyError', 'Passkey authentication error: {{error}}. Falling back to password...', { error: (err as Error).message })))
-            }
-          }
-        }
+        let userCred = await this.tryPasskeyLogin(terminal, username)
+        const loginSuccess = userCred !== null
 
         if (!loginSuccess) {
           const password = await terminal.readline(`🔑  ${this.i18n.ns.common('Password')}: `, true)
@@ -2661,50 +2601,136 @@ export class Kernel implements IKernel {
 
         if (!userCred) throw new Error(this.i18n.ns.kernel('loginFailed'))
 
-        shell.credentials = userCred.cred
-        shell.context = bindContext({ root: '/', pwd: '/', credentials: userCred.cred })
-        shell.env.set('UID', userCred.user.uid.toString())
-        shell.env.set('GID', userCred.user.gid.toString())
-        shell.env.set('SUID', userCred.cred.suid.toString())
-        shell.env.set('SGID', userCred.cred.sgid.toString())
-        shell.env.set('EUID', userCred.cred.euid.toString())
-        shell.env.set('EGID', userCred.cred.egid.toString())
-        shell.env.set('SHELL', userCred.user.shell || 'ecmaos')
-        shell.env.set('HOME', userCred.user.home || '/root')
-        shell.env.set('USER', userCred.user.username)
-        shell.publishEnv()
-        await shell.recordLogin(userCred.user.username)
-
-        // A login shell starts in `$HOME`, as on Linux. The cwd used to be restored from
-        // `localStorage`, which meant a fresh login landed wherever that user last happened to be
-        // and made `cd` a persistent setting no real shell has. It also could not survive the move
-        // to a worker, where `localStorage` does not exist. It is set before the startup files so a
-        // `cd` in `~/.ecmashrc` is the one that wins.
-        shell.cwd = shell.env.get('HOME') || '/'
-
-        // After `HOME` is set, not before. `loadEnvFile` reads `~/.env` from `$HOME`, so running it
-        // ahead of these assignments read the *previous* user's home -- on a fresh boot the default
-        // `/root`, and after a `su`-style relogin the last user's. `~/.ecmashrc` has the same
-        // dependency, so both hooks belong here.
-        await shell.loadEnvFile()
-        await shell.loadProfile()
-        await shell.loadConfig()
-
-        const langEnv = shell.env.get('LANG')
-        if (langEnv) {
-          try {
-            this.i18n.setLanguage(langEnv)
-            this.log.debug(`Locale updated from LANG env var: ${langEnv} -> ${this.i18n.language}`)
-          } catch (error) {
-            this.log.warn(`Failed to update locale from LANG env var: ${(error as Error).message}`)
-          }
-        }
+        await this.startSession(shell, userCred.user, userCred.cred)
         break
       } catch (err) {
         console.error(err)
         terminal.writeln(chalk.red((err as Error).message) + '\n')
       }
     }
+  }
+
+  /**
+   * The passkey half of a login: when `username` has passkeys and the browser supports them, asks for
+   * one and returns the session it yields. Null means "ask for a password" (no such user, no passkey,
+   * or the attempt was cancelled or failed, which is said on `terminal`).
+   */
+  async tryPasskeyLogin(terminal: { writeln(text: string): void }, username: string): Promise<{ user: User, cred: Credentials } | null> {
+    const t = this.i18n.i18next.getFixedT(this.i18n.language, 'kernel')
+    const user = Array.from(this.users.all.values()).find(u => u.username === username)
+    if (!user) return null
+    const passkeys = await this.users.getPasskeys(user.uid)
+    if (passkeys.length === 0 || !this.auth.passkey.isSupported()) return null
+
+    try {
+      const challenge = crypto.getRandomValues(new Uint8Array(32))
+      const rpId = globalThis.location.hostname || 'localhost'
+
+      const allowCredentials = passkeys.map(pk => {
+        const credentialIdBytes = Uint8Array.from(atob(pk.credentialId), c => c.charCodeAt(0))
+        return {
+          id: credentialIdBytes.buffer,
+          type: 'public-key' as const,
+          transports: ['usb', 'nfc', 'ble', 'internal'] as AuthenticatorTransport[]
+        }
+      })
+
+      const requestOptions: PublicKeyCredentialRequestOptions = {
+        challenge,
+        allowCredentials,
+        rpId,
+        userVerification: 'preferred',
+        timeout: 60000
+      }
+
+      terminal.writeln(chalk.yellow(`🔐  ${this.i18n.ns.kernel('passkeyAuthenticate')}`))
+      const credential = await this.auth.passkey.get(requestOptions)
+
+      if (credential && credential instanceof PublicKeyCredential) return await this.users.login(username, undefined, credential)
+      terminal.writeln(chalk.yellow(t('kernel.passkeyCancelled', 'Passkey authentication cancelled or failed. Falling back to password...')))
+    } catch (err) {
+      terminal.writeln(chalk.yellow(t('kernel.passkeyError', 'Passkey authentication error: {{error}}. Falling back to password...', { error: (err as Error).message })))
+    }
+    return null
+  }
+
+  /**
+   * Makes `user` the login on `shell`: credentials, bound context, identity variables, the session
+   * record, the home directory, then the startup files in order. The one place a login takes effect,
+   * shared by the built-in login prompt, auto-login, and `/sbin/getty` through `login_session`.
+   */
+  async startSession(shell: Shell, user: User, cred: Credentials): Promise<void> {
+    shell.credentials = cred
+    shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
+    shell.env.set('UID', user.uid.toString())
+    shell.env.set('GID', user.gid.toString())
+    shell.env.set('SUID', cred.suid.toString())
+    shell.env.set('SGID', cred.sgid.toString())
+    shell.env.set('EUID', cred.euid.toString())
+    shell.env.set('EGID', cred.egid.toString())
+    shell.env.set('SHELL', user.shell || 'ecmaos')
+    shell.env.set('HOME', user.home || '/root')
+    shell.env.set('USER', user.username)
+    shell.publishEnv()
+    await shell.recordLogin(user.username)
+
+    // A login shell starts in `$HOME`, as on Linux. The cwd used to be restored from
+    // `localStorage`, which meant a fresh login landed wherever that user last happened to be
+    // and made `cd` a persistent setting no real shell has. It also could not survive the move
+    // to a worker, where `localStorage` does not exist. It is set before the startup files so a
+    // `cd` in `~/.ecmashrc` is the one that wins.
+    shell.cwd = shell.env.get('HOME') || '/'
+
+    // After `HOME` is set, not before. `loadEnvFile` reads `~/.env` from `$HOME`, so running it
+    // ahead of these assignments read the *previous* user's home -- on a fresh boot the default
+    // `/root`, and after a `su`-style relogin the last user's. `~/.ecmashrc` has the same
+    // dependency, so both hooks belong here.
+    await shell.loadEnvFile()
+    await shell.loadProfile()
+    await shell.loadConfig()
+
+    this.updateLocaleFromEnv(shell)
+  }
+
+  /** Logins started by `beginLogin` that already succeeded by passkey, until `finishLogin` or `endLogin` takes them. */
+  private readonly _pendingLogins = new Map<number, { username: string, session: { user: User, cred: Credentials } }>()
+
+  /** The shell on `ttyNumber`, created (with its terminal) if it does not exist yet. */
+  async shellForTty(ttyNumber: number): Promise<Shell> {
+    return this._shells.get(ttyNumber) ?? await this.createShell(ttyNumber)
+  }
+
+  /**
+   * First half of a login on `ttyNumber` for `/sbin/getty`: tries a passkey. True when `username` is
+   * already authenticated and no password is needed.
+   */
+  async beginLogin(ttyNumber: number, username: string): Promise<boolean> {
+    const shell = await this.shellForTty(ttyNumber)
+    this._pendingLogins.delete(ttyNumber)
+    const session = await this.tryPasskeyLogin(shell.terminal, username)
+    if (!session) return false
+    this._pendingLogins.set(ttyNumber, { username, session })
+    return true
+  }
+
+  /**
+   * Second half: authenticates (the passkey from `beginLogin`, or `password`) and starts the session on
+   * the tty's shell. Resolves to what getty needs to run the user's shell; rejects with the message to show.
+   */
+  async finishLogin(ttyNumber: number, username: string, password: string): Promise<{ shell: string, home: string, username: string }> {
+    const shell = await this.shellForTty(ttyNumber)
+    const pending = this._pendingLogins.get(ttyNumber)
+    this._pendingLogins.delete(ttyNumber)
+    const session = pending?.username === username ? pending.session : await this.users.login(username, password)
+    await this.startSession(shell, session.user, session.cred)
+    return { shell: session.user.shell || 'ecmaos', home: session.user.home || '/root', username: session.user.username }
+  }
+
+  /** A login on `ttyNumber` has ended: the session record goes, and the shell holds no user until the next login. */
+  async endLogin(ttyNumber: number): Promise<void> {
+    this._pendingLogins.delete(ttyNumber)
+    const shell = this._shells.get(ttyNumber)
+    await shell?.recordLogout()
   }
 
   /**

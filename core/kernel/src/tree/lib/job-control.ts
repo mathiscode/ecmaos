@@ -124,6 +124,8 @@ export interface SpawnOptions {
   /** child fd -> caller fd: the `dup2` file actions of `posix_spawn` */
   fds?: Record<string, number>
   pgid?: number
+  /** A terminal to make the child's controlling terminal and foreground, with the keyboard routed to it for as long as it runs. */
+  terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
 }
 
 /**
@@ -134,7 +136,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   // `tty` is passed through even when it is null: left out, the constructor treats a parent with no
   // controlling terminal as one with the console, and `execve` would then make the child that
   // terminal's foreground process. A daemon started by init must stay off it.
-  const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd, tty: parent.tty })
+  const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd, tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty })
   try {
     // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
     // pipe end open and a reader downstream of it would never see EOF.
@@ -149,6 +151,16 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     }
     if (options.pgid !== undefined) groups.set(child.pid, options.pgid === 0 ? child.pid : options.pgid)
     await execve(child, command, argv, env)
+    if (options.terminal?.zfsTty) {
+      const tty = options.terminal.zfsTty
+      const previous = tty.foreground
+      tty.foreground = child
+      const release = options.terminal.attachInput()
+      void child.exited.then(() => {
+        release()
+        if (tty.foreground === child) tty.foreground = previous
+      })
+    }
   } catch (error) {
     child.dispose()
     groups.delete(child.pid)
