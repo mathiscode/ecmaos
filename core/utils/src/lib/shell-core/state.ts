@@ -401,6 +401,20 @@ export class ShellState {
     }
   }
 
+  /** Restores a copy of `snapshot`, so the same snapshot can be restored again later. */
+  restoreCopy(snapshot: ShellSnapshot): void {
+    this.restore({
+      vars: new Map(snapshot.vars),
+      unexported: new Set(snapshot.unexported),
+      assoc: new Set(snapshot.assoc),
+      arrays: new Map([...snapshot.arrays].map(([name, array]) => [name, new Map(array) as ArrayStore])),
+      functions: new Map(snapshot.functions),
+      aliases: new Map(snapshot.aliases),
+      traps: new Map(snapshot.traps),
+      options: { ...snapshot.options },
+    })
+  }
+
   restore(snapshot: ShellSnapshot): void {
     this.vars = snapshot.vars
     this.unexported.clear()

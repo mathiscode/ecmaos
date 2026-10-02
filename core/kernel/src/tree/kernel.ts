@@ -485,12 +485,16 @@ export class Kernel implements IKernel {
       // What init runs. A missing file is not fatal (init falls back to the same default), but a
       // real one is what a user edits and `kill -HUP 1` re-reads.
       // A kernel that logs a user in itself (`options.credentials`: tests, kiosks, embeds) runs no getty.
-      // An untouched default file from an earlier build gains the getty entry; an edited one is left alone.
+      // An untouched default file from an earlier build gains the getty entries (or, for a kernel that logs
+      // in itself, loses them: a persisted file from a boot without credentials would otherwise leave
+      // gettys fighting the kernel's own session); an edited one is left alone.
       const loginInittab = DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES
       if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', this.options.credentials ? DEFAULT_INITTAB : loginInittab, { mode: 0o644 })
       } else if (!this.options.credentials && [DEFAULT_INITTAB, DEFAULT_INITTAB + FIRST_TERMINAL_GETTY_ENTRY].includes(await this.filesystem.fs.readFile('/etc/inittab', 'utf-8'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', loginInittab, { mode: 0o644 })
+      } else if (this.options.credentials && await this.filesystem.fs.readFile('/etc/inittab', 'utf-8') === loginInittab) {
+        await this.filesystem.fs.writeFile('/etc/inittab', DEFAULT_INITTAB, { mode: 0o644 })
       }
 
       try {
@@ -2732,6 +2736,9 @@ export class Kernel implements IKernel {
   /** Resolves when boot has finished, including the first-boot prompts a login prompt must not interleave with. */
   whenReady(): Promise<void> { return this._ready.promise }
 
+  /** Each getty terminal's shell state from before its first login. */
+  private readonly _cleanShells = new Map<number, ReturnType<Shell['state']['snapshot']>>()
+
   /** Logins started by `beginLogin` that already succeeded by passkey, until `finishLogin` or `endLogin` takes them. */
   private readonly _pendingLogins = new Map<number, { username: string, session: { user: User, cred: Credentials } }>()
 
@@ -2746,6 +2753,8 @@ export class Kernel implements IKernel {
    */
   async beginLogin(ttyNumber: number, username: string): Promise<boolean> {
     const shell = await this.shellForTty(ttyNumber)
+    // The shell as it is before anyone has logged in on it; endLogin puts it back
+    if (!this._cleanShells.has(ttyNumber)) this._cleanShells.set(ttyNumber, shell.state.snapshot())
     this._pendingLogins.delete(ttyNumber)
     const session = await this.tryPasskeyLogin(shell.terminal, username)
     if (!session) return false
@@ -2773,8 +2782,11 @@ export class Kernel implements IKernel {
     await shell?.recordLogout()
     if (!shell) return
 
-    // Nobody is logged in on this terminal now, so the shell must not keep acting as the last user.
-    // It goes back to what a shell has before any login: root's credentials, as at boot.
+    // Nobody is logged in on this terminal now, so the shell must not keep anything of the last user:
+    // credentials, variables, aliases, functions, traps and options go back to what the shell had
+    // before the first login (root's credentials, as at boot).
+    const clean = this._cleanShells.get(ttyNumber)
+    if (clean) shell.state.restoreCopy(clean)
     const idle: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
     shell.credentials = idle
     shell.context = bindContext({ root: '/', pwd: '/', credentials: idle })

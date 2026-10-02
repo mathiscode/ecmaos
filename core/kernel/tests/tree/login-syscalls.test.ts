@@ -53,6 +53,8 @@ describe('login syscalls', () => {
     expect(result.session).toMatchObject({ ok: true, home: '/home/alice', username: 'alice' })
     expect(kernel.shell.env.get('USER')).toBe('alice')
     expect(kernel.shell.env.get('HOME')).toBe('/home/alice')
+    kernel.shell.state.aliases.set('leak', 'echo leaked')
+    kernel.shell.env.set('ALICE_SECRET', 'x')
     expect(await kernel.filesystem.fs.readFile('/run/utmp', 'utf-8')).toContain('alice\ttty0')
 
     await run('end', `await s.custom('login_end', 0)`)
@@ -62,5 +64,7 @@ describe('login syscalls', () => {
     expect(kernel.shell.credentials.uid).toBe(0)
     expect(kernel.shell.env.get('USER')).toBe('root')
     expect(kernel.shell.env.get('HOME')).toBe('/root')
+    expect(kernel.shell.state.aliases.has('leak')).toBe(false)
+    expect(kernel.shell.env.has('ALICE_SECRET')).toBe(false)
   })
 })

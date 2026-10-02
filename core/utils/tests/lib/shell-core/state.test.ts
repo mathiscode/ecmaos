@@ -205,6 +205,19 @@ describe('ShellState computed parameters', () => {
 })
 
 describe('ShellState snapshots', () => {
+  it('restoreCopy can put the same snapshot back more than once', () => {
+    const state = make({ A: '1' })
+    const clean = state.snapshot()
+    for (let round = 0; round < 2; round++) {
+      state.set('leak', 'x')
+      state.aliases.set('ll', 'ls -l')
+      state.restoreCopy(clean)
+      expect(state.lookup('leak')).toBeUndefined()
+      expect(state.aliases.has('ll')).toBe(false)
+      expect(state.lookup('A')).toBe('1')
+    }
+  })
+
   it('restores variables, arrays, functions, aliases, traps, options and the exported marks', () => {
     const state = make({ A: '1' })
     state.set('mine', '1')
