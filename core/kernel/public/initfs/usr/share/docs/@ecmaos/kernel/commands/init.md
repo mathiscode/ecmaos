@@ -34,7 +34,7 @@ pid 1 ignores every signal it has not asked to catch. `kill -9 1` and `^C` do no
 | `SIGUSR1` | halt |
 | `SIGUSR2` | power off |
 
-Going down runs the `shutdown` entries in order (each may take ten seconds), sends `SIGTERM` to every other process, waits up to three seconds, sends `SIGKILL` to what is left, then stops the kernel. A reboot reloads the page; halt and power off only stop the kernel, since a page cannot switch itself off. Only root may signal init.
+Going down runs the `shutdown` entries in order (each may take ten seconds), sends `SIGTERM` to every other process, waits up to three seconds, sends `SIGKILL` to what is left, then stops the kernel. A reboot reloads the page; halt only stops the kernel; power off stops it and then tries to close the page (browsers usually refuse, since a script may only close a window that a script opened). Only root may signal init.
 
 The `reboot`, `halt` and `poweroff` commands send these signals. The keyboard shortcut Ctrl+Shift+Delete asks init to reboot the same way.
 

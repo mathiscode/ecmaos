@@ -2034,12 +2034,17 @@ export class Kernel implements IKernel {
 
   /**
    * What init does last when the system goes down: `reboot` shuts down and reloads the page; `halt`
-   * and `poweroff` only shut down, since a page cannot switch itself off.
+   * only shuts down; `poweroff` shuts down and then tries to close the page. A page cannot switch
+   * itself off, and browsers only let a script close a window that a script opened, so the close is
+   * best effort and the kernel is stopped either way.
    */
   async stop(mode: 'reboot' | 'halt' | 'poweroff') {
     if (mode === 'reboot') return this.reboot()
     this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
     await this.shutdown()
+    if (mode === 'poweroff') {
+      try { globalThis.close() } catch { /* not allowed to close this window */ }
+    }
   }
 
   /**

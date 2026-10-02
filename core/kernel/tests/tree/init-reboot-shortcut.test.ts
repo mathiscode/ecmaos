@@ -29,14 +29,33 @@ const boot = async () => {
   return { kernel, stop }
 }
 
-describe('the reboot shortcut', () => {
-  it('asks init to reboot instead of reloading the page itself', async () => {
-    const { kernel, stop } = await boot()
+describe('the reboot shortcut and the end of poweroff', () => {
+  let kernel: Awaited<ReturnType<typeof boot>>['kernel']
+  let stop: Awaited<ReturnType<typeof boot>>['stop']
+
+  beforeAll(async () => { ({ kernel, stop } = await boot()) })
+
+  it('the reboot shortcut asks init to reboot instead of reloading the page itself', async () => {
     const reboot = vi.spyOn(kernel, 'reboot').mockResolvedValue(undefined)
     kernel.requestReboot()
-    const went = await until(() => stop.mock.calls.length > 0, 15_000)
-    expect(went, JSON.stringify({ code: kernel.init.process?.code, thread: !!kernel.init.process?.thread, kids: [...kernel.init.process!.children].map(c => c.comm + ':' + c.code) })).toBe(true)
+    expect(await until(() => stop.mock.calls.length > 0, 15_000)).toBe(true)
     expect(stop).toHaveBeenCalledWith('reboot')
     expect(reboot).not.toHaveBeenCalled()
   }, 30_000)
+
+  it('halt only shuts the kernel down; poweroff also tries to close the page', async () => {
+    stop.mockRestore()
+    const close = vi.spyOn(globalThis, 'close').mockImplementation(() => {})
+    await kernel.stop('halt')
+    expect(close).not.toHaveBeenCalled()
+    await kernel.stop('poweroff')
+    expect(close).toHaveBeenCalledOnce()
+    close.mockRestore()
+  })
+
+  it('poweroff still stops the kernel when the browser will not close the page', async () => {
+    const close = vi.spyOn(globalThis, 'close').mockImplementation(() => { throw new Error('Scripts may close only the windows that were opened by them') })
+    await expect(kernel.stop('poweroff')).resolves.toBeUndefined()
+    close.mockRestore()
+  })
 })

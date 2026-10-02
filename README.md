@@ -510,7 +510,7 @@ ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number o
 - **No `strace`.** There is no syscall trace/hook for a running process.
 - **initfs isn't extracted via a real `tar`.** `extractTarball` runs before syscalls, processes, or `/bin/tar` itself exist on the filesystem -- the tarball being extracted is what provides `/bin/tar` in the first place, so boot uses a small bootstrap extractor instead of the real coreutil. A genuine fix needs a two-phase boot (a tiny bootstrap tarball extracted the current way, then everything else through the real `/bin/tar`).
 - **The WebGL terminal renderer's ligature behavior is undecided.** No verdict yet on whether/how ligatures should render under the WebGL addon.
-- **init is deliberately small.** It is a BusyBox-style init: no runlevels, no service dependencies, no `ctrlaltdel` action, and login is still started by the kernel rather than by init. `halt` and `poweroff` behave the same, since a page cannot switch itself off.
+- **init is deliberately small.** It is a BusyBox-style init: no runlevels, no service dependencies, no `ctrlaltdel` action, and login is still started by the kernel rather than by init. `poweroff` stops the kernel and then tries to close the page, which a browser usually refuses, so in an ordinary tab it behaves like `halt`.
 
 ## Early Days
 
