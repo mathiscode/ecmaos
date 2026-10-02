@@ -327,7 +327,12 @@ class Shell {
   hostInterface() {
     const shell = this
     return {
-      runPipeline: async pipeline => [await shell.runPipeline(pipeline)],
+      runPipeline: async pipeline => {
+        shell.lastStatuses = undefined
+        const status = await shell.runPipeline(pipeline)
+        // every stage's status, for PIPESTATUS; one entry when the pipeline stopped, was negated, or never started
+        return shell.lastStatuses ?? [status]
+      },
       runBackground: pipeline => shell.runBackground(pipeline),
       runSpecial: line => shell.arrayAssignment(line),
       withRedirect: (statement, run) => shell.withRedirect(statement, run),
@@ -381,6 +386,8 @@ class Shell {
     if (!this.leaving) {
       this.leaving = true
       const trap = this.traps.get('EXIT')
+      // the trap sees the status the shell is exiting with as `$?`
+      this.status = code & 0xff
       if (trap) { try { await this.runText(trap) } catch { /* the shell is going anyway */ } }
     }
     exit(code & 0xff)
@@ -465,6 +472,7 @@ class Shell {
       return 128 + SIGTSTP
     }
     this.restoreTerminal()
+    this.lastStatuses = pipeline.negated ? undefined : job.statuses
     return pipeline.negated ? (status === 0 ? 1 : 0) : status
   }
 
@@ -492,6 +500,8 @@ class Shell {
     // every program in the pipeline has been spawned, so a producer's output has a reader by the time
     // it is written, and their ends of the pipes stay open until they have run.
     const deferred = []
+    // What each stage ended with, in pipeline order, for `PIPESTATUS`: a spawned program's pid to wait for, or a status already known.
+    const stages = []
 
     for (const [index, command] of commands.entries()) {
       const last = index === commands.length - 1
@@ -506,7 +516,9 @@ class Shell {
         const closing = []
         if (inherited !== this.stdio[0]) closing.push(inherited)
         if (next) closing.push(next[1])
-        deferred.push({ command, fds, closing })
+        const entry = { status: 0 }
+        stages.push(entry)
+        deferred.push({ command, fds, closing, entry })
         if (next) inherited = next[0]
         continue
       }
@@ -515,8 +527,10 @@ class Shell {
         const result = await this.runCommand(command, fds, { pgid: leader, background, single: commands.length === 1 })
         if (result.pid !== undefined) {
           pids.push(result.pid)
+          stages.push({ pid: result.pid })
           if (!leader) leader = result.pid
         } else {
+          stages.push({ status: result.status })
           statusOfBuiltin = result.status
           if (result.status) builtinFailure = result.status
         }
@@ -526,6 +540,7 @@ class Shell {
         if (isUnwind(error) || error instanceof UnboundVariableError) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
+        stages.push({ status: statusOfBuiltin })
         failed = true
       }
 
@@ -539,12 +554,14 @@ class Shell {
       this._stdio = stage.fds
       try {
         statusOfBuiltin = await this.interpreter.runStage(stage.command.compound)
+        stage.entry.status = statusOfBuiltin
         if (statusOfBuiltin) builtinFailure = statusOfBuiltin
       } catch (error) {
         // `set -u` is the interpreter's to report, and to end a script over
         if (isUnwind(error) || error instanceof UnboundVariableError) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = 1
+        stage.entry.status = 1
       } finally {
         this._stdio = saved
         for (const fd of stage.closing) { try { close(fd) } catch { /* already closed */ } }
@@ -553,7 +570,7 @@ class Shell {
     if (inherited !== this.stdio[0]) { try { close(inherited) } catch { /* already closed */ } }
 
     const reaped = new Map()
-    const handle = { pids, leader, stopped: false, finish: null }
+    const handle = { pids, leader, stopped: false, finish: null, statuses: undefined }
     handle.finish = async ({ untraced = false } = {}) => {
       handle.stopped = false
       let interrupted = false
@@ -591,6 +608,11 @@ class Shell {
         if (pid === pids[pids.length - 1]) statusOfLast = code
       }
       const status = this.opts.pipefail && failure !== 0 ? failure : statusOfLast
+      handle.statuses = stages.map(stage => {
+        if (stage.pid === undefined) return stage.status
+        const done = reaped.get(stage.pid)
+        return done.signal ? 128 + done.signal : done.code
+      })
       // A foreground stage killed by ^C runs the INT trap, as the kernel shell does.
       if (interrupted && this.traps.has('INT')) { try { await this.runText(this.traps.get('INT')) } catch { /* ignore */ } }
       for (const cleanup of cleanups.splice(0)) await cleanup()
@@ -725,12 +747,21 @@ class Shell {
       }
       if (redirection.type === '<') {
         const path = resolvePath(await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }]))
-        const handle = open(path, O_RDONLY, 0)
+        let handle
+        if (path === '/dev/null') {
+          // A device read reports the whole size asked for whatever the driver produced, so a reader of
+          // /dev/null never sees the end of file; a pipe with nothing in it and no writer does.
+          const [r, w] = pipe()
+          close(w)
+          handle = r
+        } else {
+          handle = open(path, O_RDONLY, 0)
+        }
         opened.push(handle)
         fds[fd] = handle
         continue
       }
-      if (redirection.type === '<<' || redirection.type === '<<<') {
+      if (redirection.type === '<<'|| redirection.type === '<<<') {
         let body
         if (redirection.type === '<<<') body = (await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }])) + '\n'
         else body = redirection.heredoc?.expand ? await expandHeredocBody(redirection.heredoc.body, this.context()) : (redirection.heredoc?.body ?? redirection.target)

@@ -19,8 +19,4 @@ export const knownKernel: KnownTable = {
 
 export const knownEcmash: KnownTable = {
   "builtins/background-status": { stdout: "0\n", status: 0, why: "a background subshell is refused: it would run in this process, which cannot also carry on with the next prompt" },
-  "control/pipestatus": { stdout: "0\n0\n", status: 0, why: "PIPESTATUS holds one entry: a pipeline reports a single status here" },
-  "read/eof-status": { stdout: "TIMEOUT", status: -2, why: "read with input from /dev/null never returns" },
-  "redirect/devnull": { stdout: "TIMEOUT", status: -2, why: "cat < /dev/null never returns" },
-  "traps/exit-status": { stdout: "st=0\n", status: 5, why: "$? inside an EXIT trap is 0, not the exit status" },
 }
