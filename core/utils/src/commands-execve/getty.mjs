@@ -63,10 +63,12 @@ function readLine() {
   }
 }
 
-function readSilent() {
+/** Echo goes off before the prompt is shown, so nothing typed the moment it appears can be echoed. */
+function readSilent(prompt) {
   const lflag = tcgetattr(0).lflag
   tcsetattr(0, { lflag: lflag & ~ECHO })
   try {
+    out(prompt)
     return readLine()
   } finally {
     tcsetattr(0, { lflag })
@@ -126,9 +128,8 @@ async function main() {
     let password = ''
     const settled = await custom('login_begin', tty, username.trim()) === 1
     if (!settled) {
-      out('Password: ')
       try {
-        password = readSilent() ?? ''
+        password = readSilent('Password: ') ?? ''
       } catch (error) {
         if (isInterrupt(error)) { out('\n'); continue }
         throw error

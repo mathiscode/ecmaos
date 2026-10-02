@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { processes } from '@zenfs/linux'
+import { kill, processes } from '@zenfs/linux'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -24,6 +24,15 @@ describe('/sbin/getty', () => {
     for (let i = 0; i < buffer.length; i++) text += (buffer.getLine(i)?.translateToString(true) ?? '') + '\n'
     return text
   }
+
+  // the built-in shell's line editor is driven by key events, not by the line discipline getty uses
+  const event = (key: string, ctrlKey = false) => ({ key, ctrlKey, altKey: false, shiftKey: false, metaKey: false, preventDefault() {} }) as unknown as KeyboardEvent
+  const keys = (key: string, domEvent: KeyboardEvent) => (kernel.terminal as unknown as { keyHandler(e: { key: string, domEvent: KeyboardEvent }): Promise<unknown> }).keyHandler({ key, domEvent })
+  const line = async (text: string) => {
+    for (const char of text) await keys(char, event(char))
+    await keys('\r', event('Enter'))
+  }
+  const ctrlD = () => keys('\x04', event('d', true))
   const count = (needle: string) => screen().split(needle).length - 1
 
   beforeAll(async () => {
@@ -38,20 +47,20 @@ describe('/sbin/getty', () => {
 
   it('logs a user in, runs their shell, and asks again when it exits', async () => {
     const done = kernel.shell.execute('/sbin/getty tty0')
-    await waitFor(() => count('login: ') === 1)
+    await waitFor(() => count('login:') === 1)
 
     // a wrong password is refused and the prompt comes back
     type('alice\r')
     await waitFor(() => screen().includes('Password: '))
     type('nope\r')
-    await waitFor(() => count('login: ') === 2)
+    await waitFor(() => count('login:') === 2)
     expect(screen()).not.toContain('nope')
 
     type('alice\r')
     await waitFor(() => count('Password: ') === 2)
     type('wonderland\r')
     await waitFor(() => kernel.shell.env.get('USER') === 'alice')
-    expect(await kernel.filesystem.fs.readFile('/run/utmp', 'utf-8')).toContain('alice\ttty0')
+    await waitFor(async () => (await kernel.filesystem.fs.readFile('/run/utmp', 'utf-8')).includes('alice\ttty0'))
     expect(screen()).not.toContain('wonderland')
 
     // the shell is ecmash, in the user's home
@@ -64,7 +73,7 @@ describe('/sbin/getty', () => {
 
     // leaving the shell ends the session and shows a fresh prompt
     type('exit\r')
-    await waitFor(() => count('login: ') === 3)
+    await waitFor(() => count('login:') === 3)
     expect(await kernel.filesystem.fs.readFile('/run/utmp', 'utf-8')).not.toContain('alice')
 
     // ^C at the prompt does not take the login down
@@ -74,5 +83,40 @@ describe('/sbin/getty', () => {
 
     for (const proc of processes.values()) if (proc.argv?.[0]?.includes('getty')) proc.kill(9)
     await done
+  }, 40000)
+
+  it('runs the built-in shell for a user without a program, and returns to the prompt on exit and on ^D', async () => {
+    await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob' })
+    const before = count('login:')
+    // started by init from an inittab entry, which is what gives it a keyboard hold the built-in shell can borrow
+    const inittab = await kernel.filesystem.fs.readFile('/etc/inittab', 'utf-8')
+    await kernel.filesystem.fs.writeFile('/etc/inittab', inittab + '\ntty0::respawn:/sbin/getty tty0\n')
+    kill(1, 1)
+    await waitFor(() => count('login:') >= before + 1)
+    type('bob\r')
+    await waitFor(() => count('Password: ') >= 1 && screen().trimEnd().endsWith('Password:'))
+    type('builder\r')
+    await waitFor(() => kernel.shell.env.get('USER') === 'bob')
+    await new Promise(r => setTimeout(r, 500))
+
+    // the built-in shell's own line editor is in charge
+    await line('echo built-in > /tmp/bob-said')
+    await waitFor(async () => await kernel.filesystem.fs.exists('/tmp/bob-said'))
+
+    await line('exit')
+    await waitFor(() => count('login:') >= before + 2)
+    expect(screen()).toContain('logout')
+
+    type('bob\r')
+    await waitFor(() => screen().trimEnd().endsWith('Password:'))
+    type('builder\r')
+    await waitFor(() => kernel.shell.env.get('USER') === 'bob' && screen().trimEnd().endsWith('#') || screen().trimEnd().endsWith('$'))
+    await new Promise(r => setTimeout(r, 500))
+    await ctrlD()
+    await waitFor(() => count('login:') >= before + 3)
+
+    await kernel.filesystem.fs.writeFile('/etc/inittab', inittab)
+    kill(1, 1)
+    for (const proc of processes.values()) if (proc.argv?.[0]?.includes('getty')) proc.kill(9)
   }, 40000)
 })

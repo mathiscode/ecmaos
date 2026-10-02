@@ -274,6 +274,9 @@ export interface Terminal extends XTerm {
    */
   restoreCommand(cmd: string): void
 
+  /** Runs the terminal's own line editor as a login session until `exit` or `^D`; see `Terminal.runSession`. */
+  runSession(): Promise<void>
+
   /**
    * Get input stream
    */

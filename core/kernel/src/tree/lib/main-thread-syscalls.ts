@@ -34,7 +34,7 @@ import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installPtys } from './pty.ts'
-import { getpgid, killpg, mayKill, setpgid, spawnWithFds, waitpid } from './job-control.ts'
+import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { presenters } from './presenters/index.ts'
@@ -93,6 +93,7 @@ declare module '@zenfs/linux/uapi/abi' {
     login_begin(tty: number, username: string): number
     login_session(tty: number, username: string, password: string, path: string): number
     login_end(tty: number): number
+    login_builtin(tty: number): number
     terminal_clear_history(): number
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
@@ -1117,6 +1118,20 @@ export function installMainThreadSyscalls(): void {
     const text = JSON.stringify(result)
     await kernel.filesystem.fs.writeFile(path, text)
     return text.length
+  })
+
+  // The built-in `ecmaos` shell has no program to run: the terminal's own line editor is the shell. The
+  // calling getty gives up its hold on the keyboard for as long as the user is in it.
+  define_syscall('login_builtin', async (proc: Process, tty: number) => {
+    const shell = await kernelOf(proc).shellForTty(tty)
+    const hold = ttyHoldOf(proc)
+    hold?.suspend()
+    try {
+      await shell.terminal.runSession()
+    } finally {
+      hold?.resume()
+    }
+    return 0
   })
 
   define_syscall('login_end', async (proc: Process, tty: number) => {

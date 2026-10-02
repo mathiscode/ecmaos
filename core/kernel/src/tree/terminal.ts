@@ -300,6 +300,33 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
+  private _session?: () => void
+  private _sessionEnded = false
+
+  /**
+   * Runs this terminal's own line editor as a login session, for a user whose shell is the built-in
+   * one: resolves when `exit` is typed at the prompt or `^D` on an empty line, leaving the terminal
+   * no longer listening. `/sbin/getty` waits on this and then asks for the next login.
+   */
+  runSession(): Promise<void> {
+    return new Promise(resolve => {
+      this._sessionEnded = false
+      this._session = () => { this._session = undefined; this._shell.onExit = undefined; resolve() }
+      this._shell.onExit = () => this.endSession()
+      this.listen()
+      this.write(ansi.erase.inLine(2) + this.prompt())
+      this.focus()
+    })
+  }
+
+  private endSession(): void {
+    if (!this._session) return
+    this._sessionEnded = true
+    this.unlisten()
+    this.write('\nlogout\n')
+    this._session()
+  }
+
   /** Whether the `@zenfs/linux` line discipline currently owns the keyboard (see `attachInput`) */
   get ttyInputAttached() { return this._ttyInput !== undefined }
 
@@ -1354,7 +1381,11 @@ export class Terminal extends XTerm implements ITerminal {
         case 'e': editor.end(); return true
         case 'b': editor.left(); return true
         case 'f': editor.right(); return true
-        case 'd': editor.deleteForward(); return true
+        case 'd':
+          // On an empty line `^D` is end of input: it ends a login session, as in a real shell.
+          if (this._session && editor.text === '') { this.endSession(); return true }
+          editor.deleteForward()
+          return true
         case 'k': editor.killToEnd(); return true
         case 'u': editor.killToStart(); return true
         case 'w': editor.killWordBackward(); return true
@@ -1575,7 +1606,7 @@ export class Terminal extends XTerm implements ITerminal {
             // A command that was stopped (`^Z`) already got its prompt back then. When it finally
             // finishes, after an `fg` and a `^C` say, the `fg` that resumed it draws the prompt; a
             // second one here landed after the first, indented by its width.
-            if (epoch === this._stopEpoch) {
+            if (epoch === this._stopEpoch && !this._sessionEnded) {
               this._editor.reset()
               this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
             }

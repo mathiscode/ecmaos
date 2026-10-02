@@ -428,6 +428,12 @@ export class Shell implements IShell {
    * `execute()` too, so resetting unconditionally meant `runTrap('INT')` wiped the very flag that
    * dispatched it, and the rest of the interrupted line carried on regardless.
    */
+  /**
+   * Called when `exit` runs at the prompt (not inside a script or function). The terminal sets it while
+   * its own line editor is a login session, so `exit` ends the session instead of only setting `$?`.
+   */
+  onExit?: (code: number) => void
+
   private _executeDepth = 0
 
   /**
@@ -1827,7 +1833,10 @@ export class Shell implements IShell {
       // returned 8 to the caller while `echo $?` on the next line still printed the code from
       // whatever ran before it. (Found in a browser, not by a unit test: the tests read `execute`'s
       // return value, which was correct all along.)
-      if (signal instanceof ExitSignal && this._signalCatchers.exit === 0) return this.reportExit(signal.code)
+      if (signal instanceof ExitSignal && this._signalCatchers.exit === 0) {
+        this.onExit?.(signal.code)
+        return this.reportExit(signal.code)
+      }
       if (signal instanceof ReturnSignal && this._signalCatchers.return === 0) {
         await this.terminalBuiltinIO().writelnErr("return: can only `return' from a function or sourced script")
         return this.reportExit(1)

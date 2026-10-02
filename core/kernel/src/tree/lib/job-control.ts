@@ -118,6 +118,11 @@ export function mayKill(caller: Process, target: Process): boolean {
   return euid === theirs.uid || euid === theirs.suid || uid === theirs.uid || uid === theirs.suid
 }
 
+/** A process's hold on its terminal's keyboard, which it can give up while the terminal's own line editor runs. */
+export interface TtyHold { suspend(): void, resume(): void }
+const ttyHolds = new WeakMap<Process, TtyHold>()
+export function ttyHoldOf(proc: Process): TtyHold | undefined { return ttyHolds.get(proc) }
+
 export interface SpawnOptions {
   cwd?: string
   env?: Record<string, string>
@@ -143,6 +148,12 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     for (const fd of [...child.context.descriptors.keys()]) {
       if (fd > 2) fs.closeSync.call(child.context, fd)
     }
+    // A child with a parent inherits the parent's stdio rather than opening a console, so one given a
+    // terminal (init's getty, whose own stdio is /dev/null) opens it for fds 0 to 2 here.
+    if (options.terminal?.zfsTty) {
+      for (const fd of [0, 1, 2]) if (child.context.descriptors.has(fd)) fs.closeSync.call(child.context, fd)
+      for (let i = 0; i < 3; i++) fs.openSync.call(child.context, `/dev/${options.terminal.zfsTty.name}`, 'r+')
+    }
     for (const [target, source] of Object.entries(options.fds ?? {})) {
       const handle = parent.context.descriptors.get(source)
       if (!handle) throw fail(Errno.EBADF, `Bad file descriptor: ${source}`)
@@ -155,9 +166,14 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       const tty = options.terminal.zfsTty
       const previous = tty.foreground
       tty.foreground = child
-      const release = options.terminal.attachInput()
+      const terminal = options.terminal
+      let release: (() => void) | undefined = terminal.attachInput()
+      ttyHolds.set(child, {
+        suspend: () => { release?.(); release = undefined },
+        resume: () => { release ??= terminal.attachInput() }
+      })
       void child.exited.then(() => {
-        release()
+        release?.()
         if (tty.foreground === child) tty.foreground = previous
       })
     }

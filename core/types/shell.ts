@@ -313,6 +313,8 @@ export interface Shell {
   runTrap(signal: string): Promise<void>
 
   /** The job currently occupying the foreground, if any -- see {@link Job}'s doc comment for scope. */
+  /** Called when `exit` runs at the prompt; the terminal sets it while the built-in shell is a login session. */
+  onExit?: (code: number) => void
   readonly foregroundJob: Job | undefined
 
   /**
