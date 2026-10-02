@@ -64,7 +64,7 @@ describe('boot over a persisted 0.x filesystem', () => {
 
   it('boots to RUNNING and records the filesystem as migrated', async () => {
     expect(kernel.state).toBe(KernelState.RUNNING)
-    expect(await readFsVersion(kernel.filesystem.fs)).toBe(4)
+    expect(await readFsVersion(kernel.filesystem.fs)).toBe(5)
   })
 
   it('writes a real 7-field /etc/passwd and an /etc/group for the fresh-boot root user (migration 2 is a no-op on an already-current file)', async () => {
@@ -97,7 +97,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([])
     await kernel.registerCommands()
 
-    expect(await readFsVersion(fs)).toBe(4)
+    expect(await readFsVersion(fs)).toBe(5)
     expect((await fs.readdir('/bin')).sort()).toEqual(binBefore)
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(DEFAULT_BOOT_INIT)
     expect(await fs.exists('/boot/init.new')).toBe(false)
@@ -117,7 +117,31 @@ describe('boot over a persisted 0.x filesystem', () => {
     await fs.unlink(FS_VERSION_FILE)
     await fs.writeFile('/boot/init', edited)
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4, 5])
+    expect(await fs.readFile('/boot/init', 'utf8')).toBe(edited)
+    expect(await fs.readFile('/boot/init.new', 'utf8')).toBe(DEFAULT_BOOT_INIT)
+  })
+
+  it('migration 5 updates a /boot/init left by a release where the kernel started crond', async () => {
+    const fs = kernel.filesystem.fs
+    const kernelStartedCrond = PREVIOUS_DEFAULT_BOOT_INITS[3]!
+    expect(kernelStartedCrond).toContain('crond is started separately by the kernel')
+    await fs.unlink('/boot/init.new').catch(() => {}) // left by an earlier test in this file
+    await fs.writeFile(FS_VERSION_FILE, '4\n')
+    await fs.writeFile('/boot/init', kernelStartedCrond)
+
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([5])
+    expect(await fs.readFile('/boot/init', 'utf8')).toBe(DEFAULT_BOOT_INIT)
+    expect(await fs.exists('/boot/init.new')).toBe(false)
+  })
+
+  it('migration 5 leaves an edited /boot/init alone and writes the new default beside it', async () => {
+    const fs = kernel.filesystem.fs
+    const edited = '#!ecmaos:bin:script:init\n\nmotd\necho mine\n'
+    await fs.writeFile(FS_VERSION_FILE, '4\n')
+    await fs.writeFile('/boot/init', edited)
+
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([5])
     expect(await fs.readFile('/boot/init', 'utf8')).toBe(edited)
     expect(await fs.readFile('/boot/init.new', 'utf8')).toBe(DEFAULT_BOOT_INIT)
   })
@@ -129,7 +153,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     // same primary group -- exercises both "primary group names itself" and "member list grows".
     await fs.writeFile('/etc/passwd', 'alice:1000:100:200:/home/alice:ecmaos\nbob:1001:100:200,300:/home/bob:ecmaos\n')
 
-    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4])
+    expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4, 5])
 
     const passwd = await fs.readFile('/etc/passwd', 'utf8')
     expect(passwd).toContain('alice:x:1000:100:alice:/home/alice:ecmaos')

@@ -284,6 +284,13 @@ export const FS_MIGRATIONS: readonly FsMigration[] = [
     async run(ctx) {
       await renameHistoryFiles(ctx)
     }
+  },
+  {
+    version: 5,
+    description: '1.0: /boot/init is run by init and crond is an /etc/inittab entry, so update an untouched /boot/init',
+    async run(ctx) {
+      await upgradeBootInit(ctx)
+    }
   }
 ]
 
