@@ -52,6 +52,8 @@ describe('the prompt after a command whose output has no final newline', () => {
   it('still clears the line when the output ended with a newline', async () => {
     await run('cat /tmp/with-newline')
     await waitFor(() => lines().includes('4'))
+    // the prompt is drawn after the command's exit is noticed, a moment after its output appears
+    await waitFor(() => /#|\$/.test(lines()[lines().indexOf('4') + 1] ?? ''))
     const all = lines()
     expect(all[all.indexOf('4') + 1]).toMatch(/#|\$/)
   })
