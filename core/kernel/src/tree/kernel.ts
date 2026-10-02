@@ -928,6 +928,7 @@ export class Kernel implements IKernel {
       }
       // With the kernel not drawing a prompt, the keyboard still has to be somewhere for getty to read.
       if (gettyLogin) this.terminal.focus()
+      this._isReady = true
       this._ready.resolve()
     } catch (error) {
       bootSpan.recordException(error as Error)
@@ -2735,6 +2736,10 @@ export class Kernel implements IKernel {
 
   /** Resolves when boot has finished, including the first-boot prompts a login prompt must not interleave with. */
   whenReady(): Promise<void> { return this._ready.promise }
+
+  /** True once `whenReady` has resolved. */
+  get ready(): boolean { return this._isReady }
+  private _isReady = false
 
   /** Each getty terminal's shell state from before its first login. */
   private readonly _cleanShells = new Map<number, ReturnType<Shell['state']['snapshot']>>()

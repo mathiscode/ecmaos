@@ -1018,6 +1018,10 @@ export function installMainThreadSyscalls(): void {
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal })
     registerProcessKernel(child, kernel, shell)
+    // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
+    // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.
+    // `system_ready` gives the keyboard back.
+    if (options.tty !== undefined && !kernel.ready) ttyHoldOf(child)?.suspend()
     return child.pid
   })
 
@@ -1138,7 +1142,11 @@ export function installMainThreadSyscalls(): void {
   })
 
   // Resolves once boot has finished: a getty must not draw its prompt over the first-boot questions.
-  define_syscall('system_ready', async (proc: Process) => { await kernelOf(proc).whenReady(); return 0 })
+  define_syscall('system_ready', async (proc: Process) => {
+    await kernelOf(proc).whenReady()
+    ttyHoldOf(proc)?.resume()
+    return 0
+  })
 
   define_syscall('login_end', async (proc: Process, tty: number) => {
     await kernelOf(proc).endLogin(tty)
