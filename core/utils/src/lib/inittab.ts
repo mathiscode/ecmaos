@@ -39,6 +39,19 @@ export interface Inittab {
 }
 
 /** What a filesystem without an `/etc/inittab` gets. */
+/** The login prompt on the first terminal, added to the default file when the kernel does not log a user in itself. */
+export const DEFAULT_GETTY_ENTRIES = 'tty0::respawn:/sbin/getty tty0\n'
+
+/** The terminals an inittab runs a `getty` on: entries whose id is `ttyN`, that respawn `/sbin/getty`. */
+export function gettyTerminals(text: string): Set<number> {
+  const terminals = new Set<number>()
+  for (const entry of parseInittab(text).entries) {
+    const match = /^tty(\d+)$/.exec(entry.id)
+    if (match && entry.action === 'respawn' && entry.argv[0]?.endsWith('/getty')) terminals.add(Number(match[1]))
+  }
+  return terminals
+}
+
 export const DEFAULT_INITTAB = [
   '# /etc/inittab: what init runs, one entry per line as id:runlevels:action:command.',
   '#',

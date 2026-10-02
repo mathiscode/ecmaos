@@ -107,6 +107,7 @@ async function runShell(tty, session) {
 async function main() {
   const tty = ttyNumber()
   for (const signal of [SIGINT, SIGQUIT, SIGTSTP]) onSignal(signal, () => {})
+  await custom('system_ready')
 
   for (;;) {
     const issue = readFile('/etc/issue')
@@ -141,6 +142,12 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 1000))
       out(`${session.message || 'Login incorrect'}\n`)
       continue
+    }
+
+    // The first terminal's message of the day comes from /boot/init; the others print it here.
+    if (tty !== 0) {
+      const motd = readFile('/etc/motd')
+      if (motd) out(`\n${motd}\n`)
     }
 
     try {

@@ -93,6 +93,7 @@ declare module '@zenfs/linux/uapi/abi' {
     login_begin(tty: number, username: string): number
     login_session(tty: number, username: string, password: string, path: string): number
     login_end(tty: number): number
+    system_ready(): number
     login_builtin(tty: number): number
     terminal_clear_history(): number
     terminal_reload_history(): number
@@ -1013,7 +1014,7 @@ export function installMainThreadSyscalls(): void {
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
     const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number } : {}
-    const terminal = options.tty === undefined ? undefined : kernel.getShell(options.tty)?.terminal
+    const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal })
     registerProcessKernel(child, kernel, shell)
@@ -1133,6 +1134,9 @@ export function installMainThreadSyscalls(): void {
     }
     return 0
   })
+
+  // Resolves once boot has finished: a getty must not draw its prompt over the first-boot questions.
+  define_syscall('system_ready', async (proc: Process) => { await kernelOf(proc).whenReady(); return 0 })
 
   define_syscall('login_end', async (proc: Process, tty: number) => {
     await kernelOf(proc).endLogin(tty)

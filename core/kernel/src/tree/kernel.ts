@@ -55,7 +55,7 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
-import { DEFAULT_INITTAB } from '@ecmaos/coreutils/lib/inittab'
+import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, gettyTerminals } from '@ecmaos/coreutils/lib/inittab'
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
@@ -484,8 +484,13 @@ export class Kernel implements IKernel {
 
       // What init runs. A missing file is not fatal (init falls back to the same default), but a
       // real one is what a user edits and `kill -HUP 1` re-reads.
+      // A kernel that logs a user in itself (`options.credentials`: tests, kiosks, embeds) runs no getty.
+      // An untouched default file from an earlier build gains the getty entry; an edited one is left alone.
+      const loginInittab = DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES
       if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
-        await this.filesystem.fs.writeFile('/etc/inittab', DEFAULT_INITTAB, { mode: 0o644 })
+        await this.filesystem.fs.writeFile('/etc/inittab', this.options.credentials ? DEFAULT_INITTAB : loginInittab, { mode: 0o644 })
+      } else if (!this.options.credentials && await this.filesystem.fs.readFile('/etc/inittab', 'utf-8') === DEFAULT_INITTAB) {
+        await this.filesystem.fs.writeFile('/etc/inittab', loginInittab, { mode: 0o644 })
       }
 
       try {
@@ -831,25 +836,32 @@ export class Kernel implements IKernel {
         ? { username: this.options.credentials.username, password: this.options.credentials.password }
         : undefined
       
-      await this.loginShell(this.shell, autoLogin ? { autoLogin } : undefined)
-      
+      // With a getty on TTY 0 in /etc/inittab, init starts the login prompt and the kernel does not.
+      this._gettyTtys = this.options.credentials || !await this.filesystem.fs.exists('/sbin/getty')
+        ? new Set()
+        : gettyTerminals(await this.filesystem.fs.readFile('/etc/inittab', 'utf-8'))
+      const gettyLogin = !autoLogin && this._gettyTtys.has(0)
+      if (!gettyLogin) await this.loginShell(this.shell, autoLogin ? { autoLogin } : undefined)
+
       if (autoLogin) {
         authSpan.setAttribute('auth.method', 'auto_login')
         authSpan.setAttribute('auth.username', autoLogin.username)
       }
       authSpan.end()
 
-      const user = this.users.get(this.shell.credentials.uid ?? 0)
-      if (!user) throw new Error(t('kernel.userNotFound', 'User not found'))
+      if (!gettyLogin) {
+        const user = this.users.get(this.shell.credentials.uid ?? 0)
+        if (!user) throw new Error(t('kernel.userNotFound', 'User not found'))
 
-      this.shell.credentials = {
-        uid: user.uid,
-        gid: user.gid,
-        suid: user.uid,
-        sgid: user.gid,
-        euid: user.uid,
-        egid: user.gid,
-        groups: user.groups
+        this.shell.credentials = {
+          uid: user.uid,
+          gid: user.gid,
+          suid: user.uid,
+          sgid: user.gid,
+          euid: user.uid,
+          egid: user.gid,
+          groups: user.groups
+        }
       }
 
       this.registerScreensavers()
@@ -898,11 +910,14 @@ export class Kernel implements IKernel {
         this.storage.local.setItem('ecmaos:first-boot', Date.now().toString())
       }
 
-      await this.enterLoginShell(this.shell)
+      if (!gettyLogin) {
+        await this.enterLoginShell(this.shell)
 
-      this.terminal.write(ansi.erase.inLine(2) + this.terminal.prompt())
-      this.terminal.focus()
-      this.terminal.listen()
+        this.terminal.write(ansi.erase.inLine(2) + this.terminal.prompt())
+        this.terminal.focus()
+        this.terminal.listen()
+      }
+      this._ready.resolve()
     } catch (error) {
       bootSpan.recordException(error as Error)
       bootSpan.setStatus({ code: 2, message: (error as Error).message })
@@ -2692,6 +2707,18 @@ export class Kernel implements IKernel {
     this.updateLocaleFromEnv(shell)
   }
 
+  /** Terminals whose login is a `/sbin/getty` entry in /etc/inittab, decided at boot; the kernel does not prompt on these. */
+  private _gettyTtys = new Set<number>()
+
+  private readonly _ready = (() => {
+    let resolve!: () => void
+    const promise = new Promise<void>(done => { resolve = done })
+    return { promise, resolve }
+  })()
+
+  /** Resolves when boot has finished, including the first-boot prompts a login prompt must not interleave with. */
+  whenReady(): Promise<void> { return this._ready.promise }
+
   /** Logins started by `beginLogin` that already succeeded by passkey, until `finishLogin` or `endLogin` takes them. */
   private readonly _pendingLogins = new Map<number, { username: string, session: { user: User, cred: Credentials } }>()
 
@@ -2798,6 +2825,9 @@ export class Kernel implements IKernel {
     terminal.attachShell(shell)
 
     this._shells.set(ttyNumber, shell)
+
+    // A getty on this terminal logs the user in, not the kernel.
+    if (this._gettyTtys.has(ttyNumber)) return shell
 
     const autoLogin = this.options.credentials
       ? { username: this.options.credentials.username, password: this.options.credentials.password }
