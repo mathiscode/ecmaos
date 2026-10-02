@@ -21,16 +21,12 @@ export const knownKernel: KnownTable = {
   "expansion/glob-dot": { stdout: ".hid vis\n", status: 0, why: "* matches dotfiles" },
   "expansion/lineno": { stdout: "2\n3\n", status: 0, why: "$LINENO is wrong" },
   "options/dollar-dash": { stdout: "no-e\n", status: 0, why: "$- is not supported inside case patterns (script fails to parse)" },
-  "options/errexit-subshell": { stdout: "after\n", status: 0, why: "set -e is not inherited by a subshell" },
-  "options/nounset": { stdout: "THREW nope: unbound variable", status: -1, why: "an unbound variable throws out of executeScriptText instead of ending the script with status 1" },
   "traps/signal": { stdout: "after\n", status: 0, why: "a trapped signal sent with kill is not delivered" },
 }
 
 export const knownEcmash: KnownTable = {
   "builtins/background-status": { stdout: "0\n", status: 0, why: "a background subshell is refused: it would run in this process, which cannot also carry on with the next prompt" },
   "control/pipestatus": { stdout: "0\n0\n", status: 0, why: "PIPESTATUS holds one entry: a pipeline reports a single status here" },
-  "options/errexit-subshell": { stdout: "after\n", status: 0, why: "set -e is not inherited by a subshell" },
-  "options/nounset": { stdout: "before\nno\n", status: 0, why: "an unbound variable is reported but the script continues; bash exits with status 1" },
   "read/eof-status": { stdout: "TIMEOUT", status: -2, why: "read with input from /dev/null never returns" },
   "redirect/devnull": { stdout: "TIMEOUT", status: -2, why: "cat < /dev/null never returns" },
   "traps/exit-status": { stdout: "st=0\n", status: 5, why: "$? inside an EXIT trap is 0, not the exit status" },

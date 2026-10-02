@@ -26,7 +26,7 @@
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
 import { splitAssignments, parseArrayAssignment, applyArrayAssignment } from '../lib/shell-core/prepare.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
-import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource } from '../lib/word-expansion.ts'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource, UnboundVariableError } from '../lib/word-expansion.ts'
 import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
@@ -357,6 +357,7 @@ class Shell {
       checkpoint: async () => { await shell.runPendingTraps(); return shell.sigint },
       exitShell: code => shell.leave(code),
       writeErr: message => { writeAllFd(2, `ecmash: ${message}\n`) },
+      nonInteractive: () => !this.interactive,
     }
   }
 
@@ -521,7 +522,8 @@ class Shell {
         }
         if (result.finish) cleanups.push(result.finish)
       } catch (error) {
-        if (isUnwind(error)) throw error
+        // `set -u` is the interpreter's to report, and to end a script over
+        if (isUnwind(error) || error instanceof UnboundVariableError) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
         failed = true
@@ -539,7 +541,8 @@ class Shell {
         statusOfBuiltin = await this.interpreter.runStage(stage.command.compound)
         if (statusOfBuiltin) builtinFailure = statusOfBuiltin
       } catch (error) {
-        if (isUnwind(error)) throw error
+        // `set -u` is the interpreter's to report, and to end a script over
+        if (isUnwind(error) || error instanceof UnboundVariableError) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
         statusOfBuiltin = 1
       } finally {

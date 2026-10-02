@@ -10,6 +10,7 @@
 
 import { parseStatements, type PipelineStatement, type Statement } from '../control-flow-parser.js'
 import { parseScript, type Command, type Pipeline, type Script } from '../shell-parser.js'
+import { UnboundVariableError } from '../word-expansion.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
 
@@ -51,6 +52,8 @@ export interface InterpreterHost {
    * that puts them back. `zero` is `$0` where the call changes it.
    */
   enterParameters(args: string[], zero?: string): () => void
+  /** True when the shell is running a script or `-c` text rather than reading a prompt, so an error `set -u` raises ends it. */
+  nonInteractive?(): boolean
   /** Captures what a subshell must not leak (variables, cwd, ...). Returns the restore function. */
   snapshot(): () => void
 
@@ -105,7 +108,16 @@ export class Interpreter {
       if (await this.host.checkpoint()) return last
       if (statement.lineNumber !== undefined) this.state.lineNumber = statement.lineNumber
       await this.host.onStatement?.(statement)
-      last = await this.runStatement(statement)
+      try {
+        last = await this.runStatement(statement)
+      } catch (error) {
+        if (!(error instanceof UnboundVariableError)) throw error
+        // bash reports it and, in a script, ends the shell with status 1; at the prompt it only fails the command.
+        await this.host.writeErr(error.message)
+        this.host.setStatus(1)
+        if (this.catchers.exit > 0 || this.host.nonInteractive?.()) await this.host.exitShell(1)
+        last = 1
+      }
       this.host.setStatus(last)
     }
     return last
@@ -175,7 +187,12 @@ export class Interpreter {
       case 'pipeline': return await this.runPipelineStatement(statement)
 
       case 'group': return await host.withRedirect(statement, () => this.runStatements(statement.body))
-      case 'subshell': return await host.withRedirect(statement, () => this.runSubshell(statement.body))
+      case 'subshell': {
+        const status = await host.withRedirect(statement, () => this.runSubshell(statement.body))
+        // A subshell that failed is a failed command in this shell too, so `set -e` ends this one as well.
+        if (status !== 0 && this.state.options.errexit && !this.conditional) await host.exitShell(status)
+        return status
+      }
     }
   }
 

@@ -131,12 +131,15 @@ function assertName(name: string): void {
   }
 }
 
+/** `set -u` met a variable that is not set. The interpreter reports it and ends a script, as bash does. */
+export class UnboundVariableError extends Error {}
+
 class Expander {
   constructor(private ctx: ExpansionContext) {}
 
   private scalar(name: string): string | undefined {
     const value = this.ctx.lookup(name)
-    if (value === undefined && this.ctx.nounset && !/^[@*#?]$/.test(name)) throw new Error(`${name}: unbound variable`)
+    if (value === undefined && this.ctx.nounset && !/^[@*#?]$/.test(name)) throw new UnboundVariableError(`${name}: unbound variable`)
     return value
   }
 

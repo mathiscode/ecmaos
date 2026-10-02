@@ -29,7 +29,7 @@ import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/c
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
-import { expandWordFieldsBraced, expandWordString, expandHeredocBody, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
 /**
@@ -1177,7 +1177,7 @@ export class Shell implements IShell {
     while ((match = pattern.exec(original))) {
       const name = match[1] ?? match[2]
       if (name && this.lookupVariable(name) === undefined) {
-        throw new Error(`${name}: unbound variable`)
+        throw new UnboundVariableError(`${name}: unbound variable`)
       }
     }
   }
