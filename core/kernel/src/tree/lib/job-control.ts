@@ -53,6 +53,11 @@ export function getpgid(proc: Process): number {
   return groups.get(proc.pid) ?? (proc.parent ? getpgid(proc.parent) : proc.pid)
 }
 
+/** Drops a process's group entry once it has exited, so the table does not grow with every command. */
+export function forgetGroup(pid: number): void {
+  groups.delete(pid)
+}
+
 /** `setpgid(2)`: `pid` 0 means the caller, `pgid` 0 means the target's own pid. */
 export function setpgid(caller: Process, pid: number, pgid: number): number {
   const target = pid === 0 ? caller : processes.get(pid)

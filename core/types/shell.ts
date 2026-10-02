@@ -122,6 +122,8 @@ export interface ShellOptions {
   users: Users
   /** Reference to terminal instance */
   terminal?: Terminal
+  /** Called with the shell's own `@zenfs/linux` process when it is created, so the kernel can make it a child of init */
+  adoptProcess?: (process: object) => void
 }
 
 /**

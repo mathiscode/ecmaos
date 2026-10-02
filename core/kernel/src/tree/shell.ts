@@ -327,6 +327,7 @@ const DefaultShellOptions = {
  */
 export class Shell implements IShell {
   private _createPipeStream: ShellCreatePipeStream
+  private _adoptProcess?: (process: object) => void
   private _ctx: KernelContext
   private _cwd: string
   private _execute: ShellExecute
@@ -589,7 +590,10 @@ export class Shell implements IShell {
    * `$$` that early, so by the time this runs the device is there.
    */
   get process(): InstanceType<typeof ZenFSProcess> {
-    this._process ??= new ZenFSProcess({ argv: ['ecmash'], cwd: this._cwd, console: '/dev/null' })
+    if (!this._process) {
+      this._process = new ZenFSProcess({ argv: ['ecmash'], cwd: this._cwd, console: '/dev/null' })
+      this._adoptProcess?.(this._process)
+    }
     return this._process
   }
 
@@ -721,6 +725,7 @@ export class Shell implements IShell {
     this._ctx = options.context
     this._createPipeStream = options.createPipeStream
     this._execute = options.execute
+    this._adoptProcess = options.adoptProcess
     this._filesystem = options.filesystem
     this._users = options.users
     this._terminal = options.terminal as ITerminal

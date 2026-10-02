@@ -106,6 +106,30 @@ describe('/sbin/init as pid 1', () => {
     await kernel.filesystem.fs.writeFile('/etc/inittab', inittab)
   })
 
+  it('makes every command a child of init, in its own process group, and reaps it when it exits', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/who.js', [
+      'const { getpid, getppid, getpgid, write } = globalThis.ecmaosSyscalls',
+      'write(1, new TextEncoder().encode([getpid(), getppid(), await getpgid(0)].join(" ") + "\\n"))'
+    ].join('\n'), { mode: 0o755 })
+    await kernel.shell.execute('/tmp/who.js > /tmp/who.out')
+    const [pid, ppid, pgid] = (await kernel.filesystem.fs.readFile('/tmp/who.out', 'utf-8')).trim().split(' ').map(Number)
+    expect(ppid).toBe(1)
+    expect(pgid).toBe(pid)
+    expect(await until(async () => !processes.has(pid!))).toBe(true) // reaped by init, not left a zombie
+    expect([...kernel.init.process!.children].some(child => child.pid === pid)).toBe(false)
+  })
+
+  it('leaves no zombies behind a burst of commands', async () => {
+    for (let i = 0; i < 5; i++) await kernel.shell.execute('true')
+    expect(await until(async () => [...kernel.init.process!.children].every(child => child.code === undefined))).toBe(true)
+  })
+
+  it('gives the kernel shell its own process as a child of init, so $PPID is 1', async () => {
+    expect(kernel.shell.process.parent?.pid).toBe(1)
+    await kernel.shell.execute('echo $PPID > /tmp/ppid.out')
+    expect((await kernel.filesystem.fs.readFile('/tmp/ppid.out', 'utf-8')).trim()).toBe('1')
+  })
+
   it('keeps its calls for init: another program gets EPERM', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/not-init.js', [
       'const { custom, write } = globalThis.ecmaosSyscalls',

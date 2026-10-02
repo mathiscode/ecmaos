@@ -197,7 +197,10 @@ export class Kernel implements IKernel {
 
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
   private get pipeProcess(): InstanceType<typeof ZenFSProcess> {
-    this._pipeProcess ??= new ZenFSProcess({ console: '/dev/null' })
+    if (!this._pipeProcess) {
+      this._pipeProcess = new ZenFSProcess({ console: '/dev/null' })
+      this.init.adopt(this._pipeProcess)
+    }
     return this._pipeProcess
   }
 
@@ -309,6 +312,7 @@ export class Kernel implements IKernel {
       context: this.context,
       createPipeStream: () => this.createPipeStream(),
       execute: options => this.execute({ ...options, kernel: this }),
+      adoptProcess: process => this.init.adopt(process as InstanceType<typeof ZenFSProcess>),
       filesystem: this.filesystem,
       users: this.users,
       tty: 0,
@@ -1183,6 +1187,7 @@ export class Kernel implements IKernel {
         console: tty ? `/dev/${tty.name}` : undefined
       })
       liveProc = proc
+      this.init.adopt(proc)
 
       // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
       // calling `Process` -- `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
@@ -1651,6 +1656,7 @@ export class Kernel implements IKernel {
       tty: terminal?.zfsTty
     })
     registerProcessKernel(proc, this, options.shell)
+    this.init.adopt(proc)
 
     try {
       const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
@@ -2728,6 +2734,7 @@ export class Kernel implements IKernel {
       context: this.context,
       createPipeStream: () => this.createPipeStream(),
       execute: options => this.execute({ ...options, kernel: this }),
+      adoptProcess: process => this.init.adopt(process as InstanceType<typeof ZenFSProcess>),
       filesystem: this.filesystem,
       users: this.users,
       tty: ttyNumber,

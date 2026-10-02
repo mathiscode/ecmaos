@@ -21,10 +21,10 @@
  */
 
 import { bindContext, boundContexts } from '@zenfs/core'
-import { execve, Process, WaitQueue, wait_event_any } from '@zenfs/linux'
+import { execve, Process, processes, WaitQueue, wait_event_any } from '@zenfs/linux'
 
 import type { Kernel } from '#kernel.ts'
-import { setpgid } from './job-control.ts'
+import { forgetGroup, setpgid } from './job-control.ts'
 import { registerProcessKernel } from './main-thread-syscalls.ts'
 
 export const INIT_PATH = '/sbin/init'
@@ -49,6 +49,8 @@ export class Init {
     this._process = proc
     this.watchChildren(proc)
     registerProcessKernel(proc, kernel, kernel.shell)
+    // Whatever was created before init existed, such as the kernel shell's own process, has no parent.
+    for (const orphan of [...processes.values()]) if (orphan !== proc && !orphan.parent && orphan.code === undefined) this.adopt(orphan)
     await execve(proc, INIT_PATH, [INIT_PATH], kernel.shell.envObject)
   }
 
@@ -59,10 +61,11 @@ export class Init {
    */
   adopt(child: Process): void {
     const init = this._process
-    if (!init || child === init) return
+    if (!init || child === init || child.parent) return
     child.parent = init
     init.children.add(child)
     setpgid(init, child.pid, 0)
+    void child.exited.then(() => forgetGroup(child.pid))
   }
 
   /**
