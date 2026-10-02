@@ -55,7 +55,7 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
-import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, gettyTerminals } from '@ecmaos/coreutils/lib/inittab'
+import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, FIRST_TERMINAL_GETTY_ENTRY, gettyTerminals } from '@ecmaos/coreutils/lib/inittab'
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
@@ -489,7 +489,7 @@ export class Kernel implements IKernel {
       const loginInittab = DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES
       if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', this.options.credentials ? DEFAULT_INITTAB : loginInittab, { mode: 0o644 })
-      } else if (!this.options.credentials && await this.filesystem.fs.readFile('/etc/inittab', 'utf-8') === DEFAULT_INITTAB) {
+      } else if (!this.options.credentials && [DEFAULT_INITTAB, DEFAULT_INITTAB + FIRST_TERMINAL_GETTY_ENTRY].includes(await this.filesystem.fs.readFile('/etc/inittab', 'utf-8'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', loginInittab, { mode: 0o644 })
       }
 
@@ -2826,7 +2826,8 @@ export class Kernel implements IKernel {
 
     this._shells.set(ttyNumber, shell)
 
-    // A getty on this terminal logs the user in, not the kernel.
+    // A getty on this terminal logs the user in, not the kernel. With the default inittab that is every
+    // terminal, so TTYs 1 to 7 are no different from TTY 0.
     if (this._gettyTtys.has(ttyNumber)) return shell
 
     const autoLogin = this.options.credentials
