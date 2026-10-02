@@ -300,6 +300,19 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
+  /**
+   * Fits the terminal to its container, unless the container is hidden. A hidden one measures as a few
+   * columns, and text written then (a getty's prompt on a terminal nobody has switched to) wraps there
+   * and reflows with the cursor in the wrong place once the terminal is shown.
+   */
+  private fitToContainer(): void {
+    const fit = this.addons?.get('fit') as FitAddon | undefined
+    if (!fit) return
+    const container = this.element?.parentElement
+    if (container && container.clientWidth === 0) return
+    fit.fit()
+  }
+
   private _session?: () => void
   private _sessionEnded = false
 
@@ -495,9 +508,9 @@ export class Terminal extends XTerm implements ITerminal {
       })
     }
 
-    if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+    this.fitToContainer()
     globalThis.addEventListener('resize', () => {
-      if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+      this.fitToContainer()
       this.events.dispatch<TerminalResizeEvent>(TerminalEvents.RESIZE, { cols: this.cols, rows: this.rows })
     })
 
@@ -580,7 +593,7 @@ export class Terminal extends XTerm implements ITerminal {
 
   mount(element: HTMLElement) {
     this.open(element)
-    if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+    this.fitToContainer()
     this._applyRenderer()
 
     if (!this._zfsTty) {
@@ -620,7 +633,7 @@ export class Terminal extends XTerm implements ITerminal {
     }
 
     this._resizeObserver = new ResizeObserver(() => {
-      if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+      this.fitToContainer()
       this.events.dispatch<TerminalResizeEvent>(TerminalEvents.RESIZE, { cols: this.cols, rows: this.rows })
     })
     this._resizeObserver.observe(element)
@@ -655,7 +668,7 @@ export class Terminal extends XTerm implements ITerminal {
       }
     }
 
-    if (this.addons?.get('fit')) (this.addons.get('fit') as FitAddon).fit()
+    this.fitToContainer()
     if (this.element) this._applyRenderer()
   }
 
@@ -1857,7 +1870,7 @@ export class Terminal extends XTerm implements ITerminal {
       }
       
       if (this.addons?.get('fit')) {
-        (this.addons.get('fit') as FitAddon).fit()
+        this.fitToContainer()
       }
       
       this._scrollTerminalToBottom()

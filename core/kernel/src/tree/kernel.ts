@@ -917,6 +917,8 @@ export class Kernel implements IKernel {
         this.terminal.focus()
         this.terminal.listen()
       }
+      // With the kernel not drawing a prompt, the keyboard still has to be somewhere for getty to read.
+      if (gettyLogin) this.terminal.focus()
       this._ready.resolve()
     } catch (error) {
       bootSpan.recordException(error as Error)
