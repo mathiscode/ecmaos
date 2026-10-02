@@ -6,6 +6,10 @@
  * Order: every `sysinit` entry (one at a time, each waited for), every `wait` entry the same way,
  * then {@link InitHost.booted}, then every `once` entry and every `respawn` entry started.
  *
+ * `SIGTERM` reboots, `SIGUSR1` halts and `SIGUSR2` powers off, as in BusyBox. Going down runs the
+ * `shutdown` entries, sends every other process `SIGTERM`, gives them a moment, sends `SIGKILL` to
+ * what is left, then hands over to the kernel with {@link InitHost.finish}.
+ *
  * The program supplies a {@link InitHost} over real syscalls; the tests supply one over a fake
  * clock. No Node built-ins.
  */
@@ -31,7 +35,32 @@ export interface InitHost {
   log(level: 'info' | 'warn' | 'error', message: string): void
   /** Called once the `sysinit` and `wait` entries are done. */
   booted(): void | Promise<void>
+  /** Sends `signal` to every process except init and the kernel's own; resolves to how many it reached. */
+  killAll(signal: number): Promise<number>
+  /** How many such processes are still alive. */
+  alive(): Promise<number>
+  /** Hands over to the kernel, which stops (and for a reboot, reloads the page). */
+  finish(mode: ShutdownMode): Promise<void>
 }
+
+export type ShutdownMode = 'reboot' | 'halt' | 'poweroff'
+
+export interface InitTimings {
+  /** How long a `shutdown` entry may take before init stops waiting for it. */
+  shutdownEntryMs: number
+  /** How long processes get after `SIGTERM` before `SIGKILL`. */
+  termGraceMs: number
+  /** How long to wait for them to die after `SIGKILL`. */
+  killGraceMs: number
+}
+
+export const DEFAULT_TIMINGS: InitTimings = { shutdownEntryMs: 10_000, termGraceMs: 3000, killGraceMs: 1000 }
+
+const SIGTERM = 15
+const SIGKILL = 9
+
+/** The signals init acts on, and what each means. */
+const SHUTDOWN_SIGNALS: Record<string, ShutdownMode> = { TERM: 'reboot', USR1: 'halt', USR2: 'poweroff' }
 
 export class InitEngine {
   private entries: InitEntry[] = []
@@ -40,8 +69,14 @@ export class InitEngine {
   private readonly tracker: RespawnTracker
   private reloadRequested = false
   private stopped = false
+  private requested: ShutdownMode | undefined
+  private goingDown = false
 
-  constructor(private readonly host: InitHost, backoff: BackoffOptions = DEFAULT_BACKOFF) {
+  constructor(
+    private readonly host: InitHost,
+    backoff: BackoffOptions = DEFAULT_BACKOFF,
+    private readonly timings: InitTimings = DEFAULT_TIMINGS
+  ) {
     this.tracker = new RespawnTracker(backoff)
   }
 
@@ -62,6 +97,7 @@ export class InitEngine {
         const pid = await this.host.wait(this.nextTimeout())
         this.handleSignals()
         if (pid) this.exited(pid)
+        if (this.requested) { await this.shutdown(this.requested); return }
         if (this.reloadRequested) { this.reloadRequested = false; await this.reload() }
         await this.startDue()
       } catch (error) {
@@ -158,7 +194,7 @@ export class InitEngine {
     const entry = this.running.get(pid)
     if (!entry) return // an orphan adopted from a process that exited, or something already forgotten
     this.running.delete(pid)
-    if (entry.action === 'respawn' && this.isWanted(entry)) this.schedule(entry)
+    if (entry.action === 'respawn' && !this.goingDown && this.isWanted(entry)) this.schedule(entry)
   }
 
   private schedule(entry: InitEntry): void {
@@ -183,9 +219,64 @@ export class InitEngine {
     }
   }
 
+  /** Runs the `shutdown` entries, stops everything else, and hands over to the kernel. */
+  private async shutdown(mode: ShutdownMode): Promise<void> {
+    this.goingDown = true
+    this.pending.clear()
+    this.host.log('warn', `init: the system is going down for ${mode}`)
+
+    for (const entry of this.entries) {
+      if (entry.action === 'shutdown') await this.runShutdownEntry(entry)
+    }
+
+    await this.host.killAll(SIGTERM)
+    if (!await this.drain(this.timings.termGraceMs)) {
+      const left = await this.host.killAll(SIGKILL)
+      this.host.log('warn', `init: ${left} process${left === 1 ? '' : 'es'} ignored SIGTERM and ${left === 1 ? 'was' : 'were'} killed`)
+      await this.drain(this.timings.killGraceMs)
+    }
+
+    this.stopped = true
+    await this.host.finish(mode)
+  }
+
+  /** Waits for what is left to exit, reaping as it goes. True when nothing is left. */
+  private async drain(ms: number): Promise<boolean> {
+    const deadline = this.host.now() + ms
+    for (;;) {
+      if (await this.host.alive() === 0) return true
+      const remaining = deadline - this.host.now()
+      if (remaining <= 0) return false
+      const pid = await this.host.wait(Math.min(100, remaining))
+      if (pid) this.exited(pid)
+    }
+  }
+
+  private async runShutdownEntry(entry: InitEntry): Promise<void> {
+    let pid: number
+    try {
+      pid = await this.host.spawn(entry)
+    } catch (error) {
+      this.host.log('error', `init: cannot start ${entry.command}: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const deadline = this.host.now() + this.timings.shutdownEntryMs
+    for (;;) {
+      const remaining = deadline - this.host.now()
+      if (remaining <= 0) {
+        this.host.log('warn', `init: ${entry.command} did not finish in ${this.timings.shutdownEntryMs} ms`)
+        return
+      }
+      const reaped = await this.host.wait(remaining)
+      if (reaped === pid) return
+      if (reaped) this.exited(reaped)
+    }
+  }
+
   private handleSignals(): void {
     for (const name of this.host.takeSignals()) {
       if (name === 'HUP') this.reloadRequested = true
+      else if (SHUTDOWN_SIGNALS[name] && !this.requested) this.requested = SHUTDOWN_SIGNALS[name]
     }
   }
 }

@@ -21,7 +21,7 @@
  */
 
 import { bindContext, boundContexts } from '@zenfs/core'
-import { execve, Process, processes, WaitQueue, wait_event_any } from '@zenfs/linux'
+import { execve, kill as zenfsKill, Process, processes, WaitQueue, wait_event_any } from '@zenfs/linux'
 
 import type { Kernel } from '#kernel.ts'
 import { forgetGroup, setpgid } from './job-control.ts'
@@ -116,6 +116,27 @@ export class Init {
       child.exit(1)
     })
     return child.pid
+  }
+
+  /**
+   * Every live process that going down should stop: running programs and the boot scripts init
+   * started. Not init, and not the kernel's own processes (the shell's identity process, the pipe
+   * anchor), which have no program loaded and stay for as long as the kernel does.
+   */
+  private killable(): Process[] {
+    return [...processes.values()].filter(proc => proc !== this._process && proc.code === undefined && proc.exe !== undefined)
+  }
+
+  /** Sends `signal` to every {@link killable} process. Resolves to how many were signalled. */
+  killAll(signal: number): number {
+    let count = 0
+    for (const proc of this.killable()) if (zenfsKill(proc.pid, signal)) count++
+    return count
+  }
+
+  /** How many {@link killable} processes are still alive. */
+  alive(): number {
+    return this.killable().length
   }
 
   markBooted(): void {

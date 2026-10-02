@@ -6,6 +6,11 @@
  * dies. `SIGHUP` makes it read the file again. The logic is `lib/init-engine.ts`; this file is only
  * how it reaches the system.
  *
+ * Signals are queued by hand. One that arrives while the worker sits in an async call (any `custom()`
+ * or `spawn`) is visible only through `pendingSignals()`, and the next synchronous syscall clears it,
+ * so every call goes through `call()`, which reads it as soon as the call returns, and the synchronous
+ * file reads look first. Without that a `SIGTERM` that landed while init was starting a daemon was lost.
+ *
  * It waits with the kernel's `init_wait` call rather than `waitpid`: `waitpid` takes a snapshot of the
  * children when it is called, fails with `ECHILD` when there are none (init often has none), and a
  * signal does not wake it. `init_wait(timeoutMs)` resolves to the pid it reaped, or 0 when the timeout
@@ -14,7 +19,9 @@
  * anything else.
  *
  * pid 1 ignores every signal it has not asked to catch, so `kill -9 1` does nothing and `^C` cannot
- * reach it; only `SIGHUP` is caught here.
+ * reach it. It catches `SIGHUP` (read inittab again) and the three that take the system down, as
+ * BusyBox's init does: `SIGTERM` reboots, `SIGUSR1` halts, `SIGUSR2` powers off. `reboot`, `halt`
+ * and `poweroff` send them.
  */
 
 import { InitEngine } from '../lib/init-engine.ts'
@@ -22,8 +29,7 @@ import { InitEngine } from '../lib/init-engine.ts'
 const sys = globalThis.ecmaosSyscalls
 const { open, read, close, write, custom, spawn, exit, getpid, onSignal, pendingSignals, O_RDONLY } = sys
 
-const SIGHUP = 1
-const SIGNALS = { HUP: SIGHUP }
+const SIGNALS = { HUP: 1, USR1: 10, USR2: 12, TERM: 15 }
 
 const decoder = new TextDecoder()
 const encoder = new TextEncoder()
@@ -50,6 +56,7 @@ function readFileText(path) {
 const KERNEL_SCRIPT = '#!ecmaos:bin:script:'
 
 function isKernelScript(path) {
+  collectSignals()
   try {
     const fd = open(path, O_RDONLY, 0)
     try {
@@ -67,13 +74,29 @@ function isKernelScript(path) {
 /** The signals seen since the engine last asked. */
 const seen = new Set()
 
+/** What `pendingSignals()` held when it was last read: the bits stay set until a synchronous syscall clears them. */
+let lastMask = 0
+
 function collectSignals() {
   const mask = pendingSignals?.() ?? 0
-  for (const [name, number] of Object.entries(SIGNALS)) if (mask & (1 << number)) seen.add(name)
+  if (!mask) { lastMask = 0; return }
+  const fresh = mask & ~lastMask
+  lastMask = mask
+  for (const [name, number] of Object.entries(SIGNALS)) if (fresh & (1 << number)) seen.add(name)
+}
+
+/** An async syscall, noting any signal that arrived while it ran. */
+async function call(fn, ...args) {
+  try {
+    return await fn(...args)
+  } finally {
+    collectSignals()
+  }
 }
 
 const host = {
   readInittab() {
+    collectSignals()
     try { return readFileText('/etc/inittab') } catch { return undefined }
   },
 
@@ -82,20 +105,19 @@ const host = {
     // The kernel's own shell runs these, not `execve`, and it is shared with whoever is at the
     // terminal, so only the entries that block boot may use it.
     if (isKernelScript(path)) {
-      if (entry.action !== 'sysinit' && entry.action !== 'wait') throw new Error('a kernel-shell script can only be a sysinit or wait entry')
-      return await custom('init_script', path, JSON.stringify(args))
+      if (!['sysinit', 'wait', 'shutdown'].includes(entry.action)) throw new Error('a kernel-shell script can only be a sysinit, wait or shutdown entry')
+      return await call(custom, 'init_script', path, JSON.stringify(args))
     }
     // Its own process group, as a shell gives each job: init's children would otherwise all share pgid 1.
-    return await spawn(path, entry.argv, { cwd: '/', pgid: 0 })
+    return await call(spawn, path, entry.argv, { cwd: '/', pgid: 0 })
   },
 
   async wait(timeoutMs) {
+    collectSignals()
+    if (seen.size) return 0 // a signal is already waiting: let the engine act on it first
     try {
-      const pid = await custom('init_wait', timeoutMs)
-      collectSignals()
-      return pid
+      return await call(custom, 'init_wait', timeoutMs)
     } catch (error) {
-      collectSignals()
       if (String(error?.code ?? error?.message ?? error).includes('EINTR')) return 0
       throw error
     }
@@ -111,11 +133,23 @@ const host = {
   now: () => Date.now(),
 
   log(level, message) {
-    void custom('klog', level, message).catch(() => {})
+    void call(custom, 'klog', level, message).catch(() => {})
+  },
+
+  async killAll(signal) {
+    return await call(custom, 'init_killall', signal)
+  },
+
+  async alive() {
+    return await call(custom, 'init_alive')
+  },
+
+  async finish(mode) {
+    await call(custom, 'system_stop', mode)
   },
 
   async booted() {
-    try { await custom('init_booted') } catch (error) { host.log('warn', `init: could not report that boot finished: ${error?.message ?? error}`) }
+    try { await call(custom, 'init_booted') } catch (error) { host.log('warn', `init: could not report that boot finished: ${error?.message ?? error}`) }
   },
 }
 
@@ -124,8 +158,8 @@ if (getpid() !== 1) {
   exit(1)
 }
 
-// Asking for the signal is what makes the kernel raise it on this thread instead of ignoring it.
-onSignal(SIGHUP, () => seen.add('HUP'))
+// Asking for a signal is what makes the kernel raise it on this thread instead of ignoring it.
+for (const [name, number] of Object.entries(SIGNALS)) onSignal(number, () => seen.add(name))
 
 const engine = new InitEngine(host)
 try {
@@ -134,3 +168,6 @@ try {
   host.log('error', `init: boot failed: ${error?.message ?? error}`)
 }
 await engine.run()
+
+// The system has gone down: the kernel has stopped, or the page is about to reload. pid 1 does not exit.
+await new Promise(() => {})

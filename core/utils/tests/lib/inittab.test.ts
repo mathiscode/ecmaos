@@ -64,17 +64,18 @@ describe('parseInittab', () => {
   })
 
   it('says why a BusyBox-only action was skipped', () => {
-    const { entries, errors } = parseInittab('::ctrlaltdel:/bin/reboot\n::askfirst:/bin/sh')
+    const { entries, errors } = parseInittab('::ctrlaltdel:/bin/reboot\n::askfirst:/bin/sh\n::restart:/sbin/init')
     expect(entries).toEqual([])
+    expect(errors[2]!.reason).toMatch(/restart action is not supported/)
     expect(errors[0]!.reason).toMatch(/ctrlaltdel action is not supported.*reboot command/)
     expect(errors[1]!.reason).toMatch(/askfirst action is not supported/)
   })
 
   it('accepts every supported action', () => {
-    const text = ['sysinit', 'wait', 'once', 'respawn', 'shutdown', 'restart'].map(action => `::${action}:/bin/${action}`).join('\n')
+    const text = ['sysinit', 'wait', 'once', 'respawn', 'shutdown'].map(action => `::${action}:/bin/${action}`).join('\n')
     const { entries, errors } = parseInittab(text)
     expect(errors).toEqual([])
-    expect(entries.map(entry => entry.action)).toEqual(['sysinit', 'wait', 'once', 'respawn', 'shutdown', 'restart'])
+    expect(entries.map(entry => entry.action)).toEqual(['sysinit', 'wait', 'once', 'respawn', 'shutdown'])
   })
 })
 

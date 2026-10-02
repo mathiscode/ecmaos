@@ -88,9 +88,10 @@ describe('/sbin/init as pid 1', () => {
     expect((await ps()).some(entry => entry.pid === before.pid)).toBe(false)
   }, 15_000)
 
-  it('does not die to SIGKILL or SIGTERM', async () => {
+  it('does not die to SIGKILL, SIGINT or SIGQUIT (SIGTERM, SIGUSR1 and SIGUSR2 take the system down: init-shutdown.test.ts)', async () => {
     await kernel.shell.execute('kill -9 1')
-    await kernel.shell.execute('kill -15 1')
+    await kernel.shell.execute('kill -2 1')
+    await kernel.shell.execute('kill -3 1')
     await sleep(100)
     expect(processes.get(1)!.code).toBeUndefined()
     expect((await ps()).some(entry => entry.pid === 1)).toBe(true)

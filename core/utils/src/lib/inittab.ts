@@ -14,7 +14,7 @@
  * No Node built-ins, so the same file runs in the `/sbin/init` worker and in the kernel's tests.
  */
 
-export const INIT_ACTIONS = ['sysinit', 'wait', 'once', 'respawn', 'shutdown', 'restart'] as const
+export const INIT_ACTIONS = ['sysinit', 'wait', 'once', 'respawn', 'shutdown'] as const
 export type InitAction = typeof INIT_ACTIONS[number]
 
 export interface InitEntry {
@@ -46,8 +46,7 @@ export const DEFAULT_INITTAB = [
   '#   wait      run once after the sysinit entries, and wait for it',
   '#   once      start once and do not wait',
   '#   respawn   start, and start again whenever it exits',
-  '#   shutdown  run, in order, when the system goes down',
-  '#   restart   run when init is told to restart',
+  '#   shutdown  run, in order, when the system goes down (reboot, halt and poweroff signal init)',
   '#',
   '# The id and runlevels fields may be empty. `kill -HUP 1` makes init read this file again.',
   '::sysinit:/boot/init',
@@ -59,7 +58,8 @@ export const DEFAULT_INITTAB = [
 const UNSUPPORTED: Record<string, string> = {
   ctrlaltdel: 'there is no key chord to bind it to in a browser; use the reboot command',
   askfirst: 'init does not start login sessions',
-  respawnask: 'init does not start login sessions'
+  respawnask: 'init does not start login sessions',
+  restart: 'init cannot re-execute itself; reboot instead'
 }
 
 /**

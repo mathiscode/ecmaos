@@ -5,13 +5,15 @@
 ## Synopsis
 
 ```
-reboot
+reboot [-f]
 ```
 
 ## Description
 
-Shuts down every kernel subsystem cleanly, then reloads the page. `kernel.reboot()` is a main-thread-only method (it ultimately calls `globalThis.location.reload()`, which doesn't exist inside a Web Worker), so this reaches it through the `reboot` main-thread custom syscall, the same pattern `window_create` uses for other main-thread-only DOM/kernel capabilities.
+Reboots the system: asks init (pid 1) to run the `shutdown` entries of `/etc/inittab`, stop every other process, then shut down the kernel and reload the page. It does this by sending `SIGTERM` to init, so the command is stopped along with everything else. Requires root.
+
+`-f` skips init and shuts down and reloads at once. Use it if init is stuck. It calls the `system_stop` main-thread syscall, since `kernel.reboot()` ends in `location.reload()`, which does not exist inside a Web Worker.
 
 ## See also
 
-`@ecmaos/kernel/commands/ps`
+`@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/kernel/commands/init`, `@ecmaos/kernel/commands/ps`

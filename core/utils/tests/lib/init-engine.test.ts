@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { InitEngine } from '../../src/lib/init-engine.ts'
-import type { InitHost } from '../../src/lib/init-engine.ts'
+import type { InitHost, ShutdownMode } from '../../src/lib/init-engine.ts'
 import type { InitEntry } from '../../src/lib/inittab.ts'
 
 /**
@@ -22,6 +22,10 @@ class FakeHost implements InitHost {
   order: string[] = []
   script: Array<(timeout: number) => number> = []
   engine!: InitEngine
+  kills: number[] = []
+  finished: ShutdownMode[] = []
+  aliveFn: () => number = () => 0
+  advanceOnEmpty = false
 
   readInittab() { return this.inittab }
   now() { return this.clock }
@@ -38,11 +42,14 @@ class FakeHost implements InitHost {
   }
 
   async booted() { this.order.push('booted'); this.bootedAt = this.spawned.length }
+  async killAll(signal: number) { const reached = this.aliveFn(); this.kills.push(signal); this.order.push(`kill ${signal}`); return reached }
+  async alive() { return this.aliveFn() }
+  async finish(mode: ShutdownMode) { this.finished.push(mode); this.order.push(`finish ${mode}`) }
 
   async wait(timeout: number) {
     this.timeouts.push(timeout)
     const step = this.script.shift()
-    if (!step) { this.engine.stop(); return 0 }
+    if (!step) { this.engine.stop(); if (this.advanceOnEmpty && timeout > 0) this.clock += timeout; return 0 }
     return step(timeout)
   }
 
@@ -53,7 +60,7 @@ class FakeHost implements InitHost {
 const make = (inittab: string | undefined) => {
   const host = new FakeHost()
   host.inittab = inittab
-  host.engine = new InitEngine(host, { initialMs: 1000, maxMs: 8000, resetAfterMs: 30_000 })
+  host.engine = new InitEngine(host, { initialMs: 1000, maxMs: 8000, resetAfterMs: 30_000 }, { shutdownEntryMs: 5000, termGraceMs: 3000, killGraceMs: 1000 })
   return host
 }
 
@@ -222,5 +229,82 @@ describe('InitEngine reload', () => {
     await host.engine.run()
     expect(host.count('/bin/a')).toBe(1)
     expect(host.engine.snapshot().pending).toEqual([])
+  })
+})
+
+describe('InitEngine shutdown', () => {
+  it.each([['TERM', 'reboot'], ['USR1', 'halt'], ['USR2', 'poweroff']])('%s means %s', async (signal, mode) => {
+    const host = make('::respawn:/bin/daemon')
+    await host.engine.boot()
+    host.script = [() => { host.signals.push(signal!); return 0 }]
+    await host.engine.run()
+    expect(host.finished).toEqual([mode])
+    expect(host.logs).toContain(`warn: init: the system is going down for ${mode}`)
+  })
+
+  it('runs the shutdown entries in order and waits for each, then stops everything, then hands over', async () => {
+    const host = make('::shutdown:/bin/one\n::respawn:/bin/daemon\n::shutdown:/bin/two')
+    await host.engine.boot()
+    host.order.length = 0
+    host.script = [
+      () => { host.signals.push('USR1'); return 0 },
+      () => host.pidOf('/bin/one'),
+      () => host.pidOf('/bin/two')
+    ]
+    await host.engine.run()
+    expect(host.order).toEqual(['spawn /bin/one', 'spawn /bin/two', 'kill 15', 'finish halt'])
+  })
+
+  it('gives up on a shutdown entry that never finishes', async () => {
+    const host = make('::shutdown:/bin/hang')
+    await host.engine.boot()
+    host.script = [() => { host.signals.push('TERM'); return 0 }, (timeout) => { host.clock += timeout; return 0 }]
+    await host.engine.run()
+    expect(host.logs).toContain('warn: init: /bin/hang did not finish in 5000 ms')
+    expect(host.finished).toEqual(['reboot'])
+  })
+
+  it('kills what ignores SIGTERM, and says how many', async () => {
+    const host = make('# nothing')
+    await host.engine.boot()
+    host.aliveFn = () => host.kills.includes(9) ? 0 : 2
+    host.advanceOnEmpty = true
+    host.script = [() => { host.signals.push('TERM'); return 0 }]
+    await host.engine.run()
+    expect(host.kills).toEqual([15, 9])
+    expect(host.logs).toContain('warn: init: 2 processes ignored SIGTERM and were killed')
+    expect(host.finished).toEqual(['reboot'])
+  })
+
+  it('does not wait out the grace period when everything exits at once', async () => {
+    const host = make('# nothing')
+    await host.engine.boot()
+    host.script = [() => { host.signals.push('TERM'); return 0 }]
+    await host.engine.run()
+    expect(host.kills).toEqual([15])
+    expect(host.clock).toBe(0)
+  })
+
+  it('does not restart a respawn entry that exits while the system goes down', async () => {
+    const host = make('::respawn:/bin/daemon')
+    await host.engine.boot()
+    let alive = 1
+    host.aliveFn = () => alive
+    host.script = [
+      () => { host.signals.push('TERM'); return 0 },
+      () => { alive = 0; return host.pidOf('/bin/daemon') }
+    ]
+    await host.engine.run()
+    expect(host.count('/bin/daemon')).toBe(1)
+    expect(host.engine.snapshot().pending).toEqual([])
+    expect(host.finished).toEqual(['reboot'])
+  })
+
+  it('acts on the first request only', async () => {
+    const host = make('# nothing')
+    await host.engine.boot()
+    host.script = [() => { host.signals.push('USR2', 'TERM'); return 0 }]
+    await host.engine.run()
+    expect(host.finished).toEqual(['poweroff'])
   })
 })

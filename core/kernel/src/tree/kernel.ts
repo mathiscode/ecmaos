@@ -348,7 +348,7 @@ export class Kernel implements IKernel {
 
     this.terminal.wire({
       switchTty: (tty: number) => this.switchTty(tty),
-      reboot: () => this.reboot(),
+      reboot: () => this.requestReboot(),
       getState: () => this.state
     })
 
@@ -2033,6 +2033,28 @@ export class Kernel implements IKernel {
   }
 
   /**
+   * What init does last when the system goes down: `reboot` shuts down and reloads the page; `halt`
+   * and `poweroff` only shut down, since a page cannot switch itself off.
+   */
+  async stop(mode: 'reboot' | 'halt' | 'poweroff') {
+    if (mode === 'reboot') return this.reboot()
+    this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
+    await this.shutdown()
+  }
+
+  /**
+   * Asks init to reboot, the way the `reboot` command does, so everything is stopped in order first.
+   * Straight to {@link reboot} when init is not running, or when it has not taken the system down
+   * within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.
+   */
+  requestReboot() {
+    const init = this.init.process
+    if (!init || init.code !== undefined) { void this.reboot(); return }
+    init.kill(ZenFSSignal.TERM)
+    setTimeout(() => { if (this._state !== KernelState.SHUTDOWN) void this.reboot() }, 15_000)
+  }
+
+  /**
    * Reboots the kernel by performing a shutdown and page reload
    */
   async reboot() {
@@ -2721,7 +2743,7 @@ export class Kernel implements IKernel {
     })
     terminal.wire({
       switchTty: (tty: number) => this.switchTty(tty),
-      reboot: () => this.reboot(),
+      reboot: () => this.requestReboot(),
       getState: () => this.state
     })
     terminal.mount(terminalContainer as HTMLElement)

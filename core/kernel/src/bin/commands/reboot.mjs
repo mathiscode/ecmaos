@@ -1,11 +1,23 @@
-/** Shut down every kernel subsystem and reload the page. */
+/**
+ * Reboot the system: tell init (pid 1) to stop everything in order, then reload the page.
+ * `-f` skips init and reloads at once, which is what to use if init is stuck. Requires root.
+ */
 
 const { exit, write, custom } = globalThis.ecmaosSyscalls
 
+const SIGTERM = 15
+const out = text => write(2, new TextEncoder().encode(text))
+
 try {
-  await custom('reboot')
+  const args = globalThis.ecmaosSyscalls.argv.slice(1)
+  const force = args.includes('-f') || args.includes('--force')
+  const unknown = args.filter(arg => arg !== '-f' && arg !== '--force')
+  if (unknown.length) { out(`reboot: unrecognized option '${unknown[0]}'\nUsage: reboot [-f]\n`); exit(1) }
+  if (force) await custom('system_stop', 'reboot')
+  else await custom('proc_kill', 1, SIGTERM)
   exit(0)
 } catch (error) {
-  write(2, new TextEncoder().encode(`reboot: ${error instanceof Error ? error.message : String(error)}\n`))
+  const message = error instanceof Error ? error.message : String(error)
+  out(`reboot: ${message}\n`)
   exit(1)
 }

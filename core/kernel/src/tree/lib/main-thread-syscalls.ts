@@ -87,6 +87,9 @@ declare module '@zenfs/linux/uapi/abi' {
     init_wait(timeoutMs: number): number
     init_booted(): number
     init_script(path: string, argsJson: string): number
+    init_killall(signal: number): number
+    init_alive(): number
+    system_stop(mode: string): number
     terminal_clear_history(): number
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
@@ -1036,6 +1039,13 @@ export function installMainThreadSyscalls(): void {
     const target = processes.get(pid)
     if (!target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
     if (!mayKill(proc, target)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    // `mayKill` reads the process context's credentials, which are root's for everything the kernel
+    // launches, so it cannot tell users apart; init is what a signal can take the whole system down through.
+    const kernel = kernelOf(proc)
+    if (target === kernel.init.process) {
+      const credentials = shellOf(proc)?.credentials
+      if (credentials && credentials.suid !== 0) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    }
     zenfsKill(pid, signal)
     return 0
   })
@@ -1067,6 +1077,21 @@ export function installMainThreadSyscalls(): void {
   define_syscall('init_wait', async (proc: Process, timeoutMs: number) => initOf(proc).wait(timeoutMs))
 
   define_syscall('init_booted', (proc: Process) => { initOf(proc).markBooted(); return 0 })
+
+  define_syscall('init_killall', (proc: Process, signal: number) => initOf(proc).killAll(signal))
+  define_syscall('init_alive', (proc: Process) => initOf(proc).alive())
+
+  // Stops the kernel: `reboot` shuts down and reloads the page, `halt` and `poweroff` only shut down.
+  // Init calls it last, once everything else has stopped. A program can call it directly (`reboot -f`
+  // and friends skip init) but only as root, since it kills the system without warning anything.
+  define_syscall('system_stop', async (proc: Process, mode: string) => {
+    const kernel = kernelOf(proc)
+    const root = shellOf(proc)?.credentials.suid === 0
+    if (proc !== kernel.init.process && !root) throw Object.assign(new Error('Permission denied (requires root)'), { errno: Errno.EPERM })
+    if (mode !== 'reboot' && mode !== 'halt' && mode !== 'poweroff') throw Object.assign(new Error(`Unknown mode: ${mode}`), { errno: Errno.EINVAL })
+    await kernel.stop(mode)
+    return 0
+  })
 
   // A `#!ecmaos:bin:script:` file is run by the kernel's own shell, not by `execve`, so init cannot
   // `proc_spawn` it. This starts it as a child of init that exits with the script's status.
