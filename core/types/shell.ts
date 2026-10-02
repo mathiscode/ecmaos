@@ -328,6 +328,8 @@ export interface Shell {
    * a foreground `execve`'d process holds the terminal, the `@zenfs/linux` line discipline owns the
    * keyboard and turns `^C` into a real `SIGINT` itself (`ISIG`), so the key handler never sees it.
    */
+  /** True for the first caller after an interrupt and false for the rest; see `Shell.claimInterrupt` */
+  claimInterrupt(): boolean
   notifyInterrupted(): Promise<void>
 
   /** All tracked jobs (running, stopped, and not-yet-reaped done), oldest first. */

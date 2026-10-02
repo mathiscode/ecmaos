@@ -1288,7 +1288,8 @@ export class Kernel implements IKernel {
       // becomes a real `SIGINT` via `ISIG` and never reaches `Terminal.keyHandler`'s `runTrap`
       // call. Reporting it here is what makes `trap ... INT` fire and what stops the rest of a
       // `;`-separated list from running -- see `Shell.notifyInterrupted`.
-      if (isForeground && proc.killed_by === ZenFSSignal.INT) {
+      // Once per interrupt, not once per stage: a pipeline's stages all die of the same `^C`.
+      if (isForeground && proc.killed_by === ZenFSSignal.INT && options.shell.claimInterrupt()) {
         // The echo is a tty concern (only a line discipline wrote a bare `^C` needing a newline);
         // the shell-side effects are not, so they run whether or not a terminal is attached.
         if (tty) terminal.write('\r\n')

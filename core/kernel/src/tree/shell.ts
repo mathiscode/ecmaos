@@ -292,6 +292,9 @@ class JobImpl implements Job {
   }
 }
 
+/** The signals the terminal's line discipline raises for `^C`, `^\\` and `^Z`. */
+const TerminalSignals: ReadonlySet<number> = new Set([Signal.INT, Signal.QUIT, Signal.TSTP])
+
 const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin'
 /**
  * A command name that resolved to nothing: no builtin, no function, no file on `$PATH`.
@@ -417,6 +420,7 @@ export class Shell implements IShell {
    * Cleared at the start of every `execute()`, so it only ever describes the line running now.
    */
   private _interrupted = false
+  private _interruptClaimed = false
 
   /**
    * How many `execute()` calls are currently on the stack. Only the outermost one clears
@@ -547,6 +551,18 @@ export class Shell implements IShell {
    * never fires for exactly the case an `INT` trap is written for; `Kernel.executeViaExecve` calls
    * this when it observes `proc.killed_by === Signal.INT`, where the signal actually lands.
    */
+  /**
+   * True for the first caller after an interrupt, false for the rest. Every stage of an interrupted
+   * pipeline exits killed by `SIGINT` and would otherwise each report it: the `INT` trap ran once per
+   * stage and the terminal got a newline per stage. Claimed before anything is awaited, so stages that
+   * exit in the same tick cannot both win; cleared with the interrupt flag when the next command starts.
+   */
+  claimInterrupt(): boolean {
+    if (this._interruptClaimed) return false
+    this._interruptClaimed = true
+    return true
+  }
+
   async notifyInterrupted(): Promise<void> {
     // Handler first, flag second. The handler runs through `execute()` like any other command, so
     // if the flag were already set, a multi-command handler (`trap 'echo a; echo b' INT`) would
@@ -1496,7 +1512,7 @@ export class Shell implements IShell {
         stdoutIsTTY,
         drainStdout,
         stderr,
-        onProcess: job ? (process => { job.processes.push(process) }) : undefined,
+        onProcess: job ? (process => { job.processes.push(process); this.shareTerminalSignals(job, process) }) : undefined,
         foreground: job ? !job.background : true
       })
     }))
@@ -1607,6 +1623,28 @@ export class Shell implements IShell {
       return codes[codes.length - 1]
     } finally {
       if (this._foregroundJob === job) this._foregroundJob = undefined
+    }
+  }
+
+  /**
+   * `^C`, `^Z` and `^\` go to the terminal's foreground process *group* on Linux, so every stage of a
+   * pipeline gets them. The terminal here holds a single process (`tty.foreground`), so a pipeline's
+   * other stages were left running: `sleep 20 | cat` then `^C` ended one stage and the shell waited for
+   * the other before giving the prompt back.
+   *
+   * A signal that reaches the terminal's foreground process while its job is the foreground job is
+   * passed on to the job's other stages. A signal sent by pid to a stage that is not in front, or any
+   * other signal, is left to the one process it was sent to.
+   */
+  private shareTerminalSignals(job: Job, process: JobProcessHandle): void {
+    const deliver = process.kill.bind(process)
+    process.kill = (signal: number | string) => {
+      const fromTerminal = TerminalSignals.has(signal as number) &&
+        this._foregroundJob === job &&
+        this._terminal.zfsTty?.foreground?.pid === process.pid
+      const delivered = deliver(signal)
+      if (fromTerminal) for (const peer of job.processes) if (peer !== process) peer.kill(signal)
+      return delivered
     }
   }
 
@@ -1767,7 +1805,7 @@ export class Shell implements IShell {
 
     // A fresh line is never pre-interrupted: `^C` aborts the line it happened during, not the next.
     // Only at depth 0 -- see `_executeDepth`.
-    if (this._executeDepth === 0) this._interrupted = false
+    if (this._executeDepth === 0) { this._interrupted = false; this._interruptClaimed = false }
     this._executeDepth++
     try {
       return await this.executeParsed(trimmed)
