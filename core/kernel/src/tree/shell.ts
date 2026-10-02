@@ -22,14 +22,13 @@ import { parseRedirections, stripComments, tokenize, tokenizeConditional } from 
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
-import { expandWord } from '@ecmaos/coreutils/lib/expand-variables'
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
-import { expandWordFieldsBraced, expandWordString, expandHeredocBody, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
 /**
@@ -1029,7 +1028,7 @@ export class Shell implements IShell {
     // `set -f`: pathname expansion off, so the pattern stays exactly as written.
     if (this._shellOptions.noglob) return [pattern]
 
-    if (!pattern.includes('*') && !pattern.includes('?')) {
+    if (!/[*?[]/.test(pattern)) {
       return [pattern]
     }
 
@@ -1043,13 +1042,9 @@ export class Shell implements IShell {
 
     try {
       const entries = await this.context.fs.promises.readdir(searchDir)
-      const regexPattern = globPattern
-        .replace(/\./g, '\\.')
-        .replace(/\*/g, '.*')
-        .replace(/\?/g, '.')
-      const regex = new RegExp(`^${regexPattern}$`)
-      
-      const matches = entries.filter(entry => regex.test(entry))
+      // `[ab]` classes and `\` escapes as in the other shell; a leading dot has to be written, never matched by a wildcard
+      const regex = new RegExp(globToRegExpSource(globPattern))
+      const matches = entries.filter(entry => regex.test(entry) && (globPattern.startsWith('.') || !entry.startsWith('.'))).sort()
       
       if (lastSlashIndex !== -1) {
         const dirPart = pattern.substring(0, lastSlashIndex + 1)
@@ -1703,7 +1698,9 @@ export class Shell implements IShell {
    */
   private functionNameFor(pipeline: Pipeline): string | undefined {
     if (pipeline.commands.length !== 1) return undefined
-    const name = pipeline.commands[0]?.words[0]
+    const command = pipeline.commands[0]
+    // `NAME=v f`: the function is the command after the assignments
+    const name = command ? splitAssignments(command).command.words[0] : undefined
     return name && this._functions.has(name) ? name : undefined
   }
 
@@ -1917,7 +1914,8 @@ export class Shell implements IShell {
       runSpecial: line => this.runArrayAssignment(line),
       withRedirect: (statement, run) => this.withStatementRedirection(statement, run),
       expandWords: text => this.expandForWords(text),
-      caseSubject: async word => expandWord(word, name => this.lookupVariable(name)),
+      // the full expander, so `$-`, `$#`, `${x:-d}` and the rest work here as in any other word; a subject is not split into fields
+      caseSubject: async word => (await this.expandForWords(word)).join(' '),
       matchesPattern: (subject, pattern) => this.matchesCasePattern(subject, pattern),
       assign: (name, value) => this.setVariable(name, value),
       enterParameters: (args, zero) => {
@@ -2028,10 +2026,17 @@ export class Shell implements IShell {
     if (fnName) {
       // A function's body is a statement tree, not a command with fds, so `greet > f` has to be
       // held as an aggregate redirection for the whole call. It used to be parsed and dropped.
-      const command = pipeline.commands[0] as ParsedCommand
-      const args = await this.expandCommandArgs(command)
-      await this.trace([fnName, ...args])
-      return [negate(await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args)))]
+      const split = splitAssignments(pipeline.commands[0] as ParsedCommand)
+      const command = split.command
+      // Prefix assignments are in the function's environment for the call and put back after it.
+      const restore = split.assignments.length > 0 ? await this.applyAssignmentPrefixes(split.assignments) : undefined
+      try {
+        const args = await this.expandCommandArgs(command)
+        await this.trace([fnName, ...args])
+        return [negate(await this.withStatementRedirections(command.redirections, () => this.callFunction(fnName, args)))]
+      } finally {
+        restore?.()
+      }
     }
 
     return await this.runForeground(pipeline)
@@ -2209,8 +2214,8 @@ export class Shell implements IShell {
   /** `*` matches anything; other patterns are matched as shell globs (`?` any char, literal else). */
   private matchesCasePattern(value: string, pattern: string): boolean {
     if (pattern === '*') return true
-    const regex = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
-    return regex.test(value)
+    // the same glob rules as `[[ == ]]`: `[ab]` classes and `\` escapes, with the pattern's quotes taken off
+    return new RegExp(globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))).test(value)
   }
 
   /**

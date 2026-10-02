@@ -14,13 +14,8 @@ export interface KnownDivergence {
 export type KnownTable = Record<string, KnownDivergence>
 
 export const knownKernel: KnownTable = {
-  "assign/prefix-function": { stdout: "[]\n", status: 0, why: "NAME=v before a shell function call is not visible inside the function" },
   "assign/readonly": { stdout: "1 1\n", status: 0, why: "a failed assignment to a readonly variable does not end the script (bash exits with status 1)" },
   "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
-  "expansion/glob": { stdout: "a.txt b.txt\na.txt b.txt c.md\n*\nc.md\n[ab].txt\n", status: 0, why: "[ab] bracket globs are not expanded" },
-  "expansion/glob-dot": { stdout: ".hid vis\n", status: 0, why: "* matches dotfiles" },
-  "expansion/lineno": { stdout: "2\n3\n", status: 0, why: "$LINENO is wrong" },
-  "options/dollar-dash": { stdout: "no-e\n", status: 0, why: "$- is not supported inside case patterns (script fails to parse)" },
   "traps/signal": { stdout: "after\n", status: 0, why: "a trapped signal sent with kill is not delivered" },
 }
 

@@ -72,7 +72,7 @@ describe('shell parity with bash', () => {
     resetKernelShell()
     const out = `/tmp/pk-out-${serial++}`
     // `exec >` redirects the shell itself, so the whole script is captured, EXIT trap included.
-    const status = await kernel.shell.executeScriptText(`exec > ${out} 2> ${out}.err\n${script}`)
+    const status = await kernel.shell.executeScriptText(`exec > ${out} 2> ${out}.err; ${script}`)
     const stdout = await fs().readFile(out, 'utf-8').catch(() => '')
     return { stdout, status }
   }
