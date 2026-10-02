@@ -2709,6 +2709,12 @@ export class Kernel implements IKernel {
     this.updateLocaleFromEnv(shell)
   }
 
+  /** The shell whose own process is `pid` (what `$$` names), if any. */
+  shellOfPid(pid: number): Shell | undefined {
+    for (const shell of this._shells.values()) if (shell.ownsPid(pid)) return shell
+    return undefined
+  }
+
   /** Terminals whose login is a `/sbin/getty` entry in /etc/inittab, decided at boot; the kernel does not prompt on these. */
   private _gettyTtys = new Set<number>()
 

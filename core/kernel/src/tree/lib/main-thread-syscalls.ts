@@ -1053,6 +1053,8 @@ export function installMainThreadSyscalls(): void {
       const credentials = shellOf(proc)?.credentials
       if (credentials && credentials.suid !== 0) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
     }
+    // A signal to a shell's own pid runs its trap for it, if it has one; the shell is not a worker to deliver to
+    if (await kernel.shellOfPid(pid)?.deliverSignal(signal)) return 0
     zenfsKill(pid, signal)
     return 0
   })

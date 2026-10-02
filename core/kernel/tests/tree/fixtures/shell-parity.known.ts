@@ -14,9 +14,7 @@ export interface KnownDivergence {
 export type KnownTable = Record<string, KnownDivergence>
 
 export const knownKernel: KnownTable = {
-  "assign/readonly": { stdout: "1 1\n", status: 0, why: "a failed assignment to a readonly variable does not end the script (bash exits with status 1)" },
   "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
-  "traps/signal": { stdout: "after\n", status: 0, why: "a trapped signal sent with kill is not delivered" },
 }
 
 export const knownEcmash: KnownTable = {

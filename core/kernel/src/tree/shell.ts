@@ -327,6 +327,9 @@ const DefaultShellOptions = {
   * The Shell class handles the Terminal environment and interaction with the Kernel.
   * 
  */
+/** Signal numbers (Linux) a trap can be set for. */
+const TRAPPABLE_SIGNALS: Record<number, string> = { 1: 'HUP', 2: 'INT', 3: 'QUIT', 10: 'USR1', 12: 'USR2', 13: 'PIPE', 14: 'ALRM', 15: 'TERM', 17: 'CHLD' }
+
 export class Shell implements IShell {
   private _createPipeStream: ShellCreatePipeStream
   private _adoptProcess?: (process: object) => void
@@ -680,6 +683,21 @@ export class Shell implements IShell {
    * `SIG` stripped, uppercased) so `trap ... SIGINT` and `trap ... INT` register the same handler.
    */
   setTrap(handler: string | undefined, signal: string): void { this.state.setTrap(handler, signal) }
+
+  /** Whether `pid` is this shell's own process, the one `$$` names. */
+  ownsPid(pid: number): boolean { return this._process?.pid === pid }
+
+  /**
+   * A signal sent to this shell with `kill`. The shell is not a worker, so nothing would receive it;
+   * when it has a trap for the signal the trap runs now, which is what `trap '...' USR1; kill -USR1 $$`
+   * is for. False when there is no trap and the signal is left to the default.
+   */
+  async deliverSignal(signal: number): Promise<boolean> {
+    const name = TRAPPABLE_SIGNALS[signal]
+    if (!name || !this.state.getTrap(name)) return false
+    await this.runTrap(name)
+    return true
+  }
   getTrap(signal: string): string | undefined { return this.state.getTrap(signal) }
   listTraps(): Array<[string, string]> { return this.state.listTraps() }
 
@@ -1983,6 +2001,8 @@ export class Shell implements IShell {
         this.setVariable(name, value, append)
       } catch (error) {
         await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
+        // A script ends at a refused assignment, as bash does when not interactive; the prompt carries on.
+        if (this._signalCatchers.exit > 0) throw new ExitSignal(1)
         return 1
       }
     }
