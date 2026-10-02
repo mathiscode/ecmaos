@@ -31,7 +31,7 @@ export const DEFAULT_BOOT_INIT = [
   '',
   '# The boot script, run by init as a sysinit entry of /etc/inittab. Edit this to change what runs',
   '# at startup. Daemons that never exit, such as crond, are respawn entries in /etc/inittab instead.',
-  'motd',
+  '# The message of the day is printed after login (by getty, or by the kernel when it logs in itself).',
   'screensaver-daemon',
   ''
 ].join('\n')
@@ -64,6 +64,16 @@ export const PREVIOUS_DEFAULT_BOOT_INITS: readonly string[] = [
     '# The boot script. Edit this to change what runs at startup.',
     '# crond is started separately by the kernel, not from here, since it never exits',
     "# and would otherwise block a later `wait` on this shell's job table.",
+    'motd',
+    'screensaver-daemon',
+    ''
+  ].join('\n'),
+  // 1.0 pre-release: init ran /boot/init, which printed the message of the day before the login prompt
+  [
+    '#!ecmaos:bin:script:init',
+    '',
+    '# The boot script, run by init as a sysinit entry of /etc/inittab. Edit this to change what runs',
+    '# at startup. Daemons that never exit, such as crond, are respawn entries in /etc/inittab instead.',
     'motd',
     'screensaver-daemon',
     ''

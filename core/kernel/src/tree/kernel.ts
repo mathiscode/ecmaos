@@ -841,7 +841,12 @@ export class Kernel implements IKernel {
         ? new Set()
         : gettyTerminals(await this.filesystem.fs.readFile('/etc/inittab', 'utf-8'))
       const gettyLogin = !autoLogin && this._gettyTtys.has(0)
-      if (!gettyLogin) await this.loginShell(this.shell, autoLogin ? { autoLogin } : undefined)
+      if (!gettyLogin) {
+        await this.loginShell(this.shell, autoLogin ? { autoLogin } : undefined)
+        // With a getty the message of the day is printed after login by getty; otherwise here.
+        const motd = await this.filesystem.fs.exists('/etc/motd') ? await this.filesystem.fs.readFile('/etc/motd', 'utf-8') : null
+        if (motd) this.terminal.writeln('\n' + motd)
+      }
 
       if (autoLogin) {
         authSpan.setAttribute('auth.method', 'auto_login')
@@ -2766,6 +2771,18 @@ export class Kernel implements IKernel {
     this._pendingLogins.delete(ttyNumber)
     const shell = this._shells.get(ttyNumber)
     await shell?.recordLogout()
+    if (!shell) return
+
+    // Nobody is logged in on this terminal now, so the shell must not keep acting as the last user.
+    // It goes back to what a shell has before any login: root's credentials, as at boot.
+    const idle: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
+    shell.credentials = idle
+    shell.context = bindContext({ root: '/', pwd: '/', credentials: idle })
+    for (const key of ['UID', 'GID', 'SUID', 'SGID', 'EUID', 'EGID']) shell.env.set(key, '0')
+    shell.env.set('USER', 'root')
+    shell.env.set('HOME', '/root')
+    shell.cwd = '/'
+    shell.publishEnv()
   }
 
   /**

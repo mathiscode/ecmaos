@@ -57,5 +57,10 @@ describe('login syscalls', () => {
 
     await run('end', `await s.custom('login_end', 0)`)
     expect(await kernel.filesystem.fs.readFile('/run/utmp', 'utf-8')).not.toContain('alice\ttty0')
+
+    // The idle shell no longer acts as alice
+    expect(kernel.shell.credentials.uid).toBe(0)
+    expect(kernel.shell.env.get('USER')).toBe('root')
+    expect(kernel.shell.env.get('HOME')).toBe('/root')
   })
 })

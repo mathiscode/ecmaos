@@ -87,6 +87,7 @@ describe('/sbin/getty', () => {
 
   it('runs the built-in shell for a user without a program, and returns to the prompt on exit and on ^D', async () => {
     await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob' })
+    await kernel.filesystem.fs.writeFile('/etc/motd', 'Welcome-to-the-test-system')
     const before = count('login:')
     // started by init from an inittab entry, which is what gives it a keyboard hold the built-in shell can borrow
     const inittab = await kernel.filesystem.fs.readFile('/etc/inittab', 'utf-8')
@@ -98,6 +99,10 @@ describe('/sbin/getty', () => {
     type('builder\r')
     await waitFor(() => kernel.shell.env.get('USER') === 'bob')
     await new Promise(r => setTimeout(r, 500))
+
+    // the message of the day follows the login on the first terminal too, never precedes it
+    expect(screen()).toContain('Welcome-to-the-test-system')
+    expect(screen().indexOf('Welcome-to-the-test-system')).toBeGreaterThan(screen().indexOf('Password:'))
 
     // the built-in shell's own line editor is in charge
     await line('echo built-in > /tmp/bob-said')

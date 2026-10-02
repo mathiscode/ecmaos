@@ -19,7 +19,7 @@ It prints `/etc/issue`, asks for a user name, then a password with echo off, and
 
 When the shell ends, the session is closed (the user leaves `who`) and the prompt comes back. A wrong password prints the reason and asks again. `^C` at the prompt is ignored.
 
-The terminals other than the first also print `/etc/motd` after a login. The first prints it from `/boot/init`.
+After a login it prints `/etc/motd`, on every terminal.
 
 ## Terminal
 

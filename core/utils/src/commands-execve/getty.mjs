@@ -144,11 +144,8 @@ async function main() {
       continue
     }
 
-    // The first terminal's message of the day comes from /boot/init; the others print it here.
-    if (tty !== 0) {
-      const motd = readFile('/etc/motd')
-      if (motd) out(`\n${motd}\n`)
-    }
+    const motd = readFile('/etc/motd')
+    if (motd) out(`\n${motd}\n`)
 
     try {
       await runShell(tty, session)

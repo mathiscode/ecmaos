@@ -37,7 +37,7 @@ describe('/boot/init and its script commands', () => {
   it('writes a real, editable script at /boot/init on first boot', async () => {
     const content = await kernel.filesystem.fs.readFile('/boot/init', 'utf-8')
     expect(content).toMatch(/^#!ecmaos:bin:script:init/)
-    expect(content).toContain('motd')
+    expect(content).not.toContain('\nmotd')
     expect(content).toContain('screensaver-daemon')
   })
 
