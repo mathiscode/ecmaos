@@ -71,10 +71,10 @@ describe('ecmash: arrays, subshells, process substitution, traps', () => {
       expect(out).toBe('still here\n')
     })
 
-    it('refuses one inside a list, with a message', async () => {
-      const { err, code } = await run('(echo a) && echo b')
-      expect(err).toContain('subshell')
-      expect(code).not.toBe(0)
+    it('takes one inside a list', async () => {
+      const { out, code } = await run('(echo a) && echo b')
+      expect(out).toBe('a\nb\n')
+      expect(code).toBe(0)
     })
   })
 

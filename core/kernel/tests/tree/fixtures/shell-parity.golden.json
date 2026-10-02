@@ -590,5 +590,41 @@
   "control/pipeline-status": {
     "stdout": "st=0\nst=0\n",
     "status": 0
+  },
+  "control/andor-for": {
+    "stdout": "1\n2\nst=0\n",
+    "status": 0
+  },
+  "control/andor-while-false": {
+    "stdout": "st=0\n",
+    "status": 0
+  },
+  "control/andor-subshell": {
+    "stdout": "sub\nafter\n",
+    "status": 0
+  },
+  "control/andor-group": {
+    "stdout": "grp\ntwo\n",
+    "status": 0
+  },
+  "control/andor-if-tail": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "control/andor-chain": {
+    "stdout": "fallback\n",
+    "status": 0
+  },
+  "control/andor-done-tail": {
+    "stdout": "1\n2\nok\n",
+    "status": 0
+  },
+  "control/andor-errexit": {
+    "stdout": "handled\nafter\n",
+    "status": 0
+  },
+  "control/andor-multiline": {
+    "stdout": "yes\nand\n",
+    "status": 0
   }
 }

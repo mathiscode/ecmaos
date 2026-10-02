@@ -141,7 +141,19 @@ export interface PipelineStatement extends Positioned {
   background?: boolean
 }
 
-export type Statement = PipelineStatement | SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
+/**
+ * `a && b || c` where an operand is a compound command (`true && for ...; done`, `if ...; fi || echo no`).
+ * Plain operands stay inside one simple line, which the command parser already runs as a list; this
+ * only exists for the lists a line cannot hold. Left to right with the usual skipping: `&&` runs its
+ * operand when the status so far is 0, `||` when it is not.
+ */
+export interface AndOrStatement extends Positioned {
+  type: 'andor'
+  first: Statement
+  rest: Array<{ op: '&&' | '||', statement: Statement }>
+}
+
+export type Statement = AndOrStatement | PipelineStatement | SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -411,6 +423,33 @@ function pipeIndexes(text: string): number[] {
   return found
 }
 
+/** Indices of the `&&` and `||` in `text` outside quotes, `( )`, `{ }` and `$( )`. */
+function andOrIndexes(text: string): Array<{ index: number, op: '&&' | '||' }> {
+  const found: Array<{ index: number, op: '&&' | '||' }> = []
+  let paren = 0
+  let brace = 0
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i] as string
+    if (char === '\\') { i++; continue }
+    if (char === "'") { const end = text.indexOf("'", i + 1); if (end === -1) break; i = end; continue }
+    if (char === '"') {
+      let j = i + 1
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1
+      i = j
+      continue
+    }
+    if (char === '(') paren++
+    else if (char === ')') paren = Math.max(0, paren - 1)
+    else if (char === '{' && text[i - 1] !== '$' && /\s|$/.test(text[i + 1] ?? '')) brace++
+    else if (char === '}' && brace > 0 && (i === 0 || /[\s;]/.test(text[i - 1] as string))) brace--
+    else if ((char === '&' || char === '|') && text[i + 1] === char && paren === 0 && brace === 0) {
+      found.push({ index: i, op: char === '&' ? '&&' : '||' })
+      i++
+    }
+  }
+  return found
+}
+
 /** Whether `text` starts a compound command, so a `|` before it joins a compound stage. */
 function startsCompound(text: string): boolean {
   return /^(?:if|while|until|for|case)(?:\s|$)/.test(text) || BRACE_GROUP_OPEN.test(text) || SUBSHELL_OPEN.test(text)
@@ -528,11 +567,23 @@ class LineParser {
     let background = false
 
     if (first.type === 'simple') {
+      // `x && for ...` / `x || { ...; }`: the first operator in front of a compound command
+      for (const { index, op } of andOrIndexes(first.line)) {
+        const tail = first.line.slice(index + 2).trim()
+        if (startsCompound(tail)) return this.finishAndOr({ type: 'simple', line: first.line.slice(0, index).trim() }, op, tail, lineNumber)
+      }
       const split = splitSimplePipe(first.line)
       if (!split) return first
       first = { type: 'simple', line: split.head }
       rest = split.rest
-    } else if (first.type !== 'function' && first.type !== 'pipeline' && first.redirect) {
+    } else if (first.type !== 'function' && first.type !== 'pipeline' && first.type !== 'andor' && first.redirect) {
+      // `fi && b`: a list continuing after the closing keyword (a `|` before it is a pipeline's business)
+      const lead = andOrIndexes(first.redirect)[0]
+      if (lead && pipeIndexes(first.redirect).every(pipe => pipe > lead.index)) {
+        const tail = first.redirect.slice(lead.index + 2).trim()
+        first.redirect = first.redirect.slice(0, lead.index).trim() || undefined
+        return this.finishAndOr(first, lead.op, tail, lineNumber)
+      }
       const split = splitCompoundTail(first.redirect)
       if (!split) return first
       first.redirect = split.redirect || undefined
@@ -553,6 +604,41 @@ class LineParser {
       if (next.type === 'pipeline') { stages.push(...next.stages); background = Boolean(next.background) } else stages.push(next)
     }
     return { type: 'pipeline', stages, ...(background ? { background: true } : {}) }
+  }
+
+  /**
+   * Builds the list `first op <tail>...`. A plain operand is taken up to the next `&&`/`||`; one that opens a
+   * compound command is put back in front of the remaining lines and parsed as the next statement, which
+   * is what lets it span lines, and whatever list follows it is flattened in so `a && b-compound || c`
+   * stays left to right.
+   */
+  private finishAndOr(first: Statement, op: '&&' | '||', tail: string, lineNumber: number | undefined): Statement {
+    const rest: AndOrStatement['rest'] = []
+    let currentOp = op
+    let text = tail
+    for (;;) {
+      if (text === '') {
+        // `a &&` at the end of a line: the operand is on the next one
+        if (this.atEnd()) throw new ControlFlowParseError(`Expected a command after ${currentOp}`, true)
+        const next = this.parsePositionedStatement()
+        if (next.type === 'andor') { rest.push({ op: currentOp, statement: next.first }, ...next.rest) } else rest.push({ op: currentOp, statement: next })
+        break
+      }
+      if (startsCompound(text)) {
+        this.pushBack(text, lineNumber ?? 1)
+        const next = this.parsePositionedStatement()
+        if (next.type === 'andor') rest.push({ op: currentOp, statement: next.first }, ...next.rest)
+        else rest.push({ op: currentOp, statement: next })
+        break
+      }
+      const more = andOrIndexes(text)
+      const stop = more.find(({ index }) => startsCompound(text.slice(index + 2).trim())) ?? more[0]
+      if (!stop) { rest.push({ op: currentOp, statement: { type: 'simple', line: text } }); break }
+      rest.push({ op: currentOp, statement: { type: 'simple', line: text.slice(0, stop.index).trim() } })
+      currentOp = stop.op
+      text = text.slice(stop.index + 2).trim()
+    }
+    return { type: 'andor', first, rest }
   }
 
   private parseStatement(): Statement {
@@ -714,7 +800,7 @@ class LineParser {
         rest = pieces[0] as string
         for (const piece of pieces.slice(1).reverse()) this.pushBack(piece, at)
       }
-      if (rest && !/^(?:\d*[<>]|&>|\||&(?![&>]))/.test(rest)) {
+      if (rest && !/^(?:\d*[<>]|&>|&&|\||&(?![&>]))/.test(rest)) {
         throw new ControlFlowParseError(`A subshell followed by "${rest.split(/\s/)[0]}" is not supported; put it on its own line`)
       }
       return { type: 'subshell', body: parseInlineBody(line.slice(1, close), at), ...(rest ? { redirect: rest } : {}) }

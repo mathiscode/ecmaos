@@ -328,8 +328,8 @@ describe('subshells', () => {
     expect(parseStatements('((x = 1))')[0]?.type).toBe('simple')
   })
 
-  it('refuses a subshell followed by an operator', () => {
-    expect(() => parseStatements('(echo a) && echo b')).toThrow(/subshell/)
+  it('a subshell followed by an operator starts a list', () => {
+    expect(parseStatements('(echo a) && echo b')[0]?.type).toBe('andor')
   })
 })
 
@@ -420,5 +420,40 @@ describe('parseStatements: pipelines with compound stages', () => {
 
   it('refuses a compound stage after && or ||, which it cannot split from the list', () => {
     expect(() => parseStatements('x && echo a | while read l; do echo $l; done')).toThrow(/not supported/)
+  })
+})
+
+describe('parseStatements: lists with a compound operand', () => {
+  const shape = (text: string) => JSON.stringify(parseStatements(text), (key, value) => key === 'lineNumber' ? undefined : value)
+
+  it('a compound command after && is its own operand', () => {
+    const [statement] = parseStatements('true && for i in 1 2; do echo $i; done')
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return
+    expect(statement.first).toEqual({ type: 'simple', line: 'true' })
+    expect(statement.rest.map(r => [r.op, r.statement.type])).toEqual([['&&', 'for']])
+  })
+
+  it('a list after a closing keyword continues from it', () => {
+    const [statement] = parseStatements('if true; then echo a; fi && echo b || echo c')
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return
+    expect(statement.first.type).toBe('if')
+    expect(statement.rest.map(r => r.op)).toEqual(['&&', '||'])
+  })
+
+  it('a chain through a compound operand stays flat, so it keeps its left-to-right meaning', () => {
+    const [statement] = parseStatements('false && { echo no; } || echo fallback')
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return
+    expect(statement.rest.map(r => [r.op, r.statement.type])).toEqual([['&&', 'group'], ['||', 'simple']])
+  })
+
+  it('works across lines', () => {
+    expect(shape('if true\nthen\n  echo y\nfi && echo z')).toContain('"type":"andor"')
+  })
+
+  it('a plain list is still one simple line', () => {
+    expect(parseStatements('a && b || c')).toEqual([{ type: 'simple', line: 'a && b || c', lineNumber: 1 }])
   })
 })

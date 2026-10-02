@@ -184,6 +184,22 @@ export class Interpreter {
         return 0
       })
 
+      case 'andor': {
+        // Every operand but the last is being tested, so `set -e` does not act on a failure in one
+        const run = async (operand: Statement, tested: boolean): Promise<number> => {
+          if (tested) this.conditional++
+          try { return await this.runStatement(operand) } finally { if (tested) this.conditional-- }
+        }
+        let status = await run(statement.first, true)
+        host.setStatus(status)
+        for (const [index, { op, statement: operand }] of statement.rest.entries()) {
+          if (op === '&&' ? status !== 0 : status === 0) continue
+          status = await run(operand, index < statement.rest.length - 1)
+          host.setStatus(status)
+        }
+        return status
+      }
+
       case 'pipeline': return await this.runPipelineStatement(statement)
 
       case 'group': return await host.withRedirect(statement, () => this.runStatements(statement.body))

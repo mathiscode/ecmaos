@@ -356,3 +356,24 @@ g() { echo from-g; }; g | cat
 false | { cat; }; echo "st=$?"
 { exit 3; } | cat; echo "st=$?"
 
+### control/andor-for
+true && for i in 1 2; do echo $i; done; echo st=$?
+### control/andor-while-false
+false || while false; do :; done; echo st=$?
+### control/andor-subshell
+true && (echo sub) && echo after
+### control/andor-group
+true && { echo grp; echo two; }
+### control/andor-if-tail
+if true; then echo a; fi && echo b
+### control/andor-chain
+false && for i in 1; do echo no; done || echo fallback
+### control/andor-done-tail
+for i in 1 2; do echo $i; done && echo ok || echo bad
+### control/andor-errexit
+set -e; false || { echo handled; }; echo after
+### control/andor-multiline
+if true
+then
+  echo yes
+fi && echo and || echo or

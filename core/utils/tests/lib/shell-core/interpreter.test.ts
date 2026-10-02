@@ -59,9 +59,14 @@ describe('Interpreter: set -e', () => {
     expect((await run('set -e; for i in 1 2; do echo $i; false; done; echo after')).out).toBe('$i')
   })
 
-  it('is stopped by an exit in a subshell only for the subshell', async () => {
+  it('stops a subshell at a failure, and then the shell too, as the subshell failed', async () => {
     const { out } = await run('set -e; (false; echo no); echo after')
-    expect(out).toBe('after')
+    expect(out).toBe('')
+  })
+
+  it('ignores set -e inside a subshell that is being tested, as bash does', async () => {
+    const { out } = await run('set -e; (false; echo no) || echo handled; echo after')
+    expect(out).toBe('no|after')
   })
 })
 

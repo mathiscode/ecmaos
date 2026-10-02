@@ -47,22 +47,30 @@ describe('readonly and declare', () => {
     it('refuses a later assignment and keeps the original value', async () => {
       const output = await runScript([
         'readonly RO_KEEP=original',
-        'RO_KEEP=changed',
+        '(RO_KEEP=changed)',
         `echo "$RO_KEEP" >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['original'])
     })
 
     it('reports the refused assignment as a failed command, not a crash', async () => {
-      // A throw here would unwind the whole statement tree; bash just fails the assignment and
-      // carries on to the next line.
+      // The refusal fails the assignment; a subshell is where it can be seen without ending the script.
       const output = await runScript([
         'readonly RO_CODE=1',
-        'RO_CODE=2',
+        '(RO_CODE=2)',
         `echo "code=$?" >> ${OUT}`,
         `echo still-running >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['code=1', 'still-running'])
+    })
+
+    it('ends a script at a refused assignment, as bash does when not interactive', async () => {
+      const output = await runScript([
+        'readonly RO_END=1',
+        'RO_END=2',
+        `echo "not reached" >> ${OUT}`
+      ].join('\n'))
+      expect(lines(output)).toEqual([])
     })
 
     it('refuses unset too', async () => {
@@ -78,7 +86,7 @@ describe('readonly and declare', () => {
       const output = await runScript([
         'RO_EXISTING=before',
         'readonly RO_EXISTING',
-        'RO_EXISTING=after',
+        '(RO_EXISTING=after)',
         `echo "$RO_EXISTING" >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['before'])
@@ -113,7 +121,7 @@ describe('readonly and declare', () => {
     it('-r is readonly', async () => {
       const output = await runScript([
         'declare -r DECL_RO=fixed',
-        'DECL_RO=moved',
+        '(DECL_RO=moved)',
         `echo "$DECL_RO" >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['fixed'])
