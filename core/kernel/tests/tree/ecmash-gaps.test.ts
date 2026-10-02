@@ -139,4 +139,35 @@ describe('ecmash: arrays, subshells, process substitution, traps', () => {
       expect(out.endsWith('end\n')).toBe(true)
     })
   })
+
+  describe('read -t, set -u and PIPESTATUS', () => {
+    it('read -t gives up on a silent pipe with status 142, and still reads a ready one', async () => {
+      const { out } = await run('sleep 1 | read -t 0.2 a; echo "late=$?"\necho hi | read -t 5 b; echo "ready=$?"\necho "$b"')
+      expect(out).toContain('late=142')
+      expect(out).toContain('ready=0')
+    })
+
+    it('set -u ends a script on an unset variable, with status 1', async () => {
+      const { code, out, err } = await run('set -u\necho before\necho $nope\necho after')
+      expect(out).toBe('before\n')
+      expect(err).toContain('nope: unbound variable')
+      expect(code).toBe(1)
+    })
+
+    it('PIPESTATUS holds every stage', async () => {
+      const { out } = await run('true | false | true\necho "${PIPESTATUS[@]}"\nfalse | true\necho "${PIPESTATUS[@]}"')
+      expect(out).toBe('0 1 0\n1 0\n')
+    })
+
+    it('an EXIT trap sees the exit status as $?', async () => {
+      const { out, code } = await run('trap \'echo "st=$?"\' EXIT\nexit 5')
+      expect(out).toBe('st=5\n')
+      expect(code).toBe(5)
+    })
+
+    it('reads end of file from /dev/null', async () => {
+      const { out } = await run('cat < /dev/null\necho "cat=$?"\nread x < /dev/null\necho "read=$?"')
+      expect(out).toBe('cat=0\nread=1\n')
+    })
+  })
 })

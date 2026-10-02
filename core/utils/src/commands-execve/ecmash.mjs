@@ -40,7 +40,7 @@ import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
+const { poll, POLLIN, POLLHUP, POLLERR, open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
 const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
 
 const encoder = new TextEncoder()
@@ -827,6 +827,8 @@ class Shell {
       writeln: text => to(1, text + '\n'),
       writeErr: text => to(2, text),
       writelnErr: text => to(2, `ecmash: ${text}\n`),
+      // `read -t` waits with `poll`, so a pipe or file that never delivers does not hold the shell for good.
+      canTimeout: true,
       // One byte at a time: `read` must not take more of the stream than its line.
       readLine: async options => {
         if (options?.prompt) to(2, options.prompt)
@@ -835,9 +837,18 @@ class Shell {
         const one = new Uint8Array(1)
         let got = false
         let terminated = false
+        const deadline = options?.timeoutMs === undefined ? undefined : Date.now() + options.timeoutMs
         for (;;) {
           // `-n` counts bytes here, which is characters for ASCII.
           if (options?.count !== undefined && bytes.length >= options.count) { terminated = true; break }
+          if (deadline !== undefined) {
+            const [ready] = poll([{ fd: stdio[0] ?? 0, events: POLLIN }], Math.max(0, deadline - Date.now()))
+            if (!(ready & (POLLIN | POLLHUP | POLLERR))) {
+              // Nothing more arrived in time; what did is still assigned, and the status says so.
+              if (options.result) options.result.timedOut = true
+              return got ? decoder.decode(new Uint8Array(bytes)) : undefined
+            }
+          }
           const n = read(stdio[0] ?? 0, one, -1)
           if (n <= 0) break
           got = true
