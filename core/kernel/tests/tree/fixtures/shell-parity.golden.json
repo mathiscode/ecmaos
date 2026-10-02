@@ -626,5 +626,17 @@
   "control/andor-multiline": {
     "stdout": "yes\nand\n",
     "status": 0
+  },
+  "control/andor-pipe-before": {
+    "stdout": "1\n2\n3\nok\n",
+    "status": 0
+  },
+  "control/andor-pipe-chain": {
+    "stdout": "found\n",
+    "status": 0
+  },
+  "control/andor-pipe-while": {
+    "stdout": "a\nb\nsorted\n",
+    "status": 0
   }
 }

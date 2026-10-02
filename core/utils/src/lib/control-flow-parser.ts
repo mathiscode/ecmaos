@@ -577,12 +577,14 @@ class LineParser {
       first = { type: 'simple', line: split.head }
       rest = split.rest
     } else if (first.type !== 'function' && first.type !== 'pipeline' && first.type !== 'andor' && first.redirect) {
-      // `fi && b`: a list continuing after the closing keyword (a `|` before it is a pipeline's business)
+      // `fi && b`, `done | sort && x`: a list continuing after the closing keyword. What comes before the
+      // operator (a pipeline) is finished first and becomes the list's first operand.
       const lead = andOrIndexes(first.redirect)[0]
-      if (lead && pipeIndexes(first.redirect).every(pipe => pipe > lead.index)) {
+      if (lead) {
         const tail = first.redirect.slice(lead.index + 2).trim()
         first.redirect = first.redirect.slice(0, lead.index).trim() || undefined
-        return this.finishAndOr(first, lead.op, tail, lineNumber)
+        const left = first.redirect && pipeIndexes(first.redirect).length > 0 ? this.finishPipeline(first, lineNumber) : first
+        return this.finishAndOr(left, lead.op, tail, lineNumber)
       }
       const split = splitCompoundTail(first.redirect)
       if (!split) return first

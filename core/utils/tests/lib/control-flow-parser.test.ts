@@ -442,6 +442,16 @@ describe('parseStatements: lists with a compound operand', () => {
     expect(statement.rest.map(r => r.op)).toEqual(['&&', '||'])
   })
 
+  it('a pipeline before && is the list\'s first operand, not part of the next stage', () => {
+    const [statement] = parseStatements('for i in 3 1 2; do echo $i; done | sort && echo ok')
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return
+    expect(statement.first.type).toBe('pipeline')
+    if (statement.first.type !== 'pipeline') return
+    expect(statement.first.stages.map(stage => stage.type)).toEqual(['for', 'simple'])
+    expect(statement.rest).toEqual([{ op: '&&', statement: { type: 'simple', line: 'echo ok' } }])
+  })
+
   it('a chain through a compound operand stays flat, so it keeps its left-to-right meaning', () => {
     const [statement] = parseStatements('false && { echo no; } || echo fallback')
     expect(statement?.type).toBe('andor')

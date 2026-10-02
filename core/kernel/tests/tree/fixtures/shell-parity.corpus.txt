@@ -377,3 +377,9 @@ if true
 then
   echo yes
 fi && echo and || echo or
+### control/andor-pipe-before
+for i in 3 1 2; do echo $i; done | sort && echo ok
+### control/andor-pipe-chain
+for i in 1 2; do echo $i; done | grep -q 2 && echo found || echo none
+### control/andor-pipe-while
+printf 'b\na\n' | while read x; do echo $x; done | sort && echo sorted
