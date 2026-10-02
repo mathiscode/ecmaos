@@ -84,6 +84,9 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
     shell_exec(command: string): number
+    init_wait(timeoutMs: number): number
+    init_booted(): number
+    init_script(path: string, argsJson: string): number
     terminal_clear_history(): number
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
@@ -1051,6 +1054,27 @@ export function installMainThreadSyscalls(): void {
   define_syscall('shell_exec', async (proc: Process, command: string) => {
     const kernel = kernelOf(proc)
     return await kernel.shell.execute(command)
+  })
+
+  // What `/sbin/init` needs from the main thread (see `lib/init.ts`). Only pid 1 may call them: they
+  // reap children and run the boot script, which no other program has any business doing.
+  const initOf = (proc: Process) => {
+    const init = kernelOf(proc).init
+    if (!init || init.process !== proc) throw Object.assign(new Error('Only init may do this'), { errno: Errno.EPERM })
+    return init
+  }
+
+  define_syscall('init_wait', async (proc: Process, timeoutMs: number) => initOf(proc).wait(timeoutMs))
+
+  define_syscall('init_booted', (proc: Process) => { initOf(proc).markBooted(); return 0 })
+
+  // A `#!ecmaos:bin:script:` file is run by the kernel's own shell, not by `execve`, so init cannot
+  // `proc_spawn` it. This starts it as a child of init that exits with the script's status.
+  define_syscall('init_script', (proc: Process, path: string, argsJson: string) => {
+    const init = initOf(proc)
+    const kernel = kernelOf(proc)
+    const args = JSON.parse(argsJson) as string[]
+    return init.script(kernel, path, args, () => kernel.runInitScript(path, args))
   })
 
   // `shell.terminal.clearHistory()`/`reloadHistory()` mutate/re-read the live, in-memory history

@@ -47,6 +47,23 @@ function readFileText(path) {
   }
 }
 
+const KERNEL_SCRIPT = '#!ecmaos:bin:script:'
+
+function isKernelScript(path) {
+  try {
+    const fd = open(path, O_RDONLY, 0)
+    try {
+      const head = new Uint8Array(KERNEL_SCRIPT.length)
+      const n = read(fd, head, -1)
+      return decoder.decode(head.subarray(0, Math.max(0, n))) === KERNEL_SCRIPT
+    } finally {
+      close(fd)
+    }
+  } catch {
+    return false
+  }
+}
+
 /** The signals seen since the engine last asked. */
 const seen = new Set()
 
@@ -61,7 +78,15 @@ const host = {
   },
 
   async spawn(entry) {
-    return await spawn(entry.argv[0], entry.argv, { cwd: '/' })
+    const [path, ...args] = entry.argv
+    // The kernel's own shell runs these, not `execve`, and it is shared with whoever is at the
+    // terminal, so only the entries that block boot may use it.
+    if (isKernelScript(path)) {
+      if (entry.action !== 'sysinit' && entry.action !== 'wait') throw new Error('a kernel-shell script can only be a sysinit or wait entry')
+      return await custom('init_script', path, JSON.stringify(args))
+    }
+    // Its own process group, as a shell gives each job: init's children would otherwise all share pgid 1.
+    return await spawn(path, entry.argv, { cwd: '/', pgid: 0 })
   },
 
   async wait(timeoutMs) {

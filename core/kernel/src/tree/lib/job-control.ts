@@ -126,7 +126,10 @@ export interface SpawnOptions {
  * Raises `SIGCHLD` on the parent when the child exits.
  */
 export async function spawnWithFds(parent: Process, command: string, argv: string[], env: Record<string, string>, options: SpawnOptions = {}): Promise<Process> {
-  const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd })
+  // `tty` is passed through even when it is null: left out, the constructor treats a parent with no
+  // controlling terminal as one with the console, and `execve` would then make the child that
+  // terminal's foreground process. A daemon started by init must stay off it.
+  const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd, tty: parent.tty })
   try {
     // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
     // pipe end open and a reader downstream of it would never see EOF.

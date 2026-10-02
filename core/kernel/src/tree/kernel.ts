@@ -55,6 +55,8 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
+import { DEFAULT_INITTAB } from '@ecmaos/coreutils/lib/inittab'
+import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
@@ -112,6 +114,9 @@ const DefaultKernelOptions: KernelOptions = {
 }
 
 const DefaultBootOptions: BootOptions = { silent: false }
+
+/** Commands that live in `/sbin` rather than `/bin`. */
+const SbinCommands = new Set(['init'])
 const DefaultFigletFonts = [
   '3-D',
   '3x5',
@@ -187,6 +192,9 @@ export class Kernel implements IKernel {
    *
    * Created lazily since most execution never redirects `execve`'d stdio at all.
    */
+  /** pid 1: `/sbin/init`, which runs `/etc/inittab`, supervises its daemons and reaps orphans. */
+  readonly init = new Init()
+
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
   private get pipeProcess(): InstanceType<typeof ZenFSProcess> {
     this._pipeProcess ??= new ZenFSProcess({ console: '/dev/null' })
@@ -468,6 +476,12 @@ export class Kernel implements IKernel {
       // `/bin/ecmash` is the same language as a program.
       if (!(await this.filesystem.fs.exists('/etc/shells'))) {
         await this.filesystem.fs.writeFile('/etc/shells', '# Valid login shells; see chsh(1).\n/bin/ecmash\necmaos\n', { mode: 0o644 })
+      }
+
+      // What init runs. A missing file is not fatal (init falls back to the same default), but a
+      // real one is what a user edits and `kill -HUP 1` re-reads.
+      if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
+        await this.filesystem.fs.writeFile('/etc/inittab', DEFAULT_INITTAB, { mode: 0o644 })
       }
 
       try {
@@ -840,15 +854,14 @@ export class Kernel implements IKernel {
       if (!await this.filesystem.fs.exists('/boot/init')) {
         await this.filesystem.fs.writeFile('/boot/init', DEFAULT_BOOT_INIT)
       }
-      // Awaited so /boot/init's own output (motd, screensaver-daemon, ...) finishes printing
-      // before the recommended-apps prompt below writes its own.
-      await this.sudo(async () => await this.execute({ command: '/boot/init', shell: this.shell }))
+      // /sbin/init runs /etc/inittab: /boot/init as a sysinit entry, crond as a respawn entry. Boot
+      // waits for the sysinit and wait entries, so /boot/init's own output (motd, screensaver-daemon,
+      // ...) finishes printing before the recommended-apps prompt below writes its own.
+      await this.init.start(this)
+      if (!await this.init.waitForBoot(INIT_BOOT_TIMEOUT_MS)) {
+        this.log.error(`/sbin/init did not finish its sysinit entries within ${INIT_BOOT_TIMEOUT_MS / 1000}s; carrying on`)
+      }
       initSpan.end()
-
-      // crond runs as a background daemon outside the shell's job table (`jobs`/`wait` never see
-      // it) so it doesn't block a later bare `wait`, and with `foreground: false` so it never takes
-      // over the terminal or the keyboard.
-      void this.execute({ command: '/bin/crond', args: [], shell: this.shell, terminal: this.terminal, foreground: false })
 
       this._state = KernelState.RUNNING
       this.setupDebugGlobals()
@@ -2049,7 +2062,7 @@ export class Kernel implements IKernel {
     ].filter(name => !this.options.blacklist?.commands?.includes(name))
 
     for (const name of names) {
-      const target = `/bin/${name}`
+      const target = `${SbinCommands.has(name) ? '/sbin' : '/bin'}/${name}`
       const source = migratedCommandSources[name] ?? migratedKernelCommandSources[name] ?? `#!ecmaos:bin:command:${name}`
       // The root persists across page loads, so an existing file is only kept if it already holds
       // exactly this build's program; otherwise an upgraded (or fixed) command would never reach
@@ -2804,6 +2817,15 @@ export class Kernel implements IKernel {
       targetShell.terminal.focus()
       targetShell.terminal.listen()
     })
+  }
+
+  /**
+   * Runs a `#!ecmaos:bin:script:` file for `/sbin/init`, as root, the way boot has always run
+   * `/boot/init`. Returns the script's status, or 1 when it could not run.
+   */
+  async runInitScript(path: string, args: string[] = []): Promise<number> {
+    const code = await this.sudo(async () => await this.execute({ command: path, args, shell: this.shell }))
+    return code ?? 1
   }
 
   /**

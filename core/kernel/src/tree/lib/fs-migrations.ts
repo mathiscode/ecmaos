@@ -29,9 +29,8 @@ export const REMOVED_PILOT_PROGRAMS = ['/bin/pilot-pwd.js', '/bin/pilot-window.j
 export const DEFAULT_BOOT_INIT = [
   '#!ecmaos:bin:script:init',
   '',
-  '# The boot script. Edit this to change what runs at startup.',
-  '# crond is started separately by the kernel, not from here, since it never exits',
-  '# and would otherwise block a later `wait` on this shell\'s job table.',
+  '# The boot script, run by init as a sysinit entry of /etc/inittab. Edit this to change what runs',
+  '# at startup. Daemons that never exit, such as crond, are respawn entries in /etc/inittab instead.',
   'motd',
   'screensaver-daemon',
   ''
@@ -55,6 +54,17 @@ export const PREVIOUS_DEFAULT_BOOT_INITS: readonly string[] = [
     '# branch (there is no `if` yet -- see the shell-jobs branch) stays in boot().',
     'motd',
     'load-crontab ~/.config/crontab user',
+    'screensaver-daemon',
+    ''
+  ].join('\n'),
+  // 1.0 pre-release: crond started by the kernel, before init supervised it
+  [
+    '#!ecmaos:bin:script:init',
+    '',
+    '# The boot script. Edit this to change what runs at startup.',
+    '# crond is started separately by the kernel, not from here, since it never exits',
+    "# and would otherwise block a later `wait` on this shell's job table.",
+    'motd',
     'screensaver-daemon',
     ''
   ].join('\n')
