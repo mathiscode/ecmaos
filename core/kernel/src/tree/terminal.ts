@@ -1608,12 +1608,12 @@ export class Terminal extends XTerm implements ITerminal {
             // second one here landed after the first, indented by its width.
             if (epoch === this._stopEpoch && !this._sessionEnded) {
               this._editor.reset()
-              this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
+              this.write(this.promptLead() + this.jobNotices() + this.prompt())
             }
           }
         } else {
           editor.reset()
-          this.write(ansi.erase.inLine(2) + this.jobNotices() + this.prompt())
+          this.write(this.promptLead() + this.jobNotices() + this.prompt())
         }
         break
       }
@@ -1652,7 +1652,27 @@ export class Terminal extends XTerm implements ITerminal {
     else return null
   }
 
+  /** Whether what was last written left the cursor at the start of a line, so a prompt can be drawn there. */
+  private _atLineStart = true
+
+  private noteOutput(data: string | Uint8Array, newline: boolean): void {
+    const text = (data instanceof Uint8Array ? new TextDecoder().decode(data) : data)
+      // control sequences move or style the cursor and print nothing
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    if (text.length > 0 || newline) this._atLineStart = newline || /[\r\n]$/.test(text)
+  }
+
+  /**
+   * What goes before the next prompt. A command that printed text with no final newline (`cat` of a file
+   * that does not end in one) left the cursor mid-line; erasing the line there deleted the output, so
+   * start a new line instead, as zsh does. At the start of a line the line is simply cleared.
+   */
+  private promptLead(): string {
+    return this._atLineStart ? ansi.erase.inLine(2) : '\r\n'
+  }
+
   override write(data: string | Uint8Array) {
+    this.noteOutput(data, false)
     super.write(data)
     this.events.dispatch<TerminalWriteEvent>(TerminalEvents.WRITE, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
     if (this._isMobile) {
@@ -1661,6 +1681,7 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   override writeln(data: string | Uint8Array) {
+    this.noteOutput(data, true)
     super.writeln(data)
     this.events.dispatch<TerminalWritelnEvent>(TerminalEvents.WRITELN, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
     if (this._isMobile) {
