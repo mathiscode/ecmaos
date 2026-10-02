@@ -1,16 +1,20 @@
 /**
  * Show a manual page. Pages when run interactively; with output piped or redirected, prints the
  * text directly instead, like real `man`. Only English text is shown.
+ *
+ * A bare name (`man ps`) is looked up as a command: a page under `@ecmaos/kernel/commands/` or
+ * `@ecmaos/coreutils/`, then a package of that name, and last the command's own `--help`, so every
+ * command has a manual page without anyone writing one and the text cannot drift from the program.
  */
 
 import ansi from 'ansi-escape-sequences'
 
-import { readTextFile } from './lib/fs-text.mjs'
+import { readFdText, readTextFile } from './lib/fs-text.mjs'
 import { join } from './lib/path-utils.mjs'
 import { page } from './lib/pager.mjs'
 import { pagerTty } from './lib/tty.mjs'
 
-const { argv, env, exit, writeAll, stat, readdir, isDirectory } = globalThis.ecmaosSyscalls
+const { argv, env, exit, writeAll, stat, readdir, isDirectory, pipe, close, spawn, waitpid, getcwd } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
 const out = text => writeAll(1, encoder.encode(text + '\n'))
@@ -24,6 +28,7 @@ Display manual pages.
   --help        display this help and exit
 
 Examples:
+  man ps                         display the page for the command ps
   man package-name               display index for package-name
   man @scope/package             display index for @scope/package
   man -l @scope/package          list topics for @scope/package
@@ -348,7 +353,64 @@ function printTopics(pkgPath, topics, hint) {
   for (const topic of topics) out(`  ${topic}`)
 }
 
-function main() {
+/** Where a command's page can live, in the order they are tried. */
+const COMMAND_PACKAGES = [['@ecmaos', 'kernel', 'commands'], ['@ecmaos', 'coreutils']]
+
+/** The page for a command, or null. */
+function findCommandPage(manpaths, name) {
+  for (const manpath of manpaths) {
+    for (const parts of COMMAND_PACKAGES) {
+      const file = findDocument(join(manpath, ...parts), name)
+      if (file) return file
+    }
+  }
+  return null
+}
+
+/** The program `name` names on `$PATH`, or undefined. */
+function findProgram(name) {
+  for (const dir of (env.PATH ?? '/bin:/usr/bin').split(':')) {
+    if (!dir) continue
+    const candidate = join(dir, name)
+    try {
+      if (!isDirectory(candidate) && exists(candidate)) return candidate
+    } catch {
+      // not a candidate
+    }
+  }
+  return undefined
+}
+
+/**
+ * What `name --help` prints, or null when there is no such program or it does not understand the
+ * flag. A program that never mentions `--help` is not run: an interactive one would start.
+ */
+async function helpText(name) {
+  const program = findProgram(name)
+  if (!program) return null
+  try {
+    if (!readTextFile(program).includes('--help')) return null
+  } catch {
+    return null
+  }
+  const [reader, writer] = pipe()
+  let pid
+  try {
+    pid = await spawn(program, [name, '--help'], { env: { ...env }, fds: { 0: 0, 1: writer, 2: writer }, cwd: getcwd() })
+  } catch {
+    close(reader)
+    return null
+  } finally {
+    close(writer)
+  }
+  // Read to EOF before waiting: a pipe holds only so much, and the program stops at a full one.
+  const text = readFdText(reader)
+  close(reader)
+  await waitpid(pid, false)
+  return text.trim() ? text.replace(/\n+$/, '') : null
+}
+
+async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
     err(usage)
@@ -394,7 +456,18 @@ function main() {
     return 1
   }
 
-  for (const manpath of resolveManPath(whereArg)) {
+  const manpaths = resolveManPath(whereArg)
+  const isCommandName = !listTopicsFlag && !topicPath.includes('/') && !topicPath.startsWith('@')
+
+  if (isCommandName) {
+    const page = findCommandPage(manpaths, topicPath)
+    if (page) {
+      show(render(page), topicPath)
+      return 0
+    }
+  }
+
+  for (const manpath of manpaths) {
     const packageDir = buildPackagePath(manpath, pkgPath)
     if (!exists(packageDir)) continue
 
@@ -422,12 +495,20 @@ function main() {
     }
   }
 
+  if (isCommandName) {
+    const help = await helpText(topicPath)
+    if (help) {
+      show(help, `${topicPath} --help`)
+      return 0
+    }
+  }
+
   err(`man: no manual entry for ${topicPath}`)
   return 1
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   err(`man: ${error instanceof Error ? error.message : String(error)}`)
   exit(1)
