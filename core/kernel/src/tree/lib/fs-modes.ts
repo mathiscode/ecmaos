@@ -78,3 +78,10 @@ export async function tightenDirectoryModes(fs: Fs): Promise<string[]> {
 
   return changed
 }
+
+/** Links scripts rely on: link name to the program it names. */
+export const CommandLinks: Readonly<Record<string, string>> = {
+  '/bin/sh': '/bin/ecmash',
+  '/bin/bash': '/bin/ecmash',
+  '/usr/bin/env': '/bin/env'
+}

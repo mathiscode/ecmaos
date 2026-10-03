@@ -35,7 +35,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
-import { tightenDirectoryModes } from '#lib/fs-modes.ts'
+import { CommandLinks, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
@@ -2003,7 +2003,11 @@ export class Kernel implements IKernel {
       let handle
       let firstBytes: Uint8Array | null = null
 
-      const checkExtensionType = (filePath: string): FileHeader['type'] | null => {
+      // A link such as /usr/bin/env is classified by what it points at, so /bin/env's rule applies
+      const linked = await shellContext.fs.promises.realpath(filePath).catch(() => filePath)
+
+      const checkExtensionType = (path: string): FileHeader['type'] | null => {
+        const filePath = path
         if (filePath.endsWith('.js')) return 'js'
         else if (filePath.endsWith('.md')) return 'view'
         else if (filePath.endsWith('.json')) return 'view'
@@ -2050,7 +2054,7 @@ export class Kernel implements IKernel {
               }
 
               readable.destroy()
-              const extensionType = checkExtensionType(filePath)
+              const extensionType = checkExtensionType(linked)
               return extensionType ? resolve({ type: extensionType }) : resolve(null)
             }
           })
@@ -2058,7 +2062,7 @@ export class Kernel implements IKernel {
           readable.on('error', (error: Error) => reject(error))
           readable.on('close', () => {
             readable.destroy()
-            const extensionType = checkExtensionType(filePath)
+            const extensionType = checkExtensionType(linked)
             return extensionType ? resolve({ type: extensionType }) : resolve(null)
           })
         })
@@ -2085,7 +2089,7 @@ export class Kernel implements IKernel {
         if (header) return header
       }
       
-      const extensionType = checkExtensionType(filePath)
+      const extensionType = checkExtensionType(linked)
       return extensionType ? { type: extensionType } : null
     } catch (error) {
       this.log.error(error)
@@ -2170,6 +2174,13 @@ export class Kernel implements IKernel {
     // outlives the command it pointed at.
     const stubNames = new Set(names.filter(name => !migratedCommandSources[name] && !migratedKernelCommandSources[name]))
     await removeStaleCommandStubs(this.filesystem.fs, stubNames)
+
+    // Names scripts expect to find: `#!/bin/sh`, `#!/bin/bash` and `#!/usr/bin/env ...`. The shell is
+    // ecmash for both, so a script written for either runs on the shell that is here.
+    for (const [link, target] of Object.entries(CommandLinks)) {
+      if (!await this.filesystem.fs.exists(target)) continue
+      await this.filesystem.fs.symlink(target, link).catch(() => {})
+    }
   }
 
   /**

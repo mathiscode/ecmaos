@@ -26,7 +26,8 @@ export function signalName(num) {
 export function parseSignalArg(arg) {
   if (!arg.startsWith('-') || arg === '-') return null
   const spec = arg.slice(1)
-  if (/^\d+$/.test(spec)) return SignalNames[Number(spec)] !== undefined ? Number(spec) : undefined
+  // signal 0 is not a signal: it asks whether the process exists and may be signalled
+  if (/^\d+$/.test(spec)) return Number(spec) === 0 || SignalNames[Number(spec)] !== undefined ? Number(spec) : undefined
   const name = spec.toUpperCase().replace(/^SIG/, '')
   return SignalNumbers[name]
 }

@@ -38,7 +38,8 @@ describe('two-tier command dispatch: true shell builtins + real execve/$PATH res
     kernel.terminal.mount(container)
   })
 
-  const trueBuiltinNames = ['cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'env', 'export', 'su']
+  // `env` is not here: it is built in for speed, but real systems ship `/usr/bin/env` too and scripts name it
+  const trueBuiltinNames = ['cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'export', 'su']
 
   it('writes no /bin/<name> file for any true shell builtin, matching real bash having no /bin/cd', async () => {
     for (const name of trueBuiltinNames) {

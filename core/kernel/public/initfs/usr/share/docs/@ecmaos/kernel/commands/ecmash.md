@@ -19,6 +19,12 @@ With no command and no file it reads commands from standard input. When that is 
 - `-c COMMAND` -- run COMMAND, then exit. The next word is `$0`, the rest are `$1...`
 - `-l, --login` -- act as a login shell: read `/etc/profile`, then `~/.ecmash_profile` or `~/.profile`. Started with an `argv[0]` beginning with `-` (`-ecmash`) it does the same. An interactive shell also reads `~/.ecmashrc`
 
+## Scripts
+
+`/bin/sh` and `/bin/bash` are links to `ecmash`, and `/usr/bin/env` is a link to the `env` program, so a script
+starting `#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env sh` or `#!/usr/bin/env bash` runs on `ecmash`. It is a
+bash-like shell, so a script written for POSIX `sh` runs unchanged; there is no stricter POSIX mode.
+
 ## Language
 
 Simple commands, pipelines, `&&`, `||`, `;`, `&`; the redirections `<`, `>`, `>>`, `2>`, `2>&1`, here-documents and here-strings; `$var`, `${...}`, `$(...)`, `$((...))`, globbing; `if`, `while`, `for`, `case`, `{ ...; }` groups, `( ... )` subshells, indexed arrays (`a=(x y)`, `a+=(z)`, `a[i]=v`, `${a[@]}`, `${#a[@]}`), `<(cmd)` and `>(cmd)`, aliases, and functions.
