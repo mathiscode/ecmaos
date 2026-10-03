@@ -1,174 +1,149 @@
 /**
- * List directory contents. Prints numeric uid/gid rather than usernames, fixed English column
- * headers, no device-package descriptions, and no ANSI coloring or mobile-responsive layout --
- * the same way a real `/bin/ls` in a minimal container without `/etc/passwd` just prints numeric
- * uid/gid.
+ * List directory contents, as GNU `ls` does: names (in columns on a terminal, one per line otherwise),
+ * `-l` for the long format with owner and group names read from /etc/passwd and /etc/group, and the
+ * usual -a -A -d -h -R -r -t -S -U -F -p -i -1 flags. The formatting lives in `lib/ls-format.ts`.
  */
 
-import { resolve, join, basename, dirname } from './lib/path-utils.mjs'
-import columnify from 'columnify'
+import { columnLines, isDirectoryMode, isLinkMode, longLines, parseLsArguments, parseNames, sortEntries, indicator } from '../lib/ls-format.ts'
+import { readTextFile } from './lib/fs-text.mjs'
+import { basename, dirname, join, resolve } from './lib/path-utils.mjs'
+import { isTty, terminalSize } from './lib/tty.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, lstat, isDirectory, isSymbolicLink, readdir, readlink } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, lstat, isDirectory, readdir, readlink } = globalThis.ecmaosSyscalls
+
+const encoder = new TextEncoder()
+const out = text => writeAll(1, encoder.encode(text))
+const err = text => writeAll(2, encoder.encode(text + '\n'))
 
 const usage = `Usage: ls [OPTION]... [FILE]...
-List information about the FILEs (the current directory by default).
+List information about the FILEs (the current directory by default), sorted by name.
 
-  --help  display this help and exit`
+  -a, --all             do not ignore entries starting with .
+  -A, --almost-all      like -a, but leave out . and ..
+  -d, --directory       list directories themselves, not their contents
+  -F, --classify        append an indicator (one of */=@|) to entries
+  -p                    append / to directories
+  -h, --human-readable  with -l, print sizes like 1K 234M 2G
+  -i, --inode           print the inode number of each file
+  -l                    use a long listing format
+  -1                    list one file per line
+  -r, --reverse         reverse the order while sorting
+  -R, --recursive       list subdirectories recursively
+  -S                    sort by file size, largest first
+  -t                    sort by modification time, newest first
+  -U                    do not sort; list in directory order
+  --help                display this help and exit`
 
-const S_IFMT = 0xf000
-const S_IFBLK = 0x6000
-const S_IFCHR = 0x2000
-const S_IFIFO = 0x1000
-const S_IFSOCK = 0xc000
+const REASONS = { EACCES: 'Permission denied', ENOENT: 'No such file or directory', ENOTDIR: 'Not a directory', ELOOP: 'Too many levels of symbolic links' }
+const reason = error => REASONS[error?.code] ?? (error instanceof Error ? error.message : String(error))
 
-function getModeType(mode) {
-  const type = mode & S_IFMT
-  if (isDirectoryMode(mode)) return 'd'
-  if (type === S_IFBLK) return 'b'
-  if (type === S_IFCHR) return 'c'
-  if (type === S_IFIFO) return 'p'
-  if (type === S_IFSOCK) return 's'
-  return '-'
-}
-
-function isDirectoryMode(mode) {
-  return (mode & S_IFMT) === 0x4000
-}
-
-function getModeString(mode, isLink) {
-  const type = isLink ? 'l' : getModeType(mode)
-  const permissions = (mode & 0o777).toString(8).padStart(3, '0')
-    .replace(/0/g, '---')
-    .replace(/1/g, '--x')
-    .replace(/2/g, '-w-')
-    .replace(/3/g, '-wx')
-    .replace(/4/g, 'r--')
-    .replace(/5/g, 'r-x')
-    .replace(/6/g, 'rw-')
-    .replace(/7/g, 'rwx')
-  return type + permissions
-}
-
-function formatTimestamp(mtimeMs) {
-  return new Date(mtimeMs).toISOString().slice(0, 19).replace('T', ' ')
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes}B`
-  const units = ['K', 'M', 'G', 'T']
-  let value = bytes
-  let unitIndex = -1
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex++
+/** An entry for `name` inside `dir`, from `lstat` (a link is described itself, with where it points). */
+function describe(dir, name) {
+  const path = join(dir, name)
+  const s = lstat(path)
+  const entry = { name, mode: s.mode, size: s.size, mtimeMs: s.mtimeMs, uid: s.uid, gid: s.gid, nlink: s.nlink ?? 1, ino: s.ino ?? 0, rdev: s.rdev ?? 0, blocks: s.blocks ?? 0 }
+  if (isLinkMode(s.mode)) {
+    try { entry.linkTarget = readlink(path) } catch { /* shown without a target */ }
   }
-  return `${value.toFixed(1)}${units[unitIndex]}`
+  return entry
+}
+
+function loadNames() {
+  const read = path => { try { return parseNames(readTextFile(path)) } catch { return new Map() } }
+  return { users: read('/etc/passwd'), groups: read('/etc/group') }
 }
 
 function main() {
-  const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
+  const { options, error } = parseLsArguments(argv.slice(1))
+  if (error) { err(`ls: ${error}\nTry 'ls --help' for more information.`); return 2 }
+  if (options.help) { out(usage + '\n'); return 0 }
 
   const cwd = getcwd()
-  const targets = args.length > 0 ? args.filter(arg => !arg.startsWith('-')) : [cwd]
-  if (targets.length === 0) targets.push(cwd)
+  const tty = isTty(1)
+  const width = tty ? terminalSize(1).cols : 80
+  const names = options.long ? loadNames() : { users: new Map(), groups: new Map() }
+  const now = Date.now()
+  const format = { human: options.human, inode: options.inode, classify: options.classify, slash: options.slash }
+  let status = 0
 
-  const allEntries = []
-  // A missing operand is a real error, not something to pass over: `ls` reports it on stderr and
-  // exits 2. This used to `continue` silently on a comment claiming that was standard behavior, so
-  // `ls /nope` printed nothing and exited 0 -- and `isDirectory` on a missing path returns false
-  // rather than throwing, so the operand fell through to the file branch and was then quietly
-  // dropped for having no stats.
-  let missing = false
+  const labelOf = entry => (options.inode ? `${entry.ino} ` : '') + entry.name + indicator(entry, options)
+  const render = (entries, withTotal) => {
+    if (!entries.length) return []
+    if (options.long) return longLines(entries, names, format, now, withTotal)
+    const labels = entries.map(labelOf)
+    return options.oneColumn || !tty ? labels : columnLines(labels, width)
+  }
 
-  for (const target of targets) {
-    const fullPath = resolve(cwd, target === '' ? '.' : target)
-    try {
-      lstat(fullPath)
-    } catch {
-      writeAll(2, new TextEncoder().encode(`ls: cannot access '${target === '' ? '.' : target}': No such file or directory\n`))
-      missing = true
+  const listDirectory = (path, label, header, top) => {
+    let names_
+    try { names_ = readdir(path) } catch (e) {
+      err(`ls: cannot open directory '${label}': ${reason(e)}`)
+      status = Math.max(status, top ? 2 : 1)
+      return
+    }
+    if (options.all) names_ = ['.', '..', ...names_.filter(n => n !== '.' && n !== '..')]
+    else if (!options.almostAll) names_ = names_.filter(n => !n.startsWith('.'))
+    else names_ = names_.filter(n => n !== '.' && n !== '..')
+
+    const entries = []
+    for (const name of names_) {
+      try { entries.push(describe(path, name)) } catch (e) {
+        err(`ls: cannot access '${join(label, name)}': ${reason(e)}`)
+        status = Math.max(status, top ? 2 : 1)
+      }
+    }
+    const sorted = sortEntries(entries, options)
+    if (header) out(`${label}:\n`)
+    const lines = render(sorted, true)
+    if (lines.length) out(lines.join('\n') + '\n')
+
+    if (options.recursive) {
+      for (const entry of sorted) {
+        if (entry.name === '.' || entry.name === '..' || !isDirectoryMode(entry.mode)) continue
+        out('\n')
+        listDirectory(join(path, entry.name), join(label, entry.name), true, false)
+      }
+    }
+  }
+
+  const operands = options.operands.length ? options.operands : ['.']
+  const files = []
+  const directories = []
+  for (const operand of operands) {
+    const path = resolve(cwd, operand === '' ? '.' : operand)
+    let entry
+    try { entry = describe(dirname(path) === path ? path : dirname(path), basename(path) || path) } catch (e) {
+      err(`ls: cannot access '${operand}': ${reason(e)}`)
+      status = 2
       continue
     }
-
-    try {
-      if (isDirectory(fullPath)) {
-        const entries = readdir(fullPath)
-        for (const entry of entries) allEntries.push({ fullPath, entry })
-      } else {
-        allEntries.push({ fullPath: dirname(fullPath), entry: basename(fullPath) })
-      }
-    } catch (error) {
-      writeAll(2, new TextEncoder().encode(`ls: cannot open directory '${target === '' ? '.' : target}': ${error instanceof Error ? error.message : String(error)}\n`))
-      missing = true
+    entry.name = operand
+    // a link to a directory is followed unless it is being listed with -l or -d
+    let isDir = isDirectoryMode(entry.mode)
+    if (!isDir && isLinkMode(entry.mode) && !options.long && !options.directory) {
+      try { isDir = isDirectory(path) } catch { isDir = false }
     }
+    if (isDir && !options.directory) directories.push({ operand, path, entry })
+    else files.push(entry)
   }
 
-  const describe = ({ fullPath, entry }) => {
-    const target = join(fullPath, entry)
-    try {
-      const linkStats = lstat(target)
-      const isLink = isSymbolicLink(target)
-      let targetStats = linkStats
-      let linkTarget = null
-
-      if (isLink) {
-        try {
-          linkTarget = readlink(target)
-          targetStats = stat(target)
-        } catch {
-          targetStats = linkStats
-        }
-      }
-
-      return { target, name: entry, stats: targetStats, isLink, linkTarget }
-    } catch {
-      return { target, name: entry, stats: null, isLink: false, linkTarget: null }
-    }
+  let printed = false
+  if (files.length) {
+    out(render(sortEntries(files, options), false).join('\n') + '\n')
+    printed = true
   }
-
-  const described = allEntries.map(describe)
-
-  const directories = described
-    .filter(e => e.stats && isDirectoryMode(e.stats.mode))
-    .filter((e, index, self) => self.findIndex(o => o.name === e.name) === index)
-
-  const files = described.filter(e => e.stats && !isDirectoryMode(e.stats.mode))
-
-  const columns = ['Name', 'Size', 'Modified', 'Mode', 'Owner']
-
-  const toRow = (entry) => {
-    const displayName = entry.linkTarget ? `${entry.name} -> ${entry.linkTarget}` : entry.name
-    const modeString = entry.stats ? getModeString(entry.stats.mode, entry.isLink) : ''
-    const isDir = entry.stats ? isDirectoryMode(entry.stats.mode) : false
-
-    return {
-      Name: displayName,
-      Size: isDir ? '' : (entry.stats ? formatSize(entry.stats.size) : ''),
-      Modified: entry.stats ? formatTimestamp(entry.stats.mtimeMs) : '',
-      Mode: modeString,
-      Owner: entry.stats ? `${entry.stats.uid}:${entry.stats.gid}` : ''
-    }
+  const header = operands.length > 1 || options.recursive
+  for (const { operand, path } of sortEntries(directories.map(d => ({ ...d, name: d.operand, mtimeMs: d.entry.mtimeMs, size: d.entry.size })), options)) {
+    if (printed) out('\n')
+    listDirectory(path, operand, header, true)
+    printed = true
   }
-
-  const directoryRows = directories.sort((a, b) => a.name.localeCompare(b.name)).map(toRow)
-  const fileRows = files.sort((a, b) => a.name.localeCompare(b.name)).map(toRow)
-  const data = [...directoryRows, ...fileRows]
-
-  if (data.length > 0) {
-    const table = columnify(data, { columns, columnSplitter: '  ', showHeaders: true })
-    writeAll(1, new TextEncoder().encode(table + '\n'))
-  }
-
-  return missing ? 2 : 0
+  return status
 }
 
 try {
   exit(main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`ls: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(`ls: ${error instanceof Error ? error.message : String(error)}`)
   exit(1)
 }

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -6,13 +6,16 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * ls migrated onto real execve. The original read live kernel.i18n/kernel.users/kernel.devices/
- * terminal.isMobile state a real worker process can't see -- this port simplifies to numeric
- * uid/gid, fixed English headers, and no device-package descriptions or ANSI coloring, matching
- * what a real /bin/ls binary actually has access to. See ls.mjs's doc comment.
+ * `ls` as a real execve program. Its formatting is unit-tested in `@ecmaos/coreutils`
+ * (`ls-format.test.ts`); these run the program against a real filesystem.
  */
-describe('text command batch 11: ls, real execve', () => {
+describe('ls, real execve', () => {
   let kernel: Kernel
+  const run = async (command: string) => {
+    const code = await kernel.shell.execute(`${command} > /tmp/ls-out.txt 2> /tmp/ls-err.txt`)
+    const read = (name: string) => kernel.filesystem.fs.readFile(`/tmp/${name}`, 'utf-8')
+    return { code, out: await read('ls-out.txt'), err: await read('ls-err.txt') }
+  }
 
   beforeAll(async () => {
     kernel = new Kernel({
@@ -27,10 +30,19 @@ describe('text command batch 11: ls, real execve', () => {
     document.body.appendChild(container)
     kernel.terminal.mount(container)
 
-    await kernel.filesystem.fs.mkdir('/tmp/ls-root', { recursive: true })
-    await kernel.filesystem.fs.mkdir('/tmp/ls-root/subdir', { recursive: true })
-    await kernel.filesystem.fs.writeFile('/tmp/ls-root/a.txt', 'hello')
-    await kernel.filesystem.fs.writeFile('/tmp/ls-root/b.txt', 'world!!')
+    const fs = kernel.filesystem.fs
+    await fs.mkdir('/tmp/ls-root/subdir/deep', { recursive: true })
+    await fs.writeFile('/tmp/ls-root/a.txt', 'hello')
+    await fs.writeFile('/tmp/ls-root/b.txt', 'world!!')
+    await fs.writeFile('/tmp/ls-root/.hidden', 'x')
+    await fs.writeFile('/tmp/ls-root/subdir/inner.txt', 'in')
+    await fs.writeFile('/tmp/ls-root/subdir/deep/bottom.txt', 'bottom')
+    await fs.writeFile('/tmp/ls-root/run.sh', '#!/bin/sh\n', { mode: 0o755 })
+  })
+
+  // a test that fails before its own cleanup must not change what the next one lists
+  afterEach(async () => {
+    for (const name of ['big.bin', 'mylink', 'dirlink']) await kernel.filesystem.fs.unlink(`/tmp/ls-root/${name}`).catch(() => {})
   })
 
   it('ls is a real execve file, not the legacy stub', async () => {
@@ -38,65 +50,102 @@ describe('text command batch 11: ls, real execve', () => {
     expect(content.startsWith('#!ecmaos:bin:command:')).toBe(false)
   })
 
-  it('lists directory contents with headers, directories first', async () => {
-    const code = await kernel.shell.execute('ls /tmp/ls-root > /tmp/ls-out.txt')
+  it('prints names one per line when output is not a terminal, sorted, hiding dotfiles', async () => {
+    const { code, out } = await run('ls /tmp/ls-root')
     expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/ls-out.txt', 'utf-8')
-    expect(out).toContain('NAME')
-    expect(out).toContain('SIZE')
-    expect(out).toContain('subdir')
-    expect(out).toContain('a.txt')
-    expect(out).toContain('b.txt')
-    expect(out.indexOf('subdir')).toBeLessThan(out.indexOf('a.txt'))
+    expect(out).toBe('a.txt\nb.txt\nrun.sh\nsubdir\n')
   })
 
-  it('shows numeric owner (uid:gid), not a resolved username', async () => {
-    const code = await kernel.shell.execute('ls /tmp/ls-root > /tmp/ls-owner.txt')
-    expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/ls-owner.txt', 'utf-8')
-    expect(out).toMatch(/\d+:\d+/)
+  it('-a adds dotfiles and . and .., -A leaves out . and ..', async () => {
+    expect((await run('ls -a /tmp/ls-root')).out).toBe('.\n..\n.hidden\na.txt\nb.txt\nrun.sh\nsubdir\n')
+    expect((await run('ls -A /tmp/ls-root')).out).toBe('.hidden\na.txt\nb.txt\nrun.sh\nsubdir\n')
   })
 
-  it('lists a single file target directly, not its containing directory', async () => {
-    const code = await kernel.shell.execute('ls /tmp/ls-root/a.txt > /tmp/ls-single.txt')
+  it('-l shows type and mode, link count, owner and group names, size, date and name', async () => {
+    const { code, out } = await run('ls -l /tmp/ls-root')
     expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/ls-single.txt', 'utf-8')
-    expect(out).toContain('a.txt')
-    expect(out).not.toContain('b.txt')
+    const lines = out.trimEnd().split('\n')
+    expect(lines[0]).toMatch(/^total \d+$/)
+    expect(lines[1]).toMatch(/^-rw-r--r-- +1 root +root +5 \w{3} [ \d]\d [\d:]{5} a\.txt$/)
+    expect(lines[3]).toMatch(/^-rwxr-xr-x +1 root +root +\d+ .* run\.sh$/)
+    expect(lines[4]).toMatch(/^drwx[r-][w-][x-]r.x +\d+ root +root +\d+ .* subdir$/)
   })
 
-  it('defaults to the current directory when no target is given', async () => {
-    const code = await kernel.shell.execute('cd /tmp/ls-root && ls > /tmp/ls-default.txt')
+  it('-lh prints human sizes and -h alone is not help', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/ls-root/big.bin', new Uint8Array(1536))
+    const { code, out } = await run('ls -lh /tmp/ls-root/big.bin')
     expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/ls-default.txt', 'utf-8')
-    expect(out).toContain('a.txt')
+    expect(out).toMatch(/ root +root +1\.5K .* \/tmp\/ls-root\/big\.bin\n$/)
+    await kernel.filesystem.fs.unlink('/tmp/ls-root/big.bin')
   })
 
-  it('reports a nonexistent target on stderr and exits 2', async () => {
-    // This used to pass over a missing operand silently on a comment claiming that was standard `ls`
-    // behavior; it is not. GNU `ls` writes `cannot access` to stderr and exits 2. `isDirectory` on a
-    // missing path returns false rather than throwing, so the operand also fell through to the
-    // single-file branch and was then quietly dropped for having no stats.
-    const code = await kernel.shell.execute('ls /tmp/ls-does-not-exist > /tmp/ls-missing.txt 2>/tmp/ls-missing.err')
+  it('-d lists a directory itself, not its contents', async () => {
+    expect((await run('ls -d /tmp/ls-root')).out).toBe('/tmp/ls-root\n')
+    expect((await run('ls -ld /tmp/ls-root')).out).toMatch(/^drwx.* \/tmp\/ls-root\n$/)
+  })
+
+  it('-F marks directories, executables and links; -p only directories', async () => {
+    await kernel.shell.execute('ln -s /tmp/ls-root/a.txt /tmp/ls-root/mylink')
+    expect((await run('ls -F /tmp/ls-root')).out).toBe('a.txt\nb.txt\nmylink@\nrun.sh*\nsubdir/\n')
+    expect((await run('ls -p /tmp/ls-root')).out).toBe('a.txt\nb.txt\nmylink\nrun.sh\nsubdir/\n')
+    await kernel.filesystem.fs.unlink('/tmp/ls-root/mylink')
+  })
+
+  it('-R lists subdirectories with headers, blank line between', async () => {
+    const { out } = await run('ls -R /tmp/ls-root/subdir')
+    expect(out).toBe('/tmp/ls-root/subdir:\ndeep\ninner.txt\n\n/tmp/ls-root/subdir/deep:\nbottom.txt\n')
+  })
+
+  it('sorts with -r, -S and -t', async () => {
+    expect((await run('ls -r /tmp/ls-root')).out).toBe('subdir\nrun.sh\nb.txt\na.txt\n')
+    const bySize = (await run('ls -S /tmp/ls-root')).out.split('\n')
+    expect(bySize.indexOf('b.txt')).toBeLessThan(bySize.indexOf('a.txt'))
+    await kernel.filesystem.fs.utimes('/tmp/ls-root/a.txt', new Date(2030, 0, 1), new Date(2030, 0, 1))
+    expect((await run('ls -t /tmp/ls-root')).out.split('\n')[0]).toBe('a.txt')
+  })
+
+  it('lists several operands with headers: files first, then each directory', async () => {
+    const { out } = await run('ls /tmp/ls-root/a.txt /tmp/ls-root/subdir /tmp/ls-root/b.txt')
+    expect(out).toBe('/tmp/ls-root/a.txt\n/tmp/ls-root/b.txt\n\n/tmp/ls-root/subdir:\ndeep\ninner.txt\n')
+  })
+
+  it('lists a single file operand as itself', async () => {
+    const { code, out } = await run('ls /tmp/ls-root/a.txt')
+    expect(code).toBe(0)
+    expect(out).toBe('/tmp/ls-root/a.txt\n')
+  })
+
+  it('defaults to the current directory', async () => {
+    expect((await run('cd /tmp/ls-root && ls')).out).toBe('a.txt\nb.txt\nrun.sh\nsubdir\n')
+  })
+
+  it('shows a symlink with its target in the long format, and follows a link to a directory otherwise', async () => {
+    await kernel.shell.execute('ln -s /tmp/ls-root/a.txt /tmp/ls-root/mylink')
+    await kernel.shell.execute('ln -s /tmp/ls-root/subdir /tmp/ls-root/dirlink')
+    expect((await run('ls -l /tmp/ls-root')).out).toMatch(/lrwxrwxrwx .* mylink -> \/tmp\/ls-root\/a\.txt\n/)
+    expect((await run('ls /tmp/ls-root/dirlink')).out).toBe('deep\ninner.txt\n')
+    expect((await run('ls -l /tmp/ls-root/dirlink')).out).toMatch(/^lrwxrwxrwx .* \/tmp\/ls-root\/dirlink -> \/tmp\/ls-root\/subdir\n$/)
+    await kernel.filesystem.fs.unlink('/tmp/ls-root/mylink')
+    await kernel.filesystem.fs.unlink('/tmp/ls-root/dirlink')
+  })
+
+  it('shows device numbers for device nodes', async () => {
+    expect((await run('ls -l /dev/null')).out).toMatch(/^crw-rw-rw- +1 root +root +1, 3 .* \/dev\/null\n$/)
+  })
+
+  it('reports a nonexistent operand on stderr, exits 2, and still lists the others', async () => {
+    const { code, out, err } = await run('ls /tmp/ls-does-not-exist /tmp/ls-root/a.txt')
     expect(code).toBe(2)
-    const err = await kernel.filesystem.fs.readFile('/tmp/ls-missing.err', 'utf-8')
-    expect(err).toContain('/tmp/ls-does-not-exist')
-    expect(await kernel.filesystem.fs.readFile('/tmp/ls-missing.txt', 'utf-8')).toBe('')
+    expect(err).toBe("ls: cannot access '/tmp/ls-does-not-exist': No such file or directory\n")
+    expect(out).toBe('/tmp/ls-root/a.txt\n')
   })
 
-  it('still lists the targets that do exist alongside one that does not', async () => {
-    const code = await kernel.shell.execute('ls /tmp/ls-root /tmp/ls-also-missing > /tmp/ls-mixed.txt 2>/tmp/ls-mixed.err')
-    expect(code).toBe(2)
-    expect(await kernel.filesystem.fs.readFile('/tmp/ls-mixed.txt', 'utf-8')).toContain('a.txt')
-  })
-
-  it('shows a symlink target with an arrow', async () => {
-    await kernel.filesystem.fs.writeFile('/tmp/ls-root/link-target.txt', 'linked')
-    const lnCode = await kernel.shell.execute('ln -s /tmp/ls-root/link-target.txt /tmp/ls-root/mylink')
-    expect(lnCode).toBe(0)
-    const code = await kernel.shell.execute('ls /tmp/ls-root > /tmp/ls-link.txt')
-    expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/ls-link.txt', 'utf-8')
-    expect(out).toContain('mylink -> /tmp/ls-root/link-target.txt')
+  it('rejects an unknown option and answers --help', async () => {
+    const bad = await run('ls -Z')
+    expect(bad.code).toBe(2)
+    expect(bad.err).toContain("invalid option -- 'Z'")
+    const help = await run('ls --help')
+    expect(help.code).toBe(0)
+    expect(help.out).toContain('Usage: ls')
   })
 })
