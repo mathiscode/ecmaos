@@ -61,6 +61,18 @@ describe('a booted kernel', () => {
     expect(await mode('/tmp') & 0o777).toBe(0o777)
   })
 
+  it('a program sees the same modes, including the sticky bit on a mounted /tmp', async () => {
+    expect(await kernel.shell.execute('ls -ld /tmp /var/tmp /etc > /tmp/modes-ls')).toBe(0)
+    const lines = (await kernel.filesystem.fs.readFile('/tmp/modes-ls', 'utf-8')).trim().split('\n')
+    const line = (path: string) => lines.find(l => l.endsWith(` ${path}`)) ?? ''
+    // `ls` reports what `lstat` does; before the @zenfs/core fix, lstat of a mount point described the empty
+    // directory under it, not the mounted root, so the sticky bit only shows with the fixed one
+    const fs = kernel.filesystem.fs
+    if ((await fs.lstat('/tmp')).mode === (await fs.stat('/tmp')).mode) expect(line('/tmp')).toMatch(/^drwxrwxrwt /)
+    expect(line('/var/tmp')).toMatch(/^drwx.*t /)
+    expect(line('/etc')).toMatch(/^drwxr-xr-x /)
+  })
+
   it('a file written to /tmp still works for the shell', async () => {
     expect(await kernel.shell.execute('echo hi > /tmp/modes-check')).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/modes-check', 'utf-8')).toBe('hi\n')

@@ -1925,7 +1925,7 @@ export class Shell implements IShell {
   private hostInterface(): InterpreterHost {
     return {
       runPipeline: pipeline => this.runStage(pipeline),
-      runBackground: async pipeline => { this.runInBackground(pipeline); return 0 },
+      runBackground: async pipeline => { await this.runInBackground(pipeline); return 0 },
       prepareLine: line => stripComments(line).trim(),
       expandStatement: line => this.expandAliases(line),
       onStatement: async statement => { if (statement.type === 'simple') await this.traceVerbose(statement.line) },
@@ -2081,21 +2081,26 @@ export class Shell implements IShell {
   /**
    * Launches a pipeline in the background (`&`): registers a `Job`, prints bash's `[<id>] <pid>`
    * line, and does *not* await it here -- `job.done` is what `wait`/`jobs` observe later.
+   *
+   * It does wait for the first stage's process to exist, so the pid it reports and sets `$!` to is
+   * real before the next command on the line runs: `sleep 9 & kill -0 $!` reads `$!` straight away.
+   * A pipeline that never produces a process (builtins only) settles instead, and a stage that is
+   * slow to start gives up after a moment; both report the job id, as before.
    */
-  private runInBackground(pipeline: Pipeline): void {
+  private async runInBackground(pipeline: Pipeline): Promise<void> {
     const job = this.createJob(pipeline, true, /* rethrow */ false)
 
-    // Give the pipeline's first stage a tick to construct its real Process (if it has one) before
-    // reporting the job's pid, matching bash's `[1] <pid>` -- falls back to the job id if the stage
-    // never produces a real process handle (an all-coreutils pipeline has nothing to report here).
-    queueMicrotask(() => {
-      const pid = job.processes[0]?.pid
-      // `$!` is whatever `[1] <pid>` just reported, including the job-id fallback for an
-      // all-coreutils pipeline that never produced a real process.
-      this._lastBackgroundPid = pid ?? job.id
-      this._lastBackgroundJob = job
-      this._terminal.writeln(`[${job.id}] ${pid ?? job.id}`)
-    })
+    let finished = false
+    void job.done.then(() => { finished = true })
+    const deadline = Date.now() + 300
+    while (!job.processes[0] && !finished && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1))
+
+    const pid = job.processes[0]?.pid
+    // `$!` is whatever `[1] <pid>` just reported, including the job-id fallback for an
+    // all-coreutils pipeline that never produced a real process.
+    this._lastBackgroundPid = pid ?? job.id
+    this._lastBackgroundJob = job
+    this._terminal.writeln(`[${job.id}] ${pid ?? job.id}`)
   }
 
   /**

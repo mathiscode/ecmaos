@@ -195,8 +195,9 @@ describe('Shell job control — & background execution and the job table', () =>
 
   it('a background subshell is a job labelled by its kind, not by an empty command', async () => {
     await kernel.shell.execute('(true) &')
-    const job = kernel.shell.listJobs().at(-1)!
-    expect(job.commandLine).toBe('( ... )')
+    // the subshell's own commands register jobs of their own, so pick this one out by its label
+    const job = kernel.shell.listJobs().filter(candidate => candidate.commandLine === '( ... )').at(-1)!
+    expect(job).toBeDefined()
     await job.done
   })
 

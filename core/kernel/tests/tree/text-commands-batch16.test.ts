@@ -61,24 +61,28 @@ describe('text command batch 16: chown, real execve', () => {
     expect(stat.gid).toBe(7)
   })
 
-  it('-R on a directory errors, matching a pre-existing @zenfs/core limitation', async () => {
-    // @zenfs/core's chown (both the async fs.promises.chown the original in-process version used,
-    // and the real chown syscall this port uses) opens the target with the 'r+' flag before
-    // chowning it, which fails with EISDIR for any directory -- confirmed identical in @zenfs/
-    // core's own promises.js and sync.js. Since processFile's own chown call throws before it ever
-    // reaches the recursion step, this means `chown -R somedir` fails on the directory itself and
-    // never touches its contents either -- a genuine pre-existing backend limitation the original
-    // in-process version already had, not a regression introduced by this migration.
+  it('-R on a directory', async () => {
+    // Before the @zenfs/core fix that lets chmod/chown open a directory (the sync call opened it with
+    // 'r+', which fails with EISDIR), `chown -R somedir` failed on the directory itself and never
+    // reached its contents. The installed @zenfs/core decides which of the two happens here.
+    const { fs: zenfs } = await import('@zenfs/core')
+    await kernel.filesystem.fs.mkdir('/tmp/chown-probe')
+    const directoriesWork = (() => { try { zenfs.chownSync('/tmp/chown-probe', 0, 0); return true } catch { return false } })()
+
     await kernel.filesystem.fs.mkdir('/tmp/chown-recursive', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/chown-recursive/a.txt', 'a')
 
     const code = await kernel.shell.execute('chown -R 9:9 /tmp/chown-recursive 2>/tmp/chown-recursive.err')
-    expect(code).toBe(1)
-    const err = await kernel.filesystem.fs.readFile('/tmp/chown-recursive.err', 'utf-8')
-    expect(err).toContain('chown-recursive')
-
     const statA = await kernel.filesystem.fs.stat('/tmp/chown-recursive/a.txt')
-    expect(statA.uid).toBe(0)
+    if (directoriesWork) {
+      expect(code).toBe(0)
+      expect(statA.uid).toBe(9)
+      expect((await kernel.filesystem.fs.stat('/tmp/chown-recursive')).uid).toBe(9)
+    } else {
+      expect(code).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/tmp/chown-recursive.err', 'utf-8')).toContain('chown-recursive')
+      expect(statA.uid).toBe(0)
+    }
   })
 
   it('-v prints a diagnostic for every file processed', async () => {

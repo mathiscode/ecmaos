@@ -36,6 +36,8 @@ export const SYSTEM_DIRECTORY_MODES: Readonly<Record<string, number>> = {
   '/etc/default': 0o755,
   '/etc/opt': 0o755,
   '/home': 0o755,
+  '/mnt': 0o755,
+  '/media': 0o755,
   '/root': 0o700,
   '/run': 0o755,
   '/usr': 0o755,

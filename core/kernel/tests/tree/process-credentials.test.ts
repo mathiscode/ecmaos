@@ -129,6 +129,27 @@ describe('programs run as the user who started them', () => {
     expect(await kernel.filesystem.fs.readFile('/etc/passwd', 'utf-8')).toContain('root')
   }, 120000)
 
+  it('chmod and chown depend on owning the file: directories work, a read-only file of her own can change, someone else\'s cannot', async () => {
+    if (!gateOpen) return
+    await kernel.filesystem.fs.mkdir('/home/alice/dir')
+    await kernel.filesystem.fs.chown('/home/alice/dir', alice.uid, alice.gid)
+    await kernel.filesystem.fs.writeFile('/home/alice/ro', 'x', { mode: 0o444 })
+    await kernel.filesystem.fs.chown('/home/alice/ro', alice.uid, alice.gid)
+    await kernel.filesystem.fs.writeFile('/tmp/not-alices', 'x', { mode: 0o666 })
+
+    await asAlice(async () => {
+      expect((await status('chmod 700 /home/alice/dir')).code).toBe(0)
+      expect((await status('chmod 640 /home/alice/ro')).code).toBe(0)
+      const foreign = await status('chmod 600 /tmp/not-alices')
+      expect(foreign.code).not.toBe(0)
+      expect(foreign.err).toMatch(/EPERM|not permitted/i)
+      expect((await status('chown root /home/alice/ro')).code).not.toBe(0)
+    })
+    expect((await kernel.filesystem.fs.stat('/home/alice/dir')).mode & 0o777).toBe(0o700)
+    expect((await kernel.filesystem.fs.stat('/home/alice/ro')).mode & 0o777).toBe(0o640)
+    expect((await kernel.filesystem.fs.stat('/tmp/not-alices')).mode & 0o777).toBe(0o666)
+  }, 60000)
+
   it('with the gate closed every program still runs, as root', async () => {
     internals()._programsRunAsUser = false
     try {

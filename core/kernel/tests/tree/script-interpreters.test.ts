@@ -67,6 +67,16 @@ describe('what scripts expect to find', () => {
     }, 30000)
   })
 
+  describe('$!', () => {
+    it('is the pid of the process just started in the background, usable on the same line', async () => {
+      expect(await kernel.shell.execute('sleep 30 & echo $! > /tmp/bg-pid; kill -0 $!; echo status=$? >> /tmp/bg-pid')).toBe(0)
+      const [pid, status] = (await kernel.filesystem.fs.readFile('/tmp/bg-pid', 'utf-8')).trim().split('\n')
+      expect(status).toBe('status=0')
+      expect((await run('/bin/ps')).out).toMatch(new RegExp(`^${pid}\\s`, 'm'))
+      await run(`kill -9 ${pid}`)
+    }, 30000)
+  })
+
   describe('kill -0', () => {
     it('succeeds for a live process, fails for a missing one, and delivers nothing', async () => {
       await kernel.shell.execute('sleep 30 &')
