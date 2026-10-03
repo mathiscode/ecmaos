@@ -8,6 +8,7 @@
  * (`jobs`, `fg`, `bg`, `wait`, `disown`) and `env`, which runs a command.
  */
 
+import { formatPrintf } from '../printf-format.js'
 import { formatUmask, formatUmaskSymbolic, parseUmask } from './umask.js'
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
@@ -89,7 +90,7 @@ export interface BuiltinHost {
 export const sharedBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'local', 'export', 'read', 'trap', 'unset', ':', '.', 'break', 'continue', 'eval', 'exit',
   'return', 'shift', 'source', 'alias', 'unalias', 'command', 'getopts', 'type', 'readonly', 'declare',
-  'typeset', 'test', '[', 'echo', 'umask',
+  'typeset', 'test', '[', 'echo', 'umask', 'let', 'mapfile', 'readarray', 'shopt', 'printf',
 ])
 
 /** Whether `error` is one of the interpreter's unwind signals, which a builtin must never swallow. */
@@ -110,6 +111,10 @@ export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: st
   switch (name) {
     case 'cd': return cd(host, argv, io)
     case 'umask': return umaskBuiltin(host, argv, io)
+    case 'let': return letBuiltin(host, argv, io)
+    case 'shopt': return shoptBuiltin(host, argv, io)
+    case 'printf': return printfBuiltin(host, argv, io)
+    case 'mapfile': case 'readarray': return mapfileBuiltin(host, argv, io)
     case 'set': return set(host, argv, io)
     case 'local': return local(host, argv, io)
     case 'export': return exportVariables(host, argv, io)
@@ -267,10 +272,25 @@ async function local(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
   if (argv.length === 0) { await io.writelnErr(usage); return 1 }
 
   try {
-    for (const arg of argv) {
+    // `-n` makes a reference; `-i` and `-r` mean what they do for declare. The others describe what an array is
+    // and were handled before the builtin was reached.
+    const flags = new Set<string>()
+    const operands = argv.filter(arg => {
+      if (/^-[A-Za-z]+$/.test(arg)) { for (const letter of arg.slice(1)) flags.add(letter); return false }
+      return true
+    })
+    for (const arg of operands) {
       const eq = arg.indexOf('=')
+      const name = eq === -1 ? arg : arg.slice(0, eq)
+      if (flags.has('n')) {
+        host.state.declareLocal(name)
+        host.state.declareNameref(name, eq === -1 ? undefined : arg.slice(eq + 1))
+        continue
+      }
+      if (flags.has('i')) host.state.setInteger(name, true)
       if (eq === -1) host.state.declareLocal(arg)
-      else host.state.declareLocal(arg.slice(0, eq), arg.slice(eq + 1))
+      else host.state.declareLocal(name, arg.slice(eq + 1))
+      if (flags.has('r')) host.state.markReadonly(name)
     }
     return 0
   } catch (error) {
@@ -329,6 +349,7 @@ async function unset(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
       'Unset a variable, function, or array element.',
       '',
       '  -v      unset variables only',
+      '  -n      unset the reference NAME itself, not the variable it names',
       '  -f      unset functions only',
       '  --help  display this help and exit',
     ].join('\n'))
@@ -338,6 +359,7 @@ async function unset(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
   const state = host.state
   const variablesOnly = argv.includes('-v')
   const functionsOnly = argv.includes('-f')
+  const references = argv.includes('-n')
   if (variablesOnly && functionsOnly) {
     await io.writelnErr('unset: cannot simultaneously unset a function and a variable')
     return 1
@@ -345,7 +367,9 @@ async function unset(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
 
   let status = 0
   for (const arg of argv) {
-    if (arg === '-v' || arg === '-f') continue
+    if (arg === '-v' || arg === '-f' || arg === '-n') continue
+    // `unset -n`: the reference goes, not what it points at
+    if (references) { state.unsetReference(arg); continue }
 
     const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]+)\]$/.exec(arg)
     if (element) {
@@ -414,7 +438,7 @@ async function readonly(host: BuiltinHost, argv: string[], io: BuiltinIO): Promi
 
 /** The attribute letters `declare -p` prints, or `-` for none. */
 function attributes(state: ShellState, name: string): string {
-  const letters = (state.isInteger(name) ? 'i' : '') + (state.isReadonly(name) ? 'r' : '')
+  const letters = (state.isInteger(name) ? 'i' : '') + (state.isNameref(name) ? 'n' : '') + (state.isReadonly(name) ? 'r' : '')
   return letters || '-'
 }
 
@@ -428,6 +452,7 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
       '  -a  declare NAMEs as indexed arrays',
       '  -A  declare NAMEs as associative arrays',
       '  -i  evaluate assignments to NAMEs as arithmetic',
+      '  -n  make NAMEs references to the variable named by their value',
       '  -p  print each NAME with its attributes, or every variable',
       '  -f  print function definitions by name',
       '  -F  print function names only',
@@ -445,9 +470,10 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     if (!arg.startsWith('-') && !arg.startsWith('+')) break
     if (arg === '--') { i++; break }
     if (arg === '+i') { off.add('i'); continue }
+    if (arg === '+n') { off.add('n'); continue }
     for (const letter of arg.slice(1)) {
-      if ('lun'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
-      if (!'aAfFiprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
+      if ('lu'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
+      if (!'aAfFinprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
       flags.add(letter)
     }
   }
@@ -491,6 +517,15 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     // The flag goes on first so that `declare -i n=3+4` stores the sum.
     if (flags.has('i')) state.setInteger(name, true)
     if (off.has('i')) state.setInteger(name, false)
+
+    if (flags.has('n')) {
+      try { state.declareNameref(name, equals === -1 ? undefined : arg.slice(equals + 1)) } catch (error) {
+        await io.writelnErr(`declare: ${message(error)}`)
+        status = 1
+      }
+      continue
+    }
+    if (off.has('n')) { state.namerefNames.delete(name) }
 
     if (equals !== -1) {
       const raw = arg.slice(equals + 1)
@@ -719,6 +754,157 @@ async function returnBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   const parsed = parseSignalArgument(argv, 'return')
   if (parsed.error) { await io.writelnErr(parsed.error); return 2 }
   throw new ReturnSignal(parsed.value ?? host.getStatus())
+}
+
+/**
+ * `printf [-v VAR] FORMAT [ARGUMENT...]`. A builtin because `-v` assigns a shell variable, which a program cannot;
+ * without it the result is the same as `/bin/printf`'s, which shares the formatter.
+ */
+async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  const args = [...argv]
+  let variable: string | undefined
+  if (args[0] === '-v') {
+    variable = args[1]
+    args.splice(0, 2)
+    if (variable === undefined) { await io.writelnErr('printf: -v: option requires an argument'); return 2 }
+    if (!IDENTIFIER.test(variable)) { await io.writelnErr(`printf: \`${variable}': not a valid identifier`); return 1 }
+  }
+  if (args[0] === '--') args.shift()
+  if (args.length === 0) { await io.writelnErr('printf: usage: printf [-v var] format [arguments]'); return 2 }
+  const out = formatPrintf(args[0] as string, args.slice(1))
+  if (variable === undefined) { await io.write(out); return 0 }
+  try { host.state.set(variable, out) } catch (error) { await io.writelnErr(`printf: ${message(error)}`); return 1 }
+  host.changed?.()
+  return 0
+}
+
+/** The `shopt` options that change what the shell does. */
+const SHOPT_EFFECTIVE = ['dotglob', 'extglob', 'failglob', 'globstar', 'nocaseglob', 'nocasematch', 'nullglob']
+/** Options about a terminal session or history that there is nothing here for them to change: accepted, kept, not acted on. */
+const SHOPT_STORED = ['checkwinsize', 'cmdhist', 'histappend', 'huponexit', 'progcomp']
+const SHOPT_NAMES = [...SHOPT_EFFECTIVE, ...SHOPT_STORED].sort()
+
+/**
+ * `shopt [-pqsu] [NAME...]`: shell options beyond `set -o`. The ones that change behavior are `nullglob`,
+ * `failglob`, `dotglob`, `nocaseglob`, `nocasematch`, `extglob` and `globstar`; a few that only matter to an
+ * interactive session (`checkwinsize`, `histappend`, ...) are accepted and remembered. Any other name is an
+ * error, so a script that depends on one finds out.
+ */
+async function shoptBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: shopt [-pqsu] [NAME...]\nShow or change shell options.\n  -s  turn each NAME on\n  -u  turn each NAME off\n  -q  print nothing; the status says whether every NAME is on\n  -p  print in a form that can be read back\nOptions that change behavior: ' + SHOPT_EFFECTIVE.join(', '))
+    return 0
+  }
+  let set = false
+  let unset = false
+  let quiet = false
+  let reusable = false
+  const names: string[] = []
+  for (const arg of argv) {
+    if (/^-[a-z]+$/.test(arg)) {
+      for (const letter of arg.slice(1)) {
+        if (letter === 's') set = true
+        else if (letter === 'u') unset = true
+        else if (letter === 'q') quiet = true
+        else if (letter === 'p') reusable = true
+        else { await io.writelnErr(`shopt: -${letter}: invalid option`); return 2 }
+      }
+    } else names.push(arg)
+  }
+  if (set && unset) { await io.writelnErr('shopt: cannot set and unset shell options simultaneously'); return 1 }
+
+  const shopts = host.state.shopts
+  let status = 0
+  const unknown = names.filter(name => !SHOPT_NAMES.includes(name))
+  for (const name of unknown) { await io.writelnErr(`shopt: ${name}: invalid shell option name`); status = 1 }
+  const known = names.filter(name => SHOPT_NAMES.includes(name))
+
+  if (set || unset) {
+    for (const name of known) { if (set) shopts.add(name); else shopts.delete(name) }
+    return status
+  }
+  for (const name of names.length === 0 ? SHOPT_NAMES : known) {
+    const on = shopts.has(name)
+    if (!on) status = 1
+    if (quiet) continue
+    await io.writeln(reusable ? `shopt -${on ? 's' : 'u'} ${name}` : `${name.padEnd(20)}\t${on ? 'on' : 'off'}`)
+  }
+  // listing everything is not a test of anything
+  return names.length === 0 ? 0 : status
+}
+
+/**
+ * `mapfile [-t] [-n COUNT] [-s SKIP] [-d DELIM] [-O ORIGIN] [ARRAY]` (also `readarray`): standard input's lines
+ * into an indexed array, `MAPFILE` by default. Each element keeps its trailing delimiter unless `-t`.
+ */
+async function mapfileBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  const usage = 'Usage: mapfile [-t] [-n COUNT] [-s SKIP] [-d DELIM] [-O ORIGIN] [ARRAY]\nRead lines from standard input into the indexed array ARRAY (MAPFILE by default).\n  -t  remove the trailing delimiter from each line\n  -n  copy at most COUNT lines (0: all)\n  -s  skip the first SKIP lines\n  -d  end lines at the first character of DELIM, not a newline\n  -O  assign from index ORIGIN instead of clearing the array first'
+  let strip = false
+  let limit = 0
+  let skip = 0
+  let origin: number | undefined
+  let delimiter = '\n'
+  const names: string[] = []
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (arg === '--help') { await io.writeln(usage); return 0 }
+    if (arg.startsWith('-') && arg.length > 1) {
+      for (let j = 1; j < arg.length; j++) {
+        const letter = arg[j] as string
+        if (letter === 't') { strip = true; continue }
+        if ('nsdO'.includes(letter)) {
+          const value = j + 1 < arg.length ? arg.slice(j + 1) : argv[++i]
+          if (value === undefined) { await io.writelnErr(`mapfile: option requires an argument -- '${letter}'`); return 2 }
+          if (letter === 'd') delimiter = value.slice(0, 1)
+          else {
+            if (!/^\d+$/.test(value)) { await io.writelnErr(`mapfile: ${value}: invalid ${letter === 'n' ? 'line count' : letter === 's' ? 'line count' : 'array origin'}`); return 1 }
+            if (letter === 'n') limit = Number(value)
+            else if (letter === 's') skip = Number(value)
+            else origin = Number(value)
+          }
+          break
+        }
+        await io.writelnErr(`mapfile: -${letter}: invalid option`)
+        return 2
+      }
+      continue
+    }
+    names.push(arg)
+  }
+  const name = names[0] ?? 'MAPFILE'
+  if (!IDENTIFIER.test(name)) { await io.writelnErr(`mapfile: ${name}: not a valid identifier`); return 1 }
+
+  const lines: string[] = []
+  let skipped = 0
+  for (;;) {
+    const result: { terminated: boolean } = { terminated: true }
+    const line = await io.readLine(delimiter === '\n' ? { result } : { delimiter, result })
+    if (line === undefined) break
+    if (skipped < skip) { skipped++; continue }
+    lines.push(strip || !result.terminated ? line : line + delimiter)
+    if (limit > 0 && lines.length >= limit) break
+  }
+  if (origin === undefined) host.state.setArray(name, lines)
+  else lines.forEach((line, index) => host.state.setArrayElement(name, (origin as number) + index, line))
+  host.changed?.()
+  return 0
+}
+
+/** `let EXPRESSION...`: each argument is arithmetic, assignments in it taking effect; true when the last is not zero. */
+async function letBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: let EXPRESSION [EXPRESSION...]\nEvaluate arithmetic expressions. The status is 0 when the last one is not zero, 1 when it is.')
+    return 0
+  }
+  if (argv.length === 0) { await io.writelnErr('let: expression expected'); return 1 }
+  let last = 0
+  for (const expression of argv) {
+    try { last = await host.interpreter.arithmetic(expression) } catch (error) {
+      await io.writelnErr(`let: ${expression}: ${message(error)}`)
+      return 1
+    }
+  }
+  return last !== 0 ? 0 : 1
 }
 
 /** `umask [-p] [-S] [MODE]`: show or set the file mode creation mask. */
@@ -982,7 +1168,7 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
     return 0
   }
   if (argv[0] === '-l') {
-    await io.writeln(['EXIT', 'ERR', ...(host.signalNames?.() ?? [])].join(' '))
+    await io.writeln(['EXIT', 'ERR', 'DEBUG', 'RETURN', ...(host.signalNames?.() ?? [])].join(' '))
     return 0
   }
 
@@ -996,7 +1182,8 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
   for (const raw of signals) {
     let signal = raw.replace(/^SIG/, '').toUpperCase()
     if (/^\d+$/.test(signal)) signal = signal === '0' ? 'EXIT' : (host.signalName?.(Number(signal)) ?? signal)
-    const failure = host.trapSignal?.(signal, handler)
+    // DEBUG and RETURN are the interpreter's own, not signals a host delivers
+    const failure = signal === 'DEBUG' || signal === 'RETURN' ? undefined : host.trapSignal?.(signal, handler)
     if (failure !== undefined) { await io.writelnErr(`trap: ${raw}: ${failure}`); return 1 }
     state.setTrap(handler, signal)
   }

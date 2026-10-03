@@ -12,8 +12,9 @@
 
 import { evaluateArithmeticExpression } from './expand-variables.js'
 import { expandBraces } from './brace-expansion.js'
+import { globRegExp, globToRegExpSource, hasGlobCharacters, type GlobOptions } from './glob.js'
 import type { WordPart } from './shell-parser.js'
-import { scanExpansionEnd } from './shell-parser.js'
+import { decodeAnsiC, scanExpansionEnd } from './shell-parser.js'
 
 /** An array's keys: numeric order for an indexed array, insertion order for an associative one. */
 function orderedKeys(array: Map<number | string, string>): Array<number | string> {
@@ -51,6 +52,8 @@ export interface ExpansionContext {
   home(): string | undefined
   /** `set -u`: throw on a reference to an unset variable */
   nounset?: boolean
+  /** Whether a `shopt` option (`nullglob`, `failglob`, `extglob`, `nocasematch`, ...) is on */
+  shopt?(name: string): boolean
 }
 
 /** One run of an in-progress field: its text and whether splitting/globbing may apply to it. */
@@ -134,8 +137,20 @@ function assertName(name: string): void {
 /** `set -u` met a variable that is not set. The interpreter reports it and ends a script, as bash does. */
 export class UnboundVariableError extends Error {}
 
+/** `shopt -s failglob`: a pattern that matches nothing is an error. */
+export class GlobNoMatchError extends Error {
+  constructor(readonly pattern: string) { super(`no match: ${pattern}`) }
+}
+
+/** The pattern options `shopt` selects, for `case`, `[[ ]]` and `${x#pattern}`. */
+export function patternOptionsOf(ctx: Pick<ExpansionContext, 'shopt'>): GlobOptions {
+  return { extglob: ctx.shopt?.('extglob'), nocase: ctx.shopt?.('nocasematch') }
+}
+
 class Expander {
   constructor(private ctx: ExpansionContext) {}
+
+  private patternOptions(): GlobOptions { return patternOptionsOf(this.ctx) }
 
   private scalar(name: string): string | undefined {
     const value = this.ctx.lookup(name)
@@ -209,7 +224,7 @@ class Expander {
     }
 
     if (operator === '#' || operator === '##' || operator === '%' || operator === '%%') {
-      const pattern = new RegExp(globToRegExpSource(await this.expandText(rest, 'double')), 's')
+      const pattern = globRegExp(await this.expandText(rest, 'double'), this.patternOptions())
       const trim = (text: string): string => {
         const prefix = operator[0] === '#'
         const longest = operator.length === 2
@@ -239,7 +254,7 @@ class Expander {
       const patternText = await this.expandText(slash === -1 ? body : body.slice(0, slash), 'double')
       const replacement = slash === -1 ? '' : await this.expandText(body.slice(slash + 1), 'double')
       if (patternText === '') return finish(values)
-      const pattern = new RegExp(globToRegExpSource(patternText), 's')
+      const pattern = globRegExp(patternText, this.patternOptions())
       const replace = (text: string): string => {
         if (mode === 'start') {
           for (let end = text.length; end >= 0; end--) if (pattern.test(text.slice(0, end))) return replacement + text.slice(end)
@@ -264,10 +279,24 @@ class Expander {
       return finish(values.map(replace))
     }
 
+    // @U @L @u @Q @E: the value transformed as a whole
+    if (operator === '@') {
+      const transformations: Record<string, (text: string) => string> = {
+        U: text => text.toUpperCase(),
+        L: text => text.toLowerCase(),
+        u: text => text.charAt(0).toUpperCase() + text.slice(1),
+        Q: text => `'${text.replace(/'/g, `'\\''`)}'`,
+        E: text => decodeAnsiC(text),
+      }
+      const apply = transformations[rest]
+      if (!apply) throw new Error(`\${${name}${subscript !== undefined ? `[${subscript}]` : ''}@${rest}}: bad substitution`)
+      return finish(values.map(apply))
+    }
+
     // ^ ^^ , ,,: case conversion, of every character matching the optional pattern
     const upper = operator[0] === '^'
     const all = operator.length === 2
-    const only = rest ? new RegExp(globToRegExpSource(await this.expandText(rest, 'double')), 's') : undefined
+    const only = rest ? globRegExp(await this.expandText(rest, 'double'), this.patternOptions()) : undefined
     const convert = (text: string): string => {
       let done = false
       return Array.from(text).map(char => {
@@ -307,7 +336,7 @@ class Expander {
     }
 
     // ${name:off:len}, ${name#pat}, ${name%pat}, ${name/pat/rep}, ${name^^}: operators that transform the value
-    const modified = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(?:\[([^\]]*)\])?(:(?![-+=?])|##?|%%?|\/|\^\^?|,,?)([\s\S]*)$/.exec(body)
+    const modified = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(?:\[([^\]]*)\])?(:(?![-+=?])|##?|%%?|\/|\^\^?|,,?|@(?=[A-Za-z]$))([\s\S]*)$/.exec(body)
     if (modified) return await this.transform(modified[1] as string, modified[2], modified[3] as string, modified[4] as string)
 
     const match = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])(?:\[([^\]]*)\])?(:?[-+=?])?([\s\S]*)$/.exec(body)
@@ -513,10 +542,14 @@ class Expander {
       const text = chunks.map(c => c.text).join('')
       if (!text && !mustKeep) continue
 
-      if (options.glob && chunks.some(c => c.glob && /[*?]|\[.*\]/.test(c.text))) {
-        const pattern = chunks.map(c => c.glob ? c.text : c.text.replace(/[*?[\]\\]/g, '\\$&')).join('')
+      const globbing = this.ctx.shopt?.('extglob') ? { extglob: true } : {}
+      if (options.glob && chunks.some(c => c.glob && (/[*?]|\[.*\]/.test(c.text) || hasGlobCharacters(c.text, globbing)))) {
+        const pattern = chunks.map(c => c.glob ? c.text : c.text.replace(/[*?[\]\\()@!+]/g, '\\$&')).join('')
         const matches = await this.ctx.glob(pattern)
         if (matches.length) { out.push(...matches); continue }
+        // nothing matched: the pattern stays as written unless the shell says otherwise
+        if (this.ctx.shopt?.('failglob')) throw new GlobNoMatchError(pattern)
+        if (this.ctx.shopt?.('nullglob')) continue
       }
       out.push(text)
     }
@@ -577,30 +610,4 @@ export async function expandHeredocBody(body: string, ctx: ExpansionContext): Pr
   return (await new Expander(ctx).fields(parts, { split: false, glob: false, tilde: false })).join('')
 }
 
-/**
- * Converts a shell glob (`*`, `?`, `[...]`, with `\x` escaping a character) into an anchored
- * RegExp source. Used for `[[ x == pattern ]]`, `case` and pathname expansion alike.
- */
-export function globToRegExpSource(pattern: string): string {
-  let out = ''
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i] as string
-    if (c === '\\' && i + 1 < pattern.length) {
-      out += (pattern[++i] as string).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
-    } else if (c === '*') {
-      out += '.*'
-    } else if (c === '?') {
-      out += '.'
-    } else if (c === '[') {
-      const close = pattern.indexOf(']', i + 2)
-      if (close === -1) { out += '\\['; continue }
-      let set = pattern.slice(i + 1, close)
-      if (set.startsWith('!')) set = '^' + set.slice(1)
-      out += `[${set.replace(/\\/g, '\\\\')}]`
-      i = close
-    } else {
-      out += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
-    }
-  }
-  return `^${out}$`
-}
+export { globToRegExpSource }

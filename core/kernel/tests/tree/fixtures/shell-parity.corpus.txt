@@ -383,3 +383,198 @@ for i in 3 1 2; do echo $i; done | sort && echo ok
 for i in 1 2; do echo $i; done | grep -q 2 && echo found || echo none
 ### control/andor-pipe-while
 printf 'b\na\n' | while read x; do echo $x; done | sort && echo sorted
+### gaps/read-timeout-expires
+sleep 1 | { read -t 0.2 x; echo "st=$?"; }
+### gaps/read-timeout-data
+echo hi | { read -t 2 x; echo "$x st=$?"; }
+### gaps/bg-subshell
+( echo bg ) & wait; echo done
+### gaps/bg-subshell-sleep
+( sleep 0.2; echo sub ) & wait; echo done
+### gaps/bg-group
+{ echo grp; } & wait; echo done
+### gaps/andor-group
+true && { echo a; echo b; }; false || { echo c; }
+### gaps/andor-if
+true && if true; then echo y; fi; false || if false; then echo n; else echo e; fi
+### gaps/andor-for
+true && for i in 1 2; do echo $i; done; echo end
+### gaps/andor-while
+n=0; true && while [ $n -lt 2 ]; do n=$((n+1)); echo w$n; done
+### gaps/andor-subshell
+true && ( echo sub ); false || ( echo sub2 )
+### gaps/andor-case
+x=a; true && case $x in a) echo isa;; esac
+### gaps/subshell-in-pipeline
+( echo a; echo b ) | cat; echo x | ( cat ); echo y | ( read v; echo got $v )
+### gaps/subshell-status
+( exit 3 ); echo $?; ( false ) || echo failed
+### gaps/trap-usr1
+trap 'echo usr1' USR1; kill -USR1 $$; echo after
+### gaps/trap-term
+trap 'echo term' TERM; kill $$; echo after
+### gaps/trap-hup
+trap 'echo hup' HUP; kill -HUP $$; echo after
+### gaps/trap-ignore
+trap '' USR1; kill -USR1 $$; echo survived
+### gaps/trap-reset
+trap 'echo x' USR1; trap - USR1; trap -p USR1; echo none
+### gaps/trap-debug
+trap 'echo dbg' DEBUG; echo one; echo two
+### gaps/trap-return
+f() { trap 'echo ret' RETURN; echo in; }; f; echo out
+### gaps/arith-command
+(( x = 3 + 4 )); echo $x; (( x > 5 )) && echo big; (( 0 )); echo $?; (( x++ )); echo $x
+### gaps/arith-for-cmd
+for ((i=0;i<3;i++)); do echo $i; done; ((i += 10)); echo $i
+### gaps/let
+let a=2+3 b=a*2; echo $a $b; let 'c = a > 3'; echo $c
+### gaps/local-array
+f() { local -a a=(1 2); echo ${a[@]}; }; a=(9); f; echo ${a[@]}
+### gaps/local-assoc
+f() { local -A m; m[k]=v; echo ${m[k]}; }; f; echo ${m[k]:-unset}
+### gaps/mapfile
+printf 'a\nb\nc\n' | { mapfile -t arr; echo ${#arr[@]} ${arr[1]}; }
+### gaps/readarray
+printf '1\n2\n' | { readarray lines; echo ${#lines[@]}; }
+### gaps/indirect
+x=y; y=val; echo ${!x}; arr=(p q); n=arr; echo ${!n[@]}
+### gaps/printf-v
+printf -v out '%05d-%s' 42 ab; echo $out
+### gaps/printf-q
+printf '%q\n' 'a b' "it's"
+### gaps/case-fallthrough
+case a in a) echo 1;;& *) echo 2;; esac
+### gaps/case-continue
+case a in a) echo 1;& b) echo 2;; c) echo 3;; esac
+### gaps/test-v
+x=1; [[ -v x ]] && echo set; [[ -v nope ]] || echo unset
+### gaps/rematch
+if [[ "abc123" =~ ([a-z]+)([0-9]+) ]]; then echo ${BASH_REMATCH[0]} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}; fi
+### gaps/declare-p
+x=5; declare -p x; a=(1 2); declare -p a
+### gaps/funcname
+f() { echo ${FUNCNAME[0]}; g; }; g() { echo ${FUNCNAME[0]} ${FUNCNAME[1]}; }; f
+### gaps/last-arg
+echo a b c; echo $_
+### gaps/heredoc-dash
+cat <<-EOF
+	tabbed
+	EOF
+### gaps/herestring
+read a b <<< "x y"; echo $b $a
+### gaps/wait-n
+sleep 0.1 & sleep 0.3 & wait -n; echo first
+### gaps/nameref
+x=1; declare -n r=x; r=2; echo $x
+### gaps/exec-redirect-bg
+exec > /tmp/pc-out.txt; sleep 0.1 & wait; echo hi; exec >&2; cat /tmp/pc-out.txt
+### gaps/cmd-subst-trailing
+x=$(printf 'a\n\n\n'); echo "[$x]"
+### gaps/errexit-subshell
+set -e; ( false; echo no ) || echo caught; echo done
+### gaps/time-keyword
+time true 2>/dev/null; echo $?
+### gaps/shopt
+shopt -s nullglob; echo /nonexistent-dir/*; shopt -u nullglob; echo done
+### gaps/brace-seq-step
+echo {1..10..3} {a..e..2} {05..08}
+### gaps/pipestatus-subshell
+( exit 2 ) | true; echo ${PIPESTATUS[0]}
+### gaps/arith-ternary-comma
+echo $(( 1 ? 2 : 3 )) $(( (1,2) + 1 ))
+### gaps/string-ops-more
+x=hello; echo ${x@U} ${x@Q} ${x:0:1}${x: -2}
+### gaps/dollar-quote
+echo $'a\tb' $'\x41'
+### gaps/glob-classes
+cd /tmp; touch g1 g2 gx 2>/dev/null; echo g[[:digit:]]; echo g[!1]; rm -f g1 g2 gx
+### gaps/shopt-nullglob-for
+shopt -s nullglob
+for f in /nonexistent-dir/*; do echo "got $f"; done
+echo done
+### gaps/shopt-failglob
+shopt -s failglob
+echo /nonexistent-dir/* 2>/dev/null
+echo after $?
+### gaps/shopt-extglob-case
+shopt -s extglob
+case abc in @(abc|x)) echo ok;; esac
+[[ foo.txt == !(*.md) ]] && echo notmd
+[[ foo.md == !(*.md) ]] || echo md
+case b in a|@(b|c)) echo grouped;; esac
+### gaps/shopt-nocasematch
+shopt -s nocasematch
+case ABC in abc) echo ci;; esac
+[[ HELLO == hello ]] && echo same
+### gaps/shopt-query
+shopt -s nullglob; shopt -q nullglob && echo on; shopt -u nullglob; shopt nullglob; echo "st=$?"; shopt -p nullglob
+### gaps/shopt-invalid
+shopt -s bogus 2>/dev/null; echo $?
+### gaps/shopt-dotglob fs
+touch .h v; shopt -s dotglob; echo *; shopt -u dotglob; echo *
+### gaps/shopt-nocaseglob fs
+touch Aa bb; shopt -s nocaseglob; echo a*; echo B*
+### gaps/shopt-extglob-files fs
+touch a.txt b.txt c.md
+shopt -s extglob
+echo !(*.md)
+echo @(a|c).*
+### gaps/globstar fs
+mkdir -p d/e; touch d/x.txt d/e/y.txt top.txt; shopt -s globstar; echo **/*.txt
+### gaps/glob-multi-segment fs
+mkdir -p d/e; touch d/x.txt d/e/y.txt; echo d/*/y.txt d/*.txt */e
+### gaps/glob-brackets fs
+touch f1 f2 fa; echo f[0-9] f[!0-9] f[[:alpha:]] f[^1]
+### gaps/mapfile-options
+printf 'a\nb\nc\nd\n' | { mapfile -t -s 1 -n 2 arr; echo ${arr[@]} ${#arr[@]}; }
+### gaps/mapfile-keeps-newline
+printf 'a\nb\n' | { mapfile arr; printf '[%s]' "${arr[@]}"; echo; }
+### gaps/mapfile-default-name
+printf 'x\ny\n' | { mapfile -t; echo ${MAPFILE[1]}; }
+### gaps/let-status
+let 'x = 0'; echo $?; let 'x = 5'; echo $? $x; let 1 2 3; echo $?
+### gaps/arith-in-if
+x=3; if (( x > 2 )); then echo gt; fi; while (( x > 0 )); do echo $x; (( x-- )); done
+### gaps/arith-chain
+(( 1 )) && echo a || echo b; (( 0 )) && echo c || echo d
+### gaps/arith-assign-cmd
+(( a = 2, b = a * 3 )); echo $a $b; (( a += 1 )); echo $a
+### gaps/last-arg-builtin
+set -- one two; echo $@ > /dev/null; echo $_; cd /; echo $_
+### gaps/funcname-nested
+a() { b; }; b() { c; }; c() { echo ${FUNCNAME[@]}; echo ${#FUNCNAME[@]}; }; a; echo "${FUNCNAME[@]:-none}"
+### gaps/case-fall-chain
+case x in x) echo 1;& y) echo 2;& z) echo 3;; w) echo 4;; esac
+### gaps/case-test-all
+case ab in a*) echo A;;& *b) echo B;;& ab) echo C;; *) echo D;; esac
+### gaps/nameref-local
+f() { local -n ref=$1; ref=changed; }; v=orig; f v; echo $v
+### gaps/nameref-array
+arr=(1 2 3); declare -n r=arr; echo ${r[1]} ${#r[@]}; r[1]=X; echo ${arr[@]}
+### gaps/nameref-unset
+x=1; declare -n r=x; unset -n r; echo ${r:-gone} $x
+### gaps/printf-v-multi
+printf -v a '%s-%s' 1 2; printf -v b '[%3d]' 7; echo $a $b
+### gaps/printf-q-control
+printf '%q\n' '' 'a$b' 'tab	x'
+### gaps/transform-ops
+x="hello world"; echo ${x@U} ${x@L} ${x@u} ${x@Q}; y=$'a\\tb'; echo ${y@E}
+### gaps/ansi-c-escapes
+echo $'one\ntwo' $'\101\x42\u0043' $'q\'s' $'tab\there'
+### gaps/trap-return-nested
+f() { trap 'echo ret-f' RETURN; echo in-f; }; g() { f; echo in-g; }; g
+### gaps/debug-trap-line
+trap 'echo D' DEBUG
+echo a
+x=1
+trap - DEBUG
+echo b
+### gaps/exec-redirect-twice
+exec > /tmp/pc-a.txt; echo one; exec > /tmp/pc-b.txt; echo two; exec >&2; cat /tmp/pc-a.txt /tmp/pc-b.txt
+### gaps/function-global-assign
+f() { g=1; local l=2; h=3; echo $g $l; }; f; echo "[$g] [$l] [$h]"
+### gaps/function-modify-global
+n=5; f() { n=$((n+1)); }; f; f; echo $n
+### gaps/function-array-global
+f() { arr=(1 2); arr[2]=3; }; f; echo ${arr[@]}

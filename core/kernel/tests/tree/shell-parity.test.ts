@@ -57,6 +57,10 @@ describe('shell parity with bash', () => {
     const internals = shell as unknown as { _execOutputs?: unknown, _interrupted: boolean, _jobs: unknown[], _nextJobId: number }
     shell.state.readonlyNames.clear()
     shell.state.unexported.clear()
+    shell.state.integerNames.clear()
+    shell.state.namerefNames.clear()
+    shell.state.shopts.clear()
+    shell.state.unsetArray('FUNCNAME')
     internals._execOutputs = undefined
     internals._interrupted = false
     // `wait` reports the jobs of earlier cases too, including ones that failed.

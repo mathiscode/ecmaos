@@ -85,6 +85,8 @@ export class ShellState {
 
   /** Names declared `-i`: every assignment is evaluated as arithmetic, and `+=` adds. */
   readonly integerNames = new Set<string>()
+  /** Names declared with `declare -n`: the value of each is the name of the variable it stands for. */
+  readonly namerefNames = new Set<string>()
 
   functions = new Map<string, Statement[]>()
 
@@ -97,6 +99,8 @@ export class ShellState {
    */
   traps = new Map<string, string>()
 
+  /** The `shopt` options that are on. */
+  shopts = new Set<string>()
   options: ShellOptions = { errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false }
 
   /** `getopts`' position inside a cluster such as `-abc` */
@@ -128,6 +132,36 @@ export class ShellState {
    * `local RANDOM` can shadow it, but a plain `RANDOM=42` cannot replace it: that seeds it instead.
    */
   lookup(name: string): string | undefined {
+    return this.rawLookup(this.resolveName(name))
+  }
+
+  /** The variable a name stands for: itself, or through any `declare -n` references to the one it names. */
+  resolveName(name: string): string {
+    let current = name
+    for (let hops = 0; hops < 8 && this.namerefNames.has(current); hops++) {
+      const target = this.rawLookup(current)
+      if (!target) break
+      current = target
+    }
+    return current
+  }
+
+  isNameref(name: string): boolean { return this.namerefNames.has(name) }
+
+  /** `declare -n NAME[=TARGET]`: NAME stands for TARGET from now on. Assigning to the reference itself re-points it. */
+  declareNameref(name: string, target?: string): void {
+    this.namerefNames.delete(name)
+    if (target !== undefined) this.set(name, target)
+    this.namerefNames.add(name)
+  }
+
+  /** `unset -n NAME`: the reference goes, what it pointed at stays. */
+  unsetReference(name: string): void {
+    this.namerefNames.delete(name)
+    this.unset(name)
+  }
+
+  private rawLookup(name: string): string | undefined {
     for (let i = this.localScopes.length - 1; i >= 0; i--) {
       const frame = this.localScopes[i] as Map<string, string | undefined>
       if (frame.has(name)) return frame.get(name)
@@ -178,16 +212,20 @@ export class ShellState {
   }
 
   /**
-   * Assigns a variable. Throws for a readonly name. Inside a function an assignment lands in the
-   * innermost frame, which is only correct for a name that frame declared; callers that mean "global
-   * unless local" go through {@link declareLocal} first.
+   * Assigns a variable. Throws for a readonly name. Inside a function the assignment lands in the nearest
+   * frame that declared the name with {@link declareLocal}, and in the shell's own variables when none did.
    */
   set(name: string, value: string, append = false): void {
+    name = this.namerefNames.has(name) ? this.resolveName(name) : name
     if (this.readonlyNames.has(name)) throw new Error(`${name}: readonly variable`)
     if (this.integerNames.has(name)) value = this.integerValue(name, value, append)
     else if (append) value = (this.lookup(name) ?? '') + value
-    const frame = this.localScopes[this.localScopes.length - 1]
-    if (frame) { frame.set(name, value); return }
+    // dynamic scope, as in bash: the nearest function frame that declared the name takes the assignment, and a
+    // name no frame declared is the shell's own
+    for (let i = this.localScopes.length - 1; i >= 0; i--) {
+      const frame = this.localScopes[i] as Map<string, string | undefined>
+      if (frame.has(name)) { frame.set(name, value); return }
+    }
 
     // Assigning to a computed parameter adjusts what it computes rather than replacing it, which is
     // bash's behavior: `RANDOM=42` seeds the generator and `SECONDS=0` restarts the clock.
@@ -218,6 +256,7 @@ export class ShellState {
 
   /** Removes a variable; inside a function, one a frame declared is hidden rather than deleted. */
   unset(name: string): void {
+    name = this.namerefNames.has(name) ? this.resolveName(name) : name
     if (this.readonlyNames.has(name)) throw new Error(`${name}: cannot unset: readonly variable`)
     for (let i = this.localScopes.length - 1; i >= 0; i--) {
       const frame = this.localScopes[i] as Map<string, string | undefined>
@@ -312,6 +351,7 @@ export class ShellState {
   }
 
   lookupArray(name: string): ArrayStore | undefined {
+    name = this.resolveName(name)
     const frame = this.arrayFrameFor(name)
     return frame ? frame.get(name) : this.arrays.get(name)
   }
@@ -323,6 +363,7 @@ export class ShellState {
   }
 
   setArray(name: string, values: string[]): void {
+    name = this.resolveName(name)
     this.storeArray(name, new Map(values.map((value, index) => [index, value])))
   }
 
@@ -342,12 +383,14 @@ export class ShellState {
   }
 
   setArrayElement(name: string, index: number | string, value: string): void {
+    name = this.resolveName(name)
     const array = this.lookupArray(name) ?? new Map() as ArrayStore
     array.set(index, value)
     this.storeArray(name, array)
   }
 
   appendArray(name: string, values: string[]): void {
+    name = this.resolveName(name)
     const array = this.lookupArray(name) ?? new Map() as ArrayStore
     const nextIndex = array.size ? Math.max(...[...array.keys()].map(Number)) + 1 : 0
     values.forEach((value, i) => array.set(nextIndex + i, value))
@@ -355,10 +398,12 @@ export class ShellState {
   }
 
   unsetArrayElement(name: string, index: number | string): void {
+    name = this.resolveName(name)
     this.lookupArray(name)?.delete(index)
   }
 
   unsetArray(name: string): void {
+    name = this.resolveName(name)
     const frame = this.arrayFrameFor(name)
     if (frame) frame.set(name, undefined)
     else { this.arrays.delete(name); this.assocNames.delete(name) }
@@ -398,6 +443,7 @@ export class ShellState {
       aliases: new Map(this.aliases),
       traps: new Map(this.traps),
       options: { ...this.options },
+      shopts: new Set(this.shopts),
     }
   }
 
@@ -412,6 +458,7 @@ export class ShellState {
       aliases: new Map(snapshot.aliases),
       traps: new Map(snapshot.traps),
       options: { ...snapshot.options },
+      shopts: new Set(snapshot.shopts),
     })
   }
 
@@ -426,6 +473,7 @@ export class ShellState {
     this.aliases = snapshot.aliases
     this.traps = snapshot.traps
     this.options = snapshot.options
+    this.shopts = snapshot.shopts
   }
 }
 
@@ -438,6 +486,7 @@ export interface ShellSnapshot {
   aliases: Map<string, string>
   traps: Map<string, string>
   options: ShellOptions
+  shopts: Set<string>
 }
 
 /**
@@ -455,6 +504,7 @@ export function serializeSnapshot(snapshot: ShellSnapshot): string {
     aliases: [...snapshot.aliases],
     traps: [...snapshot.traps],
     options: snapshot.options,
+    shopts: [...snapshot.shopts],
   })
 }
 
@@ -469,5 +519,6 @@ export function deserializeSnapshot(text: string): ShellSnapshot {
     aliases: new Map(data.aliases),
     traps: new Map(data.traps),
     options: data.options,
+    shopts: new Set(data.shopts ?? []),
   }
 }

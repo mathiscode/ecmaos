@@ -95,7 +95,43 @@ export interface ForStatement extends Redirected, Positioned {
 export interface CaseClause {
   patterns: string[]
   body: Statement[]
+  /** `;;` ends the case, `;&` runs the next clause's body too, `;;&` goes on testing the later patterns. */
+  terminator?: ';;' | ';&' | ';;&'
 }
+
+/**
+ * `a|b) body` as its patterns and what follows the `)`. The `)` that ends the patterns is the first one no
+ * parenthesis opened inside them, so an extended pattern such as `@(a|b)` stays whole.
+ */
+function splitCaseClauseHeader(line: string): { patterns: string[], rest: string } | undefined {
+  const patterns: string[] = []
+  let current = ''
+  let depth = 0
+  let i = line.startsWith('(') ? 1 : 0
+  for (; i < line.length; i++) {
+    const c = line[i] as string
+    if (c === '\\') { current += c + (line[++i] ?? ''); continue }
+    if (c === "'" || c === '"') {
+      const end = line.indexOf(c, i + 1)
+      const stop = end === -1 ? line.length : end + 1
+      current += line.slice(i, stop); i = stop - 1; continue
+    }
+    if (c === '(') depth++
+    else if (c === ')') {
+      if (depth === 0) { patterns.push(current.trim()); return { patterns, rest: line.slice(i + 1) } }
+      depth--
+    } else if (c === '|' && depth === 0) { patterns.push(current.trim()); current = ''; continue }
+    current += c
+  }
+  return undefined
+}
+
+function terminatorOf(text: string | undefined): { terminator?: ';;' | ';&' | ';;&' } {
+  return text === ';&' || text === ';;&' ? { terminator: text } : {}
+}
+
+/** A clause terminator at the end of a line. `;&` cannot be anything else outside a `case`. */
+const CASE_TERMINATOR = /(;;&|;;|;&)\s*$/
 
 export interface CaseStatement extends Redirected, Positioned {
   type: 'case'
@@ -270,7 +306,8 @@ export function splitTopLevel(line: string): string[] {
     if (char === '}') { brace = Math.max(0, brace - 1); current += char; i++; commandStart = false; continue }
 
     if (char === ';') {
-      if (line[i + 1] === ';') { current += ';;'; i += 2; commandStart = true; continue }
+      if (line[i + 1] === ';') { const length = line[i + 2] === '&' && line[i + 3] !== '&' ? 3 : 2; current += line.slice(i, i + length); i += length; commandStart = true; continue }
+      if (line[i + 1] === '&' && line[i + 2] !== '&') { current += ';&'; i += 2; commandStart = true; continue }
       if (paren === 0 && brace === 0 && keywords.length === 0) { i++; flush(); continue }
       current += char; i++; commandStart = true; continue
     }
@@ -327,10 +364,11 @@ function normalizeOneLineCase(segment: string): string | undefined {
     }
     if (char === '(') depth++
     else if (char === ')') depth = Math.max(0, depth - 1)
-    if (char === ';' && body[i + 1] === ';' && depth === 0) {
-      if (current.trim()) clauses.push(current.trim() + ' ;;')
+    if (char === ';' && depth === 0 && (body[i + 1] === ';' || body[i + 1] === '&')) {
+      const terminator = body[i + 1] === '&' ? ';&' : body[i + 2] === '&' ? ';;&' : ';;'
+      if (current.trim()) clauses.push(current.trim() + ' ' + terminator)
       current = ''
-      i++
+      i += terminator.length - 1
       continue
     }
     current += char
@@ -828,35 +866,37 @@ class LineParser {
       // A clause pattern header (`a|b)`) may be followed on the same line by its entire body and
       // terminator (`a) echo hi ;;`), just the terminator (`*) ;;`), or nothing at all -- the
       // common case, with the body on subsequent lines.
-      const clauseMatch = /^(.*?)\)(.*)$/.exec(clauseHeaderLine)
+      const clauseMatch = splitCaseClauseHeader(clauseHeaderLine)
       if (!clauseMatch) throw new ControlFlowParseError(`Malformed case pattern: ${clauseHeaderLine}`)
-      const patterns = (clauseMatch[1] as string).split('|').map(p => p.trim())
-      const inlineRest = (clauseMatch[2] as string).trim()
+      const patterns = clauseMatch.patterns
+      const inlineRest = clauseMatch.rest.trim()
 
       const body: Statement[] = []
 
       if (inlineRest.length) {
-        const inlineTerminated = /;;\s*$/.test(inlineRest)
-        const inlineBody = inlineRest.replace(/;;\s*$/, '').trim()
+        const inline = CASE_TERMINATOR.exec(inlineRest)
+        const inlineBody = inlineRest.replace(CASE_TERMINATOR, '').trim()
         if (inlineBody.length) body.push({ type: 'simple', line: inlineBody })
-        if (inlineTerminated) {
-          clauses.push({ patterns, body })
+        if (inline) {
+          clauses.push({ patterns, body, ...terminatorOf(inline[1]) })
           continue
         }
       }
 
-      while (!this.atEnd() && !/;;\s*$/.test(this.peek() as string) && this.firstWord(this.peek() as string) !== 'esac') {
+      while (!this.atEnd() && !CASE_TERMINATOR.test(this.peek() as string) && this.firstWord(this.peek() as string) !== 'esac') {
         body.push(this.parsePositionedStatement())
       }
 
-      // `;;` may terminate the last body line inline (`echo hi ;;`) or stand alone on its own line.
-      if (!this.atEnd() && /;;\s*$/.test(this.peek() as string)) {
+      // the terminator may end the last body line inline (`echo hi ;;`) or stand alone on its own line
+      let terminator: ReturnType<typeof terminatorOf> = {}
+      if (!this.atEnd() && CASE_TERMINATOR.test(this.peek() as string)) {
         const line = this.advance()
-        const trimmed = line.replace(/;;\s*$/, '').trim()
+        terminator = terminatorOf((CASE_TERMINATOR.exec(line) as RegExpExecArray)[1])
+        const trimmed = line.replace(CASE_TERMINATOR, '').trim()
         if (trimmed.length) body.push({ type: 'simple', line: trimmed })
       }
 
-      clauses.push({ patterns, body })
+      clauses.push({ patterns, body, ...terminator })
     }
 
     const redirect = this.expectKeywordLine('esac')
@@ -1051,7 +1091,8 @@ function normalizeOneLine(text: string): string {
     if (char === '\n') { flush(); i++; continue }
 
     if (depth === 0 && char === ';') {
-      if (text[i + 1] === ';') { current += ';;'; i += 2; continue }
+      if (text[i + 1] === ';') { const length = text[i + 2] === '&' && text[i + 3] !== '&' ? 3 : 2; current += text.slice(i, i + length); i += length; continue }
+      if (text[i + 1] === '&' && text[i + 2] !== '&') { current += ';&'; i += 2; continue }
 
       let j = i + 1
       while (j < text.length && /\s/.test(text[j] as string)) j++

@@ -638,5 +638,357 @@
   "control/andor-pipe-while": {
     "stdout": "a\nb\nsorted\n",
     "status": 0
+  },
+  "gaps/read-timeout-expires": {
+    "stdout": "st=142\n",
+    "status": 0
+  },
+  "gaps/read-timeout-data": {
+    "stdout": "hi st=0\n",
+    "status": 0
+  },
+  "gaps/bg-subshell": {
+    "stdout": "bg\ndone\n",
+    "status": 0
+  },
+  "gaps/bg-subshell-sleep": {
+    "stdout": "sub\ndone\n",
+    "status": 0
+  },
+  "gaps/bg-group": {
+    "stdout": "grp\ndone\n",
+    "status": 0
+  },
+  "gaps/andor-group": {
+    "stdout": "a\nb\nc\n",
+    "status": 0
+  },
+  "gaps/andor-if": {
+    "stdout": "y\ne\n",
+    "status": 0
+  },
+  "gaps/andor-for": {
+    "stdout": "1\n2\nend\n",
+    "status": 0
+  },
+  "gaps/andor-while": {
+    "stdout": "w1\nw2\n",
+    "status": 0
+  },
+  "gaps/andor-subshell": {
+    "stdout": "sub\nsub2\n",
+    "status": 0
+  },
+  "gaps/andor-case": {
+    "stdout": "isa\n",
+    "status": 0
+  },
+  "gaps/subshell-in-pipeline": {
+    "stdout": "a\nb\nx\ngot y\n",
+    "status": 0
+  },
+  "gaps/subshell-status": {
+    "stdout": "3\nfailed\n",
+    "status": 0
+  },
+  "gaps/trap-usr1": {
+    "stdout": "usr1\nafter\n",
+    "status": 0
+  },
+  "gaps/trap-term": {
+    "stdout": "term\nafter\n",
+    "status": 0
+  },
+  "gaps/trap-hup": {
+    "stdout": "hup\nafter\n",
+    "status": 0
+  },
+  "gaps/trap-ignore": {
+    "stdout": "survived\n",
+    "status": 0
+  },
+  "gaps/trap-reset": {
+    "stdout": "none\n",
+    "status": 0
+  },
+  "gaps/trap-debug": {
+    "stdout": "dbg\none\ndbg\ntwo\n",
+    "status": 0
+  },
+  "gaps/trap-return": {
+    "stdout": "in\nret\nout\n",
+    "status": 0
+  },
+  "gaps/arith-command": {
+    "stdout": "7\nbig\n1\n8\n",
+    "status": 0
+  },
+  "gaps/arith-for-cmd": {
+    "stdout": "0\n1\n2\n13\n",
+    "status": 0
+  },
+  "gaps/let": {
+    "stdout": "5 10\n1\n",
+    "status": 0
+  },
+  "gaps/local-array": {
+    "stdout": "1 2\n9\n",
+    "status": 0
+  },
+  "gaps/local-assoc": {
+    "stdout": "v\nunset\n",
+    "status": 0
+  },
+  "gaps/mapfile": {
+    "stdout": "3 b\n",
+    "status": 0
+  },
+  "gaps/readarray": {
+    "stdout": "2\n",
+    "status": 0
+  },
+  "gaps/indirect": {
+    "stdout": "val\n0\n",
+    "status": 0
+  },
+  "gaps/printf-v": {
+    "stdout": "00042-ab\n",
+    "status": 0
+  },
+  "gaps/printf-q": {
+    "stdout": "a\\ b\nit\\'s\n",
+    "status": 0
+  },
+  "gaps/case-fallthrough": {
+    "stdout": "1\n2\n",
+    "status": 0
+  },
+  "gaps/case-continue": {
+    "stdout": "1\n2\n",
+    "status": 0
+  },
+  "gaps/test-v": {
+    "stdout": "set\nunset\n",
+    "status": 0
+  },
+  "gaps/rematch": {
+    "stdout": "abc123 abc 123\n",
+    "status": 0
+  },
+  "gaps/declare-p": {
+    "stdout": "declare -- x=\"5\"\ndeclare -a a=([0]=\"1\" [1]=\"2\")\n",
+    "status": 0
+  },
+  "gaps/funcname": {
+    "stdout": "f\ng f\n",
+    "status": 0
+  },
+  "gaps/last-arg": {
+    "stdout": "a b c\nc\n",
+    "status": 0
+  },
+  "gaps/heredoc-dash": {
+    "stdout": "tabbed\n",
+    "status": 0
+  },
+  "gaps/herestring": {
+    "stdout": "y x\n",
+    "status": 0
+  },
+  "gaps/wait-n": {
+    "stdout": "first\n",
+    "status": 0
+  },
+  "gaps/nameref": {
+    "stdout": "2\n",
+    "status": 0
+  },
+  "gaps/exec-redirect-bg": {
+    "stdout": "",
+    "status": 0
+  },
+  "gaps/cmd-subst-trailing": {
+    "stdout": "[a]\n",
+    "status": 0
+  },
+  "gaps/errexit-subshell": {
+    "stdout": "no\ndone\n",
+    "status": 0
+  },
+  "gaps/time-keyword": {
+    "stdout": "0\n",
+    "status": 0
+  },
+  "gaps/shopt": {
+    "stdout": "\ndone\n",
+    "status": 0
+  },
+  "gaps/brace-seq-step": {
+    "stdout": "1 4 7 10 a c e 05 06 07 08\n",
+    "status": 0
+  },
+  "gaps/pipestatus-subshell": {
+    "stdout": "2\n",
+    "status": 0
+  },
+  "gaps/arith-ternary-comma": {
+    "stdout": "2 3\n",
+    "status": 0
+  },
+  "gaps/string-ops-more": {
+    "stdout": "HELLO 'hello' hlo\n",
+    "status": 0
+  },
+  "gaps/dollar-quote": {
+    "stdout": "a\tb A\n",
+    "status": 0
+  },
+  "gaps/glob-classes": {
+    "stdout": "g1 g2\ng2 gx\n",
+    "status": 0
+  },
+  "gaps/shopt-nullglob-for": {
+    "stdout": "done\n",
+    "status": 0
+  },
+  "gaps/shopt-failglob": {
+    "stdout": "after 1\n",
+    "status": 0
+  },
+  "gaps/shopt-extglob-case": {
+    "stdout": "ok\nnotmd\nmd\ngrouped\n",
+    "status": 0
+  },
+  "gaps/shopt-nocasematch": {
+    "stdout": "ci\nsame\n",
+    "status": 0
+  },
+  "gaps/shopt-query": {
+    "stdout": "on\nnullglob            \toff\nst=1\nshopt -u nullglob\n",
+    "status": 1
+  },
+  "gaps/shopt-invalid": {
+    "stdout": "1\n",
+    "status": 0
+  },
+  "gaps/shopt-dotglob": {
+    "stdout": ".h v\nv\n",
+    "status": 0
+  },
+  "gaps/shopt-nocaseglob": {
+    "stdout": "Aa\nbb\n",
+    "status": 0
+  },
+  "gaps/shopt-extglob-files": {
+    "stdout": "a.txt b.txt\na.txt c.md\n",
+    "status": 0
+  },
+  "gaps/globstar": {
+    "stdout": "d/e/y.txt d/x.txt top.txt\n",
+    "status": 0
+  },
+  "gaps/glob-multi-segment": {
+    "stdout": "d/e/y.txt d/x.txt d/e\n",
+    "status": 0
+  },
+  "gaps/glob-brackets": {
+    "stdout": "f1 f2 fa fa f2 fa\n",
+    "status": 0
+  },
+  "gaps/mapfile-options": {
+    "stdout": "b c 2\n",
+    "status": 0
+  },
+  "gaps/mapfile-keeps-newline": {
+    "stdout": "[a\n][b\n]\n",
+    "status": 0
+  },
+  "gaps/mapfile-default-name": {
+    "stdout": "y\n",
+    "status": 0
+  },
+  "gaps/let-status": {
+    "stdout": "1\n0 5\n0\n",
+    "status": 0
+  },
+  "gaps/arith-in-if": {
+    "stdout": "gt\n3\n2\n1\n",
+    "status": 0
+  },
+  "gaps/arith-chain": {
+    "stdout": "a\nd\n",
+    "status": 0
+  },
+  "gaps/arith-assign-cmd": {
+    "stdout": "2 6\n3\n",
+    "status": 0
+  },
+  "gaps/last-arg-builtin": {
+    "stdout": "two\n/\n",
+    "status": 0
+  },
+  "gaps/funcname-nested": {
+    "stdout": "c b a main\n4\nnone\n",
+    "status": 0
+  },
+  "gaps/case-fall-chain": {
+    "stdout": "1\n2\n3\n",
+    "status": 0
+  },
+  "gaps/case-test-all": {
+    "stdout": "A\nB\nC\n",
+    "status": 0
+  },
+  "gaps/nameref-local": {
+    "stdout": "changed\n",
+    "status": 0
+  },
+  "gaps/nameref-array": {
+    "stdout": "2 3\n1 X 3\n",
+    "status": 0
+  },
+  "gaps/nameref-unset": {
+    "stdout": "gone 1\n",
+    "status": 0
+  },
+  "gaps/printf-v-multi": {
+    "stdout": "1-2 [ 7]\n",
+    "status": 0
+  },
+  "gaps/printf-q-control": {
+    "stdout": "''\na\\$b\n$'tab\\tx'\n",
+    "status": 0
+  },
+  "gaps/transform-ops": {
+    "stdout": "HELLO WORLD hello world Hello world 'hello world'\na b\n",
+    "status": 0
+  },
+  "gaps/ansi-c-escapes": {
+    "stdout": "one\ntwo ABC q's tab\there\n",
+    "status": 0
+  },
+  "gaps/trap-return-nested": {
+    "stdout": "in-f\nret-f\nin-g\nret-f\n",
+    "status": 0
+  },
+  "gaps/debug-trap-line": {
+    "stdout": "D\na\nD\nD\nb\n",
+    "status": 0
+  },
+  "gaps/exec-redirect-twice": {
+    "stdout": "",
+    "status": 0
+  },
+  "gaps/function-global-assign": {
+    "stdout": "1 2\n[1] [] [3]\n",
+    "status": 0
+  },
+  "gaps/function-modify-global": {
+    "stdout": "7\n",
+    "status": 0
+  },
+  "gaps/function-array-global": {
+    "stdout": "1 2 3\n",
+    "status": 0
   }
 }

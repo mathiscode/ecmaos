@@ -8,7 +8,8 @@
 
 import type { ConditionalToken, WordPart } from './shell-parser.js'
 import { partsText } from './shell-parser.js'
-import { expandWordPattern, expandWordString, globToRegExpSource, type ExpansionContext } from './word-expansion.js'
+import { globRegExp } from './glob.js'
+import { expandWordPattern, expandWordString, patternOptionsOf, type ExpansionContext } from './word-expansion.js'
 
 export interface ConditionalFs {
   exists(path: string): Promise<boolean>
@@ -18,7 +19,7 @@ export interface ConditionalFs {
 }
 
 const UNARY_FILE_OPS = new Set(['-f', '-d', '-e'])
-const UNARY_STRING_OPS = new Set(['-z', '-n'])
+const UNARY_STRING_OPS = new Set(['-z', '-n', '-v'])
 
 class ConditionalParser {
   private pos = 0
@@ -76,6 +77,16 @@ class ConditionalParser {
         if (text === '-d') return this.fs.isDirectory(this.fs.resolve(arg))
         if (text === '-e') return this.fs.exists(this.fs.resolve(arg))
         if (text === '-z') return arg.length === 0
+        // -v: the variable is set (an array element by `name[index]`, an array by its name)
+        if (text === '-v') {
+          const element = /^([A-Za-z_][A-Za-z0-9_]*)\[([^\]]*)\]$/.exec(arg)
+          if (element) {
+            const array = this.ctx.lookupArray(element[1] as string)
+            const key = this.ctx.isAssoc?.(element[1] as string) ? (element[2] as string) : Number(element[2])
+            return array?.has(key) ?? false
+          }
+          return this.ctx.lookup(arg) !== undefined || this.ctx.lookupArray(arg) !== undefined
+        }
         return arg.length > 0 // -n
       }
 
@@ -91,11 +102,11 @@ class ConditionalParser {
 
           if (opText === '==' || opText === '=') {
             const pattern = await expandWordPattern((rightToken as { parts: WordPart[] }).parts, this.ctx, 'glob')
-            return new RegExp(globToRegExpSource(pattern)).test(left)
+            return globRegExp(pattern, patternOptionsOf(this.ctx)).test(left)
           }
           if (opText === '!=') {
             const pattern = await expandWordPattern((rightToken as { parts: WordPart[] }).parts, this.ctx, 'glob')
-            return !new RegExp(globToRegExpSource(pattern)).test(left)
+            return !globRegExp(pattern, patternOptionsOf(this.ctx)).test(left)
           }
           if (opText === '=~') {
             const pattern = await expandWordString((rightToken as { parts: WordPart[] }).parts, this.ctx)

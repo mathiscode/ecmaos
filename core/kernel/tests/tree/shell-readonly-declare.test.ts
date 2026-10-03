@@ -163,9 +163,9 @@ describe('readonly and declare', () => {
     })
 
     it('reports an unsupported attribute rather than ignoring it', async () => {
-      // A nameref attribute that silently did nothing would be worse than an error.
+      // A case-conversion attribute that silently did nothing would be worse than an error.
       const output = await runScript([
-        'declare -n NUM',
+        'declare -l NUM',
         `echo "code=$?" >> ${OUT}`
       ].join('\n'))
       expect(lines(output)).toEqual(['code=2'])

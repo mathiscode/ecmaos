@@ -120,7 +120,7 @@ describe('ecmash: arrays, subshells, process substitution, traps', () => {
     })
 
     it('a trap on a signal it does not know is refused', async () => {
-      const { err, code } = await run("trap 'echo x' DEBUG")
+      const { err, code } = await run("trap 'echo x' BOGUS")
       expect(err).toContain('unsupported signal')
       expect(code).not.toBe(0)
     })

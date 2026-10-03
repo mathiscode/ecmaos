@@ -10,7 +10,7 @@
 
 import { parseStatements, type PipelineStatement, type Statement } from '../control-flow-parser.js'
 import { parseScript, type Command, type Pipeline, type Script } from '../shell-parser.js'
-import { UnboundVariableError } from '../word-expansion.js'
+import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
 
@@ -88,6 +88,8 @@ export class Interpreter {
   private conditional = 0
   private inErrTrap = false
   private depth = 0
+  /** The names of the functions being run, innermost first: `FUNCNAME`. */
+  private callStack: string[] = []
   private readonly maxFunctionDepth: number
 
   constructor(
@@ -96,6 +98,11 @@ export class Interpreter {
     options: InterpreterOptions = {}
   ) {
     this.maxFunctionDepth = options.maxFunctionDepth ?? 1000
+  }
+
+  /** The value of an arithmetic expression, assignments in it taking effect (`x = 3`, `i++`). */
+  async arithmetic(expression: string): Promise<number> {
+    return Number((await this.host.expandWords(`$(( ${expression} ))`))[0] ?? 0)
   }
 
   async runText(text: string): Promise<number> {
@@ -111,6 +118,13 @@ export class Interpreter {
       try {
         last = await this.runStatement(statement)
       } catch (error) {
+        // `failglob`: a pattern with no match fails the command it is in, and nothing else
+        if (error instanceof GlobNoMatchError) {
+          await this.host.writeErr(error.message)
+          last = 1
+          this.host.setStatus(1)
+          continue
+        }
         if (!(error instanceof UnboundVariableError)) throw error
         // bash reports it and, in a script, ends the shell with status 1; at the prompt it only fails the command.
         await this.host.writeErr(error.message)
@@ -126,7 +140,9 @@ export class Interpreter {
   async runStatement(statement: Statement): Promise<number> {
     const host = this.host
     switch (statement.type) {
-      case 'simple': return await this.runLine(host.expandStatement ? host.expandStatement(statement.line) : statement.line)
+      case 'simple':
+        await this.runDebugTrap()
+        return await this.runLine(host.expandStatement ? host.expandStatement(statement.line) : statement.line)
 
       case 'function':
         this.state.functions.set(statement.name, statement.body)
@@ -178,10 +194,16 @@ export class Interpreter {
 
       case 'case': return await host.withRedirect(statement, async () => {
         const subject = await host.caseSubject(statement.word)
+        let last = 0
+        let fallThrough = false
         for (const clause of statement.clauses) {
-          if (clause.patterns.some(pattern => host.matchesPattern(subject, pattern))) return await this.runStatements(clause.body)
+          // `;&` runs the next clause's body without testing it; `;;&` goes on testing the rest
+          if (!fallThrough && !clause.patterns.some(pattern => host.matchesPattern(subject, pattern))) continue
+          last = await this.runStatements(clause.body)
+          fallThrough = clause.terminator === ';&'
+          if (clause.terminator === undefined || clause.terminator === ';;') break
         }
-        return 0
+        return last
       })
 
       case 'andor': {
@@ -243,7 +265,8 @@ export class Interpreter {
    */
   async runLine(line: string): Promise<number> {
     const host = this.host
-    const prepared = host.prepareLine ? host.prepareLine(line) : line
+    // `(( expression ))` is `let 'expression'`: arithmetic as a command, true when the value is not zero
+    const prepared = rewriteArithmeticCommands(host.prepareLine ? host.prepareLine(line) : line)
     if (!prepared.trim()) return 0
 
     const special = await host.runSpecial?.(prepared)
@@ -328,6 +351,34 @@ export class Interpreter {
     return status
   }
 
+  /**
+   * The `DEBUG` trap runs before each simple command. Like bash without `functrace`, it does not run inside
+   * a function, nor inside itself.
+   */
+  private inDebugTrap = false
+  private async runDebugTrap(): Promise<void> {
+    const trap = this.state.getTrap('DEBUG')
+    if (!trap || this.inDebugTrap || this.depth > 0) return
+    this.inDebugTrap = true
+    const status = this.host.getStatus()
+    try { await this.runText(trap) } finally {
+      this.inDebugTrap = false
+      this.host.setStatus(status)
+    }
+  }
+
+  /** The `RETURN` trap runs when a function or a sourced script finishes, keeping its status. */
+  private inReturnTrap = false
+  private async runReturnTrap(status: number): Promise<void> {
+    const trap = this.state.getTrap('RETURN')
+    if (!trap || this.inReturnTrap) return
+    this.inReturnTrap = true
+    try { await this.runText(trap) } finally {
+      this.inReturnTrap = false
+      this.host.setStatus(status)
+    }
+  }
+
   private async runErrTrap(status: number): Promise<void> {
     const trap = this.state.getTrap('ERR')
     if (!trap || this.inErrTrap) return
@@ -355,14 +406,18 @@ export class Interpreter {
 
     const restoreParameters = this.host.enterParameters(args, name)
     this.depth++
+    this.callStack.unshift(name)
+    this.state.setArray('FUNCNAME', [...this.callStack, 'main'])
     this.state.pushLocalScope()
     this.catchers.return++
     const enclosingLoops = this.catchers.loop
     this.catchers.loop = 0
+    let status = 0
     try {
-      return await this.runStatements(body)
+      status = await this.runStatements(body)
+      return status
     } catch (signal) {
-      if (signal instanceof ReturnSignal) return signal.code
+      if (signal instanceof ReturnSignal) return status = signal.code
       if (signal instanceof BreakSignal || signal instanceof ContinueSignal) {
         await this.host.writeErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
         return 0
@@ -372,6 +427,10 @@ export class Interpreter {
       this.catchers.return--
       this.catchers.loop = enclosingLoops
       this.state.popLocalScope()
+      await this.runReturnTrap(status).catch(() => undefined)
+      this.callStack.shift()
+      if (this.callStack.length > 0) this.state.setArray('FUNCNAME', [...this.callStack, 'main'])
+      else this.state.unsetArray('FUNCNAME')
       this.depth--
       restoreParameters()
     }
@@ -423,4 +482,60 @@ export class Interpreter {
     this.host.setStatus(code)
     return code
   }
+}
+
+/**
+ * Rewrites each `(( expression ))` that stands where a command can (the start of the line, or after `;`, `&&`,
+ * `||`, `|`, `!` or `(`) as `let 'expression'`, which means the same thing: arithmetic, with a status of 0 when
+ * the value is not zero. Quoted text and `$(( ))` are left alone.
+ */
+export function rewriteArithmeticCommands(line: string): string {
+  if (!line.includes('((')) return line
+  let out = ''
+  let commandStart = true
+  let quote: string | undefined
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] as string
+    if (quote) {
+      out += c
+      if (c === '\\' && quote === '"') { out += line[++i] ?? ''; continue }
+      if (c === quote) quote = undefined
+      continue
+    }
+    if (c === "'" || c === '"') { quote = c; out += c; commandStart = false; continue }
+    if (c === '\\') { out += c + (line[++i] ?? ''); commandStart = false; continue }
+    if (c === '$' && line[i + 1] === '(') {
+      // `$(...)` and `$((...))`: copied whole
+      let depth = 0
+      let j = i + 1
+      for (; j < line.length; j++) {
+        if (line[j] === '(') depth++
+        else if (line[j] === ')' && --depth === 0) break
+      }
+      out += line.slice(i, j + 1)
+      i = j
+      commandStart = false
+      continue
+    }
+    if (commandStart && c === '(' && line[i + 1] === '(') {
+      let depth = 0
+      let j = i
+      for (; j < line.length; j++) {
+        if (line[j] === '(') depth++
+        else if (line[j] === ')' && --depth === 0) break
+      }
+      // the `((` has to close with `))`, or it is a subshell inside a subshell
+      if (j < line.length && line[j - 1] === ')' && depth === 0) {
+        const expression = line.slice(i + 2, j - 1)
+        out += `let '${expression.replace(/'/g, `'\\''`)}'`
+        i = j
+        commandStart = false
+        continue
+      }
+    }
+    out += c
+    if (c === ';' || c === '|' || c === '&' || c === '(' || c === '!') commandStart = true
+    else if (c !== ' ' && c !== '\t' && c !== '\n') commandStart = false
+  }
+  return out
 }

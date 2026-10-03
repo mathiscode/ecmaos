@@ -26,7 +26,8 @@
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
 import { splitAssignments, parseArrayAssignment, applyArrayAssignment } from '../lib/shell-core/prepare.ts'
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
-import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource, UnboundVariableError } from '../lib/word-expansion.ts'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, GlobNoMatchError, UnboundVariableError } from '../lib/word-expansion.ts'
+import { globPaths, globRegExp, hasGlobCharacters } from '../lib/glob.ts'
 import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
@@ -118,6 +119,8 @@ const BUILTINS = new Set([...sharedBuiltinNames, ...OWN_BUILTINS])
 class Shell {
   constructor(name, args) {
     // What the process was started with is inherited by its children; what the shell assigns is not, until `export`.
+    /** Redirections `exec` installed on this shell, finished when it leaves. */
+    this.execRedirections = []
     this.state = new ShellState({ pid: getpid, ppid: getppid }, new Map(Object.entries(sys.env)))
     this.positional = args
     this.name = name
@@ -193,6 +196,7 @@ class Shell {
       glob: pattern => this.glob(pattern),
       home: () => this.vars.get('HOME'),
       nounset: this.opts.nounset,
+      shopt: name => this.state.shopts.has(name),
     }
   }
 
@@ -284,35 +288,21 @@ class Shell {
     return await this.runLine(rest)
   }
 
+  /** What `shopt` has changed about how a pattern matches. */
+  patternOptions() {
+    const on = name => this.state.shopts.has(name)
+    return { extglob: on('extglob'), dotglob: on('dotglob'), globstar: on('globstar'), nocase: on('nocaseglob') }
+  }
+
   async glob(pattern) {
     if (this.opts.noglob) return []
-    if (!/[*?[]/.test(pattern)) return []
-    const absolute = pattern.startsWith('/')
-    const segments = pattern.split('/').filter(Boolean)
-    let bases = [absolute ? '/' : '']
-    for (const [index, segment] of segments.entries()) {
-      const last = index === segments.length - 1
-      const next = []
-      for (const base of bases) {
-        const dir = base === '' ? '.' : base
-        if (!/[*?[]/.test(segment)) {
-          const candidate = base === '' ? segment : base === '/' ? `/${segment}` : `${base}/${segment}`
-          if (exists(resolvePath(candidate))) next.push(candidate)
-          continue
-        }
-        let names
-        try { names = readdir(resolvePath(dir)) } catch { continue }
-        const regex = new RegExp(`^${globToRegExpSource(segment)}$`)
-        for (const name of names.sort()) {
-          if (name.startsWith('.') && !segment.startsWith('.')) continue
-          if (!regex.test(name)) continue
-          const candidate = base === '' ? name : base === '/' ? `/${name}` : `${base}/${name}`
-          if (last || isDir(resolvePath(candidate))) next.push(candidate)
-        }
-      }
-      bases = next
-    }
-    return bases
+    const options = this.patternOptions()
+    if (!hasGlobCharacters(pattern, options)) return []
+    return await globPaths(pattern, {
+      readdir: dir => readdir(resolvePath(dir)),
+      isDirectory: path => isDir(resolvePath(path)),
+      exists: path => exists(resolvePath(path)),
+    }, options)
   }
 
   // -- running text -------------------------------------------------------------------------------
@@ -338,7 +328,7 @@ class Shell {
       withRedirect: (statement, run) => shell.withRedirect(statement, run),
       expandWords: text => shell.expandWords(text),
       caseSubject: async word => (await shell.expandWords(word))[0] ?? '',
-      matchesPattern: (subject, pattern) => new RegExp(`^${globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))}$`).test(subject),
+      matchesPattern: (subject, pattern) => globRegExp(pattern.replace(/^["']|["']$/g, ''), { extglob: shell.state.shopts.has('extglob'), nocase: shell.state.shopts.has('nocasematch') }).test(subject),
       assign: (name, value) => { shell.set(name, value) },
       enterParameters: args => {
         const saved = shell.positional
@@ -390,6 +380,7 @@ class Shell {
       this.status = code & 0xff
       if (trap) { try { await this.runText(trap) } catch { /* the shell is going anyway */ } }
     }
+    for (const applied of this.execRedirections.splice(0)) { try { await applied.finish() } catch { /* leaving anyway */ } }
     exit(code & 0xff)
   }
 
@@ -593,7 +584,8 @@ class Shell {
         // `set -u` is the interpreter's to report, and to end a script over
         if (isUnwind(error) || error instanceof UnboundVariableError) throw error
         writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
-        statusOfBuiltin = error?.code === 'ENOENT' ? 127 : 126
+        // `shopt -s failglob`: a pattern that matched nothing fails its command with 1, as in bash
+        statusOfBuiltin = error instanceof GlobNoMatchError ? 1 : error?.code === 'ENOENT' ? 127 : 126
         stages.push({ status: statusOfBuiltin })
         failed = true
       }
@@ -684,7 +676,7 @@ class Shell {
         isFile: async p => isFile(resolvePath(p)),
         isDirectory: async p => isDir(resolvePath(p)),
         resolve: p => resolvePath(p),
-      }, () => {})
+      }, groups => this.state.setArray('BASH_REMATCH', groups))
       return { status: ok ? 0 : 1 }
     }
 
@@ -697,6 +689,9 @@ class Shell {
     }
     const args = []
     for (const parts of split.command.wordParts) args.push(...await this.fields(parts))
+
+    // `$_`: the last word of the command, which the next one reads
+    if (args.length) this.state.set('_', args[args.length - 1])
 
     if (!args.length) {
       for (const [name, , append, value] of assign) {
@@ -726,6 +721,14 @@ class Shell {
     const applied = await this.openRedirections(command.redirections, fds)
     const finish = async () => { await applied.finish() }
     const name = args[0]
+
+    // `exec > file` with no command: the redirections stay on the shell itself, for everything that follows
+    // (what it starts inherits them). A file that went through a scratch copy lands when the shell leaves.
+    if (name === 'exec' && args.length === 1 && command.redirections.length > 0 && !this.functions.has('exec')) {
+      this._stdio = applied.fds
+      this.execRedirections.push(applied)
+      return { status: 0 }
+    }
 
     if (BUILTINS.has(name) || this.functions.has(name)) {
       // A builtin or function runs here: its assignments are temporary, its descriptors are the ones

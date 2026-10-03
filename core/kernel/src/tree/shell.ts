@@ -28,7 +28,8 @@ import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/c
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
-import { expandWordFieldsBraced, expandWordString, expandHeredocBody, globToRegExpSource, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
+import { expandWordFieldsBraced, expandWordString, expandHeredocBody, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
+import { globPaths, globRegExp, hasGlobCharacters, type GlobOptions } from '@ecmaos/coreutils/lib/glob'
 import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/conditional-eval'
 
 /**
@@ -754,7 +755,8 @@ export class Shell implements IShell {
       processSubstitute: (direction, command) => this.processSubstitute(direction, command),
       glob: (pattern) => this.expandGlob(pattern),
       home: () => this._env.get('HOME'),
-      nounset: this._shellOptions.nounset
+      nounset: this._shellOptions.nounset,
+      shopt: (name) => this.state.shopts.has(name)
     }
   }
 
@@ -1064,38 +1066,24 @@ export class Shell implements IShell {
    * @param pattern - Glob pattern (e.g., "bin/*", "*.js")
    * @returns Array of matching file paths
    */
+  /** What `shopt` has changed about how a pattern matches. */
+  private get patternOptions(): GlobOptions {
+    const on = (name: string) => this.state.shopts.has(name)
+    return { extglob: on('extglob'), dotglob: on('dotglob'), globstar: on('globstar'), nocase: on('nocaseglob') }
+  }
+
   private async expandGlob(pattern: string): Promise<string[]> {
     // `set -f`: pathname expansion off, so the pattern stays exactly as written.
-    if (this._shellOptions.noglob) return [pattern]
-
-    if (!/[*?[]/.test(pattern)) {
-      return [pattern]
-    }
-
-    const lastSlashIndex = pattern.lastIndexOf('/')
-    const searchDir = lastSlashIndex !== -1
-      ? path.resolve(this.cwd, pattern.substring(0, lastSlashIndex + 1))
-      : this.cwd
-    const globPattern = lastSlashIndex !== -1
-      ? pattern.substring(lastSlashIndex + 1)
-      : pattern
-
-    try {
-      const entries = await this.context.fs.promises.readdir(searchDir)
-      // `[ab]` classes and `\` escapes as in the other shell; a leading dot has to be written, never matched by a wildcard
-      const regex = new RegExp(globToRegExpSource(globPattern))
-      const matches = entries.filter(entry => regex.test(entry) && (globPattern.startsWith('.') || !entry.startsWith('.'))).sort()
-      
-      if (lastSlashIndex !== -1) {
-        const dirPart = pattern.substring(0, lastSlashIndex + 1)
-        return matches.map(match => dirPart + match)
-      }
-      return matches
-    } catch {
-      // If directory doesn't exist or can't be read, return empty array
-      // This matches standard shell behavior where non-matching globs are passed as-is
-      return []
-    }
+    if (this._shellOptions.noglob) return []
+    const options = this.patternOptions
+    if (!hasGlobCharacters(pattern, options)) return []
+    const fs = this.context.fs.promises
+    const absolute = (p: string) => p.startsWith('/') ? p : path.resolve(this.cwd, p)
+    return await globPaths(pattern, {
+      readdir: dir => fs.readdir(absolute(dir)),
+      isDirectory: async path => { try { return (await fs.stat(absolute(path))).isDirectory() } catch { return false } },
+      exists: path => fs.exists(absolute(path)),
+    }, options)
   }
 
   /**
@@ -1784,6 +1772,8 @@ export class Shell implements IShell {
       const parts = command.wordParts[i]
       fields.push(...(parts && parts.length ? await this.expandFields(parts, ctx) : [command.words[i] as string]))
     }
+    // `$_`: the last word of the command, which the next one reads
+    this.state.set('_', fields.length ? fields[fields.length - 1] as string : command.words[0] ?? '')
     return fields
   }
 
@@ -2263,7 +2253,7 @@ export class Shell implements IShell {
   private matchesCasePattern(value: string, pattern: string): boolean {
     if (pattern === '*') return true
     // the same glob rules as `[[ == ]]`: `[ab]` classes and `\` escapes, with the pattern's quotes taken off
-    return new RegExp(globToRegExpSource(pattern.replace(/^["']|["']$/g, ''))).test(value)
+    return globRegExp(pattern.replace(/^["']|["']$/g, ''), { extglob: this.state.shopts.has('extglob'), nocase: this.state.shopts.has('nocasematch') }).test(value)
   }
 
   /**

@@ -166,6 +166,34 @@ export function scanExpansionEnd(text: string, start: number): number {
   return -1
 }
 
+const ANSI_C_ESCAPES: Record<string, string> = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' }
+
+/** The text of a `$'...'` body with its backslash sequences replaced by what they stand for. */
+export function decodeAnsiC(body: string): string {
+  let out = ''
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i] as string
+    if (c !== '\\' || i + 1 >= body.length) { out += c; continue }
+    const next = body[++i] as string
+    if (next in ANSI_C_ESCAPES) { out += ANSI_C_ESCAPES[next]; continue }
+    if (/[0-7]/.test(next)) {
+      let digits = next
+      while (digits.length < 3 && /[0-7]/.test(body[i + 1] ?? '')) digits += body[++i]
+      out += String.fromCharCode(parseInt(digits, 8) & 0xff)
+      continue
+    }
+    const hex = next === 'x' ? 2 : next === 'u' ? 4 : next === 'U' ? 8 : 0
+    if (hex) {
+      let digits = ''
+      while (digits.length < hex && /[0-9a-fA-F]/.test(body[i + 1] ?? '')) digits += body[++i]
+      if (digits) { out += String.fromCodePoint(parseInt(digits, 16)); continue }
+    }
+    if (next === 'c' && i + 1 < body.length) { out += String.fromCharCode((body[++i] as string).charCodeAt(0) & 0x1f); continue }
+    out += '\\' + next
+  }
+  return out
+}
+
 /**
  * Reads one word starting at `start`: quotes, escapes and expansions are consumed whole; the word
  * ends at unquoted whitespace, an operator character, or (when `stopAt` says so) something else.
@@ -178,15 +206,42 @@ function readWord(line: string, start: number, isStop: (i: number) => boolean): 
     else parts.push({ text, quoting })
   }
 
+  // An extended pattern (`@(a|b)`, `!(x)`, `*(y)`) is one word whatever is in its parentheses. Nothing else puts a
+  // parenthesis straight after one of those characters, so this does not need to know whether `extglob` is on.
+  const extglobOpen = (j: number) => line[j] === '(' && j > start && '?*+@!'.includes(line[j - 1] as string)
+
   let i = start
-  while (i < line.length && !isStop(i)) {
+  while (i < line.length && (!isStop(i) || extglobOpen(i))) {
     const char = line[i] as string
+
+    if (char === '(' && extglobOpen(i)) {
+      let depth = 0
+      let j = i
+      for (; j < line.length; j++) {
+        const d = line[j] as string
+        if (d === '\\') { j++; continue }
+        if (d === "'" || d === '"') { const end = line.indexOf(d, j + 1); if (end === -1) break; j = end; continue }
+        if (d === '(') depth++
+        else if (d === ')' && --depth === 0) break
+      }
+      if (j < line.length) { push(line.slice(i, j + 1), 'unquoted'); i = j + 1; continue }
+    }
 
     if (char === '\\') {
       if (i + 1 >= line.length) { push('\\', 'unquoted'); i++; continue }
       if (line[i + 1] === '\n') { i += 2; continue } // line continuation
       push(line[i + 1] as string, 'escaped')
       i += 2
+      continue
+    }
+
+    // `$'...'`: single quotes in which backslash sequences (`\n`, `\t`, `\x41`, `\u00e9`) mean characters
+    if (char === '$' && line[i + 1] === "'") {
+      let j = i + 2
+      while (j < line.length && line[j] !== "'") j += line[j] === '\\' ? 2 : 1
+      if (j >= line.length) throw new ParseError('Unterminated single quote')
+      push(decodeAnsiC(line.slice(i + 2, j)), 'single')
+      i = j + 1
       continue
     }
 
