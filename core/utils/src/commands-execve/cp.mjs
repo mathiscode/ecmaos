@@ -1,13 +1,18 @@
-/** Copy files and directories. `-r`/`-R` copies directories recursively. */
+/**
+ * Copy files and directories. `-r`/`-R` copies directories recursively. A new file or directory gets its
+ * source's permission bits (without setuid, setgid or sticky); an existing destination keeps its own mode.
+ * `-p` also keeps those special bits and the owner (the owner only when the caller may chown).
+ */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, copyFile } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, chmod, chown, copyFile } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
 
   -r, -R, --recursive   copy directories recursively
+  -p, --preserve        keep the mode (setuid and sticky bits too) and, for root, the owner
   -v, --verbose         explain what is being done
   --help                display this help and exit`
 
@@ -15,17 +20,40 @@ function exists(path) {
   try { stat(path); return true } catch { return false }
 }
 
-function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDest) {
+/** `chmod`, except that a directory whose mode cannot be changed (an older `@zenfs/core` cannot) keeps the one it has. */
+function setMode(path, mode) {
+  try { chmod(path, mode) } catch (error) { if (!isDirectory(path)) throw error }
+}
+
+/** Keeps what `-p` asks for: the whole mode, and the owner when this caller is allowed to give it. */
+function preserve(sourcePath, destPath) {
+  const stats = stat(sourcePath)
+  setMode(destPath, stats.mode & 0o7777)
+  try { chown(destPath, stats.uid, stats.gid) } catch { /* only root may give a file away */ }
+}
+
+function copyOne(sourcePath, destPath, keep) {
+  // the mode only matters for a file that does not exist yet; an older @zenfs/core also checks it as access to one that does
+  copyFile(sourcePath, destPath, exists(destPath) ? 0o644 : stat(sourcePath).mode & 0o777)
+  if (keep) preserve(sourcePath, destPath)
+}
+
+function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDest, keep) {
   if (isDirectory(sourcePath)) {
-    if (!exists(destPath)) {
-      mkdir(destPath, 0o777)
+    const mode = stat(sourcePath).mode & 0o777
+    const created = !exists(destPath)
+    if (created) {
+      // owner rwx while the contents go in, so a read-only source directory can still be filled
+      mkdir(destPath, mode | 0o700)
       if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
     }
     for (const entry of readdir(sourcePath)) {
-      copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry))
+      copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry), keep)
     }
+    if (keep) preserve(sourcePath, destPath)
+    else if (created && (mode | 0o700) !== mode) setMode(destPath, mode)
   } else {
-    copyFile(sourcePath, destPath)
+    copyOne(sourcePath, destPath, keep)
     if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
   }
 }
@@ -39,17 +67,20 @@ function main() {
 
   let recursive = false
   let verbose = false
+  let keep = false
   const paths = []
 
   for (const arg of args) {
     if (arg.startsWith('-') && arg !== '--') {
       if (arg === '--recursive') recursive = true
       else if (arg === '--verbose') verbose = true
+      else if (arg === '--preserve') keep = true
       else {
         for (let i = 1; i < arg.length; i++) {
           const flag = arg[i]
           if (flag === 'r' || flag === 'R') recursive = true
           else if (flag === 'v') verbose = true
+          else if (flag === 'p') keep = true
           else { writeAll(2, new TextEncoder().encode(`cp: invalid option -- '${flag}'\n`)); return 1 }
         }
       }
@@ -89,9 +120,9 @@ function main() {
             continue
           }
           const relativeDest = isDestDir ? join(destination, basename(source)) : destination
-          copyRecursive(sourcePath, finalDest, verbose, source, relativeDest)
+          copyRecursive(sourcePath, finalDest, verbose, source, relativeDest, keep)
         } else {
-          copyFile(sourcePath, finalDest)
+          copyOne(sourcePath, finalDest, keep)
           if (verbose) {
             const relativeDest = isDestDir ? join(destination, basename(source)) : destination
             writeAll(1, new TextEncoder().encode(`'${source}' -> '${relativeDest}'\n`))

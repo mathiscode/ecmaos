@@ -133,11 +133,14 @@ function writeAll(fd, data, position = -1) {
   }
 }
 
-/** Real file copy: read the source in chunks, write them to a freshly created/truncated destination. */
-function copyFile(source, destination) {
+/**
+ * Real file copy: read the source in chunks, write them to a freshly created/truncated destination.
+ * `mode` is the mode a destination that does not exist yet is created with; an existing one keeps its own.
+ */
+function copyFile(source, destination, mode = 0o644) {
   const srcFd = open(source, O_RDONLY, 0)
   try {
-    const destFd = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+    const destFd = open(destination, O_WRONLY | O_CREAT | O_TRUNC, mode)
     try {
       const chunkSize = 65536
       while (true) {
