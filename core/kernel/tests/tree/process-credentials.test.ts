@@ -74,6 +74,27 @@ describe('programs run as the user who started them', () => {
     })
   }, 30000)
 
+  it('a user cannot change system directories but can use /tmp', async () => {
+    if (!gateOpen) return
+    await asAlice(async () => {
+      expect((await status('touch /etc/nope')).code).not.toBe(0)
+      expect((await status('touch /bin/nope')).code).not.toBe(0)
+      expect((await status('mkdir /newdir')).code).not.toBe(0)
+      expect((await status('touch /tmp/alice-file')).code).toBe(0)
+    })
+    expect(await kernel.filesystem.fs.exists('/etc/nope')).toBe(false)
+    expect(await kernel.filesystem.fs.exists('/newdir')).toBe(false)
+  }, 30000)
+
+  it('a user cannot remove or replace a file another user left in /tmp', async () => {
+    if (!gateOpen) return
+    await kernel.filesystem.fs.writeFile('/tmp/roots-file', 'mine', { mode: 0o666 })
+    await asAlice(async () => {
+      expect((await status('rm /tmp/roots-file')).code).not.toBe(0)
+    })
+    expect(await kernel.filesystem.fs.exists('/tmp/roots-file')).toBe(true)
+  }, 30000)
+
   it('with the gate closed every program still runs, as root', async () => {
     internals()._programsRunAsUser = false
     try {

@@ -35,6 +35,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
+import { tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
@@ -467,6 +468,9 @@ export class Kernel implements IKernel {
         legacyCommandNames: new Set(Object.keys(getLegacyCommands()))
       })
       if (migrated.length) filesystemSpan.setAttribute('filesystem.migrations_applied', migrated.join(','))
+
+      const tightened = await tightenDirectoryModes(this.filesystem.fs).catch(error => { this.log.warn(`directory modes: ${(error as Error).message}`); return [] as string[] })
+      if (tightened.length) this.log.info(`Set the mode of ${tightened.length} system director${tightened.length === 1 ? 'y' : 'ies'}`)
       filesystemSpan.end()
 
       // `/run/utmp` starts empty each boot and `wtmp` gets a boot line; consoles fill them in as they log in.
