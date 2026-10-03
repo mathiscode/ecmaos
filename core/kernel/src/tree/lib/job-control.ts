@@ -13,7 +13,8 @@
  */
 
 import { Process, execve, kill as zenfsKill, processes } from '@zenfs/linux'
-import { fs } from '@zenfs/core'
+import { bindContext, fs } from '@zenfs/core'
+import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
 
 const SIGCHLD = 17
@@ -136,6 +137,8 @@ export interface SpawnOptions {
   /** child fd -> caller fd: the `dup2` file actions of `posix_spawn` */
   fds?: Record<string, number>
   pgid?: number
+  /** Run the child as this user instead of as the caller: what `login` does for the shell it starts (callers must be root) */
+  credentials?: Credentials
   /** A terminal to make the child's controlling terminal and foreground, with the keyboard routed to it for as long as it runs. */
   terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
 }
@@ -148,7 +151,13 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   // `tty` is passed through even when it is null: left out, the constructor treats a parent with no
   // controlling terminal as one with the console, and `execve` would then make the child that
   // terminal's foreground process. A daemon started by init must stay off it.
-  const child = new Process({ parent, argv, env, cwd: options.cwd || parent.cwd, tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty })
+  const cwd = options.cwd || parent.cwd
+  const child = new Process({
+    parent, argv, env, cwd,
+    // a context of its own, bound with the user's credentials; without one the process takes its parent's
+    context: options.credentials ? bindContext.call(parent.context, { pwd: cwd, credentials: options.credentials }) : undefined,
+    tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty
+  })
   try {
     // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
     // pipe end open and a reader downstream of it would never see EOF.

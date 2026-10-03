@@ -261,8 +261,9 @@ export class Users {
     return { user, cred }
   }
 
-  async password(oldPassword: string, newPassword: string) {
-    const user = this._users.get(this._options.getShellCredentials().uid)
+  /** Changes `uid`'s password (the first terminal's user, when none is given), after checking the old one */
+  async password(oldPassword: string, newPassword: string, uid: number = this._options.getShellCredentials().uid) {
+    const user = this._users.get(uid)
     if (!user) throw new Error(this._options.context.i18n.t('User not found'))
 
     try {

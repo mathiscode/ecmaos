@@ -269,25 +269,28 @@ async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
 
 async function runSu(shell: Shell, argv: string[], io: Io): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    await io.writeln('Usage: su [USER]\nSwitch user.')
+    await io.writeln('Usage: su [USER]\nSwitch to USER (root by default). Root needs no password; anyone else is asked for USER\'s.')
     return 0
   }
 
-  const username = argv[0]
-  const currentUser = shell.users.get(shell.credentials.suid) as User
-  if (!currentUser || shell.credentials.suid !== 0) {
-    await io.writelnErr(chalk.red(shell.i18n.t('Unauthorized')))
-    return 1
-  }
-
+  const username = argv[0] ?? 'root'
+  const caller = shell.credentials
   const user = Array.from(shell.users.all.values()).find((u): u is User => (u as User).username === username)
   if (!user) {
     await io.writelnErr(chalk.red(shell.i18n.t('User not found', { username })))
     return 1
   }
 
+  if (caller.euid !== 0 && caller.euid !== user.uid) {
+    const password = await shell.terminal.readline('Password: ', true)
+    try { await shell.users.login(username, password) } catch {
+      await io.writelnErr(chalk.red('su: Authentication failure'))
+      return 1
+    }
+  }
+
   shell.context = bindContext({ root: '/', pwd: '/', credentials: user })
-  shell.credentials = createCredentials({ uid: user.uid, gid: user.gid, suid: currentUser.uid, sgid: currentUser.gid, euid: user.uid, egid: user.gid, groups: user.groups })
+  shell.credentials = createCredentials({ uid: user.uid, gid: user.gid, suid: user.uid, sgid: user.gid, euid: user.uid, egid: user.gid, groups: user.groups })
   shell.terminal.promptTemplate = '{user}:{cwd}{sigil} '
   await shell.recordLogin(user.username)
   return 0

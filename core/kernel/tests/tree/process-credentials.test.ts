@@ -214,6 +214,52 @@ describe('programs run as the user who started them', () => {
       expect(kernel.filesystem.mounts.has('/mnt/user-mount')).toBe(false)
     }, 60000)
 
+    it('a root process can start a program as another user; a user cannot', async () => {
+      if (!gateOpen) return
+      const spawnAs = (out: string) => `
+        const pid = await s.spawn('/bin/cp', ['cp', '/proc/self/status', '${out}'], { cwd: '/', credentials: { uid: ${bob.uid}, gid: ${bob.gid}, groups: [${bob.gid}] } })
+        await s.waitpid(pid, false)
+        return 'spawned'`
+
+      const rootRun = await program('spawn-as', spawnAs('/tmp/spawned-by-root'))
+      expect(rootRun.value).toBe('spawned')
+      expect(await kernel.filesystem.fs.readFile('/tmp/spawned-by-root', 'utf-8')).toMatch(new RegExp(`Uid:\\t${bob.uid}\\t${bob.uid}\\t${bob.uid}\\t${bob.uid}`))
+      expect((await kernel.filesystem.fs.stat('/tmp/spawned-by-root')).uid).toBe(bob.uid)
+
+      await asAlice(async () => {
+        const refused = await program('spawn-as', spawnAs('/tmp/spawned-by-alice'))
+        expect(refused.error).toMatch(/not permitted/i)
+      })
+      expect(await kernel.filesystem.fs.exists('/tmp/spawned-by-alice')).toBe(false)
+    }, 60000)
+
+    it('su switches to a user and what runs afterwards runs as them', async () => {
+      const root = { ...kernel.shell.credentials }
+      const rootContext = kernel.shell.context
+      try {
+        expect(await kernel.shell.execute('su nobody-here 2> /dev/null')).toBe(1)
+        expect(await kernel.shell.execute('su alice')).toBe(0)
+        expect(kernel.shell.credentials).toMatchObject({ uid: alice.uid, euid: alice.uid, suid: alice.uid })
+        const result = await status('cat /proc/self/status')
+        const want = gateOpen ? alice.uid : 0
+        expect(result.out).toMatch(new RegExp(`Uid:\\t${want}\\t`))
+        if (gateOpen) expect((await status('cat /etc/shadow')).code).not.toBe(0)
+      } finally {
+        kernel.shell.credentials = root
+        kernel.shell.context = rootContext
+      }
+    }, 60000)
+
+    it('passwd changes the password of the user who runs it, not the first terminal\'s user', async () => {
+      if (!gateOpen) return
+      await asUser(bob, '/home/bob', async () => {
+        expect((await status('passwd builder newsecret1')).code).toBe(0)
+      })
+      await expect(kernel.users.login('bob', 'newsecret1')).resolves.toBeDefined()
+      await expect(kernel.users.login('root', 'root')).resolves.toBeDefined()
+      await kernel.users.login('bob', 'builder').then(() => { throw new Error('old password still works') }, () => {})
+    }, 60000)
+
     it('the login family is refused to a user', async () => {
       if (!gateOpen) return
       await asAlice(async () => {

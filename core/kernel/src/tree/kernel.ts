@@ -2817,13 +2817,13 @@ export class Kernel implements IKernel {
    * Second half: authenticates (the passkey from `beginLogin`, or `password`) and starts the session on
    * the tty's shell. Resolves to what getty needs to run the user's shell; rejects with the message to show.
    */
-  async finishLogin(ttyNumber: number, username: string, password: string): Promise<{ shell: string, home: string, username: string, env: Record<string, string> }> {
+  async finishLogin(ttyNumber: number, username: string, password: string): Promise<{ shell: string, home: string, username: string, uid: number, gid: number, groups: number[], env: Record<string, string> }> {
     const shell = await this.shellForTty(ttyNumber)
     const pending = this._pendingLogins.get(ttyNumber)
     this._pendingLogins.delete(ttyNumber)
     const session = pending?.username === username ? pending.session : await this.users.login(username, password)
     await this.startSession(shell, session.user, session.cred)
-    return { shell: session.user.shell || 'ecmaos', home: session.user.home || '/root', username: session.user.username, env: shell.envObject }
+    return { shell: session.user.shell || 'ecmaos', home: session.user.home || '/root', username: session.user.username, uid: session.user.uid, gid: session.user.gid, groups: session.user.groups ?? [], env: shell.envObject }
   }
 
   /** A login on `ttyNumber` has ended: the session record goes, and the shell holds no user until the next login. */

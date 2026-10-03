@@ -56,7 +56,9 @@ async function runShell(tty, session) {
   }
   const name = shell.slice(shell.lastIndexOf('/') + 1)
   try {
-    const pid = await spawn(shell, [`-${name}`], { cwd: session.home, env: session.env, tty })
+    // as the user who logged in: login itself is a root process, the shell it starts is not
+    const credentials = { uid: session.uid, gid: session.gid, groups: session.groups }
+    const pid = await spawn(shell, [`-${name}`], { cwd: session.home, env: session.env, tty, credentials })
     await waitpid(pid, false)
   } catch (error) {
     out(`login: cannot run ${shell}: ${error?.message ?? error}\n`)

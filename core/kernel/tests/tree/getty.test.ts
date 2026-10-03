@@ -65,11 +65,16 @@ describe('/sbin/getty', () => {
 
     // the shell is ecmash, in the user's home
     await new Promise(r => setTimeout(r, 1500))
-    type('pwd > /tmp/getty-pwd; echo $0 > /tmp/getty-name\r')
+    type('pwd > /tmp/getty-pwd; echo $0 > /tmp/getty-name; cat /proc/self/status > /tmp/getty-status\r')
     await waitFor(async () => await kernel.filesystem.fs.exists('/tmp/getty-name'))
     await new Promise(r => setTimeout(r, 200))
     expect((await kernel.filesystem.fs.readFile('/tmp/getty-pwd', 'utf-8')).trim()).toBe('/home/alice')
     expect((await kernel.filesystem.fs.readFile('/tmp/getty-name', 'utf-8')).trim()).toBe('ecmash')
+
+    // login starts the shell as the user who logged in, wherever programs can run as someone else
+    const alice = [...(kernel.users.all as Map<number, { uid: number, username: string }>).values()].find(u => u.username === 'alice')!
+    const want = kernel.programsRunAsUser ? alice.uid : 0
+    expect(await kernel.filesystem.fs.readFile('/tmp/getty-status', 'utf-8')).toMatch(new RegExp(`Uid:\\t${want}\\t`))
 
     // leaving the shell ends the session and shows a fresh prompt
     type('exit\r')

@@ -961,7 +961,7 @@ export function installMainThreadSyscalls(): void {
     let text: string
     try {
       if (!oldPassword || !newPassword) throw new Error('Missing password')
-      await kernel.users.password(oldPassword, newPassword)
+      await kernel.users.password(oldPassword, newPassword, identityOf(proc).uid)
       text = JSON.stringify({})
     } catch (error) {
       text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
@@ -1048,10 +1048,20 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number } : {}
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] } } : {}
     const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal })
+    // Starting a program as someone else is `setuid` and `exec` in one: only a root process may, and it
+    // takes effect only where programs can run as a user at all (otherwise everything is root, as before)
+    let credentials: Credentials | undefined
+    if (options.credentials) {
+      requireRoot(proc, 'proc_spawn')
+      if (kernel.programsRunAsUser) {
+        const { uid, gid, groups = [] } = options.credentials
+        credentials = { uid, gid, suid: uid, sgid: gid, euid: uid, egid: gid, groups: [...groups] }
+      }
+    }
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal, credentials })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.

@@ -83,8 +83,9 @@ describe('Shell job control — & background execution and the job table', () =>
   })
 
   it('`wait` with no argument waits for every currently-tracked non-done job', async () => {
-    await kernel.shell.execute('sleep 0.2 &')
-    await kernel.shell.execute('sleep 0.3 &')
+    // `&` returns once the program has started, which under load can take a while, so the jobs must outlast it
+    await kernel.shell.execute('sleep 1.5 &')
+    await kernel.shell.execute('sleep 2 &')
     await new Promise(resolve => setTimeout(resolve, 10))
 
     const jobs = kernel.shell.listJobs()
