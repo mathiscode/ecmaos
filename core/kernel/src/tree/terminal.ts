@@ -327,7 +327,8 @@ export class Terminal extends XTerm implements ITerminal {
       this._session = () => { this._session = undefined; this._shell.onExit = undefined; resolve() }
       this._shell.onExit = () => this.endSession()
       this.listen()
-      this.write(ansi.erase.inLine(2) + this.prompt())
+      // from column 0: erasing the line does not move the cursor, which may be wherever login left it
+      this.write('\r' + ansi.erase.inLine(2) + this.prompt())
       this.focus()
     })
   }
