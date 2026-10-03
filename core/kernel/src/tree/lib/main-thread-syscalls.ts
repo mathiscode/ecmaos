@@ -28,6 +28,7 @@
 import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
+import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
@@ -141,6 +142,23 @@ function kernelOf(proc: Process): Kernel {
 
 function shellOf(proc: Process): Shell | undefined {
   return shellOfProcess.get(proc)
+}
+
+/** The credentials a program acts with: its own when programs run as the user, else its shell's (everything runs as root then). */
+function identityOf(proc: Process): Credentials {
+  const shell = shellOf(proc)
+  if (kernelOf(proc).programsRunAsUser || !shell) return proc.context.credentials
+  return shell.credentials
+}
+
+/** Whether the calling process itself is privileged: what init, getty, login and crond are, and a user's program is not. */
+function processIsRoot(proc: Process): boolean {
+  return proc.context.credentials.euid === 0
+}
+
+/** Refuses a caller that is not a root process, for what only the system may do. */
+function requireRoot(proc: Process, what: string): void {
+  if (!processIsRoot(proc)) throw Object.assign(new Error(`${what}: Operation not permitted`), { errno: Errno.EPERM })
 }
 
 /** What `sockets_connect` learned about how each connection ended, until `sockets_result` collects it. */
@@ -310,6 +328,7 @@ export function installMainThreadSyscalls(): void {
   })
 
   define_syscall('reboot', async (proc: Process) => {
+    requireRoot(proc, 'reboot')
     const kernel = kernelOf(proc)
     await kernel.reboot()
     return 0
@@ -654,15 +673,14 @@ export function installMainThreadSyscalls(): void {
 
     let result: unknown
     if (request.mode === 'self') {
-      const shell = shellOf(proc)
-      const credentials = shell?.credentials
-      const user = credentials ? kernel.users.get(credentials.uid) : undefined
+      const credentials = identityOf(proc)
+      const user = kernel.users.get(credentials.uid)
       result = {
-        uid: credentials?.uid ?? 0,
-        gid: credentials?.gid ?? 0,
-        euid: credentials?.euid ?? credentials?.uid ?? 0,
-        egid: credentials?.egid ?? credentials?.gid ?? 0,
-        groups: credentials?.groups ?? [],
+        uid: credentials.uid,
+        gid: credentials.gid,
+        euid: credentials.euid ?? credentials.uid,
+        egid: credentials.egid ?? credentials.gid,
+        groups: credentials.groups ?? [],
         username: user?.username ?? 'root'
       }
     } else if (request.mode === 'byUid') {
@@ -699,7 +717,7 @@ export function installMainThreadSyscalls(): void {
     const shell = shellOf(proc)
     let text: string
 
-    if (!shell || shell.credentials.suid !== 0) {
+    if (!shell || identityOf(proc).euid !== 0) {
       text = JSON.stringify({ error: 'permission denied' })
       await writeScratch(kernel, proc, path, text)
       return text.length
@@ -812,6 +830,7 @@ export function installMainThreadSyscalls(): void {
   // `{ error: message }` convention (see `sockets_create`'s doc comment) for why nothing here throws
   // a plain `Error` across the syscall boundary.
   define_syscall('fs_umount', async (proc: Process, target: string, path: string) => {
+    requireRoot(proc, 'umount')
     const kernel = kernelOf(proc)
     const results: Array<{ target: string, error?: string }> = []
 
@@ -852,6 +871,8 @@ export function installMainThreadSyscalls(): void {
     let text: string
     if (args.action === 'list') {
       text = JSON.stringify({ mounts: listMounts(kernel) })
+    } else if (!processIsRoot(proc)) {
+      text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'mount: only root can do that' }] })
     } else if (!shell) {
       text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'mount: no shell available for this process' }] })
     } else {
@@ -919,10 +940,11 @@ export function installMainThreadSyscalls(): void {
     let text: string
     try {
       if (!shell) throw new Error('no shell')
-      const name = username || shell.username
+      const caller = identityOf(proc)
+      const name = username || kernel.users.get(caller.uid)?.username || shell.username
       const target = Array.from(kernel.users.all.values()).find(u => u.username === name)
       if (!target) throw new Error(`user '${name}' does not exist`)
-      if (target.uid !== shell.credentials.uid && shell.credentials.euid !== 0) throw new Error('permission denied')
+      if (target.uid !== caller.uid && caller.euid !== 0) throw new Error('permission denied')
       const listed = (await kernel.filesystem.fs.readFile('/etc/shells', 'utf-8')).split('\n').map(line => line.trim()).filter(line => line && !line.startsWith('#'))
       if (!listed.includes(shellValue)) throw new Error(`${shellValue} is not listed in /etc/shells`)
       await kernel.users.update(target.uid, { shell: shellValue })
@@ -968,8 +990,8 @@ export function installMainThreadSyscalls(): void {
   // the kernel's identity, this process's ids, and toasts -- the DOM notifications apps raise.
   define_syscall('kernel_info', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
-    const credentials = shellOf(proc)?.credentials
-    const text = JSON.stringify({ name: kernel.name, id: kernel.id, pid: proc.pid, uid: credentials?.uid ?? 0, gid: credentials?.gid ?? 0 })
+    const credentials = identityOf(proc)
+    const text = JSON.stringify({ name: kernel.name, id: kernel.id, pid: proc.pid, uid: credentials.uid, gid: credentials.gid })
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
@@ -1057,19 +1079,17 @@ export function installMainThreadSyscalls(): void {
     proc.tty.foreground = target
     return 0
   })
-  define_syscall('proc_killpg', (_proc: Process, pgid: number, signal: number) => { killpg(pgid, signal); return 0 })
+  define_syscall('proc_killpg', (proc: Process, pgid: number, signal: number) => { killpg(pgid, signal, proc); return 0 })
 
   define_syscall('proc_kill', async (proc: Process, pid: number, signal: number) => {
     const target = processes.get(pid)
     if (!target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
     if (!mayKill(proc, target)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
-    // `mayKill` reads the process context's credentials, which are root's for everything the kernel
-    // launches, so it cannot tell users apart; init is what a signal can take the whole system down through.
+    // `mayKill` reads the process context's credentials, which are root's for every program while the installed
+    // @zenfs/core cannot run programs as their user, so it cannot tell users apart then; init is what a signal
+    // can take the whole system down through, so it is guarded by the caller's identity as well.
     const kernel = kernelOf(proc)
-    if (target === kernel.init.process) {
-      const credentials = shellOf(proc)?.credentials
-      if (credentials && credentials.suid !== 0) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
-    }
+    if (target === kernel.init.process && identityOf(proc).euid !== 0) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
     // Signal 0 only asks whether the process exists and may be signalled, which is everything above
     if (signal === 0) return 0
     // A signal to a shell's own pid runs its trap for it, if it has one; the shell is not a worker to deliver to
@@ -1090,6 +1110,8 @@ export function installMainThreadSyscalls(): void {
   // whole has no single pid of its own, the same limitation real `crond`'s `sh -c` child has for a
   // multi-stage pipeline.
   define_syscall('shell_exec', async (proc: Process, command: string) => {
+    // it runs in the kernel's own shell, with that shell's authority, which no user's program may borrow
+    requireRoot(proc, 'shell_exec')
     const kernel = kernelOf(proc)
     return await kernel.shell.execute(command)
   })
@@ -1114,7 +1136,7 @@ export function installMainThreadSyscalls(): void {
   // and friends skip init) but only as root, since it kills the system without warning anything.
   define_syscall('system_stop', async (proc: Process, mode: string) => {
     const kernel = kernelOf(proc)
-    const root = shellOf(proc)?.credentials.suid === 0
+    const root = identityOf(proc).euid === 0
     if (proc !== kernel.init.process && !root) throw Object.assign(new Error('Permission denied (requires root)'), { errno: Errno.EPERM })
     if (mode !== 'reboot' && mode !== 'halt' && mode !== 'poweroff') throw Object.assign(new Error(`Unknown mode: ${mode}`), { errno: Errno.EINVAL })
     await kernel.stop(mode)
@@ -1126,10 +1148,12 @@ export function installMainThreadSyscalls(): void {
   // `login_begin` is 1 when a passkey already settled it; `login_session` writes `{ ok, ... }` to `path`,
   // a failure carrying the message to show, since an errno would lose it.
   define_syscall('login_begin', async (proc: Process, tty: number, username: string) => {
+    requireRoot(proc, 'login_begin')
     return await kernelOf(proc).beginLogin(tty, username) ? 1 : 0
   })
 
   define_syscall('login_session', async (proc: Process, tty: number, username: string, password: string, path: string) => {
+    requireRoot(proc, 'login_session')
     const kernel = kernelOf(proc)
     let result: unknown
     try {
@@ -1145,6 +1169,7 @@ export function installMainThreadSyscalls(): void {
   // The built-in `ecmaos` shell has no program to run: the terminal's own line editor is the shell. The
   // calling login, and the getty that ran it, give up their holds on the keyboard for as long as the user is in it.
   define_syscall('login_builtin', async (proc: Process, tty: number) => {
+    requireRoot(proc, 'login_builtin')
     const shell = await kernelOf(proc).shellForTty(tty)
     const holds = []
     for (let p: Process | undefined = proc; p; p = p.parent) {
@@ -1168,6 +1193,7 @@ export function installMainThreadSyscalls(): void {
   })
 
   define_syscall('login_end', async (proc: Process, tty: number) => {
+    requireRoot(proc, 'login_end')
     await kernelOf(proc).endLogin(tty)
     return 0
   })
@@ -1192,14 +1218,14 @@ export function installMainThreadSyscalls(): void {
   define_syscall('terminal_clear_history', async (proc: Process) => {
     const shell = shellOf(proc)
     if (!shell) return -Errno.ENOSYS
-    await shell.terminal.clearHistory(shell.credentials.uid)
+    await shell.terminal.clearHistory(identityOf(proc).uid)
     return 0
   })
 
   define_syscall('terminal_reload_history', async (proc: Process) => {
     const shell = shellOf(proc)
     if (!shell) return -Errno.ENOSYS
-    await shell.terminal.reloadHistory(shell.credentials.uid)
+    await shell.terminal.reloadHistory(identityOf(proc).uid)
     return 0
   })
 
@@ -1228,7 +1254,7 @@ export function installMainThreadSyscalls(): void {
     const shell = shellOf(proc)
     let text: string
 
-    if (!shell || shell.credentials.suid !== 0) {
+    if (!shell || identityOf(proc).euid !== 0) {
       text = JSON.stringify({ error: 'permission denied (requires root)' })
       await writeScratch(kernel, proc, path, text)
       return text.length

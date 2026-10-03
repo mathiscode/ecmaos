@@ -181,6 +181,84 @@ describe('programs run as the user who started them', () => {
     expect(await kernel.filesystem.fs.exists('/home/alice/planted')).toBe(false)
   }, 60000)
 
+  describe('privileged operations belong to root processes', () => {
+    /** Runs a small program as the current shell user and returns what it wrote, or what it was refused with. */
+    const program = async (name: string, body: string) => {
+      const file = `/tmp/${name}-${kernel.shell.credentials.uid}.js`
+      await kernel.filesystem.fs.writeFile(file, `
+        const s = globalThis.ecmaosSyscalls
+        let result
+        try { result = { value: await (async () => { ${body} })() } } catch (error) { result = { error: String(error?.message ?? error), errno: error?.errno } }
+        const fd = s.open('${file}.json', s.O_WRONLY | s.O_CREAT | s.O_TRUNC, 0o644)
+        s.write(fd, new TextEncoder().encode(JSON.stringify(result ?? null)))
+        s.close(fd)
+      `, { mode: 0o755 })
+      await kernel.filesystem.fs.chmod(file, 0o755)
+      expect(await kernel.shell.execute(file)).toBe(0)
+      return JSON.parse(await kernel.filesystem.fs.readFile(`${file}.json`, 'utf-8')) as { value?: unknown, error?: string, errno?: number }
+    }
+
+    it('mount, umount and the kernel shell are refused to a user', async () => {
+      if (!gateOpen) return
+      await asAlice(async () => {
+        const mount = await status('mount -t memory /mnt/user-mount')
+        expect(mount.code).not.toBe(0)
+        expect(mount.err + mount.out).toMatch(/only root|denied|not permitted/i)
+        expect((await status('umount /tmp')).code).not.toBe(0)
+        expect((await status('reboot -f')).code).not.toBe(0)
+
+        const exec = await program('shell-exec', "return await s.custom('shell_exec', 'touch /tmp/shell-exec-ran')")
+        expect(exec.error).toMatch(/not permitted/i)
+      })
+      expect(await kernel.filesystem.fs.exists('/tmp/shell-exec-ran')).toBe(false)
+      expect(kernel.filesystem.mounts.has('/mnt/user-mount')).toBe(false)
+    }, 60000)
+
+    it('the login family is refused to a user', async () => {
+      if (!gateOpen) return
+      await asAlice(async () => {
+        for (const call of ["s.custom('login_begin', 0, 'root')", "s.custom('login_end', 0)"]) {
+          const result = await program('login-call', `return await ${call}`)
+          expect(result.error, call).toMatch(/not permitted/i)
+        }
+      })
+    }, 60000)
+
+    it('a user cannot signal another user\'s processes or process groups, and can signal their own', async () => {
+      if (!gateOpen) return
+      let alicePid = 0
+      await asAlice(async () => {
+        await kernel.shell.execute('sleep 60 &')
+        alicePid = Number((await status('ps')).out.split('\n').find(line => line.includes('sleep'))?.trim().split(/\s+/)[0])
+        expect(alicePid).toBeGreaterThan(1)
+        expect((await status(`kill -0 ${alicePid}`)).code).toBe(0)
+      })
+
+      await asUser(bob, '/home/bob', async () => {
+        const refused = await status(`kill -9 ${alicePid}`)
+        expect(refused.code).not.toBe(0)
+        expect(refused.err).toMatch(/not permitted|EPERM/i)
+        const group = await program('killpg', `return await s.custom('proc_killpg', ${alicePid}, 9)`)
+        expect(group.error).toMatch(/not permitted/i)
+        // init is not a user's to signal either
+        expect((await status('kill -9 1')).code).not.toBe(0)
+      })
+
+      await asAlice(async () => {
+        expect((await status(`kill -0 ${alicePid}`)).code).toBe(0)
+        expect((await status(`kill -9 ${alicePid}`)).code).toBe(0)
+      })
+    }, 90000)
+
+    it('id and users_lookup report the user the program runs as', async () => {
+      if (!gateOpen) return
+      await asUser(bob, '/home/bob', async () => {
+        const who = await status('id')
+        expect(who.out).toContain(`uid=${bob.uid}`)
+      })
+    }, 30000)
+  })
+
   it('with the gate closed every program still runs, as root', async () => {
     internals()._programsRunAsUser = false
     try {
@@ -189,6 +267,8 @@ describe('programs run as the user who started them', () => {
         expect(result.code).toBe(0)
         expect(result.out).toMatch(/Uid:\t0\t0\t0\t0/)
         expect((await status('cat /etc/passwd')).code).toBe(0)
+        // what only root may do is still refused to a non-root shell, judged by the shell's user
+        expect((await status('user add carol')).code).not.toBe(0)
       })
     } finally {
       internals()._programsRunAsUser = gateOpen

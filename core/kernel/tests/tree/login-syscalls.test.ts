@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { bindContext } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -29,6 +30,11 @@ describe('login syscalls', () => {
       s.write(fd, new TextEncoder().encode(JSON.stringify(out)))
       s.close(fd)
     `, { mode: 0o755 })
+    // getty and login are started by init, so they are root processes whoever is logged in on the terminal
+    // they serve; the shell this test drives them through is that terminal's, so put it back to root first
+    const root = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] as number[] }
+    kernel.shell.credentials = root
+    kernel.shell.context = bindContext({ root: '/', pwd: '/', credentials: root })
     expect(await kernel.shell.execute(`/tmp/${name}.js`)).toBe(0)
     return JSON.parse(await kernel.filesystem.fs.readFile(`/tmp/${name}.json`, 'utf-8'))
   }

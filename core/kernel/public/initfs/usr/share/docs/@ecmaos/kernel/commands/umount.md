@@ -25,6 +25,10 @@ Examples:
   umount -a              unmount all filesystems
 ```
 
+## Permissions
+
+Only root may unmount a filesystem.
+
 ## See also
 
 `umount --help`

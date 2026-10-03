@@ -65,6 +65,10 @@ Examples:
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
 ```
 
+## Permissions
+
+Only root may mount or unmount a filesystem; listing the mounts (`mount` with no arguments) is open to everyone.
+
 ## See also
 
 `mount --help`

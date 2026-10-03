@@ -198,6 +198,8 @@ export class Kernel implements IKernel {
   readonly init = new Init()
 
   private _programsRunAsUser = false
+  /** Whether a user's programs run with that user's credentials, rather than all as root (see `canRunProgramsAsUser`) */
+  get programsRunAsUser(): boolean { return this._programsRunAsUser }
 
   /**
    * The context a program started from `shell` runs in: the shell's own user, so file permissions

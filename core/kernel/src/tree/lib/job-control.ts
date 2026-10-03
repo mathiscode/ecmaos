@@ -66,15 +66,22 @@ export function setpgid(caller: Process, pid: number, pgid: number): number {
   return 0
 }
 
-/** `killpg(3)`: every live process in the group. Returns how many took the signal. */
-export function killpg(pgid: number, signal: number): number {
+/**
+ * `killpg(3)`: every live process in the group. Returns how many took the signal.
+ *
+ * With a `caller`, only the members it may signal (`mayKill`) get it, and if there are members but none
+ * of them is the caller's to signal, that is `EPERM` rather than a group that does not exist.
+ */
+export function killpg(pgid: number, signal: number, caller?: Process): number {
   let count = 0
+  let refused = 0
   for (const proc of [...processes.values()]) {
     if (proc.code !== undefined || getpgid(proc) !== pgid) continue
+    if (caller && !mayKill(caller, proc)) { refused++; continue }
     if (signal === SIGCONT) stopReported.delete(proc)
     if (zenfsKill(proc.pid, signal)) count++
   }
-  if (!count) throw fail(Errno.ESRCH, 'No such process group')
+  if (!count) throw fail(refused ? Errno.EPERM : Errno.ESRCH, refused ? 'Operation not permitted' : 'No such process group')
   return count
 }
 
