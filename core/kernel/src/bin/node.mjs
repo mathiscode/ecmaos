@@ -31,7 +31,7 @@ import { ready, exit, getpid, getppid, getuid, geteuid, getgid, getegid } from '
 import {
   open, read, close, write, getcwd,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
+  link, symlink, readlink, utimes, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
 
@@ -222,7 +222,7 @@ const init = await ready
 // resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
 globalThis.ecmaosSyscalls = {
   open, read, write, writeAll, close, getcwd, exit, custom: syscall_async,
-  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access,
+  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`

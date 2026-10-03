@@ -1,18 +1,19 @@
 /**
  * Copy files and directories. `-r`/`-R` copies directories recursively. A new file or directory gets its
  * source's permission bits (without setuid, setgid or sticky); an existing destination keeps its own mode.
- * `-p` also keeps those special bits and the owner (the owner only when the caller may chown).
+ * `-p` also keeps those special bits, the access and modification times, and the owner (the owner only when
+ * the caller may chown).
  */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, chmod, chown, copyFile } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, chmod, chown, utimes, copyFile } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
 
   -r, -R, --recursive   copy directories recursively
-  -p, --preserve        keep the mode (setuid and sticky bits too) and, for root, the owner
+  -p, --preserve        keep the mode (setuid and sticky bits too), the times and, for root, the owner
   -v, --verbose         explain what is being done
   --help                display this help and exit`
 
@@ -20,27 +21,32 @@ function exists(path) {
   try { stat(path); return true } catch { return false }
 }
 
-/** `chmod`, except that a directory whose mode cannot be changed (an older `@zenfs/core` cannot) keeps the one it has. */
+/** `chmod`, except that a directory whose mode cannot be changed (an older `@zenfs/core` cannot, nor its times) keeps the one it has. */
 function setMode(path, mode) {
   try { chmod(path, mode) } catch (error) { if (!isDirectory(path)) throw error }
 }
 
 /** Keeps what `-p` asks for: the whole mode, and the owner when this caller is allowed to give it. */
-function preserve(sourcePath, destPath) {
-  const stats = stat(sourcePath)
+function preserve(stats, destPath) {
   setMode(destPath, stats.mode & 0o7777)
   try { chown(destPath, stats.uid, stats.gid) } catch { /* only root may give a file away */ }
+  // last, since writing into a directory changes its times
+  // seconds, as Node's `utimes` takes them (the upstream wrapper's comment says milliseconds; it is not)
+  try { utimes(destPath, stats.atimeMs / 1000, stats.mtimeMs / 1000) } catch (error) { if (!isDirectory(destPath)) throw error }
 }
 
 function copyOne(sourcePath, destPath, keep) {
+  // taken before the source is read, which is what changes its access time
+  const stats = stat(sourcePath)
   // the mode only matters for a file that does not exist yet; an older @zenfs/core also checks it as access to one that does
-  copyFile(sourcePath, destPath, exists(destPath) ? 0o644 : stat(sourcePath).mode & 0o777)
-  if (keep) preserve(sourcePath, destPath)
+  copyFile(sourcePath, destPath, exists(destPath) ? 0o644 : stats.mode & 0o777)
+  if (keep) preserve(stats, destPath)
 }
 
 function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDest, keep) {
   if (isDirectory(sourcePath)) {
-    const mode = stat(sourcePath).mode & 0o777
+    const stats = stat(sourcePath)
+    const mode = stats.mode & 0o777
     const created = !exists(destPath)
     if (created) {
       // owner rwx while the contents go in, so a read-only source directory can still be filled
@@ -50,7 +56,7 @@ function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDe
     for (const entry of readdir(sourcePath)) {
       copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry), keep)
     }
-    if (keep) preserve(sourcePath, destPath)
+    if (keep) preserve(stats, destPath)
     else if (created && (mode | 0o700) !== mode) setMode(destPath, mode)
   } else {
     copyOne(sourcePath, destPath, keep)
