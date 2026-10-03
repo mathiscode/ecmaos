@@ -210,11 +210,15 @@ export class Kernel implements IKernel {
    */
   processContext(shell: IShell, cwd: string, program?: string) {
     const { credentials } = shell
-    if (!this._programsRunAsUser) return undefined
+    const umask = (shell as { umask?: number }).umask ?? 0
     // a program with the setuid bit runs with its owner's privileges, not the shell's
-    const elevated = program ? setuidCredentials(shell.context.fs, program.startsWith('/') ? program : `${cwd}/${program}`, credentials) : undefined
-    if (credentials.euid === 0 && !elevated) return undefined
-    return bindContext({ root: '/', pwd: cwd, credentials: credentialsFor(elevated ?? credentials) })
+    const elevated = this._programsRunAsUser && program ? setuidCredentials(shell.context.fs, program.startsWith('/') ? program : `${cwd}/${program}`, credentials) : undefined
+    const asUser = this._programsRunAsUser && (credentials.euid !== 0 || elevated !== undefined)
+    // nothing to say that the default (root, no mask) context does not already
+    if (!asUser && umask === 0) return undefined
+    const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: cwd, umask }
+    if (asUser) init.credentials = credentialsFor(elevated ?? credentials)
+    return bindContext(init)
   }
 
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
@@ -508,6 +512,12 @@ export class Kernel implements IKernel {
       // `/bin/ecmash` is the same language as a program.
       if (!(await this.filesystem.fs.exists('/etc/shells'))) {
         await this.filesystem.fs.writeFile('/etc/shells', '# Valid login shells; see chsh(1).\n/bin/ecmash\necmaos\n', { mode: 0o644 })
+      }
+
+      // What every login shell reads first. The file creation mask is policy, not mechanism: a context starts with
+      // none, and this is where a system says what it wants (022, as Linux distributions do).
+      if (!(await this.filesystem.fs.exists('/etc/profile'))) {
+        await this.filesystem.fs.writeFile('/etc/profile', '# /etc/profile: read by every login shell\n\n# new files are not writable by group or others (a no-op where the file system has no umask)\numask 022 2> /dev/null\n', { mode: 0o644 })
       }
 
       // Who may use `sudo`. Only root can read it, as on Linux, and a missing file means nobody may.
@@ -3031,7 +3041,8 @@ export class Kernel implements IKernel {
     cred: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
   ): Promise<T | undefined> {
     const currentCredentials = { ...this.shell.credentials }
-    const currentContext = { ...this.shell.context }
+    // the object itself, not a copy: a copy's `fs` stays bound to the original, so anything set on it afterwards (the umask) would be invisible to the file operations
+    const currentContext = this.shell.context
     let result: T | undefined
 
     try {

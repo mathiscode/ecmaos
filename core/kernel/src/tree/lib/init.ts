@@ -42,7 +42,10 @@ export class Init {
 
   /** Creates pid 1 and starts `/sbin/init` on it. */
   async start(kernel: Kernel): Promise<void> {
-    const base = bindContext({ root: '/', pwd: '/' })
+    // pid 1 starts with the mask Linux gives it, which every daemon, getty and cron job under it inherits
+    // (ignored by an @zenfs/core that has no creation mask)
+    const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: '/', umask: 0o022 }
+    const base = bindContext(init)
     boundContexts.delete(base.id)
     const context = Object.create(base, { id: { value: 1, enumerable: true } }) as typeof base
     const proc = new Process({ context, argv: [INIT_PATH], env: kernel.shell.envObject, console: '/dev/null', tty: null })

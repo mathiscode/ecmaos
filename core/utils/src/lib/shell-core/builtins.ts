@@ -8,6 +8,7 @@
  * (`jobs`, `fg`, `bg`, `wait`, `disown`) and `env`, which runs a command.
  */
 
+import { formatUmask, formatUmaskSymbolic, parseUmask } from './umask.js'
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
 import { echoOutput } from '../echo-text.js'
@@ -76,13 +77,19 @@ export interface BuiltinHost {
   signalNames?(): string[]
   /** Called after the environment changed, so a host can republish it. */
   changed?(): void
+
+  /**
+   * The file mode creation mask: reads it, or sets it when `mask` is given. Returns the mask as it was before,
+   * or undefined when the system under the shell has no such thing (so `umask` says so, rather than pretend).
+   */
+  umask?(mask?: number): number | undefined | Promise<number | undefined>
 }
 
 /** The names {@link runSharedBuiltin} handles. */
 export const sharedBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'local', 'export', 'read', 'trap', 'unset', ':', '.', 'break', 'continue', 'eval', 'exit',
   'return', 'shift', 'source', 'alias', 'unalias', 'command', 'getopts', 'type', 'readonly', 'declare',
-  'typeset', 'test', '[', 'echo',
+  'typeset', 'test', '[', 'echo', 'umask',
 ])
 
 /** Whether `error` is one of the interpreter's unwind signals, which a builtin must never swallow. */
@@ -102,6 +109,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: string[], io: BuiltinIO): Promise<number> {
   switch (name) {
     case 'cd': return cd(host, argv, io)
+    case 'umask': return umaskBuiltin(host, argv, io)
     case 'set': return set(host, argv, io)
     case 'local': return local(host, argv, io)
     case 'export': return exportVariables(host, argv, io)
@@ -711,6 +719,39 @@ async function returnBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   const parsed = parseSignalArgument(argv, 'return')
   if (parsed.error) { await io.writelnErr(parsed.error); return 2 }
   throw new ReturnSignal(parsed.value ?? host.getStatus())
+}
+
+/** `umask [-p] [-S] [MODE]`: show or set the file mode creation mask. */
+async function umaskBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: umask [-p] [-S] [MODE]\nShow or set the file mode creation mask: the permission bits a new file or directory is created without.\nMODE is octal (022) or symbolic (u=rwx,g=rx,o=rx, the permissions that stay allowed).\n  -S  print the mask symbolically\n  -p  print it as a command that sets it')
+    return 0
+  }
+  let symbolic = false
+  let asCommand = false
+  const rest: string[] = []
+  for (const arg of argv) {
+    if (arg === '-S') symbolic = true
+    else if (arg === '-p') asCommand = true
+    else if (arg === '--') continue
+    else rest.push(arg)
+  }
+  if (rest.length > 1) { await io.writelnErr('umask: too many arguments'); return 1 }
+
+  const current = await host.umask?.()
+  if (current === undefined) {
+    await io.writelnErr('umask: the file mode creation mask is not supported by the installed @zenfs/core')
+    return 1
+  }
+  if (rest.length === 0) {
+    const shown = symbolic ? formatUmaskSymbolic(current) : formatUmask(current)
+    await io.writeln(asCommand ? `umask ${symbolic ? '-S ' : ''}${shown}` : shown)
+    return 0
+  }
+  const mask = parseUmask(rest[0] ?? '', current)
+  if (mask === undefined) { await io.writelnErr(`umask: ${rest[0]}: invalid ${/^[0-9]+$/.test(rest[0] ?? '') ? 'octal number' : 'symbolic mode'}`); return 1 }
+  await host.umask?.(mask)
+  return 0
 }
 
 async function shift(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {

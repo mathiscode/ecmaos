@@ -73,6 +73,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_password(oldPassword: string, newPassword: string, path: string): number
     users_authenticate(username: string, password: string): number
     credentials_supported(): number
+    proc_umask(mask: number): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
     device_cli_wait(): number
@@ -969,6 +970,17 @@ export function installMainThreadSyscalls(): void {
     } catch {
       return 0
     }
+  })
+
+  // `umask(2)` for a program: sets the file mode creation mask of the caller's own context (a negative mask only
+  // asks) and returns what it was, or -1 where the installed @zenfs/core has no such thing. What the program
+  // starts afterwards inherits it.
+  define_syscall('proc_umask', (proc: Process, mask: number) => {
+    const context = proc.context as { umask?: number }
+    if (typeof context.umask !== 'number') return -1
+    const old = context.umask
+    if (mask >= 0) context.umask = mask & 0o777
+    return old
   })
 
   // 1 when a program runs as the user who started it. `su` and `sudo` refuse to work otherwise: with

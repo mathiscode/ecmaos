@@ -948,6 +948,11 @@ class Shell {
         return program ? { kind: 'file', path: program } : undefined
       },
       runArgv: argv => shell.interpreter.runText(argv.map(shellQuote).join(' ')),
+      // a negative mask asks without changing; the kernel answers -1 where the file system has no such thing
+      umask: async mask => {
+        const old = await sys.custom('proc_umask', mask ?? -1)
+        return old < 0 ? undefined : old
+      },
       signalName: number => Object.entries(TRAP_SIGNALS).find(([, n]) => n === number)?.[0],
       signalNames: () => Object.keys(TRAP_SIGNALS),
       // INT is reported by the wait that saw the child die; the rest arrive as real signals.

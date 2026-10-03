@@ -35,7 +35,9 @@ Job control: `^Z` stops the foreground job, `jobs` lists, `fg` and `bg` resume, 
 
 `trap` takes `EXIT`, `ERR`, `INT`, `HUP`, `QUIT`, `USR1`, `USR2`, `PIPE`, `ALRM`, `TERM` and `CHLD`; `DEBUG` and `RETURN` are refused. A trap for a signal runs between commands, not in the middle of one.
 
-Builtins: `:`, `true`, `false`, `cd`, `pwd`, `echo`, `env`, `exit`, `export`, `unset`, `local`, `set --`, `shift`, `read`, `source`, `.`, `eval`, `exec`, `return`, `break`, `continue`, `type`, `command`, `test`, `[`, `wait`, `jobs`, `fg`, `bg`, `disown`, `alias`, `unalias`, `trap`, `declare`, `typeset`, `readonly`, `getopts`.
+Builtins: `:`, `true`, `false`, `cd`, `pwd`, `echo`, `env`, `exit`, `export`, `unset`, `local`, `set --`, `shift`, `read`, `source`, `.`, `eval`, `exec`, `return`, `break`, `continue`, `type`, `command`, `test`, `[`, `wait`, `jobs`, `fg`, `bg`, `disown`, `alias`, `unalias`, `trap`, `declare`, `typeset`, `readonly`, `getopts`, `umask`.
+
+`umask [-p] [-S] [MODE]` shows or sets the file mode creation mask, octal (`022`) or symbolic (`u=rwx,g=rx,o=rx`, what stays allowed). It applies to the files and directories the shell and everything it starts create, including `>` redirections, and a program inherits it from the shell that ran it. `/etc/profile` sets 022 for a login shell, and pid 1 starts with 022. Programs create files with at most their own 0644 (and directories 0777), so a mask can tighten what they create and cannot loosen it. It needs a newer `@zenfs/core` than the published 2.7.6; without one `umask` says so and fails instead of pretending.
 
 ## Differences from the shell built into the kernel
 

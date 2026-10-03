@@ -73,6 +73,11 @@ export function kernelBuiltinHost(shell: Shell): BuiltinHost {
     describe: name => shell.describeCommand(name),
     runArgv: argv => shell.execute(argv.map(shellQuote).join(' ')),
     changed: () => shell.publishEnv(),
+    umask: mask => {
+      const old = shell.umask
+      if (old !== undefined && mask !== undefined) shell.umask = mask
+      return old
+    },
   }
 }
 

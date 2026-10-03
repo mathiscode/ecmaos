@@ -491,7 +491,29 @@ export class Shell implements IShell {
   public readonly config: TerminalConfig
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
-  public context: BoundContext = bindContext({ root: '/', pwd: '/', credentials: this.credentials })
+  private _context: BoundContext = bindContext({ root: '/', pwd: '/', credentials: this.credentials })
+  private _umask = 0
+
+  get context(): BoundContext { return this._context }
+  /** A new context starts with this shell's file creation mask, so a login or `su` that rebinds it does not lose `umask`. */
+  set context(value: BoundContext) {
+    this._context = value
+    const umasked = value as { umask?: number }
+    if (typeof umasked.umask === 'number') umasked.umask = this._umask
+  }
+
+  /**
+   * The file mode creation mask: what files this shell creates (`>`) and what its programs create are made
+   * without. Undefined where the installed `@zenfs/core` has no such thing, so `umask` can say so.
+   */
+  get umask(): number | undefined {
+    return typeof (this._context as { umask?: number }).umask === 'number' ? this._umask : undefined
+  }
+  set umask(mask: number | undefined) {
+    this._umask = (mask ?? 0) & 0o777
+    const umasked = this._context as { umask?: number }
+    if (typeof umasked.umask === 'number') umasked.umask = this._umask
+  }
 
   get cwd() { return this._cwd }
   /**
