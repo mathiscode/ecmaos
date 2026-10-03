@@ -12,14 +12,7 @@
 
 The login prompt on one terminal. `init` runs one for each terminal from `/etc/inittab`; you do not normally start it by hand.
 
-It prints `/etc/issue`, asks for a user name, then a password with echo off, and passes them to the kernel, which checks them (trying a passkey first when the user has one, since that needs the page) and starts the session. Then it runs the user's login shell on the terminal and waits for it:
-
-- a shell that is a file, such as `/bin/ecmash`, is started as a login shell (`-ecmash`) in the user's home directory;
-- the built-in `ecmaos` shell, which has no file, runs on the terminal until `exit` or `^D` on an empty line.
-
-When the shell ends, the session is closed (the user leaves `who`) and the prompt comes back. A wrong password prints the reason and asks again. `^C` at the prompt is ignored.
-
-After a login it prints `/etc/motd`, on every terminal.
+It prints `/etc/issue`, asks for a user name, and runs `/bin/login` with it on the terminal. `login` asks for the password, starts the session and runs the user's shell (see `@ecmaos/kernel/commands/login`). When `login` returns, whether the user logged out or the login was refused, getty asks for a user name again. `^C` at the prompt is ignored.
 
 ## Terminal
 
@@ -35,4 +28,4 @@ A kernel started with credentials (`options.credentials`: tests, kiosks and embe
 
 ## See also
 
-`@ecmaos/kernel/commands/inittab`, `@ecmaos/kernel/commands/init`, `@ecmaos/kernel/commands/chsh`
+`@ecmaos/kernel/commands/login`, `@ecmaos/kernel/commands/inittab`, `@ecmaos/kernel/commands/init`, `@ecmaos/kernel/commands/chsh`

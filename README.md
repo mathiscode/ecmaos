@@ -356,7 +356,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 
 - `/bin/`: Built-in commands
 - `/sbin/init`: pid 1, the first process; it runs `/etc/inittab`
-- `/sbin/getty`: the login prompt on one terminal, run by init for each of the eight
+- `/sbin/getty`: the login prompt on one terminal, run by init for each of the eight (it asks for the user name and runs `/bin/login`, which asks for the password and runs the shell)
 <!-- - `/bios/`: The BIOS filesystem -->
 - `/boot/init`: A script that runs on boot, as a `sysinit` entry of `/etc/inittab`
 - `/etc/inittab`: What init runs and keeps running (BusyBox format; see `man @ecmaos/kernel/commands/inittab`)
@@ -511,7 +511,7 @@ ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number o
 - **No `strace`.** There is no syscall trace/hook for a running process.
 - **initfs isn't extracted via a real `tar`.** `extractTarball` runs before syscalls, processes, or `/bin/tar` itself exist on the filesystem -- the tarball being extracted is what provides `/bin/tar` in the first place, so boot uses a small bootstrap extractor instead of the real coreutil. A genuine fix needs a two-phase boot (a tiny bootstrap tarball extracted the current way, then everything else through the real `/bin/tar`).
 - **The WebGL terminal renderer's ligature behavior is undecided.** No verdict yet on whether/how ligatures should render under the WebGL addon.
-- **init is deliberately small.** It is a BusyBox-style init: no runlevels, no service dependencies, no `ctrlaltdel` action, and the login prompt is `/sbin/getty` on each terminal (when the kernel is not given credentials to log in with; then it logs that user in itself). `getty` is a login prompt only: no serial lines, no `login -f`, no PAM. `poweroff` stops the kernel and then tries to close the page, which a browser usually refuses, so in an ordinary tab it behaves like `halt`.
+- **init is deliberately small.** It is a BusyBox-style init: no runlevels, no service dependencies, no `ctrlaltdel` action, and the login prompt is `/sbin/getty` on each terminal (when the kernel is not given credentials to log in with; then it logs that user in itself). `getty` and `login` are a login prompt only: no serial lines, no `login -f`, no PAM. `poweroff` stops the kernel and then tries to close the page, which a browser usually refuses, so in an ordinary tab it behaves like `halt`.
 
 ## Early Days
 

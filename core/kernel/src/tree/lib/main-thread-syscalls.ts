@@ -1128,15 +1128,19 @@ export function installMainThreadSyscalls(): void {
   })
 
   // The built-in `ecmaos` shell has no program to run: the terminal's own line editor is the shell. The
-  // calling getty gives up its hold on the keyboard for as long as the user is in it.
+  // calling login, and the getty that ran it, give up their holds on the keyboard for as long as the user is in it.
   define_syscall('login_builtin', async (proc: Process, tty: number) => {
     const shell = await kernelOf(proc).shellForTty(tty)
-    const hold = ttyHoldOf(proc)
-    hold?.suspend()
+    const holds = []
+    for (let p: Process | undefined = proc; p; p = p.parent) {
+      const hold = ttyHoldOf(p)
+      if (hold) holds.push(hold)
+    }
+    for (const hold of holds) hold.suspend()
     try {
       await shell.terminal.runSession()
     } finally {
-      hold?.resume()
+      for (const hold of holds) hold.resume()
     }
     return 0
   })

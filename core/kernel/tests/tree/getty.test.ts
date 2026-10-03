@@ -124,4 +124,9 @@ describe('/sbin/getty', () => {
     kill(1, 1)
     for (const proc of processes.values()) if (proc.argv?.[0]?.includes('getty')) proc.kill(9)
   }, 40000)
+
+  it('/bin/login refuses to run without a terminal and a user name', async () => {
+    expect(await kernel.shell.execute('/bin/login')).toBe(2)
+    expect(await kernel.shell.execute('/bin/login -t 0')).toBe(2)
+  })
 })
