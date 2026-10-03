@@ -1734,7 +1734,8 @@ export class Shell implements IShell {
   private fastPathBuiltinFor(pipeline: Pipeline): string | undefined {
     // With `exec > file` installed there is no such thing as "nothing redirected": the shell's own
     // fd 1 is the file, and a builtin writing straight to the terminal would escape it.
-    if (this._execOutputs || this._statementOutputs.length > 0) return undefined
+    // Likewise inside `eval`/`source` that sits in a pipeline: its stdout is the pipe, held for what runs inside.
+    if (this._execOutputs || this._statementOutputs.length > 0 || this._heldStdout.length > 0) return undefined
     if (pipeline.commands.length !== 1) return undefined
     const command = pipeline.commands[0]
     if (!command || command.redirections.length > 0) return undefined
@@ -2365,7 +2366,14 @@ export class Shell implements IShell {
       start: async () => {
         const existed = append && await context.fs.promises.exists(targetPath)
         if (existed) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
-        else await context.fs.promises.writeFile(targetPath, new Uint8Array())
+        else {
+          // Two streams can open the same new target at once (a command and the aggregate builtin around
+          // it, `env echo hi >> new`); the one that loses the race finds the file already there.
+          try { await context.fs.promises.writeFile(targetPath, new Uint8Array()) } catch (error) {
+            if ((error as { code?: string }).code !== 'EEXIST') throw error
+            if (append) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
+          }
+        }
       },
       write: async (chunk) => {
         chunks.push(chunk.slice())

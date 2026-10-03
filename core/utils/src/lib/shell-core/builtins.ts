@@ -11,6 +11,7 @@
 
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
+import { echoOutput } from '../echo-text.js'
 import type { Interpreter } from './interpreter.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
 import type { ShellOptionName, ShellState } from './state.js'
@@ -82,7 +83,7 @@ export interface BuiltinHost {
 export const sharedBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'local', 'export', 'read', 'trap', 'unset', ':', '.', 'break', 'continue', 'eval', 'exit',
   'return', 'shift', 'source', 'alias', 'unalias', 'command', 'getopts', 'type', 'readonly', 'declare',
-  'typeset', 'test', '[',
+  'typeset', 'test', '[', 'echo',
 ])
 
 /** Whether `error` is one of the interpreter's unwind signals, which a builtin must never swallow. */
@@ -109,6 +110,7 @@ export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: st
     case 'trap': return trap(host, argv, io)
     case 'unset': return unset(host, argv, io)
     case ':': return 0
+    case 'echo': await io.write(echoOutput(argv).output); return 0
     case 'break': return breakOrContinue(argv, io, 'break')
     case 'continue': return breakOrContinue(argv, io, 'continue')
     case 'eval': return evalBuiltin(host, argv, io)

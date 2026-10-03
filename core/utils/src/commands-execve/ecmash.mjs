@@ -112,7 +112,7 @@ const isUnwind = error => error instanceof BreakSignal || error instanceof Conti
 
 // The ones that need this shell's own machinery (its job table, its descriptors, `exec`); every other
 // builtin is shared with the kernel shell (`../lib/shell-core/builtins.ts`).
-const OWN_BUILTINS = ['true', 'false', 'echo', 'pwd', 'env', 'wait', 'jobs', 'fg', 'bg', 'disown', 'exec']
+const OWN_BUILTINS = ['true', 'false', 'pwd', 'env', 'wait', 'jobs', 'fg', 'bg', 'disown', 'exec']
 const BUILTINS = new Set([...sharedBuiltinNames, ...OWN_BUILTINS])
 
 class Shell {
@@ -976,19 +976,6 @@ class Shell {
         return 0
       }
       case 'pwd': this.out(getcwd() + '\n'); return 0
-      case 'echo': {
-        let newline = true
-        let escapes = false
-        while (args[0] && /^-[neE]+$/.test(args[0])) {
-          const flags = args.shift()
-          if (flags.includes('n')) newline = false
-          if (flags.includes('e')) escapes = true
-        }
-        let text = args.join(' ')
-        if (escapes) text = text.replace(/\\(n|t|\\)/g, (_, c) => ({ n: '\n', t: '\t', '\\': '\\' })[c])
-        this.out(text + (newline ? '\n' : ''))
-        return 0
-      }
       case 'exec': {
         if (!args.length) return 0
         const program = this.findProgram(args[0])

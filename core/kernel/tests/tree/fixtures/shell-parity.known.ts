@@ -13,8 +13,6 @@ export interface KnownDivergence {
 
 export type KnownTable = Record<string, KnownDivergence>
 
-export const knownKernel: KnownTable = {
-  "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
-}
+export const knownKernel: KnownTable = {}
 
 export const knownEcmash: KnownTable = {}
