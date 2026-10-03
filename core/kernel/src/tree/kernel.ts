@@ -55,7 +55,7 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
-import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, FIRST_TERMINAL_GETTY_ENTRY, gettyTerminals } from '@ecmaos/coreutils/lib/inittab'
+import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, gettyTerminals, isUntouchedInittab, withGettyEntries, withoutGettyEntries } from '@ecmaos/coreutils/lib/inittab'
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
@@ -491,10 +491,19 @@ export class Kernel implements IKernel {
       const loginInittab = DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES
       if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', this.options.credentials ? DEFAULT_INITTAB : loginInittab, { mode: 0o644 })
-      } else if (!this.options.credentials && [DEFAULT_INITTAB, DEFAULT_INITTAB + FIRST_TERMINAL_GETTY_ENTRY].includes(await this.filesystem.fs.readFile('/etc/inittab', 'utf-8'))) {
-        await this.filesystem.fs.writeFile('/etc/inittab', loginInittab, { mode: 0o644 })
-      } else if (this.options.credentials && await this.filesystem.fs.readFile('/etc/inittab', 'utf-8') === loginInittab) {
-        await this.filesystem.fs.writeFile('/etc/inittab', DEFAULT_INITTAB, { mode: 0o644 })
+      } else {
+        // Untouched means only the entries the kernel writes (whatever the comment header said in the
+        // build that wrote it); anything else in the file is the user's and is left alone.
+        const text = await this.filesystem.fs.readFile('/etc/inittab', 'utf-8')
+        if (isUntouchedInittab(text)) {
+          const gettys = gettyTerminals(text)
+          if (this.options.credentials && gettys.size > 0) {
+            await this.filesystem.fs.writeFile('/etc/inittab', withoutGettyEntries(text), { mode: 0o644 })
+          } else if (!this.options.credentials && (gettys.size === 0 || (gettys.size === 1 && gettys.has(0)))) {
+            // no getty yet, or the one-terminal default of an earlier build; fewer than eight otherwise is a choice
+            await this.filesystem.fs.writeFile('/etc/inittab', withGettyEntries(text), { mode: 0o644 })
+          }
+        }
       }
 
       try {

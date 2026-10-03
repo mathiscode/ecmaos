@@ -42,9 +42,6 @@ export interface Inittab {
 /** A login prompt on each of the eight terminals, added to the default file when the kernel does not log a user in itself. */
 export const DEFAULT_GETTY_ENTRIES = Array.from({ length: 8 }, (_, n) => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
 
-/** The one-terminal version of {@link DEFAULT_GETTY_ENTRIES} an earlier build wrote; still an untouched default. */
-export const FIRST_TERMINAL_GETTY_ENTRY = 'tty0::respawn:/sbin/getty tty0\n'
-
 /** The terminals an inittab runs a `getty` on: entries whose id is `ttyN`, that respawn `/sbin/getty`. */
 export function gettyTerminals(text: string): Set<number> {
   const terminals = new Set<number>()
@@ -53,6 +50,37 @@ export function gettyTerminals(text: string): Set<number> {
     if (match && entry.action === 'respawn' && entry.argv[0]?.endsWith('/getty')) terminals.add(Number(match[1]))
   }
   return terminals
+}
+
+/**
+ * Whether `text` holds only entries the kernel writes itself: `/boot/init` as sysinit, `crond`, and a getty
+ * for some terminals. Comments and blank lines do not count, so a file from an older build with a different
+ * header is still untouched, while one with any other entry (or a line that does not parse) is the user's.
+ */
+export function isUntouchedInittab(text: string): boolean {
+  const { entries, errors } = parseInittab(text)
+  if (errors.length > 0 || entries.length === 0) return false
+  return entries.every(entry => {
+    if (entry.action === 'sysinit') return entry.id === '' && entry.command === '/boot/init'
+    if (entry.action !== 'respawn') return false
+    if (entry.id === '') return entry.command === '/bin/crond'
+    const match = /^tty(\d+)$/.exec(entry.id)
+    return Boolean(match) && entry.command === `/sbin/getty ${entry.id}`
+  })
+}
+
+/** `text` with a getty entry added for every terminal 0 to 7 that has none. */
+export function withGettyEntries(text: string): string {
+  const have = gettyTerminals(text)
+  const missing = Array.from({ length: 8 }, (_, n) => n).filter(n => !have.has(n))
+  if (missing.length === 0) return text
+  return (text.endsWith('\n') || text === '' ? text : text + '\n') + missing.map(n => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
+}
+
+/** `text` without any getty entry. */
+export function withoutGettyEntries(text: string): string {
+  const gettyLines = new Set(parseInittab(text).entries.filter(entry => /^tty\d+$/.test(entry.id) && entry.argv[0]?.endsWith('/getty')).map(entry => entry.line))
+  return text.split('\n').filter((_, index) => !gettyLines.has(index + 1)).join('\n')
 }
 
 export const DEFAULT_INITTAB = [

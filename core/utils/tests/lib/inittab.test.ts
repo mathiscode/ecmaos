@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_INITTAB, RespawnTracker, entryKey, parseInittab, splitCommand } from '../../src/lib/inittab.ts'
+import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, RespawnTracker, entryKey, gettyTerminals, isUntouchedInittab, parseInittab, splitCommand, withGettyEntries, withoutGettyEntries } from '../../src/lib/inittab.ts'
 
 describe('splitCommand', () => {
   it('splits on whitespace and drops the quotes', () => {
@@ -126,5 +126,36 @@ describe('RespawnTracker', () => {
     tracker.forget('a')
     tracker.start('a', 5000)
     expect(tracker.exit('a', 5010)).toBe(1000)
+  })
+})
+
+describe('an untouched inittab', () => {
+  const oldHeader = '# /etc/inittab\n::sysinit:/boot/init\n::respawn:/bin/crond\n'
+
+  it('is any file holding only the entries the kernel writes, whatever its comments say', () => {
+    expect(isUntouchedInittab(DEFAULT_INITTAB)).toBe(true)
+    expect(isUntouchedInittab(DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES)).toBe(true)
+    expect(isUntouchedInittab(oldHeader)).toBe(true)
+    expect(isUntouchedInittab(oldHeader + 'tty0::respawn:/sbin/getty tty0\n')).toBe(true)
+  })
+
+  it('is not one with another entry, a changed command or a line that does not parse', () => {
+    expect(isUntouchedInittab(oldHeader + '::respawn:/bin/mything\n')).toBe(false)
+    expect(isUntouchedInittab(oldHeader + 'tty0::respawn:/sbin/getty tty1\n')).toBe(false)
+    expect(isUntouchedInittab(oldHeader + '::shutdown:/bin/echo bye\n')).toBe(false)
+    expect(isUntouchedInittab(oldHeader + 'garbage\n')).toBe(false)
+    expect(isUntouchedInittab('')).toBe(false)
+  })
+
+  it('gains a getty for each missing terminal, keeping its text', () => {
+    const text = withGettyEntries(oldHeader)
+    expect(text.startsWith(oldHeader)).toBe(true)
+    expect([...gettyTerminals(text)].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    expect(withGettyEntries(text)).toBe(text)
+  })
+
+  it('loses its getty entries and nothing else', () => {
+    expect(withoutGettyEntries(oldHeader + DEFAULT_GETTY_ENTRIES)).toBe(oldHeader)
+    expect(withoutGettyEntries(oldHeader)).toBe(oldHeader)
   })
 })
