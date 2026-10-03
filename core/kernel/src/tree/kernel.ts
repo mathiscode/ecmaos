@@ -35,6 +35,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
+import { canRunProgramsAsUser, credentialsFor } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -194,6 +195,20 @@ export class Kernel implements IKernel {
    */
   /** pid 1: `/sbin/init`, which runs `/etc/inittab`, supervises its daemons and reaps orphans. */
   readonly init = new Init()
+
+  private _programsRunAsUser = false
+
+  /**
+   * The context a program started from `shell` runs in: the shell's own user, so file permissions
+   * apply to it, or `undefined` for the default (root) one. That is the case for a root shell, where
+   * nothing changes, and for every shell while the installed `@zenfs/core` cannot run programs as
+   * anyone else (see `canRunProgramsAsUser`).
+   */
+  processContext(shell: IShell, cwd: string) {
+    const { credentials } = shell
+    if (!this._programsRunAsUser || credentials.euid === 0) return undefined
+    return bindContext({ root: '/', pwd: cwd, credentials: credentialsFor(credentials) })
+  }
 
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
   private get pipeProcess(): InstanceType<typeof ZenFSProcess> {
@@ -433,6 +448,9 @@ export class Kernel implements IKernel {
         if (!(await this.filesystem.fs.exists(path))) await this.filesystem.fs.mkdir(path, { recursive: true, mode })
       }
       filesystemSpan.setAttribute('filesystem.paths_created', requiredPaths.length)
+
+      this._programsRunAsUser = await canRunProgramsAsUser(this.filesystem.fs)
+      if (!this._programsRunAsUser) this.log.info('programs run as root: the installed @zenfs/core cannot open a file the caller does not own')
 
       // `/dev` is an in-memory devtmpfs rebuilt on every boot, so these are laid down every boot too.
       // Each is the symlink Linux ships, into the per-process descriptor table procfs already serves;
@@ -1217,6 +1235,7 @@ export class Kernel implements IKernel {
         argv: [options.command, ...(options.args || [])],
         env: options.shell.envObject,
         cwd: options.shell.cwd,
+        context: this.processContext(options.shell, options.shell.cwd),
         tty,
         // Process opens stdio against this path, not `tty` directly -- `tty` only sets the
         // foreground-process/signal-delivery side of things.
@@ -1690,6 +1709,7 @@ export class Kernel implements IKernel {
       argv: [options.command, ...(options.args || [])],
       env: options.shell.envObject,
       cwd: options.shell.cwd,
+      context: this.processContext(options.shell, options.shell.cwd),
       tty: terminal?.zfsTty
     })
     registerProcessKernel(proc, this, options.shell)
