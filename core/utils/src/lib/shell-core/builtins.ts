@@ -5,8 +5,7 @@
  * {@link Interpreter}, and talks to the outside only through a {@link BuiltinHost}: the working
  * directory, the file system, the positional parameters (each host keeps its own), and the three
  * descriptors. What stays with the hosts is what touches their own machinery: the job table
- * (`jobs`, `fg`, `bg`, `wait`, `disown`), the kernel's credentials (`su`), and `env`, which runs a
- * command.
+ * (`jobs`, `fg`, `bg`, `wait`, `disown`) and `env`, which runs a command.
  */
 
 import { evaluateArithmeticExpression } from '../expand-variables.js'

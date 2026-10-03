@@ -1,7 +1,7 @@
 /**
  * The kernel shell's builtins. Most of them live in `@ecmaos/coreutils/lib/shell-core/builtins` and
  * run here through {@link kernelBuiltinHost}; what stays is what touches the kernel's own machinery:
- * the job table (`jobs`, `fg`, `bg`, `wait`), `su`, and `env`, which runs a command.
+ * the job table (`jobs`, `fg`, `bg`, `wait`) and `env`, which runs a command.
  *
  * These are the commands (per real Unix precedent: bash's own POSIX "special builtins") that mutate
  * the *calling shell's own* live state and so can never become a separate `execve`'d program: a forked
@@ -12,14 +12,12 @@
  * `Kernel.registerCommands` writes no `/bin/<name>` file for any of these names.
  */
 
-import chalk from 'chalk'
-import { bindContext, createCredentials } from '@zenfs/core'
 import type { Shell } from '#shell.ts'
-import type { ShellBuiltinIO, User } from '@ecmaos/types'
+import type { ShellBuiltinIO } from '@ecmaos/types'
 import { sharedBuiltinNames, runSharedBuiltin, shellQuote, type BuiltinHost } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import path from 'path'
 
-const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown', 'env', 'su']
+const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown', 'env']
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNames, ...kernelOnlyNames])
 
@@ -267,35 +265,6 @@ async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
   }
 }
 
-async function runSu(shell: Shell, argv: string[], io: Io): Promise<number> {
-  if (argv.includes('--help') || argv.includes('-h')) {
-    await io.writeln('Usage: su [USER]\nSwitch to USER (root by default). Root needs no password; anyone else is asked for USER\'s.')
-    return 0
-  }
-
-  const username = argv[0] ?? 'root'
-  const caller = shell.credentials
-  const user = Array.from(shell.users.all.values()).find((u): u is User => (u as User).username === username)
-  if (!user) {
-    await io.writelnErr(chalk.red(shell.i18n.t('User not found', { username })))
-    return 1
-  }
-
-  if (caller.euid !== 0 && caller.euid !== user.uid) {
-    const password = await shell.terminal.readline('Password: ', true)
-    try { await shell.users.login(username, password) } catch {
-      await io.writelnErr(chalk.red('su: Authentication failure'))
-      return 1
-    }
-  }
-
-  shell.context = bindContext({ root: '/', pwd: '/', credentials: user })
-  shell.credentials = createCredentials({ uid: user.uid, gid: user.gid, suid: user.uid, sgid: user.gid, euid: user.uid, egid: user.gid, groups: user.groups })
-  shell.terminal.promptTemplate = '{user}:{cwd}{sigil} '
-  await shell.recordLogin(user.username)
-  return 0
-}
-
 /** Returns the true-builtin's name if `commandName` is one, else `undefined`. */
 export function trueBuiltinNameFor(commandName: string | undefined): string | undefined {
   return commandName && trueBuiltinNames.has(commandName) ? commandName : undefined
@@ -313,7 +282,6 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'wait': return runWait(shell, argv, io)
     case 'disown': return runDisown(shell, argv, io)
     case 'env': return runEnv(shell, argv, io)
-    case 'su': return runSu(shell, argv, io)
   }
   if (sharedBuiltinNames.has(name)) return runSharedBuiltin(kernelBuiltinHost(shell), name, argv, io)
   throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)

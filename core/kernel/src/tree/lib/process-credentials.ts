@@ -38,3 +38,19 @@ export async function canRunProgramsAsUser(fs: Filesystem['fs']): Promise<boolea
 export function credentialsFor(credentials: Credentials): Credentials {
   return { ...credentials, groups: [...credentials.groups] }
 }
+
+const S_ISUID = 0o4000
+
+/**
+ * What a program with the setuid bit runs as: the caller's real ids, with the effective and saved user id
+ * of the file's owner, so `su` is still told who ran it while it acts as root. `undefined` when the file
+ * has no bit, is already owned by the caller's effective user, or cannot be examined. With every program
+ * running as root (see `canRunProgramsAsUser`) the owner is always the effective user, so this never
+ * changes anything there.
+ */
+export function setuidCredentials(fs: { statSync(path: string): { mode: number | bigint, uid: number | bigint, isFile(): boolean } | undefined }, path: string, caller: Credentials): Credentials | undefined {
+  let stats
+  try { stats = fs.statSync(path) } catch { return undefined }
+  if (!stats?.isFile() || !(Number(stats.mode) & S_ISUID) || Number(stats.uid) === caller.euid) return undefined
+  return { ...credentialsFor(caller), euid: Number(stats.uid), suid: Number(stats.uid) }
+}

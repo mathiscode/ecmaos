@@ -16,6 +16,7 @@ import { Process, execve, kill as zenfsKill, processes } from '@zenfs/linux'
 import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
+import { setuidCredentials } from './process-credentials.ts'
 
 const SIGCHLD = 17
 
@@ -152,10 +153,12 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   // controlling terminal as one with the console, and `execve` would then make the child that
   // terminal's foreground process. A daemon started by init must stay off it.
   const cwd = options.cwd || parent.cwd
+  // a program with the setuid bit runs with its owner's privileges, as it does when the shell starts it
+  const credentials = options.credentials ?? setuidCredentials({ statSync: file => fs.statSync.call(parent.context, file) }, command.startsWith('/') ? command : `${cwd}/${command}`, parent.context.credentials)
   const child = new Process({
     parent, argv, env, cwd,
     // a context of its own, bound with the user's credentials; without one the process takes its parent's
-    context: options.credentials ? bindContext.call(parent.context, { pwd: cwd, credentials: options.credentials }) : undefined,
+    context: credentials ? bindContext.call(parent.context, { pwd: cwd, credentials }) : undefined,
     tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty
   })
   try {

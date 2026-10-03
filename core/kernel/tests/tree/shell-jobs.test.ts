@@ -40,7 +40,7 @@ describe('Shell job control — & background execution and the job table', () =>
 
   it('`&` returns to the caller immediately without waiting for the backgrounded pipeline', async () => {
     const start = Date.now()
-    const code = await kernel.shell.execute('sleep 2 &')
+    const code = await kernel.shell.execute('sleep 4 &')
     const elapsed = Date.now() - start
 
     // execute() itself only had to launch the job, not run it -- if this were still treated like
@@ -84,8 +84,8 @@ describe('Shell job control — & background execution and the job table', () =>
 
   it('`wait` with no argument waits for every currently-tracked non-done job', async () => {
     // `&` returns once the program has started, which under load can take a while, so the jobs must outlast it
-    await kernel.shell.execute('sleep 1.5 &')
-    await kernel.shell.execute('sleep 2 &')
+    await kernel.shell.execute('sleep 3 &')
+    await kernel.shell.execute('sleep 4 &')
     await new Promise(resolve => setTimeout(resolve, 10))
 
     const jobs = kernel.shell.listJobs()

@@ -8,8 +8,8 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * The two-tier command dispatch redesign: real Linux has no in-kernel command registry at all --
  * `execve`+`$PATH` resolve a name purely off real files on disk. This session's audit found
- * exactly 10 ecmaOS commands (`cd`, `set`, `bg`, `fg`, `jobs`, `wait`, `local`, `env`, `export`,
- * `su`) that mutate the *calling shell's own* live state (cwd/options/job-table/scope/env/
+ * exactly 9 ecmaOS commands (`cd`, `set`, `bg`, `fg`, `jobs`, `wait`, `local`, `env`,
+ * `export`) that mutate the *calling shell's own* live state (cwd/options/job-table/scope/env/
  * credentials) and so can never become a real `execve`'d file, the same reason bash keeps its own
  * "special builtins" permanent, in-process exceptions -- see `core/kernel/src/tree/lib/
  * shell-builtins.ts`'s own doc comment. Everything else (98 `@ecmaos/coreutils` commands + 12
@@ -39,7 +39,7 @@ describe('two-tier command dispatch: true shell builtins + real execve/$PATH res
   })
 
   // `env` is not here: it is built in for speed, but real systems ship `/usr/bin/env` too and scripts name it
-  const trueBuiltinNames = ['cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'export', 'su']
+  const trueBuiltinNames = ['cd', 'set', 'bg', 'fg', 'jobs', 'wait', 'local', 'export']
 
   it('writes no /bin/<name> file for any true shell builtin, matching real bash having no /bin/cd', async () => {
     for (const name of trueBuiltinNames) {

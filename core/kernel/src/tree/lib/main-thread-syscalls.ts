@@ -71,6 +71,8 @@ declare module '@zenfs/linux/uapi/abi' {
     screensaver_run(name: string, set: number, path: string): number
     users_chsh(username: string, shellValue: string, path: string): number
     users_password(oldPassword: string, newPassword: string, path: string): number
+    users_authenticate(username: string, password: string): number
+    credentials_supported(): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
     device_cli_wait(): number
@@ -955,6 +957,23 @@ export function installMainThreadSyscalls(): void {
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
+
+  // What `su` and `sudo` ask before starting something as someone else: 1 when `password` is `username`'s.
+  // Only a root process may ask (those two run with the setuid bit), so an ordinary program cannot use it
+  // to guess passwords, only go through them, as on Linux.
+  define_syscall('users_authenticate', async (proc: Process, username: string, password: string) => {
+    requireRoot(proc, 'users_authenticate')
+    try {
+      await kernelOf(proc).users.login(username, password)
+      return 1
+    } catch {
+      return 0
+    }
+  })
+
+  // 1 when a program runs as the user who started it. `su` and `sudo` refuse to work otherwise: with
+  // everything running as root they could not tell who was asking, and would hand root to anyone.
+  define_syscall('credentials_supported', (proc: Process) => kernelOf(proc).programsRunAsUser ? 1 : 0)
 
   define_syscall('users_password', async (proc: Process, oldPassword: string, newPassword: string, path: string) => {
     const kernel = kernelOf(proc)

@@ -578,7 +578,7 @@ export class Shell implements IShell {
     await this.runTrap('INT')
     this._interrupted = true
   }
-  /** The real user registry -- needed by `su` (a true shell builtin, see `lib/shell-builtins.ts`). */
+  /** The real user registry. */
   get users() { return this._users }
 
   /** Files this console's login in `/run/utmp` and `/var/log/wtmp`. A failure to record is never a failure to log in. */
@@ -595,7 +595,7 @@ export class Shell implements IShell {
     } catch { /* nothing to undo */ }
   }
   private _sessions?: SessionLog
-  /** Translated strings -- needed by `su`'s error messages, the same way `resolveCommand` uses it. */
+  /** Translated strings, for the messages the shell itself prints. */
   get i18n() { return this._ctx.i18n }
 
   /**

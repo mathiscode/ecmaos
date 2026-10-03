@@ -76,12 +76,6 @@ describe('who and last', () => {
     expect(out.some(line => /^reboot\s+system boot/.test(line))).toBe(true)
   })
 
-  it('su changes who the console belongs to', async () => {
-    await kernel.shell.execute('su root')
-    expect(await capture('who -q')).toBe('root\n# users=1\n')
-    expect((await capture('last root')).trim().split('\n').filter(l => l.includes('still logged in')).length).toBeGreaterThanOrEqual(2)
-  })
-
   it('last -n limits the output and rejects a bad count', async () => {
     expect((await capture('last -n 1')).trim().split('\n')).toHaveLength(1)
     expect(await kernel.shell.execute('last -n x 2> /dev/null')).toBe(1)

@@ -35,8 +35,8 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
-import { CommandLinks, tightenDirectoryModes } from '#lib/fs-modes.ts'
-import { canRunProgramsAsUser, credentialsFor } from '#lib/process-credentials.ts'
+import { CommandLinks, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
+import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -57,6 +57,7 @@ import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
+import { DEFAULT_SUDOERS } from '@ecmaos/coreutils/lib/sudoers'
 import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, gettyTerminals, isUntouchedInittab, withGettyEntries, withoutGettyEntries } from '@ecmaos/coreutils/lib/inittab'
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
@@ -207,10 +208,13 @@ export class Kernel implements IKernel {
    * nothing changes, and for every shell while the installed `@zenfs/core` cannot run programs as
    * anyone else (see `canRunProgramsAsUser`).
    */
-  processContext(shell: IShell, cwd: string) {
+  processContext(shell: IShell, cwd: string, program?: string) {
     const { credentials } = shell
-    if (!this._programsRunAsUser || credentials.euid === 0) return undefined
-    return bindContext({ root: '/', pwd: cwd, credentials: credentialsFor(credentials) })
+    if (!this._programsRunAsUser) return undefined
+    // a program with the setuid bit runs with its owner's privileges, not the shell's
+    const elevated = program ? setuidCredentials(shell.context.fs, program.startsWith('/') ? program : `${cwd}/${program}`, credentials) : undefined
+    if (credentials.euid === 0 && !elevated) return undefined
+    return bindContext({ root: '/', pwd: cwd, credentials: credentialsFor(elevated ?? credentials) })
   }
 
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
@@ -504,6 +508,11 @@ export class Kernel implements IKernel {
       // `/bin/ecmash` is the same language as a program.
       if (!(await this.filesystem.fs.exists('/etc/shells'))) {
         await this.filesystem.fs.writeFile('/etc/shells', '# Valid login shells; see chsh(1).\n/bin/ecmash\necmaos\n', { mode: 0o644 })
+      }
+
+      // Who may use `sudo`. Only root can read it, as on Linux, and a missing file means nobody may.
+      if (!(await this.filesystem.fs.exists('/etc/sudoers'))) {
+        await this.filesystem.fs.writeFile('/etc/sudoers', DEFAULT_SUDOERS, { mode: 0o440 })
       }
 
       // What init runs. A missing file is not fatal (init falls back to the same default), but a
@@ -1241,7 +1250,7 @@ export class Kernel implements IKernel {
         argv: [options.command, ...(options.args || [])],
         env: options.shell.envObject,
         cwd: options.shell.cwd,
-        context: this.processContext(options.shell, options.shell.cwd),
+        context: this.processContext(options.shell, options.shell.cwd, options.command),
         tty,
         // Process opens stdio against this path, not `tty` directly -- `tty` only sets the
         // foreground-process/signal-delivery side of things.
@@ -2183,6 +2192,9 @@ export class Kernel implements IKernel {
       if (!await this.filesystem.fs.exists(target)) continue
       await this.filesystem.fs.symlink(target, link).catch(() => {})
     }
+
+    const setuid = await ensureSetuidPrograms(this.filesystem.fs).catch(error => { this.log.warn(`setuid programs: ${(error as Error).message}`); return [] as string[] })
+    if (setuid.length) this.log.info(`Set the setuid bit on ${setuid.join(', ')}`)
   }
 
   /**

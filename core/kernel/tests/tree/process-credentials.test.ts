@@ -233,23 +233,6 @@ describe('programs run as the user who started them', () => {
       expect(await kernel.filesystem.fs.exists('/tmp/spawned-by-alice')).toBe(false)
     }, 60000)
 
-    it('su switches to a user and what runs afterwards runs as them', async () => {
-      const root = { ...kernel.shell.credentials }
-      const rootContext = kernel.shell.context
-      try {
-        expect(await kernel.shell.execute('su nobody-here 2> /dev/null')).toBe(1)
-        expect(await kernel.shell.execute('su alice')).toBe(0)
-        expect(kernel.shell.credentials).toMatchObject({ uid: alice.uid, euid: alice.uid, suid: alice.uid })
-        const result = await status('cat /proc/self/status')
-        const want = gateOpen ? alice.uid : 0
-        expect(result.out).toMatch(new RegExp(`Uid:\\t${want}\\t`))
-        if (gateOpen) expect((await status('cat /etc/shadow')).code).not.toBe(0)
-      } finally {
-        kernel.shell.credentials = root
-        kernel.shell.context = rootContext
-      }
-    }, 60000)
-
     it('passwd changes the password of the user who runs it, not the first terminal\'s user', async () => {
       if (!gateOpen) return
       await asUser(bob, '/home/bob', async () => {

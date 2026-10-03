@@ -81,6 +81,25 @@ export async function tightenDirectoryModes(fs: Fs): Promise<string[]> {
   return changed
 }
 
+/**
+ * Programs that run with their owner's privileges, which for these is root's: `su` and `sudo` check who
+ * is asking and then start something as someone else, which a user's own program may not do. The kernel
+ * honours the bit when it starts a program (see `setuidCredentials`), as Linux does.
+ */
+export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo']
+
+/** Gives the setuid programs their bit, every boot, since a rewritten command file is a fresh one. @returns the programs changed */
+export async function ensureSetuidPrograms(fs: Fs): Promise<string[]> {
+  const changed: string[] = []
+  for (const path of SETUID_PROGRAMS) {
+    const stats = await fs.stat(path).catch(() => undefined)
+    if (!stats || (stats.mode & 0o7777) === 0o4755) continue
+    await fs.chmod(path, 0o4755)
+    changed.push(path)
+  }
+  return changed
+}
+
 /** Links scripts rely on: link name to the program it names. */
 export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/sh': '/bin/ecmash',
