@@ -10,25 +10,31 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 describe('programs run as the user who started them', () => {
   let kernel: Kernel
   let alice: { uid: number, gid: number }
+  let bob: { uid: number, gid: number }
   let gateOpen = false
   const internals = () => kernel as unknown as { _programsRunAsUser: boolean }
 
-  const asAlice = async (run: () => Promise<void>) => {
+  const asUser = async (user: { uid: number, gid: number }, home: string, run: () => Promise<void>) => {
     const root = { ...kernel.shell.credentials }
     const rootContext = kernel.shell.context
-    const cred = { uid: alice.uid, gid: alice.gid, suid: alice.uid, sgid: alice.gid, euid: alice.uid, egid: alice.gid, groups: [alice.gid] }
+    const cred = { uid: user.uid, gid: user.gid, suid: user.uid, sgid: user.gid, euid: user.uid, egid: user.gid, groups: [user.gid] }
     kernel.shell.credentials = cred
     kernel.shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
-    kernel.shell.cwd = '/home/alice'
+    kernel.shell.cwd = home
     try { await run() } finally {
       kernel.shell.credentials = root
       kernel.shell.context = rootContext
       kernel.shell.cwd = '/'
     }
   }
+  const asAlice = (run: () => Promise<void>) => asUser(alice, '/home/alice', run)
+  // each user writes their own output files: a shared one would belong to whoever ran first
   const status = async (command: string) => {
-    const code = await kernel.shell.execute(`${command} > /home/alice/out 2> /home/alice/err`)
-    const read = (name: string) => kernel.filesystem.fs.readFile(`/home/alice/${name}`, 'utf-8').catch(() => '')
+    const mine = `/tmp/pc-${kernel.shell.credentials.uid}`
+    await kernel.filesystem.fs.unlink(`${mine}-out`).catch(() => {})
+    await kernel.filesystem.fs.unlink(`${mine}-err`).catch(() => {})
+    const code = await kernel.shell.execute(`${command} > ${mine}-out 2> ${mine}-err`)
+    const read = (name: string) => kernel.filesystem.fs.readFile(`${mine}-${name}`, 'utf-8').catch(() => '')
     return { code, out: await read('out'), err: await read('err') }
   }
 
@@ -41,7 +47,10 @@ describe('programs run as the user who started them', () => {
     // a boot-tail sudo() can swap shell credentials for a moment
     await new Promise(r => setTimeout(r, 1500))
     await kernel.users.add({ username: 'alice', password: 'wonder', home: '/home/alice', shell: '/bin/ecmash' })
-    alice = [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === 'alice')!
+    await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob', shell: '/bin/ecmash' })
+    const named = (name: string) => [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === name)!
+    alice = named('alice')
+    bob = named('bob')
     gateOpen = await canRunProgramsAsUser(kernel.filesystem.fs)
   }, 60000)
 
@@ -148,6 +157,28 @@ describe('programs run as the user who started them', () => {
     expect((await kernel.filesystem.fs.stat('/home/alice/dir')).mode & 0o777).toBe(0o700)
     expect((await kernel.filesystem.fs.stat('/home/alice/ro')).mode & 0o777).toBe(0o640)
     expect((await kernel.filesystem.fs.stat('/tmp/not-alices')).mode & 0o777).toBe(0o666)
+  }, 60000)
+
+  it('one user cannot reach into another user\'s home directory', async () => {
+    if (!gateOpen) return
+    await kernel.filesystem.fs.writeFile('/home/alice/diary.txt', 'private', { mode: 0o644 })
+    await kernel.filesystem.fs.chown('/home/alice/diary.txt', alice.uid, alice.gid)
+
+    await asAlice(async () => {
+      expect((await status('cat /home/alice/diary.txt')).out).toBe('private')
+    })
+    await asUser(bob, '/home/bob', async () => {
+      for (const command of ['cat /home/alice/diary.txt', 'ls /home/alice', 'stat /home/alice/diary.txt', 'cp /home/alice/diary.txt /tmp/stolen', 'touch /home/alice/planted']) {
+        const result = await status(command)
+        expect(result.code, command).not.toBe(0)
+        expect(result.err, command).toMatch(/denied|EACCES/i)
+      }
+      // his own home is his, and /home itself can be listed
+      expect((await status('touch /home/bob/mine')).code).toBe(0)
+      expect((await status('ls /home')).out).toContain('alice')
+    })
+    expect(await kernel.filesystem.fs.exists('/tmp/stolen')).toBe(false)
+    expect(await kernel.filesystem.fs.exists('/home/alice/planted')).toBe(false)
   }, 60000)
 
   it('with the gate closed every program still runs, as root', async () => {
