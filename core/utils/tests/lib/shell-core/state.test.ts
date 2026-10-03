@@ -205,6 +205,28 @@ describe('ShellState computed parameters', () => {
 })
 
 describe('ShellState snapshots', () => {
+  it('survive a round trip through JSON, arrays and functions included', async () => {
+    const { serializeSnapshot, deserializeSnapshot } = await import('../../../src/lib/shell-core/state.ts')
+    const state = make({ A: '1' })
+    state.set('mine', '2')
+    state.setArray('arr', ['x', 'y'])
+    state.declareAssoc('m')
+    state.setArrayElement('m', 'k', 'v')
+    state.aliases.set('ll', 'ls -l')
+    state.setTrap('echo bye', 'SIGEXIT')
+    state.functions.set('f', [{ type: 'simple', line: 'echo hi' }])
+    const copy = deserializeSnapshot(serializeSnapshot(state.snapshot()))
+    const other = make()
+    other.restore(copy)
+    expect(other.lookup('mine')).toBe('2')
+    expect(other.lookupArray('arr')?.get(1)).toBe('y')
+    expect(other.lookupArray('m')?.get('k')).toBe('v')
+    expect(other.isAssoc('m')).toBe(true)
+    expect(other.aliases.get('ll')).toBe('ls -l')
+    expect(other.functions.get('f')).toEqual([{ type: 'simple', line: 'echo hi' }])
+    expect(other.getTrap('SIGEXIT')).toBe('echo bye')
+  })
+
   it('restoreCopy can put the same snapshot back more than once', () => {
     const state = make({ A: '1' })
     const clean = state.snapshot()

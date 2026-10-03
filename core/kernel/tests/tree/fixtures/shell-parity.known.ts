@@ -17,6 +17,4 @@ export const knownKernel: KnownTable = {
   "builtins/type": { stdout: "echo is /bin/echo\n1\n", status: 0, why: "echo is an external /bin/echo here, not a builtin" },
 }
 
-export const knownEcmash: KnownTable = {
-  "builtins/background-status": { stdout: "0\n", status: 0, why: "a background subshell is refused: it would run in this process, which cannot also carry on with the next prompt" },
-}
+export const knownEcmash: KnownTable = {}

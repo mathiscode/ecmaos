@@ -31,7 +31,7 @@ import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
-import { ShellState } from '../lib/shell-core/state.ts'
+import { ShellState, serializeSnapshot, deserializeSnapshot } from '../lib/shell-core/state.ts'
 import { Interpreter } from '../lib/shell-core/interpreter.ts'
 import { runSharedBuiltin, sharedBuiltinNames, shellQuote } from '../lib/shell-core/builtins.ts'
 import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
@@ -439,14 +439,68 @@ class Shell {
     })
   }
 
+  /**
+   * `( ... ) &`, `{ ...; } &`, `while ...; done &`: there is no `fork`, so the compound command runs in a
+   * fresh `ecmash` that is given this shell's state (variables, arrays, functions, aliases, traps, options,
+   * positional parameters, `$?`) and the statement itself, as JSON. Returns the same handle a pipeline does.
+   */
+  async forkCompound(statement) {
+    const file = this.scratchPath()
+    const payload = JSON.stringify({
+      state: serializeSnapshot(this.state.snapshot()),
+      positional: this.positional,
+      name: this.name,
+      status: this.status,
+      statement,
+    })
+    const fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+    try { writeAllFd(fd, payload) } finally { close(fd) }
+    const childFds = {}
+    for (const target of [0, 1, 2]) childFds[target] = this.stdio[target] ?? target
+    let pid
+    try {
+      pid = await spawn(this.selfPath(), ['ecmash', '--run-forked', file], { env: this.environment(), fds: childFds, cwd: getcwd(), pgid: 0 })
+    } catch (error) {
+      try { unlink(file) } catch { /* gone */ }
+      throw error
+    }
+    const handle = { pids: [pid], leader: pid, stopped: false, statuses: undefined, finish: null }
+    handle.finish = async ({ untraced = false } = {}) => {
+      handle.stopped = false
+      let done
+      for (;;) {
+        try { done = await waitpid(pid, false, untraced) } catch (error) {
+          if (error?.code === 'EINTR') { await this.runPendingTraps(); continue }
+          throw error
+        }
+        if (done.stopped) { handle.stopped = true; return 128 + SIGTSTP }
+        break
+      }
+      try { unlink(file) } catch { /* gone */ }
+      const status = done.signal ? 128 + done.signal : done.code
+      handle.statuses = [status]
+      return status
+    }
+    return handle
+  }
+
+  /** The program file this shell was started from, so a forked child runs the same one. */
+  selfPath() {
+    return this.findProgram('ecmash') ?? '/bin/ecmash'
+  }
+
   async runBackground(pipeline) {
-    if (pipeline.commands.some(command => command.compound)) {
-      // A compound command runs in this process, which cannot also carry on with the next prompt.
-      writeAllFd(2, 'ecmash: a compound command or subshell cannot run in the background here\n')
+    const compound = pipeline.commands.length === 1 ? pipeline.commands[0].compound : undefined
+    if (!compound && pipeline.commands.some(command => command.compound)) {
+      // A compound stage in the middle of a pipeline runs in this process, which cannot also carry on with the next prompt.
+      writeAllFd(2, 'ecmash: a compound command in a background pipeline is not supported\n')
       return 1
     }
     const mark = this.procsubs.length
-    const job = await this.startPipeline(pipeline, true)
+    let job
+    if (compound) {
+      try { job = await this.forkCompound(compound) } catch (error) { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); return 1 }
+    } else job = await this.startPipeline(pipeline, true)
     if (!job) return 1
     const record = this.addJob(job, pipeline, { background: true })
     this.watch(record)
@@ -1165,6 +1219,26 @@ async function readLine(shell, tty, history, fixedPrompt) {
 
 async function main() {
   const argv = sys.argv.slice(1)
+  // A background compound command, started by `forkCompound`: the state and statement come in a file.
+  if (argv[0] === '--run-forked') {
+    const file = argv[1]
+    const payload = JSON.parse(readFileText(file))
+    const shell = new Shell(payload.name, payload.positional)
+    shell.state.restore(deserializeSnapshot(payload.state))
+    shell.status = payload.status
+    // as in bash, a subshell starts with its traps reset
+    shell.state.traps.clear()
+    let status = 0
+    try {
+      status = await shell.interpreter.runStage(payload.statement)
+    } catch (error) {
+      if (error instanceof ExitSignal) status = error.code
+      else if (isUnwind(error)) status = 0
+      else { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); status = 2 }
+    }
+    await shell.leave(status)
+  }
+
   let login = sys.argv[0]?.split('/').pop()?.startsWith('-') ?? false
   let command
   while (argv[0]?.startsWith('-') && argv[0].length > 1) {

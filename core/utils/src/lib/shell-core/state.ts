@@ -439,3 +439,35 @@ export interface ShellSnapshot {
   traps: Map<string, string>
   options: ShellOptions
 }
+
+/**
+ * A snapshot as JSON text, for handing a shell's state to another process (a background subshell:
+ * there is no `fork`, so the child is started fresh and given the state it would have inherited).
+ * Functions are statement trees, which are plain data, so they survive as they are.
+ */
+export function serializeSnapshot(snapshot: ShellSnapshot): string {
+  return JSON.stringify({
+    vars: [...snapshot.vars],
+    unexported: [...snapshot.unexported],
+    assoc: [...snapshot.assoc],
+    arrays: [...snapshot.arrays].map(([name, array]) => [name, [...array]]),
+    functions: [...snapshot.functions],
+    aliases: [...snapshot.aliases],
+    traps: [...snapshot.traps],
+    options: snapshot.options,
+  })
+}
+
+export function deserializeSnapshot(text: string): ShellSnapshot {
+  const data = JSON.parse(text)
+  return {
+    vars: new Map(data.vars),
+    unexported: new Set(data.unexported),
+    assoc: new Set(data.assoc),
+    arrays: new Map(data.arrays.map(([name, entries]: [string, Array<[number | string, string]>]) => [name, new Map(entries) as ArrayStore])),
+    functions: new Map(data.functions),
+    aliases: new Map(data.aliases),
+    traps: new Map(data.traps),
+    options: data.options,
+  }
+}

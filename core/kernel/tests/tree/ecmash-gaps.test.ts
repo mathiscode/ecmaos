@@ -170,4 +170,26 @@ describe('ecmash: arrays, subshells, process substitution, traps', () => {
       expect(out).toBe('cat=0\nread=1\n')
     })
   })
+
+  describe('background compound commands', () => {
+    it('a background subshell gets a copy of the state, and cannot change the parent', async () => {
+      const { out } = await run('x=1; f() { echo "f says $x"; }; (x=2; f; exit 3) & wait $!\necho "st=$? x=$x"')
+      expect(out).toBe('f says 2\nst=3 x=1\n')
+    })
+
+    it('a background group and a background loop run to the end', async () => {
+      const { out } = await run('{ echo g1; echo g2; } & wait\nfor i in 1 2; do echo l$i; done & wait\necho end')
+      expect(out.split('\n').sort()).toEqual(['', 'end', 'g1', 'g2', 'l1', 'l2'])
+    })
+
+    it('$! is the background pid, and the shell goes on while it runs', async () => {
+      const { out } = await run('(sleep 0.3; echo late) &\necho early\ntest -n "$!" && echo pid\nwait\necho done')
+      expect(out).toBe('early\npid\nlate\ndone\n')
+    })
+
+    it('passes arrays and positional parameters on', async () => {
+      const { out } = await run('a=(p q); set -- one two\n( echo "${a[1]} $2" ) & wait')
+      expect(out).toBe('q two\n')
+    })
+  })
 })
