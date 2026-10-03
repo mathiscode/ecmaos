@@ -120,6 +120,19 @@ export function registerProcessKernel(proc: Process, kernel: Kernel, shell?: She
   if (shell) shellOfProcess.set(proc, shell)
 }
 
+/**
+ * Hands a handler's result to the program that asked for it, through the scratch file it named.
+ *
+ * The kernel writes as root, and `/tmp` is sticky, so a root-owned file there is one the calling user
+ * could read but never delete. The file is therefore given to the caller (mode 0600, since it is
+ * theirs alone), which is what lets `readBackAndDelete` clean up after itself.
+ */
+async function writeScratch(kernel: Kernel, proc: Process, path: string, text: string): Promise<void> {
+  await kernel.filesystem.fs.writeFile(path, text, { mode: 0o600 })
+  const { euid, egid } = proc.context.credentials
+  if (euid !== 0) await kernel.filesystem.fs.chown(path, euid, egid)
+}
+
 function kernelOf(proc: Process): Kernel {
   const kernel = kernelOfProcess.get(proc)
   if (!kernel) throw Object.assign(new Error('No kernel registered for this process'), { errno: Errno.ENOSYS })
@@ -242,7 +255,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -276,7 +289,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const usage = await kernel.storage.usage()
     const text = JSON.stringify(usage ?? {})
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -343,7 +356,7 @@ export function installMainThreadSyscalls(): void {
       id: conn.id, type: conn.type, state: conn.state, url: conn.url, created: conn.created
     }))
     const text = JSON.stringify(list)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -367,7 +380,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -383,7 +396,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ id: connection.id })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -466,7 +479,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -476,7 +489,7 @@ export function installMainThreadSyscalls(): void {
     const info = socketResults.get(id)
     socketResults.delete(id)
     const text = JSON.stringify(info ?? { error: `connection not found: ${id}` })
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -504,7 +517,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify(detail)
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -548,7 +561,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: 'EAFNOSUPPORT' })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -565,7 +578,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ ok: true })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -589,7 +602,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -609,7 +622,7 @@ export function installMainThreadSyscalls(): void {
       else text = JSON.stringify(nonblock ? { error: 'EAGAIN' } : { pending: true })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -660,7 +673,7 @@ export function installMainThreadSyscalls(): void {
     }
 
     const text = JSON.stringify(result)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -688,7 +701,7 @@ export function installMainThreadSyscalls(): void {
 
     if (!shell || shell.credentials.suid !== 0) {
       text = JSON.stringify({ error: 'permission denied' })
-      await kernel.filesystem.fs.writeFile(path, text)
+      await writeScratch(kernel, proc, path, text)
       return text.length
     }
 
@@ -782,7 +795,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -823,7 +836,7 @@ export function installMainThreadSyscalls(): void {
     }
 
     const text = JSON.stringify(results)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -845,7 +858,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify(await mountFilesystem(kernel, shell, args))
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -860,7 +873,7 @@ export function installMainThreadSyscalls(): void {
       : { code: 1, lines: [{ stream: 'err', text: 'Error: Current user not found' }] }
 
     const text = JSON.stringify(outcome)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -892,7 +905,7 @@ export function installMainThreadSyscalls(): void {
     }
 
     const text = JSON.stringify(outcome)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -917,7 +930,7 @@ export function installMainThreadSyscalls(): void {
     } catch (error) {
       text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
     }
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -931,7 +944,7 @@ export function installMainThreadSyscalls(): void {
     } catch (error) {
       text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
     }
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -945,7 +958,7 @@ export function installMainThreadSyscalls(): void {
     } catch (error) {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -957,7 +970,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const credentials = shellOf(proc)?.credentials
     const text = JSON.stringify({ name: kernel.name, id: kernel.id, pid: proc.pid, uid: credentials?.uid ?? 0, gid: credentials?.gid ?? 0 })
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -1123,7 +1136,7 @@ export function installMainThreadSyscalls(): void {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
     const text = JSON.stringify(result)
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 
@@ -1215,7 +1228,7 @@ export function installMainThreadSyscalls(): void {
 
     if (!shell || shell.credentials.suid !== 0) {
       text = JSON.stringify({ error: 'permission denied (requires root)' })
-      await kernel.filesystem.fs.writeFile(path, text)
+      await writeScratch(kernel, proc, path, text)
       return text.length
     }
 
@@ -1225,7 +1238,7 @@ export function installMainThreadSyscalls(): void {
       const confirmation = await shell.terminal.readline('Type "yes" to continue, or anything else to cancel: ')
       if (confirmation.trim().toLowerCase() !== 'yes') {
         text = JSON.stringify({ cancelled: true })
-        await kernel.filesystem.fs.writeFile(path, text)
+        await writeScratch(kernel, proc, path, text)
         return text.length
       }
 
@@ -1271,7 +1284,7 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ error: error instanceof Error ? error.message : String(error) })
     }
 
-    await kernel.filesystem.fs.writeFile(path, text)
+    await writeScratch(kernel, proc, path, text)
     return text.length
   })
 }

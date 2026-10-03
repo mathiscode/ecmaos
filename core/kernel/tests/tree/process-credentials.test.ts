@@ -95,6 +95,40 @@ describe('programs run as the user who started them', () => {
     expect(await kernel.filesystem.fs.exists('/tmp/roots-file')).toBe(true)
   }, 30000)
 
+  it('programs that need the kernel work for a user, and clean up after themselves', async () => {
+    if (!gateOpen) return
+    const before = (await kernel.filesystem.fs.readdir('/tmp')).filter(name => name.startsWith('.')).sort()
+    await asAlice(async () => {
+      const works = [
+        'df', 'ps', 'ps -e', 'who', 'last', 'uptime', 'free', 'id', 'id alice', 'groups', 'groups alice', 'whoami', 'hostname',
+        'uname -a', 'tty', 'date', 'nproc', 'stat /home/alice', 'mktemp', 'mount', 'cp /etc/passwd /tmp/alice-copy',
+        'chsh -s /bin/ecmash', 'echo a | sort | uniq', 'ecmash -c "id; ps | head -2"'
+      ]
+      for (const command of works) expect((await status(command)).code, command).toBe(0)
+
+      // `id` reports the user, not root
+      expect((await status('id')).out).toContain(`uid=${alice.uid}`)
+    })
+    const after = (await kernel.filesystem.fs.readdir('/tmp')).filter(name => name.startsWith('.')).sort()
+    expect(after).toEqual(before)
+  }, 120000)
+
+  it('what a user may not do is refused with a permission error, not a crash', async () => {
+    if (!gateOpen) return
+    await asAlice(async () => {
+      const refused = [
+        'touch /etc/shadow', 'rm /etc/passwd', 'chmod 777 /etc/passwd', 'chown alice /etc/passwd', 'kill 1', 'kill -TERM 1',
+        'reboot', 'halt', 'poweroff', 'user add bob', 'user list'
+      ]
+      for (const command of refused) {
+        const result = await status(command)
+        expect(result.code, command).not.toBe(0)
+        expect(result.err, command).toMatch(/denied|not permitted|EACCES|EPERM/i)
+      }
+    })
+    expect(await kernel.filesystem.fs.readFile('/etc/passwd', 'utf-8')).toContain('root')
+  }, 120000)
+
   it('with the gate closed every program still runs, as root', async () => {
     internals()._programsRunAsUser = false
     try {
