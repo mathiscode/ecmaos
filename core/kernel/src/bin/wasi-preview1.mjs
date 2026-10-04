@@ -701,12 +701,107 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     }
   }
 
-  function writeTm(tmPtr, d) {
+  function writeTm(tmPtr, d, utc = false) {
     const dv = new DataView(getMemory().buffer)
-    const start = new Date(d.getFullYear(), 0, 1)
-    const fields = [d.getSeconds(), d.getMinutes(), d.getHours(), d.getDate(), d.getMonth(), d.getFullYear() - 1900, d.getDay(),
-      Math.floor((d - start) / 86400000), 0, -d.getTimezoneOffset() * 60, 0]
+    const start = utc ? new Date(Date.UTC(d.getUTCFullYear(), 0, 1)) : new Date(d.getFullYear(), 0, 1)
+    const fields = utc
+      ? [d.getUTCSeconds(), d.getUTCMinutes(), d.getUTCHours(), d.getUTCDate(), d.getUTCMonth(), d.getUTCFullYear() - 1900, d.getUTCDay(),
+        Math.floor((d - start) / 86400000), 0, 0, 0]
+      : [d.getSeconds(), d.getMinutes(), d.getHours(), d.getDate(), d.getMonth(), d.getFullYear() - 1900, d.getDay(),
+        Math.floor((d - start) / 86400000), 0, -d.getTimezoneOffset() * 60, 0]
     fields.forEach((v, i) => dv.setInt32(tmPtr + i * 4, v, true))
+  }
+
+  const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+  const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+  /** `strptime(3)` in the C locale: the conversions people use (dates, times, names, zone offsets). Returns the
+   * pointer past what it read, or 0 when the input does not match; only the fields it parsed are written. */
+  function strptime(bufPtr, format, tmPtr) {
+    const text = readCString(bufPtr)
+    const dv = new DataView(getMemory().buffer)
+    const tm = {}
+    let pos = 0
+    let pm
+    let hour12
+    const number = (min, max, digits) => {
+      const match = new RegExp(`^[0-9]{1,${digits}}`).exec(text.slice(pos))
+      if (!match) return undefined
+      const value = Number(match[0])
+      if (value < min || value > max) return undefined
+      pos += match[0].length
+      return value
+    }
+    const name = (names) => {
+      const rest = text.slice(pos).toLowerCase()
+      for (let i = 0; i < names.length; i++) {
+        for (const candidate of [names[i], names[i].slice(0, 3)]) {
+          if (rest.startsWith(candidate)) { pos += candidate.length; return i }
+        }
+      }
+      return undefined
+    }
+    const run = (spec) => {
+      for (let i = 0; i < spec.length; i++) {
+        const c = spec[i]
+        if (/\s/.test(c)) { while (/\s/.test(text[pos] ?? '')) pos++; continue }
+        if (c !== '%') { if (text[pos] !== c) return false; pos++; continue }
+        let conv = spec[++i]
+        if (conv === 'E' || conv === 'O') conv = spec[++i]
+        let value
+        switch (conv) {
+          case '%': if (text[pos] !== '%') return false; pos++; break
+          case 'n': case 't': while (/\s/.test(text[pos] ?? '')) pos++; break
+          case 'Y': { const sign = text[pos] === '-' ? (pos++, -1) : 1; if ((value = number(0, 9999, 4)) === undefined) return false; tm.year = sign * value - 1900; break }
+          case 'y': if ((value = number(0, 99, 2)) === undefined) return false; tm.year = value < 69 ? value + 100 : value; break
+          case 'C': if ((value = number(0, 99, 2)) === undefined) return false; tm.century = value; break
+          case 'm': if ((value = number(1, 12, 2)) === undefined) return false; tm.mon = value - 1; break
+          case 'd': case 'e': while (text[pos] === ' ') pos++; if ((value = number(1, 31, 2)) === undefined) return false; tm.mday = value; break
+          case 'H': case 'k': while (text[pos] === ' ') pos++; if ((value = number(0, 23, 2)) === undefined) return false; tm.hour = value; break
+          case 'I': case 'l': while (text[pos] === ' ') pos++; if ((value = number(1, 12, 2)) === undefined) return false; hour12 = value % 12; break
+          case 'M': if ((value = number(0, 59, 2)) === undefined) return false; tm.min = value; break
+          case 'S': if ((value = number(0, 61, 2)) === undefined) return false; tm.sec = value; break
+          case 'j': if ((value = number(1, 366, 3)) === undefined) return false; tm.yday = value - 1; break
+          case 'b': case 'B': case 'h': if ((value = name(MONTHS)) === undefined) return false; tm.mon = value; break
+          case 'a': case 'A': if ((value = name(WEEKDAYS)) === undefined) return false; tm.wday = value; break
+          case 'p': case 'P': { const m = /^(am|pm)/i.exec(text.slice(pos)); if (!m) return false; pm = m[0].toLowerCase() === 'pm'; pos += 2; break }
+          case 'T': if (!run('%H:%M:%S')) return false; break
+          case 'R': if (!run('%H:%M')) return false; break
+          case 'D': if (!run('%m/%d/%y')) return false; break
+          case 'F': if (!run('%Y-%m-%d')) return false; break
+          case 'r': if (!run('%I:%M:%S %p')) return false; break
+          case 'c': if (!run('%a %b %e %H:%M:%S %Y')) return false; break
+          case 'x': if (!run('%m/%d/%y')) return false; break
+          case 'X': if (!run('%H:%M:%S')) return false; break
+          case 'Z': while (/[A-Za-z]/.test(text[pos] ?? '')) pos++; break
+          case 'z': {
+            if (text[pos] === 'Z') { pos++; tm.gmtoff = 0; break }
+            const m = /^([+-])([0-9]{2}):?([0-9]{2})?/.exec(text.slice(pos))
+            if (!m) return false
+            pos += m[0].length
+            tm.gmtoff = (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 3600 + Number(m[3] ?? 0) * 60)
+            break
+          }
+          case 's': { const m = /^[0-9]+/.exec(text.slice(pos)); if (!m) return false; pos += m[0].length; const d = new Date(Number(m[0]) * 1000); Object.assign(tm, { sec: d.getSeconds(), min: d.getMinutes(), hour: d.getHours(), mday: d.getDate(), mon: d.getMonth(), year: d.getFullYear() - 1900 }); break }
+          default: return false
+        }
+      }
+      return true
+    }
+    if (!run(format)) return 0
+    if (hour12 !== undefined) tm.hour = hour12 + (pm ? 12 : 0)
+    if (tm.century !== undefined && tm.year === undefined) tm.year = tm.century * 100 - 1900
+    const fields = { sec: 0, min: 1, hour: 2, mday: 3, mon: 4, year: 5, wday: 6, yday: 7, gmtoff: 9 }
+    for (const [key, index] of Object.entries(fields)) if (tm[key] !== undefined) dv.setInt32(tmPtr + index * 4, tm[key], true)
+    // the weekday and day of the year follow from a full date
+    const year = tm.year ?? dv.getInt32(tmPtr + 20, true)
+    const mon = tm.mon ?? (tm.mday !== undefined ? dv.getInt32(tmPtr + 16, true) : undefined)
+    if (mon !== undefined && tm.mday !== undefined) {
+      const date = new Date(Date.UTC(year + 1900, mon, tm.mday))
+      dv.setInt32(tmPtr + 24, date.getUTCDay(), true)
+      dv.setInt32(tmPtr + 28, Math.floor((date - Date.UTC(year + 1900, 0, 1)) / 86400000), true)
+    }
+    return bufPtr + pos
   }
 
   function doPoll(fdsPtr, nfds, timeout) {
@@ -909,6 +1004,12 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       if (cmd === F_DUPFD) return dup2(fd, varargI(varargsPtr, 0))
       if (cmd === F_GETFD || cmd === F_GETFL) return 0
       if (cmd === F_SETFD || cmd === F_SETFL) return 0
+      // Advisory record locks (SQLite takes them around every transaction). Each program here runs alone as
+      // far as its own locks go: a lock is always granted and a query finds nothing holding one. Two programs
+      // writing the same file at once are not kept apart.
+      const F_GETLK = 5, F_SETLK = 6, F_SETLKW = 7, F_GETLK64 = 12, F_SETLK64 = 13, F_SETLKW64 = 14
+      if (cmd === F_SETLK || cmd === F_SETLKW || cmd === F_SETLK64 || cmd === F_SETLKW64) return 0
+      if (cmd === F_GETLK || cmd === F_GETLK64) { view().setInt16(varargI(varargsPtr, 0), 2, true); return 0 } // l_type = F_UNLCK
       throw { code: 'ENOSYS' }
     }),
     __syscall_openat: (dirfd, pathPtr, flags, varargsPtr) => guardLinux(() => {
@@ -1052,6 +1153,14 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     },
     // struct tm: sec, min, hour, mday, mon, year, wday, yday, isdst, gmtoff, zone (11 ints on wasm32)
     _localtime_js: (time, tmPtr) => { writeTm(tmPtr, new Date(Number(time) * 1000)); return 0 },
+    _gmtime_js: (time, tmPtr) => { writeTm(tmPtr, new Date(Number(time) * 1000), true); return 0 },
+    _timegm_js: (tmPtr) => {
+      const dv = new DataView(getMemory().buffer)
+      const f = (i) => dv.getInt32(tmPtr + i * 4, true)
+      const date = new Date(Date.UTC(f(5) + 1900, f(4), f(3), f(2), f(1), f(0)))
+      writeTm(tmPtr, date, true)
+      return BigInt(Math.floor(date.getTime() / 1000))
+    },
     _mktime_js: (tmPtr) => {
       const dv = new DataView(getMemory().buffer)
       const f = (i) => dv.getInt32(tmPtr + i * 4, true)
@@ -1059,9 +1168,13 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       writeTm(tmPtr, date)
       return BigInt(Math.floor(date.getTime() / 1000))
     },
-    // No timers and no signal delivery: setitimer(2) accepts and never fires; strptime(3) never parses.
+    // No timers and no signal delivery: setitimer(2) accepts and never fires.
     _setitimer_js: () => 0,
-    strptime: () => 0,
+    // Memory-mapped files are not provided: `mmap` fails, as it does for a filesystem that cannot map (SQLite, which
+    // only maps when asked to, then reads and writes the file itself).
+    _mmap_js: () => -SYSCALL_ERRNO.ENOSYS,
+    _munmap_js: () => -SYSCALL_ERRNO.ENOSYS,
+    strptime: (bufPtr, formatPtr, tmPtr) => strptime(bufPtr, readCString(formatPtr), tmPtr),
     // dup(2) and pipe2(2) are only reached when Vim starts a child process, which cannot happen here.
     __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
     __syscall_pipe2: () => -SYSCALL_ERRNO.ENOSYS,
