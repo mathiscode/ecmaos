@@ -66,6 +66,22 @@ describe('vim', () => {
     expect(screen.join('\n')).not.toMatch(/E\d{3,4}|Press ENTER/)
   }, 30000)
 
+  it('uses the alternate screen, so its display is gone when it exits', async () => {
+    const terminal = kernel.terminal as unknown as { write: (data: unknown, ...rest: unknown[]) => unknown }
+    const original = terminal.write.bind(terminal)
+    const written: string[] = []
+    terminal.write = (data, ...rest) => { written.push(typeof data === 'string' ? data : new TextDecoder().decode(data as Uint8Array)); return original(data, ...rest) }
+    try {
+      const code = await edit('vim /tmp/vim-alt.txt', '\x1b:q\r')
+      expect(code).toBe(0)
+    } finally {
+      terminal.write = original
+    }
+    const output = written.join('')
+    expect(output).toContain('\x1b[?1049h')
+    expect(output.lastIndexOf('\x1b[?1049l')).toBeGreaterThan(output.indexOf('\x1b[?1049h'))
+  }, 30000)
+
   it('edits, searches by regex, substitutes and saves a file', async () => {
     const code = await edit('vim /tmp/vim-out.txt', 'ifoo bar foo\x1b:%s/fo\\+/baz/g\r/bar\rcwqux\x1b:wq\r')
     expect(code).toBe(0)

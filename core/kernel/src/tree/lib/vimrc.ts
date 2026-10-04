@@ -12,6 +12,9 @@ let g:ecmaos_vimrc = 1
 set nocompatible
 if &term ==# 'xterm.js'
   set term=xterm
+  " the builtin entry has no alternate screen; xterm.js has one, and without it Vim's screen stays behind on exit
+  let &t_ti = "\\<Esc>[?1049h"
+  let &t_te = "\\<Esc>[?1049l"
 endif
 set nobackup
 set nowritebackup
