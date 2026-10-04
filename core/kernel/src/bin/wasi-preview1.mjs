@@ -1177,6 +1177,8 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     strptime: (bufPtr, formatPtr, tmPtr) => strptime(bufPtr, readCString(formatPtr), tmPtr),
     // dup(2) and pipe2(2) are only reached when Vim starts a child process, which cannot happen here.
     __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
+    // mkfifo(3) and mknod(2): GNU make's jobserver asks for a fifo, and falls back when it cannot have one.
+    __syscall_mknodat: () => -SYSCALL_ERRNO.ENOSYS,
     __syscall_pipe2: () => -SYSCALL_ERRNO.ENOSYS,
     // poll(2): `struct pollfd` is { int fd; short events; short revents }.
     __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout)),
