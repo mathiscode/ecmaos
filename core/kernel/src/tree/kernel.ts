@@ -66,6 +66,7 @@ import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
+import wasmCommandSources from 'virtual:bin-wasm'
 
 import {
   KernelEvents,
@@ -2207,6 +2208,16 @@ export class Kernel implements IKernel {
       // an existing install, which would keep running whatever version first created the file.
       if (await this.filesystem.fs.exists(target) && await this.filesystem.fs.readFile(target, 'utf8') === source) continue
       await this.filesystem.fs.writeFile(target, source, { mode: 0o755 })
+    }
+
+    // Prebuilt WebAssembly programs (`vi`): real binaries, so they are compared and written as bytes.
+    for (const [name, encoded] of Object.entries(wasmCommandSources)) {
+      if (this.options.blacklist?.commands?.includes(name)) continue
+      const target = `/bin/${name}`
+      const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0))
+      const existing = await this.filesystem.fs.exists(target) ? await this.filesystem.fs.readFile(target) : undefined
+      if (existing && existing.length === bytes.length && existing.every((byte, i) => byte === bytes[i])) continue
+      await this.filesystem.fs.writeFile(target, bytes, { mode: 0o755 })
     }
 
     // A stub from a command that is not on the in-process path this build (it is a real program

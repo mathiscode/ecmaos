@@ -113,7 +113,7 @@ export const migratedCommands = [
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
  * worker-hosted, syscall-only program.
  */
-export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'vim', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install'] as const
+export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install'] as const
 
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {
@@ -205,6 +205,35 @@ export function binKernelCommands(): Plugin {
       }
 
       return `export default ${cached}`
+    }
+  }
+}
+
+/**
+ * Bundles every prebuilt WebAssembly program in `src/bin/wasm/` (`vi.wasm`, built by
+ * `wasm/vi/build.sh`) into `virtual:bin-wasm`, exporting `{ [name]: base64 }`, so
+ * `Kernel.registerCommands` can write each one to `/bin/<name>`.
+ */
+export function binWasm(): Plugin {
+  const virtualModuleId = 'virtual:bin-wasm'
+  const resolvedVirtualModuleId = '\0' + virtualModuleId
+  const dir = path.join(import.meta.dirname, 'src', 'bin', 'wasm')
+
+  return {
+    name: 'ecmaos:bin-wasm',
+    resolveId(id) {
+      if (id === virtualModuleId) return resolvedVirtualModuleId
+    },
+    async load(id) {
+      if (id !== resolvedVirtualModuleId) return
+      const { readdirSync, readFileSync } = await import('node:fs')
+      const entries: Record<string, string> = {}
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith('.wasm')) continue
+        this.addWatchFile(path.join(dir, file))
+        entries[file.slice(0, -'.wasm'.length)] = readFileSync(path.join(dir, file)).toString('base64')
+      }
+      return `export default ${JSON.stringify(entries)}`
     }
   }
 }

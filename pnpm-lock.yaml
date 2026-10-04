@@ -58,9 +58,6 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
-      vim-wasm:
-        specifier: ^0.0.13
-        version: 0.0.13
 
   apps/ai:
     devDependencies:
@@ -442,9 +439,6 @@ importers:
       tslog:
         specifier: ^4.9.3
         version: 4.11.0
-      vim-wasm:
-        specifier: ^0.0.13
-        version: 0.0.13
       wabt:
         specifier: ^1.0.36
         version: 1.0.39
@@ -7748,9 +7742,6 @@ packages:
   viem@2.56.3:
     resolution: {integrity: sha512-vUObq3GO7D3lz9gPNEE/xd5jIUnMbeVDWewh252o54pDEDlW4pDe6FEd/qTGL5RyK52cGHMM7kQ3wjxhilEvkQ==}
 
-  vim-wasm@0.0.13:
-    resolution: {integrity: sha512-2EkJ4OfMgvA/bURJeu43wqIQ4tpCJymst++Y4R/AKuQlnrvdI4hTpG2jf0yL5TrLt1ui12leLRghrwPOybyu8w==}
-
   vite-plugin-css-injected-by-js@5.0.2:
     resolution: {integrity: sha512-Hvg48QfYsCL53ju9T5zTC0Ofg90XLa8t5zhhKmPYbayoMQieNcQDkkRX8pv4TAcKPZwVisLFiwDy5uBjOn+3Ow==}
     peerDependencies:
@@ -14893,8 +14884,6 @@ snapshots:
       - bufferutil
       - utf-8-validate
       - zod
-
-  vim-wasm@0.0.13: {}
 
   vite-plugin-css-injected-by-js@5.0.2(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1)):
     dependencies:

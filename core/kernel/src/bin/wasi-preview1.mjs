@@ -26,7 +26,7 @@
  * fix -- opening the preopens for real up front -- came from that trace, not from guessing).
  */
 
-import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2 } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut } from '@zenfs/linux/uapi/base'
 
@@ -139,7 +139,7 @@ function sleepMs(ms) {
 }
 
 /** Builds the `wasi_snapshot_preview1` import object for one instance. `getMemory` is late-bound. */
-export function createPreview1(getMemory) {
+export function createPreview1(getMemory, getTable = () => undefined) {
   const cwd = getcwd()
   const args = argv()
   const env = Object.entries(environ()).map(([key, value]) => `${key}=${value}`)
@@ -696,6 +696,26 @@ export function createPreview1(getMemory) {
     }
   }
 
+  function doPoll(fdsPtr, nfds, timeout) {
+    const dv = view()
+    const slots = []
+    for (let i = 0; i < nfds; i++) {
+      const fd = dv.getInt32(fdsPtr + i * 8, true)
+      if (fd < 0) { dv.setInt16(fdsPtr + i * 8 + 6, 0, true); continue }
+      slots.push({ i, fd: entryOf(fd)?.fd ?? fd, events: dv.getInt16(fdsPtr + i * 8 + 4, true) })
+    }
+    let revents = []
+    if (slots.length) revents = pollFds(slots.map(({ fd, events }) => ({ fd, events })), timeout)
+    else sleepMs(timeout)
+    const after = view()
+    let ready = 0
+    slots.forEach((slot, n) => {
+      after.setInt16(fdsPtr + slot.i * 8 + 6, revents[n], true)
+      if (revents[n]) ready++
+    })
+    return ready
+  }
+
   function resolveAt(dirfd, pathPtr) {
     const rel = readCString(pathPtr)
     if (rel.startsWith('/')) return rel
@@ -920,7 +940,68 @@ export function createPreview1(getMemory) {
     __syscall_dup3: (fd, newfd, _flags) => guardLinux(() => dup2(fd, newfd)),
     __syscall_fallocate: () => ESUCCESS,
     __syscall_fadvise64: () => ESUCCESS,
-    __syscall_ioctl: () => -LINUX_ERRNO.ENOTTY,
+    // The terminal ioctls a full-screen program needs. `struct termios` here is the kernel's
+    // (iflag, oflag, cflag, lflag, line, cc[19]); musl hands `TCGETS` a larger struct but only the
+    // kernel's first 36 bytes are ever read or written.
+    __syscall_ioctl: (fd, request, varargsPtr) => guardLinux(() => {
+      const TCGETS = 0x5401, TCSETS = 0x5402, TCSETSW = 0x5403, TCSETSF = 0x5404, TIOCGWINSZ = 0x5413, TIOCSWINSZ = 0x5414
+      const real = entryOf(fd)?.fd ?? fd
+      const ptr = varargsPtr ? varargI(varargsPtr, 0) : 0
+      const dv = view()
+      switch (request) {
+        case TCGETS: {
+          const t = tcgetattr(real)
+          dv.setUint32(ptr, t.iflag, true)
+          dv.setUint32(ptr + 4, t.oflag, true)
+          dv.setUint32(ptr + 8, t.cflag, true)
+          dv.setUint32(ptr + 12, t.lflag, true)
+          dv.setUint8(ptr + 16, t.line)
+          for (let i = 0; i < 19; i++) dv.setUint8(ptr + 17 + i, t.cc[i])
+          return ESUCCESS
+        }
+        case TCSETS:
+        case TCSETSW:
+        case TCSETSF: {
+          const cc = []
+          for (let i = 0; i < 19; i++) cc.push(dv.getUint8(ptr + 17 + i))
+          tcsetattr(real, {
+            iflag: dv.getUint32(ptr, true), oflag: dv.getUint32(ptr + 4, true),
+            cflag: dv.getUint32(ptr + 8, true), lflag: dv.getUint32(ptr + 12, true),
+            line: dv.getUint8(ptr + 16), cc,
+          })
+          return ESUCCESS
+        }
+        case TIOCGWINSZ: {
+          const w = winsize(real)
+          dv.setUint16(ptr, w.row, true)
+          dv.setUint16(ptr + 2, w.col, true)
+          dv.setUint16(ptr + 4, w.xpixel, true)
+          dv.setUint16(ptr + 6, w.ypixel, true)
+          return ESUCCESS
+        }
+        case TIOCSWINSZ: return ESUCCESS
+        default: throw { code: 'ENOTTY' }
+      }
+    }),
+    // The few non-syscall imports an ordinary emcc build leaves for its JS glue: process exit and
+    // abort, heap growth, signal-handler dispatch, and the `system()` hook (there is no shell to run).
+    exit: (code) => { throw new ProcExit(code) },
+    _abort_js: () => { throw new Error('abort() called') },
+    _emscripten_runtime_keepalive_clear: () => {},
+    emscripten_resize_heap: (requested) => {
+      try {
+        const memory = getMemory()
+        memory.grow(Math.ceil((requested - memory.buffer.byteLength) / 65536))
+        return 1
+      } catch {
+        return 0
+      }
+    },
+    __call_sighandler: (handler, signal) => { getTable()?.get(handler)(signal) },
+    _emscripten_system: () => -LINUX_ERRNO.ENOSYS,
+    // poll(2): `struct pollfd` is { int fd; short events; short revents }.
+    __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout)),
+    __syscall_poll_nonblocking: (fdsPtr, nfds) => guardLinux(() => doPoll(fdsPtr, nfds, 0)),
     __syscall_epoll_create1: (flags) => {
       if (flags & ~EPOLL_CLOEXEC) return -LINUX_ERRNO.EINVAL
       const epfd = nextFd++
@@ -1164,7 +1245,7 @@ export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   const module = await WebAssembly.compile(source)
   let memory
-  const { imports, ProcExit: Exit, args } = createPreview1(() => memory)
+  const { imports, ProcExit: Exit, args } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table)
   const memoryImport = detectMemoryImport(bytes)
   if (memoryImport) {
     // The module wants its memory handed in rather than exported -- create it to the module's own
@@ -1174,10 +1255,13 @@ export async function runPreview1(source) {
       : { initial: memoryImport.initial })
     imports[memoryImport.module] = { ...(imports[memoryImport.module] ?? {}), [memoryImport.name]: memory }
   }
-  const instance = await WebAssembly.instantiate(module, imports)
+  let instance
+  instance = await WebAssembly.instantiate(module, imports)
   memory = memory ?? instance.exports.memory
   if (!memory) throw new Error('wasi: the module does not export or import its memory')
-  const { _start, _initialize, __wasm_call_ctors, __main_argc_argv, __funcs_on_exit, fflush } = instance.exports
+  // A `-sSTANDALONE_WASM` build exports `__main_argc_argv`; an ordinary one exports plain `main`.
+  const { _start, _initialize, __wasm_call_ctors, __funcs_on_exit, fflush } = instance.exports
+  const __main_argc_argv = instance.exports.__main_argc_argv ?? instance.exports.main
   try {
     let code = 0
     if (typeof _start === 'function') {
@@ -1197,7 +1281,7 @@ export async function runPreview1(source) {
       if (typeof fflush === 'function') fflush(0)
       if (typeof __funcs_on_exit === 'function') __funcs_on_exit()
     } else {
-      throw new Error('wasi: the module exports none of _start, _initialize, __main_argc_argv')
+      throw new Error('wasi: the module exports none of _start, _initialize, __main_argc_argv, main')
     }
     return code
   } catch (error) {

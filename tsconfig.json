@@ -25,9 +25,6 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "paths": {
-      "vim-wasm/vimwasm.js": ["./core/utils/src/types/vim-wasm.d.ts"]
-    }
+    "allowImportingTsExtensions": true
   }
 }

@@ -31,6 +31,8 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_socket', '__syscall_bind', '__syscall_listen', '__syscall_connect', '__syscall_accept4',
   '__syscall_getsockname', '__syscall_getpeername', '__syscall_shutdown', '__syscall_sendto',
   '__syscall_recvfrom', '__syscall_setsockopt', '__syscall_getsockopt',
+  '__syscall_poll', '__syscall_poll_nonblocking',
+  'exit', '_abort_js', '_emscripten_runtime_keepalive_clear', 'emscripten_resize_heap', '__call_sighandler', '_emscripten_system',
 ])
 
 /**

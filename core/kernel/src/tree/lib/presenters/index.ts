@@ -24,7 +24,6 @@ import type { Kernel } from '#kernel.ts'
 import { presentApp } from './app.ts'
 import { presentBrowser } from './browser.ts'
 import { presentDocument } from './document.ts'
-import { presentEditor } from './editor.ts'
 import { presentAudio, presentVideo } from './media.ts'
 import { presentExternal, presentDownload } from './open.ts'
 import { presentScript } from './script.ts'
@@ -52,7 +51,6 @@ export const presenters: Record<string, Presenter> = {
   audio: presentAudio,
   browser: presentBrowser,
   document: presentDocument,
-  editor: presentEditor,
   app: presentApp,
   script: presentScript,
   upload: presentUpload
