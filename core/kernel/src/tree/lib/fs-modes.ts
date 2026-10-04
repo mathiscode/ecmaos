@@ -104,6 +104,5 @@ export async function ensureSetuidPrograms(fs: Fs): Promise<string[]> {
 export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/sh': '/bin/ecmash',
   '/bin/bash': '/bin/ecmash',
-  '/bin/vim': '/bin/vi',
   '/usr/bin/env': '/bin/env'
 }

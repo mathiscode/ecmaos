@@ -21,3 +21,11 @@ emcc emcc-tty.c -O1 -sSTANDALONE_WASM=0 -o emcc-tty.js && rm emcc-tty.js
 ```
 
 It puts the terminal in raw mode, reads its size, polls for a key and restores the terminal.
+
+`emcc-errno.wasm` is `emcc-errno.c` built the same way as `emcc-tty.wasm`. It checks that a failed call
+leaves `errno` equal to the `ENOENT`/`EISDIR` it was compiled with: emscripten 6 numbers errors like WASI
+(ENOENT is 44), not like Linux (2). Rebuild it with:
+
+```sh
+emcc emcc-errno.c -O1 -sSTANDALONE_WASM=0 -o emcc-errno.js && rm emcc-errno.js
+```

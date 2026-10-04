@@ -63,9 +63,8 @@ describe('vi', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/vi-keep.txt', 'utf8')).toBe('keep me\n')
   }, 30000)
 
-  it('is also reachable as vim', async () => {
-    const code = await edit('vim /tmp/vim-out.txt', 'ivim\x1b:wq\r')
-    expect(code).toBe(0)
-    expect(await kernel.filesystem.fs.readFile('/tmp/vim-out.txt', 'utf8')).toBe('vim\n')
-  }, 30000)
+  it('has no vim alias: vim is the real Vim, a separate program', async () => {
+    const lstat = await kernel.filesystem.fs.lstat('/bin/vim')
+    expect(lstat.isSymbolicLink()).toBe(false)
+  })
 })

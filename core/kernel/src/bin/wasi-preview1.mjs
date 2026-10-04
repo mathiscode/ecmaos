@@ -43,16 +43,16 @@ const ERRNO = {
   ENOTTY: 59, ENXIO: 60, EPERM: 63, EPIPE: 64, ERANGE: 68, EROFS: 69, ESPIPE: 70, EXDEV: 75,
 }
 
-// Same errno names, but the real Linux numbers emscripten's musl expects back from a `__syscall_*`
-// (which returns `-errno` on the plain Linux ABI, not a WASI errno) -- distinct table because the
-// two numberings disagree on nearly every value (e.g. WASI's EIO is 29, Linux's is 5).
-const LINUX_ERRNO = {
-  EPERM: 1, ENOENT: 2, ESRCH: 3, EINTR: 4, EIO: 5, ENXIO: 6, E2BIG: 7, EBADF: 9, EAGAIN: 11, ENOMEM: 12,
-  EACCES: 13, EBUSY: 16, EEXIST: 17, EXDEV: 18, ENODEV: 19, ENOTDIR: 20, EISDIR: 21, EINVAL: 22, EMFILE: 24,
-  ENOTTY: 25, EFBIG: 27, ENOSPC: 28, ESPIPE: 29, EROFS: 30, EPIPE: 32, ERANGE: 34, ENAMETOOLONG: 36,
-  ENOSYS: 38, ENOTEMPTY: 39, ELOOP: 40, ENOTSOCK: 88, ENOPROTOOPT: 92, EPROTONOSUPPORT: 93, ENOTSUP: 95,
-  EAFNOSUPPORT: 97, EADDRINUSE: 98, EADDRNOTAVAIL: 99, ENETUNREACH: 101, EISCONN: 106, ENOTCONN: 107,
-  ECONNREFUSED: 111, EALREADY: 114, EINPROGRESS: 115,
+// What an `env.__syscall_*` hands back on failure is `-errno`, in emscripten 6's own numbering: its
+// musl headers define ENOENT as 44 and EACCES as 2, which are the WASI values, not Linux's 2 and 13.
+// (Confirmed by compiling `ENOENT` into a program and running it here.) A program that only tests
+// for `< 0` never notices; one that compares `errno` to `ENOENT` -- Vim deciding a missing file is a
+// new file, not a permission error -- does. So these extend `ERRNO` with the names only the socket
+// and epoll calls need, rather than a second table of Linux numbers.
+const SYSCALL_ERRNO = {
+  ...ERRNO,
+  ENOTSOCK: 57, ENOPROTOOPT: 50, EPROTONOSUPPORT: 66, EAFNOSUPPORT: 5, EISCONN: 30, ENOTCONN: 53,
+  ENETUNREACH: 40, EALREADY: 7, EINPROGRESS: 26, EEXIST: 20, ESRCH: 71,
 }
 
 // open(2) flags (Linux values)
@@ -692,8 +692,16 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       return fn() ?? ESUCCESS
     } catch (error) {
       if (error instanceof ProcExit) throw error
-      return -(LINUX_ERRNO[error?.code] ?? LINUX_ERRNO.EIO)
+      return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
     }
+  }
+
+  function writeTm(tmPtr, d) {
+    const dv = new DataView(getMemory().buffer)
+    const start = new Date(d.getFullYear(), 0, 1)
+    const fields = [d.getSeconds(), d.getMinutes(), d.getHours(), d.getDate(), d.getMonth(), d.getFullYear() - 1900, d.getDay(),
+      Math.floor((d - start) / 86400000), 0, -d.getTimezoneOffset() * 60, 0]
+    fields.forEach((v, i) => dv.setInt32(tmPtr + i * 4, v, true))
   }
 
   function doPoll(fdsPtr, nfds, timeout) {
@@ -830,15 +838,15 @@ export function createPreview1(getMemory, getTable = () => undefined) {
   }
 
   function socketErrno(error) {
-    if (typeof error === 'string') return -(LINUX_ERRNO[error] ?? LINUX_ERRNO.EIO)
-    return -(LINUX_ERRNO[error?.code] ?? LINUX_ERRNO.EIO)
+    if (typeof error === 'string') return -(SYSCALL_ERRNO[error] ?? SYSCALL_ERRNO.EIO)
+    return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
   }
 
   /** Whether `fd` is a socket, and if so its real backing fd for `direction` -- used by
    * `fd_read`/`fd_write`/etc (the WASI ABI, which is what a socket's read()/write() actually go
    * through, same as a plain file's) so they redirect transparently instead of trying `entryOf`'s
    * generic real-fd fallback on a purely synthetic number. Returns WASI `EBADF` (this file's own
-   * `EBADF` constant, not `LINUX_ERRNO`'s -- `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
+   * `EBADF` constant, not `SYSCALL_ERRNO`'s -- `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
    * for a socket that exists but isn't connected yet. */
   function socketRealFd(fd, direction) {
     const sock = sockets.get(fd)
@@ -998,60 +1006,90 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       }
     },
     __call_sighandler: (handler, signal) => { getTable()?.get(handler)(signal) },
-    _emscripten_system: () => -LINUX_ERRNO.ENOSYS,
+    _emscripten_system: () => -SYSCALL_ERRNO.ENOSYS,
+    // Clocks, time zone and assertions. The zone is the browser's, as `localtime` reports it.
+    emscripten_get_now: () => performance.now(),
+    emscripten_date_now: () => Date.now(),
+    emscripten_get_heap_max: () => 2147483648,
+    __assert_fail: (cond, file, line) => {
+      const read = (ptr) => { const m = new Uint8Array(getMemory().buffer); let e = ptr; while (m[e]) e++; return new TextDecoder().decode(m.subarray(ptr, e)) }
+      throw new Error(`assertion failed: ${read(cond)} (${read(file)}:${line})`)
+    },
+    _tzset_js: (timezonePtr, daylightPtr, stdNamePtr, dstNamePtr) => {
+      const dv = new DataView(getMemory().buffer)
+      dv.setInt32(timezonePtr, new Date().getTimezoneOffset() * 60, true)
+      dv.setInt32(daylightPtr, 0, true)
+      const zone = new Date().toLocaleTimeString('en', { timeZoneName: 'short' }).split(' ').pop() ?? 'UTC'
+      for (const ptr of [stdNamePtr, dstNamePtr]) bytes().set(encoder.encode(`${zone.slice(0, 15)}\0`), ptr)
+    },
+    // struct tm: sec, min, hour, mday, mon, year, wday, yday, isdst, gmtoff, zone (11 ints on wasm32)
+    _localtime_js: (time, tmPtr) => { writeTm(tmPtr, new Date(Number(time) * 1000)); return 0 },
+    _mktime_js: (tmPtr) => {
+      const dv = new DataView(getMemory().buffer)
+      const f = (i) => dv.getInt32(tmPtr + i * 4, true)
+      const date = new Date(f(5) + 1900, f(4), f(3), f(2), f(1), f(0))
+      writeTm(tmPtr, date)
+      return BigInt(Math.floor(date.getTime() / 1000))
+    },
+    // No timers and no signal delivery: setitimer(2) accepts and never fires; strptime(3) never parses.
+    _setitimer_js: () => 0,
+    strptime: () => 0,
+    // dup(2) and pipe2(2) are only reached when Vim starts a child process, which cannot happen here.
+    __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
+    __syscall_pipe2: () => -SYSCALL_ERRNO.ENOSYS,
     // poll(2): `struct pollfd` is { int fd; short events; short revents }.
     __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout)),
     __syscall_poll_nonblocking: (fdsPtr, nfds) => guardLinux(() => doPoll(fdsPtr, nfds, 0)),
     __syscall_epoll_create1: (flags) => {
-      if (flags & ~EPOLL_CLOEXEC) return -LINUX_ERRNO.EINVAL
+      if (flags & ~EPOLL_CLOEXEC) return -SYSCALL_ERRNO.EINVAL
       const epfd = nextFd++
       epollInstances.set(epfd, { interests: new Map() })
       return epfd
     },
     __syscall_epoll_ctl: (epfd, op, fd, evPtr) => {
       const inst = epollInstances.get(epfd)
-      if (!inst) return -LINUX_ERRNO.EBADF
+      if (!inst) return -SYSCALL_ERRNO.EBADF
       if (op === EPOLL_CTL_DEL) {
-        if (!inst.interests.has(fd)) return -LINUX_ERRNO.ENOENT
+        if (!inst.interests.has(fd)) return -SYSCALL_ERRNO.ENOENT
         inst.interests.delete(fd)
         return ESUCCESS
       }
-      if (op !== EPOLL_CTL_ADD && op !== EPOLL_CTL_MOD) return -LINUX_ERRNO.EINVAL
+      if (op !== EPOLL_CTL_ADD && op !== EPOLL_CTL_MOD) return -SYSCALL_ERRNO.EINVAL
       const has = inst.interests.has(fd)
-      if (op === EPOLL_CTL_ADD && has) return -LINUX_ERRNO.EEXIST
-      if (op === EPOLL_CTL_MOD && !has) return -LINUX_ERRNO.ENOENT
+      if (op === EPOLL_CTL_ADD && has) return -SYSCALL_ERRNO.EEXIST
+      if (op === EPOLL_CTL_MOD && !has) return -SYSCALL_ERRNO.ENOENT
       const dv = view()
       inst.interests.set(fd, { events: dv.getUint32(evPtr, true), dataLo: dv.getInt32(evPtr + 8, true), dataHi: dv.getInt32(evPtr + 12, true) })
       return ESUCCESS
     },
     __syscall_epoll_pwait: (epfd, evPtr, maxevents, timeout, _sigmask, _sigsetsize) => {
       const inst = epollInstances.get(epfd)
-      if (!inst) return -LINUX_ERRNO.EBADF
-      if (maxevents <= 0) return -LINUX_ERRNO.EINVAL
+      if (!inst) return -SYSCALL_ERRNO.EBADF
+      if (maxevents <= 0) return -SYSCALL_ERRNO.EINVAL
       return doEpollWait(inst, evPtr, maxevents, timeout)
     },
     __syscall_epoll_pwait_nonblocking: (epfd, evPtr, maxevents) => {
       const inst = epollInstances.get(epfd)
-      if (!inst) return -LINUX_ERRNO.EBADF
-      if (maxevents <= 0) return -LINUX_ERRNO.EINVAL
+      if (!inst) return -SYSCALL_ERRNO.EBADF
+      if (maxevents <= 0) return -SYSCALL_ERRNO.EINVAL
       return doEpollWait(inst, evPtr, maxevents, 0)
     },
 
     __syscall_socket: (domain, type, _protocol) => {
-      if (domain !== AF_UNIX && domain !== AF_INET) return -LINUX_ERRNO.EAFNOSUPPORT
-      if ((type & SOCK_STREAM_MASK) !== SOCK_STREAM) return -LINUX_ERRNO.EPROTONOSUPPORT
+      if (domain !== AF_UNIX && domain !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+      if ((type & SOCK_STREAM_MASK) !== SOCK_STREAM) return -SYSCALL_ERRNO.EPROTONOSUPPORT
       const fd = nextFd++
       sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false })
       return fd
     },
     __syscall_bind: (fd, addrPtr, _addrlen) => {
       const sock = sockets.get(fd)
-      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
       let result
       if (sa.family === AF_UNIX) result = callMainThread('net_bind', 'unix', sa.path, 0)
       else if (sa.family === AF_INET) result = callMainThread('net_bind', 'inet', sa.addr, sa.port)
-      else return -LINUX_ERRNO.EAFNOSUPPORT
+      else return -SYSCALL_ERRNO.EAFNOSUPPORT
       if (result.error) return socketErrno(result.error)
       sock.bound = true
       sock.key = result.key
@@ -1060,7 +1098,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     },
     __syscall_listen: (fd, backlog) => {
       const sock = sockets.get(fd)
-      if (!sock || !sock.bound) return -LINUX_ERRNO.ENOTSOCK
+      if (!sock || !sock.bound) return -SYSCALL_ERRNO.ENOTSOCK
       const result = callMainThread('net_listen', sock.key, backlog)
       if (result.error) return socketErrno(result.error)
       sock.listening = true
@@ -1068,13 +1106,13 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     },
     __syscall_connect: (fd, addrPtr, _addrlen) => {
       const sock = sockets.get(fd)
-      if (!sock) return -LINUX_ERRNO.ENOTSOCK
-      if (sock.connected) return -LINUX_ERRNO.EISCONN
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
+      if (sock.connected) return -SYSCALL_ERRNO.EISCONN
       const sa = readSockaddr(addrPtr)
       let key
       if (sa.family === AF_UNIX) key = `unix:${sa.path}`
       else if (sa.family === AF_INET) key = `inet:127.0.0.1:${sa.port}`
-      else return -LINUX_ERRNO.EAFNOSUPPORT
+      else return -SYSCALL_ERRNO.EAFNOSUPPORT
       const result = callMainThread('net_connect', key)
       if (result.error) return socketErrno(result.error)
       sock.connected = true
@@ -1090,7 +1128,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     // tears the worker down regardless of what JS statement happens to be running.
     __syscall_accept4: (fd, addrPtr, addrlenPtr, flags) => {
       const sock = sockets.get(fd)
-      if (!sock || !sock.listening) return -LINUX_ERRNO.ENOTSOCK
+      if (!sock || !sock.listening) return -SYSCALL_ERRNO.ENOTSOCK
       const nonblock = flags & 0x800 ? 1 : 0
       while (true) {
         const result = callMainThread('net_accept', sock.key, nonblock)
@@ -1104,20 +1142,20 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     },
     __syscall_getsockname: (fd, addrPtr, addrlenPtr) => {
       const sock = sockets.get(fd)
-      if (!sock) return -LINUX_ERRNO.ENOTSOCK
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', sock.port ?? 0)
       return ESUCCESS
     },
     __syscall_getpeername: (fd, addrPtr, addrlenPtr) => {
       const sock = sockets.get(fd)
-      if (!sock) return -LINUX_ERRNO.ENOTSOCK
-      if (!sock.connected) return -LINUX_ERRNO.ENOTCONN
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
+      if (!sock.connected) return -SYSCALL_ERRNO.ENOTCONN
       writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', 0)
       return ESUCCESS
     },
     __syscall_shutdown: (fd, how) => {
       const sock = sockets.get(fd)
-      if (!sock || !sock.connected) return -LINUX_ERRNO.ENOTCONN
+      if (!sock || !sock.connected) return -SYSCALL_ERRNO.ENOTCONN
       return guardLinux(() => {
         if (how !== 0 /* SHUT_RD */) close(sock.writeFd) // SHUT_WR or SHUT_RDWR
       })
@@ -1141,7 +1179,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.
     __syscall_setsockopt: () => ESUCCESS,
     __syscall_getsockopt: (fd, _level, _optname, optvalPtr, optlenPtr) => {
-      if (!sockets.has(fd)) return -LINUX_ERRNO.ENOTSOCK
+      if (!sockets.has(fd)) return -SYSCALL_ERRNO.ENOTSOCK
       if (optvalPtr) view().setInt32(optvalPtr, 0, true)
       if (optlenPtr) view().setUint32(optlenPtr, 4, true)
       return ESUCCESS

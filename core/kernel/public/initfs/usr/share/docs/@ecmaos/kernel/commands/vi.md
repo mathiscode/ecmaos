@@ -6,14 +6,13 @@
 
 ```
 vi [-R] [-c COMMAND] [FILE]...
-vim [-R] [-c COMMAND] [FILE]...
 ```
 
 ## Description
 
 A modal text editor that runs in the terminal. It is busybox's `vi`, built to WebAssembly and run as an
 ordinary program on the terminal: it takes the keyboard in raw mode and reads the window size from it,
-so it follows the terminal's size and gives the terminal back when it exits. `vim` is another name for it.
+so it follows the terminal's size and gives the terminal back when it exits. For the full editor, see `vim`.
 
 Supported: insert, normal and `:` command modes, motions and operators, counts, `.` repeat, yank and
 put with named registers, marks, undo, search with regular expressions (`/`, `?`, `n`, `N`), `:s`

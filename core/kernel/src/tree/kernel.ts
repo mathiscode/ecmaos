@@ -67,6 +67,7 @@ import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thre
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import wasmCommandSources from 'virtual:bin-wasm'
+import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
 
 import {
   KernelEvents,
@@ -507,6 +508,12 @@ export class Kernel implements IKernel {
 
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {
         await this.filesystem.fs.writeFile('/etc/hostname', `${location.hostname || 'ecmaos'}\n`, { mode: 0o644 })
+      }
+
+      // Vim reads this before anything else (its build points the system vimrc here). Without one it
+      // starts in vi-compatible mode, which is the busybox `vi` experience under the name `vim`.
+      if (!(await this.filesystem.fs.exists('/etc/vimrc'))) {
+        await this.filesystem.fs.writeFile('/etc/vimrc', DEFAULT_VIMRC, { mode: 0o644 })
       }
 
       // The login shells `chsh` accepts. `ecmaos` is the shell built into the kernel and has no file;
@@ -2214,6 +2221,8 @@ export class Kernel implements IKernel {
     for (const [name, encoded] of Object.entries(wasmCommandSources)) {
       if (this.options.blacklist?.commands?.includes(name)) continue
       const target = `/bin/${name}`
+      // An earlier build linked `vim` to `vi`; writing through that link would replace the other program.
+      if ((await this.filesystem.fs.lstat(target).catch(() => undefined))?.isSymbolicLink()) await this.filesystem.fs.unlink(target)
       const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0))
       const existing = await this.filesystem.fs.exists(target) ? await this.filesystem.fs.readFile(target) : undefined
       if (existing && existing.length === bytes.length && existing.every((byte, i) => byte === bytes[i])) continue
