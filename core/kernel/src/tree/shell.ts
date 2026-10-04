@@ -1352,6 +1352,8 @@ export class Shell implements IShell {
        */
       drainStdout: boolean
       stderr: WritableStream<Uint8Array>
+      /** The pipe this stage reads from, told when the stage is done so a writer still sending to it fails instead of waiting */
+      inputPipe?: { abandon?: () => void }
     } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined } | { kind: 'compound', run: () => Promise<number> })
 
     const stages: Stage[] = []
@@ -1365,6 +1367,7 @@ export class Shell implements IShell {
     let compoundTurn: Promise<unknown> = Promise.resolve()
 
     let prevReadable: ReadableStream<Uint8Array> | undefined
+    let prevPipe: { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array>, abandon?: () => void } | undefined
 
     for (let i = 0; i < commands.length; i++) {
       const command = commands[i] as ParsedCommand
@@ -1435,11 +1438,14 @@ export class Shell implements IShell {
         stdin = prevReadable
       }
 
+      // the pipe this command reads from, so it can be told its reader is gone once the command is
+      const inputPipe = i > 0 ? prevPipe : undefined
       let pipeWritable: WritableStream<Uint8Array> | undefined
       if (!isLastCommand) {
         const pipe = buffered ? unboundedPipe() : this._createPipeStream()
         pipeWritable = pipe.writable
         prevReadable = pipe.readable
+        prevPipe = pipe
       }
 
       // An enclosing aggregate command's redirections come first, so this command's own still win --
@@ -1458,7 +1464,7 @@ export class Shell implements IShell {
       const stdoutIsTTY = isLastCommand && this._heldStdout.length === 0 && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
       // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
       await this.trace([command.words[0] ?? '', ...args])
-      const fds = { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr }
+      const fds = { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr, inputPipe }
       if (command.compound) {
         const statement = command.compound
         stages.push({ kind: 'compound', run: () => this.interpreter.runStage(statement), ...fds })
@@ -1480,7 +1486,7 @@ export class Shell implements IShell {
         : { kind: 'command', finalCommand: resolved.finalCommand as string, ...fds })
     }
 
-    const results = await Promise.all(stages.map(async stage => {
+    const runStage = async (stage: typeof stages[number]): Promise<number> => {
       const { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
 
       if (stage.kind === 'compound') {
@@ -1493,7 +1499,14 @@ export class Shell implements IShell {
         await turn
         const source = stdinSource ?? (stdin && !stdinIsTTY ? new StdinSource(stdin) : undefined)
         const sharedOut = drainStdout ? undefined : stdout.getWriter()
-        const view = () => new WritableStream<Uint8Array>({ write: async chunk => { await sharedOut?.write(chunk) } })
+        // a reader that has finished ends a loop writing into it (`while true; do echo x; done | head -n 1`),
+        // as SIGPIPE ends the subshell in bash
+        const view = () => new WritableStream<Uint8Array>({ write: async chunk => {
+          try { await sharedOut?.write(chunk) } catch (error) {
+            if ((error as { code?: string })?.code === 'EPIPE') throw new ExitSignal(141)
+            throw error
+          }
+        } })
         if (sharedOut) { this._heldStdout.push(view); this._heldFloor.push(this._statementOutputs.length) }
         if (source && !stdinSource) this._stdinSources.push(source)
         try {
@@ -1550,6 +1563,12 @@ export class Shell implements IShell {
         onProcess: job ? (process => { job.processes.push(process); this.shareTerminalSignals(job, process) }) : undefined,
         foreground: job ? !job.background : true
       })
+    }
+    const results = await Promise.all(stages.map(async stage => {
+      try { return await runStage(stage) } finally {
+        // a stage that has finished reads nothing more: whatever still writes into its pipe is told so
+        stage.inputPipe?.abandon?.()
+      }
     }))
 
     return pipeline.negated ? results.map(code => code === 0 ? 1 : 0) : results
@@ -2583,13 +2602,25 @@ export class Shell implements IShell {
     // An already-shared source is used as-is; only a raw stream gets a buffer of its own.
     const source = stdin instanceof StdinSource ? stdin : stdin ? new StdinSource(stdin) : undefined
 
+    // A reader that has already finished (`export -p | jobs`) is not an error for a builtin: what it would
+    // have written has nowhere to go, as when SIGPIPE ends a program writing into a closed pipe.
+    let outBroken = false
+    let errBroken = false
     const out = async (text: string) => {
+      if (outBroken) return
       outWriter ??= stdout.getWriter()
-      await outWriter.write(encoder.encode(text))
+      try { await outWriter.write(encoder.encode(text)) } catch (error) {
+        if ((error as { code?: string })?.code !== 'EPIPE') throw error
+        outBroken = true
+      }
     }
     const err = async (text: string) => {
+      if (errBroken) return
       errWriter ??= stderr.getWriter()
-      await errWriter.write(encoder.encode(text))
+      try { await errWriter.write(encoder.encode(text)) } catch (error) {
+        if ((error as { code?: string })?.code !== 'EPIPE') throw error
+        errBroken = true
+      }
     }
 
     return {

@@ -270,6 +270,20 @@ globalThis.ecmaosSyscalls = {
   argv: init.argv, env: init.env
 }
 
+// A rejection nobody handles (an asynchronous syscall the program did not await, which the kernel then refused)
+// would stop this worker without ending the process, and whatever waits for the process would wait for ever. It is
+// the program's error: say so on stderr and end with status 1, as an uncaught exception does.
+function reportUnhandled(reason) {
+  const name = String(init.argv?.[0] ?? 'program').split('/').pop()
+  const message = reason instanceof Error ? reason.message : String(reason)
+  try { write(2, new TextEncoder().encode(`${name}: ${message}\n`)) } catch { /* nowhere to say it */ }
+  exit(1)
+}
+if (typeof globalThis.addEventListener === 'function') {
+  globalThis.addEventListener('unhandledrejection', event => { event.preventDefault?.(); reportUnhandled(event.reason) })
+}
+if (typeof globalThis.process?.on === 'function') globalThis.process.on('unhandledRejection', reportUnhandled)
+
 try {
   const source = await readWholeFile(init.exe)
   await import(toDataUrl(source))

@@ -36,7 +36,7 @@ export function interpretEscapes(text: string): string {
         case '0': case '1': case '2': case '3': case '4': case '5': case '6': case '7': {
           let octal = ''
           let j = i + 1
-          while (j < text.length && j < i + 4) {
+          while (j < text.length && j < i + (text[i + 1] === '0' ? 5 : 4)) {
             const char = text[j]
             if (char && /[0-7]/.test(char)) { octal += char; j++ } else break
           }
@@ -187,7 +187,7 @@ export function formatPrintf(format: string, values: string[]): string {
       }
 
       if (format[i] === '\\' && i + 1 < format.length) {
-        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{1,3})/)
+        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{0,3})/)
         if (match) {
           result += interpretEscapes(match[0])
           i += match[0].length

@@ -57,7 +57,12 @@ export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Pr
  * through the same real `pipe` syscall `Kernel.bridgeStdio` already proved out for redirected
  * single-process stdio.
  */
-export type ShellCreatePipeStream = () => { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> }
+export type ShellCreatePipeStream = () => {
+  readable: ReadableStream<Uint8Array>
+  writable: WritableStream<Uint8Array>
+  /** The reading stage has finished: a writer still sending gets `EPIPE` rather than waiting for room that will never come. */
+  abandon?: () => void
+}
 
 /**
  * The three standard descriptors as a true shell builtin sees them.

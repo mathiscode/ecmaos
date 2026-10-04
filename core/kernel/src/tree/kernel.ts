@@ -1572,7 +1572,8 @@ export class Kernel implements IKernel {
             }
           }
         } catch (error) {
-          this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
+          // a reader that finished first is the ordinary end of `yes | head`: the program's next write gets EPIPE
+          if ((error as { code?: string })?.code !== 'EPIPE') this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
         } finally {
           try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
           try { await writer.close() } catch { /* already closed by the pipeline's next stage */ }
@@ -1646,7 +1647,7 @@ export class Kernel implements IKernel {
    * generic `fs.readSync`/`writeSync` -- confirmed by hand (see `bridgeStdio`'s own doc comment)
    * that the generic path silently doesn't work on a pipe at all.
    */
-  private createPipeStream(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> } {
+  private createPipeStream(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array>, abandon?: () => void } {
     const pipeProcCtx = this.pipeProcess.context
     const [readFd, writeFd] = create_pipe(pipeProcCtx)
     const readHandle = pipeProcCtx.descriptors.get(readFd)
@@ -1661,6 +1662,14 @@ export class Kernel implements IKernel {
     }
 
     let writerClosed = false
+    // The stage that reads this pipe has finished (`yes | head -n 1`): nothing will ever make room in it
+    let readerGone = false
+    const broken = () => Object.assign(new Error('Broken pipe'), { code: 'EPIPE' })
+    const abandon = () => {
+      if (readerGone) return
+      readerGone = true
+      pipeProcCtx.descriptors.delete(readFd)
+    }
     const writable = new WritableStream<Uint8Array>({
       // `write_device` never blocks -- it's a short write (`Pipe.put`, `fs/pipe.ts`), returning 0
       // once the pipe's fixed 65536-byte capacity is full, on the assumption that a real blocking
@@ -1672,6 +1681,7 @@ export class Kernel implements IKernel {
       write: async chunk => {
         let offset = 0
         while (offset < chunk.byteLength) {
+          if (readerGone) throw broken()
           const n = pipefs.write_device(writeFile, chunk.subarray(offset), 0)
           if (n > 0) { offset += n; continue }
           await new Promise(resolve => setTimeout(resolve, 10))
@@ -1703,12 +1713,10 @@ export class Kernel implements IKernel {
           await new Promise(resolve => setTimeout(resolve, 10))
         }
       },
-      cancel: () => {
-        pipeProcCtx.descriptors.delete(readFd)
-      }
+      cancel: () => abandon()
     })
 
-    return { readable, writable }
+    return { readable, writable, abandon }
   }
 
   /**

@@ -53,6 +53,12 @@ describe('printf formatting', () => {
     expect(formatPrintf('%05d-%s', ['42', 'ab'])).toBe('00042-ab')
     expect(formatPrintf('[%3d]', ['7'])).toBe('[  7]')
   })
+
+  it('turns \\0 into a NUL, with or without digits after it', () => {
+    expect(formatPrintf('a\\0b', [])).toBe('a\0b')
+    expect(formatPrintf('a\\0101b', [])).toBe('aAb')
+    expect(formatPrintf('x\\0', [])).toBe('x\0')
+  })
 })
 
 describe('case terminators', () => {

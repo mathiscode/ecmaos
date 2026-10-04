@@ -83,18 +83,22 @@ describe('Shell job control — & background execution and the job table', () =>
   })
 
   it('`wait` with no argument waits for every currently-tracked non-done job', async () => {
-    // `&` returns once the program has started, which under load can take a while, so the jobs must outlast it
-    await kernel.shell.execute('sleep 3 &')
-    await kernel.shell.execute('sleep 4 &')
-    await new Promise(resolve => setTimeout(resolve, 10))
+    // The jobs end when the test says so, not after a time: under load `&` can take longer to return than any
+    // sleep a test could pick, and a job that has already finished proves nothing about `wait`.
+    const release = '/tmp/wait-all-release'
+    await kernel.filesystem.fs.rm(release).catch(() => {})
+    const holdUntilReleased = `ecmash -c 'until [ -e ${release} ]; do sleep 0.1; done' &`
+    await kernel.shell.execute(holdUntilReleased)
+    await kernel.shell.execute(holdUntilReleased)
 
     const jobs = kernel.shell.listJobs()
     const pending = jobs.slice(-2)
     expect(pending.every(job => job.status !== 'done')).toBe(true)
 
+    await kernel.filesystem.fs.writeFile(release, '')
     await kernel.shell.wait()
     expect(pending.every(job => job.status === 'done')).toBe(true)
-  })
+  }, 60000)
 
   it('`wait %N` waits for and returns a single job\'s exit code', async () => {
     await kernel.shell.execute('false &')
@@ -203,7 +207,8 @@ describe('Shell job control — & background execution and the job table', () =>
   })
 
   it('a pure-coreutil job never acquires a real process handle', async () => {
-    await kernel.shell.execute('true &')
+    // `test` is the one coreutil still on the in-process path
+    await kernel.shell.execute('test 1 = 1 &')
     await new Promise(resolve => setTimeout(resolve, 10))
     const job = kernel.shell.listJobs()[kernel.shell.listJobs().length - 1]!
     expect(job.processes).toEqual([])
