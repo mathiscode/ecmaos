@@ -162,7 +162,7 @@ export class Filesystem {
     const configured = import.meta.env['ECMAOS_INITFS'] as string | undefined
     if (configured === 'none') return ''
     if (configured) return configured
-    return globalThis.process?.env?.['VITEST'] ? '' : '/initfs.tar.gz'
+    return import.meta.env['VITEST'] || globalThis.process?.env?.['VITEST'] ? '' : '/initfs.tar.gz'
   }
 
   /**

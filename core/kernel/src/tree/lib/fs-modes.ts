@@ -105,7 +105,8 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/sh': '/bin/ecmash',
   '/bin/bash': '/bin/ecmash',
   '/usr/bin/env': '/bin/env',
-  '/bin/vi': '/bin/vim'
+  '/bin/vi': '/bin/vim',
+  '/bin/dc': '/bin/bc'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */
