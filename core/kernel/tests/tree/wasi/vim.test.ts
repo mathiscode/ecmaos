@@ -80,11 +80,12 @@ describe('vim', () => {
 
   it('detects the filetype and turns syntax highlighting on, from the shipped runtime', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/ft.c', '#include <stdio.h>\nint main(void) { return 0; }\n')
-    const code = await edit('vim /tmp/ft.c', ':call writefile([&filetype, exists("g:syntax_on") ? "syntax" : "plain", &syntax, execute("hi cType")], "/tmp/ft.out")\r:q\r')
+    const code = await edit('vim /tmp/ft.c', ':call writefile([&filetype, exists("g:syntax_on") ? "syntax" : "plain", &syntax, execute("hi cType"), strlen(&t_AF) > 0 ? "color" : "mono"], "/tmp/ft.out")\r:q\r')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/ft.out', 'utf8')
     expect(out).toMatch(/^c\nsyntax\nc\n/)
     expect(out).toMatch(/cType\s+xxx/)
+    expect(out).toMatch(/color\n$/)
   }, 30000)
 
   it('runs shell commands: :r !, system() and a filter', async () => {

@@ -28,8 +28,10 @@ set hlsearch
 set nomodeline
 " $SHELL can be the built-in shell, which is not a program; shell commands (:!, :r !) need one
 set shell=/bin/sh
-" xterm.js draws 256 colors and truecolor; the builtin xterm entry only knows eight
+" xterm.js draws 256 colors; the builtin xterm entry has no color codes at all, so give it the xterm ones
 set t_Co=256
+let &t_AF = "\\<Esc>[38;5;%dm"
+let &t_AB = "\\<Esc>[48;5;%dm"
 set background=dark
 if isdirectory($VIMRUNTIME . '/syntax')
   filetype plugin indent on
