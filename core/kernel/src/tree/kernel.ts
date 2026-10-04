@@ -35,7 +35,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
-import { CommandLinks, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
+import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
@@ -511,7 +511,7 @@ export class Kernel implements IKernel {
       }
 
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
-      // starts in vi-compatible mode, which is the busybox `vi` experience under the name `vim`.
+      // starts in vi-compatible mode, which is not what anyone running Vim expects.
       if (!(await this.filesystem.fs.exists('/etc/vimrc'))) {
         await this.filesystem.fs.writeFile('/etc/vimrc', DEFAULT_VIMRC, { mode: 0o644 })
       }
@@ -2239,6 +2239,8 @@ export class Kernel implements IKernel {
     // ecmash for both, so a script written for either runs on the shell that is here.
     for (const [link, target] of Object.entries(CommandLinks)) {
       if (!await this.filesystem.fs.exists(target)) continue
+      // `vi` was once its own program (busybox); a file left by that build would hide the link.
+      if (SupersededPrograms.has(link) && (await this.filesystem.fs.lstat(link).catch(() => undefined))?.isFile()) await this.filesystem.fs.unlink(link)
       await this.filesystem.fs.symlink(target, link).catch(() => {})
     }
 

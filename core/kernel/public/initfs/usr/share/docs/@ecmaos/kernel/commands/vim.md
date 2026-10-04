@@ -6,13 +6,14 @@
 
 ```
 vim [-R] [-n] [-u VIMRC] [-c COMMAND] [FILE]...
+vi  [-R] [-n] [-u VIMRC] [-c COMMAND] [FILE]...
 ```
 
 ## Description
 
 Vim 9.1, the modal text editor, built to WebAssembly and run as an ordinary program on the terminal: it takes
 the keyboard in raw mode and reads the window size from it, so it follows the terminal's size and gives the
-terminal back when it exits. For a smaller, faster-starting editor see `vi`.
+terminal back when it exits. `vi` is another name for it.
 
 This is Vim's `normal` feature set: modes (insert, normal, visual, replace, command-line), motions,
 operators and text objects, counts, `.` repeat, registers, marks, macros, undo and redo (also across

@@ -103,6 +103,13 @@ describe('vim', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/vim-eval.txt', 'utf8')).toBe('x\n7\n')
   }, 30000)
 
+  it('is also reachable as vi, a link to vim', async () => {
+    expect(await kernel.filesystem.fs.readlink('/bin/vi')).toBe('/bin/vim')
+    const code = await edit('vi /tmp/vi-out.txt', 'ivi\x1b:wq\r')
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/vi-out.txt', 'utf8')).toBe('vi\n')
+  }, 30000)
+
   it('leaves a file alone on :q! and writes no swap or backup file', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/vim-keep.txt', 'keep me\n')
     const code = await edit('vim /tmp/vim-keep.txt', 'dd\x1b:q!\r')

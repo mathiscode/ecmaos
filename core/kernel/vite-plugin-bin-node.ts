@@ -210,8 +210,8 @@ export function binKernelCommands(): Plugin {
 }
 
 /**
- * Bundles every prebuilt WebAssembly program in `src/bin/wasm/` (`vi.wasm`, built by
- * `wasm/vi/build.sh`) into `virtual:bin-wasm`, exporting `{ [name]: base64 }`, so
+ * Bundles every prebuilt WebAssembly program in `src/bin/wasm/` (`vim.wasm`, built by
+ * `wasm/vim/build.sh`) into `virtual:bin-wasm`, exporting `{ [name]: base64 }`, so
  * `Kernel.registerCommands` can write each one to `/bin/<name>`.
  */
 export function binWasm(): Plugin {
