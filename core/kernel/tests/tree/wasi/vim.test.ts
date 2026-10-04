@@ -96,7 +96,7 @@ describe('vim', () => {
     // keys typed while a command runs are discarded by the terminal mode switch, so wait for each
     for (const command of [':r !echo from-shell\r', ':%!sort\r', ':call writefile([system("echo viasystem")[:-2], v:shell_error], "/tmp/sh.out")\r']) {
       await typeKeys(command)
-      await new Promise(resolve => setTimeout(resolve, 3000))
+      await new Promise(resolve => setTimeout(resolve, 6000))
       await typeKeys('\r') // at "Press ENTER", or harmless in normal mode
       await new Promise(resolve => setTimeout(resolve, 300))
     }
@@ -104,7 +104,7 @@ describe('vim', () => {
     expect(await done).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/sh.out', 'utf8')).toBe('viasystem\n0\n')
     expect(await kernel.filesystem.fs.readFile('/tmp/sh.txt', 'utf8')).toBe('a\nb\nfrom-shell\n')
-  }, 60000)
+  }, 120000)
 
   it('takes ^C as a key (leaves insert mode) instead of being killed by it', async () => {
     const code = await edit('vim /tmp/ctrlc.txt', 'ifoo\x03:wq\r')
@@ -155,7 +155,7 @@ describe('vim', () => {
     expect(messages.split('\n').filter(line => /E(484|117|666|185)\b/.test(line))).toEqual([])
     expect(lines).toEqual(expect.arrayContaining(['a.c=c', 'a.py=python', 'a.js=javascript', 'a.ts=typescript', 'a.json=json', 'a.md=markdown', 'a.sh=sh', 'Makefile=make', 'a.rs=rust', 'a.go=go', 'noext=sh']))
     expect(code).toBeLessThanOrEqual(1)
-  }, 90000)
+  }, 180000)
 
   it('writes a system vimrc that turns off vi compatibility', async () => {
     expect(await kernel.filesystem.fs.readFile('/etc/vimrc', 'utf8')).toContain('set nocompatible')

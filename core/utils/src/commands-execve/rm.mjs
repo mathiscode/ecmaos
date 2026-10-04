@@ -9,6 +9,7 @@ Remove (unlink) the FILE(s).
 
   -f, --force     ignore nonexistent files and arguments, never prompt
   -r, -R, --recursive   remove directories and their contents recursively
+  -v, --verbose   explain what is being done
   --help          display this help and exit`
 
 function expandGlob(cwd, pattern) {
@@ -42,17 +43,20 @@ function main() {
 
   let recursive = false
   let force = false
+  let verbose = false
   const patterns = []
 
   for (const arg of args) {
     if (arg.startsWith('-') && arg !== '--') {
       if (arg === '--recursive' || arg === '-R') recursive = true
       else if (arg === '--force') force = true
+      else if (arg === '--verbose') verbose = true
       else if (arg.length > 1) {
         for (let i = 1; i < arg.length; i++) {
           const flag = arg[i]
           if (flag === 'r' || flag === 'R') recursive = true
           else if (flag === 'f') force = true
+          else if (flag === 'v') verbose = true
           else { writeAll(2, new TextEncoder().encode(`rm: invalid option -- '${flag}'\n`)); return 1 }
         }
       } else {
@@ -95,6 +99,7 @@ function main() {
       }
       if (isDir) rmRecursive(fullPath)
       else unlink(fullPath)
+      if (verbose) writeAll(1, new TextEncoder().encode(`removed ${isDir ? 'directory ' : ''}'${target}'\n`))
     } catch (error) {
       if (!force) {
         const message = error instanceof Error ? error.message : String(error)

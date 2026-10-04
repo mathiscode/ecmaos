@@ -160,22 +160,26 @@ function parseArgs(args) {
   return { options, files }
 }
 
+// Archive member names stay relative to where the walk began, as `tar` names them (`dir/`, `dir/file`, `./x`); a
+// generic path join would normalize a leading `/` onto them.
+const memberName = (base, name) => (base ? `${base.replace(/\/+$/, '')}/${name}` : name)
+
 function collectFiles(cwd, filePaths, basePath = '') {
   const result = []
   for (const filePath of filePaths) {
     const fullPath = resolve(cwd, filePath)
     try {
       if (isDirectory(fullPath)) {
-        const relativePath = join(basePath, filePath)
+        const relativePath = memberName(basePath, filePath)
         result.push({ path: relativePath.endsWith('/') ? relativePath : relativePath + '/', fullPath, isDirectory: true })
         const entries = readdir(fullPath)
         // Recurse using each entry's bare name, not an absolute path -- collectFiles resolves
         // filePaths against cwd itself, so passing an already-absolute subFiles entry back through
         // would double up (cwd + absolute path), producing a garbled archive entry name.
-        const subResults = collectFiles(fullPath, entries, join(basePath, filePath))
+        const subResults = collectFiles(fullPath, entries, memberName(basePath, filePath))
         result.push(...subResults)
       } else {
-        result.push({ path: join(basePath, filePath), fullPath, isDirectory: false })
+        result.push({ path: memberName(basePath, filePath), fullPath, isDirectory: false })
       }
     } catch {
       continue
@@ -192,7 +196,8 @@ async function createArchive(cwd, archivePath, filePaths, options) {
 
   try {
     const fullArchivePath = resolve(cwd, archivePath)
-    const filesToArchive = collectFiles(cwd, filePaths)
+    // -C: the files are named relative to that directory, the archive itself relative to where tar was run
+    const filesToArchive = collectFiles(options.directory ? resolve(cwd, options.directory) : cwd, filePaths)
 
     if (filesToArchive.length === 0) {
       writeAll(2, new TextEncoder().encode('tar: no files to archive\n'))
@@ -265,7 +270,7 @@ async function extractArchive(cwd, archivePath, options) {
 
         const targetPath = resolve(extractBase, entryName)
         const resolvedBase = resolve(extractBase, '.')
-        if (!targetPath.startsWith(resolvedBase + '/') && targetPath !== resolvedBase) {
+        if (!targetPath.startsWith(resolvedBase.endsWith('/') ? resolvedBase : resolvedBase + '/') && targetPath !== resolvedBase) {
           writeAll(2, new TextEncoder().encode(`tar: ${entry.header.name}: path outside extraction directory\n`))
           hasError = true
           continue

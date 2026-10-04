@@ -149,22 +149,44 @@ export class Filesystem {
     this.registerProcEntries()
     await this.installBinNode()
     await this.installBinWali()
-    const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
+    const url = this.initfsUrl()
+    if (url) await this.installInitfs(url)
+  }
 
-    if (import.meta.env['ECMAOS_INITFS'] && !fsInitialized) {
-      try {
-        const response = await fetch(import.meta.env['ECMAOS_INITFS'])
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const arrayBuffer = await response.arrayBuffer()
-        // The browser will likely automatically decompress the tarball; either way, extractTarball will handle it
-        await this.fs.writeFile('/tmp/initfs.tar', new Uint8Array(arrayBuffer))
-        await this.extractTarball('/tmp/initfs.tar', '/')
-        await this.fs.unlink('/tmp/initfs.tar')
-        await this._storage.local.setItem('ecmaos:filesystem:initialized', 'true')
-      } catch (error) {
-        globalThis.kernel?.log.error(`Failed to fetch ${import.meta.env['ECMAOS_INITFS']}: ${error}`)
-        console.error(error)
-      }
+  /**
+   * Where the initfs tarball comes from. `ECMAOS_INITFS` overrides it (`none` turns it off); with it unset or blank
+   * every build, `vite` dev server included, uses the tarball the published site ships, so a development profile
+   * holds what a live one does. Tests boot without one: they build their own filesystem.
+   */
+  private initfsUrl(): string {
+    const configured = import.meta.env['ECMAOS_INITFS'] as string | undefined
+    if (configured === 'none') return ''
+    if (configured) return configured
+    return globalThis.process?.env?.['VITEST'] ? '' : '/initfs.tar.gz'
+  }
+
+  /**
+   * Unpacks the initfs tarball: all of it into a new filesystem, and, when the tarball has changed since (a new
+   * release, or a rebuilt one in development), the system-owned `/usr/share` again. Nothing else is rewritten, as
+   * `/etc`, `/root` and `/home` hold what users have edited.
+   */
+  private async installInitfs(url: string, fetcher: (url: string) => Promise<Response> = target => fetch(target)) {
+    const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
+    try {
+      const response = await fetcher(url)
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      const stamp = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('')
+      if (fsInitialized && (await this._storage.local.getItem('ecmaos:filesystem:initfs')) === stamp) return
+      // The browser will likely automatically decompress the tarball; either way, extractTarball will handle it
+      await this.fs.writeFile('/tmp/initfs.tar', bytes)
+      await this.extractTarball('/tmp/initfs.tar', '/', 0o644, 0o755, fsInitialized ? name => name.replace(/^\.\//, '').startsWith('usr/share/') : undefined)
+      await this.fs.unlink('/tmp/initfs.tar')
+      await this._storage.local.setItem('ecmaos:filesystem:initialized', 'true')
+      await this._storage.local.setItem('ecmaos:filesystem:initfs', stamp)
+    } catch (error) {
+      globalThis.kernel?.log.error(`Failed to fetch ${url}: ${error}`)
+      console.error(error)
     }
   }
 
@@ -330,7 +352,7 @@ export class Filesystem {
    * @param {number} directoryMode - The mode to set for directories. Defaults to 0o755.
    * @returns {Promise<void>} A promise that resolves when the tarball is extracted.
    */
-  async extractTarball(tarballPath: string, extractPath: string, fileMode: number = 0o644, directoryMode: number = 0o755) {
+  async extractTarball(tarballPath: string, extractPath: string, fileMode: number = 0o644, directoryMode: number = 0o755, filter?: (name: string) => boolean) {
     const tarball = await this.fs.readFile(tarballPath)
     
     // Check if the file is gzipped by looking at the magic bytes
@@ -395,6 +417,7 @@ export class Filesystem {
 
       const relativePath = hasPackageDir ? file.name.slice(stripPrefix.length) : file.name
       if (!relativePath) continue
+      if (filter && !filter(relativePath)) continue
 
       try {
         if (relativePath.endsWith('/')) {
@@ -405,13 +428,21 @@ export class Filesystem {
         await ensureDirectory(path.join(extractPath, path.dirname(relativePath)))
 
         const blob = tar.getFileBlob(file.name)
-        if (!blob || !(blob instanceof Blob)) {
+        if (!blob) {
           // Skip files that can't be extracted (e.g., hard links, symlinks, or empty files)
           continue
         }
 
         try {
-          const binaryData = await blob.arrayBuffer().then(buffer => new Uint8Array(buffer))
+          // a Blob without arrayBuffer() (jsdom's) is read the older way
+          const binaryData = new Uint8Array(await (typeof blob.arrayBuffer === 'function'
+            ? blob.arrayBuffer()
+            : new Promise<ArrayBuffer>((resolve, reject) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result as ArrayBuffer)
+              reader.onerror = () => reject(reader.error)
+              reader.readAsArrayBuffer(blob as Blob)
+            })))
           const filePath = path.join(extractPath, relativePath)
           await this.fs.writeFile(filePath, binaryData, { encoding: 'binary', mode: fileMode })
         } catch (extractError) {
