@@ -22,6 +22,9 @@ import { parseCronExpression } from 'cron-schedule'
 
 const { exit, custom, stat, env, open, read, close, spawn, waitpid, write, argv, O_RDONLY } = globalThis.ecmaosSyscalls
 
+/** A log line nobody waits for; a failure to write it must not become an unhandled rejection that stops the daemon. */
+const log = (level, message) => { custom('klog', level, message).catch(() => {}) }
+
 const SYSTEM_CRONTAB = '/etc/crontab'
 const tickIntervalMs = 60_000
 
@@ -88,13 +91,13 @@ function reloadIfChanged(source) {
     // a file someone else owns is not this account's crontab, whatever it says
     const owner = stat(source.path).uid
     if (owner !== 0 && owner !== source.account.uid) {
-      custom('klog', 'warn', `crond: ignoring ${source.path}: not owned by ${source.account.name}`)
+      log('warn', `crond: ignoring ${source.path}: not owned by ${source.account.name}`)
       source.entries = []
       return
     }
     source.entries = parseCrontabFile(readText(source.path))
   } catch (error) {
-    custom('klog', 'warn', `crond: failed to read ${source.path}: ${error instanceof Error ? error.message : String(error)}`)
+    log('warn', `crond: failed to read ${source.path}: ${error instanceof Error ? error.message : String(error)}`)
     source.entries = []
   }
 }
@@ -140,11 +143,11 @@ async function tick(sources, now, runAsUsers) {
       // Fire-and-forget: a real crond forks a job and moves on to the next tick without waiting for
       // it (a job that hangs must not stall every other job's schedule).
       const who = source.account.name
-      custom('klog', 'info', `crond: (${who}) CMD (${entry.command})`)
+      log('info', `crond: (${who}) CMD (${entry.command})`)
       runJob(source.account, entry.command).then(status => {
-        if (status !== 0) custom('klog', 'warn', `crond: (${who}) job exited ${status} (${entry.command})`)
+        if (status !== 0) log('warn', `crond: (${who}) job exited ${status} (${entry.command})`)
       }, error => {
-        custom('klog', 'warn', `crond: (${who}) job failed (${entry.expression} ${entry.command}): ${error instanceof Error ? error.message : String(error)}`)
+        log('warn', `crond: (${who}) job failed (${entry.expression} ${entry.command}): ${error instanceof Error ? error.message : String(error)}`)
       })
     }
   }

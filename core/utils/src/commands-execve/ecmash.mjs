@@ -470,6 +470,7 @@ class Shell {
       try { unlink(file) } catch { /* gone */ }
       const status = done.signal ? 128 + done.signal : done.code
       handle.statuses = [status]
+      handle.interrupted = done.signal === SIGINT
       return status
     }
     return handle
@@ -507,24 +508,25 @@ class Shell {
     if (!job) { await this.finishProcSubs(mark); return 127 }
     const status = await job.finish({ untraced: this.interactive })
     // A foreground command killed by ^C ends the list or loop it is in, as in bash (its INT trap has already run).
-    if (status === 128 + SIGINT) this.sigint = true
+    // A status of 130 is not that: `wait` on a job someone sent INT to, or `(exit 130)`, is an ordinary status.
+    if (job.interrupted) this.sigint = true
     await this.finishProcSubs(mark)
     if (job.stopped) {
       // ^Z: the job stays in the table, stopped, until `fg` or `bg` resumes it.
       const record = this.addJob(job, pipeline, { stopped: true })
       writeAllFd(1, `\r\n[${record.number}]+  Stopped    ${record.line}\r\n`)
-      this.restoreTerminal()
+      await this.restoreTerminal()
       return 128 + SIGTSTP
     }
-    this.restoreTerminal()
+    await this.restoreTerminal()
     this.lastStatuses = pipeline.negated ? undefined : job.statuses
     return pipeline.negated ? (status === 0 ? 1 : 0) : status
   }
 
   /** The terminal goes back to this shell once a foreground job has finished or stopped. */
-  restoreTerminal() {
+  async restoreTerminal() {
     if (!this.interactive) return
-    try { tcsetpgrp(getpid()) } catch { /* no terminal */ }
+    try { await tcsetpgrp(getpid()) } catch { /* no terminal */ }
   }
 
   /**
@@ -631,14 +633,14 @@ class Shell {
           if (done.stopped) {
             handle.stopped = true
             // The terminal stops only its foreground process; the rest of the pipeline is ours to stop.
-            if (leader) { try { killpg(leader, SIGTSTP) } catch { /* already stopped */ } }
+            if (leader) { try { await killpg(leader, SIGTSTP) } catch { /* already stopped */ } }
             return
           }
           reaped.set(pid, done)
           // The terminal signals only its foreground process; the rest of the pipeline is ours to stop.
           if (done.signal === SIGINT && !interrupted && leader) {
             interrupted = true
-            try { killpg(leader, SIGINT) } catch { /* everyone already exited */ }
+            try { await killpg(leader, SIGINT) } catch { /* everyone already exited */ }
           }
           return
         }
@@ -659,6 +661,7 @@ class Shell {
         const done = reaped.get(stage.pid)
         return done.signal ? 128 + done.signal : done.code
       })
+      handle.interrupted = interrupted
       // A foreground stage killed by ^C runs the INT trap, as the kernel shell does.
       if (interrupted && this.traps.has('INT')) { try { await this.runText(this.traps.get('INT')) } catch { /* ignore */ } }
       for (const cleanup of cleanups.splice(0)) await cleanup()
@@ -1023,28 +1026,28 @@ class Shell {
           if (!job.stopped) { this.out(`ecmash: bg: job ${job.number} already in background\n`, 2); return 1 }
           job.stopped = false
           job.background = true
-          try { killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
+          try { await killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
           this.watch(job)
           this.out(`[${job.number}]+ ${job.line} &\n`)
           return 0
         }
         this.out(job.line + '\n')
         this.jobs = this.jobs.filter(j => j !== job)
-        try { tcsetpgrp(last) } catch { /* no terminal */ }
+        try { await tcsetpgrp(last) } catch { /* no terminal */ }
         let status
         if (job.done && !job.stopped) { await job.done; status = job.code } else {
           job.stopped = false
-          try { killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
+          try { await killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
           status = await job.handle.finish({ untraced: this.interactive })
           if (job.handle.stopped) {
             job.stopped = true
             this.jobs.push(job)
             writeAllFd(1, `\r\n[${job.number}]+  Stopped    ${job.line}\r\n`)
-            this.restoreTerminal()
+            await this.restoreTerminal()
             return 128 + SIGTSTP
           }
         }
-        this.restoreTerminal()
+        await this.restoreTerminal()
         return status
       }
     }

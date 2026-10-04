@@ -55,6 +55,54 @@ export function getpgid(proc: Process): number {
   return groups.get(proc.pid) ?? (proc.parent ? getpgid(proc.parent) : proc.pid)
 }
 
+/**
+ * Who else a terminal signal to `proc` is for: its process group, and everything it started. The second part is
+ * for a shell that gives each of its pipelines a group of its own, even a forked subshell that has no terminal
+ * job control: the `sleep` it ran is in another group, but it is in front of the terminal all the same.
+ */
+function terminalPeers(proc: Process): Process[] {
+  const pgid = getpgid(proc)
+  const found = new Set<Process>()
+  const walk = (parent: Process) => {
+    for (const child of parent.children) {
+      if (child.code !== undefined || found.has(child)) continue
+      found.add(child)
+      walk(child)
+    }
+  }
+  walk(proc)
+  for (const peer of processes.values()) if (peer !== proc && peer.code === undefined && getpgid(peer) === pgid) found.add(peer)
+  found.delete(proc)
+  return [...found]
+}
+
+/** The signals the terminal's line discipline raises for `^C`, `^\` and `^Z`. */
+const TERMINAL_SIGNALS: ReadonlySet<number> = new Set([2, 3, 20])
+
+/**
+ * `^C`, `^\` and `^Z` are signals to the terminal's foreground process *group*, but the line discipline
+ * names a single process. This makes such a signal, when it reaches a process that is its terminal's
+ * foreground, go to the rest of the process's group, and to what it started, too: the other stages of a
+ * pipeline, or what a forked subshell has run (without it the subshell dies and its `sleep` is left running). A signal
+ * sent to the process by pid is not from the terminal, and stays with that one process.
+ */
+export function shareGroupSignals(proc: Process): void {
+  const deliver = proc.kill.bind(proc)
+  let sharing = false
+  proc.kill = (signal: Parameters<Process['kill']>[0]) => {
+    const fromTerminal = !sharing && TERMINAL_SIGNALS.has(signal as number) && proc.tty?.foreground === proc
+    // who is affected is read before the signal lands: a process that dies is forgotten, and its children
+    // then fall back to a group of their own
+    const peers = fromTerminal ? terminalPeers(proc) : []
+    const delivered = deliver(signal)
+    if (peers.length) {
+      sharing = true
+      try { for (const peer of peers) peer.kill(signal) } finally { sharing = false }
+    }
+    return delivered
+  }
+}
+
 /** Drops a process's group entry once it has exited, so the table does not grow with every command. */
 export function forgetGroup(pid: number): void {
   groups.delete(pid)
@@ -161,6 +209,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     context: credentials ? bindContext.call(parent.context, { pwd: cwd, credentials }) : undefined,
     tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty
   })
+  shareGroupSignals(child)
   try {
     // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
     // pipe end open and a reader downstream of it would never see EOF.
