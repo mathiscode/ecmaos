@@ -2,7 +2,7 @@
 
 const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: id [OPTION]...
+const usage = `Usage: id [OPTION]... [USER]
 Print user and group IDs.
 
   -u, --user     print only the effective user ID
@@ -48,6 +48,7 @@ async function main() {
   let groupOnly = false
   let groupsOnly = false
   let nameOnly = false
+  let target
 
   for (const arg of args) {
     if (arg === '--help' || arg === '-h') {
@@ -61,6 +62,8 @@ async function main() {
       groupsOnly = true
     } else if (arg === '-n' || arg === '--name') {
       nameOnly = true
+    } else if (!arg.startsWith('-')) {
+      target = arg
     } else if (arg.startsWith('-')) {
       const flags = arg.slice(1).split('')
       if (flags.includes('u')) userOnly = true
@@ -75,31 +78,41 @@ async function main() {
     }
   }
 
-  const self = await usersLookup({ mode: 'self' })
-  const groupRecord = await usersLookup({ mode: 'byUid', uid: self.gid })
+  const self = target === undefined
+    ? await usersLookup({ mode: 'self' })
+    : await usersLookup({ mode: 'byUsername', username: target })
+  if (!self) {
+    writeAll(2, new TextEncoder().encode(`id: '${target}': no such user\n`))
+    return 1
+  }
+  // Another user has no separate effective ids
+  self.euid ??= self.uid
+  self.egid ??= self.gid
+
   // A user's group list always begins with their primary group, then the supplementary groups from
   // `/etc/group`. `self.groups` carries only the supplementary ones, so reporting it alone printed
   // `groups=` (empty) for any user with no supplementary memberships -- root included.
   const groups = [self.gid, ...(self.groups || []).filter(gid => gid !== self.gid)]
 
   const resolveGroupName = async (gid) => {
-    const record = await usersLookup({ mode: 'byUid', uid: gid })
-    return record?.username || String(gid)
+    const record = await usersLookup({ mode: 'group', gid })
+    return record?.name || String(gid)
   }
+  const primaryName = await resolveGroupName(self.gid)
 
   let output
 
   if (userOnly) {
     output = nameOnly ? (self.username || String(self.uid)) : String(self.euid)
   } else if (groupOnly) {
-    output = nameOnly ? (groupRecord?.username || String(self.gid)) : String(self.egid)
+    output = nameOnly ? primaryName : String(self.egid)
   } else if (groupsOnly) {
     const parts = []
     for (const gid of groups) parts.push(nameOnly ? await resolveGroupName(gid) : String(gid))
     output = parts.join(' ')
   } else {
     const uidStr = nameOnly ? (self.username || String(self.uid)) : String(self.uid)
-    const gidStr = nameOnly ? (groupRecord?.username || String(self.gid)) : String(self.gid)
+    const gidStr = nameOnly ? primaryName : String(self.gid)
     const groupParts = []
     for (const gid of groups) groupParts.push(nameOnly ? await resolveGroupName(gid) : String(gid))
     output = `uid=${uidStr} gid=${gidStr} groups=${groupParts.join(',')}`

@@ -78,11 +78,11 @@ async function main() {
 
     // Primary group first, then supplementary -- `self.groups` holds only the latter, so listing it
     // alone printed an empty list for any user with no supplementary memberships.
-    const gids = [self.gid, ...(self.groups || []).filter(gid => gid !== self.gid)]
+    const gids = [user.gid, ...(user.groups || []).filter(gid => gid !== user.gid)]
     const groupNames = []
     for (const gid of gids) {
-      const groupUser = await usersLookup({ mode: 'byUid', uid: gid })
-      groupNames.push(groupUser?.username || String(gid))
+      const group = await usersLookup({ mode: 'group', gid })
+      groupNames.push(group?.name || String(gid))
     }
 
     // GNU `groups` prints the bare list for the calling user and prefixes `username : ` only when

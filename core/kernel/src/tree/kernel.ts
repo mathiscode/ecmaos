@@ -754,6 +754,7 @@ export class Kernel implements IKernel {
       }
 
       // Log to /var/log/kernel.log
+      let writingLog = false
       this.log.attachTransport((logObj) => {
         if (!logObj._meta) return
         const formattedDate = new Date(logObj._meta.date).toLocaleString(this.memory.config.get('locale') as string || 'en-US', {
@@ -767,11 +768,21 @@ export class Kernel implements IKernel {
           hour12: false
         }).replace(',', '')
 
-        this.sudo(async () =>
-          await appendText(this.filesystem.fs, '/var/log/kernel.log',
-            `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
-          )
-        )
+        // a line logged while one is being written (`sudo` logs what it catches) is dropped: writing it would fail
+        // the same way and log again, without end
+        if (writingLog) return
+        writingLog = true
+        try {
+          this.sudo(async () => {
+            try {
+              await appendText(this.filesystem.fs, '/var/log/kernel.log',
+                `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
+              )
+            } catch { /* the log is the one place this error cannot go */ }
+          })
+        } finally {
+          writingLog = false
+        }
       })
 
       // Load core kernel features

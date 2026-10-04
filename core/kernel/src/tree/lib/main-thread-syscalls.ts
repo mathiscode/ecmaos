@@ -164,6 +164,16 @@ function requireRoot(proc: Process, what: string): void {
   if (!processIsRoot(proc)) throw Object.assign(new Error(`${what}: Operation not permitted`), { errno: Errno.EPERM })
 }
 
+/** Removes a directory tree, as `userdel -r` removes a home directory. */
+async function removeTree(kernel: Kernel, path: string): Promise<void> {
+  const fs = kernel.filesystem.fs
+  const info = await fs.lstat(path)
+  if (info.isDirectory()) {
+    for (const entry of await fs.readdir(path)) await removeTree(kernel, `${path}/${entry}`)
+    await fs.rmdir(path)
+  } else await fs.unlink(path)
+}
+
 /** What `sockets_connect` learned about how each connection ended, until `sockets_result` collects it. */
 interface SocketResult { opened: boolean, messages: number, code?: number, reason?: string }
 const socketResults = new Map<string, SocketResult>()
@@ -668,6 +678,7 @@ export function installMainThreadSyscalls(): void {
       | { mode: 'self' }
       | { mode: 'byUid', uid: number }
       | { mode: 'byUsername', username: string }
+      | { mode: 'group', gid: number }
 
     const toRecord = (uid: number) => {
       const user = kernel.users.get(uid)
@@ -688,6 +699,9 @@ export function installMainThreadSyscalls(): void {
       }
     } else if (request.mode === 'byUid') {
       result = toRecord(request.uid)
+    } else if (request.mode === 'group') {
+      const group = kernel.users.findGroup(request.gid)
+      result = group ? { gid: group.gid, name: group.name } : null
     } else {
       const match = Array.from(kernel.users.all.values()).find(u => u.username === request.username)
       result = match ? toRecord(match.uid) : null
@@ -793,6 +807,7 @@ export function installMainThreadSyscalls(): void {
         if (!usr) throw new Error(`user '${username}' does not exist`)
 
         const updates: Record<string, unknown> = {}
+        let changedPassword = false
         if (args['shellValue'] !== undefined) updates['shell'] = args['shellValue']
         if (args['gid'] !== undefined) updates['gid'] = args['gid']
 
@@ -801,14 +816,136 @@ export function installMainThreadSyscalls(): void {
           const confirm = await shell.terminal.readline('Retype new password: ', true)
           if (newPassword !== confirm) throw new Error('password mismatch')
 
-          const hashedPassword = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newPassword.trim()))
-          updates['password'] = Array.from(new Uint8Array(hashedPassword)).map(b => b.toString(16).padStart(2, '0')).join('')
+          await kernel.users.resetPassword(usr.uid, newPassword)
+          changedPassword = true
         }
 
-        if (Object.keys(updates).length === 0) throw new Error('no changes specified')
+        if (Object.keys(updates).length === 0 && !changedPassword) throw new Error('no changes specified')
 
-        await kernel.users.update(usr.uid, updates)
+        if (Object.keys(updates).length > 0) await kernel.users.update(usr.uid, updates)
         text = JSON.stringify({ message: `user '${username}' modified successfully` })
+      } else if (action === 'groups') {
+        text = JSON.stringify(kernel.users.groupList)
+      } else if (action === 'groupadd') {
+        const name = args['name'] as string
+        if (args['force'] && kernel.users.findGroup(name)) text = JSON.stringify({ message: `group '${name}' already exists` })
+        else {
+          const group = await kernel.users.addGroup(name, args['gid'] as number | undefined, Boolean(args['system']))
+          text = JSON.stringify({ message: `group '${group.name}' created with GID ${group.gid}` })
+        }
+      } else if (action === 'groupdel') {
+        const group = kernel.users.findGroup(args['name'] as string)
+        if (!group) throw new Error(`group '${args['name']}' does not exist`)
+        await kernel.users.removeGroup(group.gid)
+        text = JSON.stringify({ message: `group '${group.name}' deleted` })
+      } else if (action === 'groupmod') {
+        const group = kernel.users.findGroup(args['name'] as string)
+        if (!group) throw new Error(`group '${args['name']}' does not exist`)
+        if (args['gid'] === undefined && args['newName'] === undefined) throw new Error('no changes specified')
+        await kernel.users.modifyGroup(group.gid, { gid: args['gid'] as number | undefined, name: args['newName'] as string | undefined })
+        text = JSON.stringify({ message: `group '${group.name}' modified` })
+      } else if (action === 'member' || action === 'members') {
+        const group = kernel.users.findGroup(args['group'] as string)
+        if (!group) throw new Error(`group '${args['group']}' does not exist`)
+        const named = (args['users'] as string[] | undefined) ?? [args['user'] as string]
+        const people = named.map(username => {
+          const found = kernel.users.byName(username)
+          if (!found) throw new Error(`user '${username}' does not exist`)
+          return found
+        })
+        if (action === 'members') {
+          for (const person of kernel.users.all.values()) await kernel.users.setMembership(person.uid, group.gid, people.some(chosen => chosen.uid === person.uid))
+        } else for (const person of people) await kernel.users.setMembership(person.uid, group.gid, args['op'] === 'add')
+        text = JSON.stringify({ message: `group '${group.name}' updated` })
+      } else if (action === 'useradd') {
+        const username = args['username'] as string
+        if (kernel.users.byName(username)) throw new Error(`user '${username}' already exists`)
+        const system = Boolean(args['system'])
+        const uid = (args['uid'] as number | undefined) ?? kernel.users.freeId('uid', system ? 100 : 1000, system ? 999 : Infinity)
+        if (kernel.users.all.has(uid)) throw new Error(`UID '${uid}' is not unique`)
+        const resolveGroup = (spec: string | number) => {
+          const found = kernel.users.findGroup(spec)
+          if (!found) throw new Error(`group '${spec}' does not exist`)
+          return found
+        }
+        const supplementary = ((args['groups'] as string[] | undefined) ?? []).map(spec => resolveGroup(spec).gid)
+
+        let password = args['password'] as string | undefined
+        if (!password) {
+          password = await shell.terminal.readline('New password: ', true)
+          const confirm = await shell.terminal.readline('Retype new password: ', true)
+          if (password !== confirm) throw new Error('password mismatch')
+        }
+
+        // without -g the user gets a group of their own, named after them
+        let createdGroup: number | undefined
+        let gid: number
+        if (args['group'] !== undefined) gid = resolveGroup(args['group'] as string | number).gid
+        else {
+          if (kernel.users.findGroup(username)) throw new Error(`group ${username} exists - if you want to add this user to that group, use -g`)
+          const preferred = kernel.users.findGroup(uid) ? kernel.users.freeId('gid', system ? 100 : 1000, system ? 999 : Infinity) : uid
+          gid = (await kernel.users.addGroup(username, preferred)).gid
+          createdGroup = gid
+        }
+        try {
+          await kernel.users.add(
+            { username, password, uid, gid, groups: supplementary, shell: (args['shell'] as string | undefined) ?? 'ecmaos', home: (args['home'] as string | undefined) ?? `/home/${username}` },
+            { noHome: !args['createHome'] }
+          )
+        } catch (error) {
+          if (createdGroup !== undefined) await kernel.users.removeGroup(createdGroup).catch(() => {})
+          throw error
+        }
+        text = JSON.stringify({ message: `user '${username}' created with UID ${uid}` })
+      } else if (action === 'userdel') {
+        const username = args['username'] as string
+        const usr = kernel.users.byName(username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+        if (usr.uid === 0) throw new Error('cannot remove the root user')
+        if (!args['force']) {
+          for (const running of processes.values()) {
+            if (running.code === undefined && running.context.credentials.uid === usr.uid) throw new Error(`user ${username} is currently used by process ${running.pid}`)
+          }
+        }
+        await kernel.users.remove(usr.uid)
+        await kernel.filesystem.fs.writeFile('/etc/shadow',
+          (await kernel.filesystem.fs.readFile('/etc/shadow', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
+        let warning: string | undefined
+        if (args['removeHome'] && usr.home) {
+          try { await removeTree(kernel, usr.home) } catch { warning = `warning: could not remove home directory '${usr.home}'` }
+        }
+        text = JSON.stringify({ message: `user '${username}' deleted`, warning })
+      } else if (action === 'usermod') {
+        const username = args['username'] as string
+        let usr = kernel.users.byName(username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+        const resolveGroup = (spec: string | number) => {
+          const found = kernel.users.findGroup(spec)
+          if (!found) throw new Error(`group '${spec}' does not exist`)
+          return found
+        }
+        const updates: Partial<typeof usr> = {}
+        if (args['group'] !== undefined) updates.gid = resolveGroup(args['group'] as string | number).gid
+        if (args['groups'] !== undefined) {
+          const gids = (args['groups'] as string[]).map(spec => resolveGroup(spec).gid)
+          updates.groups = args['append'] ? Array.from(new Set([...usr.groups, ...gids])) : gids
+        }
+        if (args['shell'] !== undefined) updates.shell = args['shell'] as string
+        const oldHome = usr.home
+        if (args['home'] !== undefined) updates.home = args['home'] as string
+        const changes = Object.keys(updates).length > 0 || args['uid'] !== undefined || args['newName'] !== undefined
+        if (!changes) throw new Error('no changes specified')
+        if (args['newName'] !== undefined && args['newName'] !== username && kernel.users.byName(args['newName'] as string)) throw new Error(`user '${args['newName']}' already exists`)
+        if (args['uid'] !== undefined && args['uid'] !== usr.uid && kernel.users.all.has(args['uid'] as number)) throw new Error(`UID '${args['uid']}' already exists`)
+
+        if (args['moveHome'] && updates.home && updates.home !== oldHome) {
+          if (await kernel.filesystem.fs.exists(updates.home)) throw new Error(`directory ${updates.home} exists`)
+          await kernel.filesystem.fs.rename(oldHome, updates.home)
+        }
+        if (Object.keys(updates).length > 0) await kernel.users.update(usr.uid, updates)
+        if (args['uid'] !== undefined) { await kernel.users.changeUid(usr.uid, args['uid'] as number); usr = kernel.users.byName(username) as typeof usr }
+        if (args['newName'] !== undefined) await kernel.users.rename(usr.uid, args['newName'] as string)
+        text = JSON.stringify({ message: `user '${username}' modified` })
       } else {
         throw new Error(`unknown action: ${action}`)
       }

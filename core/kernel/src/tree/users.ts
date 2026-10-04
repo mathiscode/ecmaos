@@ -43,37 +43,35 @@ function passwdFile(users: Iterable<User>): string {
   return Array.from(users).map(passwdLine).join('\n') + '\n'
 }
 
+/** A group: a name for a gid. Its members are the users whose `groups` list the gid. */
+export interface Group { name: string, gid: number }
+
 /**
- * Serializes `/etc/group`: one line per group a user actually belongs to (`name:x:gid:members`),
- * `members` a comma-separated list of usernames. A user's own primary group (`gid`) always gets
- * an entry even with no members, matching `groupadd`'s behavior on a real system; a user's
- * supplementary groups (`user.groups`, numeric gids) add that user to each named group's member
- * list. Group names are synthesized from the owning/primary user's username when no other name is
- * known -- this system has no separate group-creation API yet, only users with a primary gid.
+ * Serializes `/etc/group`: `name:x:gid:members`, `members` a comma-separated list of user names. Every group in
+ * the registry gets a line, and so does each user's primary group even when nothing named it, so an account
+ * is never left in a group `/etc/group` does not list (it is called after the user then, as `useradd` does).
  */
-function groupFile(users: Iterable<User>): string {
-  const byGid = new Map<number, { name: string, members: Set<string> }>()
-  const nameFor = (gid: number, fallbackUser?: User) => byGid.get(gid)?.name ?? fallbackUser?.username ?? `group${gid}`
-
-  for (const user of users) {
-    if (!byGid.has(user.gid)) byGid.set(user.gid, { name: nameFor(user.gid, user), members: new Set() })
+function groupFile(users: Iterable<User>, registry: Map<number, Group>): string {
+  const all = new Map<number, Group>(registry)
+  const taken = new Set([...all.values()].map(group => group.name))
+  const people = Array.from(users)
+  for (const user of people) {
+    if (all.has(user.gid)) continue
+    const name = taken.has(user.username) ? `group${user.gid}` : user.username
+    taken.add(name)
+    all.set(user.gid, { name, gid: user.gid })
   }
-  for (const user of users) {
-    for (const gid of user.groups) {
-      if (!byGid.has(gid)) byGid.set(gid, { name: nameFor(gid), members: new Set() })
-      byGid.get(gid)!.members.add(user.username)
-    }
-  }
-
-  return Array.from(byGid.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([gid, { name, members }]) => `${name}:x:${gid}:${Array.from(members).join(',')}`)
+  return Array.from(all.values())
+    .sort((a, b) => a.gid - b.gid)
+    .map(({ name, gid }) => `${name}:x:${gid}:${people.filter(user => user.groups.includes(gid)).map(user => user.username).join(',')}`)
     .join('\n') + '\n'
 }
 
 export class Users {
   private _options: UsersOptions
   private _users: Map<number, User> = new Map()
+  /** Group names by gid, as `/etc/group` lists them. */
+  private _groups: Map<number, Group> = new Map()
 
   get all() { return this._users }
 
@@ -87,7 +85,8 @@ export class Users {
   private async writePasswdAndGroup(): Promise<void> {
     const users = Array.from(this._users.values())
     await this.fs.writeFile('/etc/passwd', passwdFile(users), { encoding: 'utf-8', mode: 0o644 })
-    await this.fs.writeFile('/etc/group', groupFile(users), { encoding: 'utf-8', mode: 0o644 })
+    this.registerPrimaryGroups()
+    await this.fs.writeFile('/etc/group', groupFile(users, this._groups), { encoding: 'utf-8', mode: 0o644 })
   }
 
   /**
@@ -148,6 +147,7 @@ export class Users {
 
     this._users.set(user.uid, user as User)
     if (!options.noWrite) await this.writePasswdAndGroup()
+    else this.registerPrimaryGroups()
 
     // Fix user home permissions
     try { await this.fs.chown(user.home, user.uid, user.gid) }
@@ -159,6 +159,162 @@ export class Users {
    */
   get(uid: number) {
     return this._users.get(uid)
+  }
+
+  /** A user by name. */
+  byName(username: string): User | undefined {
+    return Array.from(this._users.values()).find(user => user.username === username)
+  }
+
+  // -- groups -------------------------------------------------------------------------------------
+
+  /** Every group, by gid: the registry, plus the primary group of any user it does not yet name. */
+  get groupList(): Array<Group & { members: string[] }> {
+    this.registerPrimaryGroups()
+    const people = Array.from(this._users.values())
+    return Array.from(this._groups.values())
+      .sort((a, b) => a.gid - b.gid)
+      .map(group => ({ ...group, members: people.filter(user => user.groups.includes(group.gid)).map(user => user.username) }))
+  }
+
+  /** A group by name, or by gid when `spec` is a number. */
+  findGroup(spec: string | number): Group | undefined {
+    this.registerPrimaryGroups()
+    if (typeof spec === 'number' || /^\d+$/.test(spec)) return this._groups.get(Number(spec))
+    return Array.from(this._groups.values()).find(group => group.name === spec)
+  }
+
+  /** Names the primary group of every user that has no name yet, after the user, as `useradd` does. */
+  private registerPrimaryGroups(): void {
+    const taken = new Set(Array.from(this._groups.values()).map(group => group.name))
+    for (const user of this._users.values()) {
+      if (this._groups.has(user.gid)) continue
+      const name = taken.has(user.username) ? `group${user.gid}` : user.username
+      taken.add(name)
+      this._groups.set(user.gid, { name, gid: user.gid })
+    }
+  }
+
+  private static validName(name: string): boolean {
+    return /^[a-z_][a-z0-9_-]*[$]?$/i.test(name) && name.length <= 32
+  }
+
+  /** The lowest unused id from `from`, among the users' and the groups'. */
+  freeId(kind: 'uid' | 'gid', from: number, to = Infinity): number {
+    const used = new Set<number>(kind === 'uid' ? this._users.keys() : [...this._groups.keys(), ...Array.from(this._users.values()).map(user => user.gid)])
+    let id = from
+    while (used.has(id)) id++
+    if (id > to) throw new Error(`no free ${kind} between ${from} and ${to}`)
+    return id
+  }
+
+  /** Creates a group. `gid` defaults to the first free one from 1000 (from 100 to 999 for a system group). */
+  async addGroup(name: string, gid?: number, system = false): Promise<Group> {
+    if (!Users.validName(name)) throw new Error(`'${name}' is not a valid group name`)
+    this.registerPrimaryGroups()
+    if (this.findGroup(name)) throw new Error(`group '${name}' already exists`)
+    if (gid !== undefined && (!Number.isInteger(gid) || gid < 0)) throw new Error(`invalid group ID '${gid}'`)
+    if (gid !== undefined && this._groups.has(gid)) throw new Error(`GID '${gid}' already exists`)
+    const group = { name, gid: gid ?? (system ? this.freeId('gid', 100, 999) : this.freeId('gid', 1000)) }
+    this._groups.set(group.gid, group)
+    await this.writePasswdAndGroup()
+    return group
+  }
+
+  /** Removes a group. A user's primary group cannot go while the user exists. */
+  async removeGroup(gid: number): Promise<void> {
+    const group = this.findGroup(gid)
+    if (!group) throw new Error(`group does not exist`)
+    const owner = Array.from(this._users.values()).find(user => user.gid === gid)
+    if (owner) throw new Error(`cannot remove the primary group of user '${owner.username}'`)
+    this._groups.delete(gid)
+    for (const user of this._users.values()) if (user.groups.includes(gid)) user.groups = user.groups.filter(id => id !== gid)
+    await this.writePasswdAndGroup()
+  }
+
+  /** Renames a group and/or gives it another gid; users in it follow, but files keep the gid they have. */
+  async modifyGroup(gid: number, changes: { name?: string, gid?: number }): Promise<Group> {
+    const group = this.findGroup(gid)
+    if (!group) throw new Error('group does not exist')
+    if (changes.name !== undefined) {
+      if (!Users.validName(changes.name)) throw new Error(`'${changes.name}' is not a valid group name`)
+      if (changes.name !== group.name && this.findGroup(changes.name)) throw new Error(`group '${changes.name}' already exists`)
+    }
+    if (changes.gid !== undefined) {
+      if (!Number.isInteger(changes.gid) || changes.gid < 0) throw new Error(`invalid group ID '${changes.gid}'`)
+      if (changes.gid !== gid && this._groups.has(changes.gid)) throw new Error(`GID '${changes.gid}' already exists`)
+    }
+    const next = { name: changes.name ?? group.name, gid: changes.gid ?? group.gid }
+    this._groups.delete(gid)
+    this._groups.set(next.gid, next)
+    if (next.gid !== gid) {
+      for (const user of this._users.values()) {
+        if (user.gid === gid) user.gid = next.gid
+        if (user.groups.includes(gid)) user.groups = user.groups.map(id => id === gid ? next.gid : id)
+      }
+    }
+    await this.writePasswdAndGroup()
+    return next
+  }
+
+  /** Adds or removes a user from a group's members. */
+  async setMembership(uid: number, gid: number, member: boolean): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    if (!this.findGroup(gid)) throw new Error('group does not exist')
+    const groups = member ? Array.from(new Set([...user.groups, gid])) : user.groups.filter(id => id !== gid)
+    await this.update(uid, { groups })
+  }
+
+  /** Gives the user a new name everywhere it is written: the account, `/etc/shadow`, and the private group when it had one. */
+  async rename(uid: number, name: string): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    if (!Users.validName(name)) throw new Error(`'${name}' is not a valid user name`)
+    if (this.byName(name) && name !== user.username) throw new Error(`user '${name}' already exists`)
+    const old = user.username
+    this.registerPrimaryGroups()
+    const group = this._groups.get(user.gid)
+    if (group && group.name === old && !this.findGroup(name)) this._groups.set(group.gid, { ...group, name })
+    user.username = name
+    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8').catch(() => '')
+    await this.fs.writeFile('/etc/shadow', shadow.split('\n').filter((line: string) => line.trim() && !line.startsWith(`${old}:`)).join('\n') + '\n', { encoding: 'utf-8', mode: 0o700 })
+    await this.writeShadowEntry(user)
+    await this.writePasswdAndGroup()
+  }
+
+  /** Gives an account another uid: its `/etc/shadow` line follows, and the files in its home directory are handed over. */
+  async changeUid(uid: number, newUid: number): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    if (!Number.isInteger(newUid) || newUid < 0) throw new Error(`invalid user ID '${newUid}'`)
+    if (newUid === uid) return
+    if (this._users.has(newUid)) throw new Error(`UID '${newUid}' already exists`)
+    this._users.delete(uid)
+    user.uid = newUid
+    this._users.set(newUid, user)
+    await this.writeShadowEntry(user)
+    await this.writePasswdAndGroup()
+    const hand = async (path: string): Promise<void> => {
+      const info = await this.fs.lstat(path).catch(() => undefined)
+      if (!info || info.uid !== uid) return
+      await this.fs.chown(path, newUid, info.gid).catch(() => {})
+      if (info.isDirectory()) for (const name of await this.fs.readdir(path).catch(() => [])) await hand(`${path}/${name}`)
+    }
+    await hand(user.home)
+  }
+
+  /**
+   * An administrator sets a password without knowing the old one. The hash and `/etc/shadow` are rewritten. The
+   * private key stays wrapped under the old password, so it can no longer be unlocked, as with an encrypted home
+   * directory on Linux; nothing at login needs it.
+   */
+  async resetPassword(uid: number, newPassword: string): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    validatePassword(newPassword)
+    user.password = await hashPassword(newPassword)
+    await this.writeShadowEntry(user)
   }
 
   /**
@@ -173,11 +329,13 @@ export class Users {
     // Supplementary groups now live in /etc/group, keyed by username -> the numeric gids of every
     // group line that lists them as a member (a user's own primary gid, from passwd, is separate).
     const supplementaryGroups = new Map<string, number[]>()
+    this._groups.clear()
     for (const groupLine of group.split('\n')) {
       if (!groupLine.trim() || groupLine.startsWith('#')) continue
-      const [, , gidStr, membersStr] = groupLine.split(':')
+      const [groupName, , gidStr, membersStr] = groupLine.split(':')
       const gid = Number(gidStr)
       if (!gidStr || Number.isNaN(gid)) continue
+      if (groupName) this._groups.set(gid, { name: groupName, gid })
       for (const member of (membersStr ?? '').split(',').filter(Boolean)) {
         supplementaryGroups.set(member, [...(supplementaryGroups.get(member) ?? []), gid])
       }
@@ -362,7 +520,14 @@ export class Users {
    * Remove a user from the system
   */
   async remove(uid: number) {
+    const user = this._users.get(uid)
     this._users.delete(uid)
+    // the group the user was named after goes with them, unless someone else is in it or uses it
+    if (user) {
+      const group = this._groups.get(user.gid)
+      const used = Array.from(this._users.values()).some(other => other.gid === user.gid || other.groups.includes(user.gid))
+      if (group && group.name === user.username && !used) this._groups.delete(user.gid)
+    }
     await this.writePasswdAndGroup()
     // we leave the home directory behind for the admin to delete manually
   }
