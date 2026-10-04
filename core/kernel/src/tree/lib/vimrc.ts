@@ -26,4 +26,11 @@ set showcmd
 set incsearch
 set hlsearch
 set nomodeline
+" xterm.js draws 256 colors and truecolor; the builtin xterm entry only knows eight
+set t_Co=256
+set background=dark
+if isdirectory($VIMRUNTIME . '/syntax')
+  filetype plugin indent on
+  syntax on
+endif
 `

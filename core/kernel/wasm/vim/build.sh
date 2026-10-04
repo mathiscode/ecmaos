@@ -13,8 +13,9 @@
 #    and the xattr calls musl lacks.
 #  - `--with-features=normal`: Vimscript, folding, diff, quickfix, persistent undo and more. (`small`
 #    in this Vim release builds the Tiny set, which has none of them.) `huge` adds only interpreters
-#    and a GUI, none of which can work here. Syntax highlighting is compiled in but has nothing to read:
-#    Vim's syntax files live in its runtime directory, which is not shipped.
+#    and a GUI, none of which can work here. Syntax highlighting is compiled in and reads
+#    the runtime subset that runtime.sh ships.
+#  - `--prefix=/usr`: the compiled-in runtime directory is /usr/share/vim/vim91, where runtime.sh puts it.
 #  - `SYS_VIMRC_FILE=/etc/vimrc`: Vim reads its system vimrc from `$VIM`, which is not set here.
 #  - `VIM_DEFAULTS_FILE=/etc/vimrc`: with no ~/.vimrc Vim sources `$VIMRUNTIME/defaults.vim`, which is
 #    not shipped and would end every start with E1187. The vimrc guards against loading twice.
@@ -36,7 +37,7 @@ emar rcs libtstub.a libc-gaps.o
 
 cd "vim-$VERSION/src"
 FLAGS="-O2 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm"
-LDFLAGS="-L$WORK" emconfigure ./configure --with-features=normal --disable-gui --without-x --disable-nls \
+LDFLAGS="-L$WORK" emconfigure ./configure --prefix=/usr --with-features=normal --disable-gui --without-x --disable-nls \
   --disable-selinux --disable-acl --disable-gpm --disable-sysmouse --disable-netbeans --disable-channel \
   --with-tlib=tstub vim_cv_toupper_broken=no vim_cv_terminfo=no vim_cv_tgetent=zero vim_cv_getcwd_broken=no \
   vim_cv_stat_ignores_slash=no vim_cv_memmove_handles_overlap=yes vim_cv_tty_group=world > configure.log 2>&1

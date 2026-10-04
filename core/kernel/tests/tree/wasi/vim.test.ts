@@ -50,6 +50,28 @@ describe('vim', () => {
     return done
   }
 
+  it('detects the filetype and turns syntax highlighting on, from the shipped runtime', async () => {
+    // the test filesystem has no initfs, so put the runtime subset where the build looks for it
+    const hostFs = process.getBuiltinModule('node:fs')
+    const { readdirSync, readFileSync, statSync } = hostFs
+    const join = (a: string, b: string) => `${a}/${b}`
+    const root = `${process.cwd()}/public/initfs/usr/share/vim/vim91`
+    const copy = async (from: string, to: string) => {
+      await kernel.filesystem.fs.mkdir(to, { recursive: true })
+      for (const name of readdirSync(from)) {
+        if (statSync(join(from, name)).isDirectory()) await copy(join(from, name), `${to}/${name}`)
+        else await kernel.filesystem.fs.writeFile(`${to}/${name}`, new Uint8Array(readFileSync(join(from, name))))
+      }
+    }
+    await copy(root, '/usr/share/vim/vim91')
+    await kernel.filesystem.fs.writeFile('/tmp/ft.c', '#include <stdio.h>\nint main(void) { return 0; }\n')
+    const code = await edit('vim /tmp/ft.c', ':call writefile([&filetype, exists("g:syntax_on") ? "syntax" : "plain", &syntax, execute("hi cType")], "/tmp/ft.out")\r:q\r')
+    expect(code).toBe(0)
+    const out = await kernel.filesystem.fs.readFile('/tmp/ft.out', 'utf8')
+    expect(out).toMatch(/^c\nsyntax\nc\n/)
+    expect(out).toMatch(/cType\s+xxx/)
+  }, 30000)
+
   it('writes a system vimrc that turns off vi compatibility', async () => {
     expect(await kernel.filesystem.fs.readFile('/etc/vimrc', 'utf8')).toContain('set nocompatible')
   })
@@ -63,7 +85,7 @@ describe('vim', () => {
     for (let i = 0; i < buffer.length; i++) screen.push(buffer.getLine(i)?.translateToString(true) ?? '')
     await typeKeys('\x1b:q!\r')
     expect(await done).toBe(0)
-    expect(screen.join('\n')).not.toMatch(/E\d{3,4}|Press ENTER/)
+    expect(screen.filter(line => line.trim()).join('\n')).not.toMatch(/E\d{3,4}|Press ENTER/)
   }, 30000)
 
   it('uses the alternate screen, so its display is gone when it exits', async () => {

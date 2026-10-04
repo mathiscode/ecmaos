@@ -327,6 +327,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     proc_raise: () => ENOSYS,
 
     fd_close(fd) {
+      dirPos.delete(fd)
       const sock = sockets.get(fd)
       if (sock) {
         return guard(() => {
@@ -395,6 +396,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       })
     },
     fd_seek(fd, offset, whence, newOffsetPtr) {
+      if (offset === 0n && whence === 0) dirPos.delete(fd) // rewinddir
       const entry = entryOf(fd)
       if (!entry) return EBADF
       // wasi whence: 0 SET, 1 CUR, 2 END -- the same numbers lseek(2) uses
@@ -686,6 +688,9 @@ export function createPreview1(getMemory, getTable = () => undefined) {
   // here against the same real `poll(2)` syscall `poll_oneoff` already uses for pipes/tty.
   const AT_FDCWD = -100
   const dirPaths = new Map() // real fd -> path, populated by openat so a later ...at(dirfd, ...) resolves
+  // `getdents` answers with a whole listing every time, so each directory fd needs its own read position
+  // (entries already handed out); without it a `readdir` loop never sees the end of the directory.
+  const dirPos = new Map()
 
   const guardLinux = (fn) => {
     try {
@@ -877,22 +882,26 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     __syscall_fstat64: (fd, buf) => guardLinux(() => writeStatLinux(buf, fstat(fd))),
     __syscall_fchown32: (fd, owner, group) => guardLinux(() => fchown(fd, owner, group)),
     __syscall_getdents64: (fd, dirp, count) => guardLinux(() => {
-      const entries = getdents(fd)
+      const entries = [...getdents(fd)]
       const out = bytes()
       let offset = 0
-      for (const item of entries) {
+      let index = dirPos.get(fd) ?? 0
+      for (; index < entries.length; index++) {
+        const item = entries[index]
         const name = encoder.encode(item.name)
-        const reclen = 19 + name.length + 1 // ino(8) off(8) reclen(2) type(1) + name + NUL
+        const reclen = (19 + name.length + 1 + 7) & ~7 // ino(8) off(8) reclen(2) type(1) + name + NUL, 8-aligned
         if (offset + reclen > count) break
         const dv = view()
         dv.setBigUint64(dirp + offset, BigInt(item.ino ?? 0), true)
-        dv.setBigUint64(dirp + offset + 8, BigInt(offset + reclen), true)
+        dv.setBigUint64(dirp + offset + 8, BigInt(index + 1), true)
         dv.setUint16(dirp + offset + 16, reclen, true)
         out[dirp + offset + 18] = item.type ?? 0
         out.set(name, dirp + offset + 19)
-        out[dirp + offset + 19 + name.length] = 0
+        out.fill(0, dirp + offset + 19 + name.length, dirp + offset + reclen)
         offset += reclen
       }
+      if (offset === 0 && index < entries.length) return -SYSCALL_ERRNO.EINVAL
+      dirPos.set(fd, index)
       return offset
     }),
     __syscall_fcntl64: (fd, cmd, varargsPtr) => guardLinux(() => {
@@ -906,6 +915,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       const path = resolveAt(dirfd, pathPtr)
       const mode = varargsPtr ? varargI(varargsPtr, 0) : 0o644
       const fd = open(path, wasiOflagsFromLinux(flags), mode)
+      dirPos.delete(fd)
       if (flags & O_DIRECTORY) dirPaths.set(fd, path)
       return fd
     }),

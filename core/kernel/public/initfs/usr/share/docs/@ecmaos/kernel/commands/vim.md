@@ -26,7 +26,10 @@ Startup reads `/etc/vimrc` (which turns off vi compatibility, swap files and bac
 
 Not supported:
 
-- Syntax highlighting, filetype detection and `:help`: they read Vim's runtime directory, which is not shipped.
+- `:help`: the help files are not shipped. Syntax highlighting, filetype detection, indentation and a few colour
+  schemes work, from a subset of Vim's runtime in `/usr/share/vim/vim91` (C and C++, shell, JavaScript and
+  TypeScript, JSON, Python, HTML, CSS, Markdown, Make, YAML, TOML, Dockerfile, SQL, Lua, Rust, Go, Java and
+  config files, among others). Other languages open without highlighting.
 - Shell escapes (`:!`, `:r !`, filters) and anything that starts a program: a browser cannot fork.
 - `^C` ends the editor instead of interrupting a command, and a terminal resize is picked up on the next
   redraw (`^L`), because signals are not delivered to the program.

@@ -29,3 +29,11 @@ leaves `errno` equal to the `ENOENT`/`EISDIR` it was compiled with: emscripten 6
 ```sh
 emcc emcc-errno.c -O1 -sSTANDALONE_WASM=0 -o emcc-errno.js && rm emcc-errno.js
 ```
+
+`emcc-readdir.wasm` is `emcc-readdir.c` built the same way. It creates 300 files and reads the directory
+twice (with `rewinddir` between), which takes several `getdents64` calls each; the shim must keep a read
+position per directory descriptor or the loop never ends. Rebuild it with:
+
+```sh
+emcc emcc-readdir.c -O1 -sSTANDALONE_WASM=0 -o emcc-readdir.js && rm emcc-readdir.js
+```
