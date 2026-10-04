@@ -81,7 +81,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     expect(await fs.exists('/bin/help')).toBe(false)
     expect(await fs.exists('/bin/pilot-pwd.js')).toBe(false)
     expect(await fs.exists('/bin/pilot-window.js')).toBe(false)
-    expect(await fs.readFile('/bin/true', 'utf8')).toBe('#!ecmaos:bin:command:true')
+    expect(await fs.readFile('/bin/test', 'utf8')).toBe('#!ecmaos:bin:command:test')
     expect(await kernel.shell.execute('true')).toBe(0)
   })
 

@@ -102,7 +102,7 @@ export const migratedCommands = [
   'id', 'groups',
   'chown',
   'zip', 'unzip', 'git', 'less', 'man',
-  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo'
+  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput'
 ] as const
 
 /**
@@ -113,7 +113,7 @@ export const migratedCommands = [
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
  * worker-hosted, syscall-only program.
  */
-export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'vim', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install'] as const
+export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'vim', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install'] as const
 
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {

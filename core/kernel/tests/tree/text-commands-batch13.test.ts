@@ -42,10 +42,18 @@ describe('text command batch 13: cal/date/printf/which/whoami/pwd/hostname/uname
     })
   }
 
-  for (const name of ['test', 'true', 'false']) {
+  for (const name of ['test']) {
     it(`${name} stays on the legacy in-process stub (deliberately not migrated)`, async () => {
       const content = await kernel.filesystem.fs.readFile(`/bin/${name}`, 'utf-8')
       expect(content.startsWith('#!ecmaos:bin:command:')).toBe(true)
+    })
+  }
+
+  for (const [name, status] of [['true', 0], ['false', 1]] as const) {
+    it(`${name} is a real program as well as a builtin, for env, xargs and find -exec`, async () => {
+      const content = await kernel.filesystem.fs.readFile(`/bin/${name}`, 'utf-8')
+      expect(content.startsWith('#!ecmaos:bin:command:')).toBe(false)
+      expect(await kernel.shell.execute(`/bin/${name}`)).toBe(status)
     })
   }
 

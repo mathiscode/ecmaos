@@ -1,10 +1,12 @@
 /** Compute a cryptographic hash digest of input or files. */
 
 import { resolve } from './lib/path-utils.mjs'
+import { md5 } from './lib/digest.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const SUPPORTED_ALGORITHMS = {
+  'md5': 'MD5',
   'sha1': 'SHA-1', 'sha-1': 'SHA-1',
   'sha256': 'SHA-256', 'sha-256': 'SHA-256',
   'sha384': 'SHA-384', 'sha-384': 'SHA-384',
@@ -14,11 +16,12 @@ const SUPPORTED_ALGORITHMS = {
 const usage = `Usage: hash [OPTION]... [FILE]...
 Compute and display hash values for files or standard input.
 
-  -a, --algorithm=ALGORITHM  hash algorithm to use (sha1, sha256, sha384, sha512)
+  -a, --algorithm=ALGORITHM  hash algorithm to use (md5, sha1, sha256, sha384, sha512)
                               default: sha256
   --help                      display this help and exit`
 
 async function hashData(data, algorithm) {
+  if (algorithm === 'MD5') return Array.from(md5(data), b => b.toString(16).padStart(2, '0')).join('')
   const hashBuffer = await crypto.subtle.digest(algorithm, data)
   const hashArray = Array.from(new Uint8Array(hashBuffer))
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
