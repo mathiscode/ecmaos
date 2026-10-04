@@ -24,15 +24,19 @@ Vimscript.
 Startup reads `/etc/vimrc` (which turns off vi compatibility, swap files and backup files) and then
 `~/.vimrc`. Edit either to taste; `-u NONE` skips both, though that leaves vi compatibility on.
 
+Syntax highlighting, filetype detection, indentation and a few colour schemes work, from a subset of Vim's runtime
+in `/usr/share/vim/vim91` (C and C++, shell, JavaScript and TypeScript, JSON, Python, HTML, CSS, Markdown, Make,
+YAML, TOML, Dockerfile, SQL, Lua, Rust, Go, Java and config files, among others). Other languages open without
+highlighting.
+
+Shell commands work: `:!cmd`, `:r !cmd`, filters such as `:%!sort`, and `system()` run the command with
+`/bin/ecmash -c` (the `shell` option is set to `/bin/sh`, which is `ecmash`). The command shares Vim's terminal
+and `^C` stops it, not Vim. A terminal resize reaches Vim as `SIGWINCH`, so it redraws at once.
+
 Not supported:
 
-- `:help`: the help files are not shipped. Syntax highlighting, filetype detection, indentation and a few colour
-  schemes work, from a subset of Vim's runtime in `/usr/share/vim/vim91` (C and C++, shell, JavaScript and
-  TypeScript, JSON, Python, HTML, CSS, Markdown, Make, YAML, TOML, Dockerfile, SQL, Lua, Rust, Go, Java and
-  config files, among others). Other languages open without highlighting.
-- Shell escapes (`:!`, `:r !`, filters) and anything that starts a program: a browser cannot fork.
-- `^C` ends the editor instead of interrupting a command, and a terminal resize is picked up on the next
-  redraw (`^L`), because signals are not delivered to the program.
+- `:help`: the help files are not shipped.
+- `:shell` and `:terminal` (an interactive child on a pseudo-terminal), and `+job` and `+channel`.
 - Plugins, `+python`, `+lua` and other optional features.
 
 ## Examples

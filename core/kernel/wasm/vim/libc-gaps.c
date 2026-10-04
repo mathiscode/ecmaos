@@ -33,3 +33,16 @@ int tputs(const char *s, int n, int (*f)(int)){ (void)n; while(*s) f(*s++); retu
 ssize_t listxattr(const char *p, char *l, size_t s){ (void)p; (void)l; (void)s; errno = ENOTSUP; return -1; }
 ssize_t getxattr(const char *p, const char *n, void *v, size_t s){ (void)p; (void)n; (void)v; (void)s; errno = ENOTSUP; return -1; }
 int setxattr(const char *p, const char *n, const void *v, size_t s, int f){ (void)p; (void)n; (void)v; (void)s; (void)f; errno = ENOTSUP; return -1; }
+
+/* Signals: the host (src/bin/wasi-preview1.mjs) calls this when the kernel raises one, and it runs the
+ * handler the program set with signal()/sigaction(), the way a real kernel does on the way back to user
+ * space. Returns 1 when the program handled or ignored the signal, 0 when the default action applies. */
+#include <signal.h>
+int ecmaos_signal(int sig) {
+  struct sigaction old;
+  if (sigaction(sig, 0, &old) != 0) return 0;
+  if (old.sa_handler == SIG_IGN) return 1;
+  if (old.sa_handler == SIG_DFL) return 0;
+  raise(sig);
+  return 1;
+}

@@ -32,7 +32,20 @@ describe('vim', () => {
     document.body.appendChild(container)
     kernel.terminal.mount(container)
     ;(kernel.terminal as unknown as { _isMobile: boolean })._isMobile = false
-  })
+    // the test filesystem has no initfs, so put the runtime subset where the build looks for it
+    const hostFs = process.getBuiltinModule('node:fs')
+    const { readdirSync, readFileSync, statSync } = hostFs
+    const join = (a: string, b: string) => `${a}/${b}`
+    const root = `${process.cwd()}/public/initfs/usr/share/vim/vim91`
+    const copy = async (from: string, to: string) => {
+      await kernel.filesystem.fs.mkdir(to, { recursive: true })
+      for (const name of readdirSync(from)) {
+        if (statSync(join(from, name)).isDirectory()) await copy(join(from, name), `${to}/${name}`)
+        else await kernel.filesystem.fs.writeFile(`${to}/${name}`, new Uint8Array(readFileSync(join(from, name))))
+      }
+    }
+    await copy(root, '/usr/share/vim/vim91')
+  }, 60000)
 
   const typeKeys = async (keys: string) => {
     for (const key of keys) {
@@ -51,19 +64,6 @@ describe('vim', () => {
   }
 
   it('detects the filetype and turns syntax highlighting on, from the shipped runtime', async () => {
-    // the test filesystem has no initfs, so put the runtime subset where the build looks for it
-    const hostFs = process.getBuiltinModule('node:fs')
-    const { readdirSync, readFileSync, statSync } = hostFs
-    const join = (a: string, b: string) => `${a}/${b}`
-    const root = `${process.cwd()}/public/initfs/usr/share/vim/vim91`
-    const copy = async (from: string, to: string) => {
-      await kernel.filesystem.fs.mkdir(to, { recursive: true })
-      for (const name of readdirSync(from)) {
-        if (statSync(join(from, name)).isDirectory()) await copy(join(from, name), `${to}/${name}`)
-        else await kernel.filesystem.fs.writeFile(`${to}/${name}`, new Uint8Array(readFileSync(join(from, name))))
-      }
-    }
-    await copy(root, '/usr/share/vim/vim91')
     await kernel.filesystem.fs.writeFile('/tmp/ft.c', '#include <stdio.h>\nint main(void) { return 0; }\n')
     const code = await edit('vim /tmp/ft.c', ':call writefile([&filetype, exists("g:syntax_on") ? "syntax" : "plain", &syntax, execute("hi cType")], "/tmp/ft.out")\r:q\r')
     expect(code).toBe(0)
@@ -71,6 +71,75 @@ describe('vim', () => {
     expect(out).toMatch(/^c\nsyntax\nc\n/)
     expect(out).toMatch(/cType\s+xxx/)
   }, 30000)
+
+  it('runs shell commands: :r !, system() and a filter', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/sh.txt', 'b\na\n')
+    const done = kernel.shell.execute('vim /tmp/sh.txt')
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    // keys typed while a command runs are discarded by the terminal mode switch, so wait for each
+    for (const command of [':r !echo from-shell\r', ':%!sort\r', ':call writefile([system("echo viasystem")[:-2], v:shell_error], "/tmp/sh.out")\r']) {
+      await typeKeys(command)
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      await typeKeys('\r') // at "Press ENTER", or harmless in normal mode
+      await new Promise(resolve => setTimeout(resolve, 300))
+    }
+    await typeKeys(':wq\r')
+    expect(await done).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/sh.out', 'utf8')).toBe('viasystem\n0\n')
+    expect(await kernel.filesystem.fs.readFile('/tmp/sh.txt', 'utf8')).toBe('a\nb\nfrom-shell\n')
+  }, 60000)
+
+  it('takes ^C as a key (leaves insert mode) instead of being killed by it', async () => {
+    const code = await edit('vim /tmp/ctrlc.txt', 'ifoo\x03:wq\r')
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/ctrlc.txt', 'utf8')).toBe('foo\n')
+  }, 30000)
+
+  it('^C during a shell command stops the command, not Vim', async () => {
+    const done = kernel.shell.execute('vim /tmp/ctrlc2.txt')
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    await typeKeys(':!sleep 60\r')
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    const started = Date.now()
+    kernel.terminal.input('\x03', true)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    await typeKeys('\r:call writefile(["alive"], "/tmp/ctrlc2.out")\r:q!\r')
+    expect(await done).toBe(0)
+    expect(Date.now() - started).toBeLessThan(30000)
+    expect(await kernel.filesystem.fs.readFile('/tmp/ctrlc2.out', 'utf8')).toBe('alive\n')
+  }, 60000)
+
+  it('learns of a resize at once (SIGWINCH), without a redraw', async () => {
+    const terminal = kernel.terminal as unknown as { resize(cols: number, rows: number): void, cols: number, rows: number }
+    const before = [terminal.cols, terminal.rows]
+    const done = kernel.shell.execute('vim /tmp/size.txt')
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await new Promise(resolve => setTimeout(resolve, 2500))
+    terminal.resize(97, 31)
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    await typeKeys(':call writefile([&columns . "x" . &lines], "/tmp/size.out")\r:q!\r')
+    expect(await done).toBe(0)
+    terminal.resize(before[0]!, before[1]!)
+    expect(await kernel.filesystem.fs.readFile('/tmp/size.out', 'utf8')).toBe('97x31\n')
+  }, 60000)
+
+  it('detects the common filetypes without a script error', async () => {
+    const names = ['a.c', 'a.cpp', 'a.py', 'a.js', 'a.ts', 'a.json', 'a.md', 'a.sh', 'Makefile', 'a.html', 'a.css', 'a.rs', 'a.go', 'a.yaml', 'a.toml', 'Dockerfile', 'a.vim', 'a.lua', 'a.java', 'a.sql', 'noext']
+    await kernel.filesystem.fs.mkdir('/tmp/ft', { recursive: true })
+    for (const name of names) await kernel.filesystem.fs.writeFile(`/tmp/ft/${name}`, name === 'noext' ? '#!/bin/sh\necho hi\n' : 'x\n')
+    // Silent Ex mode has no screen to stop at. Vim's own scripts run commands that may fail under `silent!`
+    // (those still reach :messages), so look only for the errors that mean a runtime file is missing:
+    // E484 can't open a file, E117 unknown function (an autoload script), E666 no such compiler, E185 no colour scheme.
+    const script = `let r = [] | for f in ${JSON.stringify(names).replace(/"/g, "'")} | execute 'edit /tmp/ft/' . f | call add(r, f . '=' . &filetype) | endfor | call writefile(r, '/tmp/ft.list') | redir! > /tmp/ft.msg | silent messages | redir END`
+    const code = await kernel.shell.execute(`vim -es -u /etc/vimrc -c "${script}" -c "q!"`)
+    const lines = (await kernel.filesystem.fs.readFile('/tmp/ft.list', 'utf8')).trim().split('\n')
+    const messages = await kernel.filesystem.fs.readFile('/tmp/ft.msg', 'utf8')
+    expect(messages.split('\n').filter(line => /E(484|117|666|185)\b/.test(line))).toEqual([])
+    expect(lines).toEqual(expect.arrayContaining(['a.c=c', 'a.py=python', 'a.js=javascript', 'a.ts=typescript', 'a.json=json', 'a.md=markdown', 'a.sh=sh', 'Makefile=make', 'a.rs=rust', 'a.go=go', 'noext=sh']))
+    expect(code).toBeLessThanOrEqual(1)
+  }, 90000)
 
   it('writes a system vimrc that turns off vi compatibility', async () => {
     expect(await kernel.filesystem.fs.readFile('/etc/vimrc', 'utf8')).toContain('set nocompatible')

@@ -26,6 +26,8 @@ set showcmd
 set incsearch
 set hlsearch
 set nomodeline
+" $SHELL can be the built-in shell, which is not a program; shell commands (:!, :r !) need one
+set shell=/bin/sh
 " xterm.js draws 256 colors and truecolor; the builtin xterm entry only knows eight
 set t_Co=256
 set background=dark

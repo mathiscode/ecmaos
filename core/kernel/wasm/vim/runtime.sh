@@ -25,7 +25,7 @@ LANGS="c cpp sh bash zsh javascript typescript json jsonc python vim html css sc
   group fstab resolv readline vimrc tex asm perl ruby php"
 
 rm -rf "$DEST"
-mkdir -p "$DEST/syntax" "$DEST/ftplugin" "$DEST/indent" "$DEST/colors"
+mkdir -p "$DEST/syntax" "$DEST/ftplugin" "$DEST/indent" "$DEST/colors" "$DEST/autoload"
 for f in filetype.vim ftplugin.vim ftoff.vim indent.vim ftplugof.vim indoff.vim scripts.vim; do
   [ -f "$SRC/$f" ] && cp "$SRC/$f" "$DEST/"
 done
@@ -36,6 +36,10 @@ for l in $LANGS; do
   [ -f "$SRC/syntax/$l.vim" ] && cp "$SRC/syntax/$l.vim" "$DEST/syntax/"
   [ -f "$SRC/ftplugin/$l.vim" ] && cp "$SRC/ftplugin/$l.vim" "$DEST/ftplugin/"
   [ -f "$SRC/indent/$l.vim" ] && cp "$SRC/indent/$l.vim" "$DEST/indent/"
+  # helpers the ftplugin and indent scripts call (python#GetIndent, rust#Jump, htmlcomplete#..., ...)
+  for a in "$l" "${l}complete"; do
+    [ -f "$SRC/autoload/$a.vim" ] && cp "$SRC/autoload/$a.vim" "$DEST/autoload/"
+  done
 done
 # Syntax files that other syntax files pull in with `runtime! syntax/x.vim`.
 for l in c cpp html css javascript xml sh vim; do
@@ -43,9 +47,35 @@ for l in c cpp html css javascript xml sh vim; do
 done
 cp "$SRC/colors/"{default,desert,industry,slate,peachpuff,ron,murphy,evening}.vim "$DEST/colors/" 2>/dev/null || true
 mkdir -p "$DEST/colors/lists" && cp "$SRC/colors/lists/"*.vim "$DEST/colors/lists/"
-mkdir -p "$DEST/autoload" "$DEST/lang"
-cp "$SRC/autoload/dist/ft.vim" "$DEST/autoload/ft.vim" 2>/dev/null || true
-mkdir -p "$DEST/autoload/dist" && cp "$SRC/autoload/dist/ft.vim" "$DEST/autoload/dist/" 2>/dev/null || true
-rmdir "$DEST/autoload/dist" "$DEST/autoload" "$DEST/lang" 2>/dev/null || true
+# filetype detection by file name and content calls into autoload/dist
+mkdir -p "$DEST/autoload/dist" && cp "$SRC/autoload/dist/"*.vim "$DEST/autoload/dist/"
+cp "$SRC/autoload/syntaxcomplete.vim" "$SRC/autoload/ccomplete.vim" "$DEST/autoload/" 2>/dev/null || true
+# What the copied files themselves pull in (`runtime syntax/x.vim`, `syntax include`, `compiler x`, autoload
+# calls such as `python#GetIndent()`), repeated until nothing new turns up.
+mkdir -p "$DEST/compiler" "$DEST/syntax/shared"
+cp "$SRC/syntax/shared/"*.vim "$DEST/syntax/shared/"
+python3 - "$SRC" "$DEST" <<'PY'
+import os, re, shutil, sys
+src, dest = sys.argv[1:3]
+ref = re.compile(r'\b((?:syntax|ftplugin|indent|autoload|compiler)/[A-Za-z0-9_/.-]+\.vim)')
+compiler = re.compile(r'^\s*compiler!?\s+([A-Za-z0-9_]+)', re.M)
+sibling = re.compile(r'<sfile>:p:h/([A-Za-z0-9_.-]+\.vim)')
+autoload = re.compile(r'\b([A-Za-z_]+(?:#[A-Za-z_]+)+)\(')
+queue = [os.path.join(d, f) for d, _, fs in os.walk(dest) for f in fs if f.endswith('.vim')]
+seen = set(queue)
+def want(rel):
+    s, d = os.path.join(src, rel), os.path.join(dest, rel)
+    if os.path.isfile(s) and not os.path.exists(d):
+        os.makedirs(os.path.dirname(d), exist_ok=True)
+        shutil.copy(s, d)
+        queue.append(d)
+while queue:
+    path = queue.pop()
+    text = open(path, errors='replace').read()
+    for m in ref.findall(text): want(m)
+    for m in compiler.findall(text): want(f'compiler/{m}.vim')
+    for m in sibling.findall(text): want(os.path.join(os.path.dirname(os.path.relpath(path, dest)), m))
+    for m in autoload.findall(text): want('autoload/' + '/'.join(m.split('#')[:-1]) + '.vim')
+PY
 cp "$SRC/defaults.vim" "$DEST/" 2>/dev/null || true
 du -sh "$DEST"

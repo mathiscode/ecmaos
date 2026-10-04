@@ -27,8 +27,8 @@
  */
 
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
-import { argv, environ } from '@zenfs/linux/uapi/process'
-import { syscall, copyOut } from '@zenfs/linux/uapi/base'
+import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
+import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
 
 const ESUCCESS = 0
 const EBADF = 8
@@ -1016,7 +1016,25 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       }
     },
     __call_sighandler: (handler, signal) => { getTable()?.get(handler)(signal) },
-    _emscripten_system: () => -SYSCALL_ERRNO.ENOSYS,
+    // `system(3)`, what Vim's `:!`, `:r !` and filters use: `/bin/ecmash -c command` as a child that has the
+    // terminal while it runs, so `^C` reaches it and not the program waiting. The status is wait(2)'s.
+    _emscripten_system: (commandPtr) => {
+      if (!commandPtr) return 1 // is there a shell
+      const command = readCString(commandPtr)
+      try {
+        const pid = syscall('proc_spawn', '/bin/ecmash', JSON.stringify(['ecmash', '-c', command]), getcwd(), JSON.stringify({ env: environ() }))
+        let foregrounded = true
+        try { syscall('proc_tcsetpgrp', pid) } catch { foregrounded = false }
+        try {
+          return (syscall('proc_wait', pid) & 0xff) << 8
+        } finally {
+          if (foregrounded) { try { syscall('proc_tcsetpgrp', getpid()) } catch { /* the terminal went away */ } }
+        }
+      } catch (error) {
+        if (error instanceof ProcExit) throw error
+        return -1
+      }
+    },
     // Clocks, time zone and assertions. The zone is the browser's, as `localtime` reports it.
     emscripten_get_now: () => performance.now(),
     emscripten_date_now: () => Date.now(),
@@ -1288,6 +1306,29 @@ function detectMemoryImport(bytes) {
   return null
 }
 
+// The signals a program can catch here. SIGWINCH's default is to be ignored; the others end the program.
+const CATCHABLE_SIGNALS = [1, 2, 10, 12, 15, 28]
+const SIGWINCH = 28
+
+/**
+ * A module that exports `ecmaos_signal(sig)` (see `wasm/vim/libc-gaps.c`) gets the kernel's signals run
+ * through the handlers it set with `signal()`/`sigaction()`. The kernel raises them while the worker is in a
+ * blocking syscall (Vim waiting for a key), and upstream runs handlers registered with `on_signal` as that
+ * syscall returns -- which is inside the module's own import call, so calling back into it is safe. A
+ * signal the program set no handler for does what the default does. Registering a handler also tells the
+ * kernel to stop taking the default action, so this is done only for modules that can answer.
+ */
+function deliverSignals(instance, Exit) {
+  const deliver = instance.exports.ecmaos_signal
+  if (typeof deliver !== 'function') return
+  for (const signal of CATCHABLE_SIGNALS) {
+    on_signal(signal, () => {
+      if (deliver(signal)) return
+      if (signal !== SIGWINCH) throw new Exit(128 + signal)
+    })
+  }
+}
+
 /** Runs a preview1 or ordinary-`emcc` module to completion and returns its exit code. */
 export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
@@ -1305,6 +1346,7 @@ export async function runPreview1(source) {
   }
   let instance
   instance = await WebAssembly.instantiate(module, imports)
+  deliverSignals(instance, Exit)
   memory = memory ?? instance.exports.memory
   if (!memory) throw new Error('wasi: the module does not export or import its memory')
   // A `-sSTANDALONE_WASM` build exports `__main_argc_argv`; an ordinary one exports plain `main`.
