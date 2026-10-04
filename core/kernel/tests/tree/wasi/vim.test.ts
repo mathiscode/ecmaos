@@ -55,10 +55,25 @@ describe('vim', () => {
     }
   }
 
+  type Line = { translateToString(trim: boolean): string }
+  /** The lines of whichever buffer is showing (Vim's alternate screen while it runs). */
+  const screenLines = (): string[] => {
+    const { active } = (kernel.terminal as unknown as { buffer: { active: { length: number, getLine(i: number): Line | undefined } } }).buffer
+    const lines: string[] = []
+    for (let i = 0; i < active.length; i++) lines.push(active.getLine(i)?.translateToString(true) ?? '')
+    return lines
+  }
+
+  /** Waits until Vim has drawn: its empty-line marker is on the screen (startup now loads the runtime, which a loaded machine takes a while over). */
+  const screenReady = async () => {
+    await waitFor(() => screenLines().some(line => line.startsWith('~')), 30000)
+    await new Promise(resolve => setTimeout(resolve, 300))
+  }
+
   const edit = async (command: string, keys: string) => {
     const done = kernel.shell.execute(command)
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    await screenReady()
     await typeKeys(keys)
     return done
   }
@@ -76,7 +91,7 @@ describe('vim', () => {
     await kernel.filesystem.fs.writeFile('/tmp/sh.txt', 'b\na\n')
     const done = kernel.shell.execute('vim /tmp/sh.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
-    await new Promise(resolve => setTimeout(resolve, 2500))
+    await screenReady()
     // keys typed while a command runs are discarded by the terminal mode switch, so wait for each
     for (const command of [':r !echo from-shell\r', ':%!sort\r', ':call writefile([system("echo viasystem")[:-2], v:shell_error], "/tmp/sh.out")\r']) {
       await typeKeys(command)
@@ -99,7 +114,7 @@ describe('vim', () => {
   it('^C during a shell command stops the command, not Vim', async () => {
     const done = kernel.shell.execute('vim /tmp/ctrlc2.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
-    await new Promise(resolve => setTimeout(resolve, 2500))
+    await screenReady()
     await typeKeys(':!sleep 60\r')
     await new Promise(resolve => setTimeout(resolve, 3000))
     const started = Date.now()
@@ -116,7 +131,7 @@ describe('vim', () => {
     const before = [terminal.cols, terminal.rows]
     const done = kernel.shell.execute('vim /tmp/size.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
-    await new Promise(resolve => setTimeout(resolve, 2500))
+    await screenReady()
     terminal.resize(97, 31)
     await new Promise(resolve => setTimeout(resolve, 1500))
     await typeKeys(':call writefile([&columns . "x" . &lines], "/tmp/size.out")\r:q!\r')
@@ -148,10 +163,8 @@ describe('vim', () => {
   it('starts without a startup error (no defaults.vim to fail on)', async () => {
     const done = kernel.shell.execute('vim /tmp/vim-clean.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
-    await new Promise(resolve => setTimeout(resolve, 2500))
-    const buffer = (kernel.terminal as unknown as { buffer: { active: { length: number, getLine(i: number): { translateToString(trim: boolean): string } | undefined } } }).buffer.active
-    const screen: string[] = []
-    for (let i = 0; i < buffer.length; i++) screen.push(buffer.getLine(i)?.translateToString(true) ?? '')
+    await screenReady()
+    const screen = screenLines()
     await typeKeys('\x1b:q!\r')
     expect(await done).toBe(0)
     expect(screen.filter(line => line.trim()).join('\n')).not.toMatch(/E\d{3,4}|Press ENTER/)
