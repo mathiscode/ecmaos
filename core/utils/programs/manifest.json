@@ -109,8 +109,8 @@
       "license": "MIT",
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
-      "size": 570906,
-      "sha256": "5b43f63b64bcd19d4593bd4c72e1b7ccfd3a75a2becf7041ca5682ee1d1d81e5"
+      "size": 631549,
+      "sha256": "3e44b841c86c176644768b0c6629afbe6d7a5486532ffc04d36d5d5c9b7c1e20"
     }
   }
 }

@@ -115,7 +115,8 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/unlzma': '/bin/xz',
   '/bin/lzcat': '/bin/xz',
   '/bin/unzstd': '/bin/zstd',
-  '/bin/zstdcat': '/bin/zstd'
+  '/bin/zstdcat': '/bin/zstd',
+  '/bin/python': '/bin/micropython'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */

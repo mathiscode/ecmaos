@@ -51,9 +51,11 @@ patch_line ports/unix/main.c 'mp_uint_t stack_size = 40000 * UNIX_STACK_MULTIPLI
   'mp_uint_t stack_size = 480 * 1024;'
 
 cd ports/unix
-# No threads, sockets, ffi, tls, btree or filesystems of its own: none can work here. No frozen modules either (the stock
-# manifest freezes `mip` and `ssl`, which need sockets).
-make -j"$(nproc)" BUILD=build CC=emcc PROG=micropython.js STRIP=true SIZE=true FROZEN_MANIFEST= \
+# Freezing compiles the modules with mpy-cross, which has to run here, so it is built with the host compiler.
+make -C ../../mpy-cross -j"$(nproc)" > mpy-cross.log 2>&1 || { tail -30 mpy-cross.log >&2; exit 1; }
+
+# No threads, sockets, ffi, tls, btree or filesystems of its own: none can work here. The frozen modules are in manifest.py.
+make -j"$(nproc)" BUILD=build CC=emcc PROG=micropython.js STRIP=true SIZE=true FROZEN_MANIFEST="$HERE/manifest.py" \
   MICROPY_PY_BTREE=0 MICROPY_PY_THREAD=0 MICROPY_PY_FFI=0 MICROPY_PY_SSL=0 MICROPY_PY_SOCKET=0 \
   MICROPY_VFS_FAT=0 MICROPY_VFS_LFS1=0 MICROPY_VFS_LFS2=0 MICROPY_PY_TERMIOS=1 \
   LDFLAGS_ARCH="-Wl,--gc-sections" \

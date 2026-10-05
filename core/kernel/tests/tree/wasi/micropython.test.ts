@@ -127,6 +127,11 @@ describe('micropython', () => {
     expect(await run(`echo 'print(6 * 7)' | micropython`)).toEqual({ code: 0, out: '42\n', err: '' })
   }, 60000)
 
+  it('python is a link to micropython', async () => {
+    expect(await kernel.filesystem.fs.readlink('/bin/python')).toBe('/bin/micropython')
+    expect(await run(`python -c 'print("via link")'`)).toEqual({ code: 0, out: 'via link\n', err: '' })
+  }, 60000)
+
   it('prints a traceback on stderr and exits 1; sys.exit sets the status; a missing file exits 2', async () => {
     const bad = await run(`micropython -c 'raise ValueError("boom")'`)
     expect(bad.code).toBe(1)
@@ -156,6 +161,45 @@ describe('micropython', () => {
     const { out, code } = await run(`micropython -c 'import re, json, struct, hashlib, random, collections, io, errno, binascii, heapq, array; print(re.match("a(b+)", "abbb").group(1), json.dumps({"a": [1, 2]}), struct.pack("<I", 5), hashlib.sha256(b"a").digest()[:2])'`)
     expect(code).toBe(0)
     expect(out).toBe('bbb {"a": [1, 2]} b\'\\x05\\x00\\x00\\x00\' b\'\\xca\\x97\'\n')
+  }, 60000)
+
+  it('has the frozen micropython-lib modules, and asyncio', async () => {
+    const script = [
+      'import os, os.path, bisect, collections, fnmatch, functools, heapq, itertools, logging, operator, pathlib, random, stat, string, tempfile, time, traceback, types, warnings, asyncio',
+      'print(os.path.join("/a", "b.txt"), os.path.basename("/a/b.txt"), os.path.split("/a/b.txt"), bool(os.path.isdir("/tmp")), os.path.exists("/nope"))',
+      'print(os.path.isfile("/bin/micropython"), collections.defaultdict(list)["k"], collections.namedtuple("P", "x y")(1, 2).y)',
+      'print(bisect.bisect([1, 3, 5], 4), fnmatch.fnmatch("a.py", "*.py"), functools.reduce(operator.add, range(5)), list(itertools.islice(itertools.count(3), 3)), heapq.nsmallest(2, [5, 1, 4]))',
+      'print(pathlib.Path("/tmp") / "x" / "y.txt", string.ascii_lowercase[:3], types.FunctionType.__name__, stat.S_ISDIR(os.stat("/tmp")[0]))',
+      'd = tempfile.mkdtemp(); print(bool(os.path.isdir(d)))',
+      'async def work(n):\n    await asyncio.sleep(0.01)\n    return n * 2',
+      'async def main():\n    return await asyncio.gather(work(1), work(2))',
+      'print(asyncio.run(main()))'
+    ].join('\n')
+    await kernel.filesystem.fs.writeFile('/tmp/mp-lib.py', script)
+    expect(await run('micropython /tmp/mp-lib.py')).toEqual({
+      code: 0,
+      out: "/a/b.txt b.txt ('/a', 'b.txt') True False\nTrue [] 2\n2 True 10 [3, 4, 5] [1, 4]\n/tmp/x/y.txt abc function True\nTrue\n[2, 4]\n",
+      err: ''
+    })
+  }, 60000)
+
+  it('has the modules derived from CPython: argparse, datetime, shutil, contextlib, copy and unittest', async () => {
+    const script = [
+      'import argparse, datetime, shutil, contextlib, copy, unittest, os',
+      'p = argparse.ArgumentParser(); p.add_argument("--n", type=int, default=1); p.add_argument("name"); a = p.parse_args(["--n", "3", "x"]); print(a.n, a.name)',
+      'print(datetime.date(2024, 2, 29) + datetime.timedelta(days=1), datetime.datetime(2024, 1, 2, 3, 4, 5).isoformat())',
+      'print(copy.deepcopy({"a": [1, 2]}))',
+      'open("/tmp/mp-sh-a", "w").write("data"); shutil.copyfileobj(open("/tmp/mp-sh-a"), open("/tmp/mp-sh-b", "w")); print(open("/tmp/mp-sh-b").read())',
+      'with contextlib.suppress(KeyError): {}["x"]',
+      'class T(unittest.TestCase):\n    def test_ok(self): self.assertEqual(1 + 1, 2)',
+      'unittest.main()'
+    ].join('\n')
+    await kernel.filesystem.fs.writeFile('/tmp/mp-psf.py', script)
+    const result = await run('micropython /tmp/mp-psf.py')
+    expect(result.code, result.err).toBe(0)
+    expect(result.out).toContain("3 x\n2024-03-01 2024-01-02T03:04:05\n")
+    expect(result.out).toContain("{'a': [1, 2]}\ndata\n")
+    expect(result.out + result.err).toContain('OK')
   }, 60000)
 
   it('raises RuntimeError for runaway recursion instead of trapping', async () => {
