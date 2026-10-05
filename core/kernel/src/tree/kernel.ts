@@ -7,6 +7,7 @@
  *
  */
 
+import '#lib/process-shim.ts'
 import ansi from 'ansi-escape-sequences'
 import chalk from 'chalk'
 import figlet from 'figlet'
