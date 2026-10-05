@@ -16,6 +16,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `patch` | toybox 0.8.12 | 0BSD | `patch/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |
+| `micropython` | 1.29.0 | MIT (the build uses nothing from its `lib/` directory) | `micropython/LICENSE` |
 
 Every program also contains musl libc and compiler-rt, from Emscripten: see `runtime/`.
 

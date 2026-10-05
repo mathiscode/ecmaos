@@ -22,7 +22,7 @@ export interface WasiComponentResult {
 const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_chdir', '__syscall_fchdir', '__syscall_chmod', '__syscall_fchmod', '__syscall_rmdir',
   '__syscall_getcwd', '__syscall_truncate64', '__syscall_ftruncate64', '__syscall_stat64', '__syscall_lstat64',
-  '__syscall_fstat64', '__syscall_fchown32', '__syscall_getdents64', '__syscall_fcntl64', '__syscall_openat',
+  '__syscall_fstat64', '__syscall_statfs64', '__syscall_fchown32', '__syscall_getdents64', '__syscall_fcntl64', '__syscall_openat',
   '__syscall_umask', '__syscall_mkdirat', '__syscall_fchownat', '__syscall_newfstatat', '__syscall_unlinkat',
   '__syscall_renameat', '__syscall_symlinkat', '__syscall_linkat', '__syscall_readlinkat', '__syscall_fchmodat2',
   '__syscall_faccessat', '__syscall_utimensat', '__syscall_getuid32', '__syscall_geteuid32', '__syscall_getgid32',

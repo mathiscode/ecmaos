@@ -26,7 +26,7 @@
  * fix -- opening the preopens for real up front -- came from that trace, not from guessing).
  */
 
-import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
 
@@ -975,6 +975,24 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     __syscall_stat64: (pathPtr, buf) => guardLinux(() => writeStatLinux(buf, stat(readCString(pathPtr)))),
     __syscall_lstat64: (pathPtr, buf) => guardLinux(() => writeStatLinux(buf, lstat(readCString(pathPtr)))),
     __syscall_fstat64: (fd, buf) => guardLinux(() => writeStatLinux(buf, fstat(fd))),
+    // `struct statfs` as musl lays it out for wasm32: two 32-bit words, three 64-bit block counts, two 64-bit
+    // file counts, the fsid, then name length, fragment size and flags (88 bytes with its padding).
+    __syscall_statfs64: (pathPtr, size, buf) => guardLinux(() => {
+      const fs = statfs(readCString(pathPtr))
+      const dv = view()
+      dv.setUint32(buf + 0, Number(fs.type), true)
+      dv.setUint32(buf + 4, Number(fs.bsize), true)
+      dv.setBigUint64(buf + 8, BigInt(fs.blocks), true)
+      dv.setBigUint64(buf + 16, BigInt(fs.bfree), true)
+      dv.setBigUint64(buf + 24, BigInt(fs.bavail), true)
+      dv.setBigUint64(buf + 32, BigInt(fs.files), true)
+      dv.setBigUint64(buf + 40, BigInt(fs.ffree), true)
+      dv.setInt32(buf + 48, 0, true)
+      dv.setInt32(buf + 52, 0, true)
+      dv.setUint32(buf + 56, Number(fs.namelen), true)
+      dv.setUint32(buf + 60, Number(fs.frsize), true)
+      dv.setUint32(buf + 64, 0, true)
+    }),
     __syscall_fchown32: (fd, owner, group) => guardLinux(() => fchown(fd, owner, group)),
     __syscall_getdents64: (fd, dirp, count) => guardLinux(() => {
       const entries = [...getdents(fd)]

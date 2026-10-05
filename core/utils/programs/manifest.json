@@ -102,6 +102,15 @@
       "homepage": "https://github.com/hboetes/mg",
       "size": 270273,
       "sha256": "b13b675357812c8dd6aac25657dd07a5fdd055b4c081950bfc3ac794f4550fd5"
+    },
+    "micropython": {
+      "file": "micropython.wasm",
+      "version": "1.29.0",
+      "license": "MIT",
+      "description": "MicroPython: a lean Python 3 interpreter and REPL",
+      "homepage": "https://micropython.org/",
+      "size": 570906,
+      "sha256": "5b43f63b64bcd19d4593bd4c72e1b7ccfd3a75a2becf7041ca5682ee1d1d81e5"
     }
   }
 }

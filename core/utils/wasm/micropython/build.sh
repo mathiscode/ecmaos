@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Rebuilds programs/micropython.wasm: MicroPython (the Unix port: script runner and REPL) for ecmaOS, with emscripten.
+# Built like the other emcc programs (see ../quickjs/build.sh), from the release tarball with three small changes, each
+# asserted below so a new release that moves the code fails the build instead of silently losing the change:
+#   - an uncaught exception prints its traceback on stderr (upstream's Unix port prints it on stdout);
+#   - the default heap is 16 MiB (upstream's is 1 MiB), and -X heapsize still sets it;
+#   - the C stack is 512 KiB and the interpreter's recursion limit follows it.
+#
+# The garbage collector is the part that needs care. MicroPython's collector is conservative: it scans the C stack and
+# the machine registers for anything that looks like a pointer. WebAssembly has no registers to scan; a value the
+# compiler keeps in a wasm local is invisible to it, so an object held only that way is freed while still in use (the
+# first build of this program failed a `str.join` over a generator exactly like that). Binaryen's `--spill-pointers`
+# pass writes every such value to the C stack across calls, which is what the collector scans. The pass needs the
+# stack pointer's name, so the link keeps names (`-g`) and strips them again after the pass. The stress test
+# (`tests/tree/wasi/micropython.test.ts`) runs the same workload on heaps from 256 KiB up and compares with CPython.
+set -euo pipefail
+"$(dirname "$0")/../../../../utils/check-emcc.sh"
+
+VERSION=1.29.0
+SHA256=d925a7c664e79a2bdf3dfcb285ba5e2237041cc35a0bd4ee573b6c5711efeca0
+HERE=$(cd "$(dirname "$0")" && pwd)
+OUT=$HERE/../../programs/micropython.wasm
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+# Replace one exact line, and fail if it is not there exactly once.
+patch_line() { # file old new
+  local count
+  count=$(grep -cF -- "$2" "$1" || true)
+  [ "$count" = 1 ] || { echo "micropython: expected exactly one '$2' in $1, found $count" >&2; exit 1; }
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+path, old, new = sys.argv[1:4]
+text = open(path).read()
+open(path, 'w').write(text.replace(old, new, 1))
+PY
+}
+
+cd "$WORK"
+curl -fsSL -o micropython.tar.xz "https://github.com/micropython/micropython/releases/download/v$VERSION/micropython-$VERSION.tar.xz"
+echo "$SHA256  micropython.tar.xz" | sha256sum -c -
+tar xf micropython.tar.xz
+cd "micropython-$VERSION"
+
+patch_line shared/runtime/pyexec.c 'mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));' \
+  'mp_obj_print_exception(MICROPY_ERROR_PRINTER, MP_OBJ_FROM_PTR(nlr.ret_val));'
+patch_line ports/unix/main.c 'long heap_size = 1024 * 1024 * (sizeof(mp_uint_t) / 4);' \
+  'long heap_size = 16 * 1024 * 1024;'
+patch_line ports/unix/main.c 'mp_uint_t stack_size = 40000 * UNIX_STACK_MULTIPLIER;' \
+  'mp_uint_t stack_size = 480 * 1024;'
+
+cd ports/unix
+# No threads, sockets, ffi, tls, btree or filesystems of its own: none can work here. No frozen modules either (the stock
+# manifest freezes `mip` and `ssl`, which need sockets).
+make -j"$(nproc)" BUILD=build CC=emcc PROG=micropython.js STRIP=true SIZE=true FROZEN_MANIFEST= \
+  MICROPY_PY_BTREE=0 MICROPY_PY_THREAD=0 MICROPY_PY_FFI=0 MICROPY_PY_SSL=0 MICROPY_PY_SOCKET=0 \
+  MICROPY_VFS_FAT=0 MICROPY_VFS_LFS1=0 MICROPY_VFS_LFS2=0 MICROPY_PY_TERMIOS=1 \
+  LDFLAGS_ARCH="-Wl,--gc-sections" \
+  CFLAGS_EXTRA="-fwasm-exceptions -sSUPPORT_LONGJMP=wasm -DMICROPY_USE_INTERNAL_PRINTF=0" \
+  LDFLAGS_EXTRA="-g -fwasm-exceptions -sSUPPORT_LONGJMP=wasm -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=50331648 -sSTACK_SIZE=524288 -sEXPORTED_FUNCTIONS=_main,_fflush -sBINARYEN_EXTRA_PASSES=--spill-pointers,--strip-debug" \
+  > build.log 2>&1 || { tail -30 build.log >&2; exit 1; }
+cp build/micropython.wasm "$OUT"
+ls -l "$OUT"
