@@ -106,7 +106,16 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/bash': '/bin/ecmash',
   '/usr/bin/env': '/bin/env',
   '/bin/vi': '/bin/vim',
-  '/bin/dc': '/bin/bc'
+  '/bin/dc': '/bin/bc',
+  '/bin/bunzip2': '/bin/bzip2',
+  '/bin/bzcat': '/bin/bzip2',
+  '/bin/unxz': '/bin/xz',
+  '/bin/xzcat': '/bin/xz',
+  '/bin/lzma': '/bin/xz',
+  '/bin/unlzma': '/bin/xz',
+  '/bin/lzcat': '/bin/xz',
+  '/bin/unzstd': '/bin/zstd',
+  '/bin/zstdcat': '/bin/zstd'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */

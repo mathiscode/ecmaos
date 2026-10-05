@@ -48,8 +48,20 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     const code = await kernel.shell.execute('diff /tmp/diff-c.txt /tmp/diff-d.txt > /tmp/diff-out.txt')
     expect(code).toBe(1)
     const out = await kernel.filesystem.fs.readFile('/tmp/diff-out.txt', 'utf-8')
-    expect(out).toContain('- two')
-    expect(out).toContain('+ two-changed')
+    expect(out).toContain('@@ -1,3 +1,3 @@')
+    expect(out).toContain('-two')
+    expect(out).toContain('+two-changed')
+  })
+
+  it('diff -u prints real unified hunks: separate hunks, -U context, and a one-line count without a comma', async () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `l${i + 1}`)
+    const changed = lines.map(line => (line === 'l2' || line === 'l18') ? `${line}!` : line)
+    await kernel.filesystem.fs.writeFile('/tmp/diff-e.txt', lines.join('\n') + '\n')
+    await kernel.filesystem.fs.writeFile('/tmp/diff-f.txt', changed.join('\n') + '\n')
+    expect(await kernel.shell.execute('diff -u -U1 /tmp/diff-e.txt /tmp/diff-f.txt > /tmp/diff-out2.txt')).toBe(1)
+    expect(await kernel.filesystem.fs.readFile('/tmp/diff-out2.txt', 'utf-8')).toBe(
+      ['--- /tmp/diff-e.txt', '+++ /tmp/diff-f.txt', '@@ -1,3 +1,3 @@', ' l1', '-l2', '+l2!', ' l3', '@@ -17,3 +17,3 @@', ' l17', '-l18', '+l18!', ' l19', ''].join('\n')
+    )
   })
 
   it('grep -c prints only the match count, per file when given several', async () => {

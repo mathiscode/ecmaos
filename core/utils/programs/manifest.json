@@ -39,6 +39,69 @@
       "homepage": "https://sqlite.org",
       "size": 1568779,
       "sha256": "db2a96d5822bf29a8a8ff44099f2cffc442c8975270f4f4808ad44e8856f5f81"
+    },
+    "bzip2": {
+      "file": "bzip2.wasm",
+      "version": "1.0.8",
+      "license": "bzip2-1.0.8",
+      "description": "bzip2, and bunzip2 and bzcat (links to it)",
+      "homepage": "https://sourceware.org/bzip2/",
+      "size": 109438,
+      "sha256": "7361501bf63e8ad14fe699730c73cc8b01af83391424cad2444b71eda1aa1052"
+    },
+    "xz": {
+      "file": "xz.wasm",
+      "version": "5.8.4",
+      "license": "0BSD",
+      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it); single-threaded",
+      "homepage": "https://tukaani.org/xz/",
+      "size": 209316,
+      "sha256": "ed290c7e18751f1dfd505dbc03ec27bb8699aec19dfc2ad8b9dd6b87b951d219"
+    },
+    "zstd": {
+      "file": "zstd.wasm",
+      "version": "1.5.7",
+      "license": "BSD-3-Clause",
+      "description": "zstd, and unzstd and zstdcat (links to it); single-threaded",
+      "homepage": "https://facebook.github.io/zstd/",
+      "size": 659930,
+      "sha256": "d9d54cd6cd42f11539ebaaccbdeb8b2ac74cfab28471ec27265f6edc4adad4ea"
+    },
+    "qjs": {
+      "file": "qjs.wasm",
+      "version": "0.17.0",
+      "license": "MIT",
+      "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
+      "homepage": "https://quickjs-ng.github.io/quickjs/",
+      "size": 1092482,
+      "sha256": "b9adf770e8a32d5fe49e9ae0fe6130c9318215a4a2848af34506d713960a7cd2"
+    },
+    "patch": {
+      "file": "patch.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "patch, from toybox: applies unified, context and normal diffs",
+      "homepage": "https://landley.net/toybox/",
+      "size": 62112,
+      "sha256": "7b977ba51d7ec80332476017760a8771f249b19e5e27186ac0474093c09960c5"
+    },
+    "ncdu": {
+      "file": "ncdu.wasm",
+      "version": "1.22",
+      "license": "MIT AND X11",
+      "description": "ncdu, the disk usage browser, with ncurses; `b` (spawn a shell) does not work",
+      "homepage": "https://dev.yorhel.nl/ncdu",
+      "size": 250726,
+      "sha256": "1b450f295659b344ef34222fe457a25096ff1a531d02b03ea5b8c01d9d66fe33"
+    },
+    "mg": {
+      "file": "mg.wasm",
+      "version": "20260719",
+      "license": "LicenseRef-PublicDomain AND ISC AND BSD-3-Clause AND BSD-2-Clause AND X11",
+      "description": "mg, a small Emacs-style editor, with ncurses",
+      "homepage": "https://github.com/hboetes/mg",
+      "size": 270273,
+      "sha256": "b13b675357812c8dd6aac25657dd07a5fdd055b4c081950bfc3ac794f4550fd5"
     }
   }
 }

@@ -26,7 +26,7 @@
  * fix -- opening the preopens for real up front -- came from that trace, not from guessing).
  */
 
-import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
 
@@ -1047,10 +1047,19 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     __syscall_utimensat: (dirfd, pathPtr, timesPtr, _flags) => guardLinux(() => {
       const path = resolveAt(dirfd, pathPtr)
       const dv = view()
+      const UTIME_NOW = 0x3fffffff, UTIME_OMIT = 0x3ffffffe
       const now = Date.now()
-      const at = timesPtr ? Number(dv.getBigInt64(timesPtr, true)) * 1000 : now
-      const mt = timesPtr ? Number(dv.getBigInt64(timesPtr + 16, true)) * 1000 : now
-      utimes(path, at, mt)
+      const current = timesPtr ? stat(path) : undefined
+      // struct timespec[2] = { tv_sec: i64, tv_nsec: i32 (padded to 8) } x 2. A bare number is seconds to `utimes`,
+      // so pass Dates: they are unambiguous.
+      const pick = (offset, keep) => {
+        if (!timesPtr) return new Date(now)
+        const nsec = dv.getInt32(timesPtr + offset + 8, true)
+        if (nsec === UTIME_NOW) return new Date(now)
+        if (nsec === UTIME_OMIT) return new Date(keep)
+        return new Date(Number(dv.getBigInt64(timesPtr + offset, true)) * 1000 + Math.floor(nsec / 1e6))
+      }
+      utimes(path, pick(0, current?.atimeMs ?? now), pick(16, current?.mtimeMs ?? now))
     }),
     __syscall_getuid32: () => 0,
     __syscall_geteuid32: () => 0,
@@ -1107,6 +1116,13 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     exit: (code) => { throw new ProcExit(code) },
     _abort_js: () => { throw new Error('abort() called') },
     _emscripten_runtime_keepalive_clear: () => {},
+    // `getprogname()` / `program_invocation_name`: the name the program was started under (argv[0]), copied into `ptr`.
+    _emscripten_get_progname: (ptr, len) => {
+      const name = encoder.encode(args[0] ?? '')
+      const count = Math.min(name.length, Math.max(0, len - 1))
+      bytes().set(name.subarray(0, count), ptr)
+      bytes()[ptr + count] = 0
+    },
     emscripten_resize_heap: (requested) => {
       try {
         const memory = getMemory()
@@ -1179,7 +1195,12 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
     // mkfifo(3) and mknod(2): GNU make's jobserver asks for a fifo, and falls back when it cannot have one.
     __syscall_mknodat: () => -SYSCALL_ERRNO.ENOSYS,
-    __syscall_pipe2: () => -SYSCALL_ERRNO.ENOSYS,
+    // pipe2(2): two real descriptors, written to `int fds[2]`. (`flags` -- O_CLOEXEC, O_NONBLOCK -- are not applied.)
+    __syscall_pipe2: (fdsPtr, flags) => guardLinux(() => {
+      const [readEnd, writeEnd] = pipe(flags)
+      view().setInt32(fdsPtr, readEnd, true)
+      view().setInt32(fdsPtr + 4, writeEnd, true)
+    }),
     // poll(2): `struct pollfd` is { int fd; short events; short revents }.
     __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout)),
     __syscall_poll_nonblocking: (fdsPtr, nfds) => guardLinux(() => doPoll(fdsPtr, nfds, 0)),

@@ -34,7 +34,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_poll', '__syscall_poll_nonblocking',
   'exit', '_abort_js', '_emscripten_runtime_keepalive_clear', 'emscripten_resize_heap', '__call_sighandler', '_emscripten_system',
   'emscripten_get_now', 'emscripten_date_now', 'emscripten_get_heap_max', '__assert_fail', '_tzset_js', '_localtime_js', '_mktime_js', '_gmtime_js', '_timegm_js', '_mmap_js', '_munmap_js', '_setitimer_js', 'strptime',
-  '__syscall_dup', '__syscall_pipe2', '__syscall_mknodat',
+  '__syscall_dup', '__syscall_pipe2', '__syscall_mknodat', '_emscripten_get_progname',
 ])
 
 /**
