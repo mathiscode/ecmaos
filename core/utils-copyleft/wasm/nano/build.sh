@@ -31,7 +31,11 @@ CC=emcc CFLAGS="-O2 -fwasm-exceptions" ./configure --host=wasm32-unknown-emscrip
   --without-shared --without-debug --disable-database --with-fallbacks=xterm-256color,xterm,vt100,linux \
   --with-tic-path="$(command -v tic)" --with-infocmp-path="$(command -v infocmp)" --without-gpm \
   --disable-stripping --enable-widec --disable-home-terminfo > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
+# configure thinks this is not a cross build (the emcc test programs run under node), so it points the build-time helpers
+# (make_keys writes the key table: without it curses recognises no arrow or function key) at emcc. Use the host compiler.
+sed -i 's/^BUILD_CC\t= .*/BUILD_CC\t= cc/; s/^BUILD_CCFLAGS\t= .*/BUILD_CCFLAGS\t=/; s/^BUILD_LDFLAGS\t= .*/BUILD_LDFLAGS\t=/; s/^BUILD_LIBS\t= .*/BUILD_LIBS\t=/' ncurses/Makefile
 make -j"$(nproc)" libs > make.log 2>&1 || true # the last step builds a host-side helper that does not run; the library is what we want
+grep -q "KEY_A1" ncurses/init_keytry.h || { echo "ncurses: init_keytry.h is empty (the host helper make_keys did not run), so arrow keys would not work" >&2; exit 1; }
 [ -f lib/libncursesw.a ] || { tail -30 make.log >&2; exit 1; }
 make install.includes > /dev/null 2>&1
 mkdir -p "$WORK/prefix/lib" && cp lib/libncursesw.a "$WORK/prefix/lib/"

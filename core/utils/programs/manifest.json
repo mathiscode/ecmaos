@@ -91,8 +91,8 @@
       "license": "MIT AND X11",
       "description": "ncdu, the disk usage browser, with ncurses; `b` (spawn a shell) does not work",
       "homepage": "https://dev.yorhel.nl/ncdu",
-      "size": 250726,
-      "sha256": "1b450f295659b344ef34222fe457a25096ff1a531d02b03ea5b8c01d9d66fe33"
+      "size": 252050,
+      "sha256": "b39c6bf892488a0e460a72ff04ca3a5ef8ba30e6aa847f61e9277c8d3c6d3c69"
     },
     "mg": {
       "file": "mg.wasm",
