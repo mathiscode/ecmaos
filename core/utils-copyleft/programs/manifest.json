@@ -119,6 +119,56 @@
           "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified"
         }
       ]
+    },
+    "ed": {
+      "file": "ed.wasm",
+      "version": "1.22.5",
+      "license": "GPL-2.0-or-later",
+      "description": "GNU ed, the line editor",
+      "homepage": "https://www.gnu.org/software/ed/",
+      "sources": [
+        {
+          "name": "ed",
+          "version": "1.22.5",
+          "license": "GPL-2.0-or-later",
+          "archive": "ed_1.22.5.orig.tar.gz",
+          "url": "http://deb.debian.org/debian/pool/main/e/ed/ed_1.22.5.orig.tar.gz",
+          "sha256": "3e411ca3a799cccd90b185a2ad14c90a9d5d2899620e95277c2d4838a6394722"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/ed/build.sh",
+          "what": "compile and link flags only; the source is unmodified. The archive is Debian's gzip copy of upstream's ed-1.22.5.tar.lz, since upstream publishes only lzip"
+        }
+      ],
+      "size": 100383,
+      "sha256": "44b6539f0e33025ba7d0776659c7bf350a1df2e8e7ec78dd8036b53798dc31f9"
+    },
+    "lz4": {
+      "file": "lz4.wasm",
+      "version": "1.10.0",
+      "license": "GPL-2.0-or-later AND BSD-2-Clause",
+      "description": "lz4, and unlz4 and lz4cat (links to it); single-threaded",
+      "homepage": "https://lz4.org",
+      "sources": [
+        {
+          "name": "lz4",
+          "version": "1.10.0",
+          "license": "GPL-2.0-or-later AND BSD-2-Clause",
+          "archive": "lz4-1.10.0.tar.gz",
+          "url": "https://github.com/lz4/lz4/archive/refs/tags/v1.10.0.tar.gz",
+          "sha256": "537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/lz4/build.sh",
+          "what": "compile and link flags only (single-threaded); the source is unmodified"
+        }
+      ],
+      "size": 176950,
+      "sha256": "62169fd453c18b338fae8e9d0d29e4f7611ec9a4eb7acf26064da6d800683d55"
     }
   }
 }

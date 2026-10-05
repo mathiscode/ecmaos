@@ -13,6 +13,15 @@
       "size": 265180,
       "sha256": "bd6d4b2a7cdf160f3965a4f4a5033af0a798d05a1afd8f92847f285acd23bfb7"
     },
+    "brotli": {
+      "file": "brotli.wasm",
+      "version": "1.2.0",
+      "license": "MIT",
+      "description": "brotli, the compressor and decompressor",
+      "homepage": "https://github.com/google/brotli",
+      "size": 736634,
+      "sha256": "d548d974ed3a26c6dff95006e099b2cb78411b985eaa3f9847b48ef48747054e"
+    },
     "jq": {
       "file": "jq.wasm",
       "version": "1.8.2",
@@ -111,6 +120,15 @@
       "homepage": "https://micropython.org/",
       "size": 631549,
       "sha256": "3e44b841c86c176644768b0c6629afbe6d7a5486532ffc04d36d5d5c9b7c1e20"
+    },
+    "mandoc": {
+      "file": "mandoc.wasm",
+      "version": "1.14.6",
+      "license": "ISC AND Zlib",
+      "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
+      "homepage": "https://mandoc.bsd.lv",
+      "size": 547142,
+      "sha256": "97a122619ae98e71a0571a6f67caf114514435debf66619de57e2baa2e13b956"
     }
   }
 }

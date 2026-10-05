@@ -5,8 +5,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/bzip2`, `xz` and `zstd` are C programs built to WebAssembly (`core/utils/wasm/*`), each with links for the other names. */
-describe('bzip2, xz and zstd', () => {
+/** `/bin/bzip2`, `xz`, `zstd` and `lz4` are C programs built to WebAssembly (`core/utils/wasm/*`), each with links for the other names. */
+describe('bzip2, xz, zstd and lz4', () => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -25,13 +25,13 @@ describe('bzip2, xz and zstd', () => {
     return { code, out: await kernel.filesystem.fs.readFile('/tmp/z.out', 'utf8'), err: await kernel.filesystem.fs.readFile('/tmp/z.err', 'utf8') }
   }
 
-  for (const [tool, ext, decompress, cat] of [['bzip2', 'bz2', 'bunzip2', 'bzcat'], ['xz', 'xz', 'unxz', 'xzcat'], ['zstd', 'zst', 'unzstd', 'zstdcat']] as const) {
+  for (const [tool, ext, decompress, cat] of [['bzip2', 'bz2', 'bunzip2', 'bzcat'], ['xz', 'xz', 'unxz', 'xzcat'], ['zstd', 'zst', 'unzstd', 'zstdcat'], ['lz4', 'lz4', 'unlz4', 'lz4cat']] as const) {
     it(`${tool} compresses, ${decompress} restores it, and ${cat} reads it`, async () => {
       const fs = kernel.filesystem.fs
       const original = await fs.readFile('/tmp/z.txt', 'utf8')
       await fs.writeFile(`/tmp/c-${tool}.txt`, original)
-      // zstd, unlike the other two, keeps its input unless told not to
-      const rm = tool === 'zstd' ? ' --rm' : ''
+      // zstd and lz4, unlike the other two, keeps its input unless told not to
+      const rm = tool === 'zstd' || tool === 'lz4' ? ' --rm' : ''
       expect((await run(`${tool}${rm} /tmp/c-${tool}.txt`)).code).toBe(0)
       expect(await fs.exists(`/tmp/c-${tool}.txt`)).toBe(false)
       const packed = await fs.readFile(`/tmp/c-${tool}.txt.${ext}`)

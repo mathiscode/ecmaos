@@ -10,8 +10,10 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `lua` | 5.4.8 | MIT | `lua/LICENSE` |
 | `sqlite3` | 3.53.4 | public domain; linenoise is BSD-2-Clause | `sqlite3/blessing.txt`, `sqlite3/linenoise-LICENSE` |
 | `bzip2` | 1.0.8 | bzip2-1.0.8 (BSD-style) | `bzip2/LICENSE` |
+| `brotli` | 1.2.0 | MIT | `brotli/LICENSE` |
 | `xz` | 5.8.4 | 0BSD (the command line tool and liblzma; the GPL scripts are not built) | `xz/COPYING`, `xz/COPYING.0BSD` |
 | `zstd` | 1.5.7 | BSD-3-Clause (dual-licensed with GPL-2.0; used under BSD) | `zstd/LICENSE` |
+| `mandoc` | 1.14.6 | ISC (with some BSD-2-Clause and BSD-3-Clause files, listed in the text); zlib from emscripten is the zlib license | `mandoc/LICENSE`, `mandoc/zlib-LICENSE` |
 | `qjs` | 0.17.0 | MIT | `qjs/LICENSE` |
 | `patch` | toybox 0.8.12 | 0BSD | `patch/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |

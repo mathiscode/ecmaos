@@ -1174,6 +1174,8 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     emscripten_get_now: () => performance.now(),
     emscripten_date_now: () => Date.now(),
     emscripten_get_heap_max: () => 2147483648,
+    // emscripten's own diagnostics (a library calling `emscripten_err`) go to standard error, one line each.
+    emscripten_err: (ptr) => { write(2, encoder.encode(readCString(ptr) + '\n'), -1) },
     __assert_fail: (cond, file, line) => {
       const read = (ptr) => { const m = new Uint8Array(getMemory().buffer); let e = ptr; while (m[e]) e++; return new TextDecoder().decode(m.subarray(ptr, e)) }
       throw new Error(`assertion failed: ${read(cond)} (${read(file)}:${line})`)
