@@ -16,4 +16,4 @@ Halts the system: asks init (pid 1) to run the `shutdown` entries of `/etc/initt
 
 ## See also
 
-`@ecmaos/kernel/commands/reboot`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/kernel/commands/init`
+`@ecmaos/kernel/commands/reboot`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/coreutils/init`

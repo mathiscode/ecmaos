@@ -2,8 +2,9 @@
  * Show a manual page. Pages when run interactively; with output piped or redirected, prints the
  * text directly instead, like real `man`. Only English text is shown.
  *
- * A bare name (`man ps`) is looked up as a command: a page under `@ecmaos/kernel/commands/` or
- * `@ecmaos/coreutils/`, then a package of that name, and last the command's own `--help`, so every
+ * A bare name (`man ps`) is looked up as a command: a page under `@ecmaos/kernel/commands/` (the kernel's own
+ * commands) or `@ecmaos/coreutils/` and `@ecmaos/coreutils-copyleft/` (the programs those packages ship), then a
+ * package of that name, and last the command's own `--help`, so every
  * command has a manual page without anyone writing one and the text cannot drift from the program.
  */
 
@@ -354,7 +355,7 @@ function printTopics(pkgPath, topics, hint) {
 }
 
 /** Where a command's page can live, in the order they are tried. */
-const COMMAND_PACKAGES = [['@ecmaos', 'kernel', 'commands'], ['@ecmaos', 'coreutils']]
+const COMMAND_PACKAGES = [['@ecmaos', 'kernel', 'commands'], ['@ecmaos', 'coreutils'], ['@ecmaos', 'coreutils-copyleft']]
 
 /** The page for a command, or null. */
 function findCommandPage(manpaths, name) {

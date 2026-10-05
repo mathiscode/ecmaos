@@ -16,4 +16,4 @@ Reboots the system: asks init (pid 1) to run the `shutdown` entries of `/etc/ini
 
 ## See also
 
-`@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/kernel/commands/init`, `@ecmaos/kernel/commands/ps`
+`@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/coreutils/init`, `@ecmaos/kernel/commands/ps`

@@ -28,4 +28,4 @@ Group passwords and `newgrp` are not supported. Only root may run it.
 
 ## See also
 
-`@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/usermod`, `@ecmaos/kernel/commands/getent`
+`@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/usermod`, `@ecmaos/coreutils/getent`

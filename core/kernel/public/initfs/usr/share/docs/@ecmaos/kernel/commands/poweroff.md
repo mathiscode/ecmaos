@@ -18,4 +18,4 @@ A page cannot switch itself off. After the kernel stops, this tries to close the
 
 ## See also
 
-`@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/reboot`, `@ecmaos/kernel/commands/init`
+`@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/reboot`, `@ecmaos/coreutils/init`

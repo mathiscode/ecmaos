@@ -360,7 +360,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - `/sbin/getty`: the login prompt on one terminal, run by init for each of the eight (it asks for the user name and runs `/bin/login`, which asks for the password and runs the shell)
 <!-- - `/bios/`: The BIOS filesystem -->
 - `/boot/init`: A script that runs on boot, as a `sysinit` entry of `/etc/inittab`
-- `/etc/inittab`: What init runs and keeps running (BusyBox format; see `man @ecmaos/kernel/commands/inittab`)
+- `/etc/inittab`: What init runs and keeps running (BusyBox format; see `man @ecmaos/coreutils/inittab`)
 - `/dev/`: All devices are here
 - `/etc/crontab`: System-wide crontab file (loaded on boot)
 - `/etc/packages`: A list of installed packages to load on boot

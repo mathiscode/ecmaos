@@ -14,4 +14,4 @@ Clear the terminal screen and move the cursor to the top left. It writes the esc
 
 ## See also
 
-`@ecmaos/kernel/commands/getty`
+`@ecmaos/coreutils/getty`

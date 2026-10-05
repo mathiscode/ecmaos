@@ -27,4 +27,4 @@ Only root may run it.
 
 ## See also
 
-`@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/groupdel`, `@ecmaos/kernel/commands/chgrp`
+`@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/groupdel`, `@ecmaos/coreutils/chgrp`

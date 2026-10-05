@@ -47,6 +47,13 @@ describe('man', () => {
     expect(out).toContain('Counts things.')
   })
 
+  it('shows the written page for a copyleft program', async () => {
+    await writePage('/usr/share/docs/@ecmaos/coreutils-copyleft', 'ed', '# ed page\n\nCounts things.\n')
+    const { code, out } = await run('man wc')
+    expect(code).toBe(0)
+    expect(out).toContain('Counts things.')
+  })
+
   it('falls back to --help for a command with no page', async () => {
     const { code, out } = await run('man cat')
     expect(code).toBe(0)
