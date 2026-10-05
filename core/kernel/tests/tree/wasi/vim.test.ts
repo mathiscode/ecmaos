@@ -14,7 +14,7 @@ async function waitFor(check: () => boolean, timeoutMs = 8000): Promise<void> {
 }
 
 /**
- * `/bin/vim` is Vim 9.1 built to WebAssembly (`wasm/vim/build.sh`), run as an ordinary worker program
+ * `/bin/vim` is Vim 9.1 built to WebAssembly (`core/utils-copyleft/wasm/vim/build.sh`), run as an ordinary worker program
  * on the terminal, the way `/bin/vi` is. These drive it with keystrokes through the line discipline.
  */
 describe('vim', () => {
@@ -86,6 +86,12 @@ describe('vim', () => {
     expect(out).toMatch(/^c\nsyntax\nc\n/)
     expect(out).toMatch(/cType\s+xxx/)
     expect(out).toMatch(/color\n$/)
+  }, 30000)
+
+  it('says in :version that it is a modified Vim, as the Vim license requires', async () => {
+    const code = await edit('vim /tmp/ver.txt', ':call writefile(split(execute("version"), "\\n"), "/tmp/ver.out")\r:q\r')
+    expect(code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/ver.out', 'utf8')).toMatch(/Modified by ecmaOS/)
   }, 30000)
 
   it('runs shell commands: :r !, system() and a filter', async () => {

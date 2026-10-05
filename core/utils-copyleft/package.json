@@ -1,0 +1,37 @@
+{
+  "name": "@ecmaos/coreutils-copyleft",
+  "description": "ecmaOS: copyleft programs built to WebAssembly (GNU make, GNU nano, tree, Vim), with their source",
+  "version": "0.1.0",
+  "license": "GPL-3.0-or-later AND GPL-2.0-or-later AND X11 AND Vim AND (MIT OR Apache-2.0)",
+  "homepage": "https://ecmaos.sh",
+  "repository": "https://github.com/ecmaos/ecmaos",
+  "author": {
+    "name": "Jay Mathis",
+    "email": "code@mathis.network",
+    "url": "https://github.com/mathiscode"
+  },
+  "bugs": {
+    "url": "https://github.com/ecmaos/ecmaos/issues",
+    "email": "code@mathis.network"
+  },
+  "type": "module",
+  "files": [
+    "programs",
+    "licenses",
+    "sources",
+    "scripts",
+    "wasm",
+    "README.md"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./programs/*": "./programs/*"
+  },
+  "scripts": {
+    "build": "node scripts/sources.mjs all && node scripts/licenses.mjs --check && node ../../utils/programs-manifest.mjs --check",
+    "prepack": "node scripts/sources.mjs all"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

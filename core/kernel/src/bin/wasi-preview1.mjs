@@ -1426,7 +1426,7 @@ const CATCHABLE_SIGNALS = [1, 2, 10, 12, 15, 28]
 const SIGWINCH = 28
 
 /**
- * A module that exports `ecmaos_signal(sig)` (see `wasm/vim/libc-gaps.c`) gets the kernel's signals run
+ * A module that exports `ecmaos_signal(sig)` (see `core/utils-copyleft/wasm/vim/libc-gaps.c`) gets the kernel's signals run
  * through the handlers it set with `signal()`/`sigaction()`. The kernel raises them while the worker is in a
  * blocking syscall (Vim waiting for a key), and upstream runs handlers registered with `on_signal` as that
  * syscall returns -- which is inside the module's own import call, so calling back into it is safe. A

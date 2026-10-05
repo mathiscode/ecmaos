@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/lua` is Lua 5.4 built to WebAssembly (`wasm/lua/build.sh`) and run as a worker program. */
+/** `/bin/lua` is Lua 5.4 built to WebAssembly (`core/utils/wasm/lua/build.sh`) and run as a worker program. */
 describe('lua', () => {
   let kernel: Kernel
 

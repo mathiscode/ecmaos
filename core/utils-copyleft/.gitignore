@@ -1,0 +1,2 @@
+# Upstream archives; `scripts/sources.mjs` downloads them against the sha256 pinned in programs/manifest.json.
+sources/

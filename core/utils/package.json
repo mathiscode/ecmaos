@@ -17,8 +17,11 @@
   "type": "module",
   "files": [
     "dist",
+    "programs",
+    "licenses",
     "src/commands-execve",
-    "src/lib"
+    "src/lib",
+    "wasm"
   ],
   "exports": {
     ".": {
@@ -29,10 +32,11 @@
     "./lib/*": {
       "types": "./dist/lib/*.d.ts",
       "default": "./dist/lib/*.js"
-    }
+    },
+    "./programs/*": "./programs/*"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node ../../utils/programs-manifest.mjs --check",
     "dev": "tsc --watch",
     "test": "vitest run"
   },

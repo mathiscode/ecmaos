@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/make` is GNU make built to WebAssembly (`wasm/make/build.sh`); recipes run through the system() shim. */
+/** `/bin/make` is GNU make built to WebAssembly (`core/utils-copyleft/wasm/make/build.sh`); recipes run through the system() shim. */
 describe('make', () => {
   let kernel: Kernel
 

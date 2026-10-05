@@ -1,0 +1,36 @@
+# @ecmaos/coreutils-copyleft
+
+Copyleft programs for ecmaOS, built to WebAssembly: GNU make, GNU nano (with ncurses), tree and Vim. They live apart
+from `@ecmaos/coreutils` (MIT OR Apache-2.0) so that package, and the kernel, carry no copyleft code. The ecmaOS
+site serves these programs as separate files under `/programs/`; nothing in the kernel bundle contains them.
+
+Each program runs as a process of its own, started with `execve`, and talks to the rest of the system only through
+syscalls, arguments and pipes. The programs are never imported as libraries.
+
+## Licenses
+
+| Program | License | Notes |
+|---|---|---|
+| `make` 4.4.1 | GPL-3.0-or-later | |
+| `nano` 9.2 | GPL-3.0-or-later | statically linked with ncurses 6.5 (X11 license) |
+| `tree` 2.2.1 | GPL-2.0-or-later | |
+| `vim` 9.1.0 | Vim license | a modified version: see `licenses/vim/SOURCE`; `:version` and the intro screen say so |
+
+Each binary also contains musl libc and compiler-rt (see `licenses/runtime/`). Files written for ecmaOS in this
+package are licensed as the program they belong to when they modify or are linked into it
+(`wasm/make/ecmaos-spawn.c`: GPL-3.0-or-later), and otherwise MIT OR Apache-2.0 (`wasm/vim/libc-gaps.c`, the
+scripts); each carries an `SPDX-License-Identifier`. The texts are in `licenses/`.
+
+## Source
+
+`programs/manifest.json` pins the upstream archive of every program (URL and sha256). `node scripts/sources.mjs all`
+downloads them into `sources/`, which is what `npm pack` ships and what a deployment serves at `/sources/`, so the
+source offered is the source the binary was built from. `licenses/<program>/SOURCE` is the written offer for each
+program: the upstream archive, what ecmaOS changed, and the toolchain (`utils/emscripten-version` in the repository).
+
+## Rebuilding
+
+`wasm/<name>/build.sh` rebuilds one program with Emscripten (the pinned version; the script refuses another unless
+`ECMAOS_EMCC_ANY=1`) and writes `programs/<name>.wasm`. Then `node ../../utils/programs-manifest.mjs` refreshes the
+manifest's sizes and hashes. `wasm/vim/runtime.sh` copies the subset of Vim's runtime that ships in the kernel's
+initfs.

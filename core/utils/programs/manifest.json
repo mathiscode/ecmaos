@@ -1,0 +1,44 @@
+{
+  "package": "@ecmaos/coreutils",
+  "toolchain": {
+    "emscripten": "6.0.9"
+  },
+  "programs": {
+    "bc": {
+      "file": "bc.wasm",
+      "version": "7.0.3",
+      "license": "BSD-2-Clause",
+      "description": "bc, and dc (the same binary under another name)",
+      "homepage": "https://git.gavinhoward.com/gavin/bc",
+      "size": 265180,
+      "sha256": "bd6d4b2a7cdf160f3965a4f4a5033af0a798d05a1afd8f92847f285acd23bfb7"
+    },
+    "jq": {
+      "file": "jq.wasm",
+      "version": "1.8.2",
+      "license": "MIT AND BSD-2-Clause AND ICU",
+      "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
+      "homepage": "https://jqlang.org",
+      "size": 929331,
+      "sha256": "21ef4f65bc6cb1c295360e8311121033838d9d97f1466e879a19ea9521971404"
+    },
+    "lua": {
+      "file": "lua.wasm",
+      "version": "5.4.8",
+      "license": "MIT",
+      "description": "The Lua 5.4 interpreter",
+      "homepage": "https://www.lua.org",
+      "size": 268813,
+      "sha256": "6a7b7dab6b65bf5c129d368f4ff87d08d83e40ddd12d69a8f1773bffca5d08e6"
+    },
+    "sqlite3": {
+      "file": "sqlite3.wasm",
+      "version": "3.53.4",
+      "license": "blessing AND BSD-2-Clause",
+      "description": "The SQLite command-line shell, with linenoise for line editing",
+      "homepage": "https://sqlite.org",
+      "size": 1568779,
+      "sha256": "db2a96d5822bf29a8a8ff44099f2cffc442c8975270f4f4808ad44e8856f5f81"
+    }
+  }
+}

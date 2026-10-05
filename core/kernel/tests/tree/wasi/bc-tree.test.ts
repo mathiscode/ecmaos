@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/bc` (and `dc`, a link to it) and `/bin/tree` are C programs built to WebAssembly (`wasm/bc`, `wasm/tree`). */
+/** `/bin/bc` (and `dc`, a link to it) and `/bin/tree` are C programs built to WebAssembly (`core/utils/wasm/bc`, `core/utils-copyleft/wasm/tree`). */
 describe('bc, dc and tree', () => {
   let kernel: Kernel
 

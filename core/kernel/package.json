@@ -51,6 +51,8 @@
   "type": "module",
   "files": [
     "dist",
+    "!dist/programs",
+    "!dist/sources",
     "src"
   ],
   "exports": {
@@ -105,6 +107,7 @@
   },
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/coreutils-copyleft": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@eslint/js": "^10.0.1",
     "@schemastore/package": "^0.0.10",

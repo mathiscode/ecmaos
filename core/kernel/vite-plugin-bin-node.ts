@@ -11,6 +11,7 @@ import { build } from 'esbuild'
 import type { Plugin } from 'vite'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { existsSync, readFileSync } from 'node:fs'
 
 function binWorkerPlugin(name: string, entryPoint: string): Plugin {
   const virtualModuleId = `virtual:bin-${name}`
@@ -210,30 +211,98 @@ export function binKernelCommands(): Plugin {
 }
 
 /**
- * Bundles every prebuilt WebAssembly program in `src/bin/wasm/` (`vim.wasm`, built by
- * `wasm/vim/build.sh`) into `virtual:bin-wasm`, exporting `{ [name]: base64 }`, so
- * `Kernel.registerCommands` can write each one to `/bin/<name>`.
+ * The packages that ship prebuilt WebAssembly programs, each with a `programs/manifest.json` and the `.wasm` files it
+ * lists. `path` is the directory the site serves them under, `/programs/<path>/<file>`. The copyleft package is
+ * optional: it is left out when it is not installed, or when `ECMAOS_COPYLEFT` is `0`, `false`, `off` or `no`,
+ * which gives a build that holds only permissively licensed programs.
  */
-export function binWasm(): Plugin {
-  const virtualModuleId = 'virtual:bin-wasm'
-  const resolvedVirtualModuleId = '\0' + virtualModuleId
-  const dir = path.join(import.meta.dirname, 'src', 'bin', 'wasm')
+const PROGRAM_PACKAGES = [
+  { name: '@ecmaos/coreutils', path: 'coreutils', optional: false },
+  { name: '@ecmaos/coreutils-copyleft', path: 'coreutils-copyleft', optional: true }
+]
+
+export interface ProgramPackageManifest {
+  name: string
+  path: string
+  dir: string
+  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, sources?: { archive: string }[] }>
+}
+
+/** Reads the manifests of the program packages that this build includes. */
+export function readProgramPackages(): ProgramPackageManifest[] {
+  const require = createRequire(import.meta.url)
+  const copyleft = !['0', 'false', 'off', 'no'].includes(String(process.env['ECMAOS_COPYLEFT'] ?? '').toLowerCase())
+  const found: ProgramPackageManifest[] = []
+  for (const entry of PROGRAM_PACKAGES) {
+    if (entry.optional && !copyleft) continue
+    let dir: string
+    try { dir = path.join(path.dirname(require.resolve(`${entry.name}/package.json`)), 'programs') } catch (error) {
+      if (entry.optional) continue
+      throw error
+    }
+    const { programs } = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
+    found.push({ name: entry.name, path: entry.path, dir, programs })
+  }
+  return found
+}
+
+/** The catalog the kernel fetches (`/programs/index.json`): what each package offers, without where it lives on disk. */
+export function programCatalog(packages: ProgramPackageManifest[]) {
+  const entry = ({ file, size, sha256, version, license, description }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description })
+  return {
+    packages: packages.map(({ name, path, programs }) => ({
+      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(value)]))
+    }))
+  }
+}
+
+/**
+ * Serves the prebuilt WebAssembly programs as files instead of embedding them in the kernel bundle: in dev and
+ * preview from the packages themselves, in a build as `programs/index.json` and `programs/<package>/<file>` beside the
+ * page. The kernel reads the catalog at boot and writes each program to `/bin` only when the installed one differs
+ * (`src/tree/lib/programs.ts`). Keeping the binaries out of the JavaScript keeps each one a separate file under its
+ * own license, and keeps GPL code out of the published `@ecmaos/kernel` package (`files` excludes `dist/programs`).
+ */
+export function binPrograms(): Plugin {
+  const serve = (server: { middlewares: { use: (handler: (req: any, res: any, next: () => void) => void) => void } }) => {
+    server.middlewares.use((req, res, next) => {
+      const url = String(req.url ?? '').split('?')[0]
+      if (!url.startsWith('/programs/')) return next()
+      const packages = readProgramPackages()
+      if (url === '/programs/index.json') {
+        res.setHeader('Content-Type', 'application/json')
+        res.setHeader('Cache-Control', 'no-cache')
+        res.end(JSON.stringify(programCatalog(packages)))
+        return
+      }
+      const [, , pkg, file] = url.split('/')
+      const entry = packages.find(candidate => candidate.path === pkg)
+      const program = entry && Object.values(entry.programs).find(candidate => candidate.file === file)
+      if (!entry || !program) { res.statusCode = 404; res.end('Not found'); return }
+      res.setHeader('Content-Type', 'application/wasm')
+      res.end(readFileSync(path.join(entry.dir, program.file)))
+    })
+  }
 
   return {
-    name: 'ecmaos:bin-wasm',
-    resolveId(id) {
-      if (id === virtualModuleId) return resolvedVirtualModuleId
-    },
-    async load(id) {
-      if (id !== resolvedVirtualModuleId) return
-      const { readdirSync, readFileSync } = await import('node:fs')
-      const entries: Record<string, string> = {}
-      for (const file of readdirSync(dir)) {
-        if (!file.endsWith('.wasm')) continue
-        this.addWatchFile(path.join(dir, file))
-        entries[file.slice(0, -'.wasm'.length)] = readFileSync(path.join(dir, file)).toString('base64')
+    name: 'ecmaos:programs',
+    configureServer: serve,
+    configurePreviewServer: serve,
+    generateBundle() {
+      const packages = readProgramPackages()
+      this.emitFile({ type: 'asset', fileName: 'programs/index.json', source: JSON.stringify(programCatalog(packages)) })
+      for (const entry of packages) {
+        for (const program of Object.values(entry.programs)) {
+          this.emitFile({ type: 'asset', fileName: `programs/${entry.path}/${program.file}`, source: readFileSync(path.join(entry.dir, program.file)) })
+          // Serving a copyleft binary means offering its source from the same place: the archives it was built from go
+          // out at `/sources/`. A build that cannot do that fails, rather than publish a site that breaks the offer.
+          for (const source of program.sources ?? []) {
+            const archive = path.join(entry.dir, '..', 'sources', source.archive)
+            if (!existsSync(archive)) throw new Error(`${entry.name}: ${source.archive} is missing, so the source of ${program.file} cannot be served; run \`node scripts/sources.mjs all\` in the package (its build script does), or build without it with ECMAOS_COPYLEFT=0`)
+            this.emitFile({ type: 'asset', fileName: `sources/${source.archive}`, source: readFileSync(archive) })
+          }
+        }
       }
-      return `export default ${JSON.stringify(entries)}`
     }
   }
 }

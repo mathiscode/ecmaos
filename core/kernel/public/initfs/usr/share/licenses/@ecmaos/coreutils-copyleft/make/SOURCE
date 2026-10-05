@@ -1,0 +1,24 @@
+make 4.4.1 (GPL-3.0-or-later)
+
+programs/make.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  make-4.4.1.tar.gz  (make 4.4.1, GPL-3.0-or-later)
+    sha256 dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3
+    from https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/make/ecmaos-spawn.c
+    new file, linked into the program: runs each recipe line through system() and answers waitpid, since the runtime has no fork
+  wasm/make/build.sh
+    the build; patches src/job.c so child_execute_job calls ecmaos_run instead of vfork
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+
+Where to get it
+  - /sources/make-4.4.1.tar.gz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

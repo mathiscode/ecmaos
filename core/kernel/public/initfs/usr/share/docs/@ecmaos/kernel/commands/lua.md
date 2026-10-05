@@ -32,3 +32,7 @@ lua -e 'print(2^10)'
 lua script.lua one two
 echo 21 | lua -e 'print(io.read("n") * 2)'
 ```
+
+## License
+
+Lua 5.4.8, MIT. The license text is in `/usr/share/licenses/@ecmaos/coreutils/lua/`.

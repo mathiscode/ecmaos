@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/sqlite3` is the SQLite shell built to WebAssembly (`wasm/sqlite3/build.sh`) and run as a worker program. */
+/** `/bin/sqlite3` is the SQLite shell built to WebAssembly (`core/utils/wasm/sqlite3/build.sh`) and run as a worker program. */
 describe('sqlite3', () => {
   let kernel: Kernel
 

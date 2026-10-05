@@ -32,3 +32,7 @@ make -n all
 make -f build.mk clean
 make CC=cc -B
 ```
+
+## License
+
+GNU make 4.4.1, GPL-3.0-or-later. The license text is in `/usr/share/licenses/@ecmaos/coreutils-copyleft/make/`. The source it was built from, and what ecmaOS changed, is described in `/usr/share/licenses/@ecmaos/coreutils-copyleft/make/SOURCE`; the site that served the program also serves the source archive at `/sources/`.

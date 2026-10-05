@@ -281,3 +281,30 @@ class ESBuildAndJSDOMCompatibleTextEncoder extends TextEncoder {
 }
 
 global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
+
+// The site serves the prebuilt WebAssembly programs at `/programs/` (see `vite-plugin-bin-node.ts`'s `binPrograms`);
+// a test boots without a server, so answer those requests from the program packages on disk. Everything else goes
+// through whatever `fetch` was there, and a test that stubs `fetch` itself still gets its own stub.
+{
+  const nodeFs = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:fs') }).getBuiltinModule('node:fs')
+  const nodePath = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:path') }).getBuiltinModule('node:path')
+  const packages = [['coreutils', '../../utils'], ['coreutils-copyleft', '../../utils-copyleft']].map(([name, dir]) => {
+    const programs = nodePath.resolve(import.meta.dirname, dir!, 'programs')
+    return { name: name!, programs, manifest: JSON.parse(nodeFs.readFileSync(nodePath.join(programs, 'manifest.json'), 'utf8')) }
+  })
+  const realFetch = globalThis.fetch.bind(globalThis)
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const pathname = new URL(raw, 'http://localhost/').pathname
+    if (!pathname.startsWith('/programs/')) return realFetch(input as RequestInfo, init)
+    if (pathname === '/programs/index.json') {
+      const catalog = { packages: packages.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) }
+      return Promise.resolve(new Response(JSON.stringify(catalog), { headers: { 'content-type': 'application/json' } }))
+    }
+    const [, , pkgName, file] = pathname.split('/')
+    const pkg = packages.find(candidate => candidate.name === pkgName)
+    const path = pkg && nodePath.join(pkg.programs, nodePath.basename(file ?? ''))
+    if (!path || !nodeFs.existsSync(path)) return Promise.resolve(new Response('Not found', { status: 404 }))
+    return Promise.resolve(new Response(nodeFs.readFileSync(path), { headers: { 'content-type': 'application/wasm' } }))
+  }) as typeof fetch
+}

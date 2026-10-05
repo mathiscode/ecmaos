@@ -36,3 +36,7 @@ sqlite3 -header -column notes.db "select * from t"
 echo "select json_extract('{\"a\":[1,2]}', '$.a[1]');" | sqlite3
 sqlite3 notes.db .dump > notes.sql
 ```
+
+## License
+
+SQLite 3.53.4 (public domain) with linenoise (BSD-2-Clause). The license text is in `/usr/share/licenses/@ecmaos/coreutils/sqlite3/`.

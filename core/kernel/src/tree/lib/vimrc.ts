@@ -1,5 +1,5 @@
 /**
- * The system vimrc, `/etc/vimrc` (the Vim build points `SYS_VIMRC_FILE` here -- see `wasm/vim/build.sh`).
+ * The system vimrc, `/etc/vimrc` (the Vim build points `SYS_VIMRC_FILE` here -- see `core/utils-copyleft/wasm/vim/build.sh`).
  * Vim with no vimrc at all starts in vi-compatible mode, so this is what makes `vim` behave like Vim.
  * `TERM` is `xterm.js`, a name Vim has no entry for, so it falls back to a generic terminal with no
  * alternate screen; xterm.js speaks xterm, so say so. Swap and backup files are off: the filesystem is

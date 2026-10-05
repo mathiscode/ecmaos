@@ -33,3 +33,7 @@ jq -r '.[] | select(.age > 40) | .name' people.json
 jq -c 'group_by(.team) | map({team: .[0].team, n: length})' data.json
 jq -n '"2024-03-05T10:20:30Z" | fromdateiso8601'
 ```
+
+## License
+
+jq 1.8.2, MIT, with the BSD-2-Clause, ICU and dtoa notices of the code it bundles. The license text is in `/usr/share/licenses/@ecmaos/coreutils/jq/`.

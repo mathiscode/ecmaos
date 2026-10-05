@@ -1,0 +1,22 @@
+tree 2.2.1 (GPL-2.0-or-later)
+
+programs/tree.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  tree-2.2.1.tar.gz  (tree 2.2.1, GPL-2.0-or-later)
+    sha256 5caddcbca805131ff590b126d3218019882e4ca10bc9eb490bba51c05b9b3b75
+    from https://github.com/Old-Man-Programmer/tree/archive/refs/tags/2.2.1.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/tree/build.sh
+    compile and link flags only; the source is unmodified
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+
+Where to get it
+  - /sources/tree-2.2.1.tar.gz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

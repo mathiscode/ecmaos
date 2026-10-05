@@ -1,0 +1,24 @@
+vim 9.1.0 (Vim)
+
+programs/vim.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  vim-9.1.0.tar.gz  (vim 9.1.0, Vim)
+    sha256 ddb435f6e386c53799a3025bdc5a3533beac735a0ee596cb27ada97366a1c725
+    from https://github.com/vim/vim/archive/refs/tags/v9.1.0.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/vim/libc-gaps.c
+    new file, linked into the program: a termcap stub, the xattr calls musl lacks, and the signal entry point the host calls
+  wasm/vim/build.sh
+    configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+
+Where to get it
+  - /sources/vim-9.1.0.tar.gz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

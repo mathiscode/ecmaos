@@ -35,3 +35,7 @@ echo 'scale=20; sqrt(2)' | bc
 bc -l <<< 'e(1)'
 echo '2 3 + 4 * p' | dc
 ```
+
+## License
+
+Gavin Howard's bc 7.0.3, BSD-2-Clause. The license text is in `/usr/share/licenses/@ecmaos/coreutils/bc/`.

@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/jq` is jq built to WebAssembly (`wasm/jq/build.sh`) and run as a worker program. */
+/** `/bin/jq` is jq built to WebAssembly (`core/utils/wasm/jq/build.sh`) and run as a worker program. */
 describe('jq', () => {
   let kernel: Kernel
 

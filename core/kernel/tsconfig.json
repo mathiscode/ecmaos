@@ -8,7 +8,6 @@
     "types": [
       "./src/declarations/globalThis.d.ts",
       "./src/declarations/bin-node.d.ts",
-      "./src/declarations/bin-wasm.d.ts",
       "./src/declarations/figlet-fonts.d.ts",
       "./src/declarations/hardware-info.d.ts",
       "./src/declarations/keyboard.d.ts",

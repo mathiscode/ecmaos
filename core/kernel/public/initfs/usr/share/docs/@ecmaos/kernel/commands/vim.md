@@ -45,3 +45,7 @@ Not supported:
 vim notes.txt
 vim -R /etc/passwd
 ```
+
+## License
+
+Vim 9.1.0, under the Vim license; this is a modified version (`:version` says so). The license text is in `/usr/share/licenses/@ecmaos/coreutils-copyleft/vim/`. The source it was built from, and what ecmaOS changed, is described in `/usr/share/licenses/@ecmaos/coreutils-copyleft/vim/SOURCE`; the site that served the program also serves the source archive at `/sources/`.

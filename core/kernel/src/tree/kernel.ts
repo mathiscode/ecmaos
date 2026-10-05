@@ -66,7 +66,7 @@ import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
-import wasmCommandSources from 'virtual:bin-wasm'
+import { installPrograms } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
 
 import {
@@ -2182,6 +2182,18 @@ export class Kernel implements IKernel {
   }
 
   /**
+   * Where the catalog of prebuilt WebAssembly programs is. `KernelOptions.programs` overrides it (`false` turns it off),
+   * then `ECMAOS_PROGRAMS` (`none` turns it off); with neither set it is the catalog the site serves.
+   */
+  private programsUrl(): string {
+    if (this.options.programs === false) return ''
+    if (this.options.programs) return this.options.programs
+    const configured = import.meta.env['ECMAOS_PROGRAMS'] as string | undefined
+    if (configured === 'none') return ''
+    return configured || '/programs/index.json'
+  }
+
+  /**
    * Registers the terminal commands.
    * @returns {Promise<void>} A promise that resolves when the terminal commands are registered.
    */
@@ -2217,16 +2229,21 @@ export class Kernel implements IKernel {
       await this.filesystem.fs.writeFile(target, source, { mode: 0o755 })
     }
 
-    // Prebuilt WebAssembly programs (`vi`): real binaries, so they are compared and written as bytes.
-    for (const [name, encoded] of Object.entries(wasmCommandSources)) {
-      if (this.options.blacklist?.commands?.includes(name)) continue
-      const target = `/bin/${name}`
-      // An earlier build linked `vim` to `vi`; writing through that link would replace the other program.
-      if ((await this.filesystem.fs.lstat(target).catch(() => undefined))?.isSymbolicLink()) await this.filesystem.fs.unlink(target)
-      const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0))
-      const existing = await this.filesystem.fs.exists(target) ? await this.filesystem.fs.readFile(target) : undefined
-      if (existing && existing.length === bytes.length && existing.every((byte, i) => byte === bytes[i])) continue
-      await this.filesystem.fs.writeFile(target, bytes, { mode: 0o755 })
+    // Prebuilt WebAssembly programs (`vim`, `jq`, `make`, ...): real binaries, fetched from the site's program catalog and
+    // written only when the installed copy differs. See `lib/programs.ts`.
+    const catalogUrl = this.programsUrl()
+    if (catalogUrl) {
+      const stampKey = 'ecmaos:programs'
+      const programs = await installPrograms(this.filesystem.fs, {
+        catalogUrl,
+        skip: name => !!this.options.blacklist?.commands?.includes(name),
+        stamps: {
+          read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
+          write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
+        }
+      })
+      if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
+      for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
     }
 
     // A stub from a command that is not on the in-process path this build (it is a real program

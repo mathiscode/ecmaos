@@ -30,3 +30,7 @@ nano notes.txt
 nano -l +20 script.sh
 nano ~/.nanorc
 ```
+
+## License
+
+GNU nano 9.2, GPL-3.0-or-later, linked with ncurses 6.5 (X11 license). The license text is in `/usr/share/licenses/@ecmaos/coreutils-copyleft/nano/`. The source it was built from, and what ecmaOS changed, is described in `/usr/share/licenses/@ecmaos/coreutils-copyleft/nano/SOURCE`; the site that served the program also serves the source archive at `/sources/`.

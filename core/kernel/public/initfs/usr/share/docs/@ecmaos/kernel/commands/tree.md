@@ -31,3 +31,7 @@ tree -L 2 /usr
 tree -a --dirsfirst ~
 tree -P '*.md' --prune /usr/share/docs
 ```
+
+## License
+
+tree 2.2.1, GPL-2.0-or-later. The license text is in `/usr/share/licenses/@ecmaos/coreutils-copyleft/tree/`. The source it was built from, and what ecmaOS changed, is described in `/usr/share/licenses/@ecmaos/coreutils-copyleft/tree/SOURCE`; the site that served the program also serves the source archive at `/sources/`.

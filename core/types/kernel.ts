@@ -274,6 +274,11 @@ export interface KernelOptions {
     fsTranslationsPath?: string
   }
   log?: LogOptions
+  /**
+   * Where the catalog of prebuilt WebAssembly programs is (default `/programs/index.json`); `false` installs none.
+   * See `@ecmaos/coreutils` and `@ecmaos/coreutils-copyleft`, which supply the programs.
+   */
+  programs?: string | false
   /** context and filesystem are supplied by Kernel itself when constructing Service */
   service?: Omit<ServiceOptions, 'context' | 'filesystem'>
   socket?: WebSocket

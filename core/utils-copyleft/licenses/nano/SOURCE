@@ -1,0 +1,25 @@
+nano 9.2 (GPL-3.0-or-later AND X11)
+
+programs/nano.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  nano-9.2.tar.xz  (nano 9.2, GPL-3.0-or-later)
+    sha256 05ecb99247b782e8a5b3a25ed4101dd034b0236902f7449bc9795b717642f7e9
+    from https://www.nano-editor.org/dist/v9/nano-9.2.tar.xz
+  ncurses-6.5.tar.gz  (ncurses 6.5, X11)
+    sha256 136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6
+    from https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/nano/build.sh
+    the build; patches src/nano.c so TERM=xterm.js (or unset) falls back to xterm-256color, and builds ncurses with built-in terminfo entries
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+
+Where to get it
+  - /sources/nano-9.2.tar.xz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file
