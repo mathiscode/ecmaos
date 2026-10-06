@@ -647,6 +647,13 @@ importers:
         version: 4.23.13
 
   core/node:
+    dependencies:
+      '@ecmaos/coreutils':
+        specifier: workspace:^
+        version: link:../utils
+      '@ecmaos/coreutils-copyleft':
+        specifier: workspace:^
+        version: link:../utils-copyleft
     devDependencies:
       '@ecmaos-devices/tty':
         specifier: workspace:^

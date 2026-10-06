@@ -39,3 +39,4 @@ yarn-error.log*
 tmp
 .docs
 .claude
+.ecmaos

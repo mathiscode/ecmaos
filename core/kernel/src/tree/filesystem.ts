@@ -96,9 +96,16 @@ export class Filesystem {
   private _config: Configuration<ConfigMounts> = DefaultFilesystemOptions
   private _fs: typeof fs = fs
   private _storage: StorageProvider
+  private _initfs?: string | false
+  private _fetch: (url: string, init?: RequestInit) => Promise<Response>
 
-  constructor(storage: StorageProvider) {
+  /**
+   * @param sources `initfs` overrides where the initfs tarball is (`false` installs none); `fetch` is what reads it
+   */
+  constructor(storage: StorageProvider, sources: { initfs?: string | false, fetch?: (url: string, init?: RequestInit) => Promise<Response> } = {}) {
     this._storage = storage
+    this._initfs = sources.initfs
+    this._fetch = sources.fetch ?? ((url, init) => fetch(url, init))
   }
 
   /**
@@ -159,6 +166,8 @@ export class Filesystem {
    * holds what a live one does. Tests boot without one: they build their own filesystem.
    */
   private initfsUrl(): string {
+    if (this._initfs === false) return ''
+    if (this._initfs) return this._initfs
     const configured = import.meta.env['ECMAOS_INITFS'] as string | undefined
     if (configured === 'none') return ''
     if (configured) return configured
@@ -170,7 +179,7 @@ export class Filesystem {
    * release, or a rebuilt one in development), the system-owned `/usr/share` again. Nothing else is rewritten, as
    * `/etc`, `/root` and `/home` hold what users have edited.
    */
-  private async installInitfs(url: string, fetcher: (url: string) => Promise<Response> = target => fetch(target)) {
+  private async installInitfs(url: string, fetcher: (url: string) => Promise<Response> = target => this._fetch(target)) {
     const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
     try {
       const response = await fetcher(url)

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import i18nextLoader from 'vite-plugin-i18next-loader'
 import { defineConfig } from 'vitest/config'
@@ -20,6 +21,8 @@ export default defineConfig({
   envDir: false,
   publicDir: false,
   plugins: [
+    // The initfs tarball ships beside the entry point; `sources.ts` serves it to the kernel from there
+    { name: 'ecmaos:initfs', generateBundle() { this.emitFile({ type: 'asset', fileName: 'initfs.tar.gz', source: readFileSync(path.join(kernelDir, 'public/initfs.tar.gz')) }) } },
     binNode(),
     binWali(),
     binPilotPwd(),

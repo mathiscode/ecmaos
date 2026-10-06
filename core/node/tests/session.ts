@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 const ptyHost = path.resolve(import.meta.dirname, 'pty-host.py')
@@ -15,6 +17,10 @@ export class Session {
   private _child: ChildProcessWithoutNullStreams
   private _out = ''
   private _exit?: { code: number | null, signal: NodeJS.Signals | null }
+  private _temp?: string
+
+  /** The data directory this process keeps its machine in */
+  readonly dataDir: string
 
   get output() { return stripAnsi(this._out) }
   get exit() { return this._exit }
@@ -24,7 +30,11 @@ export class Session {
    * mode, a window size, escape sequences. Without, it is fed through pipes.
    */
   constructor(args: string[] = ['--quiet'], options: { cwd?: string, env?: NodeJS.ProcessEnv, pty?: { cols: number, rows: number } } = {}) {
-    const env = options.env ?? process.env
+    // Every session gets a machine of its own, so nothing is written into the working tree
+    const given = (options.env ?? process.env)['ECMAOS_DATA']
+    if (!given) this._temp = mkdtempSync(path.join(tmpdir(), 'ecmaos-test-'))
+    this.dataDir = given ?? this._temp!
+    const env = { ...(options.env ?? process.env), ECMAOS_DATA: this.dataDir }
     this._child = options.pty
       ? spawn('python3', [ptyHost, String(options.pty.cols), String(options.pty.rows), process.execPath, bundle, ...args], { cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams
       : spawn(process.execPath, [bundle, ...args], { cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -77,5 +87,6 @@ export class Session {
       this._child.kill('SIGKILL')
       await new Promise(resolve => this._child.once('exit', resolve))
     }
+    if (this._temp) rmSync(this._temp, { recursive: true, force: true })
   }
 }

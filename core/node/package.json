@@ -46,5 +46,16 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@ecmaos/coreutils": "workspace:^"
+  },
+  "peerDependencies": {
+    "@ecmaos/coreutils-copyleft": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "@ecmaos/coreutils-copyleft": {
+      "optional": true
+    }
   }
 }

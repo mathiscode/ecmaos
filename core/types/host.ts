@@ -35,6 +35,8 @@ export interface Host {
   readonly kind: 'browser' | 'node'
   readonly storage: HostStorage
   readonly platform: HostPlatform
+  /** Fetches the initfs and the program catalog; the global `fetch` when absent. A Node host serves its bundled files here. */
+  readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>
   /** Fills the kernel options a caller left out (root mount, devices, DOM, service worker); a caller's own options win */
   readonly defaults?: Partial<KernelOptions>
 }

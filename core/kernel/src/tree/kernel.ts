@@ -338,7 +338,7 @@ export class Kernel implements IKernel {
     this.telemetry = new Telemetry({ context: this.context })
 
     // Tier 2: context plus narrow, already-constructed dependencies (no cycles).
-    this.filesystem = new Filesystem(this.storage)
+    this.filesystem = new Filesystem(this.storage, { initfs: this.options.initfs, fetch: this.host.fetch })
     this.users = new Users({
       context: this.context,
       filesystem: this.filesystem,
@@ -2254,6 +2254,7 @@ export class Kernel implements IKernel {
       const stampKey = 'ecmaos:programs'
       const programs = await installPrograms(this.filesystem.fs, {
         catalogUrl,
+        fetcher: this.host.fetch,
         skip: name => !!this.options.blacklist?.commands?.includes(name),
         stamps: {
           read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },

@@ -276,6 +276,8 @@ export interface KernelOptions {
   filesystem?: FilesystemOptions<FilesystemConfigMounts>
   /** The environment the kernel runs in; the browser when omitted */
   host?: Host
+  /** Where the initfs tarball is (default `/initfs.tar.gz`, or `ECMAOS_INITFS`); `false` installs none */
+  initfs?: string | false
   i18n?: InitOptions & {
     fsTranslationsPath?: string
   }
