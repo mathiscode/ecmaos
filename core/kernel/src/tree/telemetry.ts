@@ -1,33 +1,51 @@
 import type { KernelContext, TelemetryOptions } from '@ecmaos/types'
 import { trace } from '@opentelemetry/api'
-import { WebTracerProvider } from '@opentelemetry/sdk-trace-web'
-import { ZoneContextManager } from '@opentelemetry/context-zone'
-import { DocumentLoadInstrumentation } from '@opentelemetry/instrumentation-document-load'
-import { registerInstrumentations } from '@opentelemetry/instrumentation'
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { BatchSpanProcessor, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
 
+/**
+ * Tracing is optional and the web OpenTelemetry stack is browser-only: `@opentelemetry/context-zone` patches
+ * globals (zone.js) and breaks `MessagePort` dispatch in Node. It is therefore imported on demand by `init()`,
+ * and only in a browser, never at module load.
+ */
 export class Telemetry {
   private _ctx: KernelContext
-  private _provider?: WebTracerProvider
+  private _provider?: { forceFlush?: () => Promise<void> }
   private _active: boolean = false
 
   get active() { return this._active }
 
   constructor(options: TelemetryOptions) {
     this._ctx = options.context
-    const endpoint = import.meta.env.ECMAOS_OPENTELEMETRY_ENDPOINT
+  }
 
-    if (endpoint) {
-      try {
-        this._initialize(endpoint)
-      } catch (error) {
-        this._ctx.log.error(`Failed to initialize OpenTelemetry: ${error}`)
-      }
+  /** Starts tracing when an endpoint is configured and a DOM is present; otherwise a no-op. */
+  async init() {
+    const endpoint = import.meta.env.ECMAOS_OPENTELEMETRY_ENDPOINT
+    if (!endpoint || !globalThis.document || this._active) return
+
+    try {
+      await this._initialize(endpoint)
+    } catch (error) {
+      this._ctx.log.error(`Failed to initialize OpenTelemetry: ${error}`)
     }
   }
 
-  private _initialize(endpoint: string) {
+  private async _initialize(endpoint: string) {
+    const [
+      { WebTracerProvider },
+      { ZoneContextManager },
+      { DocumentLoadInstrumentation },
+      { registerInstrumentations },
+      { OTLPTraceExporter },
+      { BatchSpanProcessor, SimpleSpanProcessor }
+    ] = await Promise.all([
+      import('@opentelemetry/sdk-trace-web'),
+      import('@opentelemetry/context-zone'),
+      import('@opentelemetry/instrumentation-document-load'),
+      import('@opentelemetry/instrumentation'),
+      import('@opentelemetry/exporter-trace-otlp-http'),
+      import('@opentelemetry/sdk-trace-base')
+    ])
+
     const exporter = new OTLPTraceExporter({
       url: endpoint,
       headers: {}
@@ -42,11 +60,11 @@ export class Telemetry {
           maxExportBatchSize: 512
         })
 
-    this._provider = new WebTracerProvider({
+    const provider = new WebTracerProvider({
       spanProcessors: [spanProcessor]
     })
 
-    this._provider.register({
+    provider.register({
       contextManager: new ZoneContextManager()
     })
 
@@ -56,6 +74,7 @@ export class Telemetry {
       ]
     })
 
+    this._provider = provider
     this._active = true
     this._ctx.log.info(`OpenTelemetry initialized with endpoint: ${endpoint}`)
   }

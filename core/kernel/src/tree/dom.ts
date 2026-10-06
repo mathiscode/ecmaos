@@ -1,10 +1,12 @@
-import topbar from 'topbar'
-import { Notyf } from 'notyf'
-import 'notyf/notyf.min.css'
+import type { Notyf } from 'notyf'
 import type { DomOptions } from '@ecmaos/types'
+import type topbarModule from 'topbar'
 import type { TopbarConfigOptions } from 'topbar'
 
 export const DefaultDomOptions: DomOptions = { topbar: true }
+
+/** Answers every Notyf call (`success`, `error`, `open`, ...) with nothing. */
+const NullToast = new Proxy({}, { get: () => () => undefined }) as unknown as Notyf
 
 export class Dom {
   private _document: Document = globalThis.document
@@ -12,34 +14,49 @@ export class Dom {
   private _window: Window = globalThis.window
   private _topbarEnabled: boolean = false
   private _topbarShow: boolean = false
-  private _toast: Notyf
+  private _toast?: Notyf
+  private _topbar?: typeof topbarModule
+  private _options: DomOptions
 
   get document() { return this._document }
   get navigator() { return this._navigator }
   get window() { return this._window }
-  get toast() { return this._toast }
+  /** Toast notifications; a silent stand-in when there is no DOM (or before `init`). */
+  get toast(): Notyf { return this._toast ?? NullToast }
 
   constructor(_options: DomOptions = DefaultDomOptions) {
     const options = { ...DefaultDomOptions, ..._options }
+    this._options = options
     this._topbarEnabled = options.topbar ?? true
-    this._toast = new Notyf(options.toast)
+  }
+
+  /** topbar, notyf and the notyf stylesheet touch `window`/`document` at import or construction, so they load here, in a browser only. */
+  async init() {
+    if (!globalThis.document || this._toast) return
+    const [{ default: topbar }, { Notyf }] = await Promise.all([
+      import('topbar'),
+      import('notyf'),
+      import('notyf/notyf.min.css')
+    ])
+    this._topbar = topbar
+    this._toast = new Notyf(this._options.toast)
   }
 
   async topbar(show?: boolean) {
     if (!this._topbarEnabled) return
     this._topbarShow = show ?? !this._topbarShow
-    if (this._topbarShow) topbar.show()
-    else topbar.hide()
+    if (this._topbarShow) this._topbar?.show()
+    else this._topbar?.hide()
   }
 
   async topbarConfig(options: TopbarConfigOptions) {
     if (!this._topbarEnabled) return
-    topbar.config(options)
+    this._topbar?.config(options)
   }
 
   async topbarProgress(value: number) {
     if (!this._topbarEnabled) return
-    topbar.progress(value)
+    this._topbar?.progress(value)
   }
 
   /**
@@ -47,6 +64,7 @@ export class Dom {
    * @param ttyNumber - TTY number to display
    */
   showTtyIndicator(ttyNumber: number): void {
+    if (!this._document) return
     const existingIndicator = this._document.getElementById('tty-indicator')
     if (existingIndicator) existingIndicator.remove()
 

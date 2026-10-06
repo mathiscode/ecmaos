@@ -26,6 +26,7 @@ function failAfterSpinner(kernel: Kernel, message: string) {
 describe('boot failure leaves an honest UI', () => {
   it('stops the spinner, clears the topbar, and toasts the error message', async () => {
     const kernel = newKernel()
+    await kernel.dom.init()
     const spinner = failAfterSpinner(kernel, 'disk on fire')
     const topbar = vi.spyOn(kernel.dom, 'topbar')
     const progress = vi.spyOn(kernel.dom, 'topbarProgress')
@@ -46,6 +47,7 @@ describe('boot failure leaves an honest UI', () => {
 
   it('still reports the failure when the toast itself cannot be shown', async () => {
     const kernel = newKernel()
+    await kernel.dom.init()
     // Fail at boot's very first step: filesystem mounts are module-global, so a later failure point
     // would trip over the mounts the previous test's kernel left behind instead.
     vi.spyOn(kernel.terminal, 'unlisten').mockImplementation(() => { throw new Error('terminal on fire') })

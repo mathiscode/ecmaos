@@ -1,13 +1,9 @@
-import 'winbox'
-import 'winbox/dist/css/winbox.min.css'
-// @ts-ignore -- the ESM source ships no types; @types/winbox describes it as WinBox.WinBoxConstructor
-import WinBoxModule from 'winbox/src/js/winbox.js'
-
 import type { WindowId, Windows as IWindows } from '@ecmaos/types'
 
+// WinBox touches `document` at import, so it is loaded by `Windows.init()` in a browser rather than at module load.
 // Bound under its own name: a `declare const WinBox` alongside a same-named import lets the
 // transform treat the import as type-only and drop it, leaving `new WinBox()` unbound at runtime.
-const WinBoxCtor = WinBoxModule as WinBox.WinBoxConstructor
+let WinBoxCtor: WinBox.WinBoxConstructor | undefined
 
 declare module 'winbox' {
   interface WinBoxConstructor {
@@ -43,7 +39,17 @@ const DefaultDialogOptions: WindowParams = {
 export class Windows implements IWindows {
   private _manager: Map<WindowId, WinBox> = new Map()
 
-  get stack() { return WinBoxCtor.stack() }
+  /** Loads WinBox and its stylesheet. A no-op without a DOM; `create` then throws. */
+  async init() {
+    if (WinBoxCtor || !globalThis.document) return
+    await import('winbox')
+    await import('winbox/dist/css/winbox.min.css')
+    // @ts-ignore -- the ESM source ships no types; @types/winbox describes it as WinBox.WinBoxConstructor
+    const module = await import('winbox/src/js/winbox.js')
+    WinBoxCtor = module.default as WinBox.WinBoxConstructor
+  }
+
+  get stack() { return WinBoxCtor?.stack() ?? [] }
 
   all() {
     return this._manager.entries()
@@ -54,6 +60,7 @@ export class Windows implements IWindows {
   }
   
   create(_options: WindowParams = DefaultWindowOptions): WinBox {
+    if (!WinBoxCtor) throw new Error('Windows are unavailable: this host has no DOM')
     const options: WindowParams = { ...DefaultWindowOptions, ..._options }
     const id = options.id || Math.random().toString(36).substring(2, 8)
     options.id = id

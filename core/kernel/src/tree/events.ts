@@ -1,5 +1,10 @@
 import type { Events as IEvents, EventCallback } from '@ecmaos/types'
 
+/** Kernel events travel on the page's global target so other page code can observe them; a host with no
+ *  global event target (Node) gets a private one. */
+const fallbackTarget = new EventTarget()
+const bus = (): EventTarget => typeof globalThis.addEventListener === 'function' ? globalThis : fallbackTarget
+
 export class Events implements IEvents {
   private _callbacks: Map<string, EventCallback[]> = new Map()
   private _listeners: Map<string, EventListener> = new Map()
@@ -10,7 +15,7 @@ export class Events implements IEvents {
   }
 
   dispatch<T>(event: string, data: T) {
-    globalThis.dispatchEvent(new CustomEvent(event, { detail: data }))
+    bus().dispatchEvent(new CustomEvent(event, { detail: data }))
   }
 
   emit<T>(event: string, data: T) {
@@ -30,7 +35,7 @@ export class Events implements IEvents {
     }
 
     this._listeners.set(`${event}-${callback.toString()}`, listener)
-    globalThis.addEventListener(event, listener)
+    bus().addEventListener(event, listener)
   }
 
   off<T>(event: string, callback: EventCallback<T>) {
@@ -44,7 +49,7 @@ export class Events implements IEvents {
         const listenerKey = `${event}-${callback.toString()}`
         const listener = this._listeners.get(listenerKey)
         if (listener) {
-          globalThis.removeEventListener(event, listener)
+          bus().removeEventListener(event, listener)
           this._listeners.delete(listenerKey)
         }
       }

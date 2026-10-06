@@ -40,7 +40,7 @@ export class Components implements IComponents {
  * The Component (singular) class extends the HTMLElement class to provide a base class for custom elements.
  * 
  */
-export class Component extends HTMLElement {
+export class Component extends ((globalThis.HTMLElement ?? class {}) as typeof HTMLElement) {
   static observedAttributes = ['data']
 
   private _data: unknown

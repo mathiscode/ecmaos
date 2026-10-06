@@ -398,6 +398,7 @@ export class Kernel implements IKernel {
    * @throws {Error} If boot process fails
    */
   async boot(options: BootOptions = DefaultBootOptions) {
+    await Promise.all([this.telemetry.init(), this.dom.init(), (this.windows as Windows).init()])
     const tracer = this.telemetry.getTracer('ecmaos.kernel', this.version)
     const bootSpan = tracer.startSpan('kernel.boot', {
       attributes: {

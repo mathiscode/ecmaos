@@ -17,7 +17,6 @@ import type { TTY } from '@zenfs/linux'
 import { lflags } from '@zenfs/linux/uapi/abi'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
 import { AttachAddon } from '@xterm/addon-attach'
-import { BrowserClipboardProvider, ClipboardAddon } from '@xterm/addon-clipboard'
 import { FitAddon } from '@xterm/addon-fit'
 import { ImageAddon } from '@xterm/addon-image'
 import { ProgressAddon } from '@xterm/addon-progress'
@@ -436,10 +435,6 @@ export class Terminal extends XTerm implements ITerminal {
       ['search', new SearchAddon()],
       ['serialize', new SerializeAddon()],
       ['web-links', new WebLinksAddon()],
-      // OSC 52: lets a program running in the terminal read/write the system clipboard through an
-      // escape sequence, the same way it would over a real serial line -- rather than requiring
-      // ecmaOS app code to reach for `navigator.clipboard` directly.
-      ['clipboard', new ClipboardAddon(undefined, new BrowserClipboardProvider())],
       ['unicode11', new Unicode11Addon()]
     ])
 
@@ -592,7 +587,26 @@ export class Terminal extends XTerm implements ITerminal {
     this.element?.setAttribute('enterkeyhint', 'send')
   }
 
+  /**
+   * OSC 52: lets a program running in the terminal read/write the system clipboard through an escape
+   * sequence, the same way it would over a real serial line -- rather than requiring ecmaOS app code to
+   * reach for `navigator.clipboard` directly. The addon touches `self` at import, so it is loaded only
+   * when a terminal is mounted in a page.
+   */
+  private async _loadClipboardAddon() {
+    if (this.addons.has('clipboard')) return
+    try {
+      const { BrowserClipboardProvider, ClipboardAddon } = await import('@xterm/addon-clipboard')
+      const addon = new ClipboardAddon(undefined, new BrowserClipboardProvider())
+      this.addons.set('clipboard', addon)
+      this.loadAddon(addon)
+    } catch (error) {
+      this._ctx.log.warn(`Clipboard addon unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   mount(element: HTMLElement) {
+    void this._loadClipboardAddon()
     this.open(element)
     this.fitToContainer()
     this._applyRenderer()
