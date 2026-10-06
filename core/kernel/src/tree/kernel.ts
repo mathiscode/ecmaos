@@ -39,6 +39,7 @@ import { SessionLog } from '#lib/sessions.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
+import { browserHost } from '#host.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
 import { Events } from '#events.ts'
@@ -78,6 +79,7 @@ import {
 
 import type {
   BootOptions,
+  Host,
   Kernel as IKernel,
   KernelContext,
   KernelCharDevice,
@@ -241,6 +243,8 @@ export class Kernel implements IKernel {
 
   /** Event management system */
   public readonly events: Events
+  /** The environment this kernel runs in (browser or Node) */
+  public readonly host: Host
   /** Virtual filesystem */
   public readonly filesystem: Filesystem
   /** Internationalization service */
@@ -306,7 +310,8 @@ export class Kernel implements IKernel {
   }
 
   constructor(_options: KernelOptions = DefaultKernelOptions) {
-    this.options = { ...DefaultKernelOptions, ..._options }
+    this.host = _options.host ?? browserHost()
+    this.options = { ...DefaultKernelOptions, ...this.host.defaults, ..._options }
 
     // Tier 0: no dependencies at all. This also establishes `this.context` (id/log/events/i18n),
     // the cross-cutting primitives every later subsystem takes instead of a back-reference to the
@@ -329,7 +334,7 @@ export class Kernel implements IKernel {
     // Tier 1: context-only.
     this.dom = new Dom(this.options.dom)
     this.sockets = new Sockets({ context: this.context })
-    this.storage = new Storage({ context: this.context })
+    this.storage = new Storage({ context: this.context, host: this.host })
     this.telemetry = new Telemetry({ context: this.context })
 
     // Tier 2: context plus narrow, already-constructed dependencies (no cycles).
@@ -515,7 +520,7 @@ export class Kernel implements IKernel {
       }
 
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {
-        await this.filesystem.fs.writeFile('/etc/hostname', `${globalThis.location?.hostname || 'ecmaos'}\n`, { mode: 0o644 })
+        await this.filesystem.fs.writeFile('/etc/hostname', `${this.host.platform.hostname() || 'ecmaos'}\n`, { mode: 0o644 })
       }
 
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
@@ -736,8 +741,9 @@ export class Kernel implements IKernel {
           this.log.info(`${import.meta.env['NAME'] || 'ecmaOS'} v${import.meta.env['VERSION']}`)
         }
 
-        if (globalThis.Notification?.permission === 'default') Notification.requestPermission()
-        if (globalThis.Notification?.permission === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
+        const notifications = this.host.platform.notifications
+        if (notifications?.permission() === 'default') notifications.request()
+        if (notifications?.permission() === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
 
         this.intervals.set('title-blink', () => {
           // Guards against firing after a test environment has torn down `document` -- this
@@ -1933,9 +1939,7 @@ export class Kernel implements IKernel {
    * @returns {Promise<Notification|void>} The created notification or void if permissions denied
    */
   async notify(title: string, options: NotificationOptions = {}): Promise<void | Notification> {
-    if (!globalThis.Notification) return
-    if (Notification.permission === 'granted') return new Notification(title, options)
-    await Notification.requestPermission()
+    return this.host.platform.notifications?.send(title, options)
   }
 
   /**
@@ -2189,7 +2193,7 @@ export class Kernel implements IKernel {
   async reboot() {
     this.log.warn(this.i18n.ns.common('Rebooting'))
     await this.shutdown()
-    globalThis.location.reload()
+    await this.host.platform.restart()
   }
 
   /**

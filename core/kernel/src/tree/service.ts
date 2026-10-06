@@ -27,7 +27,7 @@ type ExtendedServiceWorkerRegistration = ServiceWorkerRegistration & {
 
 export const DefaultServiceOptions: Omit<ServiceOptions, 'context' | 'filesystem'> = {
   path: import.meta.env.SERVICE_WORKER_PATH || '/swapi.js',
-  register: import.meta.env.NODE_ENV !== 'test'
+  register: import.meta.env.NODE_ENV !== 'test' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator
 }
 
 export class Service implements IService {

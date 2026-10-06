@@ -6,14 +6,17 @@ export class Storage implements StorageProvider {
 
   get db() { return this._db }
 
-  indexed = globalThis.indexedDB
-  local = globalThis.localStorage
-  session = globalThis.sessionStorage
+  indexed: IDBFactory | undefined
+  local: typeof globalThis.localStorage
+  session: typeof globalThis.sessionStorage
 
   constructor(options: StorageOptions) {
     this._ctx = options.context
+    this.indexed = options.host ? options.host.storage.indexed : globalThis.indexedDB
+    this.local = options.host ? options.host.storage.local : globalThis.localStorage
+    this.session = options.host ? options.host.storage.session : globalThis.sessionStorage
 
-    navigator.storage?.persist?.()
+    globalThis.navigator?.storage?.persist?.()
 
     if (this.indexed) {
       const name = options.indexed?.name || 'ecmaos:storage'
@@ -46,7 +49,7 @@ export class Storage implements StorageProvider {
 
   async usage() {
     try {
-      const usage = await navigator.storage?.estimate?.()
+      const usage = await globalThis.navigator?.storage?.estimate?.()
       if (!usage) throw new Error('Storage usage not available')
       return usage
     } catch (error) {

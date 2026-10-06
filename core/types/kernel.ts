@@ -2,6 +2,7 @@
  * Core kernel types and interfaces
  */
 
+import type { Host } from './host.ts'
 import type { BIOSModule } from '@ecmaos/bios'
 import type { InitOptions } from 'i18next'
 import type Module from 'node:module'
@@ -84,6 +85,9 @@ export interface Kernel {
 
   /** Current state of the kernel */
   readonly state: KernelState
+
+  /** The environment this kernel runs in (browser or Node) */
+  readonly host: Host
 
   /** Configuration options passed to the kernel */
   readonly options: KernelOptions
@@ -270,6 +274,8 @@ export interface KernelOptions {
   devices?: Record<string, KernelDevice>
   dom?: DomOptions
   filesystem?: FilesystemOptions<FilesystemConfigMounts>
+  /** The environment the kernel runs in; the browser when omitted */
+  host?: Host
   i18n?: InitOptions & {
     fsTranslationsPath?: string
   }

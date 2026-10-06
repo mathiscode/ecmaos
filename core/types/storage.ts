@@ -2,6 +2,7 @@
  * Storage types and interfaces
  */
 
+import type { Host } from './host.ts'
 import type { KernelContext } from './kernel.ts'
 
 /**
@@ -10,6 +11,8 @@ import type { KernelContext } from './kernel.ts'
 export interface StorageOptions {
   /** The cross-cutting kernel primitives (log is the only one Storage uses) */
   context: KernelContext
+  /** Where `local`, `session` and `indexed` come from; the page's own globals when omitted */
+  host?: Pick<Host, 'storage'>
   /** IndexedDB configuration */
   indexed?: {
     /** Database name */
@@ -27,7 +30,7 @@ export interface StorageProvider {
   readonly db: IDBDatabase | null
 
   /** IndexedDB interface */
-  readonly indexed: IDBFactory
+  readonly indexed: IDBFactory | undefined
   /** LocalStorage interface */
   readonly local: Storage
   /** SessionStorage interface */

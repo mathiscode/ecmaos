@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { KernelDevice } from '@ecmaos/types'
+import type { Host, KernelDevice } from '@ecmaos/types'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultDevices } from '#device.ts'
@@ -47,5 +47,37 @@ describe('host seams', () => {
 
     await kernel.boot()
     expect(created).toBeGreaterThan(0)
+  })
+})
+
+describe('host', () => {
+  function memoryStorage(): Storage {
+    const map = new Map<string, string>()
+    return {
+      get length() { return map.size },
+      clear: () => map.clear(),
+      getItem: key => map.get(key) ?? null,
+      key: index => [...map.keys()][index] ?? null,
+      removeItem: key => { map.delete(key) },
+      setItem: (key, value) => { map.set(key, String(value)) }
+    }
+  }
+
+  it('defaults to the browser host', async () => {
+    const kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, log: TestLogOptions })
+    expect(kernel.host.kind).toBe('browser')
+    expect(kernel.storage.local).toBe(globalThis.localStorage)
+  })
+
+  it('applies the host defaults beneath the caller options', async () => {
+    const host: Host = {
+      kind: 'node',
+      storage: { local: memoryStorage(), session: memoryStorage() },
+      platform: { hostname: () => 'x', restart: () => {} },
+      defaults: { service: { register: false }, programs: false }
+    }
+
+    const kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, log: TestLogOptions, host, programs: undefined })
+    expect(kernel.service.options.register).toBe(false)
   })
 })
