@@ -102,6 +102,13 @@ describe('su and sudo', () => {
       expect(DEFAULT_SUDOERS).toMatch(/^root\s+ALL=\(ALL:ALL\) ALL$/m)
       expect(DEFAULT_SUDOERS).toMatch(/^%sudo\s+ALL=\(ALL:ALL\) ALL$/m)
     })
+
+    it('boots with the sudo group that the default sudoers file grants, and the group is in /etc/group', async () => {
+      expect(kernel.users.findGroup('sudo')?.gid).toBe(27)
+      expect(await kernel.filesystem.fs.readFile('/etc/group', 'utf-8')).toMatch(/^sudo:x:27:/m)
+      // asking again changes nothing
+      expect((await kernel.users.ensureGroup('sudo', 99)).gid).toBe(27)
+    })
   })
 
   describe('the setuid bit', () => {

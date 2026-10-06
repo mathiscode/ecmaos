@@ -892,6 +892,8 @@ export class Kernel implements IKernel {
           await this.users.load()
           usersSpan.setAttribute('users.action', 'load')
         }
+        // `/etc/sudoers` grants %sudo, so the group has to exist for anyone to be put in it (27 as on Debian)
+        await this.users.ensureGroup('sudo', 27)
         usersSpan.setAttribute('users.count', this.users.all.size)
       } catch (err) {
         usersSpan.recordException(err as Error)

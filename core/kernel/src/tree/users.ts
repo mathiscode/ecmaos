@@ -221,6 +221,14 @@ export class Users {
     return group
   }
 
+  /** Creates the group when it is missing; a preferred gid is used if it is free, else the first free system gid. */
+  async ensureGroup(name: string, preferredGid?: number): Promise<Group> {
+    const existing = this.findGroup(name)
+    if (existing) return existing
+    const free = preferredGid !== undefined && !this._groups.has(preferredGid)
+    return this.addGroup(name, free ? preferredGid : undefined, true)
+  }
+
   /** Removes a group. A user's primary group cannot go while the user exists. */
   async removeGroup(gid: number): Promise<void> {
     const group = this.findGroup(gid)

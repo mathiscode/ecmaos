@@ -22,7 +22,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 
 Every program also contains musl libc and compiler-rt, from Emscripten: see `runtime/`.
 
-Copyleft programs (GNU make, GNU nano, tree, Vim) are in `@ecmaos/coreutils-copyleft`, not here.
+Copyleft programs (GNU make, GNU nano, tree, Vim, ed, lz4) are in `@ecmaos/coreutils-copyleft`, not here.
 
 The build scripts are in `wasm/<name>/build.sh`; `programs/manifest.json` records each program's version, license, size
 and sha256, and the toolchain is pinned by `utils/emscripten-version` in the repository.
