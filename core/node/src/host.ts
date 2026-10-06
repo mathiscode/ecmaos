@@ -24,6 +24,8 @@ export interface NodeHostOptions {
   synchronous?: Synchronous
   /** Where the bundled files are; defaults to beside this build */
   env?: NodeJS.ProcessEnv
+  /** The kernel has shut down and wants the process to end (`halt`, `poweroff`) or start over (`reboot`) */
+  onStop?: (action: 'halt' | 'poweroff' | 'reboot') => void | Promise<void>
 }
 
 export interface NodeHost extends Host {
@@ -53,7 +55,8 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
     storage: { local: db ? new SqliteStorage(db) : new MemoryStorage(), session: new MemoryStorage() },
     platform: {
       hostname: () => os.hostname(),
-      restart() { throw new Error('restart is not supported yet') }
+      restart: () => options.onStop?.('reboot'),
+      exit: mode => options.onStop?.(mode)
     },
     fetch: sourceFetch(env, [initfsFile()]),
     defaults: {

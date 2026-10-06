@@ -20,6 +20,8 @@ export interface HostPlatform {
   hostname(): string
   /** Starts the system again after a shutdown (a page reload in a browser) */
   restart(): void | Promise<void>
+  /** Ends the host after `halt` or `poweroff`, once the kernel has shut down (a Node process exits; a page has nothing to do) */
+  exit?(mode: 'halt' | 'poweroff'): void | Promise<void>
   notifications?: HostNotifications
 }
 

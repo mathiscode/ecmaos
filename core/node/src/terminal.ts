@@ -72,7 +72,7 @@ export function attachStdio(kernel: Kernel, io: { stdin: NodeJS.ReadStream; stdo
   resize()
   io.stdout.on('resize', resize)
 
-  io.stdin.on('data', (chunk: Buffer) => {
+  const onData = (chunk: Buffer) => {
     const text = decoder.write(chunk)
     if (!text) return
     clearTimeout(escapeTimer)
@@ -80,7 +80,23 @@ export function attachStdio(kernel: Kernel, io: { stdin: NodeJS.ReadStream; stdo
     term.input(text, true)
     dispatch(parser.feed(text))
     if (parser.pending) escapeTimer = setTimeout(() => dispatch(parser.flush()), EscapeDelay)
-  })
+  }
+  io.stdin.on('data', onData)
+
+  // The input is gone (a script ran out, or the terminal closed): finish what was typed, then halt, as a shell does
+  const onEnd = () => { void queue.then(() => kernel.stop('halt')) }
+  io.stdin.on('end', onEnd)
 
   term.write(term.prompt())
+
+  /** Gives the terminal back: raw mode off, no more listening. The process can then exit, or hand the terminal on. */
+  return function detach() {
+    clearTimeout(escapeTimer)
+    io.stdin.off('data', onData)
+    io.stdin.off('end', onEnd)
+    io.stdout.off('resize', resize)
+    if (interactive) { try { io.stdin.setRawMode(false); writeSync(1, '\x1b[?2004l') } catch { /* gone already */ } }
+    io.stdin.pause()
+    io.stdin.unref?.()
+  }
 }

@@ -2173,9 +2173,10 @@ export class Kernel implements IKernel {
     if (mode === 'reboot') return this.reboot()
     this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
     await this.shutdown()
-    if (mode === 'poweroff') {
+    if (mode === 'poweroff' && !this.host.platform.exit) {
       try { globalThis.close() } catch { /* not allowed to close this window */ }
     }
+    await this.host.platform.exit?.(mode)
   }
 
   /**
@@ -2683,6 +2684,8 @@ export class Kernel implements IKernel {
    */
   async shutdown() {
     this.terminal.unlisten()
+    this.intervals.clearAll()
+    this.channel.close()
     this._state = KernelState.SHUTDOWN
     this.events.dispatch<KernelShutdownEvent>(KernelEvents.SHUTDOWN, { data: {} })
   }

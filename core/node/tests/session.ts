@@ -74,6 +74,17 @@ export class Session {
   /** Sends raw bytes, as typed (`\x1b[A` is the up arrow) */
   send(data: string) { this._child.stdin.write(data) }
 
+  /** Closes the input, after an optional last line: what a script ending looks like to the process */
+  end(last?: string) { this._child.stdin.end(last === undefined ? undefined : `${last}\r`) }
+
+  /** Sends a signal to the process */
+  signal(signal: NodeJS.Signals) { this._child.kill(signal) }
+
+  /** Resolves once the process has exited */
+  async waitForExit(timeout = 15_000) {
+    await this.until(() => !!this._exit, 'the process to exit', timeout)
+  }
+
   /** Changes the size of the pseudo-terminal (`pty` only) */
   resize(cols: number, rows: number) { (this._child.stdio[3] as NodeJS.WritableStream).write(`resize ${cols} ${rows}\n`) }
 

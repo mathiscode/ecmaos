@@ -20,6 +20,11 @@ export class Intervals {
     return intervalId
   }
 
+  /** Stops every interval; the kernel does this on shutdown so nothing keeps the process alive */
+  clearAll() {
+    for (const name of [...this._intervals.keys()]) this.clear(name)
+  }
+
   clear(name: string) {
     const interval = this._intervals.get(name)
     if (interval) {
