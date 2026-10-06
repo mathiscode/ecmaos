@@ -13,6 +13,10 @@
 
 import type { promises } from '@zenfs/core'
 
+import { publicKeyLine } from './keys.ts'
+import { DEFAULT_AGING, daysSinceEpoch, findEntry, parseShadowLine, serializeShadow, setEntry } from './shadow.ts'
+import type { ShadowFile } from './shadow.ts'
+
 /** Where a filesystem records its schema version. */
 export const FS_VERSION_FILE = '/etc/ecmaos-fs-version'
 
@@ -80,7 +84,7 @@ export const PREVIOUS_DEFAULT_BOOT_INITS: readonly string[] = [
   ].join('\n')
 ]
 
-type Fs = Pick<typeof promises, 'exists' | 'readdir' | 'stat' | 'readFile' | 'writeFile' | 'unlink' | 'rename'>
+type Fs = Pick<typeof promises, 'exists' | 'readdir' | 'stat' | 'readFile' | 'writeFile' | 'unlink' | 'rename' | 'mkdir' | 'chmod' | 'chown'>
 
 export interface FsMigrationContext {
   fs: Fs
@@ -194,6 +198,84 @@ async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {
 }
 
 /**
+ * Rewrites `/etc/shadow` in the Linux shape (`name:hash:lastchg:min:max:warn:inactive:expire:reserved`).
+ *
+ * The earlier format was `name:uid:gid:hash:publicKey:wrappedKey`, with the wrapped private key spread over three
+ * more colon-separated fields. The hash is kept as it is (the old `pbkdf2$` and unsalted forms still verify, and are
+ * upgraded at the next login). A key that survived is moved to `~/.ssh/id_ecdsa` and `id_ecdsa.pub` when the account's
+ * home directory exists; one that did not (the old loader truncated it) or whose home is gone is dropped, and a new one
+ * is made when something first needs it. Nothing logged in with it. An account in `/etc/passwd` with no line gets a
+ * locked one. A file already in the new shape is left alone, so running this twice changes nothing.
+ */
+async function convertShadow(ctx: FsMigrationContext): Promise<void> {
+  const { fs, log } = ctx
+  if (!await fs.exists('/etc/passwd')) return
+
+  const accounts = new Map<string, { uid: number, gid: number, home: string }>()
+  for (const line of (await fs.readFile('/etc/passwd', 'utf8')).split('\n')) {
+    const [name, , uid, gid, , home] = line.split(':')
+    if (name && uid && gid && home && !line.startsWith('#')) accounts.set(name, { uid: Number(uid), gid: Number(gid), home })
+  }
+
+  const before = await fs.exists('/etc/shadow') ? await fs.readFile('/etc/shadow', 'utf8') : ''
+  const file: ShadowFile = { lines: [] }
+  const today = daysSinceEpoch()
+  let converted = 0
+  let moved = 0
+
+  for (const raw of before.split('\n')) {
+    const line = raw.replace(/\r$/, '')
+    if (line.trim() === '') continue
+    const fields = line.split(':')
+    // a uid in the second field; a hash is never ten digits or fewer (an unsalted hex digest of only digits is 64)
+    const old = !line.startsWith('#') && /^\d{1,10}$/.test(fields[1] ?? '') && fields.length >= 4
+    if (!old) {
+      const entry = line.startsWith('#') ? undefined : parseShadowLine(line)
+      if (entry) setEntry(file, entry)
+      else file.lines.push({ text: line })
+      continue
+    }
+
+    const [name = '', , , hash = '', publicKey, salt, iv, data] = fields
+    setEntry(file, { name, hash, lastChange: today, ...DEFAULT_AGING, rest: [] })
+    converted++
+
+    const account = accounts.get(name)
+    if (!account || !publicKey || !salt || !iv || !data || fields.length !== 8) continue
+    try {
+      if (!await fs.exists(account.home)) continue
+      const directory = `${account.home}/.ssh`
+      if (await fs.exists(`${directory}/id_ecdsa`)) continue
+      const jwk = JSON.parse(atob(publicKey)) as JsonWebKey
+      await fs.mkdir(directory, { recursive: true, mode: 0o700 })
+      await fs.chown(directory, account.uid, account.gid).catch(() => {})
+      const wrapped = JSON.stringify({ v: 1, alg: 'ECDSA-P-384', kdf: 'pbkdf2-sha256', salt, iv, data })
+      for (const [path, text, mode] of [[`${directory}/id_ecdsa`, wrapped + '\n', 0o600], [`${directory}/id_ecdsa.pub`, publicKeyLine(jwk, name), 0o644]] as const) {
+        await fs.writeFile(path, text, { mode })
+        await fs.chmod(path, mode).catch(() => {})
+        await fs.chown(path, account.uid, account.gid).catch(() => {})
+      }
+      moved++
+    } catch (error) {
+      log.warn(`Could not move the key of ${name} to ~/.ssh: ${(error as Error).message}`)
+    }
+  }
+
+  // an account without a line exists but cannot log in, as on Linux
+  for (const name of accounts.keys()) {
+    if (findEntry(file, name)) continue
+    setEntry(file, { name, hash: '!', lastChange: today, ...DEFAULT_AGING, rest: [] })
+    converted++
+  }
+
+  const after = serializeShadow(file)
+  if (after === before) return
+  await fs.writeFile('/etc/shadow', after, { mode: 0o640 })
+  await fs.chmod('/etc/shadow', 0o640).catch(() => {})
+  log.info(`Converted /etc/shadow to the Linux format (${converted} line(s), ${moved} key(s) moved to ~/.ssh)`)
+}
+
+/**
  * Renames a persisted terminal config from `shell.toml` to `terminal.toml`.
  *
  * Every key in that file is an xterm.js terminal property, so `shell.toml` named the wrong layer.
@@ -300,6 +382,13 @@ export const FS_MIGRATIONS: readonly FsMigration[] = [
     description: '1.0: /boot/init is run by init and crond is an /etc/inittab entry, so update an untouched /boot/init',
     async run(ctx) {
       await upgradeBootInit(ctx)
+    }
+  },
+  {
+    version: 6,
+    description: '1.0: /etc/shadow in the Linux format, and the key pair out of it into ~/.ssh',
+    async run(ctx) {
+      await convertShadow(ctx)
     }
   }
 ]

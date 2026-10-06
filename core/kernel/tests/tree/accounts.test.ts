@@ -237,6 +237,65 @@ describe('account commands', () => {
     }, 30000)
   })
 
+  describe('shadow commands', () => {
+    const shadowLine = async (name: string) => (await fs().readFile('/etc/shadow', 'utf-8')).split('\n').find(line => line.startsWith(`${name}:`)) ?? ''
+
+    it('useradd -r makes a system account with * and no prompt, and -p gives it a password anyway', async () => {
+      expect((await sh('useradd -r nologinsvc')).code).toBe(0)
+      expect((await shadowLine('nologinsvc')).split(':')[1]).toBe('*')
+      expect((await sh('passwd -S nologinsvc')).out).toMatch(/^nologinsvc L \d{4}-\d{2}-\d{2} 0 99999 7 -1$/m)
+      await sh('useradd -r -p secret1 withpass')
+      expect((await shadowLine('withpass')).split(':')[1]).toMatch(/^\$pbkdf2-sha256\$/)
+      await expect(kernel.users.login('nologinsvc', '*')).rejects.toThrow()
+    }, 30000)
+
+    it('passwd -l locks, -u unlocks, -S says which', async () => {
+      await sh('useradd -p secret1 lockme')
+      expect((await sh('passwd -S lockme')).out).toMatch(/^lockme P /)
+      expect((await sh('passwd -l lockme')).code).toBe(0)
+      expect((await shadowLine('lockme')).split(':')[1]).toMatch(/^!\$pbkdf2-sha256\$/)
+      expect((await sh('passwd -S lockme')).out).toMatch(/^lockme L /)
+      await expect(kernel.users.login('lockme', 'secret1')).rejects.toThrow()
+      expect((await sh('passwd -u lockme')).code).toBe(0)
+      expect((await sh('passwd -S lockme')).out).toMatch(/^lockme P /)
+      expect((await kernel.users.login('lockme', 'secret1')).user.username).toBe('lockme')
+    }, 60000)
+
+    it('passwd -l and -u refuse an unknown account and a bad command line', async () => {
+      expect((await sh('passwd -l nosuchuser')).err).toContain("user 'nosuchuser' does not exist")
+      expect((await sh('passwd -l')).code).toBe(2)
+      expect((await sh('passwd -l -u lockme')).code).toBe(2)
+      expect((await sh('passwd -x lockme')).code).toBe(2)
+    }, 30000)
+
+    it('chage sets the aging fields in the shadow file, and -l lists them', async () => {
+      await sh('useradd -p secret1 aged')
+      expect((await sh('chage -M 90 -W 14 -m 1 aged')).code).toBe(0)
+      expect((await shadowLine('aged')).split(':').slice(3, 6)).toEqual(['1', '90', '14'])
+      expect((await sh('chage -E 2030-01-01 -I 5 aged')).code).toBe(0)
+      expect((await shadowLine('aged')).split(':').slice(6, 8)).toEqual(['5', '21915'])
+      const listed = (await sh('chage -l aged')).out
+      expect(listed).toContain('Account expires')
+      expect(listed).toMatch(/Account expires\s+: 2030-01-01/)
+      expect(listed).toMatch(/Maximum number of days between password change\s+: 90/)
+      expect((await sh('chage -E -1 -I -1 aged')).code).toBe(0)
+      expect((await shadowLine('aged')).split(':').slice(6, 8)).toEqual(['', ''])
+    }, 60000)
+
+    it('chage refuses what it cannot read', async () => {
+      expect((await sh('chage -M abc aged')).code).toBe(1)
+      expect((await sh('chage -E 2030-13-45 aged')).code).toBe(1)
+      expect((await sh('chage nosuchuser -M 5')).err).toContain("user 'nosuchuser' does not exist")
+      expect((await sh('chage aged')).code).toBe(2)
+      expect((await sh('chage')).code).toBe(2)
+    }, 30000)
+
+    it('an expired account cannot log in', async () => {
+      await sh('chage -E 1970-01-02 aged')
+      await expect(kernel.users.login('aged', 'secret1')).rejects.toThrow(/account has expired/)
+    }, 30000)
+  })
+
   describe('userdel', () => {
     it('removes the account, its private group and its shadow line, and leaves the home', async () => {
       await sh('useradd -m -p secret1 victim')
@@ -380,7 +439,7 @@ describe('account commands', () => {
       kernel.shell.credentials = credentials
       kernel.shell.context = bindContext({ root: '/', pwd: '/', credentials })
       try {
-        for (const command of ['useradd -p secret1 sneaky', 'groupadd sneaky', 'userdel plain', 'usermod -s /x plain', 'visudo -c']) {
+        for (const command of ['useradd -p secret1 sneaky', 'groupadd sneaky', 'userdel plain', 'usermod -s /x plain', 'visudo -c', 'passwd -l plain', 'passwd -S plain', 'chage -M 1 plain', 'chage -l plain']) {
           const result = await sh(command)
           expect(result.code, command).not.toBe(0)
         }

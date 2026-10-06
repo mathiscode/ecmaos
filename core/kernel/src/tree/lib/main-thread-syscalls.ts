@@ -793,12 +793,6 @@ export function installMainThreadSyscalls(): void {
           }
         }
 
-        // `Users.remove()` (`tree/users.ts`) already rewrites both /etc/passwd and /etc/group from
-        // its own in-memory map once the user is deleted -- but it never touches /etc/shadow at
-        // all, so that still needs manual cleanup here.
-        await kernel.filesystem.fs.writeFile('/etc/shadow',
-          (await kernel.filesystem.fs.readFile('/etc/shadow', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
-
         text = JSON.stringify({ message: `user '${username}' deleted successfully`, warning })
       } else if (action === 'mod') {
         const username = args['username'] as string
@@ -870,8 +864,11 @@ export function installMainThreadSyscalls(): void {
         }
         const supplementary = ((args['groups'] as string[] | undefined) ?? []).map(spec => resolveGroup(spec).gid)
 
+        // A system account has no password anyone can type (`*`), unless one is given
         let password = args['password'] as string | undefined
-        if (!password) {
+        const noPassword = !password && system
+        if (noPassword) password = '*'
+        else if (!password) {
           password = await shell.terminal.readline('New password: ', true)
           const confirm = await shell.terminal.readline('Retype new password: ', true)
           if (password !== confirm) throw new Error('password mismatch')
@@ -890,7 +887,7 @@ export function installMainThreadSyscalls(): void {
         try {
           await kernel.users.add(
             { username, password, uid, gid, groups: supplementary, shell: (args['shell'] as string | undefined) ?? 'ecmaos', home: (args['home'] as string | undefined) ?? `/home/${username}` },
-            { noHome: !args['createHome'] }
+            { noHome: !args['createHome'], noHash: noPassword }
           )
         } catch (error) {
           if (createdGroup !== undefined) await kernel.users.removeGroup(createdGroup).catch(() => {})
@@ -908,8 +905,6 @@ export function installMainThreadSyscalls(): void {
           }
         }
         await kernel.users.remove(usr.uid)
-        await kernel.filesystem.fs.writeFile('/etc/shadow',
-          (await kernel.filesystem.fs.readFile('/etc/shadow', 'utf8')).split('\n').filter(line => !line.startsWith(`${username}:`)).join('\n'))
         let warning: string | undefined
         if (args['removeHome'] && usr.home) {
           try { await removeTree(kernel, usr.home) } catch { warning = `warning: could not remove home directory '${usr.home}'` }
@@ -946,6 +941,26 @@ export function installMainThreadSyscalls(): void {
         if (args['uid'] !== undefined) { await kernel.users.changeUid(usr.uid, args['uid'] as number); usr = kernel.users.byName(username) as typeof usr }
         if (args['newName'] !== undefined) await kernel.users.rename(usr.uid, args['newName'] as string)
         text = JSON.stringify({ message: `user '${username}' modified` })
+      } else if (action === 'passwd') {
+        // `passwd -l`, `-u` and `-S`: the lock on an account's password, and what state it is in
+        const username = args['username'] as string
+        const usr = kernel.users.byName(username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+        const op = args['op'] as string
+        if (op === 'lock') await kernel.users.lock(usr.uid)
+        else if (op === 'unlock') await kernel.users.unlock(usr.uid)
+        else if (op !== 'status') throw new Error(`unknown passwd operation: ${op}`)
+        const hash = kernel.users.byName(username)!.password
+        const state = hash.replace(/^!/, '') === '' ? 'NP' : hash.startsWith('!') || hash.replace(/^!/, '') === '*' ? 'L' : 'P'
+        text = JSON.stringify({ message: `password for '${username}' ${op === 'status' ? 'is' : 'is now'} ${state === 'L' ? 'locked' : state === 'NP' ? 'empty' : 'set'}`, username, state, aging: kernel.users.byName(username)!.aging ?? {} })
+      } else if (action === 'chage') {
+        // `chage`: read or change the password aging fields (a `null` clears one)
+        const username = args['username'] as string
+        const usr = kernel.users.byName(username)
+        if (!usr) throw new Error(`user '${username}' does not exist`)
+        const changes = (args['changes'] ?? {}) as Record<string, number | null>
+        if (Object.keys(changes).length > 0) await kernel.users.setAging(usr.uid, changes)
+        text = JSON.stringify({ username, aging: kernel.users.byName(username)!.aging ?? {}, locked: kernel.users.isLocked(usr.uid) })
       } else {
         throw new Error(`unknown action: ${action}`)
       }

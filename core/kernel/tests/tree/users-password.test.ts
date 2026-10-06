@@ -34,7 +34,7 @@ describe('Users.add password validation', () => {
   })
 
   it('does not re-validate an already-hashed password loaded from /etc/shadow', async () => {
-    await users.add({ username: 'loaded', password: 'x', uid: 4002, keypair: { publicKey: {} } as never }, { noHash: true, noHome: true, noWrite: true })
+    await users.add({ username: 'loaded', password: 'x', uid: 4002 }, { noHash: true, noHome: true, noWrite: true })
     expect(users.get(4002)?.username).toBe('loaded')
   })
 })

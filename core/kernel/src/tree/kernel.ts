@@ -53,7 +53,7 @@ import { Shell } from '#shell.ts'
 import { Storage } from '#storage.ts'
 import { FitAddon } from '@xterm/addon-fit'
 import { Telemetry } from '#telemetry.ts'
-import { Users } from '#users.ts'
+import { SHADOW_GID, SHADOW_GROUP, Users } from '#users.ts'
 import { Wasm } from '#wasm.ts'
 import { Windows } from '#windows.ts'
 import { Workers } from '#workers.ts'
@@ -907,6 +907,9 @@ export class Kernel implements IKernel {
         }
         // `/etc/sudoers` grants %sudo, so the group has to exist for anyone to be put in it (27 as on Debian)
         await this.users.ensureGroup('sudo', 27)
+        // `/etc/shadow` is `0640 root:shadow` (42 as on Debian); the file may predate the group, so set it again now
+        await this.users.ensureGroup(SHADOW_GROUP, SHADOW_GID)
+        await this.users.secureShadow()
         usersSpan.setAttribute('users.count', this.users.all.size)
       } catch (err) {
         usersSpan.recordException(err as Error)

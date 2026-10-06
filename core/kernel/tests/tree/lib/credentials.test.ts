@@ -15,7 +15,7 @@ describe('isLegacyHash', () => {
 describe('hashPassword / verifyPassword', () => {
   it('hashes a password and verifies it correctly', async () => {
     const hash = await hashPassword('correct horse battery staple')
-    expect(hash.startsWith('pbkdf2$')).toBe(true)
+    expect(hash.startsWith('$pbkdf2-sha256$')).toBe(true)
     expect(await verifyPassword('correct horse battery staple', hash)).toBe(true)
     expect(await verifyPassword('wrong password', hash)).toBe(false)
   })

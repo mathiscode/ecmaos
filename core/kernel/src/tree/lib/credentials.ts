@@ -1,11 +1,15 @@
 /**
  * Password hashing and key-derivation helpers.
  *
- * Passwords are hashed with PBKDF2-SHA256 using a random per-user salt, and the AES-GCM key that
- * wraps a user's ECDSA private key is derived from the password with the same KDF (a distinct
- * derivation, so a hash leak alone does not hand over the wrapping key). Both are tagged with a
- * `pbkdf2$<iterations>$<saltB64>$<hashB64>` format, distinguishing them from unsalted SHA-256 hex
- * digests, which are recognized and upgraded in place on the next successful login.
+ * Passwords are hashed with PBKDF2-SHA256 using a random per-user salt and stored as passlib's
+ * `$pbkdf2-sha256$<rounds>$<salt>$<hash>`: the `$id$` shape crypt(3) uses in `/etc/shadow`, which Python's passlib
+ * also reads. Salt and hash use its "adapted base64" (`./A-Za-z0-9`, no padding), so neither can hold a `:` or a `$`.
+ * Two older forms are still accepted and are upgraded in place on the next successful login: the first PBKDF2 format,
+ * `pbkdf2$<rounds>$<saltB64>$<hashB64>`, and an unsalted SHA-256 hex digest. WebCrypto offers PBKDF2 and nothing like
+ * yescrypt, so that stays the algorithm; the `$id$` tag leaves room for another one later.
+ *
+ * The AES-GCM key that wraps a user's ECDSA private key is derived from the password with the same KDF (a distinct
+ * derivation, so a hash leak alone does not hand over the wrapping key).
  */
 
 const PBKDF2_ITERATIONS = 210_000
@@ -15,9 +19,27 @@ const HASH_BYTES = 32
 const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes))
 const fromBase64 = (b64: string): Uint8Array => Uint8Array.from(atob(b64), c => c.charCodeAt(0))
 
+/** passlib's "adapted base64": standard base64 with `.` for `+` and no padding */
+const toAb64 = (bytes: Uint8Array): string => toBase64(bytes).replace(/=+$/, '').replace(/\+/g, '.')
+const fromAb64 = (text: string): Uint8Array => fromBase64(text.replace(/\./g, '+') + '='.repeat((4 - text.length % 4) % 4))
+
+const HASH_TAG = '$pbkdf2-sha256$'
+
 /** An unsalted SHA-256 hex digest with no `pbkdf2$` tag: the older, weaker hash format. */
 export function isLegacyHash(stored: string): boolean {
   return /^[0-9a-f]{64}$/i.test(stored)
+}
+
+/** The first PBKDF2 format, `pbkdf2$<rounds>$<saltB64>$<hashB64>` */
+export function isOldPbkdf2Hash(stored: string): boolean {
+  return stored.startsWith('pbkdf2$')
+}
+
+/** Whether a stored hash is a real password hash in an older form (or with fewer rounds), to be upgraded at the next login */
+export function needsRehash(stored: string): boolean {
+  if (isLegacyHash(stored) || isOldPbkdf2Hash(stored)) return true
+  if (!stored.startsWith(HASH_TAG)) return false // locked, disabled, empty: nothing to upgrade
+  return Number(stored.split('$')[2]) < PBKDF2_ITERATIONS
 }
 
 async function pbkdf2Bits(password: string, salt: Uint8Array, iterations: number, bits: number): Promise<Uint8Array> {
@@ -34,7 +56,7 @@ async function pbkdf2Bits(password: string, salt: Uint8Array, iterations: number
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES))
   const hash = await pbkdf2Bits(password.trim(), salt, PBKDF2_ITERATIONS, HASH_BYTES * 8)
-  return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64(salt)}$${toBase64(hash)}`
+  return `${HASH_TAG}${PBKDF2_ITERATIONS}$${toAb64(salt)}$${toAb64(hash)}`
 }
 
 /** The older, unsalted SHA-256 hash, kept only to verify and upgrade existing shadow entries. */
@@ -43,18 +65,30 @@ async function hashPasswordLegacy(password: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Verify a password against a stored hash, whether PBKDF2-tagged or legacy unsalted hex. */
+/** Verify a password against a stored hash: the current format, the first PBKDF2 format, or unsalted hex. A locked, disabled or empty hash never verifies. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (isLegacyHash(stored)) return (await hashPasswordLegacy(password)) === stored
 
   const parts = stored.split('$')
-  if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false
-  const [, iterationsStr, saltB64, hashB64] = parts
+  let iterationsStr: string | undefined
+  let expected: Uint8Array
+  let salt: Uint8Array
+  try {
+    if (parts.length === 5 && parts[0] === '' && parts[1] === 'pbkdf2-sha256') {
+      iterationsStr = parts[2]
+      salt = fromAb64(parts[3]!)
+      expected = fromAb64(parts[4]!)
+    } else if (parts.length === 4 && parts[0] === 'pbkdf2') {
+      iterationsStr = parts[1]
+      salt = fromBase64(parts[2]!)
+      expected = fromBase64(parts[3]!)
+    } else return false
+  } catch {
+    return false // not valid base64
+  }
   const iterations = Number(iterationsStr)
-  if (!Number.isFinite(iterations) || iterations <= 0) return false
+  if (!Number.isFinite(iterations) || iterations <= 0 || expected.length === 0) return false
 
-  const salt = fromBase64(saltB64!)
-  const expected = fromBase64(hashB64!)
   const actual = await pbkdf2Bits(password.trim(), salt, iterations, expected.length * 8)
   if (actual.length !== expected.length) return false
 
@@ -78,4 +112,4 @@ export function generateKeySalt(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(SALT_BYTES))
 }
 
-export { toBase64, fromBase64 }
+export { toBase64, fromBase64, toAb64, fromAb64 }

@@ -49,7 +49,7 @@ describe('Legacy credential migration', () => {
 
     const after = kernel.users.get(500)
     expect(isLegacyHash(after!.password)).toBe(false)
-    expect(after!.password.startsWith('pbkdf2$')).toBe(true)
+    expect(after!.password.startsWith('$pbkdf2-sha256$')).toBe(true)
 
     // The migrated hash must still verify the same password, and the on-disk shadow entry
     // must reflect the migration too (not just the in-memory user object).

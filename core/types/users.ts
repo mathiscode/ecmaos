@@ -29,6 +29,25 @@ export interface UsersOptions {
 }
 
 /**
+ * Password aging fields of a user's `/etc/shadow` line. The two dates are days since 1970-01-01; a field that is not
+ * set is left out.
+ */
+export interface Aging {
+  /** Day the password was last changed */
+  lastChange?: number
+  /** Fewest days between password changes */
+  min?: number
+  /** Most days a password stays valid (99999 is never) */
+  max?: number
+  /** Days of warning before it expires */
+  warn?: number
+  /** Days after a password expires before the account is disabled */
+  inactive?: number
+  /** Day the account expires */
+  expire?: number
+}
+
+/**
  * Interface representing a user
  */
 export interface User {
@@ -42,17 +61,12 @@ export interface User {
   username: string
   /** Shell path */
   shell: string
-  /** Password hash */
+  /** The password field of `/etc/shadow`: a hash, `!` before one when locked, `*` when no password can log in */
   password: string
   /** User ID */
   uid: number
-  /** Optional keypair for authentication */
-  keypair?: {
-    /** Private key (may be encrypted) */
-    privateKey?: JsonWebKey | string
-    /** Public key */
-    publicKey: JsonWebKey
-  }
+  /** Password aging, as `/etc/shadow` keeps it (`chage` sets it) */
+  aging?: Aging
 }
 
 /**

@@ -12,11 +12,13 @@ Create a new user.
   -u, --uid UID             the user ID (default: the first free one from 1000)
   -g, --gid GROUP           the primary group, a name or a number that exists (default: a new group named LOGIN)
   -G, --groups GROUPS       supplementary groups, separated by commas
-  -r, --system              a system account: an ID from 100 to 999, no home directory unless -m
+  -r, --system              a system account: an ID from 100 to 999, no home directory unless -m, and no password
+                            (a * in /etc/shadow) unless -p is given
   -p, --password PASSWORD   the password in plain text (asked for when not given)
   --help                    display this help and exit
 
-Unlike Linux, an account has to have a password, so one is asked for when there is no -p.`
+Unlike Linux, an account has to have a password, so one is asked for when there is no -p (a system account
+with -r has none instead).`
 
 async function main() {
   const parsed = getopt(globalThis.ecmaosSyscalls.argv.slice(1), {

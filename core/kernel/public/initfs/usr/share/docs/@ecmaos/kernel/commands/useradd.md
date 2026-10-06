@@ -20,12 +20,12 @@ Creates a user account. Without `-g` the user gets a new group of their own, nam
 - `-u, --uid UID`: the user ID
 - `-g, --gid GROUP`: the primary group, a name or number that exists
 - `-G, --groups GROUPS`: supplementary groups, separated by commas
-- `-r, --system`: a system account
+- `-r, --system`: a system account, with no password (a `*` in `/etc/shadow`) unless `-p` is given
 - `-p, --password PASSWORD`: the password in plain text
 
 ## Notes
 
-Unlike Linux, an account has to have a password, so `useradd` asks for one when there is no `-p`. There is no `/etc/skel` to copy into the home directory. Only root may run it.
+Unlike Linux, an account has to have a password, so `useradd` asks for one when there is no `-p`; a system account made with `-r` has none instead. The password goes in `/etc/shadow` with `lastchg` set to today, no minimum age, a maximum of 99999 days and 7 days of warning. No key pair is made: it is created the first time something needs one, in `~/.ssh`. There is no `/etc/skel` to copy into the home directory. Only root may run it.
 
 ## Exit status
 
@@ -33,4 +33,4 @@ Unlike Linux, an account has to have a password, so `useradd` asks for one when 
 
 ## See also
 
-`@ecmaos/kernel/commands/userdel`, `@ecmaos/kernel/commands/usermod`, `@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/passwd`, `@ecmaos/kernel/commands/user`
+`@ecmaos/kernel/commands/userdel`, `@ecmaos/kernel/commands/usermod`, `@ecmaos/kernel/commands/groupadd`, `@ecmaos/kernel/commands/passwd`, `@ecmaos/kernel/commands/chage`, `@ecmaos/kernel/commands/user`

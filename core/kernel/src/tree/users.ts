@@ -8,13 +8,23 @@
 
 import type {
   AddUserOptions,
+  Aging,
   Passkey,
   User,
   UsersOptions
 } from '@ecmaos/types'
 import { createCredentials, Credentials } from '@zenfs/core'
-import { deriveAesKey, fromBase64, generateKeySalt, hashPassword, isLegacyHash, toBase64, verifyPassword } from './lib/credentials.ts'
-import { appendText } from './lib/append-file.ts'
+import { hashPassword, needsRehash, verifyPassword } from './lib/credentials.ts'
+import { generateKeyPair, parseWrappedKey, publicKeyLine, parsePublicKeyLine, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE, unwrapKey, wrapKey } from './lib/keys.ts'
+import {
+  DEFAULT_AGING, daysSinceEpoch, findEntry, hasNoPassword, isLocked, lockHash, loginBlock, parseShadow, removeEntry,
+  renameEntry, serializeShadow, setEntry, unlockHash
+} from './lib/shadow.ts'
+import type { ShadowEntry, ShadowFile } from './lib/shadow.ts'
+
+/** The group that may read `/etc/shadow`, as on Debian */
+export const SHADOW_GROUP = 'shadow'
+export const SHADOW_GID = 42
 
 /** Shortest plaintext password accepted; the documented default login (root/root) is 4. */
 export const MIN_PASSWORD_LENGTH = 4
@@ -41,6 +51,12 @@ function passwdLine(user: User): string {
 /** Serializes every currently-loaded user to `/etc/passwd`'s full contents. */
 function passwdFile(users: Iterable<User>): string {
   return Array.from(users).map(passwdLine).join('\n') + '\n'
+}
+
+/** The aging fields of a shadow line */
+function agingOf(entry: ShadowEntry): Aging {
+  const { lastChange, min, max, warn, inactive, expire } = entry
+  return Object.fromEntries(Object.entries({ lastChange, min, max, warn, inactive, expire }).filter(([, value]) => value !== undefined)) as Aging
 }
 
 /** A group: a name for a gid. Its members are the users whose `groups` list the gid. */
@@ -72,6 +88,8 @@ export class Users {
   private _users: Map<number, User> = new Map()
   /** Group names by gid, as `/etc/group` lists them. */
   private _groups: Map<number, Group> = new Map()
+  /** Changes to `/etc/shadow` run one at a time: each reads the file, edits it and writes it back whole */
+  private _shadowQueue: Promise<unknown> = Promise.resolve()
 
   get all() { return this._users }
 
@@ -99,7 +117,7 @@ export class Users {
     if (!user.shell) user.shell = 'ecmaos'
     if (!user.home) user.home = `/home/${user.username}`
 
-    if (!user.username || !user.password) throw new Error('Username and password are required')
+    if (!user.username || user.password === undefined) throw new Error('Username and password are required')
     if (this._users.has(user.uid) || Array.from(this._users.values()).some(u => u.username === user.username))
       throw new Error(`User with UID ${user.uid} or username ${user.username} already exists`)
 
@@ -117,33 +135,8 @@ export class Users {
       await this.fs.mkdir(user.home, { recursive: true, mode: 0o750 })
     }
 
-    if (!user.keypair) {
-      const keyPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-384' }, true, ['sign', 'verify'])
-      const privateKey = await crypto.subtle.exportKey('jwk', keyPair.privateKey)
-      const publicKey = await crypto.subtle.exportKey('jwk', keyPair.publicKey)
-
-      const keySalt = generateKeySalt()
-      let aesKey
-      try {
-        aesKey = await deriveAesKey(unhashedPassword, keySalt)
-      } catch (err) {
-        console.error(err)
-        throw err
-      }
-
-      const iv = crypto.getRandomValues(new Uint8Array(12))
-      const encryptedPrivateKeyBuffer = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        aesKey,
-        new TextEncoder().encode(JSON.stringify(privateKey))
-      )
-
-      // Store as keySalt:iv:ciphertext, each base64, so unwrapping doesn't need a re-derivation guess
-      const encryptedPrivateKey = `${toBase64(keySalt)}:${toBase64(iv)}:${toBase64(new Uint8Array(encryptedPrivateKeyBuffer))}`
-
-      user.keypair = { publicKey }
-      if (!options.noWrite) await appendText(this.fs, '/etc/shadow', `${user.username}:${user.uid}:${user.gid}:${user.password}:${btoa(JSON.stringify(publicKey))}:${encryptedPrivateKey}\n\n`, { mode: 0o700 })
-    }
+    if (!user.aging) user.aging = { lastChange: daysSinceEpoch(), ...DEFAULT_AGING }
+    if (!options.noWrite) await this.editShadow(file => setEntry(file, this.shadowEntry(user as User, findEntry(file, user.username!))))
 
     this._users.set(user.uid, user as User)
     if (!options.noWrite) await this.writePasswdAndGroup()
@@ -285,13 +278,11 @@ export class Users {
     const group = this._groups.get(user.gid)
     if (group && group.name === old && !this.findGroup(name)) this._groups.set(group.gid, { ...group, name })
     user.username = name
-    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8').catch(() => '')
-    await this.fs.writeFile('/etc/shadow', shadow.split('\n').filter((line: string) => line.trim() && !line.startsWith(`${old}:`)).join('\n') + '\n', { encoding: 'utf-8', mode: 0o700 })
-    await this.writeShadowEntry(user)
+    await this.editShadow(file => { if (!renameEntry(file, old, name)) setEntry(file, this.shadowEntry(user)) })
     await this.writePasswdAndGroup()
   }
 
-  /** Gives an account another uid: its `/etc/shadow` line follows, and the files in its home directory are handed over. */
+  /** Gives an account another uid, and hands over the files in its home directory (`/etc/shadow` is keyed by name, so it does not change). */
   async changeUid(uid: number, newUid: number): Promise<void> {
     const user = this._users.get(uid)
     if (!user) throw new Error(`User with UID ${uid} not found`)
@@ -301,7 +292,6 @@ export class Users {
     this._users.delete(uid)
     user.uid = newUid
     this._users.set(newUid, user)
-    await this.writeShadowEntry(user)
     await this.writePasswdAndGroup()
     const hand = async (path: string): Promise<void> => {
       const info = await this.fs.lstat(path).catch(() => undefined)
@@ -313,15 +303,16 @@ export class Users {
   }
 
   /**
-   * An administrator sets a password without knowing the old one. The hash and `/etc/shadow` are rewritten. The
-   * private key stays wrapped under the old password, so it can no longer be unlocked, as with an encrypted home
-   * directory on Linux; nothing at login needs it.
+   * An administrator sets a password without knowing the old one. The hash and `/etc/shadow` are rewritten, and a lock
+   * is lifted. The private key in `~/.ssh` stays encrypted under the old password, so it can no longer be unlocked, as
+   * with an encrypted home directory on Linux; nothing at login needs it.
    */
   async resetPassword(uid: number, newPassword: string): Promise<void> {
     const user = this._users.get(uid)
     if (!user) throw new Error(`User with UID ${uid} not found`)
     validatePassword(newPassword)
     user.password = await hashPassword(newPassword)
+    user.aging = { ...user.aging, lastChange: daysSinceEpoch() }
     await this.writeShadowEntry(user)
   }
 
@@ -331,7 +322,7 @@ export class Users {
   async load() {
     const { context } = this._options
     const passwd = await this.fs.readFile('/etc/passwd', 'utf-8')
-    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8')
+    const shadow = parseShadow(await this.fs.readFile('/etc/shadow', 'utf-8'))
     const group = await this.fs.exists('/etc/group') ? await this.fs.readFile('/etc/group', 'utf-8') : ''
 
     // Supplementary groups now live in /etc/group, keyed by username -> the numeric gids of every
@@ -355,29 +346,20 @@ export class Users {
       // format are upgraded by the boot migration before `load()` ever runs.
       const [username, , uid, gid, , home, shell] = line.split(':')
       if (!username || !uid || !gid || !home || !shell) continue
-      const shadowEntry = shadow.split('\n').find((l: string) => l.startsWith(username + ':'))
+      const entry = findEntry(shadow, username)
+      // Like Linux, an account with no shadow line exists but cannot log in
+      if (!entry) context.log.warn(`User ${username} not found in /etc/shadow; the account is locked`)
 
-      if (shadowEntry) {
-        const [,,, password, publicKey, encryptedPrivateKey] = shadowEntry.split(':')
-        if (!publicKey || !encryptedPrivateKey) {
-          context.log.warn(`User ${username} has no keypair`)
-          continue
-        }
-
-        const keypair = { publicKey: JSON.parse(atob(publicKey!)), privateKey: encryptedPrivateKey }
-        await this.add({
-          username,
-          password,
-          uid: parseInt(uid),
-          gid: parseInt(gid),
-          groups: supplementaryGroups.get(username) ?? [],
-          home,
-          shell,
-          keypair
-        }, { noWrite: true, noHome: true, noHash: true })
-      } else {
-        context.log.warn(`User ${username} not found in /etc/shadow`)
-      }
+      await this.add({
+        username,
+        password: entry?.hash ?? '!',
+        uid: parseInt(uid),
+        gid: parseInt(gid),
+        groups: supplementaryGroups.get(username) ?? [],
+        home,
+        shell,
+        aging: entry ? agingOf(entry) : { lastChange: daysSinceEpoch(), ...DEFAULT_AGING }
+      }, { noWrite: true, noHome: true, noHash: true })
     }
   }
 
@@ -387,6 +369,7 @@ export class Users {
   async login(username: string, password?: string, passkeyCredential?: PublicKeyCredential): Promise<{ user: User, cred: Credentials }> {
     const user = Array.from(this._users.values()).find(u => u.username === username)
     if (!user) throw new Error('Invalid username or password')
+    let usedPassword = false
 
     if (passkeyCredential) {
       const passkeys = await this.getPasskeys(user.uid)
@@ -405,16 +388,20 @@ export class Users {
       if (!(await verifyPassword(password, user.password))) {
         throw new Error('Invalid username or password')
       }
+      usedPassword = true
 
-      // A successful login is the one safe moment to upgrade an older (unsalted SHA-256, or
-      // unsalted zero-padded AES key) credential in place: the plaintext password is in hand,
-      // and the user has just proven they own the account.
-      if (isLegacyHash(user.password)) {
-        await this.migrateLegacyCredentials(user, password)
-      }
+      // A successful login is the one safe moment to upgrade an older (unsalted SHA-256, or the first
+      // PBKDF2 format) hash in place: the plaintext password is in hand, and the user has just proven
+      // they own the account.
+      if (needsRehash(user.password)) await this.upgradeHash(user, password)
     } else {
       throw new Error('Password or passkey required')
     }
+
+    // What `chage` sets. Said only once the caller has proved who they are, so a name cannot be probed for it. A lock
+    // (`passwd -l`) stops password logins above, as on Linux; only an expired account is closed to a passkey too.
+    const block = loginBlock(usedPassword ? { ...user.aging } : { expire: user.aging?.expire }, daysSinceEpoch())
+    if (block) throw new Error(`Your ${block.replace(' ', ' has ')}; please contact your system administrator`)
 
     const cred = createCredentials({
       uid: user.uid,
@@ -436,8 +423,13 @@ export class Users {
       if (!(await verifyPassword(oldPassword, user.password))) throw new Error('Invalid password')
       validatePassword(newPassword)
 
+      const today = daysSinceEpoch()
+      const { lastChange, min } = user.aging ?? {}
+      if (min && min > 0 && lastChange !== undefined && today - lastChange < min) throw new Error('You must wait longer to change your password')
+
       user.password = await hashPassword(newPassword)
-      await this.rewrapPrivateKey(user, newPassword)
+      user.aging = { ...user.aging, lastChange: today }
+      await this.rewrapKey(user, oldPassword, newPassword)
       await this.update(user.uid, user)
       await this.writeShadowEntry(user)
     } catch (err) {
@@ -446,81 +438,165 @@ export class Users {
     }
   }
 
-  /**
-   * Re-encrypt the given /etc/shadow line for one user with its current in-memory password hash
-   * and keypair, leaving every other user's line untouched.
-   */
-  private async writeShadowEntry(user: User): Promise<void> {
-    const shadow = await this.fs.readFile('/etc/shadow', 'utf-8')
-    const lines = shadow.split('\n').filter((l: string) => l.trim() !== '' && !l.startsWith(`${user.username}:`))
-    const publicKeyB64 = btoa(JSON.stringify(user.keypair?.publicKey))
-    const encryptedPrivateKey = user.keypair?.privateKey ?? ''
-    lines.push(`${user.username}:${user.uid}:${user.gid}:${user.password}:${publicKeyB64}:${encryptedPrivateKey}`)
-    await this.fs.writeFile('/etc/shadow', lines.join('\n') + '\n', { encoding: 'utf-8', mode: 0o700 })
+  // -- /etc/shadow ----------------------------------------------------------------------------------
+
+  /** The line `/etc/shadow` holds for `user`: what it knows, and whatever the file had past the ninth field */
+  private shadowEntry(user: User, existing?: ShadowEntry): ShadowEntry {
+    const aging = user.aging ?? {}
+    return { name: user.username, hash: user.password, ...aging, rest: existing?.rest ?? [] }
   }
 
-  /**
-   * Re-wrap a user's ECDSA private key under a freshly derived AES key for a new password.
-   * Requires the private key to already be decryptable with the *old* password -- call this
-   * before overwriting `user.password`'s in-memory value is not required, only that the caller
-   * has already verified the old password and still holds the plaintext new password.
-   */
-  private async rewrapPrivateKey(user: User, newPassword: string, oldPassword?: string): Promise<void> {
-    if (!user.keypair?.privateKey || typeof user.keypair.privateKey !== 'string') return
-
-    const privateKeyJwk = await this.decryptPrivateKey(user.keypair.privateKey, oldPassword ?? newPassword, user)
-    if (!privateKeyJwk) return
-
-    const keySalt = generateKeySalt()
-    const aesKey = await deriveAesKey(newPassword, keySalt)
-    const iv = crypto.getRandomValues(new Uint8Array(12))
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, new TextEncoder().encode(JSON.stringify(privateKeyJwk)))
-    user.keypair.privateKey = `${toBase64(keySalt)}:${toBase64(iv)}:${toBase64(new Uint8Array(encrypted))}`
+  /** Rewrites one user's line, leaving every other line as it is */
+  private writeShadowEntry(user: User): Promise<void> {
+    return this.editShadow(file => setEntry(file, this.shadowEntry(user, findEntry(file, user.username))))
   }
 
-  /**
-   * Decrypt a wrapped private key, transparently handling both the current keySalt:iv:ciphertext
-   * format and the older format (iv+ciphertext only, key derived by zero-padding the password).
-   */
-  private async decryptPrivateKey(wrapped: string, password: string, _user: User): Promise<JsonWebKey | null> {
+  /** Reads `/etc/shadow`, lets `edit` change it, and writes it back; edits are queued, so two cannot lose each other's change */
+  private editShadow(edit: (file: ShadowFile) => void): Promise<void> {
+    const work = async () => {
+      const text = await this.fs.readFile('/etc/shadow', 'utf-8').catch(() => '')
+      const file = parseShadow(text)
+      edit(file)
+      await this.fs.writeFile('/etc/shadow', serializeShadow(file), { encoding: 'utf-8', mode: 0o640 })
+      await this.secureShadow()
+    }
+    const next = this._shadowQueue.then(work, work)
+    this._shadowQueue = next.catch(() => {})
+    return next
+  }
+
+  /** Mode `0640`, owned by root and the `shadow` group (root's own group until that exists) */
+  async secureShadow(): Promise<void> {
     try {
-      const parts = wrapped.split(':')
-      if (parts.length === 3) {
-        const [saltB64, ivB64, dataB64] = parts as [string, string, string]
-        const aesKey = await deriveAesKey(password, fromBase64(saltB64))
-        const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(ivB64) as BufferSource }, aesKey, fromBase64(dataB64) as BufferSource)
-        return JSON.parse(new TextDecoder().decode(decrypted))
-      }
-
-      // Older format: base64(iv ++ ciphertext), key = password zero-padded to 32 bytes
-      const raw = fromBase64(wrapped)
-      const iv = raw.slice(0, 12)
-      const data = raw.slice(12)
-      const paddedPassword = new TextEncoder().encode(password.padEnd(32, '\0')).slice(0, 32)
-      const aesKey = await crypto.subtle.importKey('raw', paddedPassword as BufferSource, 'AES-GCM', false, ['decrypt'])
-      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, aesKey, data as BufferSource)
-      return JSON.parse(new TextDecoder().decode(decrypted))
+      await this.fs.chmod('/etc/shadow', 0o640)
+      await this.fs.chown('/etc/shadow', 0, this.findGroup(SHADOW_GROUP)?.gid ?? 0)
     } catch (error) {
-      this._options.context.log.warn(`Failed to decrypt private key: ${error}`)
-      return null
+      this._options.context.log.warn(`Could not set the mode of /etc/shadow: ${error}`)
     }
   }
 
-  /**
-   * Upgrade a user's on-disk credentials from an unsalted-SHA-256 password hash and zero-padded
-   * AES key wrapping to PBKDF2 + salted AES-GCM, in place, using the plaintext password from the
-   * login that just succeeded.
-   */
-  private async migrateLegacyCredentials(user: User, password: string): Promise<void> {
+  /** Makes the account unusable for password logins: a `!` before the hash (`passwd -l`) */
+  async lock(uid: number): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    user.password = lockHash(user.password)
+    await this.writeShadowEntry(user)
+  }
+
+  /** Takes the `!` away (`passwd -u`); refused when that would leave no password at all */
+  async unlock(uid: number): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    const hash = unlockHash(user.password)
+    if (hasNoPassword(hash)) throw new Error('unlocking the password would result in a passwordless account; give it a password first')
+    user.password = hash
+    await this.writeShadowEntry(user)
+  }
+
+  /** Whether the account is locked (`passwd -l`) */
+  isLocked(uid: number): boolean {
+    const user = this._users.get(uid)
+    return !!user && isLocked(user.password)
+  }
+
+  /** Sets the password aging fields (`chage`): a number sets one, `null` clears it. The password itself is not touched. */
+  async setAging(uid: number, changes: Partial<Record<keyof Aging, number | null>>): Promise<void> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    const aging: Aging = { ...user.aging }
+    for (const [field, value] of Object.entries(changes) as Array<[keyof Aging, number | null | undefined]>) {
+      if (value === undefined) continue
+      if (value === null) delete aging[field]
+      else if (!Number.isInteger(value) || value < 0) throw new Error(`invalid ${field} value '${value}'`)
+      else aging[field] = value
+    }
+    user.aging = aging
+    await this.writeShadowEntry(user)
+  }
+
+  /** Re-hashes a password in an older form, from the plaintext of the login that just succeeded */
+  private async upgradeHash(user: User, password: string): Promise<void> {
     try {
       user.password = await hashPassword(password)
-      await this.rewrapPrivateKey(user, password, password)
       this._users.set(user.uid, user)
       await this.writeShadowEntry(user)
-      this._options.context.log.info(`Upgraded credentials for user ${user.username} to PBKDF2`)
+      this._options.context.log.info(`Upgraded the password hash for user ${user.username}`)
     } catch (error) {
       // Best-effort: a failure here must not block the login that already succeeded.
-      this._options.context.log.warn(`Failed to upgrade credentials for user ${user.username}: ${error}`)
+      this._options.context.log.warn(`Failed to upgrade the password hash for user ${user.username}: ${error}`)
+    }
+  }
+
+  // -- the user's key pair (~/.ssh) -----------------------------------------------------------------
+
+  private keyPaths(user: User) {
+    return { directory: `${user.home}/.ssh`, privateKey: `${user.home}/${PRIVATE_KEY_FILE}`, publicKey: `${user.home}/${PUBLIC_KEY_FILE}` }
+  }
+
+  /** The user's public key (`~/.ssh/id_ecdsa.pub`), or `null` when there is none yet */
+  async getPublicKey(uid: number): Promise<JsonWebKey | null> {
+    const user = this._users.get(uid)
+    if (!user) return null
+    const { publicKey } = this.keyPaths(user)
+    if (!(await this.fs.exists(publicKey))) return null
+    return parsePublicKeyLine(await this.fs.readFile(publicKey, 'utf-8'))
+  }
+
+  /**
+   * The user's public key, making the pair first if there is none. The private half is encrypted under `password`,
+   * which has to be the user's current one. A key that exists but cannot be unlocked with it (an administrator
+   * changed the password since) is not replaced: that would destroy it.
+   */
+  async ensureKeypair(uid: number, password: string): Promise<JsonWebKey> {
+    const user = this._users.get(uid)
+    if (!user) throw new Error(`User with UID ${uid} not found`)
+    if (!(await verifyPassword(password, user.password))) throw new Error('Invalid password')
+
+    const { directory, privateKey, publicKey } = this.keyPaths(user)
+    if (await this.fs.exists(privateKey)) {
+      const wrapped = parseWrappedKey(await this.fs.readFile(privateKey, 'utf-8'))
+      if (wrapped && await unwrapKey(wrapped, password)) {
+        const existing = await this.getPublicKey(uid)
+        if (existing) return existing
+      }
+      throw new Error(`${privateKey} exists and cannot be unlocked with this password`)
+    }
+
+    const pair = await generateKeyPair(password)
+    await this.fs.mkdir(directory, { recursive: true, mode: 0o700 })
+    await this.fs.chown(directory, user.uid, user.gid).catch(() => {})
+    await this.writeKeyFile(user, privateKey, JSON.stringify(pair.wrapped) + '\n', 0o600)
+    await this.writeKeyFile(user, publicKey, publicKeyLine(pair.publicKey, user.username), 0o644)
+    return pair.publicKey
+  }
+
+  /** The private key, decrypted with the user's password, or `null` (no key, or a wrong password) */
+  async unlockPrivateKey(uid: number, password: string): Promise<JsonWebKey | null> {
+    const user = this._users.get(uid)
+    if (!user) return null
+    const { privateKey } = this.keyPaths(user)
+    if (!(await this.fs.exists(privateKey))) return null
+    const wrapped = parseWrappedKey(await this.fs.readFile(privateKey, 'utf-8'))
+    return wrapped ? unwrapKey(wrapped, password) : null
+  }
+
+  private async writeKeyFile(user: User, path: string, text: string, mode: number): Promise<void> {
+    await this.fs.writeFile(path, text, { encoding: 'utf-8', mode })
+    await this.fs.chmod(path, mode).catch(() => {})
+    await this.fs.chown(path, user.uid, user.gid).catch(() => {})
+  }
+
+  /** After a password change: encrypts the private key under the new password. A key that cannot be read is left alone. */
+  private async rewrapKey(user: User, oldPassword: string, newPassword: string): Promise<void> {
+    const { privateKey } = this.keyPaths(user)
+    try {
+      if (!(await this.fs.exists(privateKey))) return
+      const wrapped = parseWrappedKey(await this.fs.readFile(privateKey, 'utf-8'))
+      const jwk = wrapped ? await unwrapKey(wrapped, oldPassword) : null
+      if (!jwk) { this._options.context.log.warn(`Could not unlock ${privateKey} to change its password; it is unchanged`); return }
+      await this.writeKeyFile(user, privateKey, JSON.stringify(await wrapKey(jwk, newPassword)) + '\n', 0o600)
+    } catch (error) {
+      this._options.context.log.warn(`Could not re-encrypt ${privateKey}: ${error}`)
     }
   }
 
@@ -537,6 +613,7 @@ export class Users {
       if (group && group.name === user.username && !used) this._groups.delete(user.gid)
     }
     await this.writePasswdAndGroup()
+    if (user) await this.editShadow(file => { removeEntry(file, user.username) })
     // we leave the home directory behind for the admin to delete manually
   }
 

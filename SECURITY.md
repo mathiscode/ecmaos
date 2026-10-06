@@ -17,7 +17,13 @@ persisted to the origin's IndexedDB. This has real consequences for what "securi
 - **Password hashing and key derivation** use PBKDF2-SHA256 with a per-user random salt (not a
   memory-hard KDF like Argon2 — WebCrypto does not expose one). This raises the cost of offline
   guessing against a stolen hash; it does not make the hash itself inaccessible to whoever can
-  read the origin's storage.
+  read the origin's storage. `/etc/shadow` has the Linux layout
+  (`name:hash:lastchg:min:max:warn:inactive:expire:reserved`), with hashes in passlib's
+  `$pbkdf2-sha256$rounds$salt$hash` form, and is `0640 root:shadow`. A user's ECDSA key pair is not
+  kept there: it is made when first needed and stored in the user's `~/.ssh`, the private half
+  encrypted under the login password.
+- **Locking an account.** `passwd -l` stops password logins only, as on Linux; a passkey still
+  works. To close an account completely, set an expiry date with `chage -E`.
 - **Passkeys are the stronger path where available** (`auth.ts`, `tutorials/passkey.md`): the
   private key never leaves the authenticator, so it is not exposed by reading IndexedDB at all.
   Prefer passkeys over passwords when the deployment allows it.
