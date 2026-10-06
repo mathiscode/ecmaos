@@ -646,6 +646,54 @@ importers:
         specifier: ^4.19.2
         version: 4.23.13
 
+  core/node:
+    devDependencies:
+      '@ecmaos-devices/tty':
+        specifier: workspace:^
+        version: link:../../devices/tty
+      '@ecmaos/config-typescript':
+        specifier: workspace:^
+        version: link:../../utils/config-typescript
+      '@ecmaos/kernel':
+        specifier: workspace:^
+        version: link:../kernel
+      '@ecmaos/types':
+        specifier: workspace:^
+        version: link:../types
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.11.0)
+      '@types/node':
+        specifier: 22.20.2
+        version: 22.20.2
+      '@zenfs/core':
+        specifier: ^2.7.6
+        version: 2.7.6
+      '@zenfs/linux':
+        specifier: 0.6.1
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.6)(kerium@1.5.0)(memium@1.0.4)(utilium@3.7.0)
+      eslint:
+        specifier: ^10.11.0
+        version: 10.11.0
+      globals:
+        specifier: ^17.12.0
+        version: 17.12.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      typescript-eslint:
+        specifier: ^8.70.1
+        version: 8.70.1(eslint@10.11.0)
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1)
+      vite-plugin-i18next-loader:
+        specifier: ^2.0.13
+        version: 2.0.14(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
+      vitest:
+        specifier: ^5.0.2
+        version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
+
   core/swapi:
     dependencies:
       '@faker-js/faker':
@@ -2154,9 +2202,6 @@ packages:
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
     engines: {node: '>=6.0.0'}
-
-  '@jridgewell/sourcemap-codec@1.5.0':
-    resolution: {integrity: sha512-gv3ZRaISU3fjPAgNsriBRqGWQL6quFx04YMPW/zD8XMLsU32mhCCbfbO6KZFLjvYpCZ8zyDEgqsgf+PwPaM7GQ==}
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -8940,8 +8985,6 @@ snapshots:
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
-  '@jridgewell/sourcemap-codec@1.5.0': {}
-
   '@jridgewell/sourcemap-codec@1.6.0': {}
 
   '@jridgewell/trace-mapping@0.3.31':
@@ -8952,7 +8995,7 @@ snapshots:
   '@jridgewell/trace-mapping@0.3.9':
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.0
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   '@jspm/core@2.1.0': {}
 

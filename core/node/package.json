@@ -1,0 +1,50 @@
+{
+  "name": "@ecmaos/node",
+  "description": "ecmaOS in a Node process: the same kernel, with a terminal on your stdin and stdout",
+  "version": "0.1.0",
+  "author": {
+    "name": "Jay Mathis",
+    "email": "code@mathis.network",
+    "url": "https://github.com/mathiscode"
+  },
+  "license": "MIT+Apache-2.0",
+  "homepage": "https://ecmaos.sh",
+  "repository": "https://github.com/ecmaos/ecmaos",
+  "type": "module",
+  "bin": {
+    "ecmaos": "./dist/ecmaos.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "lint": "eslint src",
+    "start": "node dist/ecmaos.mjs",
+    "test": "vite build && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@ecmaos-devices/tty": "workspace:^",
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/kernel": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.7.4",
+    "@zenfs/core": "^2.7.6",
+    "@zenfs/linux": "0.6.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^8.3.1",
+    "vite-plugin-i18next-loader": "^2.0.13",
+    "vitest": "^5.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

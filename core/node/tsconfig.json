@@ -1,0 +1,27 @@
+{
+  "extends": "@ecmaos/config-typescript/tsconfig.base.json",
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["**/node_modules/**", "dist", "vite.config.ts"],
+  "compilerOptions": {
+    "types": [
+      "node",
+      "../kernel/src/declarations/globalThis.d.ts",
+      "../kernel/src/declarations/bin-node.d.ts",
+      "../kernel/src/declarations/figlet-fonts.d.ts",
+      "../kernel/src/declarations/hardware-info.d.ts",
+      "../kernel/src/declarations/keyboard.d.ts",
+      "../kernel/src/declarations/vite-env.d.ts"
+    ],
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}
