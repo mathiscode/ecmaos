@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import path from 'node:path'
 
+const ptyHost = path.resolve(import.meta.dirname, 'pty-host.py')
 const bundle = path.resolve(import.meta.dirname, '../dist/ecmaos.mjs')
 // eslint-disable-next-line no-control-regex
 const stripAnsi = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '')
@@ -18,8 +19,15 @@ export class Session {
   get output() { return stripAnsi(this._out) }
   get exit() { return this._exit }
 
-  constructor(args: string[] = ['--quiet'], options: { cwd?: string, env?: NodeJS.ProcessEnv } = {}) {
-    this._child = spawn(process.execPath, [bundle, ...args], { cwd: options.cwd, env: options.env ?? process.env, stdio: ['pipe', 'pipe', 'pipe'] })
+  /**
+   * With `pty`, the bundle runs on a pseudo-terminal of that size (through `pty-host.py`), so it sees a real TTY: raw
+   * mode, a window size, escape sequences. Without, it is fed through pipes.
+   */
+  constructor(args: string[] = ['--quiet'], options: { cwd?: string, env?: NodeJS.ProcessEnv, pty?: { cols: number, rows: number } } = {}) {
+    const env = options.env ?? process.env
+    this._child = options.pty
+      ? spawn('python3', [ptyHost, String(options.pty.cols), String(options.pty.rows), process.execPath, bundle, ...args], { cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams
+      : spawn(process.execPath, [bundle, ...args], { cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this._child.stdout.on('data', (data: Buffer) => { this._out += data.toString('utf8') })
     this._child.stderr.on('data', (data: Buffer) => { this._out += data.toString('utf8') })
     this._child.on('exit', (code, signal) => { this._exit = { code, signal } })
@@ -51,6 +59,17 @@ export class Session {
     // the terminal echoes the typed command first
     if (lines[0] === command) lines.shift()
     return lines.join('\n').replace(/\n$/, '')
+  }
+
+  /** Sends raw bytes, as typed (`\x1b[A` is the up arrow) */
+  send(data: string) { this._child.stdin.write(data) }
+
+  /** Changes the size of the pseudo-terminal (`pty` only) */
+  resize(cols: number, rows: number) { (this._child.stdio[3] as NodeJS.WritableStream).write(`resize ${cols} ${rows}\n`) }
+
+  /** Resolves once the output (escape sequences removed) contains `text` after position `from` */
+  async waitFor(text: string, from = 0, timeout = 10_000) {
+    await this.until(() => this.output.indexOf(text, from) !== -1, `"${text}"`, timeout)
   }
 
   async stop() {
