@@ -111,6 +111,12 @@ function jsonEnv<T>(value: unknown): T | undefined {
   try { return JSON.parse(value) as T } catch { return undefined }
 }
 
+/** Reads a CSS custom property from the page root; empty when there is no DOM (a non-browser host). */
+function cssVariable(name: string): string {
+  if (!globalThis.document?.documentElement || typeof globalThis.getComputedStyle !== 'function') return ''
+  return getComputedStyle(globalThis.document.documentElement).getPropertyValue(name).trim()
+}
+
 const DefaultKernelOptions: KernelOptions = {
   devices: DefaultDevices,
   dom: DefaultDomOptions,
@@ -431,7 +437,7 @@ export class Kernel implements IKernel {
 
       // Configure filesystem first (needed before we can read locale file)
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
-      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: Filesystem.options() })
+      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: Filesystem.options(this.options.filesystem) })
       configureSpan.end()
 
       // Register ecmaOS's own custom syscalls (main-thread-only capabilities like DOM window
@@ -508,7 +514,7 @@ export class Kernel implements IKernel {
       }
 
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {
-        await this.filesystem.fs.writeFile('/etc/hostname', `${location.hostname || 'ecmaos'}\n`, { mode: 0o644 })
+        await this.filesystem.fs.writeFile('/etc/hostname', `${globalThis.location?.hostname || 'ecmaos'}\n`, { mode: 0o644 })
       }
 
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
@@ -650,12 +656,12 @@ export class Kernel implements IKernel {
         const figletFont = options.figletFontRandom
           ? DefaultFigletFonts[Math.floor(Math.random() * DefaultFigletFonts.length)]
           : options.figletFont
-            || getComputedStyle(document.documentElement).getPropertyValue('--figlet-font').trim()
+            || cssVariable('--figlet-font')
             || 'Poison'
             
 
         const figletColor = options.figletColor
-          || getComputedStyle(document.documentElement).getPropertyValue('--figlet-color').trim()
+          || cssVariable('--figlet-color')
           || '#00FF00'
 
         const colorFiglet = (color: string, text: string) => {
@@ -672,7 +678,7 @@ export class Kernel implements IKernel {
           figlet.parseFont(figletFont || 'Poison', loadedFont.default)
           logoFiglet = figlet.textSync(import.meta.env['FIGLET_TEXT'] || 'ECMAOS', { font: figletFont as keyof typeof figlet.fonts })
           // TODO: Fancier detection of figlet width and terminal width
-          if (document.body.clientWidth >= 650) this.terminal.writeln(colorFiglet(figletColor, logoFiglet))
+          if ((globalThis.document?.body?.clientWidth ?? Infinity) >= 650) this.terminal.writeln(colorFiglet(figletColor, logoFiglet))
         } catch (error) {
           this.log.error(`Failed to load figlet font ${figletFont}: ${(error as Error).message}`)
         }
@@ -729,8 +735,8 @@ export class Kernel implements IKernel {
           this.log.info(`${import.meta.env['NAME'] || 'ecmaOS'} v${import.meta.env['VERSION']}`)
         }
 
-        if (Notification?.permission === 'default') Notification.requestPermission()
-        if (Notification?.permission === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
+        if (globalThis.Notification?.permission === 'default') Notification.requestPermission()
+        if (globalThis.Notification?.permission === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
 
         this.intervals.set('title-blink', () => {
           // Guards against firing after a test environment has torn down `document` -- this
@@ -1926,7 +1932,8 @@ export class Kernel implements IKernel {
    * @returns {Promise<Notification|void>} The created notification or void if permissions denied
    */
   async notify(title: string, options: NotificationOptions = {}): Promise<void | Notification> {
-    if (Notification?.permission === 'granted') return new Notification(title, options)
+    if (!globalThis.Notification) return
+    if (Notification.permission === 'granted') return new Notification(title, options)
     await Notification.requestPermission()
   }
 
@@ -2290,7 +2297,14 @@ export class Kernel implements IKernel {
     const allDrivers: { device: (typeof DefaultDevices)[string]; driver: KernelCharDevice }[] = []
 
     for (const device of Object.values(this.options.devices || DefaultDevices)) {
-      const drivers = await device.getDrivers(this.context)
+      let drivers: KernelCharDevice[]
+      try {
+        drivers = await device.getDrivers(this.context)
+      } catch (error) {
+        this.log.warn(`device ${device.pkg.name} unavailable: ${(error as Error).message}`)
+        continue
+      }
+
       this.devices.set(device.pkg.name, { device, drivers })
       for (const driver of drivers) allDrivers.push({ device, driver })
     }
@@ -2481,6 +2495,8 @@ export class Kernel implements IKernel {
    * configured screensaver isn't a registered one
    */
   startScreensaverDaemon(): (() => void) | undefined {
+    // Screensavers draw on the page; with no DOM (a Node host) there is nothing to show.
+    if (!globalThis.document) return undefined
     const currentSaver = this.storage.local.getItem('screensaver') || 'matrix'
     const saver = this.screensavers.get(currentSaver)
     if (!saver) return undefined

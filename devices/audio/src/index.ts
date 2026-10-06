@@ -151,7 +151,11 @@ async function test(kernel: Kernel, shell: Shell) {
 const audio_class = new Class('audio')
 
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const state: AudioDeviceState = { context: new AudioContext() }
+  // Created on first use so a host without Web Audio can still register the device
+  let context: AudioContext | undefined
+  const state: AudioDeviceState = {
+    get context() { return context ??= new AudioContext() }
+  }
 
   const drivers: KernelCharDevice[] = [{
     name: 'audio',

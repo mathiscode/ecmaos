@@ -510,7 +510,7 @@ export class Terminal extends XTerm implements ITerminal {
     }
 
     this.fitToContainer()
-    globalThis.addEventListener('resize', () => {
+    globalThis.addEventListener?.('resize', () => {
       this.fitToContainer()
       this.events.dispatch<TerminalResizeEvent>(TerminalEvents.RESIZE, { cols: this.cols, rows: this.rows })
     })
