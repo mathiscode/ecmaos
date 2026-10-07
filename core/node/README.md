@@ -22,6 +22,28 @@ The initfs and the permissively licensed programs of `@ecmaos/coreutils` come wi
 from disk, with no network. The GPL programs (`vim`, `nano`, `make`, ...) are not part of it: install
 `@ecmaos/coreutils-copyleft` beside it to have them (`ECMAOS_COPYLEFT=0` ignores it).
 
+## `node` inside the machine
+
+`node` in the guest shell runs JavaScript. It is a real `node` command line:
+
+```sh
+node script.js arg1 arg2        # a file, with its arguments (also .mjs and .cjs)
+node -e "console.log(1 + 1)"    # evaluate;  -p prints the value
+node --input-type=module -e "console.log(await 6 * 7)"
+echo "console.log('hi')" | node # a script on standard input (or `node -`)
+node                            # on a terminal: the REPL
+node -i script.js               # run a file or -e, then the REPL
+node -v | -h
+```
+
+The REPL is Node's own (`node:repl`), so it has history, completion, multi-line input, `_` and top-level `await`,
+plus `.help`, `.editor`, `.save` and `.load` (these two use the machine's filesystem, not yours). `^C` cancels the line,
+`^D` leaves. History is kept in `~/.node_repl_history` (`NODE_REPL_HISTORY` moves it; set it to the empty string to turn
+it off). It is only available on this host: it needs `node:repl`, which a browser does not have.
+
+`console.log` and `console.error` in a guest program write to the machine's stdout and stderr, so `>` and `|` work on them.
+Programs cannot `import` other files or packages yet.
+
 ## Security: run only code you trust
 
 `ecmaos` runs as you, and what runs inside it is not sandboxed from the machine it runs on.

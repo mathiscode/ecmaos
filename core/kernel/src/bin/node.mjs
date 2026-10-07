@@ -33,6 +33,7 @@ import {
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
   link, symlink, readlink, utimes, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
+import { parseArgs, installConsole, runSource, readStdin, isTty, startRepl, Usage } from './node-cli.mjs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
 
 /**
@@ -168,7 +169,7 @@ function rmRecursive(path) {
 }
 
 /** A short read is not EOF (a pipe or device can return less mid-stream), so loop until `read()` returns 0. */
-async function readWholeFile(path) {
+function readWholeFile(path) {
   const fd = open(path, 0 /* O_RDONLY */)
   const chunkSize = 65536
   const chunks = []
@@ -208,15 +209,13 @@ const ready_ = await ready
 // `execve`. With no file there is nothing to run, and this interpreter is not a REPL.
 const hosted = ready_.exe === '/bin/node'
 const say = text => { try { write(2, new TextEncoder().encode(text)) } catch { /* nowhere to say it */ } }
-const init = hosted ? (() => {
-  const target = ready_.argv?.[1]
-  if (!target || target.startsWith('-')) {
-    say(target ? `node: ${target}: unsupported option\n` : 'usage: node <file> [args...]\n')
-    exit(target ? 9 : 1)
-  }
-  const exe = target.startsWith('/') ? target : `${getcwd().replace(/\/$/, '')}/${target}`
-  return { ...ready_, exe, argv: [exe, ...ready_.argv.slice(2)] }
-})() : ready_
+// What `node ...` was asked to do (a file, `-e`, a script on stdin, the REPL, or just `--help`); a program run by its
+// own path is not that, and has no command line of this kind.
+const cli = hosted ? parseArgs(ready_.argv.slice(1)) : undefined
+const init = cli?.action === 'file' ? (() => {
+  const exe = cli.file.startsWith('/') ? cli.file : `${getcwd().replace(/\/$/, '')}/${cli.file}`
+  return { ...ready_, exe, argv: [exe, ...cli.rest] }
+})() : hosted ? { ...ready_, argv: ['/bin/node', ...(cli.rest ?? [])] } : ready_
 
 // Expose this module's own already-initialized syscall wrappers for the loaded program to use --
 // see the doc comment above for why a program can't get working ones of its own by importing
@@ -298,12 +297,45 @@ if (typeof globalThis.addEventListener === 'function') {
 }
 if (typeof globalThis.process?.on === 'function') globalThis.process.on('unhandledRejection', reportUnhandled)
 
+// `console` is the guest's: its output goes to fd 1 and 2, where redirection and pipes can see it
+const sys = { read, write, writeAll, open, close, tcgetattr, tcsetattr, winsize, poll, POLLIN, POLLHUP, onSignal: on_signal, offSignal: off_signal, readWholeFile, O_WRONLY, O_CREAT, O_TRUNC }
+const { inspect } = installConsole(sys)
+// `process.argv` is the guest's: the program and its arguments
+if (globalThis.process) globalThis.process.argv = init.argv
+
+/** `node` with an option or no file: help, version, `-e`/`-p`, a script on stdin, the REPL. Returns the exit status. */
+async function runCommandLine() {
+  if (cli.error) { say(`node: ${cli.error}\n`); return 9 }
+  if (cli.action === 'help') { writeAll(1, new TextEncoder().encode(Usage)); return 0 }
+  if (cli.action === 'version') { writeAll(1, new TextEncoder().encode(`${globalThis.process?.version ?? 'v0.0.0'}\n`)); return 0 }
+
+  const run = async source => {
+    try { await runSource(source, { module: cli.module, print: cli.print, toDataUrl, inspect, sys }); return 0 } catch (error) {
+      // The stack names the program by its whole `data:` URL; say `[eval]` instead
+      const text = error instanceof Error ? error.stack ?? error.message : String(error)
+      say(`${text.replace(/data:text\/javascript;base64,[A-Za-z0-9+/=]+/g, '[eval]')}\n`)
+      return 1
+    }
+  }
+  const repl = () => startRepl(sys, { env: init.env ?? {} })
+
+  if (cli.action === 'eval') {
+    const status = await run(cli.code)
+    return cli.interactive && status === 0 ? repl() : status
+  }
+  if (cli.action === 'stdin') return run(readStdin(sys))
+  // No file and no script: a terminal gets the REPL, a pipe or file on stdin is the script (as Node does)
+  return isTty(sys, 0) ? repl() : run(readStdin(sys))
+}
+
 try {
+  if (hosted && cli.action !== 'file') exit(await runCommandLine())
+
   let source
-  try { source = await readWholeFile(init.exe) } catch (error) {
+  try { source = readWholeFile(init.exe) } catch (error) {
     // `node missing.js` is an ordinary mistake, not a crash in the interpreter
     if (!hosted) throw error
-    say(`node: ${ready_.argv[1]}: ${error instanceof Error ? error.message : error}\n`)
+    say(`node: ${cli.file}: ${error instanceof Error ? error.message : error}\n`)
     exit(1)
   }
   await import(toDataUrl(source))
