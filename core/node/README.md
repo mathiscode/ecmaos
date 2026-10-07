@@ -132,13 +132,30 @@ A device is opened by name, and only the devices the host lists exist: by `--dev
   port on the host (`stty -F`). A device that sets its own parameters belongs in a class adapter (serial, HID, ...), which come next.
 - **Names:** `/dev/NAME` must not already exist here; give another with `attach HOST/DEVICE NAME`. A process with a manifest
   listing `devices` needs `remote` (or the name) in it.
-- **Nothing is encrypted yet**, as for everything else here: use it over loopback.
+- **Without TLS nothing is encrypted**: use it over loopback or `wss://`.
 
-What it does **not** do yet: **nothing is encrypted**, so only a loopback address can be bound (`--listen=0.0.0.0` is
-refused) until TLS is in. Anything else on the machine can read the traffic, and anything that can reach 127.0.0.1 can
-try to log in, so it is the key, not the port, that keeps people out. Browsers are additionally held to an allow-list of
-pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh` and `http://localhost:*`), and the
-`Host` header must be the loopback name (against DNS rebinding). A client that sends no `Origin` is not a browser and
+### Listening beyond this machine (TLS)
+
+```
+ecmaos --listen=0.0.0.0:30022 --tls-cert cert.pem --tls-key key.pem   # serves wss://
+mount -t ecmaos wss://root@myhost.example:30022/share /mnt/share       # clients name the host with wss://
+connect wss://root@myhost.example:30022
+```
+
+Without a certificate only a loopback address can be bound (`--listen=0.0.0.0` is refused). With one the daemon serves
+`wss://` (TLS 1.2 or later), on loopback too. A page served over `https://` can only reach `wss://` (or loopback), so a browser
+needs a certificate its platform trusts for the name it uses (a real one, or a local CA such as mkcert's); a Node machine
+checks it against the system store and `NODE_EXTRA_CA_CERTS`. The login does not depend on the certificate: the host key is
+still pinned in `~/.ssh/known_hosts` and the user is still proved by their own key, so TLS adds privacy on the wire and a
+check of the name. Over TLS the `Host` header check is dropped (the certificate ties the name to the machine); the `Origin`
+allow-list stays. Pairing codes are printed on the host's console, so a code is only as private as that console.
+
+What it does **not** do: without TLS **nothing is encrypted**, so keep to loopback; anything else on the machine can read the
+traffic, and anything that can reach 127.0.0.1 can try to log in, so it is the key, not the port, that keeps people out.
+Exposing a port to a network also exposes the login to guessing: three failures end a connection and ten a minute stop the
+host answering for a while, but put it behind a firewall you control. Browsers are additionally held to an allow-list of
+pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh` and `http://localhost:*`), and without
+TLS the `Host` header must be the loopback name (against DNS rebinding). A client that sends no `Origin` is not a browser and
 goes straight to the key check.
 
 The protocol is `@ecmaos/peer`: a binary codec, a version handshake, and channels with credit-based flow control.

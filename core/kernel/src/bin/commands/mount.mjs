@@ -35,7 +35,7 @@ Filesystem types:
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)
   googledrive         mount a Google Drive filesystem (requires apiKey via -o apiKey, optionally clientId for OAuth)
-  ecmaos              mount a directory of another ecmaOS machine (SOURCE is [user@]host[:port][/export]); asks for your password,
+  ecmaos              mount a directory of another ecmaOS machine (SOURCE is [wss://][user@]host[:port][/export]; wss:// for a host serving TLS); asks for your password,
                       which unlocks the key that logs in. The directory is copied into memory: see the options below
 
 Mount options:

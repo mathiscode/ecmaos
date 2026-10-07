@@ -1,5 +1,6 @@
-import { createServer } from 'node:http'
+import { createServer as createHttpServer } from 'node:http'
 import type { IncomingMessage, Server } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
 
@@ -34,10 +35,12 @@ export interface DaemonOptions {
   kernel: Kernel
   /** The data folder (for the host key); none for an ephemeral machine */
   dataDir?: string
-  /** Defaults to 127.0.0.1. Only loopback addresses are accepted: nothing here is encrypted yet. */
+  /** Defaults to 127.0.0.1. An address that is not loopback is only accepted with `tls`: without it nothing is encrypted. */
   host?: string
   port?: number
   origins?: string[]
+  /** A certificate and key (PEM): serve `wss://` instead of `ws://`, and allow binding beyond loopback */
+  tls?: { cert: string | Buffer, key: string | Buffer }
   /** Who a pairing code enrols; none for no code. Defaults to root. */
   pairUser?: string | false
   /** What a directory shared by a machine that logs in may hold before it is refused (it is copied to memory) */
@@ -86,7 +89,7 @@ function hostAllowed(header: string | undefined, port: number) {
  */
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const host = options.host ?? '127.0.0.1'
-  if (!Loopback.has(host)) throw new Error(`ecmaosd only listens on a loopback address for now (not ${host}): nothing it sends is encrypted`)
+  if (!options.tls && !Loopback.has(host)) throw new Error(`ecmaosd only listens on a loopback address without TLS (not ${host}): give --tls-cert and --tls-key to listen beyond it`)
   const log = options.log ?? (() => {})
   const kernel = options.kernel
   const hostKey = await loadHostKey(options.dataDir)
@@ -102,12 +105,14 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 
   const refuse = (socket: Duplex, status: string) => { socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`); socket.destroy() }
 
-  const server: Server = createServer((_request, response) => { response.writeHead(404).end() })
+  const handle = (_request: IncomingMessage, response: { writeHead(status: number): { end(): void } }) => { response.writeHead(404).end() }
+  const server: Server = options.tls ? createHttpsServer({ cert: options.tls.cert, key: options.tls.key, minVersion: 'TLSv1.2' }, handle) as unknown as Server : createHttpServer(handle)
   server.on('upgrade', (request: IncomingMessage, socket: Duplex) => {
     const address = server.address()
     const listening = typeof address === 'object' && address ? address.port : 0
     if (request.url !== Endpoint) return refuse(socket, '404 Not Found')
-    if (!hostAllowed(request.headers.host, listening)) return refuse(socket, '403 Forbidden')
+    // Over TLS the certificate is what ties the name to this machine; without it only the loopback names are right
+    if (!options.tls && !hostAllowed(request.headers.host, listening)) return refuse(socket, '403 Forbidden')
     const origin = request.headers.origin
     if (origin !== undefined && !originAllowed(origin)) { log(`refused a connection from the origin ${origin}`); return refuse(socket, '403 Forbidden') }
     if (live.size >= MaxConnections || unauthenticated >= MaxUnauthenticated) return refuse(socket, '503 Service Unavailable')

@@ -7,10 +7,16 @@ import { DefaultLimits, parseRemoteSource, parseSize } from '#lib/remote-mount.t
 
 describe('mount -t ecmaos sources', () => {
   it('reads [user@]host[:port][/export]', () => {
-    expect(parseRemoteSource('alice@example.org:4000/share', 'me')).toEqual({ user: 'alice', host: 'example.org', port: 4000, name: 'share' })
-    expect(parseRemoteSource('127.0.0.1/data', 'me')).toEqual({ user: 'me', host: '127.0.0.1', port: 30022, name: 'data' })
-    expect(parseRemoteSource('root@host', 'me')).toEqual({ user: 'root', host: 'host', port: 30022, name: '' })
+    expect(parseRemoteSource('alice@example.org:4000/share', 'me')).toEqual({ user: 'alice', host: 'example.org', port: 4000, name: 'share', tls: false })
+    expect(parseRemoteSource('127.0.0.1/data', 'me')).toEqual({ user: 'me', host: '127.0.0.1', port: 30022, name: 'data', tls: false })
+    expect(parseRemoteSource('root@host', 'me')).toEqual({ user: 'root', host: 'host', port: 30022, name: '', tls: false })
     expect(parseRemoteSource('root@[::1]:30022/a/b', 'me')).toMatchObject({ host: '[::1]', name: 'a/b' })
+  })
+
+  it('wss:// marks a host that serves TLS (and ws:// is the plain default)', () => {
+    expect(parseRemoteSource('wss://root@example.org:443/share', 'me')).toEqual({ user: 'root', host: 'example.org', port: 443, name: 'share', tls: true })
+    expect(parseRemoteSource('wss://example.org', 'me')).toMatchObject({ user: 'me', port: 30022, tls: true })
+    expect(parseRemoteSource('ws://example.org', 'me')).toMatchObject({ tls: false })
   })
 
   it('refuses what is not one', () => {

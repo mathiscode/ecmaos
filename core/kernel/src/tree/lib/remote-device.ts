@@ -309,8 +309,6 @@ export async function manageAttach(kernel: Kernel, shell: Shell, request: Attach
   }
 
   try {
-    const indexOfSlash = request.target.indexOf('/')
-    if (indexOfSlash < 0) throw new RemoteMountFailure('name the device: [user@]host[:port]/DEVICE')
     const source = parseRemoteSource(request.target, shell.env.get('USER') || 'root')
     if (!source || !source.name) throw new RemoteMountFailure('name the device: [user@]host[:port]/DEVICE')
     const options = request.options

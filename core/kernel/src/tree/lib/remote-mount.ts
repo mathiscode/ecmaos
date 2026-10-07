@@ -21,15 +21,19 @@ export interface RemoteSource {
   port: number
   /** The export's name on the other machine; empty for its only one */
   name: string
+  /** Reach it with `wss://` (a certificate checked by the platform) instead of `ws://` */
+  tls: boolean
 }
 
-/** `[user@]host[:port][/export]` */
-export function parseRemoteSource(source: string, defaultUser: string): RemoteSource | null {
+/** `[wss://][user@]host[:port][/export]` */
+export function parseRemoteSource(text: string, defaultUser: string): RemoteSource | null {
+  const tls = /^wss:\/\//.test(text)
+  const source = text.replace(/^wss?:\/\//, '')
   const match = /^(?:([^@/\s]+)@)?(\[[^\]]+\]|[^:/\s@]+)(?::(\d+))?(?:\/(.*))?$/.exec(source)
   if (!match) return null
   const port = match[3] ? Number(match[3]) : DefaultPort
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null
-  return { user: match[1] ?? defaultUser, host: match[2]!, port, name: match[4] ?? '' }
+  return { user: match[1] ?? defaultUser, host: match[2]!, port, name: match[4] ?? '', tls }
 }
 
 /** Sizes such as `50M`, `2G`, `65536` */
@@ -59,7 +63,7 @@ export async function dialPeer(kernel: Kernel, shell: Shell, options: DialOption
   const knownHostsFile = `${home}/${KNOWN_HOSTS_FILE}`
   const fs = kernel.filesystem.fs
 
-  const socket = new WebSocket(`ws://${source.host}:${source.port}/ecmaos`)
+  const socket = new WebSocket(`${source.tls ? 'wss' : 'ws'}://${source.host}:${source.port}/ecmaos`)
   // Wrapped before it opens, so nothing the host sends first is missed
   const transport = webSocketTransport(socket as unknown as WebSocketLike)
   await new Promise<void>((resolve, reject) => {

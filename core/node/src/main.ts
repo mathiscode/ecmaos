@@ -27,7 +27,8 @@ if (args.has('--help') || args.has('-h')) {
   --ephemeral         a root in memory; nothing is kept
   --quiet             skip the boot banner and messages
 
-  --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only)
+  --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only without --tls-cert)
+  --tls-cert FILE --tls-key FILE  serve wss:// with this certificate (PEM); needed to listen beyond loopback
   --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
   --pair-user NAME    who a pairing code enrols (default: root)
   --no-pair           do not print a pairing code
@@ -111,7 +112,11 @@ if (listen) {
         if ((error as { code?: string }).code !== 'ENOENT') throw error
       }
     }
+    const certFile = value('--tls-cert')
+    const keyFile = value('--tls-key')
+    if (!!certFile !== !!keyFile) throw new Error('--tls-cert and --tls-key go together')
     daemon = await startDaemon({
+      tls: certFile && keyFile ? { cert: readFileSync(certFile), key: readFileSync(keyFile) } : undefined,
       devices: devices.map(openDevice),
       exports: exported,
       kernel,
@@ -123,7 +128,7 @@ if (listen) {
       pairUser: args.has('--no-pair') ? false : value('--pair-user'),
       log: text => { if (!args.has('--quiet')) say(`ecmaosd: ${text}`) }
     })
-    say(`ecmaosd: listening on ${daemon.host}:${daemon.port}\r\necmaosd: host key ${daemon.fingerprint}`)
+    say(`ecmaosd: listening on ${daemon.host}:${daemon.port}${certFile ? ' (TLS)' : ''}\r\necmaosd: host key ${daemon.fingerprint}`)
     for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
     for (const device of devices) say(`ecmaosd: offering device ${device.name} (${device.kind}, ${device.read && device.write ? 'read-write' : device.write ? 'write-only' : 'read-only'})`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)
