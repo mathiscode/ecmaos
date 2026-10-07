@@ -37,6 +37,15 @@ If your use case requires resistance to local-device attackers or genuine confid
 rest, ecmaOS is not the right tool as currently designed — treat it as a sandboxed, organizational
 Unix-like environment for the browser, not a security boundary.
 
+### Running in Node (`@ecmaos/node`)
+
+In a Node process the guest is not in a browser sandbox. The kernel writes only inside its data folder, and
+WebAssembly programs reach the system only through guest syscalls, but a guest **JavaScript** program runs in a Node
+worker thread with Node's full API: it can read the process environment, and read and write any host file the process's
+user can. Guest users, `root` included, are not a boundary against the host. Run it with an environment and a working
+directory you would hand to the code inside it, and use a container or VM for code you do not trust. See
+`core/node/README.md`.
+
 ## Reporting a Vulnerability
 
 To privately report a security issue, please create a new [Security Advisory](https://github.com/ecmaos/ecmaos/security/advisories/new).
