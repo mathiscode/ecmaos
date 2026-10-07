@@ -71,6 +71,7 @@ declare module '@zenfs/linux/uapi/abi' {
     screensaver_run(name: string, set: number, path: string): number
     users_chsh(username: string, shellValue: string, path: string): number
     users_password(oldPassword: string, newPassword: string, path: string): number
+    users_sign(password: string, dataBase64: string, path: string): number
     users_authenticate(username: string, password: string): number
     credentials_supported(): number
     proc_umask(mask: number): number
@@ -1146,6 +1147,24 @@ export function installMainThreadSyscalls(): void {
       if (!oldPassword || !newPassword) throw new Error('Missing password')
       await kernel.users.password(oldPassword, newPassword, identityOf(proc).uid)
       text = JSON.stringify({})
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
+    }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `connect`: signs a login challenge with the calling user's key (`~/.ssh/id_ecdsa`, made on first use). The program asks for
+  // the password and passes it here; the private key is decrypted in the kernel and only the signature and public key go back.
+  define_syscall('users_sign', async (proc: Process, password: string, dataBase64: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    try {
+      if (!password) throw new Error('Missing password')
+      const { publicKey, signature } = await kernel.users.signWithKey(identityOf(proc).uid, password, Uint8Array.from(atob(dataBase64), ch => ch.charCodeAt(0)))
+      let encoded = ''
+      for (const byte of signature) encoded += String.fromCharCode(byte)
+      text = JSON.stringify({ publicKey, signature: btoa(encoded) })
     } catch (error) {
       text = JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' })
     }

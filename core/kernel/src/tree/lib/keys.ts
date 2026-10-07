@@ -74,3 +74,16 @@ export function parsePublicKeyLine(text: string): JsonWebKey | null {
   if (algorithm !== ALGORITHM || !body) return null
   try { return JSON.parse(atob(body)) as JsonWebKey } catch { return null }
 }
+
+export const AUTHORIZED_KEYS_FILE = '.ssh/authorized_keys'
+
+/** The keys in an `authorized_keys` file: one per line, the same shape as `id_ecdsa.pub`; blank lines, comments and lines this does not read are skipped */
+export function parseAuthorizedKeys(text: string): JsonWebKey[] {
+  const keys: JsonWebKey[] = []
+  for (const line of text.split('\n')) {
+    if (!line.trim() || line.trimStart().startsWith('#')) continue
+    const key = parsePublicKeyLine(line)
+    if (key) keys.push(key)
+  }
+  return keys
+}

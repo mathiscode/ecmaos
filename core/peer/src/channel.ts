@@ -84,7 +84,15 @@ export class Channel {
    * Sends bytes, waiting for credit as needed and splitting into frames. Resolves when everything is handed to the
    * link; rejects if the channel closes first.
    */
-  async write(data: Uint8Array): Promise<void> {
+  write(data: Uint8Array): Promise<void> {
+    // One write at a time, in the order called: a second write must not slip its bytes in while the first waits for credit
+    const run = this._writing.then(() => this._write(data))
+    this._writing = run.catch(() => {})
+    return run
+  }
+  private _writing: Promise<void> = Promise.resolve()
+
+  private async _write(data: Uint8Array): Promise<void> {
     let offset = 0
     while (offset < data.length) {
       this._assertOpen()

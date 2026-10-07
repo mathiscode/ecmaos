@@ -173,6 +173,15 @@ const DefaultFigletFonts = [
  * await kernel.boot()
  * ```
  */
+/** A login on a terminal with no page, from `Kernel.openSession` */
+export interface KernelSession {
+  tty: number
+  shell: Shell
+  terminal: Terminal
+  /** Ends the session: hangs up whatever is running, records the logout and frees the TTY. Safe to call again. */
+  close(): Promise<void>
+}
+
 export class Kernel implements IKernel {
   /** Unique identifier for this kernel instance */
   public readonly id: string = crypto.randomUUID()
@@ -3065,6 +3074,67 @@ export class Kernel implements IKernel {
     terminal.write(ansi.erase.inLine(2) + terminal.prompt())
 
     return shell
+  }
+
+  /**
+   * Opens a login on a terminal that has no page behind it, for a user who has already been authenticated (by key, over a
+   * peer link). It takes the lowest free TTY of 1 to 7 (TTY 0 is the console), starts the user's session as a login does, and
+   * runs the built-in shell on it until `exit`. Output goes to `options.write`; input is fed to `session.terminal`
+   * (`input`, then `keyHandler`) by the caller, which owns the parsing of whatever the other end sends.
+   *
+   * @throws if every TTY is taken or the user may not log in
+   */
+  async openSession(options: { username: string, cols?: number, rows?: number, write: (data: string | Uint8Array) => void, onEnd?: () => void }): Promise<KernelSession> {
+    const { user, cred } = await this.users.sessionFor(options.username)
+    let tty = 1
+    while (tty <= 7 && this._shells.has(tty)) tty++
+    if (tty > 7) throw new Error('No free terminal: all of TTY 1 to 7 are in use')
+
+    const terminal = new Terminal({ context: this.context, dom: this.dom, kernel: this, users: this.users, tty })
+    terminal.wire({ switchTty: () => Promise.resolve(), reboot: () => this.requestReboot(), getState: () => this.state })
+    const shell = new Shell({
+      context: this.context,
+      createPipeStream: () => this.createPipeStream(),
+      execute: execution => this.execute({ ...execution, kernel: this }),
+      adoptProcess: process => this.init.adopt(process as InstanceType<typeof ZenFSProcess>),
+      filesystem: this.filesystem,
+      users: this.users,
+      tty,
+      terminal,
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
+    })
+    terminal.attachShell(shell)
+    terminal.attachHeadless(options.write)
+    if (options.cols && options.rows) terminal.resize(options.cols, options.rows)
+    this._shells.set(tty, shell)
+
+    let ended = false
+    const end = async () => {
+      if (ended) return
+      ended = true
+      // What a hangup does: whatever is running on the terminal is told its terminal went away
+      try { terminal.zfsTty?.signal(ZenFSSignal.HUP) } catch { /* nothing was running */ }
+      await shell.recordLogout()
+      this._shells.delete(tty)
+      terminal.dispose()
+      options.onEnd?.()
+    }
+
+    try {
+      await this.startSession(shell, user, cred)
+      const motd = await this.filesystem.fs.exists('/etc/motd') ? await this.filesystem.fs.readFile('/etc/motd', 'utf-8') : null
+      if (motd) terminal.writeln(motd)
+      void (async () => {
+        await this.enterLoginShell(shell)
+        // A login shell that is the program has run and returned; one that is the built-in shell is the terminal's own line editor
+        if (shell.env.get('SHELL') !== '/bin/ecmash') await terminal.runSession()
+        await end()
+      })().catch(() => end())
+    } catch (error) {
+      await end()
+      throw error
+    }
+    return { tty, shell, terminal, close: end }
   }
 
   /**

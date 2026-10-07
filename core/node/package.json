@@ -31,9 +31,11 @@
     "@ecmaos-devices/tty": "workspace:^",
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/kernel": "workspace:^",
+    "@ecmaos/peer": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.7.4",
+    "@types/ws": "^8.18.1",
     "@zenfs/core": "^2.7.6",
     "@zenfs/linux": "0.6.1",
     "eslint": "^10.11.0",
@@ -42,7 +44,8 @@
     "typescript-eslint": "^8.70.1",
     "vite": "^8.3.1",
     "vite-plugin-i18next-loader": "^2.0.13",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.2",
+    "ws": "^8.21.0"
   },
   "publishConfig": {
     "access": "public"

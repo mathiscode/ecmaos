@@ -259,6 +259,21 @@ describe('flow control', () => {
   })
 })
 
+describe('ordering', () => {
+  it('concurrent writes arrive in the order they were called, even when the first waits for credit', async () => {
+    const { left, right } = link({}, { window: 64 })
+    const parts: number[] = []
+    right.accept('x', channel => { channel.onData = data => parts.push(...data) })
+    const channel = await left.open('x')
+    // 200 bytes through a 64 byte window: the first write has to wait, the next two are called while it does
+    await Promise.all([channel.write(new Uint8Array(200).fill(1)), channel.write(Uint8Array.from([2, 2])), channel.write(Uint8Array.from([3]))])
+    await tick()
+    expect(parts.length).toBe(203)
+    expect(parts.slice(0, 200).every(byte => byte === 1)).toBe(true)
+    expect(parts.slice(200)).toEqual([2, 2, 3])
+  })
+})
+
 describe('connection', () => {
   it('rejects oversized frames', async () => {
     const { left, right } = link({}, { maxFrame: 1024 })
@@ -345,6 +360,20 @@ describe('webSocketTransport', () => {
     }
     return socket
   }
+
+  it('holds messages that arrive before the connection is attached, in order', () => {
+    const socket = fakeSocket()
+    const transport = webSocketTransport(socket as unknown as WebSocketLike)
+    socket.emit('message', { data: Uint8Array.from([1]).buffer })
+    socket.emit('message', { data: Uint8Array.from([2]).buffer })
+    socket.emit('close')
+    const got: number[] = []
+    let closed = false
+    transport.onClose = () => { closed = true }
+    transport.onMessage = data => got.push(data[0]!)
+    expect(got).toEqual([1, 2])
+    expect(closed).toBe(true)
+  })
 
   it('delivers binary messages, ends on close and refuses text', () => {
     const socket = fakeSocket()

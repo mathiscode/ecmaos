@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process'
 import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
+import { DefaultPort, startDaemon } from './ecmaosd.ts'
+import type { Daemon } from './ecmaosd.ts'
 import { nodeHost } from './host.ts'
 import { attachStdio } from './terminal.ts'
 
@@ -15,11 +17,16 @@ const value = (flag: string) => {
 }
 
 if (args.has('--help') || args.has('-h')) {
-  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet]
+  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet] [--listen[=[HOST:]PORT]]
 
-  --data DIR    keep the machine in DIR (default: $ECMAOS_DATA, else ./.ecmaos)
-  --ephemeral   a root in memory; nothing is kept
-  --quiet       skip the boot banner and messages`)
+  --data DIR          keep the machine in DIR (default: $ECMAOS_DATA, else ./.ecmaos)
+  --ephemeral         a root in memory; nothing is kept
+  --quiet             skip the boot banner and messages
+
+  --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only)
+  --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
+  --pair-user NAME    who a pairing code enrols (default: root)
+  --no-pair           do not print a pairing code`)
   process.exit(0)
 }
 
@@ -40,9 +47,11 @@ Thread.prototype.start = async function (this: Thread, ...args: Parameters<Threa
 const stopThreads = () => { threadsStopped = true; for (const thread of threads) thread.kill() }
 
 const terminal: { detach?: () => void } = {}
+let daemon: Daemon | undefined
 let stopping = false
 
 const finish = (code: number) => {
+  void daemon?.close()
   stopThreads()
   terminal.detach?.()
   host.close()
@@ -59,6 +68,7 @@ const host = nodeHost({
     stopping = true
     if (action !== 'reboot') return finish(0)
     // A reboot starts the same command again: a new process is a clean kernel, with none of the old one's mounts or workers
+    void daemon?.close()
     stopThreads()
     terminal.detach?.()
     host.close()
@@ -74,6 +84,31 @@ const kernel = new Kernel({
 
 await kernel.boot({ silent: args.has('--quiet') })
 terminal.detach = attachStdio(kernel, { stdin: process.stdin, stdout: process.stdout })
+
+const listen = argv.find(arg => arg === '--listen' || arg.startsWith('--listen='))
+if (listen) {
+  const address = listen.includes('=') ? listen.slice('--listen='.length) : ''
+  const split = address.lastIndexOf(':')
+  const port = Number(split === -1 ? address : address.slice(split + 1))
+  const origins = argv.flatMap((arg, index) => arg === '--allow-origin' && argv[index + 1] ? [argv[index + 1]!] : arg.startsWith('--allow-origin=') ? [arg.slice('--allow-origin='.length)] : [])
+  const say = (text: string) => process.stderr.write(`\r\n${text}\r\n`)
+  try {
+    daemon = await startDaemon({
+      kernel,
+      dataDir: host.dataDir,
+      flush: () => host.flush(),
+      host: split > 0 ? address.slice(0, split) : undefined,
+      port: address ? port : DefaultPort,
+      origins: origins.length ? origins : undefined,
+      pairUser: args.has('--no-pair') ? false : value('--pair-user'),
+      log: text => { if (!args.has('--quiet')) say(`ecmaosd: ${text}`) }
+    })
+    say(`ecmaosd: listening on ${daemon.host}:${daemon.port}\r\necmaosd: host key ${daemon.fingerprint}`)
+    if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)
+  } catch (error) {
+    say(`ecmaosd: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 // TERM and HUP ask for an orderly stop; the first has the kernel halt, a second one ends the process outright
 for (const signal of ['SIGTERM', 'SIGHUP'] as const) {

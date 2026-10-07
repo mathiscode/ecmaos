@@ -46,6 +46,12 @@ user can. Guest users, `root` included, are not a boundary against the host. Run
 directory you would hand to the code inside it, and use a container or VM for code you do not trust. See
 `core/node/README.md`.
 
+`ecmaos --listen` lets other machines log in with a key. It binds only loopback addresses, because nothing it sends is
+encrypted yet (no TLS), so a local process can read the traffic; the login itself is a signature by the user's own key
+over a transcript bound to the host and the exchange, and the host's key is pinned by the client on first use. Anyone who
+can read a pairing code printed on the host's console can enrol a key for the user it names, once, within ten minutes;
+a pairing code is as sensitive as a password for that period.
+
 ## Reporting a Vulnerability
 
 To privately report a security issue, please create a new [Security Advisory](https://github.com/ecmaos/ecmaos/security/advisories/new).

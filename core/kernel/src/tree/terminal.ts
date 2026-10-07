@@ -656,6 +656,19 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalMountEvent>(TerminalEvents.MOUNT, { terminal: this, element })
   }
 
+  /**
+   * For a terminal nobody looks at in a page (a remote session): output goes to `write` as well as into the emulator, and the
+   * terminal gets its `@zenfs/linux` TTY without a DOM element to mount on. Input is fed by the caller (`input`, `keyHandler`).
+   */
+  attachHeadless(write: (data: string | Uint8Array) => void) {
+    const emulatorWrite = this.write.bind(this) as (data: string | Uint8Array, callback?: () => void) => void
+    this.write = ((data: string | Uint8Array, callback?: () => void) => {
+      write(data)
+      return emulatorWrite(data, callback)
+    }) as typeof this.write
+    if (!this._zfsTty) this._zfsTty = attach_xterm(this, { index: this._tty, input: false })
+  }
+
   attachShell(shell: Shell) {
     this._shell = shell
     this.updateConfig()

@@ -15,7 +15,7 @@ import type {
 } from '@ecmaos/types'
 import { createCredentials, Credentials } from '@zenfs/core'
 import { hashPassword, needsRehash, verifyPassword } from './lib/credentials.ts'
-import { generateKeyPair, parseWrappedKey, publicKeyLine, parsePublicKeyLine, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE, unwrapKey, wrapKey } from './lib/keys.ts'
+import { AUTHORIZED_KEYS_FILE, generateKeyPair, parseAuthorizedKeys, parseWrappedKey, publicKeyLine, parsePublicKeyLine, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE, unwrapKey, wrapKey } from './lib/keys.ts'
 import {
   DEFAULT_AGING, daysSinceEpoch, findEntry, hasNoPassword, isLocked, lockHash, loginBlock, parseShadow, removeEntry,
   renameEntry, serializeShadow, setEntry, unlockHash
@@ -414,6 +414,42 @@ export class Users {
     return { user, cred }
   }
 
+  /**
+   * A session for `username` without a password, for a login that has already been proved some other way (a key).
+   * An expired account is closed to it as to any login; a locked password is not (that stops passwords, as on Linux).
+   * Fails with the same message as a wrong password so a name cannot be probed.
+   */
+  async sessionFor(username: string): Promise<{ user: User, cred: Credentials }> {
+    const user = Array.from(this._users.values()).find(u => u.username === username)
+    if (!user) throw new Error('Invalid username or password')
+    const block = loginBlock({ expire: user.aging?.expire }, daysSinceEpoch())
+    if (block) throw new Error(`Your ${block.replace(' ', ' has ')}; please contact your system administrator`)
+    return { user, cred: createCredentials({ uid: user.uid, gid: user.gid, euid: user.uid, egid: user.gid, groups: user.groups }) }
+  }
+
+  /** The keys the user may log in with (`~/.ssh/authorized_keys`); none when the file is missing */
+  async getAuthorizedKeys(username: string): Promise<JsonWebKey[] | undefined> {
+    const user = Array.from(this._users.values()).find(u => u.username === username)
+    if (!user) return undefined
+    const path = `${user.home}/${AUTHORIZED_KEYS_FILE}`
+    if (!(await this.fs.exists(path))) return []
+    return parseAuthorizedKeys(await this.fs.readFile(path, 'utf-8'))
+  }
+
+  /** Adds a key to the user's `authorized_keys` (a directory of mode 0700, a file of 0600, both theirs). A key already there is not added twice. */
+  async authorizeKey(username: string, key: JsonWebKey, comment: string): Promise<void> {
+    const user = Array.from(this._users.values()).find(u => u.username === username)
+    if (!user) throw new Error(`User ${username} not found`)
+    const { directory } = this.keyPaths(user)
+    const path = `${user.home}/${AUTHORIZED_KEYS_FILE}`
+    const existing = await this.fs.exists(path) ? await this.fs.readFile(path, 'utf-8') : ''
+    if (parseAuthorizedKeys(existing).some(known => known.x === key.x && known.y === key.y)) return
+    await this.fs.mkdir(directory, { recursive: true, mode: 0o700 })
+    await this.fs.chown(directory, user.uid, user.gid).catch(() => {})
+    const separator = existing && !existing.endsWith('\n') ? '\n' : ''
+    await this.writeKeyFile(user, path, existing + separator + publicKeyLine(key, comment.replace(/\s+/g, '_')), 0o600)
+  }
+
   /** Changes `uid`'s password (the first terminal's user, when none is given), after checking the old one */
   async password(oldPassword: string, newPassword: string, uid: number = this._options.getShellCredentials().uid) {
     const user = this._users.get(uid)
@@ -578,6 +614,19 @@ export class Users {
     if (!(await this.fs.exists(privateKey))) return null
     const wrapped = parseWrappedKey(await this.fs.readFile(privateKey, 'utf-8'))
     return wrapped ? unwrapKey(wrapped, password) : null
+  }
+
+  /**
+   * Signs `data` with the user's key (making the pair first if there is none), for a login to another machine. The private key
+   * is decrypted here with the user's password and never leaves; the caller gets the public key and the signature.
+   */
+  async signWithKey(uid: number, password: string, data: Uint8Array): Promise<{ publicKey: JsonWebKey, signature: Uint8Array }> {
+    const publicKey = await this.ensureKeypair(uid, password)
+    const privateKey = await this.unlockPrivateKey(uid, password)
+    if (!privateKey) throw new Error('Could not unlock the key')
+    const key = await crypto.subtle.importKey('jwk', privateKey, { name: 'ECDSA', namedCurve: 'P-384' }, false, ['sign'])
+    const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-384' }, key, data as BufferSource))
+    return { publicKey, signature }
   }
 
   private async writeKeyFile(user: User, path: string, text: string, mode: number): Promise<void> {

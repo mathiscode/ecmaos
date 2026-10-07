@@ -31,6 +31,8 @@ export interface NodeHostOptions {
 export interface NodeHost extends Host {
   /** The folder holding this machine's state; absent for an ephemeral one */
   readonly dataDir?: string
+  /** Writes what is pending to the database now, instead of at the end of the current turn of the event loop */
+  flush(): void
   /** Commits and closes the database; the machine is not usable afterwards */
   close(): void
 }
@@ -69,6 +71,9 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
       initfs: options.ephemeral ? false : initfsUrl(),
       programs: options.ephemeral ? false : ProgramsUrl,
       service: { register: false }
+    },
+    flush() {
+      root?.store.commit()
     },
     close() {
       root?.store.commit()

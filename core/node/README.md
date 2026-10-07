@@ -44,6 +44,47 @@ it off). It is only available on this host: it needs `node:repl`, which a browse
 `console.log` and `console.error` in a guest program write to the machine's stdout and stderr, so `>` and `|` work on them.
 Programs cannot `import` other files or packages yet.
 
+## Logging in from another machine (`--listen`)
+
+```
+ecmaos --listen                  # 127.0.0.1:30022
+ecmaos --listen=40022            # another port
+```
+
+The machine then accepts logins over a WebSocket at `ws://127.0.0.1:30022/ecmaos` and gives each one a shell on a
+terminal of its own (TTY 1 to 7; TTY 0 is the console, so seven at once). From another ecmaOS machine, in a browser or
+in Node:
+
+```
+connect -p 123-456 root@127.0.0.1:30022      # the first time: enrols your key with the one-time code
+connect root@127.0.0.1:30022                 # after that, your key is enough
+```
+
+On start the host prints its host key fingerprint and a pairing code for `root` (`--pair-user NAME` for someone else,
+`--no-pair` for none). The code is six digits, works once, lasts ten minutes and is burned by three wrong guesses.
+
+How it is trusted, in both directions:
+
+- **The host proves who it is** with a key kept in `$ECMAOS_DATA/ecmaosd/host_key.json` (mode 0600). `connect` shows the
+  fingerprint the first time and remembers it in `~/.ssh/known_hosts`; a different key later is refused before anything is
+  sent. Check the fingerprint against the one the host printed, or give it with `--fingerprint`.
+- **You prove who you are** by a signature from your own key (`~/.ssh/id_ecdsa`, an ECDSA P-384 key made the first time it
+  is needed and unlocked by your login password) over a transcript that includes both sides' nonces, the host's
+  fingerprint and the user name, so it is good for one exchange with one host. The host checks it against the user's
+  `~/.ssh/authorized_keys`. Pairing adds your key there.
+- A refusal is always the same message, whether the user exists or not, and is held back for a second; three refusals end
+  the connection, and ten in a minute make the host stop answering for a while.
+
+What it does **not** do yet: **nothing is encrypted**, so only a loopback address can be bound (`--listen=0.0.0.0` is
+refused) until TLS is in. Anything else on the machine can read the traffic, and anything that can reach 127.0.0.1 can
+try to log in, so it is the key, not the port, that keeps people out. Browsers are additionally held to an allow-list of
+pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh` and `http://localhost:*`), and the
+`Host` header must be the loopback name (against DNS rebinding). A client that sends no `Origin` is not a browser and
+goes straight to the key check.
+
+The protocol is `@ecmaos/peer`: a binary codec, a version handshake, and channels with credit-based flow control.
+The logins here use two channels: `auth`, then `tty` (bytes in and out, `resize` messages).
+
 ## Security: run only code you trust
 
 `ecmaos` runs as you, and what runs inside it is not sandboxed from the machine it runs on.
@@ -68,10 +109,12 @@ Programs cannot `import` other files or packages yet.
 - **End of input** (a script running out, or the terminal closing) halts the machine after the commands already typed have run.
   `halt`, `poweroff`, `SIGTERM` and `SIGHUP` also exit with status 0; a second signal ends the process at once.
 - **`^D`** at an empty prompt does nothing yet.
+- **Remote logins** end when the shell exits (`exit`) or the connection drops; whatever was running on the terminal is hung up.
 
 ## Tests
 
-- `pnpm --filter @ecmaos/node test` builds the bundle and runs the tests that spawn it: a smoke test, persistence across
+- `pnpm --filter @ecmaos/node test` builds the bundle and runs the tests that spawn it: a smoke test, logins over a socket
+  (pairing, keys, refusals, two machines using `connect`), persistence across
   processes, lifecycle (halt, poweroff, end of input, SIGTERM, reboot), JavaScript programs, and the terminal on a
   pseudo-terminal (needs `python3`; skipped on Windows).
 - `pnpm --filter @ecmaos/kernel test:node` runs the kernel's own tests on Node with no DOM (`vitest.node.config.ts`). The

@@ -304,6 +304,9 @@ importers:
       '@ecmaos/coreutils':
         specifier: workspace:^
         version: link:../utils
+      '@ecmaos/peer':
+        specifier: workspace:^
+        version: link:../peer
       '@gera2ld/tarjs':
         specifier: ^0.3.1
         version: 0.3.1
@@ -664,6 +667,9 @@ importers:
       '@ecmaos/kernel':
         specifier: workspace:^
         version: link:../kernel
+      '@ecmaos/peer':
+        specifier: workspace:^
+        version: link:../peer
       '@ecmaos/types':
         specifier: workspace:^
         version: link:../types
@@ -673,6 +679,9 @@ importers:
       '@types/node':
         specifier: 22.20.2
         version: 22.20.2
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.2
       '@zenfs/core':
         specifier: ^2.7.6
         version: 2.7.6
@@ -700,6 +709,9 @@ importers:
       vitest:
         specifier: ^5.0.2
         version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.3
 
   core/peer:
     devDependencies:
@@ -3722,6 +3734,9 @@ packages:
 
   '@types/winbox@0.2.5':
     resolution: {integrity: sha512-9GdE6bwyg55eqmUbv4PChLjCp3pz/IS57NYwT5+c9r7EM6/tqi2iXpUoSeTDPgoBKDrq2mzdk5YU/Z9aTBWJfw==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@typescript-eslint/eslint-plugin@8.70.1':
     resolution: {integrity: sha512-nDNrUQ/4ruSNYbu749TRY7cfrzPtoLHEXSNBI8aaNY32LlZCajixqRf3FqcKC4p5Cam4VOHYx/t+i5+nKXvrqA==}
@@ -10275,6 +10290,10 @@ snapshots:
   '@types/webrtc@0.0.47': {}
 
   '@types/winbox@0.2.5': {}
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.2
 
   '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@10.11.0))(eslint@10.11.0)':
     dependencies:
