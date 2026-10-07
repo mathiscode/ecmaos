@@ -2074,7 +2074,7 @@ export class Kernel implements IKernel {
 
       const checkExtensionType = (path: string): FileHeader['type'] | null => {
         const filePath = path
-        if (filePath.endsWith('.js')) return 'js'
+        if (/\.[cm]?js$/.test(filePath)) return 'js'
         else if (filePath.endsWith('.md')) return 'view'
         else if (filePath.endsWith('.json')) return 'view'
         else if (filePath.endsWith('.txt')) return 'view'

@@ -202,7 +202,21 @@ function toDataUrl(bytes) {
   return 'data:text/javascript;base64,' + btoa(binary)
 }
 
-const init = await ready
+const ready_ = await ready
+
+// Run as `node file [args...]`: the program is the file, and it sees its own path as `argv[0]`, as it would under
+// `execve`. With no file there is nothing to run, and this interpreter is not a REPL.
+const hosted = ready_.exe === '/bin/node'
+const say = text => { try { write(2, new TextEncoder().encode(text)) } catch { /* nowhere to say it */ } }
+const init = hosted ? (() => {
+  const target = ready_.argv?.[1]
+  if (!target || target.startsWith('-')) {
+    say(target ? `node: ${target}: unsupported option\n` : 'usage: node <file> [args...]\n')
+    exit(target ? 9 : 1)
+  }
+  const exe = target.startsWith('/') ? target : `${getcwd().replace(/\/$/, '')}/${target}`
+  return { ...ready_, exe, argv: [exe, ...ready_.argv.slice(2)] }
+})() : ready_
 
 // Expose this module's own already-initialized syscall wrappers for the loaded program to use --
 // see the doc comment above for why a program can't get working ones of its own by importing
@@ -285,7 +299,13 @@ if (typeof globalThis.addEventListener === 'function') {
 if (typeof globalThis.process?.on === 'function') globalThis.process.on('unhandledRejection', reportUnhandled)
 
 try {
-  const source = await readWholeFile(init.exe)
+  let source
+  try { source = await readWholeFile(init.exe) } catch (error) {
+    // `node missing.js` is an ordinary mistake, not a crash in the interpreter
+    if (!hosted) throw error
+    say(`node: ${ready_.argv[1]}: ${error instanceof Error ? error.message : error}\n`)
+    exit(1)
+  }
   await import(toDataUrl(source))
   exit(0)
 } catch (error) {
