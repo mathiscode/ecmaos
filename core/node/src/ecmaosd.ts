@@ -3,8 +3,8 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
 
-import { AuthChannel, Connection, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, PeerError, publicKeyOf, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
-import type { Channel, ExportFs, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
+import { AuthChannel, Connection, DeviceChannel, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, PeerError, publicKeyOf, serveDevice, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
+import type { Channel, DeviceSource, ExportFs, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
 import type { Kernel } from '@ecmaos/kernel/kernel'
 import { RemoteFS } from '@ecmaos/kernel/lib/remote-fs'
 import { DefaultLimits } from '@ecmaos/kernel/lib/remote-mount'
@@ -43,6 +43,8 @@ export interface DaemonOptions {
   shareLimits?: { files: number, bytes: number }
   /** Host directories offered to the machines that log in, by name */
   exports?: Array<{ name: string, readOnly: boolean, backend: ExportFs }>
+  /** Host devices offered to root on the machines that log in, by name; none unless listed */
+  devices?: DeviceSource[]
   /** Makes what the kernel has written durable; called before a key enrolment is acknowledged */
   flush?: () => void
   log?: (message: string) => void
@@ -127,6 +129,24 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     serveFs(new MessageStream(channel), chosen.backend, { readOnly: chosen.readOnly, onError: (op, where, error) => log(`export ${chosen.name}: ${op} ${where ?? ''} failed: ${(error as { code?: string })?.code ?? error}`) })
   }
 
+  /** Hands a host device to root on the machine that asked; the device decides what a user may do with it */
+  async function openDevice(channel: Channel, user: string) {
+    const account = Array.from(kernel.users.all.values()).find(candidate => candidate.username === user)
+    if (!account || account.uid !== 0) throw new PeerError('auth', 'only root can use the devices of this machine')
+    const params = channel.params && typeof channel.params === 'object' && !(channel.params instanceof Uint8Array) && !Array.isArray(channel.params) ? channel.params : {}
+    const wanted = typeof params['device'] === 'string' ? params['device'] : ''
+    const available = options.devices ?? []
+    const chosen = wanted ? available.find(candidate => candidate.name === wanted) : available.length === 1 ? available[0] : undefined
+    if (!chosen) throw new PeerError('refused', wanted ? `no device named ${wanted}` : available.length ? 'name a device' : 'no devices are offered here')
+    let session
+    try { session = await chosen.open() } catch (error) {
+      throw new PeerError('refused', error instanceof Error ? error.message : `cannot open ${chosen.name}`)
+    }
+    log(`${user} attached device ${chosen.name}`)
+    void channel.done.then(() => log(`device ${chosen.name} released`))
+    serveDevice(channel, session)
+  }
+
   /**
    * A machine that logged in offers a directory of its own: this one mounts it as /mnt/<name> for as long as the channel lasts. Only
    * root may do that, since mounting is a root act; the tree is copied to memory, so one past the limits is refused.
@@ -199,6 +219,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         log(`${user} logged in`)
         connection.accept('tty', channel => openTerminal(kernel, user, channel))
         connection.accept(FsChannel, channel => openExport(channel, user))
+        connection.accept(DeviceChannel, channel => openDevice(channel, user))
         connection.accept(FsShareChannel, channel => acceptShare(channel, user))
       } catch {
         failures.push(Date.now())

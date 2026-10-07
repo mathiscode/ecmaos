@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { spawn } from 'node:child_process'
 
 import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
 import { DefaultPort, startDaemon } from './ecmaosd.ts'
+import { openDevice, parseDevice, parseDeviceList } from './devices.ts'
 import { openExport, parseExport } from './exports.ts'
 import type { Daemon } from './ecmaosd.ts'
 import { nodeHost } from './host.ts'
@@ -28,7 +31,10 @@ if (args.has('--help') || args.has('-h')) {
   --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
   --pair-user NAME    who a pairing code enrols (default: root)
   --no-pair           do not print a pairing code
-  --export [NAME=]DIR[:rw]  offer a host directory to machines that log in (read-only unless :rw; repeatable)`)
+  --export [NAME=]DIR[:rw]  offer a host directory to machines that log in (read-only unless :rw; repeatable)
+  --device NAME=SPEC[:rw]   offer a host device to root on machines that log in; SPEC is file:PATH (a serial port, FIFO or
+                            file) or loopback; read-only unless :rw or :wo (write-only); repeatable. More are read from
+                            $ECMAOS_DATA/ecmaosd/devices, one per line`)
   process.exit(0)
 }
 
@@ -99,7 +105,14 @@ if (listen) {
       const spec = parseExport(text)
       return { name: spec.name, readOnly: spec.readOnly, backend: await openExport(spec) }
     }))
+    const devices = argv.flatMap((arg, index) => arg === '--device' && argv[index + 1] ? [argv[index + 1]!] : arg.startsWith('--device=') ? [arg.slice('--device='.length)] : []).map(parseDevice)
+    if (host.dataDir) {
+      try { devices.push(...parseDeviceList(readFileSync(path.join(host.dataDir, 'ecmaosd', 'devices'), 'utf8'))) } catch (error) {
+        if ((error as { code?: string }).code !== 'ENOENT') throw error
+      }
+    }
     daemon = await startDaemon({
+      devices: devices.map(openDevice),
       exports: exported,
       kernel,
       dataDir: host.dataDir,
@@ -112,6 +125,7 @@ if (listen) {
     })
     say(`ecmaosd: listening on ${daemon.host}:${daemon.port}\r\necmaosd: host key ${daemon.fingerprint}`)
     for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
+    for (const device of devices) say(`ecmaosd: offering device ${device.name} (${device.kind}, ${device.read && device.write ? 'read-write' : device.write ? 'write-only' : 'read-only'})`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)
   } catch (error) {
     say(`ecmaosd: ${error instanceof Error ? error.message : String(error)}`)

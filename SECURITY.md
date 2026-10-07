@@ -57,6 +57,11 @@ a pairing code is as sensitive as a password for that period.
 Mounting another machine's folder copies it into memory and answers programs from the copy, so it can be stale, and a change
 the other machine refuses is only logged.
 
+`--device` (or the `devices` file in the data folder) hands a host device to `root` on a machine that logs in, which gets it as
+`/dev/NAME`. Nothing is offered unless listed, a device is read-only unless `:rw` or `:wo` (and the host refuses writes to one
+offered read-only, whatever the peer sends), and a device is held by one machine at a time. A `file:` device is whatever file,
+FIFO or character device the path names, so list only paths you would let root on the other machine use directly.
+
 ## Reporting a Vulnerability
 
 To privately report a security issue, please create a new [Security Advisory](https://github.com/ecmaos/ecmaos/security/advisories/new).

@@ -97,6 +97,32 @@ A mount reaches the other machine's files through the same login as `connect`. R
 - **Who can reach an export:** any user who can log in to the host. Anything exported is exposed to all of them; export a folder you would
   hand to any of them. `share` is accepted only from root.
 
+### Using a host's devices
+
+```
+ecmaos --listen --device ttyusb=file:/dev/ttyUSB0:rw   # offer a host device (read-only unless :rw; :wo for write-only)
+attach root@127.0.0.1:30022/ttyusb                     # on the other machine: /dev/ttyusb appears (asks for your password)
+attach -c ttyusb ping                                  # an operation the device knows (JSON arguments)
+attach -l                                              # list; attach -d ttyusb removes it
+```
+
+A device is opened by name, and only the devices the host lists exist: by `--device` (repeatable) or one per line in
+`$ECMAOS_DATA/ecmaosd/devices` (`NAME=file:PATH[:rw|:wo]`, `#` for comments). The default is to offer nothing.
+
+- **Only root** on the other machine can attach, and a device is offered to root only, since attaching makes a device node.
+- **A device is read-only unless the host said otherwise**, and the host enforces that: bytes written to a device offered
+  read-only end the channel. A `file` device is held by one machine at a time (`EBUSY` for another).
+- **Reads and writes are paced.** Bytes reach the machine only as fast as programs read them (the channel's credit goes
+  back when a program takes them), and a write takes only what the device has taken, so a slow device slows its writer instead of
+  filling memory. A program that reads `/dev/NAME` sleeps until data arrives; `O_NONBLOCK` and `poll` work.
+- **Unplugging:** when the device or the host goes away, `/dev/NAME` is removed and a program with it open reads the end of the file.
+- **What `file:` is:** a file, FIFO or character device, opened without blocking and polled (a few milliseconds of latency
+  when idle). A regular file is read to its end, which ends the device. It does not set a serial port's speed: configure the
+  port on the host (`stty -F`). A device that sets its own parameters belongs in a class adapter (serial, HID, ...), which come next.
+- **Names:** `/dev/NAME` must not already exist here; give another with `attach HOST/DEVICE NAME`. A process with a manifest
+  listing `devices` needs `remote` (or the name) in it.
+- **Nothing is encrypted yet**, as for everything else here: use it over loopback.
+
 What it does **not** do yet: **nothing is encrypted**, so only a loopback address can be bound (`--listen=0.0.0.0` is
 refused) until TLS is in. Anything else on the machine can read the traffic, and anything that can reach 127.0.0.1 can
 try to log in, so it is the key, not the port, that keeps people out. Browsers are additionally held to an allow-list of
@@ -105,7 +131,7 @@ pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh
 goes straight to the key check.
 
 The protocol is `@ecmaos/peer`: a binary codec, a version handshake, and channels with credit-based flow control.
-The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); files use `fs` (mount an export) and `fs-share` (offer a folder).
+The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); files use `fs` (mount an export) and `fs-share` (offer a folder); devices use `device` (use a host's device).
 
 ## Security: run only code you trust
 

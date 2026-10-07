@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
@@ -505,4 +506,166 @@ describe('sharing a directory with another machine', () => {
     expect(me.output.slice(mark)).toMatch(/letters, digits|a share needs a name/)
     expect(await remote.run('mount')).not.toContain('/mnt/bad')
   }, 120_000)
+})
+
+describe('using a device of another machine', () => {
+  const Local = 'root:/tmp# '
+
+  async function client() {
+    const session = new Session(['--quiet'])
+    sessions.push(session)
+    await session.ready()
+    session.send('cd /tmp\r')
+    await session.waitFor(Local)
+    return session
+  }
+
+  async function local(session: Session, command: string, timeout = 30_000) {
+    const mark = session.output.length
+    session.send(`${command}\r`)
+    await session.waitFor(Local, mark + command.length, timeout)
+    const lines = session.output.slice(mark).split('\n').filter(line => line.trim() !== command && !/^(root:\/tmp# )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ ecmaos:/.test(line))
+    return lines.join('\n').replace(/root:\/tmp# $/, '').trim()
+  }
+
+  /** A host offering `devices` and a machine that has attached `wanted` from it as /dev/NAME */
+  async function attached(devices: string[], wanted: string, as = wanted, data?: string) {
+    const { session: remote, port, code } = await host(devices.flatMap(spec => ['--device', spec]), data)
+    const me = await client()
+    const mark = me.output.length
+    me.send(`attach -y -p ${code} root@127.0.0.1:${port}/${wanted} ${as}\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor(Local, mark + 100)
+    return { me, remote, port, code, result: me.output.slice(mark) }
+  }
+
+  const eventually = async (check: () => Promise<boolean> | boolean, what: string) => {
+    const started = Date.now()
+    while (!(await check())) {
+      if (Date.now() - started > 20_000) throw new Error(`timed out waiting for ${what}`)
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+  }
+
+  it('a loopback device: what is written to /dev/NAME comes back from it, and detaching removes it', async () => {
+    const { me, result, port } = await attached(['loop=loopback'], 'loop')
+    expect(result).toContain('Attached loop from 127.0.0.1')
+    // a name this machine already has is refused
+    const mark0 = me.output.length
+    me.send(`attach root@127.0.0.1:${port}/loop zero\r`)
+    await me.waitFor('unlocks your key', mark0)
+    me.send('root\r')
+    await me.waitFor(Local, mark0 + 100)
+    expect(me.output.slice(mark0)).toContain('/dev/zero already exists')
+    expect(await local(me, 'attach -l')).toContain('/dev/loop')
+    expect(await local(me, 'ls /dev')).toContain('loop')
+    await local(me, 'echo ping > /dev/loop')
+    expect(await local(me, 'dd if=/dev/loop bs=1 count=5 2>/dev/null')).toBe('ping')
+    expect(await local(me, 'attach -c loop ping')).toContain('pong')
+    expect(await local(me, 'attach -c loop echo 1 \'"two"\'')).toContain('[1,"two"]')
+    expect(await local(me, 'attach -d loop')).toContain('Detached loop')
+    expect(await local(me, 'ls /dev')).not.toMatch(/\bloop\b/)
+  })
+
+  it('when the host goes away the device node goes with it, and a read that was waiting ends', async () => {
+    const { me, remote } = await attached(['loop=loopback'], 'loop')
+    expect(await local(me, 'ls /dev')).toContain('loop')
+    await remote.stop()
+    await eventually(async () => !(await local(me, 'ls /dev')).match(/\bloop\b/), 'the device to be removed')
+    expect(await local(me, 'attach -l')).toContain('No devices are attached')
+  })
+
+  it('a read-only device refuses a write, and a device that ends (a file at its end) goes away', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ecmaosd-device-'))
+    folders.push(dir)
+    const fifo = path.join(dir, 'sensor')
+    execFileSync('mkfifo', [fifo])
+    writeFileSync(path.join(dir, 'log.txt'), 'reading 42\n')
+    const { me, port, code } = await attached([`sensor=file:${fifo}`, `log=file:${path.join(dir, 'log.txt')}`], 'sensor')
+    const hostEnd = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK)
+    try {
+      writeSync(hostEnd, 'reading 42\n')
+      expect(await local(me, 'dd if=/dev/sensor bs=1 count=10 2>/dev/null')).toBe('reading 42')
+    } finally { closeSync(hostEnd) }
+    expect(await local(me, 'echo x > /dev/sensor 2>&1; echo status=$?')).not.toContain('status=0')
+
+    // a second device of the same host: a regular file is read to its end, which ends the device
+    const mark = me.output.length
+    me.send(`attach root@127.0.0.1:${port}/log\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor('Attached log', mark)
+    await eventually(async () => !(await local(me, 'ls /dev')).match(/\blog\b/), 'the device to go when the file ended')
+    void code
+  })
+
+  it('a FIFO read through the machine, and one the machine writes to', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ecmaosd-device-'))
+    folders.push(dir)
+    const input = path.join(dir, 'in')
+    const output = path.join(dir, 'out')
+    execFileSync('mkfifo', [input, output])
+    // the host's own ends: a reader of the output first (a FIFO opened for writing needs one), a writer into the input
+    const reader = openSync(output, constants.O_RDONLY | constants.O_NONBLOCK)
+    const writer = openSync(input, constants.O_RDWR | constants.O_NONBLOCK)
+    try {
+      const { me, port } = await attached([`in=file:${input}`, `out=file:${output}:wo`], 'in')
+      writeSync(writer, 'from the host\n')
+      expect(await local(me, 'dd if=/dev/in bs=1 count=13 2>/dev/null')).toBe('from the host')
+
+      const mark = me.output.length
+      me.send(`attach root@127.0.0.1:${port}/out\r`)
+      await me.waitFor('unlocks your key', mark)
+      me.send('root\r')
+      await me.waitFor('Attached out', mark)
+      expect(await local(me, 'attach -l')).toMatch(/\/dev\/out\s+file\s+-w/)
+      await local(me, 'echo from the machine > /dev/out')
+      const got: string[] = []
+      await eventually(() => {
+        const buffer = Buffer.alloc(64)
+        try { const count = readSync(reader, buffer, 0, 64, null); if (count > 0) got.push(buffer.subarray(0, count).toString()) } catch { /* nothing yet */ }
+        return got.join('').includes('from the machine')
+      }, 'the host to read what the machine wrote')
+    } finally { closeSync(reader); closeSync(writer) }
+  })
+
+  it('only the devices the host lists, and only to root; a device in use is refused', async () => {
+    const { session: remote, port, code } = await host(['--device', 'loop=loopback'])
+    void remote
+    const me = await client()
+    const mark = me.output.length
+    me.send(`attach -y -p ${code} root@127.0.0.1:${port}/secret x\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor(Local, mark + 100)
+    expect(me.output.slice(mark)).toContain('no device named secret')
+    expect(await local(me, 'attach -l')).toContain('No devices are attached')
+
+    const none = await host([])
+    const other = await client()
+    const mark2 = other.output.length
+    other.send(`attach -y -p ${none.code} root@127.0.0.1:${none.port}/loop\r`)
+    await other.waitFor('unlocks your key', mark2)
+    other.send('root\r')
+    await other.waitFor(Local, mark2 + 100)
+    expect(other.output.slice(mark2)).toContain('no device named loop')
+  })
+
+  it('devices can be listed in a file in the data folder, and a file device is held by one machine at a time', async () => {
+    const data = mkdtempSync(path.join(tmpdir(), 'ecmaosd-data-'))
+    folders.push(data)
+    mkdirSync(path.join(data, 'ecmaosd'))
+    writeFileSync(path.join(data, 'ecmaosd', 'devices'), '# what this machine offers\nzero=file:/dev/zero\n')
+    const { me, port, code } = await attached([], 'zero', 'rzero', data)
+    expect(await local(me, 'dd if=/dev/rzero bs=1 count=4 2>/dev/null | od -An -tx1')).toContain('00 00 00 00')
+
+    const mark = me.output.length
+    me.send(`attach root@127.0.0.1:${port}/zero z2\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor(Local, mark + 100)
+    expect(me.output.slice(mark)).toContain('zero is in use')
+    void code
+  })
 })

@@ -31,6 +31,7 @@ import { Errno } from 'kerium'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -68,6 +69,7 @@ declare module '@zenfs/linux/uapi/abi' {
     fs_umount(target: string, path: string): number
     fs_mount(argsJson: string, path: string): number
     peer_share(argsJson: string, path: string): number
+    peer_attach(argsJson: string, path: string): number
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
     screensaver_run(name: string, set: number, path: string): number
@@ -1054,6 +1056,20 @@ export function installMainThreadSyscalls(): void {
     if (!processIsRoot(proc)) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'share: only root can do that' }] })
     else if (!shell) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'share: no shell available for this process' }] })
     else text = JSON.stringify(await manageShare(kernel, shell, request))
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `attach`: makes a device of another machine appear as /dev/NAME, over a connection the kernel keeps open. Root only: it
+  // creates a device node.
+  define_syscall('peer_attach', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const request = JSON.parse(argsJson) as AttachRequest
+    let text: string
+    if (!processIsRoot(proc)) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'attach: only root can do that' }] })
+    else if (!shell) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'attach: no shell available for this process' }] })
+    else text = JSON.stringify(await manageAttach(kernel, shell, request))
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
