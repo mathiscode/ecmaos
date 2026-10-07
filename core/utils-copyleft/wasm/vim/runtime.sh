@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copies the subset of Vim's runtime that ecmaOS ships into initfs, at /usr/share/vim/vim91
-# (the directory build.sh compiles in). Run it to change the subset; the result is committed.
+# Packs the subset of Vim's runtime that ecmaOS ships into programs/vim-runtime.tar.gz, rooted at /, so it unpacks to
+# /usr/share/vim/vim91 (the directory build.sh compiles in). The kernel installs it beside `vim` (see the `runtime` entry
+# of programs/manifest.json). Run it to change the subset, then `node ../../utils/programs-manifest.mjs`; the result is committed.
+# The runtime is under the Vim license, so it ships with this package and not with the permissively licensed initfs.
 #
 # The subset is what makes `syntax on` and `filetype on` work for the languages people edit here.
 # Left out on purpose: doc/ (`:help` needs ~3 MB for its tags and text), the other ~600 syntax
@@ -12,8 +14,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 SOURCES="$HERE/../../scripts/sources.mjs"
 VERSION=$(node "$SOURCES" version vim)
 ARCHIVE=$(node "$SOURCES" fetch vim)
-DEST=$HERE/../../../kernel/public/initfs/usr/share/vim/vim91
 WORK=$(mktemp -d)
+DEST=$WORK/image/usr/share/vim/vim91
 trap 'rm -rf "$WORK"' EXIT
 
 tar xzf "$ARCHIVE" -C "$WORK"
@@ -79,3 +81,8 @@ while queue:
 PY
 cp "$SRC/defaults.vim" "$DEST/" 2>/dev/null || true
 du -sh "$DEST"
+
+# The same bytes for the same input, so a rerun that changes nothing leaves the committed tarball (and its hash) alone
+OUT="$HERE/../../programs/vim-runtime.tar.gz"
+tar --sort=name --owner=root --group=root --numeric-owner --mtime=@0 -C "$WORK/image" -cf - . | gzip -n -9 > "$OUT"
+echo "wrote $OUT"

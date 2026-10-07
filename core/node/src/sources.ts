@@ -11,7 +11,7 @@ interface ProgramPackage {
   name: string
   path: string
   dir: string
-  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string }>
+  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, runtime?: { file: string, size: number, sha256: string } }>
 }
 
 // `@ecmaos/coreutils` is permissively licensed and a dependency of this package. `@ecmaos/coreutils-copyleft` (vim,
@@ -62,15 +62,15 @@ export function sourceFetch(env: NodeJS.ProcessEnv = process.env, allowed: strin
       if (target.pathname === '/index.json') {
         return respond(JSON.stringify({
           packages: packages.map(({ name, path, programs }) => ({
-            name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, { file, size, sha256, version, license, description }]) => [program, { file, size, sha256, version, license, description }]))
+            name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, { file, size, sha256, version, license, description, runtime }]) => [program, { file, size, sha256, version, license, description, ...(runtime ? { runtime } : {}) }]))
           }))
         }), 'application/json')
       }
       const [, pkg, file] = target.pathname.split('/')
       const entry = packages.find(candidate => candidate.path === pkg)
-      const program = entry && Object.values(entry.programs).find(candidate => candidate.file === file)
-      if (!entry || !program) return missing()
-      return respond(await readFile(path.join(entry.dir, program.file)), 'application/wasm')
+      const served = entry && Object.values(entry.programs).flatMap(candidate => [candidate.file, candidate.runtime?.file]).find(candidate => candidate === file)
+      if (!entry || !served) return missing()
+      return respond(await readFile(path.join(entry.dir, served)), served.endsWith('.wasm') ? 'application/wasm' : 'application/gzip')
     }
     return missing()
   }

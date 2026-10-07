@@ -118,7 +118,12 @@
           "file": "wasm/vim/build.sh",
           "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified"
         }
-      ]
+      ],
+      "runtime": {
+        "file": "vim-runtime.tar.gz",
+        "size": 807391,
+        "sha256": "bfda4dc8bf136e319389977a73139bb2874a06eb43492b10aebf2864c9278ad9"
+      }
     },
     "ed": {
       "file": "ed.wasm",

@@ -30,6 +30,20 @@ for (const [name, program] of Object.entries(manifest.programs)) {
   }
 }
 
+// A program's runtime (`vim`'s /usr/share/vim) is a tarball beside the `.wasm`, installed with it
+for (const [name, program] of Object.entries(manifest.programs)) {
+  if (!program.runtime) continue
+  const file = path.join(dir, program.runtime.file ?? '')
+  if (!program.runtime.file || !existsSync(file)) { problems.push(`${name}: runtime ${program.runtime.file} is missing`); continue }
+  const bytes = readFileSync(file)
+  const sha256 = createHash('sha256').update(bytes).digest('hex')
+  if (program.runtime.size !== bytes.length || program.runtime.sha256 !== sha256) {
+    if (check) problems.push(`${name}: runtime size/sha256 do not match ${program.runtime.file}`)
+    program.runtime.size = bytes.length
+    program.runtime.sha256 = sha256
+  }
+}
+
 const pin = readFileSync(path.join(import.meta.dirname, 'emscripten-version'), 'utf8').trim()
 if (manifest.toolchain?.emscripten !== pin) problems.push(`toolchain.emscripten is ${manifest.toolchain?.emscripten}, utils/emscripten-version pins ${pin}`)
 for (const [name, program] of Object.entries(manifest.programs)) {
@@ -40,6 +54,7 @@ for (const [name, program] of Object.entries(manifest.programs)) {
 const listed = new Set(Object.values(manifest.programs).map(program => program.file))
 for (const file of readdirSync(dir)) {
   if (file.endsWith('.wasm') && !listed.has(file)) problems.push(`${file} is not in the manifest`)
+  if (file.endsWith('.tar.gz') && !Object.values(manifest.programs).some(program => program.runtime?.file === file)) problems.push(`${file} is not in the manifest`)
 }
 
 if (problems.length) {

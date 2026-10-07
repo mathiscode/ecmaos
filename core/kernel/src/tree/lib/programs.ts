@@ -16,6 +16,8 @@ export interface ProgramEntry {
   version: string
   license: string
   description: string
+  /** Files the program needs beside it (`vim`'s runtime): a tarball rooted at `/`, in the same directory as the program */
+  runtime?: { file: string, size: number, sha256: string }
 }
 
 export interface ProgramPackage {
@@ -36,6 +38,8 @@ export interface InstallProgramsOptions {
   /** The hash each installed program had when it was written, so a boot compares sizes instead of reading every binary. */
   stamps: { read(): Record<string, string>, write(stamps: Record<string, string>): void }
   fetcher?: (url: string, init?: RequestInit) => Promise<Response>
+  /** Unpacks a runtime tarball into the filesystem; without it, runtimes are not installed */
+  extract?: (tarball: Uint8Array) => Promise<void>
 }
 
 export interface InstallProgramsResult {
@@ -68,9 +72,33 @@ export async function installPrograms(fs: Fs, options: InstallProgramsOptions): 
 
   const stamps = options.stamps.read()
   let changed = false
+
+  const sha = async (bytes: Uint8Array) => globalThis.crypto?.subtle ? hex(await globalThis.crypto.subtle.digest('SHA-256', bytes as BufferSource)) : undefined
+  const fetchFile = async (pkg: ProgramPackage, entry: { file: string, size: number, sha256: string }) => {
+    const url = new URL(`${pkg.path}/${entry.file}`, new URL(options.catalogUrl, globalThis.location?.href ?? 'http://localhost/'))
+    url.searchParams.set('v', entry.sha256.slice(0, 16)) // a changed file is a new URL, so no cache serves the old one
+    const response = await fetcher(url.href)
+    if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.length !== entry.size) throw new Error(`${entry.file} is ${bytes.length} bytes, the catalog says ${entry.size}`)
+    // `crypto.subtle` exists only in a secure context; where it does not, the size check above is all there is.
+    const actual = await sha(bytes)
+    if (actual !== undefined && actual !== entry.sha256) throw new Error(`${entry.file} does not match the catalog's sha256`)
+    return bytes
+  }
+
   for (const pkg of catalog.packages) {
     for (const [name, entry] of Object.entries(pkg.programs)) {
       if (options.skip?.(name)) continue
+      if (entry.runtime && options.extract && stamps[`${name}:runtime`] !== entry.runtime.sha256) {
+        try {
+          await options.extract(await fetchFile(pkg, entry.runtime))
+          stamps[`${name}:runtime`] = entry.runtime.sha256
+          changed = true
+        } catch (error) {
+          result.failed[`${name} (runtime)`] = (error as Error).message
+        }
+      }
       const target = `/bin/${name}`
       try {
         // An earlier build linked `vim` to `vi`; writing through that link would replace the other program.
@@ -78,17 +106,7 @@ export async function installPrograms(fs: Fs, options: InstallProgramsOptions): 
         const installed = await fs.stat(target).catch(() => undefined)
         if (installed?.isFile() && installed.size === entry.size && stamps[name] === entry.sha256) { result.current.push(name); continue }
 
-        const url = new URL(`${pkg.path}/${entry.file}`, new URL(options.catalogUrl, globalThis.location?.href ?? 'http://localhost/'))
-        url.searchParams.set('v', entry.sha256.slice(0, 16)) // a changed program is a new URL, so no cache serves the old one
-        const response = await fetcher(url.href)
-        if (!response.ok) throw new Error(`${url.pathname}: HTTP ${response.status}`)
-        const bytes = new Uint8Array(await response.arrayBuffer())
-        if (bytes.length !== entry.size) throw new Error(`${entry.file} is ${bytes.length} bytes, the catalog says ${entry.size}`)
-        // `crypto.subtle` exists only in a secure context; where it does not, the size check above is all there is.
-        if (globalThis.crypto?.subtle) {
-          const actual = hex(await globalThis.crypto.subtle.digest('SHA-256', bytes))
-          if (actual !== entry.sha256) throw new Error(`${entry.file} does not match the catalog's sha256`)
-        }
+        const bytes = await fetchFile(pkg, entry)
         await fs.writeFile(target, bytes, { mode: 0o755 })
         stamps[name] = entry.sha256
         changed = true

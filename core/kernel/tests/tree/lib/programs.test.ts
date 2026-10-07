@@ -110,4 +110,46 @@ describe('installPrograms', () => {
     expect(fs.files['/bin/alpha']).toBeUndefined()
     expect(fs.files['/bin/vim']).toEqual(b)
   })
+
+  describe('runtime', () => {
+    const runtime = new Uint8Array([1, 2, 3, 4])
+    const withRuntime = (corrupt = false) => {
+      const env = setup({ alpha: a })
+      const inner = env.fetcher
+      const fetcher = (url: string) => {
+        if (url.endsWith('index.json')) {
+          const catalog: ProgramCatalog = { packages: [{ name: 'p', path: 'test', programs: { alpha: { file: 'alpha.wasm', size: a.length, sha256: sha256(a), version: '1', license: 'MIT', description: 'a', runtime: { file: 'alpha-runtime.tar.gz', size: runtime.length, sha256: sha256(runtime) } } } }] }
+          env.requests.push(url)
+          return Promise.resolve(new Response(JSON.stringify(catalog)))
+        }
+        if (url.includes('alpha-runtime.tar.gz')) { env.requests.push(url); return Promise.resolve(new Response(corrupt ? new Uint8Array([9, 9, 9, 9]) : runtime)) }
+        return inner(url)
+      }
+      return { ...env, fetcher }
+    }
+
+    it('unpacks a program\'s runtime once, and again when it changes', async () => {
+      const env = withRuntime()
+      const unpacked: Uint8Array[] = []
+      const options = { catalogUrl: 'http://x/programs/index.json', stamps: env.stamps, fetcher: env.fetcher, extract: async (bytes: Uint8Array) => { unpacked.push(bytes) } }
+      await installPrograms(fakeFs(), options)
+      expect(unpacked).toEqual([runtime])
+      expect(env.current()['alpha:runtime']).toBe(sha256(runtime))
+      await installPrograms(fakeFs(), options)
+      expect(unpacked).toHaveLength(1)
+    })
+
+    it('does not fetch a runtime nobody can unpack, and reports one that does not match', async () => {
+      const without = withRuntime()
+      await installPrograms(fakeFs(), { catalogUrl: 'http://x/programs/index.json', stamps: without.stamps, fetcher: without.fetcher })
+      expect(without.requests.some(url => url.includes('runtime'))).toBe(false)
+
+      const bad = withRuntime(true)
+      const unpacked: Uint8Array[] = []
+      const result = await installPrograms(fakeFs(), { catalogUrl: 'http://x/programs/index.json', stamps: bad.stamps, fetcher: bad.fetcher, extract: async bytes => { unpacked.push(bytes) } })
+      expect(Object.keys(result.failed)).toEqual(['alpha (runtime)'])
+      expect(unpacked).toHaveLength(0)
+      expect(result.installed).toEqual(['alpha'])
+    })
+  })
 })

@@ -34,5 +34,6 @@ program: the upstream archive, what ecmaOS changed, and the toolchain (`utils/em
 
 `wasm/<name>/build.sh` rebuilds one program with Emscripten (the pinned version; the script refuses another unless
 `ECMAOS_EMCC_ANY=1`) and writes `programs/<name>.wasm`. Then `node ../../utils/programs-manifest.mjs` refreshes the
-manifest's sizes and hashes. `wasm/vim/runtime.sh` copies the subset of Vim's runtime that ships in the kernel's
-initfs.
+manifest's sizes and hashes. `wasm/vim/runtime.sh` packs the subset of Vim's runtime that ships into
+`programs/vim-runtime.tar.gz` (Vim-licensed files, so they travel with `vim` and not with the kernel's initfs). It is
+listed under `vim.runtime` in the manifest, and the kernel unpacks it to `/usr/share/vim/vim91` beside the program.

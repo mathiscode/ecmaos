@@ -2256,6 +2256,12 @@ export class Kernel implements IKernel {
       const programs = await installPrograms(this.filesystem.fs, {
         catalogUrl,
         fetcher: this.host.fetch,
+        // A program's runtime (`vim`'s /usr/share/vim) is a tarball rooted at `/`
+        extract: async tarball => {
+          const file = '/tmp/runtime.tar'
+          await this.filesystem.fs.writeFile(file, tarball)
+          try { await this.filesystem.extractTarball(file, '/', 0o644, 0o755) } finally { await this.filesystem.fs.unlink(file).catch(() => {}) }
+        },
         skip: name => !!this.options.blacklist?.commands?.includes(name),
         stamps: {
           read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },

@@ -225,7 +225,7 @@ export interface ProgramPackageManifest {
   name: string
   path: string
   dir: string
-  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, sources?: { archive: string }[] }>
+  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, runtime?: { file: string, size: number, sha256: string }, sources?: { archive: string }[] }>
 }
 
 /** Reads the manifests of the program packages that this build includes. */
@@ -248,7 +248,7 @@ export function readProgramPackages(): ProgramPackageManifest[] {
 
 /** The catalog the kernel fetches (`/programs/index.json`): what each package offers, without where it lives on disk. */
 export function programCatalog(packages: ProgramPackageManifest[]) {
-  const entry = ({ file, size, sha256, version, license, description }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description })
+  const entry = ({ file, size, sha256, version, license, description, runtime }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description, ...(runtime ? { runtime } : {}) })
   return {
     packages: packages.map(({ name, path, programs }) => ({
       name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(value)]))
@@ -277,10 +277,10 @@ export function binPrograms(): Plugin {
       }
       const [, , pkg, file] = url.split('/')
       const entry = packages.find(candidate => candidate.path === pkg)
-      const program = entry && Object.values(entry.programs).find(candidate => candidate.file === file)
-      if (!entry || !program) { res.statusCode = 404; res.end('Not found'); return }
-      res.setHeader('Content-Type', 'application/wasm')
-      res.end(readFileSync(path.join(entry.dir, program.file)))
+      const served = entry && Object.values(entry.programs).flatMap(candidate => [candidate.file, candidate.runtime?.file]).find(candidate => candidate === file)
+      if (!entry || !served) { res.statusCode = 404; res.end('Not found'); return }
+      res.setHeader('Content-Type', served.endsWith('.wasm') ? 'application/wasm' : 'application/gzip')
+      res.end(readFileSync(path.join(entry.dir, served)))
     })
   }
 
@@ -294,6 +294,7 @@ export function binPrograms(): Plugin {
       for (const entry of packages) {
         for (const program of Object.values(entry.programs)) {
           this.emitFile({ type: 'asset', fileName: `programs/${entry.path}/${program.file}`, source: readFileSync(path.join(entry.dir, program.file)) })
+          if (program.runtime) this.emitFile({ type: 'asset', fileName: `programs/${entry.path}/${program.runtime.file}`, source: readFileSync(path.join(entry.dir, program.runtime.file)) })
           // Serving a copyleft binary means offering its source from the same place: the archives it was built from go
           // out at `/sources/`. A build that cannot do that fails, rather than publish a site that breaks the offer.
           for (const source of program.sources ?? []) {

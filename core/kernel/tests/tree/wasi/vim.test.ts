@@ -32,19 +32,10 @@ describe('vim', () => {
     document.body.appendChild(container)
     kernel.terminal.mount(container)
     ;(kernel.terminal as unknown as { _isMobile: boolean })._isMobile = false
-    // the test filesystem has no initfs, so put the runtime subset where the build looks for it
-    const hostFs = process.getBuiltinModule('node:fs')
-    const { readdirSync, readFileSync, statSync } = hostFs
-    const join = (a: string, b: string) => `${a}/${b}`
-    const root = `${process.cwd()}/public/initfs/usr/share/vim/vim91`
-    const copy = async (from: string, to: string) => {
-      await kernel.filesystem.fs.mkdir(to, { recursive: true })
-      for (const name of readdirSync(from)) {
-        if (statSync(join(from, name)).isDirectory()) await copy(join(from, name), `${to}/${name}`)
-        else await kernel.filesystem.fs.writeFile(`${to}/${name}`, new Uint8Array(readFileSync(join(from, name))))
-      }
-    }
-    await copy(root, '/usr/share/vim/vim91')
+    // the test filesystem has no catalog, so unpack the runtime the way the kernel installs it beside `vim`
+    const tarball = process.getBuiltinModule('node:fs').readFileSync(`${process.cwd()}/../utils-copyleft/programs/vim-runtime.tar.gz`)
+    await kernel.filesystem.fs.writeFile('/tmp/vim-runtime.tar', new Uint8Array(tarball))
+    await kernel.filesystem.extractTarball('/tmp/vim-runtime.tar', '/', 0o644, 0o755)
   }, 60000)
 
   const typeKeys = async (keys: string) => {
