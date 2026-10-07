@@ -289,7 +289,6 @@ export interface KernelOptions {
   programs?: string | false
   /** context and filesystem are supplied by Kernel itself when constructing Service */
   service?: Omit<ServiceOptions, 'context' | 'filesystem'>
-  socket?: WebSocket
 }
 
 /**

@@ -61,7 +61,8 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 - Window manager powered by [WinBox](https://github.com/nextapps-de/winbox)
 <!-- - `BIOS`: A C++ module compiled to WebAssembly with [Emscripten](https://emscripten.org) providing performance-critical functionality -->
 <!-- - `Jaffa`: A [Tauri](https://tauri.app) app for running ecmaOS in a desktop or mobile environment -->
-- `Metal`: An API server for allowing connections to physical systems from ecmaOS using [Hono](https://hono.dev)
+- `Node`: ecmaOS in a Node process, which other ecmaOS machines can log in to with a key (`ecmaos --listen`)
+- `Peer`: the wire protocol ecmaOS machines speak to each other: a binary codec and multiplexed channels with flow control
 - `SWAPI`: An API server running completely inside a service worker using [Hono](https://hono.dev)
 
 ## Basic Concepts
@@ -273,12 +274,13 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
   - Web Workers
   - Window Manager (WinBox)
 
-### Metal
+### Node
 
-> [/core/metal](/core/metal)
+> [/core/node](/core/node)
 
-- Metal is an API server for allowing connections to physical systems from ecmaOS using [Hono](https://hono.dev)
-- Authenticated and encrypted connections with JWK/JWE/JOSE
+- Runs the same kernel in a Node process, with the terminal on stdin and stdout and the machine kept in a SQLite file
+- `ecmaos --listen` lets other ecmaOS machines log in with a key and get a shell; `connect` is the client
+- Logins are over [`@ecmaos/peer`](/core/peer); see the package READMEs and `SECURITY.md` for what is and is not protected
 
 ### Modules
 

@@ -1,7 +1,5 @@
 {
   "requiresKernel": "El terminal requiere un kernel",
-  "socketConnected": "Conectado al socket en {{url}}",
-  "socketFailedToOpen": "Error al abrir el socket",
   "invalidSpinner": "Spinner inválido",
   "failedToSaveHistory": "Error al guardar el historial"
 }

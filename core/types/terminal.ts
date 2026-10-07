@@ -34,8 +34,6 @@ export interface TerminalOptions extends ITerminalOptions {
   users: Users
   /** Reference to shell instance */
   shell?: Shell
-  /** WebSocket connection */
-  socket?: WebSocket
   /** Terminal theme */
   theme?: {
     background?: string
@@ -184,10 +182,6 @@ export interface Terminal extends XTerm {
   readonly events: any
   /** Get terminal ID */
   readonly id: string
-  /** Get WebSocket connection */
-  readonly socket?: WebSocket
-  /** Get socket public key */
-  readonly socketKey?: JsonWebKey
   /** Get standard input stream */
   readonly stdin: ReadableStream<Uint8Array>
   /** Get standard output stream */

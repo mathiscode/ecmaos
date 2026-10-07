@@ -376,7 +376,6 @@ export class Kernel implements IKernel {
       dom: this.dom,
       kernel: this, // only for TerminalCommands -- see TerminalOptions.kernel's doc comment
       shell: this.shell,
-      socket: this.options.socket,
       users: this.users,
       tty: 0
     })

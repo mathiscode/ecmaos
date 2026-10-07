@@ -3,7 +3,6 @@ import './ui.css'
 
 const username = import.meta.env.ECMAOS_AUTOLOGIN_USERNAME
 const password = import.meta.env.ECMAOS_AUTOLOGIN_PASSWORD
-const socket = import.meta.env.ECMAOS_METAL_SOCKET
 
 // Create terminal containers for TTYs 0-7
 // Capped at 8 lines (not 10) to match @zenfs/linux's xterm_driver, which is fixed at lines: 8
@@ -25,8 +24,7 @@ if (terminalContainer) {
 const kernel = new Kernel({
   credentials: (username && password) ? { username, password } : undefined,
   dom: { topbar: import.meta.env.NODE_ENV !== 'test' },
-  log: { name: `ecmaos:${import.meta.env.NODE_ENV || 'kernel'}` },
-  socket: socket ? new WebSocket(socket) : undefined
+  log: { name: `ecmaos:${import.meta.env.NODE_ENV || 'kernel'}` }
 })
 
 globalThis.kernels = globalThis.kernels || new Map()

@@ -45,8 +45,6 @@ import type {
   TerminalOptions,
   TerminalWiring,
   TerminalResizeEvent,
-  TerminalMessageEvent,
-  TerminalAttachEvent,
   TerminalCreatedEvent,
   TerminalMountEvent,
   TerminalListenEvent,
@@ -198,8 +196,6 @@ export class Terminal extends XTerm implements ITerminal {
    * read while unset even though the constructor may leave it unassigned.
    */
   private _shell!: Shell
-  private _socket?: WebSocket
-  private _socketKey?: JsonWebKey
   private _stdin: ReadableStream<Uint8Array>
   private _stdout: WritableStream<Uint8Array>
   private _stderr: WritableStream<Uint8Array>
@@ -253,8 +249,6 @@ export class Terminal extends XTerm implements ITerminal {
   get emojis() { return emoji }
   get events() { return this._events }
   get id() { return this._id }
-  get socket() { return this._socket }
-  get socketKey() { return this._socketKey }
   get stdin() { return this._stdin }
   get stdout() { return this._stdout }
   get stderr() { return this._stderr }
@@ -509,62 +503,6 @@ export class Terminal extends XTerm implements ITerminal {
       this.fitToContainer()
       this.events.dispatch<TerminalResizeEvent>(TerminalEvents.RESIZE, { cols: this.cols, rows: this.rows })
     })
-
-    if (options.socket) {
-      this._socket = options.socket
-
-      this._socket.addEventListener('message', (event) => {
-        this.writeln(this._ctx.i18n.ns.terminal('socketConnected', { url: this._socket!.url }))
-        this._ctx.events.dispatch<TerminalMessageEvent>(TerminalEvents.MESSAGE, { terminal: this, message: event })
-
-        if (event.data.startsWith('@ecmaos/metal')) {
-          const [name, version, id, encodedPublicKey] = event.data.split(':')
-          this._ctx.log.info(`${name}:${version}:${id} connected`)
-          this._socketKey = JSON.parse(atob(encodedPublicKey))
-        }
-      })
-
-      const attachSocket = async () => {
-        await new Promise<void>(resolve => {
-          const checkState = () => {
-            if (options.kernel?.state === 'running') resolve()
-            else setTimeout(checkState, 100)
-          }
-
-          checkState()
-        })
-
-        if (this._socket) {
-          try {
-            await new Promise<void>((resolve, reject) => {
-              if (this._socket!.readyState === WebSocket.OPEN) resolve()
-              else {
-                const onOpen = () => {
-                  this._socket!.removeEventListener('open', onOpen)
-                  resolve()
-                }
-                const onError = () => {
-                  this._socket!.removeEventListener('error', onError)
-                  reject(new Error(this._ctx.i18n.ns.terminal('socketFailedToOpen')))
-                }
-
-                this._socket!.addEventListener('open', onOpen)
-                this._socket!.addEventListener('error', onError)
-              }
-            })
-
-            const attachAddon = new AttachAddon(this._socket)
-            this.loadAddon(attachAddon)
-            this._ctx.events.dispatch<TerminalAttachEvent>(TerminalEvents.ATTACH, { terminal: this, socket: this._socket })
-          } catch (err) {
-            console.error(err)
-            // TODO: AttachErrorEvent
-          }
-        }
-      }
-
-      attachSocket()
-    }
 
     this._shortcutListener = this.onKey(this.shortcutKeyHandler.bind(this))
     if (!this._isMobile) this._keyListener = this.onKey(this.keyHandler.bind(this))
