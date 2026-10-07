@@ -75,6 +75,28 @@ How it is trusted, in both directions:
 - A refusal is always the same message, whether the user exists or not, and is held back for a second; three refusals end
   the connection, and ten in a minute make the host stop answering for a while.
 
+### Sharing files between machines
+
+```
+ecmaos --listen --export share=/srv/project:rw       # offer a host folder (read-only unless :rw)
+mount -t ecmaos root@127.0.0.1:30022/share /mnt/share   # on the other machine: mount it (asks for your password)
+share root@127.0.0.1:30022 /home/me/work work       # or from the other machine: offer one of its folders to this host
+```
+
+A mount reaches the other machine's files through the same login as `connect`. Read this before relying on it:
+
+- **The folder is copied into memory when it is mounted.** Programs read a mount through a synchronous API, so the machine
+  keeps a copy and answers from it. A tree of more than 5000 files or 50 MB is refused (`-o maxfiles=` and `-o maxsize=`
+  change that; the memory used is a few times the data).
+- **A change made on the other side afterwards is not seen** until the mount is made again.
+- **A change made here is accepted at once and sent on in the background.** If the other machine refuses it (a read-only
+  export, a permission, the link gone), the machine logs it and the copy no longer matches; the asynchronous API fails
+  properly. After the host goes away, reads still work from the copy, changes cannot be sent, and `umount` works.
+- **Ownership:** files appear owned by `uid=`/`gid=` (default root); the other machine's owners mean nothing here.
+  Symbolic links are shown as links but cannot be created, and nothing is followed out of an exported folder.
+- **Who can reach an export:** any user who can log in to the host. Anything exported is exposed to all of them; export a folder you would
+  hand to any of them. `share` is accepted only from root.
+
 What it does **not** do yet: **nothing is encrypted**, so only a loopback address can be bound (`--listen=0.0.0.0` is
 refused) until TLS is in. Anything else on the machine can read the traffic, and anything that can reach 127.0.0.1 can
 try to log in, so it is the key, not the port, that keeps people out. Browsers are additionally held to an allow-list of
@@ -83,7 +105,7 @@ pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh
 goes straight to the key check.
 
 The protocol is `@ecmaos/peer`: a binary codec, a version handshake, and channels with credit-based flow control.
-The logins here use two channels: `auth`, then `tty` (bytes in and out, `resize` messages).
+The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); files use `fs` (mount an export) and `fs-share` (offer a folder).
 
 ## Security: run only code you trust
 

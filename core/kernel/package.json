@@ -72,6 +72,8 @@
     "./intervals": "./src/tree/intervals.ts",
     "./kernel": "./src/tree/kernel.ts",
     "./lib/crontab": "./src/tree/lib/crontab.ts",
+    "./lib/remote-fs": "./src/tree/lib/remote-fs.ts",
+    "./lib/remote-mount": "./src/tree/lib/remote-mount.ts",
     "./log": "./src/tree/log.ts",
     "./memory": "./src/tree/memory.ts",
     "./processes": "./src/tree/processes.ts",

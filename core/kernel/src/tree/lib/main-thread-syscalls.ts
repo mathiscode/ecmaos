@@ -31,6 +31,7 @@ import { Errno } from 'kerium'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
@@ -66,6 +67,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
     fs_mount(argsJson: string, path: string): number
+    peer_share(argsJson: string, path: string): number
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
     screensaver_run(name: string, set: number, path: string): number
@@ -992,7 +994,10 @@ export function installMainThreadSyscalls(): void {
 
     const unmountOne = (mountTarget: string) => {
       try {
+        const mounted = kernel.filesystem.mounts.get(mountTarget) as { closeRemote?: () => void } | undefined
         kernel.filesystem.fsSync.umount(mountTarget)
+        // A mount of another machine holds a connection to it, which ends with the mount
+        mounted?.closeRemote?.()
         results.push({ target: mountTarget })
       } catch (error) {
         results.push({ target: mountTarget, error: error instanceof Error ? error.message : String(error) })
@@ -1035,6 +1040,20 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify(await mountFilesystem(kernel, shell, args))
     }
 
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `share`: offers a directory of this machine to another one, over a connection the kernel keeps open (so it has to live
+  // here and not in the worker that ran the command, which ends). Root only, like `mount`.
+  define_syscall('peer_share', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const request = JSON.parse(argsJson) as ShareRequest
+    let text: string
+    if (!processIsRoot(proc)) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'share: only root can do that' }] })
+    else if (!shell) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'share: no shell available for this process' }] })
+    else text = JSON.stringify(await manageShare(kernel, shell, request))
     await writeScratch(kernel, proc, path, text)
     return text.length
   })

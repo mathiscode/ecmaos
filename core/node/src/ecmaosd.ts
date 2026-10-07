@@ -3,9 +3,11 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
 
-import { AuthChannel, Connection, fingerprint, PeerError, publicKeyOf, serverAuth, webSocketTransport } from '@ecmaos/peer'
-import type { Channel, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
+import { AuthChannel, Connection, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, PeerError, publicKeyOf, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
+import type { Channel, ExportFs, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
 import type { Kernel } from '@ecmaos/kernel/kernel'
+import { RemoteFS } from '@ecmaos/kernel/lib/remote-fs'
+import { DefaultLimits } from '@ecmaos/kernel/lib/remote-mount'
 
 import { TerminalDriver } from './driver.ts'
 import { loadHostKey } from './hostkey.ts'
@@ -37,6 +39,10 @@ export interface DaemonOptions {
   origins?: string[]
   /** Who a pairing code enrols; none for no code. Defaults to root. */
   pairUser?: string | false
+  /** What a directory shared by a machine that logs in may hold before it is refused (it is copied to memory) */
+  shareLimits?: { files: number, bytes: number }
+  /** Host directories offered to the machines that log in, by name */
+  exports?: Array<{ name: string, readOnly: boolean, backend: ExportFs }>
   /** Makes what the kernel has written durable; called before a key enrolment is acknowledged */
   flush?: () => void
   log?: (message: string) => void
@@ -110,6 +116,52 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     return keys?.map(key => publicKeyOf(key)).filter((key): key is PublicKey => key !== null)
   }
 
+  /** Serves an export on the channel: the one the peer names, or the only one there is */
+  function openExport(channel: Channel, user: string) {
+    const params = channel.params && typeof channel.params === 'object' && !(channel.params instanceof Uint8Array) && !Array.isArray(channel.params) ? channel.params : {}
+    const wanted = typeof params['export'] === 'string' ? params['export'] : ''
+    const available = options.exports ?? []
+    const chosen = wanted ? available.find(candidate => candidate.name === wanted) : available.length === 1 ? available[0] : undefined
+    if (!chosen) throw new PeerError('refused', wanted ? `no export named ${wanted}` : available.length ? 'name an export' : 'nothing is exported here')
+    log(`${user} mounted ${chosen.name}${chosen.readOnly ? ' (read-only)' : ''}`)
+    serveFs(new MessageStream(channel), chosen.backend, { readOnly: chosen.readOnly, onError: (op, where, error) => log(`export ${chosen.name}: ${op} ${where ?? ''} failed: ${(error as { code?: string })?.code ?? error}`) })
+  }
+
+  /**
+   * A machine that logged in offers a directory of its own: this one mounts it as /mnt/<name> for as long as the channel lasts. Only
+   * root may do that, since mounting is a root act; the tree is copied to memory, so one past the limits is refused.
+   */
+  async function acceptShare(channel: Channel, user: string) {
+    const account = Array.from(kernel.users.all.values()).find(candidate => candidate.username === user)
+    if (!account || account.uid !== 0) throw new PeerError('auth', 'only root can share a filesystem to this machine')
+    const params = channel.params && typeof channel.params === 'object' && !(channel.params instanceof Uint8Array) && !Array.isArray(channel.params) ? channel.params : {}
+    const name = params['name']
+    if (typeof name !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(name)) throw new PeerError('refused', 'a share needs a name of letters, digits, dots, dashes and underscores')
+    const target = `/mnt/${name}`
+    if (kernel.filesystem.mounts.has(target)) throw new PeerError('refused', `${target} is already mounted`)
+
+    const stream = new MessageStream(channel)
+    const remote = new RemoteFS(new FsClient(stream, 30_000), {
+      limits: options.shareLimits ?? DefaultLimits,
+      owner: { uid: 0, gid: 0 },
+      onError: (operation, where, error) => log(`share ${name}: ${operation} ${where} failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+    try {
+      await remote.ready()
+    } catch (error) {
+      throw new PeerError('limit', error instanceof Error ? error.message : String(error))
+    }
+    await kernel.filesystem.fs.mkdir(target, { recursive: true })
+    await kernel.filesystem.fsSync.mount(target, remote)
+    log(`${user} shared ${target}${params['readOnly'] === true ? ' (read-only on their side)' : ''}`)
+    const forget = () => {
+      if (kernel.filesystem.mounts.get(target) !== remote) return
+      try { kernel.filesystem.fsSync.umount(target) } catch { /* already gone */ }
+      log(`${target} is no longer shared`)
+    }
+    void channel.done.then(forget)
+  }
+
   function serve(socket: WebSocketLike) {
     const connection = new Connection(webSocketTransport(socket), { role: 'server', meta: { name: 'ecmaosd', version: kernel.version }, maxChannels: 16 })
     live.add(connection)
@@ -146,6 +198,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         settle()
         log(`${user} logged in`)
         connection.accept('tty', channel => openTerminal(kernel, user, channel))
+        connection.accept(FsChannel, channel => openExport(channel, user))
+        connection.accept(FsShareChannel, channel => acceptShare(channel, user))
       } catch {
         failures.push(Date.now())
         if (++failed >= AuthFailuresPerConnection) connection.close(new PeerError('auth', 'too many failed logins'))

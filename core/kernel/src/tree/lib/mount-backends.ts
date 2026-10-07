@@ -4,11 +4,13 @@ import { IndexedDB, WebStorage, WebAccess } from '@zenfs/dom'
 import { Iso, Zip } from '@zenfs/archives'
 import { Dropbox, GoogleDrive } from '@zenfs/cloud'
 
+import { FsError, PeerError } from '@ecmaos/peer'
 import type { Shell } from '@ecmaos/types'
 
 import type { Kernel } from '#kernel.ts'
 
 import type { Outcome, OutcomeLine } from './outcome.ts'
+import { DefaultLimits, openRemoteFs, parseRemoteSource, parseSize, RemoteMountFailure } from './remote-mount.ts'
 
 /**
  * Everything `mount` needs that only the main thread has: the live `kernel.filesystem` mount table, the
@@ -174,8 +176,39 @@ export async function mountFilesystem(kernel: Kernel, shell: Shell, request: Mou
       case 'googledrive':
         await mountGoogleDrive({ out, mountOptions, mount })
         break
+      case 'ecmaos': {
+        // The password unlocks the key that signs the login; a mount from /etc/fstab has nobody to ask
+        if (!request.interactive || !mountOptions.password) throw new MountFailure(`skipping ${target}: ecmaos asks for the password of the account whose key logs in`)
+        const parsed = source ? parseRemoteSource(source, shell.env.get('USER') || 'root') : null
+        if (!parsed) throw new MountFailure('ecmaos filesystem needs a source: [user@]host[:port][/export]')
+        const maxfiles = mountOptions.maxfiles ? Number(mountOptions.maxfiles) : DefaultLimits.files
+        const maxsize = mountOptions.maxsize ? parseSize(mountOptions.maxsize) : DefaultLimits.bytes
+        if (!Number.isInteger(maxfiles) || maxfiles <= 0 || !maxsize) throw new MountFailure('maxfiles must be a number and maxsize a size such as 50M')
+        const uid = mountOptions.uid ? Number(mountOptions.uid) : 0
+        const gid = mountOptions.gid ? Number(mountOptions.gid) : uid
+        if (!Number.isInteger(uid) || !Number.isInteger(gid) || uid < 0 || gid < 0) throw new MountFailure('uid and gid must be numbers')
+        try {
+          const remote = await openRemoteFs(kernel, shell, {
+            source: parsed,
+            password: mountOptions.password,
+            pairingCode: mountOptions.pair,
+            fingerprint: mountOptions.fingerprint,
+            acceptNew: mountOptions['accept-new'] === 'yes' || mountOptions['accept-new'] === 'true',
+            limits: { files: maxfiles, bytes: maxsize },
+            owner: { uid, gid },
+            onError: (operation, where, error) => kernel.log.warn(`${target}: ${operation} ${where} failed on the other machine: ${error instanceof Error ? error.message : String(error)}`)
+          })
+          await kernel.filesystem.fsSync.mount(target, remote)
+          out(`Mounted ${parsed.user}@${parsed.host}:${parsed.port}/${parsed.name} at ${target}`)
+        } catch (error) {
+          if (error instanceof RemoteMountFailure) throw new MountFailure(error.message)
+          if (error instanceof PeerError || error instanceof FsError || (error instanceof Error && 'code' in error)) throw new MountFailure(error.message)
+          throw error
+        }
+        return { code: 0, lines }
+      }
       default:
-        throw new MountFailure(`unknown filesystem type '${request.type}'\nSupported types: fetch, indexeddb, webstorage, webaccess, opfs, memory, singlebuffer, zip, iso, dropbox, googledrive`)
+        throw new MountFailure(`unknown filesystem type '${request.type}'\nSupported types: fetch, indexeddb, webstorage, webaccess, opfs, memory, singlebuffer, zip, iso, dropbox, googledrive, ecmaos`)
     }
 
     out(source && !NO_SOURCE_TYPES.includes(type) ? `Mounted ${request.type} filesystem from ${source} to ${target}` : `Mounted ${request.type} filesystem at ${target}`)

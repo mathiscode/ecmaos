@@ -4,6 +4,7 @@ import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
 import { DefaultPort, startDaemon } from './ecmaosd.ts'
+import { openExport, parseExport } from './exports.ts'
 import type { Daemon } from './ecmaosd.ts'
 import { nodeHost } from './host.ts'
 import { attachStdio } from './terminal.ts'
@@ -26,7 +27,8 @@ if (args.has('--help') || args.has('-h')) {
   --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only)
   --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
   --pair-user NAME    who a pairing code enrols (default: root)
-  --no-pair           do not print a pairing code`)
+  --no-pair           do not print a pairing code
+  --export [NAME=]DIR[:rw]  offer a host directory to machines that log in (read-only unless :rw; repeatable)`)
   process.exit(0)
 }
 
@@ -93,7 +95,12 @@ if (listen) {
   const origins = argv.flatMap((arg, index) => arg === '--allow-origin' && argv[index + 1] ? [argv[index + 1]!] : arg.startsWith('--allow-origin=') ? [arg.slice('--allow-origin='.length)] : [])
   const say = (text: string) => process.stderr.write(`\r\n${text}\r\n`)
   try {
+    const exported = await Promise.all(argv.flatMap((arg, index) => arg === '--export' && argv[index + 1] ? [argv[index + 1]!] : arg.startsWith('--export=') ? [arg.slice('--export='.length)] : []).map(async text => {
+      const spec = parseExport(text)
+      return { name: spec.name, readOnly: spec.readOnly, backend: await openExport(spec) }
+    }))
     daemon = await startDaemon({
+      exports: exported,
       kernel,
       dataDir: host.dataDir,
       flush: () => host.flush(),
@@ -104,6 +111,7 @@ if (listen) {
       log: text => { if (!args.has('--quiet')) say(`ecmaosd: ${text}`) }
     })
     say(`ecmaosd: listening on ${daemon.host}:${daemon.port}\r\necmaosd: host key ${daemon.fingerprint}`)
+    for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)
   } catch (error) {
     say(`ecmaosd: ${error instanceof Error ? error.message : String(error)}`)

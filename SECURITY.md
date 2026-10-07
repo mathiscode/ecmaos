@@ -52,6 +52,11 @@ over a transcript bound to the host and the exchange, and the host's key is pinn
 can read a pairing code printed on the host's console can enrol a key for the user it names, once, within ten minutes;
 a pairing code is as sensitive as a password for that period.
 
+`--export` hands a host folder to every user who can log in to that machine: read-only unless `:rw`, confined to the folder
+(a symbolic link leading out is refused; the check and the use are two steps, so do not export a folder others can rearrange).
+Mounting another machine's folder copies it into memory and answers programs from the copy, so it can be stale, and a change
+the other machine refuses is only logged.
+
 ## Reporting a Vulnerability
 
 To privately report a security issue, please create a new [Security Advisory](https://github.com/ecmaos/ecmaos/security/advisories/new).

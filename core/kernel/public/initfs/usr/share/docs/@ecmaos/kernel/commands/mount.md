@@ -35,6 +35,8 @@ Filesystem types:
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)
   googledrive         mount a Google Drive filesystem (requires apiKey via -o apiKey, optionally clientId for OAuth)
+  ecmaos              mount a directory of another ecmaOS machine (SOURCE is [user@]host[:port][/export]); asks for your password,
+                      which unlocks the key that logs in. The directory is copied into memory: see the options below
 
 Mount options:
   baseUrl=URL         base URL for fetch operations (fetch type)
@@ -44,6 +46,12 @@ Mount options:
   clientId=ID         Google OAuth client ID (googledrive type, optional)
   scope=SCOPE         OAuth scope (googledrive type, default: https://www.googleapis.com/auth/drive)
   cacheTTL=SECONDS    cache TTL in seconds for cloud backends (optional)
+  maxfiles=N          ecmaos: refuse a tree of more files than this (default 5000)
+  maxsize=SIZE        ecmaos: refuse a tree larger than this, e.g. 50M (default 50M)
+  pair=CODE           ecmaos: enrol your key with this one-time pairing code first
+  fingerprint=FP      ecmaos: accept a host not seen before if its key has this fingerprint
+  accept-new=yes      ecmaos: remember a host seen for the first time
+  uid=N,gid=N         ecmaos: who the files appear to belong to here (default 0)
 
 Examples:
   mount -l                                    list all mounted filesystems
@@ -63,6 +71,7 @@ Examples:
   mount -t iso /tmp/image.iso /mnt/iso
   mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY # readonly/public
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
+  mount -t ecmaos root@127.0.0.1:30022/share /mnt/share
 ```
 
 ## Permissions

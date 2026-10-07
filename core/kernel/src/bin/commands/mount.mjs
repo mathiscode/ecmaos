@@ -3,6 +3,7 @@
  * every entry in `/etc/fstab`; `-l` lists current mounts.
  */
 
+import { echoOff, isTty } from '../../../../utils/src/commands-execve/lib/tty.mjs'
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 
 const { argv, exit, write, custom, open, read, close, unlink, getcwd } = globalThis.ecmaosSyscalls
@@ -34,6 +35,8 @@ Filesystem types:
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)
   googledrive         mount a Google Drive filesystem (requires apiKey via -o apiKey, optionally clientId for OAuth)
+  ecmaos              mount a directory of another ecmaOS machine (SOURCE is [user@]host[:port][/export]); asks for your password,
+                      which unlocks the key that logs in. The directory is copied into memory: see the options below
 
 Mount options:
   baseUrl=URL         base URL for fetch operations (fetch type)
@@ -43,6 +46,12 @@ Mount options:
   clientId=ID         Google OAuth client ID (googledrive type, optional)
   scope=SCOPE         OAuth scope (googledrive type, default: https://www.googleapis.com/auth/drive)
   cacheTTL=SECONDS    cache TTL in seconds for cloud backends (optional)
+  maxfiles=N          ecmaos: refuse a tree of more files than this (default 5000)
+  maxsize=SIZE        ecmaos: refuse a tree larger than this, e.g. 50M (default 50M)
+  pair=CODE           ecmaos: enrol your key with this one-time pairing code first
+  fingerprint=FP      ecmaos: accept a host not seen before if its key has this fingerprint
+  accept-new=yes      ecmaos: remember a host seen for the first time
+  uid=N,gid=N         ecmaos: who the files appear to belong to here (default 0)
 
 Examples:
   mount -l                                    list all mounted filesystems
@@ -61,10 +70,11 @@ Examples:
   mount -t iso https://example.com/image.iso /mnt/iso
   mount -t iso /tmp/image.iso /mnt/iso
   mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY # readonly/public
-  mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private`
+  mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
+  mount -t ecmaos root@127.0.0.1:30022/share /mnt/share`
 
 const NO_SOURCE_TYPES = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
-const REQUIRES_SOURCE_TYPES = ['zip', 'iso', 'fetch', 'indexeddb']
+const REQUIRES_SOURCE_TYPES = ['zip', 'iso', 'fetch', 'indexeddb', 'ecmaos']
 
 function parseOptions(options) {
   const parsed = {}
@@ -110,6 +120,26 @@ function parseFstab(content) {
     entries.push({ source, target, type, options: parts.slice(3).join(' ') || undefined })
   }
   return entries
+}
+
+/** Prints `prompt` and reads one line from stdin, with echo off when stdin is a terminal. */
+function readSecret(prompt) {
+  write(2, encoder.encode(prompt))
+  const restore = echoOff(0)
+  const bytes = []
+  try {
+    const buffer = new Uint8Array(256)
+    while (true) {
+      const n = read(0, buffer, -1)
+      if (n <= 0) break
+      bytes.push(...buffer.subarray(0, n))
+      if (buffer[n - 1] === 10) break
+    }
+  } finally {
+    restore()
+  }
+  if (isTty(0)) write(2, encoder.encode('\n'))
+  return new TextDecoder().decode(new Uint8Array(bytes)).replace(/[\r\n]+$/, '')
 }
 
 async function callSyscall(request) {
@@ -247,11 +277,20 @@ async function main() {
     return 1
   }
 
+  if (positional.length === 1 && lowerType === 'ecmaos') {
+    writeln(2, 'mount: ecmaos filesystem requires a source: [user@]host[:port][/export]')
+    writeln(2, 'Usage: mount -t ecmaos SOURCE TARGET')
+    return 1
+  }
+
   if (positional.length === 1 && (lowerType === 'zip' || lowerType === 'iso')) {
     writeln(2, `mount: ${lowerType} filesystem requires a source file or URL`)
     writeln(2, `Usage: mount -t ${lowerType} SOURCE TARGET`)
     return 1
   }
+
+  const parsedOptions = parseOptions(options)
+  if (lowerType === 'ecmaos' && !parsedOptions.password) parsedOptions.password = readSecret('Password (unlocks your key): ')
 
   const outcome = await callSyscall({
     action: 'mount',
@@ -259,7 +298,7 @@ async function main() {
     source: positional.length === 2 ? positional[0] : '',
     target: positional[positional.length - 1],
     cwd: getcwd(),
-    options: parseOptions(options),
+    options: parsedOptions,
     interactive: true
   })
 
