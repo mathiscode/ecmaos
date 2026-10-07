@@ -38,6 +38,8 @@ export class Channel {
   /** Return credit with `grant` instead of automatically after `onData` */
   manualCredit = false
   onClose: ((error?: PeerError) => void) | undefined
+  /** Called when the other side returns credit, so something that cannot wait (a device write) can learn it may write again */
+  onWritable: (() => void) | undefined
 
   constructor(
     readonly id: number,
@@ -55,6 +57,7 @@ export class Channel {
     this._accepted = true
     this._sendCredit += window
     this._wake()
+    this.onWritable?.()
   }
 
   get error() { return this._error }
@@ -167,6 +170,7 @@ export class Channel {
     if (this.closed) return
     this._sendCredit += bytes
     this._wake()
+    this.onWritable?.()
   }
 
   /** @internal The channel ended, by us or the other side */
