@@ -701,6 +701,33 @@ importers:
         specifier: ^5.0.2
         version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
 
+  core/peer:
+    devDependencies:
+      '@ecmaos/config-typescript':
+        specifier: workspace:^
+        version: link:../../utils/config-typescript
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.11.0)
+      '@types/node':
+        specifier: 22.20.2
+        version: 22.20.2
+      eslint:
+        specifier: ^10.11.0
+        version: 10.11.0
+      globals:
+        specifier: ^17.12.0
+        version: 17.12.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      typescript-eslint:
+        specifier: ^8.70.1
+        version: 8.70.1(eslint@10.11.0)
+      vitest:
+        specifier: ^5.0.2
+        version: 5.0.2(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.2)(@vitest/coverage-v8@5.0.2)(@vitest/ui@5.0.2)(jsdom@25.0.1)(msw@2.15.0(@types/node@22.20.2))(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
+
   core/swapi:
     dependencies:
       '@faker-js/faker':
@@ -10657,7 +10684,7 @@ snapshots:
 
   acorn-walk@8.3.4:
     dependencies:
-      acorn: 8.14.0
+      acorn: 8.18.0
 
   acorn@8.14.0: {}
 
@@ -13869,7 +13896,7 @@ snapshots:
 
   require-in-the-middle@8.0.1:
     dependencies:
-      debug: 4.3.7(supports-color@5.5.0)
+      debug: 4.4.3
       module-details-from-path: 1.0.4
     transitivePeerDependencies:
       - supports-color

@@ -1,0 +1,19 @@
+{
+  "extends": "@ecmaos/config-typescript/tsconfig.base.json",
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["**/node_modules/**", "dist"],
+  "compilerOptions": {
+    "types": ["node"],
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  }
+}
