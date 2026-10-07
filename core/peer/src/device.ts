@@ -46,6 +46,39 @@ export class DeviceError extends Error {
   }
 }
 
+/** A device description received from the other side, checked: a kind and whether it reads and writes, plus plain extras */
+export function parseDeviceInfo(value: unknown): DeviceInfo | undefined {
+  if (!isMap(value)) return undefined
+  const { kind, read, write } = value
+  if (typeof kind !== 'string' || kind.length === 0 || kind.length > 32 || typeof read !== 'boolean' || typeof write !== 'boolean') return undefined
+  return value as DeviceInfo
+}
+
+/** Everything written comes back as a read, in order: a device for trying a channel without hardware */
+export function loopbackSession(): DeviceSession {
+  const queue: Uint8Array[] = []
+  let waiting: ((chunk: Uint8Array | undefined) => void) | undefined
+  let closed = false
+  return {
+    info: { kind: 'loopback', read: true, write: true },
+    read: () => new Promise(resolve => {
+      const next = queue.shift()
+      if (next) resolve(next)
+      else if (closed) resolve(undefined)
+      else waiting = resolve
+    }),
+    async write(data) {
+      if (waiting) { const resolve = waiting; waiting = undefined; resolve(data) } else queue.push(data)
+    },
+    async control(op, args): Promise<Value> {
+      if (op === 'ping') return 'pong'
+      if (op === 'echo') return args
+      throw new DeviceError('ENOSYS', `no such operation: ${op.slice(0, 32)}`)
+    },
+    close() { closed = true; waiting?.(undefined); waiting = undefined }
+  }
+}
+
 const isMap = (value: unknown): value is { [key: string]: Value } =>
   !!value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Uint8Array)
 
@@ -119,6 +152,22 @@ export function serveDevice(channel: Channel, session: DeviceSession): void {
       }
     })()
   }
+}
+
+/**
+ * For a device the opener offers (`DeviceShareChannel`): the accepting side calls this once it has made its node for the
+ * device. The channel is accepted before the handler has run, so without it the offering side could not tell a refusal
+ * (a name already taken) from success until the channel closed.
+ */
+export function announceShared(channel: Channel): void { channel.send({ t: 'ready' }) }
+
+/** The offering side waits for the other to have made its node; rejects with the other side's reason if it refused */
+export function awaitShared(channel: Channel, timeout = 10_000): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new PeerError('timeout', 'the other machine did not take the device')), timeout)
+    channel.onMessage = value => { if (isMap(value) && value['t'] === 'ready') { clearTimeout(timer); resolve() } }
+    void channel.done.then(error => { clearTimeout(timer); reject(error ?? new PeerError('closed', 'the other machine did not take the device')) })
+  })
 }
 
 /** The using side of an open device: a byte stream with controls and events */

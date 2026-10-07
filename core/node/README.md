@@ -106,6 +106,17 @@ attach -c ttyusb ping                                  # an operation the device
 attach -l                                              # list; attach -d ttyusb removes it
 ```
 
+The other way round, a machine can offer one of its own devices to the host, which makes `/dev/NAME` for it (root only on the
+host, and the host refuses a name it already has):
+
+```
+attach -s root@127.0.0.1:30022 usbserial serial:0,baud=115200   # from a browser: its first Web Serial port, as /dev/usbserial on the host
+```
+
+`serial:N` is the Nth port the browser has been given (`serial request` asks for one). The port is opened at the speed given,
+`/dev/ttyS<n>` on the browser's own machine works the same way at 9600, and controls (`attach -c NAME signals`,
+`set-signals {"dtr":true}`) reach the port's lines. Unplugging the port ends the device on the host.
+
 A device is opened by name, and only the devices the host lists exist: by `--device` (repeatable) or one per line in
 `$ECMAOS_DATA/ecmaosd/devices` (`NAME=file:PATH[:rw|:wo]`, `#` for comments). The default is to offer nothing.
 
@@ -131,7 +142,7 @@ pages (`--allow-origin`, repeatable, replacing the default of `https://ecmaos.sh
 goes straight to the key check.
 
 The protocol is `@ecmaos/peer`: a binary codec, a version handshake, and channels with credit-based flow control.
-The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); files use `fs` (mount an export) and `fs-share` (offer a folder); devices use `device` (use a host's device).
+The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); files use `fs` (mount an export) and `fs-share` (offer a folder); devices use `device` (use a host's device) and `device-share` (offer one of yours).
 
 ## Security: run only code you trust
 

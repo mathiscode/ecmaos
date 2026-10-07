@@ -630,6 +630,33 @@ describe('using a device of another machine', () => {
     } finally { closeSync(reader); closeSync(writer) }
   })
 
+  it('offering a device of this machine: the host gets /dev/NAME, and stopping removes it', async () => {
+    const { session: remote, port, code } = await host()
+    const me = await client()
+    const mark = me.output.length
+    me.send(`attach -s -y -p ${code} root@127.0.0.1:${port} mydev loopback\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor('Offering loopback', mark)
+    await me.waitFor(Local, mark + 100)
+    expect(await local(me, 'attach -l')).toContain('offered to 127.0.0.1')
+
+    await eventually(async () => (await remote.run('ls /dev')).includes('mydev'), 'the host to get the device node')
+    await remote.run('echo hello > /dev/mydev')
+    expect(await remote.run('dd if=/dev/mydev bs=1 count=6 2>/dev/null')).toContain('hello')
+
+    // a name the host already has is refused with its reason
+    const mark2 = me.output.length
+    me.send(`attach -s root@127.0.0.1:${port} zero loopback\r`)
+    await me.waitFor('unlocks your key', mark2)
+    me.send('root\r')
+    await me.waitFor(Local, mark2 + 100)
+    expect(me.output.slice(mark2)).toContain('/dev/zero already exists')
+
+    expect(await local(me, 'attach -d mydev')).toContain('Detached mydev')
+    await eventually(async () => !(await remote.run('ls /dev')).includes('mydev'), 'the host to lose the device node')
+  })
+
   it('only the devices the host lists, and only to root; a device in use is refused', async () => {
     const { session: remote, port, code } = await host(['--device', 'loop=loopback'])
     void remote

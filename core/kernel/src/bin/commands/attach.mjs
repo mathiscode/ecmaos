@@ -16,6 +16,7 @@ const usage = `Usage: attach [OPTIONS] [USER@]HOST[:PORT]/DEVICE [NAME]
        attach -l
        attach -d NAME
        attach -c NAME OPERATION [JSON-ARGUMENT...]
+       attach -s [USER@]HOST[:PORT] NAME DEVICE
 
 Make the device DEVICE of the machine HOST appear here as /dev/NAME (NAME defaults to DEVICE). Only root can attach, and the
 machine only hands devices to root. The machine decides which devices it offers and whether they can be written to.
@@ -27,6 +28,9 @@ Options:
   -l, --list              list the attached devices
   -d, --detach NAME       remove /dev/NAME and close the link
   -c, --control NAME      send an operation to the device (what it knows depends on the device); the rest are its arguments as JSON
+  -s, --serve             the other way round: offer DEVICE of this machine to HOST, where it appears as /dev/NAME. DEVICE is
+                          loopback, or serial:N[,baud=RATE] for the Nth serial port this browser has been given (see 'serial
+                          request'). The machine only takes it from root. -d NAME stops offering it.
   --help                  display this help and exit`
 
 function readSecret(prompt) {
@@ -57,7 +61,7 @@ async function ask(request) {
 }
 
 async function main() {
-  const parsed = getopt(argv.slice(1), { flags: 'lyh', values: 'pFdc', long: { pair: 'p', fingerprint: 'F', 'accept-new': 'y', list: 'l', detach: 'd', control: 'c' } })
+  const parsed = getopt(argv.slice(1), { flags: 'lysh', values: 'pFdc', long: { pair: 'p', fingerprint: 'F', 'accept-new': 'y', list: 'l', detach: 'd', control: 'c', serve: 's' } })
   if (parsed.error) { say(2, `attach: ${parsed.error}`); return 1 }
   const { opts, rest } = parsed
   if (opts.help) { say(2, usage); return 0 }
@@ -68,6 +72,15 @@ async function main() {
     let args
     try { args = rest.slice(1).map(text => JSON.parse(text)) } catch { say(2, 'attach: the arguments must be JSON (a string needs quotes)'); return 1 }
     return await ask({ action: 'control', name: opts.c, op: rest[0], args })
+  }
+  if (opts.s) {
+    if (rest.length !== 3) { say(2, usage); return 1 }
+    const served = {}
+    if (opts.p) served.pair = opts.p
+    if (opts.F) served.fingerprint = opts.F
+    if (opts.y) served['accept-new'] = 'yes'
+    served.password = readSecret('Password (unlocks your key): ')
+    return await ask({ action: 'serve', target: rest[0], name: rest[1], spec: rest[2], options: served })
   }
   if (rest.length < 1 || rest.length > 2) { say(2, usage); return 1 }
 

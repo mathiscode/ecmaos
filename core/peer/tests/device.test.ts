@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Connection, DeviceError, memoryPair, PeerError, RemoteDevice, serveDevice } from '../src/index.ts'
+import { announceShared, awaitShared, Connection, DeviceError, memoryPair, PeerError, RemoteDevice, serveDevice } from '../src/index.ts'
 import type { DeviceSession } from '../src/index.ts'
 
 const wait = (ms = 10) => new Promise(resolve => setTimeout(resolve, ms))
@@ -151,5 +151,25 @@ describe('a device over a channel', () => {
     remote.channel.send({ t: 'ctl', id: 'x', op: 5, a: 1 })
     await remote.channel.done
     expect(remote.channel.error?.code).toBe('protocol')
+  })
+})
+
+describe('a device the opener offers', () => {
+  it('the offering side knows when the other has made its node, and why when it has not', async () => {
+    const [a, b] = memoryPair()
+    const client = new Connection(a, { role: 'client' })
+    const server = new Connection(b, { role: 'server' })
+    server.accept('device-share', async channel => {
+      if ((channel.params as { name: string }).name === 'taken') throw new PeerError('refused', '/dev/taken already exists')
+      const remote = new RemoteDevice(channel)
+      if ((channel.params as { name: string }).name !== 'silent') announceShared(channel)
+      void remote
+    })
+    const fine = await client.open('device-share', { params: { name: 'free' } })
+    await awaitShared(fine)
+    const refused = await client.open('device-share', { params: { name: 'taken' } })
+    await expect(awaitShared(refused)).rejects.toMatchObject({ message: '/dev/taken already exists' })
+    const silent = await client.open('device-share', { params: { name: 'silent' } })
+    await expect(awaitShared(silent, 30)).rejects.toMatchObject({ code: 'timeout' })
   })
 })

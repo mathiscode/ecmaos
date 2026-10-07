@@ -1,5 +1,6 @@
-import { Connection, DeviceChannel, DeviceError, FsError, PeerError, RemoteDevice } from '@ecmaos/peer'
-import type { DeviceInfo, Value } from '@ecmaos/peer'
+import { awaitShared, Connection, DeviceChannel, DeviceError, DeviceShareChannel, FsError, loopbackSession, PeerError, RemoteDevice, serveDevice } from '@ecmaos/peer'
+import type { DeviceInfo, DeviceSession, Value } from '@ecmaos/peer'
+import { openSerialSession } from '@ecmaos-devices/serial'
 import { char_dev, Class, current as zenfsCurrent, Device, EPOLLIN, EPOLLOUT, WaitQueue } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
@@ -18,9 +19,10 @@ export interface AttachedDevice {
   host: string
   info: DeviceInfo
   remote: RemoteDevice
-  connection: Connection
   minor: number
   device: Device
+  /** Ends the link this device came over (a connection this machine made, or the channel a machine offered it on) */
+  close(): void
 }
 
 interface Registry {
@@ -92,6 +94,47 @@ function operations(state: Registry): FileOperations {
   }
 }
 
+export interface RegisterOptions {
+  name: string
+  remote: RemoteDevice
+  info: DeviceInfo
+  host: string
+  close(): void
+}
+
+/** Makes `/dev/<name>` for a device of another machine; it lasts as long as the channel does */
+export function registerRemoteDevice(kernel: Kernel, options: RegisterOptions): AttachedDevice {
+  if (!deviceNamePattern.test(options.name)) throw new RemoteMountFailure('a device name starts with a letter and may hold letters, digits, dashes and underscores')
+  const state = registry(kernel)
+  if (state.byName.has(options.name)) throw new RemoteMountFailure(`${options.name} is already attached`)
+
+  state.major ??= char_dev.register(0, 'ecmaos-remote', operations(state))
+  const minor = state.nextMinor++
+  remoteClass ??= new Class('remote')
+  const device = new Device({ name: options.name, class: remoteClass, dev_t: { major: state.major, minor } })
+  try { device.register() } catch { throw new RemoteMountFailure(`/dev/${options.name} already exists`) }
+
+  const { remote } = options
+  const queue = new WaitQueue()
+  state.queues.set(minor, queue)
+  const attached: AttachedDevice = { name: options.name, host: options.host, info: options.info, remote, minor, device, close: options.close }
+  state.byMinor.set(minor, attached)
+  state.byName.set(options.name, attached)
+  remote.onChange = () => queue.wake_up()
+  remote.onEvent = (event, data) => kernel.events.emit('device:remote', { name: options.name, event, data })
+
+  void remote.channel.done.then(() => {
+    if (state.byName.get(options.name) !== attached) return
+    state.byName.delete(options.name)
+    state.byMinor.delete(minor)
+    try { device.unregister() } catch { /* already gone */ }
+    queue.wake_up()
+    state.queues.delete(minor)
+    options.close()
+  })
+  return attached
+}
+
 export interface AttachOptions {
   /** The name of the device on the other machine */
   device: string
@@ -107,40 +150,15 @@ export interface AttachOptions {
 /** Logs in to another machine, opens one of its devices and makes `/dev/<name>` for it */
 export async function attachDevice(kernel: Kernel, shell: Shell, options: AttachOptions): Promise<AttachedDevice> {
   if (!deviceNamePattern.test(options.name)) throw new RemoteMountFailure('a device name starts with a letter and may hold letters, digits, dashes and underscores')
-  const state = registry(kernel)
-  if (state.byName.has(options.name)) throw new RemoteMountFailure(`${options.name} is already attached`)
+  if (registry(kernel).byName.has(options.name)) throw new RemoteMountFailure(`${options.name} is already attached`)
 
   const connection = await dialPeer(kernel, shell, options)
   try {
     const channel = await connection.open(DeviceChannel, { params: { device: options.device }, timeout: 20_000 })
     const remote = new RemoteDevice(channel)
     const info = await remote.info()
-
-    state.major ??= char_dev.register(0, 'ecmaos-remote', operations(state))
-    const minor = state.nextMinor++
-    remoteClass ??= new Class('remote')
-    const device = new Device({ name: options.name, class: remoteClass, dev_t: { major: state.major, minor } })
-    try { device.register() } catch { throw new RemoteMountFailure(`/dev/${options.name} already exists`) }
-
-    const queue = new WaitQueue()
-    state.queues.set(minor, queue)
-    const attached: AttachedDevice = { name: options.name, host: `${options.source.host}:${options.source.port}`, info, remote, connection, minor, device }
-    state.byMinor.set(minor, attached)
-    state.byName.set(options.name, attached)
-    remote.onChange = () => queue.wake_up()
-    remote.onEvent = (event, data) => kernel.events.emit('device:remote', { name: options.name, event, data })
-
-    const forget = () => {
-      if (state.byName.get(options.name) !== attached) return
-      state.byName.delete(options.name)
-      state.byMinor.delete(minor)
-      try { device.unregister() } catch { /* already gone */ }
-      queue.wake_up()
-      state.queues.delete(minor)
-      connection.close()
-    }
-    void channel.done.then(forget)
-    void connection.done.then(forget)
+    const attached = registerRemoteDevice(kernel, { name: options.name, remote, info, host: `${options.source.host}:${options.source.port}`, close: () => connection.close() })
+    void connection.done.then(() => channel.close())
     return attached
   } catch (error) {
     connection.close()
@@ -148,13 +166,80 @@ export async function attachDevice(kernel: Kernel, shell: Shell, options: Attach
   }
 }
 
+/** A device of this machine offered to another one, which makes a node for it */
+export interface ServedDevice {
+  name: string
+  spec: string
+  host: string
+  connection: Connection
+}
+
+const served = new WeakMap<Kernel, Map<string, ServedDevice>>()
+const servedRegistry = (kernel: Kernel) => { let map = served.get(kernel); if (!map) served.set(kernel, map = new Map()); return map }
+
+/**
+ * What `attach -s` can offer: `loopback`, or `serial:N[,baud=RATE]` for the Nth port this browser has been given access to
+ * (`serial request`). The port is opened here, once the other machine accepts.
+ */
+export async function openLocalDevice(spec: string): Promise<DeviceSession> {
+  if (spec === 'loopback') return loopbackSession()
+  const match = /^serial:(\d+)((?:,[a-z]+=[A-Za-z0-9]+)*)$/.exec(spec)
+  if (!match) throw new RemoteMountFailure(`unknown device '${spec}' (use loopback or serial:N[,baud=RATE])`)
+  const serial = (globalThis as { navigator?: { serial?: { getPorts(): Promise<Array<Parameters<typeof openSerialSession>[0]>> } } }).navigator?.serial
+  if (!serial) throw new RemoteMountFailure('this machine has no Web Serial')
+  const port = (await serial.getPorts())[Number(match[1])]
+  if (!port) throw new RemoteMountFailure(`no serial port ${match[1]} (see 'serial devices'; 'serial request' asks for one)`)
+  const options: Record<string, string> = Object.fromEntries((match[2] ?? '').split(',').filter(Boolean).map(part => part.split('=') as [string, string]))
+  const baudRate = options['baud'] === undefined ? undefined : Number(options['baud'])
+  return await openSerialSession(port, baudRate === undefined ? {} : { baudRate }) as unknown as DeviceSession
+}
+
+export interface ServeOptions extends Omit<AttachOptions, 'device'> {
+  /** What to offer: see `openLocalDevice` */
+  spec: string
+}
+
+/** Logs in to another machine and offers it a device of this one as `/dev/<name>` there. Root only there. */
+export async function serveLocalDevice(kernel: Kernel, shell: Shell, options: ServeOptions): Promise<ServedDevice> {
+  if (!deviceNamePattern.test(options.name)) throw new RemoteMountFailure('a device name starts with a letter and may hold letters, digits, dashes and underscores')
+  if (servedRegistry(kernel).has(options.name)) throw new RemoteMountFailure(`${options.name} is already being offered`)
+  const session = await openLocalDevice(options.spec)
+  let connection: Connection | undefined
+  try {
+    connection = await dialPeer(kernel, shell, options)
+    // The description travels with the request: the other machine makes its node (or refuses) before it accepts
+    const channel = await connection.open(DeviceShareChannel, { params: { name: options.name, info: session.info }, timeout: 20_000 })
+    await awaitShared(channel)
+    serveDevice(channel, session)
+    const item: ServedDevice = { name: options.name, spec: options.spec, host: `${options.source.host}:${options.source.port}`, connection }
+    servedRegistry(kernel).set(options.name, item)
+    const link = connection
+    const forget = () => { if (servedRegistry(kernel).get(options.name) === item) servedRegistry(kernel).delete(options.name); link.close() }
+    void channel.done.then(forget)
+    void link.done.then(forget)
+    return item
+  } catch (error) {
+    connection?.close()
+    void Promise.resolve(session.close()).catch(() => {})
+    throw error
+  }
+}
+
 export function listAttached(kernel: Kernel): AttachedDevice[] { return [...registry(kernel).byName.values()] }
 
+export function listServed(kernel: Kernel): ServedDevice[] { return [...servedRegistry(kernel).values()] }
+
 export function detachDevice(kernel: Kernel, name: string): boolean {
+  const offered = servedRegistry(kernel).get(name)
+  if (offered) {
+    servedRegistry(kernel).delete(name)
+    offered.connection.close()
+    return true
+  }
   const attached = registry(kernel).byName.get(name)
   if (!attached) return false
   attached.remote.close()
-  attached.connection.close()
+  attached.close()
   return true
 }
 
@@ -169,6 +254,7 @@ export type AttachRequest =
   | { action: 'detach', name: string }
   | { action: 'control', name: string, op: string, args: Value[] }
   | { action: 'attach', target: string, name?: string, options: Record<string, string> }
+  | { action: 'serve', target: string, name: string, spec: string, options: Record<string, string> }
 
 /** `attach`: what the command asks for, as lines to print and an exit code */
 export async function manageAttach(kernel: Kernel, shell: Shell, request: AttachRequest): Promise<Outcome> {
@@ -178,11 +264,13 @@ export async function manageAttach(kernel: Kernel, shell: Shell, request: Attach
 
   if (request.action === 'list') {
     const all = listAttached(kernel)
-    if (all.length === 0) out('No devices are attached.')
+    const offered = listServed(kernel)
+    if (all.length === 0 && offered.length === 0) out('No devices are attached.')
     for (const item of all) {
       const how = `${item.info.read ? 'r' : '-'}${item.info.write ? 'w' : '-'}`
       out(`/dev/${item.name.padEnd(16)} ${String(item.info.kind).padEnd(10)} ${how}  from ${item.host}`)
     }
+    for (const item of offered) out(`${item.name.padEnd(21)} ${item.spec.padEnd(10)}     offered to ${item.host}`)
     return { code: 0, lines }
   }
   if (request.action === 'detach') {
@@ -196,6 +284,26 @@ export async function manageAttach(kernel: Kernel, shell: Shell, request: Attach
       return { code: 0, lines }
     } catch (error) {
       err(`attach: ${error instanceof Error ? error.message : String(error)}`)
+      return { code: 1, lines }
+    }
+  }
+
+  if (request.action === 'serve') {
+    try {
+      const source = parseRemoteSource(request.target, shell.env.get('USER') || 'root')
+      if (!source || source.name) throw new RemoteMountFailure('the machine is [user@]host[:port]')
+      const options = request.options
+      if (!options['password']) throw new RemoteMountFailure('a password is needed to unlock your key')
+      const item = await serveLocalDevice(kernel, shell, {
+        source, spec: request.spec, name: request.name, password: options['password'],
+        pairingCode: options['pair'], fingerprint: options['fingerprint'], acceptNew: options['accept-new'] === 'yes' || options['accept-new'] === 'true'
+      })
+      out(`Offering ${item.spec} to ${item.host} as ${item.name}`)
+      return { code: 0, lines }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const known = error instanceof RemoteMountFailure || error instanceof PeerError || (error instanceof Error && 'code' in error)
+      err(`attach: ${known ? message : `failed: ${message}`}`)
       return { code: 1, lines }
     }
   }

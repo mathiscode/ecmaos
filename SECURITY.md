@@ -60,7 +60,9 @@ the other machine refuses is only logged.
 `--device` (or the `devices` file in the data folder) hands a host device to `root` on a machine that logs in, which gets it as
 `/dev/NAME`. Nothing is offered unless listed, a device is read-only unless `:rw` or `:wo` (and the host refuses writes to one
 offered read-only, whatever the peer sends), and a device is held by one machine at a time. A `file:` device is whatever file,
-FIFO or character device the path names, so list only paths you would let root on the other machine use directly.
+FIFO or character device the path names, so list only paths you would let root on the other machine use directly. A machine that logs in as root can also offer a device
+to the host (`attach -s`); the host makes `/dev/NAME` for it, refusing a name that exists, and what such a device sends is data like
+any other input.
 
 ## Reporting a Vulnerability
 

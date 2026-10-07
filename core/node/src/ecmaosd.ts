@@ -3,10 +3,11 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
 
-import { AuthChannel, Connection, DeviceChannel, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, PeerError, publicKeyOf, serveDevice, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
+import { announceShared, AuthChannel, Connection, DeviceChannel, DeviceShareChannel, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, parseDeviceInfo, PeerError, publicKeyOf, RemoteDevice, serveDevice, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
 import type { Channel, DeviceSource, ExportFs, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
 import type { Kernel } from '@ecmaos/kernel/kernel'
 import { RemoteFS } from '@ecmaos/kernel/lib/remote-fs'
+import { registerRemoteDevice } from '@ecmaos/kernel/lib/remote-device'
 import { DefaultLimits } from '@ecmaos/kernel/lib/remote-mount'
 
 import { TerminalDriver } from './driver.ts'
@@ -148,6 +149,27 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   }
 
   /**
+   * A machine that logged in offers a device of its own: this one makes /dev/<name> for it for as long as the channel lasts.
+   * Only root may do that, since it makes a device node.
+   */
+  async function acceptDeviceShare(channel: Channel, user: string) {
+    const account = Array.from(kernel.users.all.values()).find(candidate => candidate.username === user)
+    if (!account || account.uid !== 0) throw new PeerError('auth', 'only root can offer a device to this machine')
+    const params = channel.params && typeof channel.params === 'object' && !(channel.params instanceof Uint8Array) && !Array.isArray(channel.params) ? channel.params : {}
+    const name = params['name']
+    const info = parseDeviceInfo(params['info'])
+    if (typeof name !== 'string' || !info) throw new PeerError('refused', 'a device needs a name and a description')
+    try {
+      registerRemoteDevice(kernel, { name, remote: new RemoteDevice(channel), info, host: `${user}@peer`, close: () => channel.close() })
+    } catch (error) {
+      throw new PeerError('refused', error instanceof Error ? error.message : 'cannot make the device')
+    }
+    announceShared(channel)
+    log(`${user} offered device ${name} (${info.kind})`)
+    void channel.done.then(() => log(`device ${name} is no longer offered`))
+  }
+
+  /**
    * A machine that logged in offers a directory of its own: this one mounts it as /mnt/<name> for as long as the channel lasts. Only
    * root may do that, since mounting is a root act; the tree is copied to memory, so one past the limits is refused.
    */
@@ -220,6 +242,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         connection.accept('tty', channel => openTerminal(kernel, user, channel))
         connection.accept(FsChannel, channel => openExport(channel, user))
         connection.accept(DeviceChannel, channel => openDevice(channel, user))
+        connection.accept(DeviceShareChannel, channel => acceptDeviceShare(channel, user))
         connection.accept(FsShareChannel, channel => acceptShare(channel, user))
       } catch {
         failures.push(Date.now())

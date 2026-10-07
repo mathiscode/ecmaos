@@ -2,8 +2,8 @@ import { constants, promises as fs } from 'node:fs'
 import type { FileHandle } from 'node:fs/promises'
 import path from 'node:path'
 
-import { DeviceError } from '@ecmaos/peer'
-import type { DeviceSession, DeviceSource, Value } from '@ecmaos/peer'
+import { DeviceError, loopbackSession } from '@ecmaos/peer'
+import type { DeviceSession, DeviceSource } from '@ecmaos/peer'
 
 /** A host device offered to the machines that log in */
 export interface DeviceSpec {
@@ -108,36 +108,9 @@ function fileSession(spec: DeviceSpec, release: () => void): () => Promise<Devic
   }
 }
 
-/** Everything written comes back as a read, in order; a place to try a device channel without hardware */
-function loopbackSession(): () => Promise<DeviceSession> {
-  return async () => {
-    const queue: Uint8Array[] = []
-    let waiting: ((chunk: Uint8Array | undefined) => void) | undefined
-    let closed = false
-    return {
-      info: { kind: 'loopback', read: true, write: true },
-      read: () => new Promise(resolve => {
-        const next = queue.shift()
-        if (next) resolve(next)
-        else if (closed) resolve(undefined)
-        else waiting = resolve
-      }),
-      async write(data) {
-        if (waiting) { const resolve = waiting; waiting = undefined; resolve(data) } else queue.push(data)
-      },
-      async control(op, args): Promise<Value> {
-        if (op === 'ping') return 'pong'
-        if (op === 'echo') return args
-        throw new DeviceError('ENOSYS', `no such operation: ${op.slice(0, 32)}`)
-      },
-      close() { closed = true; waiting?.(undefined); waiting = undefined }
-    }
-  }
-}
-
 /** The host's end of a spec: a source that hands out sessions, one at a time for a real device */
 export function openDevice(spec: DeviceSpec): DeviceSource {
-  if (spec.kind === 'loopback') return { name: spec.name, open: loopbackSession() }
+  if (spec.kind === 'loopback') return { name: spec.name, open: async () => loopbackSession() }
   let busy = false
   const open = fileSession(spec, () => { busy = false })
   return {
