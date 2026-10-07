@@ -46,3 +46,11 @@ from disk, with no network. The GPL programs (`vim`, `nano`, `make`, ...) are no
 - **End of input** (a script running out, or the terminal closing) halts the machine after the commands already typed have run.
   `halt`, `poweroff`, `SIGTERM` and `SIGHUP` also exit with status 0; a second signal ends the process at once.
 - **`^D`** at an empty prompt does nothing yet.
+
+## Tests
+
+- `pnpm --filter @ecmaos/node test` builds the bundle and runs the tests that spawn it: a smoke test, persistence across
+  processes, lifecycle (halt, poweroff, end of input, SIGTERM, reboot), JavaScript programs, and the terminal on a
+  pseudo-terminal (needs `python3`; skipped on Windows).
+- `pnpm --filter @ecmaos/kernel test:node` runs the kernel's own tests on Node with no DOM (`vitest.node.config.ts`). The
+  files that need a page are listed there, each with its reason, and stay in the jsdom project.

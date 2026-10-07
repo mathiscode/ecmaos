@@ -53,10 +53,12 @@ jobs:
   node:
     name: node ${{ matrix.node }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    # Windows is best-effort: its failures are reported, and do not fail the run
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: [24, 26]
     steps:
       - uses: actions/checkout@v4
@@ -76,5 +78,8 @@ jobs:
       - name: Build the Node host and what it depends on
         run: pnpm turbo run build --filter=@ecmaos/node...
 
-      - name: Smoke test the built bundle
+      - name: Test the built bundle (smoke, persistence, lifecycle, terminal on a pty)
         run: pnpm --filter @ecmaos/node exec vitest run
+
+      - name: Run the kernel tests on Node, without a DOM
+        run: pnpm --filter @ecmaos/kernel test:node
