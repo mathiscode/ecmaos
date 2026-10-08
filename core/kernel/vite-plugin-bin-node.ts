@@ -114,7 +114,7 @@ export const migratedCommands = [
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
  * worker-hosted, syscall-only program.
  */
-export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'chage', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install', 'connect', 'share', 'attach'] as const
+export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'chage', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install', 'connect', 'share', 'attach', 'gateway'] as const
 
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {

@@ -53,6 +53,7 @@ const SYSCALL_ERRNO = {
   ...ERRNO,
   ENOTSOCK: 57, ENOPROTOOPT: 50, EPROTONOSUPPORT: 66, EAFNOSUPPORT: 5, EISCONN: 30, ENOTCONN: 53,
   ENETUNREACH: 40, EALREADY: 7, EINPROGRESS: 26, EEXIST: 20, ESRCH: 71,
+  ECONNRESET: 15, EHOSTUNREACH: 23, ENOBUFS: 42, ETIMEDOUT: 73,
 }
 
 // open(2) flags (Linux values)
@@ -858,17 +859,16 @@ export function createPreview1(getMemory, getTable = () => undefined) {
 
   const wasiOflagsFromLinux = (flags) => flags // both sides already use Linux's O_* numbering
 
-  // Loopback POSIX sockets (`__syscall_socket` and friends, below): real internet sockets don't
-  // exist in a browser (no raw TCP/UDP API at all), so `env.__syscall_connect` only ever succeeds
-  // against `127.0.0.1`/`::1`/a `AF_UNIX` path -- anything else answers a real `ECONNREFUSED`/
-  // `ENETUNREACH`, exactly what a sandboxed Linux process with no route to that address would see,
-  // not a crash or a silent lie. `main-thread-syscalls.ts`'s own `net_bind`/`net_listen`/
-  // `net_connect`/`net_accept` (its doc comment has the shared-address-namespace half of this) own
-  // matching listeners across processes; everything else (the fd itself, reads, writes, close,
-  // getsockname/getpeername, setsockopt/getsockopt, shutdown) is answered entirely locally here,
-  // against the real fds those four syscalls hand back -- no further main-thread round trip needed
-  // once a connection exists. Real network I/O for an ecmaOS program is unchanged: `kernel.sockets`
-  // (`sockets_connect` et al.) over `WebSocket`/`WebTransport`, not this.
+  // POSIX sockets (`__syscall_socket` and friends, below). A browser has no raw TCP/UDP API, so
+  // `env.__syscall_connect` reaches three kinds of target: `127.0.0.1`/`0.0.0.0`/a `AF_UNIX` path,
+  // answered by a listener in another ecmaOS program (`main-thread-syscalls.ts`'s `net_bind`/
+  // `net_listen`/`net_connect`/`net_accept`, whose doc comment has the shared-address-namespace
+  // half of this); any other IPv4 address, answered by the gateway if `gateway up` has made one
+  // (`net_connect_out`, a flow through another ecmaOS machine started with `--listen --gateway`);
+  // and with no gateway a real `ENETUNREACH`, exactly what a process with no route would see,
+  // not a crash or a silent lie. Either way the connection is a pair of real fds, so everything
+  // after connect (reads, writes, close, getsockname/getpeername, setsockopt/getsockopt, shutdown)
+  // is answered locally here, with no further main-thread round trip.
   const AF_UNIX = 1
   const AF_INET = 2
   const SOCK_STREAM_MASK = 0xff // socket()'s type also carries SOCK_NONBLOCK/SOCK_CLOEXEC as high bits
@@ -936,6 +936,9 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     writeSockaddrIn(addrPtr, addr, port)
     if (addrlenPtr) view().setUint32(addrlenPtr, 16, true)
   }
+
+  /** 127.0.0.1, and 0.0.0.0 (what `connect()` to "any" means on Linux: this machine) */
+  const isLoopbackAddress = addr => addr === '127.0.0.1' || addr === '0.0.0.0'
 
   function socketErrno(error) {
     if (typeof error === 'string') return -(SYSCALL_ERRNO[error] ?? SYSCALL_ERRNO.EIO)
@@ -1294,10 +1297,21 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       if (sock.connected) return -SYSCALL_ERRNO.EISCONN
       const sa = readSockaddr(addrPtr)
       let key
+      let result
       if (sa.family === AF_UNIX) key = `unix:${sa.path}`
-      else if (sa.family === AF_INET) key = `inet:127.0.0.1:${sa.port}`
+      else if (sa.family === AF_INET) {
+        if (isLoopbackAddress(sa.addr)) key = `inet:127.0.0.1:${sa.port}`
+        else {
+          // not this machine: through the gateway, if one is up (`gateway up`); otherwise ENETUNREACH, as with no route
+          result = callMainThread('net_connect_out', sa.addr, sa.port)
+          if (result.error) return socketErrno(result.error)
+          sock.peerAddr = sa.addr
+          sock.peerPort = sa.port
+          key = `tcp:${sa.addr}:${sa.port}`
+        }
+      }
       else return -SYSCALL_ERRNO.EAFNOSUPPORT
-      const result = callMainThread('net_connect', key)
+      result ??= callMainThread('net_connect', key)
       if (result.error) return socketErrno(result.error)
       sock.connected = true
       sock.peerKey = key
@@ -1334,7 +1348,7 @@ export function createPreview1(getMemory, getTable = () => undefined) {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       if (!sock.connected) return -SYSCALL_ERRNO.ENOTCONN
-      writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', 0)
+      writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr ?? '127.0.0.1', sock.peerPort ?? 0)
       return ESUCCESS
     },
     __syscall_shutdown: (fd, how) => {

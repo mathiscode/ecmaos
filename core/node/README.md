@@ -120,8 +120,10 @@ whatever it can, so it is off unless asked for and closed by default:
 - **On an address beyond loopback** it also needs `--gateway-public`, and TLS: it then proxies for anyone who can log in.
 - **Audit:** each flow is logged to the console (`gateway: root -> example.com:443 (93.184.216.34) opened`, and the bytes at the end),
   also under `--quiet`.
-- **Not yet:** UDP, name lookups for the guest (`getaddrinfo`), listening for inbound connections, and `socket()` from a program
-  (only `nc -g` uses it so far). The scope is in `.docs/NODE_NETWORK_GATEWAY.md`.
+- **From a program:** `gateway up root@host:30022` on the guest keeps a link to this machine, and a program's `connect()` to an
+  IPv4 address (a WASM program's `socket()`/`connect()`) is then a flow through it, subject to the same rules.
+- **Not yet:** UDP, name lookups for the guest (`getaddrinfo`), and listening for inbound connections. The scope is in
+  `.docs/NODE_NETWORK_GATEWAY.md`.
 
 ### Sharing files between machines
 

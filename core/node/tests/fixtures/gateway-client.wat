@@ -1,0 +1,27 @@
+;; Connects to 127.0.0.2:9000 (the port is patched in by the test, see daemon.test.ts), sends "hello gw", writes what comes
+;; back to stdout and exits 0. If connect() fails it exits with the errno it returned (a WASI number: 40 is ENETUNREACH,
+;; 2 EACCES, 14 ECONNREFUSED). Built with: wat2wasm gateway-client.wat (wabt).
+(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "__syscall_socket" (func $socket (param i32 i32 i32) (result i32)))
+  (import "env" "__syscall_connect" (func $connect (param i32 i32 i32) (result i32)))
+  (memory (export "memory") 2)
+  (data (i32.const 200) "\02\00\23\28\7f\00\00\02")
+  (data (i32.const 2000) "hello gw")
+  (func (export "_start") (local $sfd i32) (local $rc i32)
+    (local.set $sfd (call $socket (i32.const 2) (i32.const 1) (i32.const 0)))
+    (local.set $rc (call $connect (local.get $sfd) (i32.const 200) (i32.const 16)))
+    (if (i32.lt_s (local.get $rc) (i32.const 0))
+      (then (call $proc_exit (i32.sub (i32.const 0) (local.get $rc)))))
+    (i32.store (i32.const 8) (i32.const 2000))
+    (i32.store (i32.const 12) (i32.const 8))
+    (drop (call $fd_write (local.get $sfd) (i32.const 8) (i32.const 1) (i32.const 104)))
+    (i32.store (i32.const 0) (i32.const 1000))
+    (i32.store (i32.const 4) (i32.const 64))
+    (drop (call $fd_read (local.get $sfd) (i32.const 0) (i32.const 1) (i32.const 100)))
+    (i32.store (i32.const 8) (i32.const 1000))
+    (i32.store (i32.const 12) (i32.load (i32.const 100)))
+    (drop (call $fd_write (i32.const 1) (i32.const 8) (i32.const 1) (i32.const 104)))
+    (call $proc_exit (i32.const 0))))

@@ -330,9 +330,17 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 
 > [/core/kernel/src/tree/lib/main-thread-syscalls.ts](/core/kernel/src/tree/lib/main-thread-syscalls.ts)
 
-- A real `socket()`/`bind()`/`listen()`/`connect()`/`accept()` POSIX socket implementation runs natively in the worker (`AF_UNIX` and loopback `AF_INET`/`AF_INET6` only -- anything that isn't loopback is rejected with `-EAFNOSUPPORT`). This is genuine inter-process socket communication between ecmaOS processes, not a network connection.
+- A real `socket()`/`bind()`/`listen()`/`connect()`/`accept()` POSIX socket implementation runs natively in the worker (`AF_UNIX` and loopback `AF_INET` between programs on the machine; `AF_INET6` is refused with `-EAFNOSUPPORT`). A `connect()` to any other IPv4 address goes through the gateway if `gateway up` has made one (see [Network gateway](#network-gateway)) and fails with `-ENETUNREACH` otherwise.
 - For an actual external connection, use `nc` (which speaks WebSocket under the hood) or the `sockets` command/`kernel.sockets` manager, both of which create real `WebSocket`/`WebTransport` connections on the main thread and bridge them to a worker-hosted process's stdio.
 - See [Known gaps](#known-gaps) for what this does and doesn't cover, and `man sockets` for the full address-family breakdown once installed.
+
+### Network gateway
+
+> [/core/kernel/src/tree/lib/remote-gateway.ts](/core/kernel/src/tree/lib/remote-gateway.ts), [/core/node/src/gateway.ts](/core/node/src/gateway.ts)
+
+- A browser tab cannot open a TCP socket, so the machine borrows one: `gateway up root@host:30022` (root only) logs in to an ecmaOS machine started with `ecmaos --listen --gateway` and keeps the link. From then on a program's `connect()` to an IPv4 address that is not this machine (a WASM program's `socket()`/`connect()`, for one) is a flow through that machine, which makes the real connection; the program reads, writes, polls and closes an ordinary socket.
+- The host decides what is reachable: its own network, private ranges and metadata addresses are refused unless a rule names them, and every flow is logged there. A refusal reaches the program as `EACCES`, a dead destination as `ECONNREFUSED`/`EHOSTUNREACH`/`ETIMEDOUT`, and no gateway as `ENETUNREACH`. `gateway down` closes the link; `gateway` shows it. `nc -g` is the one-command form. See `man gateway`.
+- Outbound TCP by address only: no name lookups, UDP or inbound listening yet.
 
 ### SWAPI
 
@@ -510,7 +518,7 @@ ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number o
 
 - **No copy-on-write `fork()`.** Processes are created by spawn (`execve`) only -- there is no `fork()` that clones an existing process's address space. This is a deliberate scope decision, not a missing feature: a browser worker has no cheap way to clone memory the way a real OS `fork()` does.
 - **The OPFS root isn't selectable.** The root filesystem is hardcoded to IndexedDB (`Filesystem`, `core/kernel/src/tree/filesystem.ts`). OPFS (Origin Private File System) is mountable as a secondary filesystem via `mount -t opfs`, but you can't boot with OPFS as `/`.
-- **`socket()` is loopback-only.** `AF_UNIX` and loopback `AF_INET`/`AF_INET6` sockets work natively in the worker; there is no real external `AF_INET` connectivity over raw TCP/UDP (browsers don't expose that). For an external connection, use `nc` or `sockets_connect`, both of which go over a real `WebSocket`/`WebTransport` on the main thread. See [Sockets](#sockets).
+- **`socket()` reaches the network only through a gateway, and only outbound TCP by address.** `AF_UNIX` and loopback `AF_INET` sockets work natively in the worker. Browsers expose no raw TCP/UDP, so a `connect()` to another IPv4 address needs `gateway up` (a link to an ecmaOS machine started with `--listen --gateway`, which does the connecting and decides what is reachable); without one it fails with `ENETUNREACH`. There is no name lookup yet (a program must connect to an address), no UDP, no `AF_INET6`, and no inbound `listen()` from outside the machine. `nc` and `sockets_connect` still reach WebSocket/WebTransport servers directly. See [Sockets](#sockets).
 - **A main-thread, non-asyncify WASM module can't be preempted.** WASI Preview 1/2 modules that qualify for the worker path (`Wasm.canRunInWorker`) run as real, killable processes under `/bin/wali`. A module that doesn't qualify falls back to a main-thread loader that calls `_start` directly with no yield point unless the module itself was compiled with asyncify -- a genuine infinite loop on that path freezes the tab, and `^C` cannot reach it, because the same main thread that would notice the keypress is the one spinning. This is a provable ceiling of that fallback path, not an open bug.
 - **No WASI Preview 2 (P3) support.** WASI Preview 1 is mostly complete; WASI Preview 2/components are not supported.
 - **`strace` logs; it is not `ptrace`.** It records the system calls a process makes (`strace CMD`, `strace -p PID`), but never stops, steps or inspects the program, and shows arguments as strings and bytes rather than pointers. See `man strace`.

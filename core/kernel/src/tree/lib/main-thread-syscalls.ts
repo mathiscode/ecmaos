@@ -33,6 +33,7 @@ import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
+import { GatewayFailure, manageGateway, openGatewayFlow, type GatewayRequest } from './remote-gateway.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -73,6 +74,7 @@ declare module '@zenfs/linux/uapi/abi' {
     fs_mount(argsJson: string, path: string): number
     peer_share(argsJson: string, path: string): number
     peer_attach(argsJson: string, path: string): number
+    gateway_ctl(argsJson: string, path: string): number
     auth_passkey(argsJson: string, path: string): number
     screensaver_start(): number
     screensaver_run(name: string, set: number, path: string): number
@@ -114,6 +116,7 @@ declare module '@zenfs/linux/uapi/abi' {
     net_bind(family: string, addr: string, port: number, path: string): number
     net_listen(key: string, backlog: number, path: string): number
     net_connect(key: string, path: string): number
+    net_connect_out(host: string, port: number, path: string): number
     net_accept(key: string, nonblock: number, path: string): number
   }
 }
@@ -667,6 +670,27 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
+  /**
+   * A TCP connection to an address that is not this machine, through the gateway (`remote-gateway.ts`). Hands back the same
+   * `{ fd, writeFd }` shape `net_connect` does, so the program reads, writes, polls and closes it like any other socket; the
+   * pair is a bridge to the gateway's flow, ended when the program exits. `{ error }` is the errno `connect()` should return.
+   */
+  define_syscall('net_connect_out', async (proc: Process, host: string, port: number, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    try {
+      const flow = await openGatewayFlow(kernel, host, port)
+      const rxEnd = kernel.attachStream(proc, 'read', flow.rx)
+      const txEnd = kernel.attachStream(proc, 'write', flow.tx)
+      void proc.exited.then(() => { rxEnd.stop(); txEnd.stop(); flow.close() })
+      text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, address: flow.address })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof GatewayFailure ? error.errno : 'ECONNREFUSED', message: error instanceof Error ? error.message : String(error) })
+    }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
   /** Pops the next already-connected pair off `key`'s queue. `nonblock`: return `{ pending: true }`
    * immediately on an empty queue instead of leaving the worker to poll-retry (its own choice, made
    * by whether the socket has `O_NONBLOCK`/`SOCK_NONBLOCK` set -- this syscall itself never blocks
@@ -1095,6 +1119,20 @@ export function installMainThreadSyscalls(): void {
     if (!processIsRoot(proc)) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'attach: only root can do that' }] })
     else if (!shell) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'attach: no shell available for this process' }] })
     else text = JSON.stringify(await manageAttach(kernel, shell, request))
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `gateway`: the route to the real network through another machine, kept up by the kernel. Root only: it changes where every
+  // program's outbound connections go.
+  define_syscall('gateway_ctl', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const request = JSON.parse(argsJson) as GatewayRequest
+    let text: string
+    if (!processIsRoot(proc) && request.action !== 'status') text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'gateway: only root can do that' }] })
+    else if (!shell) text = JSON.stringify({ code: 1, lines: [{ stream: 'err', text: 'gateway: no shell available for this process' }] })
+    else text = JSON.stringify(await manageGateway(kernel, shell, request))
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
