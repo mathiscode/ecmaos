@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import net from 'node:net'
 import type { Server } from 'node:net'
 
-import { Connection, memoryPair, NetChannel, openFlow, PeerError, resolveName } from '@ecmaos/peer'
+import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, PeerError, resolveName } from '@ecmaos/peer'
 
 import { Gateway, parseRule } from '../src/gateway.ts'
 import type { GatewayOptions } from '../src/gateway.ts'
@@ -278,5 +278,59 @@ describe('name lookups for the guest', () => {
     const { guest } = link({ resolve })
     await expect(resolveName(guest, 'a b', { timeout: 2000 })).rejects.toThrow()
     await expect(guest.open(NetChannel, { params: { proto: 'dns', name: 'x', family: 5 }, timeout: 2000 }).then(channel => channel.done)).resolves.toBeDefined()
+  })
+})
+
+describe('a UDP flow through the gateway', () => {
+  const sockets: Array<{ close(): void }> = []
+  afterEach(() => { for (const socket of sockets.splice(0)) { try { socket.close() } catch { /* closed */ } } })
+
+  async function udpEcho(address = '127.0.0.1') {
+    const dgram = await import('node:dgram')
+    const server = dgram.createSocket('udp4')
+    sockets.push(server)
+    server.on('message', (message, remote) => server.send(Buffer.from(message.toString().toUpperCase()), remote.port, remote.address))
+    await new Promise<void>(resolve => server.bind(0, address, resolve))
+    return server.address().port
+  }
+  const reachUdp = (guest: Connection, host: string, port: number) => openFlow(guest, { proto: 'udp', host, port }, { timeout: 2000 })
+  const next = (channel: import('@ecmaos/peer').Channel) => new Promise<Uint8Array | undefined>(resolve => { channel.onMessage = message => resolve(datagramOf(message)) })
+
+  it('carries datagrams both ways, one per message, and logs the flow', async () => {
+    const port = await udpEcho()
+    const { guest, log } = link({ allow: [parseRule('127.0.0.1')] })
+    const flow = await reachUdp(guest, '127.0.0.1', port)
+    expect(flow.address).toBe('127.0.0.1')
+    const reply = next(flow.channel)
+    flow.channel.send(datagram(new TextEncoder().encode('ping')))
+    expect(text((await reply)!)).toBe('PING')
+    const second = next(flow.channel)
+    flow.channel.send(datagram(new TextEncoder().encode('again')))
+    expect(text((await second)!)).toBe('AGAIN')
+    flow.channel.close()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(log.join('\n')).toContain(`udp 127.0.0.1:${port} (127.0.0.1) opened`)
+    expect(log.join('\n')).toMatch(/udp 127\.0\.0\.1:\d+ closed \(9 bytes out, 9 in\)/)
+  })
+
+  it('applies the same rules as TCP: a blocked address is closed unless a rule names it', async () => {
+    const { guest } = link()
+    await expect(reachUdp(guest, '127.0.0.1', 9)).rejects.toThrow(/does not reach/)
+    await expect(reachUdp(guest, '169.254.169.254', 53)).rejects.toThrow(/does not reach/)
+  })
+
+  it('ignores a message that is not a datagram, and counts the flow against the limit', async () => {
+    const port = await udpEcho()
+    const { guest } = link({ allow: [parseRule('127.0.0.1')], maxFlows: 1 })
+    const flow = await reachUdp(guest, '127.0.0.1', port)
+    flow.channel.send({ op: 'nonsense' })
+    await expect(reachUdp(guest, '127.0.0.1', port)).rejects.toThrow(/too many flows/)
+  })
+
+  it('ends a flow that has been idle', async () => {
+    const port = await udpEcho()
+    const { guest } = link({ allow: [parseRule('127.0.0.1')], idleMs: 80 })
+    const flow = await reachUdp(guest, '127.0.0.1', port)
+    expect((await flow.channel.done)?.code).toBe('timeout')
   })
 })

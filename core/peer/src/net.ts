@@ -4,7 +4,7 @@ import { PeerError } from './errors.ts'
 import type { Value } from './codec.ts'
 
 /**
- * The channel kind a network gateway serves: one channel is one outbound flow. The host does the connecting, so a
+ * The channel kind a network gateway serves: one channel is one outbound flow (TCP, or UDP to one peer) or one lookup. The host does the connecting, so a
  * machine with no sockets of its own (a browser tab) can reach the network through one that has them.
  *
  * Opening it carries the target as params. The host answers with a control message, `{ op: 'connected', address, port }`
@@ -16,18 +16,32 @@ import type { Value } from './codec.ts'
 export const NetChannel = 'net'
 
 export interface NetTarget {
-  proto: 'tcp'
+  /** `udp` is a flow of datagrams, one `{ op: 'd', data }` control message each (see {@link Datagram}), not a byte stream */
+  proto: 'tcp' | 'udp'
   host: string
   port: number
 }
 
 export const MaxHostLength = 253
 
+/** The most a UDP datagram can carry over IPv4 */
+export const MaxDatagram = 65507
+
+/** A datagram on a `udp` flow, in either direction: it is a control message, so it is not flow controlled and may be dropped */
+export function datagram(data: Uint8Array): Value { return { op: 'd', data } }
+
+/** The bytes of a datagram message, or `undefined` if the message is something else (or too big to be one) */
+export function datagramOf(message: Value): Uint8Array | undefined {
+  if (!message || typeof message !== 'object' || message instanceof Uint8Array || Array.isArray(message) || message['op'] !== 'd') return undefined
+  const data = message['data']
+  return data instanceof Uint8Array && data.length <= MaxDatagram ? data : undefined
+}
+
 /** Checks what came over the wire; the host never trusts it further than this */
 export function parseNetTarget(value: Value): NetTarget {
   if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) throw new PeerError('protocol', 'bad net target')
   const { proto, host, port } = value
-  if (proto !== 'tcp') throw new PeerError('unsupported', `${typeof proto === 'string' ? proto : 'that'} is not a protocol this gateway speaks`)
+  if (proto !== 'tcp' && proto !== 'udp') throw new PeerError('unsupported', `${typeof proto === 'string' ? proto : 'that'} is not a protocol this gateway speaks`)
   if (typeof host !== 'string' || host.length === 0 || host.length > MaxHostLength || /[\s\0/]/.test(host)) throw new PeerError('refused', 'bad host name')
   if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) throw new PeerError('refused', 'bad port')
   return { proto, host, port }

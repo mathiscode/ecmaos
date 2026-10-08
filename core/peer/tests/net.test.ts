@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Connection, memoryPair, NetChannel, openFlow, parseNetLookup, parseNetTarget, PeerError, resolveName } from '../src/index.ts'
+import { Connection, datagram, datagramOf, MaxDatagram, memoryPair, NetChannel, openFlow, parseNetLookup, parseNetTarget, PeerError, resolveName } from '../src/index.ts'
 
 describe('net targets', () => {
   it('accepts a host and a port', () => {
@@ -8,7 +8,7 @@ describe('net targets', () => {
   })
 
   it('refuses what is not a tcp target with a host and a valid port', () => {
-    for (const bad of [null, 'x', [1], { proto: 'udp', host: 'a', port: 1 }, { proto: 'tcp', host: '', port: 1 }, { proto: 'tcp', host: 'a b', port: 1 },
+    for (const bad of [null, 'x', [1], { proto: 'icmp', host: 'a', port: 1 }, { proto: 'tcp', host: '', port: 1 }, { proto: 'tcp', host: 'a b', port: 1 },
       { proto: 'tcp', host: 'a/b', port: 1 }, { proto: 'tcp', host: 'a'.repeat(254), port: 1 }, { proto: 'tcp', host: 'a', port: 0 },
       { proto: 'tcp', host: 'a', port: 70000 }, { proto: 'tcp', host: 'a', port: 1.5 }, { proto: 'tcp', host: 'a', port: '80' }]) {
       expect(() => parseNetTarget(bad as never), JSON.stringify(bad)).toThrow(PeerError)
@@ -67,5 +67,19 @@ describe('lookups', () => {
     host.accept(NetChannel, () => { throw new PeerError('refused', 'no such name') })
     await expect(resolveName(guest, 'example.com')).rejects.toThrow('no such name')
     guest.close()
+  })
+})
+
+describe('datagrams', () => {
+  it('accepts a udp target', () => {
+    expect(parseNetTarget({ proto: 'udp', host: 'example.com', port: 53 })).toEqual({ proto: 'udp', host: 'example.com', port: 53 })
+  })
+
+  it('wraps bytes as a control message and reads them back, refusing anything else', () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    expect(datagramOf(datagram(bytes))).toEqual(bytes)
+    for (const other of [null, 'x', [1], { op: 'eof' }, { op: 'd' }, { op: 'd', data: 'text' }, { op: 'd', data: new Uint8Array(MaxDatagram + 1) }]) {
+      expect(datagramOf(other as never), JSON.stringify(other)).toBeUndefined()
+    }
   })
 })

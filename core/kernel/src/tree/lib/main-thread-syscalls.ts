@@ -116,7 +116,7 @@ declare module '@zenfs/linux/uapi/abi' {
     net_bind(family: string, addr: string, port: number, path: string): number
     net_listen(key: string, backlog: number, path: string): number
     net_connect(key: string, path: string): number
-    net_connect_out(host: string, port: number, path: string): number
+    net_connect_out(host: string, port: number, proto: string, path: string): number
     dns_lookup(name: string, family: number, path: string): number
     net_accept(key: string, nonblock: number, path: string): number
   }
@@ -672,15 +672,15 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * A TCP connection to an address that is not this machine, through the gateway (`remote-gateway.ts`). Hands back the same
+   * A TCP connection (or, with `proto` `udp`, a datagram flow framed as the shim expects) to an address that is not this machine, through the gateway (`remote-gateway.ts`). Hands back the same
    * `{ fd, writeFd }` shape `net_connect` does, so the program reads, writes, polls and closes it like any other socket; the
    * pair is a bridge to the gateway's flow, ended when the program exits. `{ error }` is the errno `connect()` should return.
    */
-  define_syscall('net_connect_out', async (proc: Process, host: string, port: number, path: string) => {
+  define_syscall('net_connect_out', async (proc: Process, host: string, port: number, proto: string, path: string) => {
     const kernel = kernelOf(proc)
     let text: string
     try {
-      const flow = await openGatewayFlow(kernel, host, port)
+      const flow = await openGatewayFlow(kernel, host, port, proto === 'udp' ? 'udp' : 'tcp')
       const rxEnd = kernel.attachStream(proc, 'read', flow.rx)
       const txEnd = kernel.attachStream(proc, 'write', flow.tx)
       void proc.exited.then(() => { rxEnd.stop(); txEnd.stop(); flow.close() })

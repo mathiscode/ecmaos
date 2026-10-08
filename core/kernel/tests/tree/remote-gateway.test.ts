@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { Connection, memoryPair, NetChannel, openFlow, PeerError } from '@ecmaos/peer'
+import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, PeerError } from '@ecmaos/peer'
 
-import { errnoFor, GatewayFailure, openGatewayFlow, streamsOf } from '#lib/remote-gateway.ts'
+import { datagramStreamsOf, errnoFor, GatewayFailure, openGatewayFlow, streamsOf } from '#lib/remote-gateway.ts'
 import type { Kernel } from '#kernel.ts'
 
 describe('what a program sees when the gateway cannot connect', () => {
@@ -85,6 +85,38 @@ describe('a flow as streams', () => {
     const { guest, rx } = await pair(channel => { setTimeout(() => channel.close(), 10) })
     const { done } = await rx.getReader().read()
     expect(done).toBe(true)
+    guest.close()
+  })
+})
+
+describe('a UDP flow as streams', () => {
+  it('frames each datagram with its length both ways, whatever the chunking', async () => {
+    const [a, b] = memoryPair()
+    const guest = new Connection(a, { role: 'client' })
+    const host = new Connection(b, { role: 'server' })
+    const arrived: Uint8Array[] = []
+    host.accept(NetChannel, channel => {
+      channel.send({ op: 'connected', address: '203.0.113.9', port: 53 })
+      channel.onMessage = message => { const data = datagramOf(message); if (data) { arrived.push(data); channel.send(datagram(data)) } }
+    })
+    const flow = await openFlow(guest, { proto: 'udp', host: 'example.com', port: 53 })
+    const { rx, tx } = datagramStreamsOf(flow.channel)
+    const writer = tx.getWriter()
+    // two datagrams, written in three awkward pieces: boundaries come from the length, not the writes
+    const frame = (text: string) => { const bytes = new TextEncoder().encode(text); return Uint8Array.from([bytes.length >> 8, bytes.length & 255, ...bytes]) }
+    const both = Uint8Array.from([...frame('hello'), ...frame('world!')])
+    await writer.write(both.slice(0, 1))
+    await writer.write(both.slice(1, 9))
+    await writer.write(both.slice(9))
+    const reader = rx.getReader()
+    const first = (await reader.read()).value!
+    const second = (await reader.read()).value!
+    expect(new TextDecoder().decode(first.slice(2))).toBe('hello')
+    expect(first[1]).toBe(5)
+    expect(new TextDecoder().decode(second.slice(2))).toBe('world!')
+    expect(arrived.map(data => new TextDecoder().decode(data))).toEqual(['hello', 'world!'])
+    await writer.close()
+    expect((await reader.read()).done).toBe(true)
     guest.close()
   })
 })

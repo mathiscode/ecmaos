@@ -1,8 +1,10 @@
+import dgram from 'node:dgram'
 import dns from 'node:dns'
 import net, { BlockList, isIP } from 'node:net'
 import type { Socket } from 'node:net'
 
-import { NetChannel, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
+import { datagram, datagramOf, NetChannel, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
+import type { NetTarget } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 /**
@@ -106,6 +108,8 @@ export interface GatewayOptions {
   resolveFamily?: (host: string, family: 4 | 6) => Promise<string[]>
   /** How a flow is connected; replaced in tests */
   connect?: (address: string, port: number) => Socket
+  /** How a UDP flow's socket is made; replaced in tests */
+  udp?: (type: 'udp4' | 'udp6') => dgram.Socket
   log?: (text: string) => void
 }
 
@@ -122,6 +126,7 @@ export class Gateway {
   private readonly _resolve: (host: string) => Promise<string[]>
   private readonly _resolveFamily: (host: string, family: 4 | 6) => Promise<string[]>
   private readonly _connect: (address: string, port: number) => Socket
+  private readonly _udp: (type: 'udp4' | 'udp6') => dgram.Socket
   private readonly _log: (text: string) => void
   private readonly _flows = new WeakMap<Connection, number>()
 
@@ -134,6 +139,7 @@ export class Gateway {
     this._resolve = options.resolve ?? defaultResolve
     this._resolveFamily = options.resolveFamily ?? (options.resolve ? async (host, family) => (await options.resolve!(host)).filter(address => isIP(address) === family) : defaultResolveFamily)
     this._connect = options.connect ?? ((address, port) => net.connect({ host: address, port, allowHalfOpen: true }))
+    this._udp = options.udp ?? (type => dgram.createSocket(type))
     this._log = options.log ?? (() => {})
   }
 
@@ -223,6 +229,8 @@ export class Gateway {
       throw error
     }
 
+    if (target.proto === 'udp') return this.serveDatagrams(connection, channel, user, target, address, open)
+
     this._flows.set(connection, open + 1)
     channel.manualCredit = true
     const socket = this._connect(address, target.port)
@@ -273,6 +281,52 @@ export class Gateway {
     socket.on('end', () => { try { channel.send({ op: 'eof' }) } catch { /* already closed */ } })
     socket.on('close', () => finish())
     void channel.done.then(() => finish())
+  }
+
+  /**
+   * A UDP flow: a socket connected to one checked address, so it sends only there and hears only from there. Datagrams travel
+   * as control messages (not flow controlled): when the link is slower than the sender, they are lost, as UDP allows.
+   */
+  private serveDatagrams(connection: Connection, channel: Channel, user: string, target: NetTarget, address: string, open: number): void {
+    this._flows.set(connection, open + 1)
+    const socket = this._udp(isIP(address) === 6 ? 'udp6' : 'udp4')
+    let sent = 0
+    let received = 0
+    let finished = false
+    const finish = (error?: PeerError) => {
+      if (finished) return
+      finished = true
+      this._flows.set(connection, (this._flows.get(connection) ?? 1) - 1)
+      this._log(`${user} -> udp ${target.host}:${target.port} closed (${received} bytes out, ${sent} in)`)
+      clearTimeout(timer)
+      try { socket.close() } catch { /* never opened */ }
+      channel.close(error)
+    }
+    let timer = setTimeout(() => finish(new PeerError('timeout', 'idle')), this._idleMs)
+    const alive = () => { clearTimeout(timer); timer = setTimeout(() => finish(new PeerError('timeout', 'idle')), this._idleMs) }
+
+    socket.on('error', error => {
+      this._log(`${user} -> udp ${target.host}:${target.port} failed: ${(error as NodeJS.ErrnoException).code ?? error.message}`)
+      finish(new PeerError('refused', `${target.host}:${target.port}: ${(error as NodeJS.ErrnoException).code ?? error.message}`))
+    })
+    socket.on('message', message => {
+      sent += message.length
+      alive()
+      try { channel.send(datagram(new Uint8Array(message))) } catch { finish() }
+    })
+    channel.onMessage = message => {
+      const data = datagramOf(message)
+      if (!data) return
+      received += data.length
+      alive()
+      socket.send(data, error => { if (error) this._log(`${user} -> udp ${target.host}:${target.port} send failed: ${(error as NodeJS.ErrnoException).code ?? error.message}`) })
+    }
+    void channel.done.then(() => finish())
+    socket.connect(target.port, address, () => {
+      if (finished) return
+      this._log(`${user} -> udp ${target.host}:${target.port} (${address}) opened`)
+      channel.send({ op: 'connected', address, port: target.port })
+    })
   }
 
   /** Registers this gateway's `net` channel on a connection whose login has been checked */

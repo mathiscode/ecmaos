@@ -7,7 +7,7 @@
  * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
  */
 
-import { openFlow, PeerError, resolveName } from '@ecmaos/peer'
+import { datagram, datagramOf, openFlow, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 import type { Shell } from '@ecmaos/types'
@@ -87,16 +87,60 @@ export function streamsOf(channel: Channel): { rx: ReadableStream<Uint8Array>, t
   return { rx, tx }
 }
 
-/** Opens a TCP flow to `host:port` through the gateway, or throws a {@link GatewayFailure} saying which errno to give */
-export async function openGatewayFlow(kernel: Kernel, host: string, port: number): Promise<GatewayFlow> {
+/**
+ * A UDP flow as streams, the shape a program's socket is built from: every datagram is a 2-byte big-endian length then its
+ * bytes (the preview1 shim frames and unframes them). Datagrams arriving faster than the program reads are dropped past a
+ * small queue, which UDP allows; closing the write side ends the flow.
+ */
+export function datagramStreamsOf(channel: Channel): { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> } {
+  const rx = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let ended = false
+      const end = () => { if (ended) return; ended = true; try { controller.close() } catch { /* already closed */ } }
+      channel.onMessage = message => {
+        const data = datagramOf(message)
+        if (!data || ended || (controller.desiredSize ?? 1) <= 0) return
+        const frame = new Uint8Array(2 + data.length)
+        frame[0] = data.length >> 8
+        frame[1] = data.length & 0xff
+        frame.set(data, 2)
+        controller.enqueue(frame)
+      }
+      void channel.done.then(end)
+    },
+    cancel() { channel.close() }
+  }, { highWaterMark: 64 })
+  let pending = new Uint8Array(0)
+  const tx = new WritableStream<Uint8Array>({
+    write(chunk) {
+      const joined = new Uint8Array(pending.length + chunk.length)
+      joined.set(pending)
+      joined.set(chunk, pending.length)
+      let at = 0
+      while (joined.length - at >= 2) {
+        const size = (joined[at]! << 8) | joined[at + 1]!
+        if (joined.length - at - 2 < size) break
+        try { channel.send(datagram(joined.slice(at + 2, at + 2 + size))) } catch { /* the flow already ended */ }
+        at += 2 + size
+      }
+      pending = joined.slice(at)
+    },
+    close() { channel.close() },
+    abort() { channel.close() }
+  })
+  return { rx, tx }
+}
+
+/** Opens a TCP flow (or, with `proto` udp, a datagram flow) to `host:port` through the gateway, or throws a {@link GatewayFailure} saying which errno to give */
+export async function openGatewayFlow(kernel: Kernel, host: string, port: number, proto: 'tcp' | 'udp' = 'tcp'): Promise<GatewayFlow> {
   const link = links.get(kernel)
   if (!link) throw new GatewayFailure('ENETUNREACH', 'no gateway is up (see gateway up)')
   let opened
-  try { opened = await openFlow(link.connection, { proto: 'tcp', host, port }, { timeout: 20_000 }) } catch (error) { throw errnoFor(error) }
+  try { opened = await openFlow(link.connection, { proto, host, port }, { timeout: 20_000 }) } catch (error) { throw errnoFor(error) }
   link.flows++
   const { channel } = opened
   void channel.done.then(() => { link.flows-- })
-  return { ...streamsOf(channel), address: opened.address, close: () => channel.close() }
+  return { ...(proto === 'udp' ? datagramStreamsOf(channel) : streamsOf(channel)), address: opened.address, close: () => channel.close() }
 }
 
 /** Why a name did not resolve, in the terms of `getaddrinfo`: no such name, or no answer to be had (no gateway, or it failed) */

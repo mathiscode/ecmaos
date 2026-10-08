@@ -125,7 +125,9 @@ whatever it can, so it is off unless asked for and closed by default:
 - **Name lookups:** a guest can ask this machine to resolve a name (`getaddrinfo` in a program, after `/etc/hosts`). It answers only
   with addresses it would connect to: a name pointing into a blocked range is answered as unresolvable unless an allow rule
   names that range, deny rules apply, and with allow rules the name (or an address) must match one. Each lookup is logged.
-- **Not yet:** UDP, IPv6 answers for the guest, and listening for inbound connections. The scope is in
+- **UDP:** a flow can be UDP (`{ proto: 'udp' }`): one connected socket to one checked address, each datagram a control message in
+  both directions, same rules and limits as TCP, logged on open and close. Not flow controlled; datagrams are dropped, not queued.
+- **Not yet:** IPv6 answers for the guest, and listening for inbound connections (TCP or UDP). The scope is in
   `.docs/NODE_NETWORK_GATEWAY.md`.
 
 ### Sharing files between machines

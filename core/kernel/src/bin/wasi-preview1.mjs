@@ -53,7 +53,7 @@ const SYSCALL_ERRNO = {
   ...ERRNO,
   ENOTSOCK: 57, ENOPROTOOPT: 50, EPROTONOSUPPORT: 66, EAFNOSUPPORT: 5, EISCONN: 30, ENOTCONN: 53,
   ENETUNREACH: 40, EALREADY: 7, EINPROGRESS: 26, EEXIST: 20, ESRCH: 71,
-  ECONNRESET: 15, EHOSTUNREACH: 23, ENOBUFS: 42, ETIMEDOUT: 73,
+  ECONNRESET: 15, EHOSTUNREACH: 23, ENOBUFS: 42, ETIMEDOUT: 73, EDESTADDRREQ: 17, EMSGSIZE: 35,
 }
 
 // open(2) flags (Linux values)
@@ -348,6 +348,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const sr = socketRealFd(fd, 'read')
       if (sr.isSocket) {
         if (sr.error) return sr.error
+        if (sr.sock) return guard(() => {
+          const list = iovecs(iovPtr, iovCnt)
+          const data = dgramRecv(sr.sock, list.reduce((sum, [, len]) => sum + len, 0))
+          let at = 0
+          for (const [ptr, len] of list) { const part = data.subarray(at, at + len); bytes().set(part, ptr); at += part.length }
+          view().setUint32(nreadPtr, data.length, true)
+        })
         return guard(() => { const n = readInto(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nreadPtr, n, true) })
       }
       const entry = entryOf(fd)
@@ -374,6 +381,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const sr = socketRealFd(fd, 'write')
       if (sr.isSocket) {
         if (sr.error) return sr.error
+        if (sr.sock) return guard(() => {
+          const list = iovecs(iovPtr, iovCnt)
+          const data = new Uint8Array(list.reduce((sum, [, len]) => sum + len, 0))
+          let at = 0
+          for (const [ptr, len] of list) { data.set(bytes().subarray(ptr, ptr + len), at); at += len }
+          view().setUint32(nwrittenPtr, dgramSend(sr.sock, data), true)
+        })
         return guard(() => { const n = writeFrom(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nwrittenPtr, n, true) })
       }
       const entry = entryOf(fd)
@@ -873,6 +887,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const AF_INET = 2
   const SOCK_STREAM_MASK = 0xff // socket()'s type also carries SOCK_NONBLOCK/SOCK_CLOEXEC as high bits
   const SOCK_STREAM = 1
+  const SOCK_DGRAM = 2
+  const MAX_DATAGRAM = 65507 // the most a UDP datagram can carry over IPv4
 
   const sockets = new Map() // synthetic fd -> { family, key, bound, listening, connected }
 
@@ -937,8 +953,57 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     if (addrlenPtr) view().setUint32(addrlenPtr, 16, true)
   }
 
+  // UDP sockets (`SOCK_DGRAM`, `AF_INET`): a datagram socket is the same pair of pipes a stream socket is, with every datagram
+  // framed as a 2-byte big-endian length then its bytes, so the main thread (`net_connect_out` with `udp`) can turn the pipe
+  // back into datagrams. It talks to one peer, fixed by `connect()` or by the first `sendto()`; there is no `bind()` to a
+  // port and no datagram from anyone else.
+  function dgramSend(sock, data) {
+    if (data.length > MAX_DATAGRAM) throw { code: 'EMSGSIZE' }
+    const frame = new Uint8Array(2 + data.length)
+    frame[0] = data.length >> 8
+    frame[1] = data.length & 0xff
+    frame.set(data, 2)
+    for (let done = 0; done < frame.length;) {
+      const n = write(sock.writeFd, frame.subarray(done), -1)
+      if (n <= 0) throw { code: 'EPIPE' }
+      done += n
+    }
+    return data.length
+  }
+
+  /** The next datagram, cut to `max` bytes as recv() cuts one; an empty array when the flow has ended */
+  function dgramRecv(sock, max) {
+    const take = (count) => {
+      const out = new Uint8Array(count)
+      for (let done = 0; done < count;) {
+        const n = read(sock.readFd, out.subarray(done), -1)
+        if (n <= 0) return null
+        done += n
+      }
+      return out
+    }
+    const header = take(2)
+    if (!header) return new Uint8Array(0)
+    const body = take((header[0] << 8) | header[1])
+    return body ? body.subarray(0, max) : new Uint8Array(0)
+  }
+
   /** 127.0.0.1, and 0.0.0.0 (what `connect()` to "any" means on Linux: this machine) */
   const isLoopbackAddress = addr => addr === '127.0.0.1' || addr === '0.0.0.0'
+
+  /** connect() on a UDP socket: fixes the peer. Only addresses beyond this machine, through the gateway. */
+  function dgramConnect(sock, sa) {
+    if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+    if (isLoopbackAddress(sa.addr)) return -SYSCALL_ERRNO.ECONNREFUSED // no UDP between programs on this machine
+    const result = callMainThread('net_connect_out', sa.addr, sa.port, 'udp')
+    if (result.error) return socketErrno(result.error)
+    sock.connected = true
+    sock.readFd = result.fd
+    sock.writeFd = result.writeFd
+    sock.peerAddr = sa.addr
+    sock.peerPort = sa.port
+    return ESUCCESS
+  }
 
   function socketErrno(error) {
     if (typeof error === 'string') return -(SYSCALL_ERRNO[error] ?? SYSCALL_ERRNO.EIO)
@@ -955,7 +1020,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     const sock = sockets.get(fd)
     if (!sock) return { isSocket: false }
     if (!sock.connected) return { isSocket: true, error: EBADF }
-    return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd }
+    return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined }
   }
 
   // -- name resolution (`getaddrinfo`, `gethostbyname`) -------------------------------------------------------------------
@@ -1357,6 +1422,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
     __syscall_socket: (domain, type, _protocol) => {
       if (domain !== AF_UNIX && domain !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+      if (domain === AF_INET && (type & SOCK_STREAM_MASK) === SOCK_DGRAM) {
+        const fd = nextFd++
+        sockets.set(fd, { family: domain, dgram: true, key: null, bound: false, listening: false, connected: false })
+        return fd
+      }
       if ((type & SOCK_STREAM_MASK) !== SOCK_STREAM) return -SYSCALL_ERRNO.EPROTONOSUPPORT
       const fd = nextFd++
       sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false })
@@ -1366,6 +1436,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
+      if (sock.dgram) {
+        // nothing receives datagrams for a port here; a program that binds only to choose a source port still works
+        if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+        sock.bound = true
+        sock.port = sa.port
+        return ESUCCESS
+      }
       let result
       if (sa.family === AF_UNIX) result = callMainThread('net_bind', 'unix', sa.path, 0)
       else if (sa.family === AF_INET) result = callMainThread('net_bind', 'inet', sa.addr, sa.port)
@@ -1389,6 +1466,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       if (sock.connected) return -SYSCALL_ERRNO.EISCONN
       const sa = readSockaddr(addrPtr)
+      if (sock.dgram) return dgramConnect(sock, sa)
       let key
       let result
       if (sa.family === AF_UNIX) key = `unix:${sa.path}`
@@ -1396,7 +1474,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (isLoopbackAddress(sa.addr)) key = `inet:127.0.0.1:${sa.port}`
         else {
           // not this machine: through the gateway, if one is up (`gateway up`); otherwise ENETUNREACH, as with no route
-          result = callMainThread('net_connect_out', sa.addr, sa.port)
+          result = callMainThread('net_connect_out', sa.addr, sa.port, 'tcp')
           if (result.error) return socketErrno(result.error)
           sock.peerAddr = sa.addr
           sock.peerPort = sa.port
@@ -1451,16 +1529,30 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (how !== 0 /* SHUT_RD */) close(sock.writeFd) // SHUT_WR or SHUT_RDWR
       })
     },
-    __syscall_sendto: (fd, buf, len, _flags, _addrPtr, _addrlen) => guardLinux(() => {
+    __syscall_sendto: (fd, buf, len, _flags, addrPtr, _addrlen) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
+      if (sock.dgram) {
+        if (addrPtr) {
+          const sa = readSockaddr(addrPtr)
+          if (!sock.connected) { const rc = dgramConnect(sock, sa); if (rc < 0) throw { code: Object.keys(SYSCALL_ERRNO).find(name => SYSCALL_ERRNO[name] === -rc) ?? 'EIO' } }
+          else if (sa.addr !== sock.peerAddr || sa.port !== sock.peerPort) throw { code: 'EINVAL' } // one peer per socket
+        } else if (!sock.connected) throw { code: 'EDESTADDRREQ' }
+        return dgramSend(sock, bytes().slice(buf, buf + len))
+      }
       if (!sock.connected) throw { code: 'ENOTCONN' }
       return write(sock.writeFd, bytes().subarray(buf, buf + len))
     }),
-    __syscall_recvfrom: (fd, buf, len, _flags, _addrPtr, _addrlen) => guardLinux(() => {
+    __syscall_recvfrom: (fd, buf, len, _flags, addrPtr, addrlenPtr) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
       if (!sock.connected) throw { code: 'ENOTCONN' }
+      if (sock.dgram) {
+        const data = dgramRecv(sock, len)
+        bytes().set(data, buf)
+        writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr, sock.peerPort)
+        return data.length
+      }
       const chunk = new Uint8Array(len)
       const n = read(sock.readFd, chunk, -1)
       bytes().set(chunk.subarray(0, Math.max(n, 0)), buf)

@@ -36,7 +36,16 @@ a name that points into its own network (a private range, loopback, a metadata a
 unless its operator named that range in an allow rule. With no gateway up, a name that is not in `/etc/hosts` fails with
 "Try again", as with no nameserver. Only IPv4 answers are used, so `AF_INET6` lookups find nothing yet.
 
-The link carries TCP only (no UDP), and nothing on it is encrypted yet, so use it only over loopback or a network you trust.
+## UDP
+
+A program's `SOCK_DGRAM` socket works the same way: `connect()` (or the first `sendto()`) to an address beyond this machine
+opens a flow to it, the same rules apply, and `send`/`recv`/`read`/`write`/`sendto`/`recvfrom` carry one datagram each, up to
+65507 bytes, with their boundaries kept. A UDP socket talks to one peer, fixed by `connect()` or by the first `sendto()`
+(`sendto()` to another address fails with `EINVAL`), and hears only from that peer. `bind()` to a port is accepted but nothing
+is received for it, and UDP between programs on this machine is not provided (`ECONNREFUSED`). Datagrams are not flow
+controlled: when the link or the program cannot keep up they are dropped, as UDP allows.
+
+Nothing on the link is encrypted yet, so use it only over loopback or a network you trust.
 
 ## Options
 
