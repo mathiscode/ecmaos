@@ -21,11 +21,12 @@ const value = (flag: string) => {
 }
 
 if (args.has('--help') || args.has('-h')) {
-  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet] [--listen[=[HOST:]PORT]]
+  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet] [--login] [--listen[=[HOST:]PORT]]
 
   --data DIR          keep the machine in DIR (default: $ECMAOS_DATA, else ./.ecmaos)
   --ephemeral         a root in memory; nothing is kept
   --quiet             skip the boot banner and messages
+  --login             ask for a user name and password on the console instead of logging in as root
 
   --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only without --tls-cert)
   --tls-cert FILE --tls-key FILE  serve wss:// with this certificate (PEM); needed to listen beyond loopback
@@ -87,7 +88,8 @@ const host = nodeHost({
 })
 
 const kernel = new Kernel({
-  credentials: { username: 'root', password: 'root' },
+  // `--login` leaves the console at a login prompt (`/sbin/getty` under init) instead of logging root in
+  credentials: args.has('--login') ? undefined : { username: 'root', password: 'root' },
   host
 })
 

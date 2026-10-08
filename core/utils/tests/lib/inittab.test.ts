@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, RespawnTracker, entryKey, gettyTerminals, isUntouchedInittab, parseInittab, splitCommand, withGettyEntries, withoutGettyEntries } from '../../src/lib/inittab.ts'
+import { DEFAULT_GETTY_ENTRIES, gettyEntries, DEFAULT_INITTAB, RespawnTracker, entryKey, gettyTerminals, isUntouchedInittab, parseInittab, splitCommand, withGettyEntries, withoutGettyEntries } from '../../src/lib/inittab.ts'
 
 describe('splitCommand', () => {
   it('splits on whitespace and drops the quotes', () => {
@@ -157,5 +157,12 @@ describe('an untouched inittab', () => {
   it('loses its getty entries and nothing else', () => {
     expect(withoutGettyEntries(oldHeader + DEFAULT_GETTY_ENTRIES)).toBe(oldHeader)
     expect(withoutGettyEntries(oldHeader)).toBe(oldHeader)
+  })
+
+  it('writes a getty for only as many terminals as the machine has', () => {
+    expect(gettyTerminals(withGettyEntries(DEFAULT_INITTAB, 1))).toEqual(new Set([0]))
+    expect(gettyTerminals(DEFAULT_INITTAB + gettyEntries(3))).toEqual(new Set([0, 1, 2]))
+    expect(gettyTerminals(withGettyEntries(DEFAULT_INITTAB))).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7]))
+    expect(isUntouchedInittab(DEFAULT_INITTAB + gettyEntries(1))).toBe(true)
   })
 })

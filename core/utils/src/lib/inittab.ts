@@ -39,8 +39,10 @@ export interface Inittab {
 }
 
 /** What a filesystem without an `/etc/inittab` gets. */
-/** A login prompt on each of the eight terminals, added to the default file when the kernel does not log a user in itself. */
-export const DEFAULT_GETTY_ENTRIES = Array.from({ length: 8 }, (_, n) => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
+/** A login prompt on each of the first `count` terminals (all eight by default), added to the default file when the kernel does not log a user in itself. */
+export const gettyEntries = (count = 8): string => Array.from({ length: count }, (_, n) => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
+
+export const DEFAULT_GETTY_ENTRIES = gettyEntries()
 
 /** The terminals an inittab runs a `getty` on: entries whose id is `ttyN`, that respawn `/sbin/getty`. */
 export function gettyTerminals(text: string): Set<number> {
@@ -69,10 +71,10 @@ export function isUntouchedInittab(text: string): boolean {
   })
 }
 
-/** `text` with a getty entry added for every terminal 0 to 7 that has none. */
-export function withGettyEntries(text: string): string {
+/** `text` with a getty entry added for each of the first `count` terminals (0 to 7) that has none. */
+export function withGettyEntries(text: string, count = 8): string {
   const have = gettyTerminals(text)
-  const missing = Array.from({ length: 8 }, (_, n) => n).filter(n => !have.has(n))
+  const missing = Array.from({ length: count }, (_, n) => n).filter(n => !have.has(n))
   if (missing.length === 0) return text
   return (text.endsWith('\n') || text === '' ? text : text + '\n') + missing.map(n => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
 }

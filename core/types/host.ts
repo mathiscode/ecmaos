@@ -37,6 +37,8 @@ export interface Host {
   readonly kind: 'browser' | 'node'
   readonly storage: HostStorage
   readonly platform: HostPlatform
+  /** How many terminals the machine has of its own to log in on, from TTY 0 (eight when absent); a Node host has only the console */
+  readonly terminals?: number
   /** Fetches the initfs and the program catalog; the global `fetch` when absent. A Node host serves its bundled files here. */
   readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>
   /** Fills the kernel options a caller left out (root mount, devices, DOM, service worker); a caller's own options win */

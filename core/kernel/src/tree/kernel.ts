@@ -61,7 +61,7 @@ import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
 import { DEFAULT_SUDOERS } from '@ecmaos/coreutils/lib/sudoers'
-import { DEFAULT_GETTY_ENTRIES, DEFAULT_INITTAB, gettyTerminals, isUntouchedInittab, withGettyEntries, withoutGettyEntries } from '@ecmaos/coreutils/lib/inittab'
+import { DEFAULT_INITTAB, gettyEntries, gettyTerminals, isUntouchedInittab, withGettyEntries, withoutGettyEntries } from '@ecmaos/coreutils/lib/inittab'
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
@@ -561,7 +561,8 @@ export class Kernel implements IKernel {
       // An untouched default file from an earlier build gains the getty entries (or, for a kernel that logs
       // in itself, loses them: a persisted file from a boot without credentials would otherwise leave
       // gettys fighting the kernel's own session); an edited one is left alone.
-      const loginInittab = DEFAULT_INITTAB + DEFAULT_GETTY_ENTRIES
+      const terminalCount = Math.min(8, Math.max(1, this.host.terminals ?? 8))
+      const loginInittab = DEFAULT_INITTAB + gettyEntries(terminalCount)
       if (!(await this.filesystem.fs.exists('/etc/inittab'))) {
         await this.filesystem.fs.writeFile('/etc/inittab', this.options.credentials ? DEFAULT_INITTAB : loginInittab, { mode: 0o644 })
       } else {
@@ -574,7 +575,7 @@ export class Kernel implements IKernel {
             await this.filesystem.fs.writeFile('/etc/inittab', withoutGettyEntries(text), { mode: 0o644 })
           } else if (!this.options.credentials && (gettys.size === 0 || (gettys.size === 1 && gettys.has(0)))) {
             // no getty yet, or the one-terminal default of an earlier build; fewer than eight otherwise is a choice
-            await this.filesystem.fs.writeFile('/etc/inittab', withGettyEntries(text), { mode: 0o644 })
+            await this.filesystem.fs.writeFile('/etc/inittab', withGettyEntries(text, terminalCount), { mode: 0o644 })
           }
         }
       }

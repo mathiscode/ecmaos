@@ -6,6 +6,7 @@ ecmaOS in a Node process: the same kernel as the browser, with a terminal on you
 npx ecmaos                  # a machine in ./.ecmaos
 npx ecmaos --data ~/vm      # or in a folder of your choosing (also $ECMAOS_DATA)
 npx ecmaos --ephemeral      # a root in memory; nothing is kept
+npx ecmaos --login          # ask for a user name and password on the console, instead of logging in as root
 ```
 
 ## The data folder

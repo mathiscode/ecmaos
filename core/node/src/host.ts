@@ -53,6 +53,8 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
 
   const host: NodeHost = {
     kind: 'node',
+    // the console; the terminals of machines that log in with `--listen` are made when they connect
+    terminals: 1,
     dataDir,
     storage: { local: db ? new SqliteStorage(db) : new MemoryStorage(), session: new MemoryStorage() },
     platform: {
