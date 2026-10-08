@@ -354,8 +354,11 @@ export function installMainThreadSyscalls(): void {
 
   // `kernel.activeTty` is a plain number already, so unlike `storage_usage` this needs no
   // scratch-file round trip at all -- it fits `dispatch`'s `number` return directly.
+  // The caller's own terminal when it has one (a program on TTY 3 sees 3 while TTY 0 is on screen),
+  // the one on screen otherwise.
   define_syscall('tty_get', async (proc: Process) => {
     const kernel = kernelOf(proc)
+    if (proc.tty) for (const [number, shell] of kernel.shells) if (shell.terminal.zfsTty === proc.tty) return number
     return kernel.activeTty
   })
 
