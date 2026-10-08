@@ -10,8 +10,10 @@ import { manage } from './lib/accounts.mjs'
 const { argv, exit, write, read, custom, open, close, unlink } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: passwd [OLD NEW]
+       passwd LOGIN
        passwd -l|-u|-S LOGIN
 Change your password. Without arguments, prompts for the current and the new password.
+With a LOGIN, root sets that account's password (no current password asked); anyone else may name only themselves.
 Root can lock, unlock and show the state of another account's password:
 
   -l, --lock      lock the password (a ! before the hash): no password login
@@ -35,24 +37,28 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const stderr = text => write(2, encoder.encode(text + '\n'))
 
+/** Bytes read from stdin past the end of the last line asked for, so piped answers (`printf 'a\nb\n' | passwd`) each get their own line */
+let pending = []
+
 /** Prints `prompt` and reads one line from stdin, with echo off when stdin is a terminal. */
 function readSecret(prompt) {
   write(1, encoder.encode(`\x1b[36m${prompt}\x1b[0m`))
   const restore = echoOff(0)
-  const bytes = []
+  let line
   try {
     const buffer = new Uint8Array(256)
-    while (true) {
+    for (;;) {
+      const end = pending.indexOf(10)
+      if (end >= 0) { line = pending.splice(0, end + 1); break }
       const n = read(0, buffer, -1)
-      if (n <= 0) break
-      bytes.push(...buffer.subarray(0, n))
-      if (buffer[n - 1] === 10) break
+      if (n <= 0) { line = pending; pending = []; break }
+      pending.push(...buffer.subarray(0, n))
     }
   } finally {
     restore()
   }
   if (isTty(0)) write(1, encoder.encode('\n'))
-  return decoder.decode(new Uint8Array(bytes)).replace(/[\r\n]+$/, '')
+  return decoder.decode(new Uint8Array(line)).replace(/[\r\n]+$/, '')
 }
 
 async function main() {
@@ -72,6 +78,23 @@ async function main() {
 
   let oldPass
   let newPass
+
+  // `passwd LOGIN`: root sets another account's password; naming yourself is the same as plain `passwd`
+  if (args.length === 1) {
+    const path = scratchPath('passwd-self')
+    await custom('users_lookup', JSON.stringify({ mode: 'self' }), path)
+    const me = JSON.parse(await readBackAndDelete({ open, read, close, unlink }, path))
+    if (me.username !== args[0]) {
+      if ((me.euid ?? me.uid) !== 0) { stderr(`passwd: you may not change the password for ${args[0]}`); return 1 }
+      const first = readSecret(`New password for ${args[0]}: `)
+      if (!first) { stderr('\x1b[31mNew password required\x1b[0m'); return 1 }
+      if (first !== readSecret('Confirm new password: ')) { stderr('\x1b[31mPasswords do not match\x1b[0m'); return 1 }
+      const result = await manage('passwd', { username: args[0], op: 'set', password: first })
+      if (result.error) { stderr(`passwd: ${result.error}`); return 1 }
+      write(1, encoder.encode('\x1b[32mPassword updated successfully\x1b[0m\n'))
+      return 0
+    }
+  }
 
   if (args.length < 2) {
     oldPass = readSecret('Enter current password: ')

@@ -30,6 +30,26 @@ describe('account commands', () => {
     kernel.terminal.mount(container)
   }, 60000)
 
+  describe('passwd LOGIN', () => {
+    it('lets root set another account\'s password without the current one, and that password then works', async () => {
+      await kernel.users.add({ username: 'pwtarget', password: 'oldpassword', home: '/home/pwtarget', shell: '/bin/ecmash' })
+      const done = await sh("printf 'newpassword1\\nnewpassword1\\n' | passwd pwtarget")
+      expect(done.code, done.err).toBe(0)
+      expect(await kernel.users.login('pwtarget', 'newpassword1')).toBeTruthy()
+      await expect(kernel.users.login('pwtarget', 'oldpassword')).rejects.toThrow()
+    }, 30000)
+
+    it('refuses a mismatch, and an account that does not exist, and leaves the password alone', async () => {
+      const mismatch = await sh("printf 'newpassword2\\nsomethingelse\\n' | passwd pwtarget")
+      expect(mismatch.code).toBe(1)
+      expect(mismatch.err).toContain('do not match')
+      expect(await kernel.users.login('pwtarget', 'newpassword1')).toBeTruthy()
+      const missing = await sh("printf 'newpassword3\\nnewpassword3\\n' | passwd nobodyhere")
+      expect(missing.code).toBe(1)
+      expect(missing.err).toContain('does not exist')
+    }, 30000)
+  })
+
   describe('groupadd, groupmod and groupdel', () => {
     it('creates a group with the first free id from 1000, and lists it', async () => {
       expect((await sh('groupadd staff')).code).toBe(0)

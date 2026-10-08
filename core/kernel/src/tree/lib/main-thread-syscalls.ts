@@ -957,6 +957,7 @@ export function installMainThreadSyscalls(): void {
         const op = args['op'] as string
         if (op === 'lock') await kernel.users.lock(usr.uid)
         else if (op === 'unlock') await kernel.users.unlock(usr.uid)
+        else if (op === 'set') await kernel.users.resetPassword(usr.uid, args['password'] as string)
         else if (op !== 'status') throw new Error(`unknown passwd operation: ${op}`)
         const hash = kernel.users.byName(username)!.password
         const state = hash.replace(/^!/, '') === '' ? 'NP' : hash.startsWith('!') || hash.replace(/^!/, '') === '*' ? 'L' : 'P'
