@@ -100,6 +100,20 @@ describe('/sbin/init as pid 1', () => {
     expect(unowned()).toEqual(before)
   }, 15_000)
 
+  it('a login and a logout on a shell leave no context behind', async () => {
+    const unowned = () => [...boundContexts.keys()].filter(id => !processes.has(id))
+    const cred = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
+    const user = kernel.users.all.get(0)!
+    await kernel.startSession(kernel.shell, user, cred)
+    const before = unowned()
+    for (let i = 0; i < 3; i++) {
+      await kernel.startSession(kernel.shell, user, cred)
+      await kernel.endLogin(0)
+    }
+    // the shell's own current context is one of them, so the count is what must hold
+    expect(unowned().length).toBe(before.length)
+  }, 15_000)
+
   it('does not die to SIGKILL, SIGINT or SIGQUIT (SIGTERM, SIGUSR1 and SIGUSR2 take the system down: init-shutdown.test.ts)', async () => {
     await kernel.shell.execute('kill -9 1')
     await kernel.shell.execute('kill -2 1')

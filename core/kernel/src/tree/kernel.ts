@@ -15,7 +15,7 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
-import { bindContext, Credentials } from '@zenfs/core'
+import { bindContext, boundContexts, Credentials } from '@zenfs/core'
 import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -2890,6 +2890,14 @@ export class Kernel implements IKernel {
     return null
   }
 
+  /** A fresh context for `shell` under `cred`; the one it held is released, so each login does not leave a `[kernel]` row in `/proc`. */
+  private rebindShell(shell: Shell, cred: Credentials): void {
+    const previous = shell.context
+    shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
+    // 1 is the default context, which belongs to the kernel itself
+    if (previous && previous.id !== 1 && previous !== shell.context) boundContexts.delete(previous.id)
+  }
+
   /**
    * Makes `user` the login on `shell`: credentials, bound context, identity variables, the session
    * record, the home directory, then the startup files in order. The one place a login takes effect,
@@ -2897,7 +2905,7 @@ export class Kernel implements IKernel {
    */
   async startSession(shell: Shell, user: User, cred: Credentials): Promise<void> {
     shell.credentials = cred
-    shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
+    this.rebindShell(shell, cred)
     shell.env.set('UID', user.uid.toString())
     shell.env.set('GID', user.gid.toString())
     shell.env.set('SUID', cred.suid.toString())
@@ -3003,7 +3011,7 @@ export class Kernel implements IKernel {
     if (clean) shell.state.restoreCopy(clean)
     const idle: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
     shell.credentials = idle
-    shell.context = bindContext({ root: '/', pwd: '/', credentials: idle })
+    this.rebindShell(shell, idle)
     for (const key of ['UID', 'GID', 'SUID', 'SGID', 'EUID', 'EGID']) shell.env.set(key, '0')
     shell.env.set('USER', 'root')
     shell.env.set('HOME', '/root')
