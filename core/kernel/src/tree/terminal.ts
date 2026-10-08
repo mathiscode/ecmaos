@@ -294,7 +294,8 @@ export class Terminal extends XTerm implements ITerminal {
       this._ttyInput?.dispose()
       this._ttyInput = undefined
       // `^C` and `^Z` have already thrown the queue away; what is left was typed for whoever reads next
-      const queued = [...tty.ldisc.buffer, ...tty.ldisc.line]
+      const ldisc = tty.ldisc as unknown as { buffer: number[], line: number[] }
+      const queued = [...ldisc.buffer, ...ldisc.line]
       if (queued.length) this._typeahead += new TextDecoder().decode(new Uint8Array(queued))
       tty.ldisc.flush()
       if (this._ttySavedTermios) tty.set_termios(this._ttySavedTermios)
