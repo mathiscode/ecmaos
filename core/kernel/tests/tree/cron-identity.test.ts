@@ -40,8 +40,6 @@ describe('cron jobs run as their owner', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
-    // a boot-tail sudo() can swap shell credentials for a moment
-    await new Promise(r => setTimeout(r, 1500))
     await kernel.users.add({ username: 'alice', password: 'wonder', home: '/home/alice', shell: '/bin/ecmash' })
     await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob', shell: '/bin/ecmash' })
     const named = (name: string) => [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === name)!
@@ -56,6 +54,17 @@ describe('cron jobs run as their owner', () => {
     expect(await read('/tmp/cron-status')).toMatch(uidLine(want))
     expect(await read('/tmp/cron-cwd')).toBe('/home/alice\n')
     expect(await read('/tmp/cron-env')).toBe('alice:alice:/home/alice\n')
+  }, 60000)
+
+  it('the system shell is root\'s and stays so while a user is logged in on the console', async () => {
+    expect(kernel.system).not.toBe(kernel.shell)
+    expect(kernel.system.credentials.euid).toBe(0)
+    await asUser(alice, '/home/alice', async () => {
+      expect(kernel.system.credentials.euid).toBe(0)
+      expect(await kernel.system.execute('id -u > /tmp/system-shell-uid')).toBe(0)
+    })
+    expect((await read('/tmp/system-shell-uid'))?.trim()).toBe('0')
+    expect(kernel.shell.credentials.euid).toBe(0)
   }, 60000)
 
   it('--run gives the status of the job, and refuses an unknown user', async () => {

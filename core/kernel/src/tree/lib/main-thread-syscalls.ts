@@ -1345,22 +1345,22 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `kernel.shell.execute()` is the one thing in this module that runs a *full shell command line*
+  // `kernel.system.execute()` is the one thing in this module that runs a *full shell command line*
   // (pipes, redirects, the works) rather than a single program -- main-thread-only since `Shell` is a
   // persistent object tied to a `Terminal`, not something `proc_spawn` can hand a worker a real
   // `execve`-shaped binary for (there is no `/bin/sh -c` interpreter in ecmaOS to `proc_spawn` in the
   // first place). This exists for `crond` (`src/bin/commands/crond.mjs`) to fire a crontab entry's
-  // command line exactly the way the old `kernel.intervals`-based scheduler did (`kernel.shell.execute
+  // command line exactly the way the old `kernel.intervals`-based scheduler did (`kernel.system.execute
   // (entry.command)`), preserving pipe/redirect support in a cron job with zero behavior change --
-  // individual pipeline stages `kernel.shell.execute()` itself launches via `executeViaExecve` still
+  // individual pipeline stages `kernel.system.execute()` itself launches via `executeViaExecve` still
   // get real pids visible in `ps` (visible in `ps`, which reads `/proc`), even though the job as a
   // whole has no single pid of its own, the same limitation real `crond`'s `sh -c` child has for a
   // multi-stage pipeline.
   define_syscall('shell_exec', async (proc: Process, command: string) => {
-    // it runs in the kernel's own shell, with that shell's authority, which no user's program may borrow
+    // it runs in the system shell, with root's authority, which no user's program may borrow
     requireRoot(proc, 'shell_exec')
     const kernel = kernelOf(proc)
-    return await kernel.shell.execute(command)
+    return await kernel.system.execute(command)
   })
 
   // What `/sbin/init` needs from the main thread (see `lib/init.ts`). Only pid 1 may call them: they

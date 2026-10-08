@@ -15,7 +15,7 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
-import { bindContext, boundContexts, Credentials } from '@zenfs/core'
+import { bindContext, Credentials } from '@zenfs/core'
 import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -283,6 +283,11 @@ export class Kernel implements IKernel {
   public readonly service: Service
   /** Shell for command interpretation and execution */
   public readonly shell: Shell
+  /**
+   * The kernel's own shell, root's whoever is logged in: what runs init scripts, fstab mounts and cron jobs.
+   * No user's session is ever lent to the kernel for these. It shows on the console (TTY 0) but is not its shell.
+   */
+  public readonly system: Shell
   /** Storage provider interface */
   public readonly storage: Storage
   /** Telemetry service for OpenTelemetry tracing */
@@ -383,6 +388,29 @@ export class Kernel implements IKernel {
 
     this.shell.attach(this.terminal)
     this._shells.set(0, this.shell)
+
+    // Its output reaches the console through streams of its own: the terminal's are held by TTY 0's shell
+    const console0 = this.terminal
+    const forward = (wrap: (text: string) => string) => new WritableStream<Uint8Array>({ write: chunk => console0.write(wrap(new TextDecoder().decode(chunk))) })
+    const consoleView = new Proxy(console0, {
+      get: (target, key) => {
+        if (key === 'stdout') return forward(text => text)
+        if (key === 'stderr') return forward(text => `\x1b[31m${text}\x1b[39m`)
+        const value = Reflect.get(target, key, target)
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
+    this.system = new Shell({
+      context: this.context,
+      createPipeStream: () => this.createPipeStream(),
+      execute: options => this.execute({ ...options, kernel: this }),
+      adoptProcess: process => this.init.adopt(process as InstanceType<typeof ZenFSProcess>),
+      filesystem: this.filesystem,
+      users: this.users,
+      tty: 0,
+      terminal: consoleView,
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost', HOME: '/root', USER: 'root', LOGNAME: 'root' }
+    })
     // TTY 0 is the console that boots active, so its shell is the one `globalThis.process.env`
     // mirrors until `switchTty` hands ownership to another -- see `Shell.claimProcessEnv`.
     this.shell.claimProcessEnv()
@@ -632,9 +660,7 @@ export class Kernel implements IKernel {
           }
         } else {
           // Create default locale file if it doesn't exist
-          await this.sudo(async () => {
-            await this.filesystem.fs.writeFile(localeFilePath, 'LANG=en_US\n', { mode: 0o644 })
-          })
+          await this.filesystem.fs.writeFile(localeFilePath, 'LANG=en_US\n', { mode: 0o644 })
         }
         
         // Detect browser language and override default system locale
@@ -647,9 +673,7 @@ export class Kernel implements IKernel {
         
         if (!isDefaultLanguage && browserLanguage !== systemLanguage) {
           finalLocale = browserLocale
-          await this.sudo(async () => {
-            await this.filesystem.fs.writeFile(localeFilePath, `LANG=${finalLocale}\n`, { mode: 0o644 })
-          })
+          await this.filesystem.fs.writeFile(localeFilePath, `LANG=${finalLocale}\n`, { mode: 0o644 })
           localeSpan.setAttribute('locale.overridden', true)
           localeSpan.setAttribute('locale.browser', browserLanguage)
         }
@@ -800,18 +824,14 @@ export class Kernel implements IKernel {
           hour12: false
         }).replace(',', '')
 
-        // a line logged while one is being written (`sudo` logs what it catches) is dropped: writing it would fail
-        // the same way and log again, without end
+        // the filesystem the kernel writes through is root's, whoever is logged in; a line logged while this one is being
+        // handed over is dropped, so a failure to write cannot log again without end
         if (writingLog) return
         writingLog = true
         try {
-          this.sudo(async () => {
-            try {
-              await appendText(this.filesystem.fs, '/var/log/kernel.log',
-                `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
-              )
-            } catch { /* the log is the one place this error cannot go */ }
-          })
+          void appendText(this.filesystem.fs, '/var/log/kernel.log',
+            `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
+          ).catch(() => { /* the log is the one place this error cannot go */ })
         } finally {
           writingLog = false
         }
@@ -2587,7 +2607,7 @@ export class Kernel implements IKernel {
 
       for (const entry of entries) {
         try {
-          await this.sudo(async () => {
+          {
             const target = path.resolve('/', entry.target)
             const source = entry.source || ''
             const type = entry.type
@@ -2618,7 +2638,7 @@ export class Kernel implements IKernel {
             const exitCode = await this.execute({
               command: '/bin/mount',
               args: mountArgs,
-              shell: this.shell,
+              shell: this.system,
               terminal: streams.terminal,
               stdin: streams.stdin,
               stdout: streams.stdout,
@@ -2632,7 +2652,7 @@ export class Kernel implements IKernel {
             } else {
               throw new Error(`mount command exited with code ${exitCode} while mounting ${type} filesystem at ${target}`)
             }
-          })
+          }
         } catch (error) {
           this.log.warn(`Failed to mount filesystem ${entry.target} (type: ${entry.type}): ${error instanceof Error ? error.message : String(error)}`)
         }
@@ -3195,44 +3215,16 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * Runs a `#!ecmaos:bin:script:` file for `/sbin/init`, as root, the way boot has always run
+   * Runs a `#!ecmaos:bin:script:` file for `/sbin/init` in the system shell (root's), the way boot has always run
    * `/boot/init`. Returns the script's status, or 1 when it could not run.
    */
   async runInitScript(path: string, args: string[] = []): Promise<number> {
-    const code = await this.sudo(async () => await this.execute({ command: path, args, shell: this.shell }))
-    return code ?? 1
-  }
-
-  /**
-   * Executes an operation with root (or other) privileges
-   * @param {() => Promise<T>} operation - Operation to execute
-   * @param {Partial<Credentials>} cred - Optional credentials to use
-   * @returns {Promise<T>} Result of the operation
-   */
-  private async sudo<T>(
-    operation: () => Promise<T>,
-    cred: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
-  ): Promise<T | undefined> {
-    const currentCredentials = { ...this.shell.credentials }
-    // the object itself, not a copy: a copy's `fs` stays bound to the original, so anything set on it afterwards (the umask) would be invisible to the file operations
-    const currentContext = this.shell.context
-    let result: T | undefined
-    // every log line comes through here: a context left bound would stay in `/proc` (as a `[kernel]` row) for good
-    const elevated = bindContext({ root: '/', pwd: '/', credentials: cred })
-
     try {
-      this.shell.credentials = cred
-      this.shell.context = elevated
-      result = await operation()
+      return await this.execute({ command: path, args, shell: this.system })
     } catch (error) {
       this.log.error(error)
-    } finally {
-      this.shell.credentials = currentCredentials
-      this.shell.context = currentContext
-      boundContexts.delete(elevated.id)
+      return 1
     }
-
-    return result
   }
 
   /**

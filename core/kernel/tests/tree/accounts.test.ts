@@ -28,8 +28,6 @@ describe('account commands', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
-    // a boot-tail sudo() can swap shell credentials for a moment
-    await new Promise(resolve => setTimeout(resolve, 1500))
   }, 60000)
 
   describe('groupadd, groupmod and groupdel', () => {

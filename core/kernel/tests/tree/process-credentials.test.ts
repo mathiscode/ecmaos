@@ -44,8 +44,6 @@ describe('programs run as the user who started them', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
-    // a boot-tail sudo() can swap shell credentials for a moment
-    await new Promise(r => setTimeout(r, 1500))
     await kernel.users.add({ username: 'alice', password: 'wonder', home: '/home/alice', shell: '/bin/ecmash' })
     await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob', shell: '/bin/ecmash' })
     const named = (name: string) => [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === name)!

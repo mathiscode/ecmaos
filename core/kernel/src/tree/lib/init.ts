@@ -48,13 +48,13 @@ export class Init {
     const base = bindContext(init)
     boundContexts.delete(base.id)
     const context = Object.create(base, { id: { value: 1, enumerable: true } }) as typeof base
-    const proc = new Process({ context, argv: [INIT_PATH], env: kernel.shell.envObject, console: '/dev/null', tty: null })
+    const proc = new Process({ context, argv: [INIT_PATH], env: kernel.system.envObject, console: '/dev/null', tty: null })
     this._process = proc
     this.watchChildren(proc)
-    registerProcessKernel(proc, kernel, kernel.shell)
+    registerProcessKernel(proc, kernel, kernel.system)
     // Whatever was created before init existed, such as the kernel shell's own process, has no parent.
     for (const orphan of [...processes.values()]) if (orphan !== proc && !orphan.parent && orphan.code === undefined) this.adopt(orphan)
-    await execve(proc, INIT_PATH, [INIT_PATH], kernel.shell.envObject)
+    await execve(proc, INIT_PATH, [INIT_PATH], kernel.system.envObject)
   }
 
   /**
@@ -110,9 +110,9 @@ export class Init {
    * `run` does the work on the main thread, where the shell lives.
    */
   script(kernel: Kernel, path: string, args: string[], run: () => Promise<number>): number {
-    const child = new Process({ argv: [path, ...args], env: kernel.shell.envObject, console: '/dev/null', tty: null })
+    const child = new Process({ argv: [path, ...args], env: kernel.system.envObject, console: '/dev/null', tty: null })
     child.exe = path
-    registerProcessKernel(child, kernel, kernel.shell)
+    registerProcessKernel(child, kernel, kernel.system)
     this.adopt(child)
     void run().then(code => child.exit(code), error => {
       kernel.log.error(`${path}: ${error instanceof Error ? error.message : String(error)}`)

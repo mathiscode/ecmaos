@@ -26,8 +26,6 @@ describe('umask', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
-    // a boot-tail sudo() can swap shell credentials for a moment
-    await new Promise(r => setTimeout(r, 1500))
   }, 60000)
 
   beforeEach(async () => {

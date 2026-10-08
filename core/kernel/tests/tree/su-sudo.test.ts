@@ -72,8 +72,6 @@ describe('su and sudo', () => {
     // jsdom defines `ontouchstart`, which makes the terminal think it is a phone and keep the old key path;
     // the line discipline a program reads a password from is the desktop one (see tty-input.test.ts)
     ;(kernel.terminal as unknown as { _isMobile: boolean })._isMobile = false
-    // a boot-tail sudo() can swap shell credentials for a moment
-    await new Promise(r => setTimeout(r, 1500))
     await kernel.users.add({ username: 'alice', password: 'wonder', home: '/home/alice', shell: '/bin/ecmash' })
     await kernel.users.add({ username: 'bob', password: 'builder', home: '/home/bob', shell: '/bin/ecmash' })
     const named = (name: string) => [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === name)!
