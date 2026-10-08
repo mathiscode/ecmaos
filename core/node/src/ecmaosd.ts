@@ -12,6 +12,7 @@ import { registerRemoteDevice } from '@ecmaos/kernel/lib/remote-device'
 import { DefaultLimits } from '@ecmaos/kernel/lib/remote-mount'
 
 import { TerminalDriver } from './driver.ts'
+import type { Gateway } from './gateway.ts'
 import { loadHostKey } from './hostkey.ts'
 import { createPairing } from './pairing.ts'
 import type { Pairing } from './pairing.ts'
@@ -49,6 +50,8 @@ export interface DaemonOptions {
   exports?: Array<{ name: string, readOnly: boolean, backend: ExportFs }>
   /** Host devices offered to root on the machines that log in, by name; none unless listed */
   devices?: DeviceSource[]
+  /** Lets machines that log in reach the network through this host; none unless given */
+  gateway?: Gateway
   /** Makes what the kernel has written durable; called before a key enrolment is acknowledged */
   flush?: () => void
   log?: (message: string) => void
@@ -249,6 +252,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         connection.accept(DeviceChannel, channel => openDevice(channel, user))
         connection.accept(DeviceShareChannel, channel => acceptDeviceShare(channel, user))
         connection.accept(FsShareChannel, channel => acceptShare(channel, user))
+        options.gateway?.attach(connection, user)
       } catch {
         failures.push(Date.now())
         if (++failed >= AuthFailuresPerConnection) connection.close(new PeerError('auth', 'too many failed logins'))

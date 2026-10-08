@@ -6,6 +6,7 @@ import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
 import { DefaultPort, startDaemon } from './ecmaosd.ts'
+import { Gateway, parseRule } from './gateway.ts'
 import { DefaultSitePort, findSite, startSite } from './serve.ts'
 import type { Site } from './serve.ts'
 import { openDevice, parseDevice, parseDeviceList } from './devices.ts'
@@ -36,6 +37,14 @@ if (args.has('--help') || args.has('-h')) {
   --site DIR          the folder to serve (default: $ECMAOS_SITE, else the built kernel beside this package)
   --tls-cert FILE --tls-key FILE  serve wss:// (and https:// with --serve) with this certificate (PEM); needed to listen beyond loopback
   --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
+  --gateway           let machines that log in reach the network through this host (TCP); needs --listen. Closed by default:
+                      this host, private networks and metadata addresses are never reached unless a rule names them
+  --gateway-allow RULE  with any of these, only matching destinations are reachable; also what opens a private address
+                      (repeatable). RULE is HOST[:PORTS] (HOST may use *), ADDRESS[/BITS][:PORTS], or [IPV6[/BITS]]:PORTS
+  --gateway-deny RULE never reachable, whatever else says (repeatable)
+  --gateway-user NAME  who may use it (default: root; repeatable)
+  --gateway-max-flows N  most flows at once per login (default: 32)
+  --gateway-public    allow --gateway on an address beyond loopback (it then proxies for anyone who can log in; use TLS)
   --pair-user NAME    who a pairing code enrols (default: root)
   --no-pair           do not print a pairing code
   --export [NAME=]DIR[:rw]  offer a host directory to machines that log in (read-only unless :rw; repeatable)
@@ -155,7 +164,20 @@ if (listen) {
     const certFile = value('--tls-cert')
     const keyFile = value('--tls-key')
     if (!!certFile !== !!keyFile) throw new Error('--tls-cert and --tls-key go together')
+    const all = (flag: string) => argv.flatMap((arg, index) => arg === flag && argv[index + 1] ? [argv[index + 1]!] : arg.startsWith(`${flag}=`) ? [arg.slice(flag.length + 1)] : [])
+    const gatewayHost = split > 0 ? address.slice(0, split) : undefined
+    const loopbackOnly = !gatewayHost || gatewayHost === 'localhost' || gatewayHost === '127.0.0.1' || gatewayHost === '::1'
+    if (args.has('--gateway') && !loopbackOnly && !args.has('--gateway-public')) throw new Error('--gateway on an address beyond loopback also needs --gateway-public: it lets everyone who can log in use this host to reach the network')
+    const gateway = args.has('--gateway') ? new Gateway({
+      users: all('--gateway-user').length ? all('--gateway-user') : undefined,
+      allow: all('--gateway-allow').map(parseRule),
+      deny: all('--gateway-deny').map(parseRule),
+      maxFlows: value('--gateway-max-flows') ? Number(value('--gateway-max-flows')) : undefined,
+      // the audit trail is not a message that --quiet may drop
+      log: text => say(`gateway: ${text}`)
+    }) : undefined
     daemon = await startDaemon({
+      gateway,
       tls: certFile && keyFile ? { cert: readFileSync(certFile), key: readFileSync(keyFile) } : undefined,
       devices: devices.map(openDevice),
       exports: exported,
@@ -169,6 +191,7 @@ if (listen) {
       log: text => { if (!args.has('--quiet')) say(`ecmaosd: ${text}`) }
     })
     say(`ecmaosd: listening on ${daemon.host}:${daemon.port}${certFile ? ' (TLS)' : ''}\r\necmaosd: host key ${daemon.fingerprint}`)
+    if (gateway) say(`gateway: on for ${gateway.users.join(', ')}`)
     for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
     for (const device of devices) say(`ecmaosd: offering device ${device.name} (${device.kind}, ${device.read && device.write ? 'read-write' : device.write ? 'write-only' : 'read-only'})`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)

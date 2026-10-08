@@ -5,6 +5,9 @@ import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
+import net from 'node:net'
+
+import { openFlow } from '@ecmaos/peer'
 import type { Connection } from '@ecmaos/peer'
 
 import { Session } from './session.ts'
@@ -760,5 +763,56 @@ describe('over TLS', () => {
     stranger.send('root\r')
     await stranger.waitFor(Local, mark3 + 100)
     expect(stranger.output.slice(mark3)).toContain('could not connect')
+  })
+})
+
+
+describe('the network gateway', () => {
+  async function echoServer() {
+    const server = net.createServer(socket => socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())))
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    afterEachClose.push(() => server.close())
+    return (server.address() as net.AddressInfo).port
+  }
+  const afterEachClose: Array<() => void> = []
+  afterEach(() => { for (const close of afterEachClose.splice(0)) close() })
+
+  it('is not there unless asked for', async () => {
+    const { port, code } = await host()
+    const key = await generateKeyPair()
+    const connection = await connect(port)
+    await login(connection, 'root', key, { code: code! })
+    await expect(openFlow(connection, { proto: 'tcp', host: 'example.com', port: 80 }, { timeout: 2000 })).rejects.toThrow(/no handler for net|unsupported/)
+  })
+
+  it('carries a flow to a TCP server when asked for, and keeps this host closed unless a rule opens it', async () => {
+    const target = await echoServer()
+    const { port, code, session } = await host(['--gateway', '--gateway-allow=127.0.0.1:' + target])
+    const key = await generateKeyPair()
+    const connection = await connect(port)
+    await login(connection, 'root', key, { code: code! })
+
+    const flow = await openFlow(connection, { proto: 'tcp', host: '127.0.0.1', port: target }, { timeout: 5000 })
+    await flow.channel.write(new TextEncoder().encode('through the gateway'))
+    expect(new TextDecoder().decode((await flow.channel.read())!)).toBe('THROUGH THE GATEWAY')
+
+    // a rule for one port does not open the others, nor this host's other services
+    await expect(openFlow(connection, { proto: 'tcp', host: '127.0.0.1', port: port }, { timeout: 2000 })).rejects.toThrow(/not allowed|does not reach/)
+    await session.waitFor(`root -> 127.0.0.1:${target} (127.0.0.1) opened`)
+  })
+
+  it('refuses a user who is not on the list', async () => {
+    const { port, code } = await host(['--gateway', '--gateway-user=somebody-else'])
+    const key = await generateKeyPair()
+    const connection = await connect(port)
+    await login(connection, 'root', key, { code: code! })
+    await expect(openFlow(connection, { proto: 'tcp', host: 'example.com', port: 80 }, { timeout: 2000 })).rejects.toThrow(/may not use this gateway/)
+  })
+
+  it('will not be on beyond loopback without --gateway-public', async () => {
+    const session = new Session(['--listen=0.0.0.0:0', '--gateway'])
+    sessions.push(session)
+    await session.ready()
+    await session.waitFor('--gateway-public')
   })
 })
