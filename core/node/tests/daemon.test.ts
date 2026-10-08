@@ -768,8 +768,8 @@ describe('over TLS', () => {
 
 
 describe('the network gateway', () => {
-  async function echoServer() {
-    const server = net.createServer(socket => socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())))
+  async function echoServer(once = false) {
+    const server = net.createServer(socket => socket.on('data', chunk => { socket.write(chunk.toString().toUpperCase()); if (once) socket.end() }))
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     afterEachClose.push(() => server.close())
     return (server.address() as net.AddressInfo).port
@@ -808,6 +808,36 @@ describe('the network gateway', () => {
     await login(connection, 'root', key, { code: code! })
     await expect(openFlow(connection, { proto: 'tcp', host: 'example.com', port: 80 }, { timeout: 2000 })).rejects.toThrow(/may not use this gateway/)
   })
+
+  it('nc -g from another machine reaches a TCP server through the host', async () => {
+    const target = await echoServer(true)
+    const { port, code } = await host(['--gateway', '--gateway-allow=127.0.0.1:' + target])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    const mark = me.output.length
+    me.send(`nc -g root@127.0.0.1:${port} --pair ${code} -y 127.0.0.1 ${target}\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor('connected', mark).catch(() => {})
+    me.send('ping through nc\r')
+    await me.waitFor('PING THROUGH NC', mark)
+    await me.waitFor('root:/root# ', me.output.indexOf('PING THROUGH NC', mark))
+  }, 60_000)
+
+  it('nc -g says why when the gateway refuses', async () => {
+    const { port, code } = await host(['--gateway', '--gateway-allow=example.com'])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    const mark = me.output.length
+    me.send(`nc -g root@127.0.0.1:${port} --pair ${code} -y 127.0.0.1 22\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor('nc: ', mark + 100)
+    await me.waitFor('root:/root# ', mark + 200)
+    expect(me.output.slice(mark)).toMatch(/does not reach|not allowed/)
+  }, 60_000)
 
   it('will not be on beyond loopback without --gateway-public', async () => {
     const session = new Session(['--listen=0.0.0.0:0', '--gateway'])

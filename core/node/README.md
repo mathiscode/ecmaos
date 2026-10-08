@@ -95,6 +95,34 @@ How it is trusted, in both directions:
 - A refusal is always the same message, whether the user exists or not, and is held back for a second; three refusals end
   the connection, and ten in a minute make the host stop answering for a while.
 
+### The network gateway (`--gateway`)
+
+```
+ecmaos --listen --gateway                                     # root on machines that log in may reach the public internet through this host
+ecmaos --listen --gateway --gateway-allow '*.example.com:443'  # only these
+ecmaos --listen --gateway --gateway-deny 203.0.113.0/24 --gateway-user alice --gateway-user root
+```
+
+A browser tab cannot open a TCP socket, so a machine that logs in to this one can ask it to: `nc -g root@host:30022 example.com 80`
+opens a plain TCP flow made by this host (one `net` channel of the peer protocol per flow). Everyone who may use it can reach
+whatever it can, so it is off unless asked for and closed by default:
+
+- **Never reachable, unless a rule names the address:** this host (`127.0.0.0/8`, `::1`), `10.0.0.0/8`, `172.16.0.0/12`,
+  `192.168.0.0/16`, link-local and cloud metadata addresses (`169.254.0.0/16`, `fe80::/10`), unique-local (`fc00::/7`), carrier-grade
+  NAT, multicast and the unspecified address, also when written as IPv4-in-IPv6. A rule for a *name* never opens one of these; a rule for the
+  address or network does (`--gateway-allow 10.0.0.0/8:443`).
+- **Every address a name resolves to is checked, and the connection goes to a checked address**, so a name that answers
+  differently the second time gets nothing past it.
+- **`--gateway-allow`** (repeatable): with any given, only destinations they match are reachable. **`--gateway-deny`** always wins.
+  A rule is `HOST[:PORTS]` (`*` matches anything in a name), `ADDRESS[/BITS][:PORTS]`, or `[IPV6[/BITS]]:PORTS`; PORTS is `80`, `80-90` or `80,443`.
+- **Who:** `root` on the machines that log in, unless `--gateway-user NAME` (repeatable) says otherwise.
+- **Limits:** `--gateway-max-flows N` per login (default 32); a flow idle for 5 minutes is closed.
+- **On an address beyond loopback** it also needs `--gateway-public`, and TLS: it then proxies for anyone who can log in.
+- **Audit:** each flow is logged to the console (`gateway: root -> example.com:443 (93.184.216.34) opened`, and the bytes at the end),
+  also under `--quiet`.
+- **Not yet:** UDP, name lookups for the guest (`getaddrinfo`), listening for inbound connections, and `socket()` from a program
+  (only `nc -g` uses it so far). The scope is in `.docs/NODE_NETWORK_GATEWAY.md`.
+
 ### Sharing files between machines
 
 ```

@@ -5,25 +5,35 @@
  * the socket with it.
  */
 
+import { openFlow } from '@ecmaos/peer'
+
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
+import { loginPeer, parseTarget } from './lib/peer-login.mjs'
 
 const syscalls = globalThis.ecmaosSyscalls
-const { argv, exit, read, writeAll, close, custom, poll, POLLIN, POLLHUP, POLLERR } = syscalls
+const { argv, exit, read, writeAll, close, custom, poll, POLLIN, POLLHUP, POLLERR, env } = syscalls
 
 const encoder = new TextEncoder()
 const err = text => writeAll(2, encoder.encode(text + '\n'))
 
 const usage = `Usage: nc [OPTIONS] <host> [port]
        nc [OPTIONS] -u <url>
+       nc -g [USER@]GATEWAY[:PORT] [OPTIONS] <host> <port>
 
 Netcat - network utility for reading from and writing to network connections.
 
 Options:
   -u, --url <url>    Direct URL (ws://, wss://, or https://)
   -p, --port <port> Port number (for WebSocket, defaults to 80/443)
+  -g, --gateway ADDR Reach host:port (plain TCP) through an ecmaOS machine started with
+                     \`ecmaos --listen --gateway\`, logging in to it with your key
+  --pair CODE        with -g: enrol your key with this one-time pairing code first
+  -F, --fingerprint FP  with -g: accept the gateway only if its key has this fingerprint
+  -y, --accept-new   with -g: remember a gateway seen for the first time without asking
   --help             display this help and exit
 
 Examples:
+  nc -g root@box:30022 example.com 80
   nc echo.websocket.org
   nc -p 443 echo.websocket.org
   nc -u wss://echo.websocket.org
@@ -138,6 +148,77 @@ function pump(rx, tx) {
   }
 }
 
+/** Takes the gateway options out of `args` (what is left is the usual arguments), or returns undefined when there are none */
+function takeGateway(args) {
+  const found = {}
+  for (let i = 0; i < args.length;) {
+    const arg = args[i]
+    const value = flag => { const at = args.indexOf(arg); const next = args[at + 1]; args.splice(at, 2); return next ?? (found.error = `option ${flag} requires an argument`) }
+    if (arg === '-g' || arg === '--gateway') found.address = value(arg)
+    else if (arg === '--pair') found.pair = value(arg)
+    else if (arg === '-F' || arg === '--fingerprint') found.fingerprint = value(arg)
+    else if (arg === '-y' || arg === '--accept-new') { found.acceptNew = true; args.splice(i, 1) }
+    else i++
+  }
+  if (!found.address && !found.error) {
+    if (found.pair || found.fingerprint || found.acceptNew) found.error = '--pair, -F and -y only go with -g'
+    else return undefined
+  }
+  const positional = args.filter(arg => !arg.startsWith('-'))
+  if (!found.error && positional.length !== 2) found.error = 'with -g, give the host and the port to reach'
+  if (!found.error) {
+    const port = Number(positional[1])
+    if (!Number.isInteger(port) || port < 1 || port > 65535) found.error = `bad port '${positional[1]}'`
+    found.host = positional[0]
+    found.port = port
+  }
+  return found
+}
+
+/** `nc -g`: a TCP flow to host:port, made by the gateway, with this program's input and output on the end of it */
+async function throughGateway({ address, host, port, pair, fingerprint, acceptNew }) {
+  const target = parseTarget(address, env['USER'] ?? 'root')
+  if (!target) { err(`nc: cannot understand '${address}'`); return 1 }
+  let connection
+  try {
+    connection = await loginPeer({ command: 'nc', target, user: target.user, pair, fingerprint, acceptNew })
+  } catch (error) {
+    err(`nc: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+  }
+  try {
+    let flow
+    try { flow = await openFlow(connection, { proto: 'tcp', host, port }) } catch (error) {
+      err(`nc: ${error?.message ?? error}`)
+      return 1
+    }
+    const { channel } = flow
+    let remoteEnded = false
+    channel.onData = data => { try { writeAll(1, data) } catch { /* our own output went away */ } }
+    channel.onMessage = message => { if (message && message.op === 'eof') remoteEnded = true }
+    const buffer = new Uint8Array(65536)
+    let inputOpen = true
+    // Waiting in `poll` holds up this worker, so it waits a moment at a time: the socket's events need the turns in between.
+    // Like netcat, it ends when the far end does; end of input only tells the far end that nothing more is coming.
+    while (!channel.closed && !remoteEnded) {
+      if (inputOpen) {
+        const revents = poll([{ fd: 0, events: POLLIN }], 20)
+        if (revents[0] & (POLLIN | POLLHUP | POLLERR)) {
+          const count = read(0, buffer, -1)
+          if (count <= 0) { inputOpen = false; try { channel.send({ op: 'eof' }) } catch { /* it already ended */ } } else await channel.write(buffer.slice(0, count))
+        }
+      }
+      await new Promise(resolve => setTimeout(resolve, inputOpen ? 0 : 20))
+    }
+    const failure = channel.closed ? channel.error : undefined
+    channel.close()
+    if (failure && failure.code !== 'closed') { err(`nc: ${failure.message}`); return 1 }
+    return 0
+  } finally {
+    connection.close()
+  }
+}
+
 async function main() {
   const args = argv.slice(1)
 
@@ -151,6 +232,10 @@ async function main() {
     err('Try "nc --help" for more information.')
     return 1
   }
+
+  const gateway = takeGateway(args)
+  if (gateway?.error) { err(`nc: ${gateway.error}`); return 1 }
+  if (gateway) return throughGateway(gateway)
 
   const options = parseUrl(args)
   if (!options) {
