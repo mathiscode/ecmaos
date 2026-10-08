@@ -60,4 +60,18 @@ describe('boot failure leaves an honest UI', () => {
     expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('terminal on fire'))
     consoleError.mockRestore()
   })
+  it('refuses to boot on a page that is not cross-origin isolated, and says which headers to set', async () => {
+    const kernel = newKernel()
+    await kernel.dom.init()
+    const toast = vi.spyOn(kernel.dom.toast, 'error')
+    vi.stubGlobal('crossOriginIsolated', false)
+    try {
+      await expect(kernel.boot()).resolves.toBeUndefined()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+
+    expect(kernel.state).toBe(KernelState.PANIC)
+    expect((toast.mock.calls[0]![0] as { message: string }).message).toContain('Cross-Origin-Embedder-Policy: require-corp')
+  })
 })

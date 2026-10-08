@@ -66,6 +66,7 @@ import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
 import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
+import { isolationProblem } from '#lib/isolation.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
@@ -458,6 +459,9 @@ export class Kernel implements IKernel {
     try {
       this.dom.topbar()
       this.terminal.unlisten()
+
+      const isolation = isolationProblem()
+      if (isolation) throw new Error(isolation)
 
       // Setup kernel logging
       this.log.attachTransport((logObj) => {
