@@ -1,0 +1,13 @@
+# ecmaOS: serve the build in core/kernel/dist with the headers that make the page cross-origin isolated.
+# Replace :80 with your domain to get https:// automatically.
+:80 {
+	root * /srv
+	encode zstd gzip
+	header {
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Embedder-Policy require-corp
+	}
+	@raw path *.gz
+	header @raw Content-Type application/octet-stream
+	file_server
+}

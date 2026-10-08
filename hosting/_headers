@@ -1,0 +1,9 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+/*.gz
+  Content-Type: application/octet-stream
+
+/*.wasm
+  Content-Type: application/wasm
