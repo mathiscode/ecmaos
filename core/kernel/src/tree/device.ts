@@ -9,6 +9,7 @@
 import * as AudioDevice from '@ecmaos-devices/audio'
 import * as BatteryDevice from '@ecmaos-devices/battery'
 import * as BluetoothDevice from '@ecmaos-devices/bluetooth'
+import * as CameraDevice from '@ecmaos-devices/camera'
 import * as GamepadDevice from '@ecmaos-devices/gamepad'
 import * as GeoDevice from '@ecmaos-devices/geo'
 import * as GPUDevice from '@ecmaos-devices/gpu'
@@ -27,6 +28,7 @@ export const DefaultDevices: Record<string, KernelDevice> = {
   audio: AudioDevice,
   battery: BatteryDevice,
   bluetooth: BluetoothDevice,
+  camera: CameraDevice,
   gamepad: GamepadDevice,
   geo: GeoDevice,
   gpu: GPUDevice,

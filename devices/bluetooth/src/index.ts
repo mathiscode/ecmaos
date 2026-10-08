@@ -3,6 +3,9 @@
 import { Class } from '@zenfs/linux'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openBluetoothSession } from './session.js'
+export type { BluetoothSessionOptions } from './session.js'
+
 export const pkg = {
   name: 'bluetooth',
   version: '0.1.0',

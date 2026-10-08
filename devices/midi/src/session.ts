@@ -6,23 +6,12 @@
  * are sent, since the browser refuses half a message.
  */
 
-type Plain = string | number | boolean | null | Uint8Array | Plain[] | { [key: string]: Plain }
+import { Feed, SessionError } from '@ecmaos-devices/session'
+import type { DeviceSession, Plain } from '@ecmaos-devices/session'
 
-export interface MidiDeviceSession {
-  info: { kind: string, read: boolean, write: boolean, [key: string]: Plain }
-  read?(): Promise<Uint8Array | undefined>
-  write?(data: Uint8Array): Promise<void>
-  control(op: string, args: Plain[]): Promise<Plain>
-  emit?: (name: string, data: Plain) => void
-  close(): Promise<void>
-}
-
-export class MidiError extends Error {
-  constructor(readonly code: string, message?: string) {
-    super(message ?? code)
-    this.name = 'MidiError'
-  }
-}
+export type MidiDeviceSession = DeviceSession
+export { SessionError as MidiError }
+const MidiError = SessionError
 
 /** Length of the message that starts with `status`, or 0 for a status that cannot start one */
 function messageLength(status: number): number {
@@ -76,28 +65,20 @@ export async function openMidiSession(access: MIDIAccess, options: MidiSessionOp
   await input?.open()
   await output?.open()
 
-  const queue: Uint8Array[] = []
-  let waiting: ((chunk: Uint8Array | undefined) => void) | undefined
-  let closed = false
+  // A controller keeps playing whether or not anyone reads, so the oldest messages are dropped past the limit
+  const feed = new Feed(4096)
   let carry: Uint8Array = new Uint8Array(0)
-  // A reader that stops reading would let the queue grow without end; a hardware controller keeps playing, so drop the oldest
-  const limit = 4096
 
   const onMessage = (event: Event) => {
     const data = (event as MIDIMessageEvent).data
-    if (!data) return
-    const chunk = data.slice()
-    if (waiting) { const resolve = waiting; waiting = undefined; resolve(chunk) } else {
-      queue.push(chunk)
-      if (queue.length > limit) queue.shift()
-    }
+    if (data) feed.push(data.slice())
   }
-  const finish = () => { closed = true; waiting?.(undefined); waiting = undefined }
+  const finish = () => feed.end()
   const onState = (event: Event) => {
     const port = (event as MIDIConnectionEvent).port
     if (!port || (port !== input && port !== output)) return
     session.emit?.('state', portInfo(port))
-    if (port.state === 'disconnected') session.emit?.('disconnect', null)
+    if (port.state === 'disconnected') { session.emit?.('disconnect', null); if (port === input) finish() }
   }
   input?.addEventListener('midimessage', onMessage)
   access.addEventListener('statechange', onState)
@@ -110,12 +91,7 @@ export async function openMidiSession(access: MIDIAccess, options: MidiSessionOp
       sysex: !!access.sysexEnabled
     },
     ...(input ? {
-      read: () => new Promise<Uint8Array | undefined>(resolve => {
-        const next = queue.shift()
-        if (next) resolve(next)
-        else if (closed || input.state === 'disconnected') resolve(undefined)
-        else waiting = resolve
-      })
+      read: () => feed.next()
     } : {}),
     ...(output ? {
       async write(data: Uint8Array) {
@@ -135,8 +111,7 @@ export async function openMidiSession(access: MIDIAccess, options: MidiSessionOp
       }
     },
     async close() {
-      if (closed && !input && !output) return
-      input?.removeEventListener('midimessage', onMessage)
+            input?.removeEventListener('midimessage', onMessage)
       access.removeEventListener('statechange', onState)
       finish()
       await input?.close().catch(() => {})

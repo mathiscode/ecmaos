@@ -3,6 +3,9 @@
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openUsbSession } from './session.js'
+export type { UsbSessionOptions } from './session.js'
+
 export const pkg = {
   name: 'usb',
   version: '0.1.0',

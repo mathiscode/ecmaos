@@ -173,6 +173,7 @@
     "@ecmaos-devices/audio": "workspace:^",
     "@ecmaos-devices/battery": "workspace:^",
     "@ecmaos-devices/bluetooth": "workspace:^",
+    "@ecmaos-devices/camera": "workspace:^",
     "@ecmaos-devices/gamepad": "workspace:^",
     "@ecmaos-devices/geo": "workspace:^",
     "@ecmaos-devices/gpu": "workspace:^",

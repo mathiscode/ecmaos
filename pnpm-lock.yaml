@@ -265,6 +265,9 @@ importers:
       '@ecmaos-devices/bluetooth':
         specifier: workspace:^
         version: link:../../devices/bluetooth
+      '@ecmaos-devices/camera':
+        specifier: workspace:^
+        version: link:../../devices/camera
       '@ecmaos-devices/gamepad':
         specifier: workspace:^
         version: link:../../devices/gamepad
@@ -875,6 +878,9 @@ importers:
 
   devices/audio:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -906,6 +912,9 @@ importers:
 
   devices/battery:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -937,6 +946,9 @@ importers:
 
   devices/bluetooth:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -956,6 +968,34 @@ importers:
       '@types/web-bluetooth':
         specifier: ^0.0.20
         version: 0.0.20
+      '@zenfs/core':
+        specifier: ^2.7.6
+        version: 2.7.6
+      '@zenfs/linux':
+        specifier: 0.6.1
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.6)(kerium@1.5.0)(memium@1.0.4)(utilium@3.7.0)
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite-plugin-node-polyfills:
+        specifier: ^0.28.0
+        version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
+
+  devices/camera:
+    dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
+    devDependencies:
+      '@ecmaos/config-typescript':
+        specifier: workspace:^
+        version: link:../../utils/config-typescript
+      '@ecmaos/types':
+        specifier: workspace:^
+        version: link:../../core/types
+      '@types/node':
+        specifier: 22.20.2
+        version: 22.20.2
       '@zenfs/core':
         specifier: ^2.7.6
         version: 2.7.6
@@ -992,6 +1032,9 @@ importers:
 
   devices/gamepad:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1026,6 +1069,9 @@ importers:
 
   devices/geo:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1091,6 +1137,9 @@ importers:
 
   devices/hid:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1125,6 +1174,9 @@ importers:
 
   devices/midi:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1190,6 +1242,9 @@ importers:
 
   devices/sensors:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1224,6 +1279,9 @@ importers:
 
   devices/serial:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -1256,6 +1314,28 @@ importers:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.1(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.104.0)(sass@1.104.0)(tsx@4.23.13)(yaml@2.9.1))
 
+  devices/session:
+    dependencies:
+      kerium:
+        specifier: ^1.5.0
+        version: 1.5.0
+    devDependencies:
+      '@ecmaos/config-typescript':
+        specifier: workspace:^
+        version: link:../../utils/config-typescript
+      '@types/node':
+        specifier: 22.20.2
+        version: 22.20.2
+      '@zenfs/core':
+        specifier: ^2.7.6
+        version: 2.7.6
+      '@zenfs/linux':
+        specifier: 0.6.1
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.6)(kerium@1.5.0)(memium@1.0.4)(utilium@3.7.0)
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   devices/tty:
     devDependencies:
       '@ecmaos/config-typescript':
@@ -1279,6 +1359,9 @@ importers:
 
   devices/usb:
     dependencies:
+      '@ecmaos-devices/session':
+        specifier: workspace:^
+        version: link:../session
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
@@ -2234,8 +2317,8 @@ packages:
   '@maxim_mazurok/gapi.client.discovery-v1@0.6.20200806':
     resolution: {integrity: sha512-QN6aGmIbLXcJW0SEf8tz9UWCpQTBMy2u4xSuZ04YofzMGknhWwMeUecySLntCZYAEstHzDoSgwxCf5Gb8GqIRQ==}
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20260927':
-    resolution: {integrity: sha512-Zr4C8O3viYWcrW+Sx+McQGM47zqufq9I02MxkIJqQNdHb0Iy6Aw6Z7gFKyjb16Us3EZKn7fGubJRS2kzPhua+g==}
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261003':
+    resolution: {integrity: sha512-HtzhGcjxVlaC853zpu8rxPoxI8IQhDDu8NaJrVcdP75m4EwzhgMtUbUzLhD2d/LIktrTLW2l691HbedZcBQHKA==}
 
   '@microsoft/api-extractor-model@7.33.12':
     resolution: {integrity: sha512-TdKOYgwf98xLjNW+y3iXIiCf4ZLQbilGAlqkMTTAqqAWfgRXAn9YCSGMsaiB1U7OPRvslUWg6n08EqQPbP93tA==}
@@ -8838,7 +8921,7 @@ snapshots:
       '@types/gapi.client.discovery-v1': 0.0.4
     optional: true
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20260927':
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261003':
     dependencies:
       '@types/gapi.client': 1.0.8
       '@types/gapi.client.discovery-v1': 0.0.4
@@ -9925,7 +10008,7 @@ snapshots:
 
   '@types/gapi.client.drive-v3@0.0.5':
     dependencies:
-      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20260927
+      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20261003
     optional: true
 
   '@types/gapi.client@1.0.8':

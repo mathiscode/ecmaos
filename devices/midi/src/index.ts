@@ -1,5 +1,8 @@
 import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { openMidiSession } from './session.js'
 
 export { openMidiSession, splitMessages, MidiError } from './session.js'
 export type { MidiDeviceSession, MidiSessionOptions } from './session.js'
@@ -146,6 +149,7 @@ Commands:
 /** `/sys/class/midi` */
 const midi_class = new Class('midi')
 
+/** The ports a `midiN` node stands for: the Nth input and the Nth output */
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{
     name: 'midi',
@@ -158,5 +162,26 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     }
   }]
 
+  // Ports are only listed once the user has allowed MIDI (`/dev/midi request`); asking here would raise a prompt at boot
+  if (typeof navigator === 'undefined' || !navigator.requestMIDIAccess || !navigator.permissions) return drivers
+  try {
+    const permission = await navigator.permissions.query({ name: 'midi' as PermissionName })
+    if (permission.state !== 'granted') return drivers
+    const access = await navigator.requestMIDIAccess()
+    const count = Math.max(access.inputs.size, access.outputs.size)
+    const ops = sessionOperations({
+      async open(minor) {
+        const live = await navigator.requestMIDIAccess()
+        const index = minor - 1
+        return await openMidiSession(live as unknown as Parameters<typeof openMidiSession>[0], {
+          ...(index < live.inputs.size ? { input: index } : {}),
+          ...(index < live.outputs.size ? { output: index } : {})
+        })
+      }
+    })
+    for (let index = 0; index < count; index++) drivers.push({ name: `midi${index}`, major: 35, minor: index + 1, class: midi_class, ops })
+  } catch (error) {
+    console.warn('MIDI error:', error)
+  }
   return drivers
 }

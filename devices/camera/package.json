@@ -1,0 +1,28 @@
+{
+  "name": "@ecmaos-devices/camera",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "@types/node": "22.20.2",
+    "@zenfs/core": "^2.7.6",
+    "@zenfs/linux": "0.6.1",
+    "typescript": "^7.0.2",
+    "vite-plugin-node-polyfills": "^0.28.0"
+  },
+  "dependencies": {
+    "@ecmaos-devices/session": "workspace:^"
+  },
+  "files": [
+    "dist"
+  ]
+}

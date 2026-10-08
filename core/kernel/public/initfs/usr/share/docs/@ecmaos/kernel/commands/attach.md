@@ -44,7 +44,26 @@ Other devices of this machine, by what DEVICE says:
   id, then its data); a write in the same shape is sent as an output report. Controls: `get-feature ID`, `set-feature ID BYTES`
   and `collections`.
 
-All of them are removed over there when the device is unplugged.
+- `usb:N[,in=EP][,out=EP][,interface=I][,config=C]`: the Nth USB device this browser has been given (`usb request`). It opens the
+  device, selects the configuration and claims the interface (0 unless given); reads are what the IN endpoint sends, one transfer
+  per read, and writes go to the OUT endpoint. Controls: `control-in SETUP LENGTH` and `control-out SETUP BYTES` (SETUP is
+  `{"type":"vendor","recipient":"device","request":N,"value":N,"index":N}`), `info`, `clear-halt`, `select-alt`, `reset`.
+- `bluetooth:N[,service=UUID,notify=UUID,write=UUID][,chunk=N]`: the Nth Bluetooth LE device the browser lists (it needs the
+  browser to support listing the devices it has been given). With a service and characteristics it is a byte stream: notifications
+  are the reads, writes go to the characteristic in pieces of `chunk` bytes (20). Controls: `services`, `characteristics SERVICE`,
+  `read SERVICE CHAR`, `write SERVICE CHAR BYTES`, `subscribe`, `unsubscribe` (what a subscription hears is the event `notify`).
+- `battery`: a 18-byte record when opened and on every change (level 0-100, charging 0 or 1, seconds to full and to empty as
+  little-endian float64). Control `status`.
+- `geo`: a JSON line `{"t","latitude","longitude","accuracy","altitude",...}` for each fix. Control `position`.
+- `sensor:KIND[,hz=N]`: KIND is accelerometer, gyroscope, magnetometer, linear, gravity, orientation or light; a JSON line
+  `{"t","x","y","z"}` (or `quaternion`, or `illuminance`) for each reading, at most 60 a second. Control `info`.
+- `audio:in[,rate=R]` and `audio:out[,rate=R]`: the microphone and the speakers as mono signed 16-bit little-endian samples (rate
+  8000 to 48000, 16000 by default). Writing to `audio:out` plays; a write waits while a second of sound is already queued.
+  Control `volume LEVEL` on `audio:out`.
+- `camera[:N][,fps=F][,quality=Q]`: JPEG pictures, each preceded by its length (u32 little endian), at most F a second (5).
+
+All of them are removed over there when the device is unplugged, and several of them need the user to have allowed the browser
+to use the hardware first.
 
 ## Options
 

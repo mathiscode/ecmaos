@@ -18,6 +18,11 @@ declare global {
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+import { batteryRecord } from './session.js'
+import type { BatteryLike } from './session.js'
+
+export { openBatterySession, batteryRecord } from './session.js'
+export type { BatteryLike } from './session.js'
 
 export const pkg = {
   name: 'battery',
@@ -103,12 +108,9 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
       // level as a percentage (0-100), charging as 0/1, then chargingTime and dischargingTime in
       // seconds as float64s -- Infinity (unknown) round-trips correctly, unlike a single byte each
       read: (_file, buffer, start, end) => {
-        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-        view.setUint8(0, Math.round(battery.level * 100))
-        view.setUint8(1, Number(battery.charging))
-        view.setFloat64(2, battery.chargingTime, true)
-        view.setFloat64(10, battery.dischargingTime, true)
-        return Math.min(18, end - start)
+        const count = Math.min(18, end - start)
+        buffer.set(batteryRecord(battery as unknown as BatteryLike).subarray(0, count), start)
+        return count
       },
       write: () => {}
     }

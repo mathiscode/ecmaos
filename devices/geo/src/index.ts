@@ -6,6 +6,8 @@ import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openGeoSession } from './session.js'
+
 export const pkg = {
   name: 'geo',
   version: '0.1.0',
@@ -140,15 +142,14 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     class: geo_class,
     ops: {
       read: (_file, buffer, start, end) => {
-        const view = new Float64Array(buffer.buffer, buffer.byteOffset, 4)
-        view.set([
-          lastPosition.latitude,
-          lastPosition.longitude,
-          lastPosition.accuracy,
-          lastPosition.altitude || 0
-        ])
-
-        return Math.min(32, end - start)
+        // Four little-endian float64s: latitude, longitude, accuracy, altitude (0 when unknown). A DataView, since the buffer
+        // need not be aligned for a Float64Array.
+        const record = new DataView(new ArrayBuffer(32))
+        const values = [lastPosition.latitude, lastPosition.longitude, lastPosition.accuracy, lastPosition.altitude || 0]
+        values.forEach((value, index) => record.setFloat64(index * 8, value, true))
+        const count = Math.min(32, end - start)
+        buffer.set(new Uint8Array(record.buffer, 0, count), start)
+        return count
       },
       write: () => {}
     }

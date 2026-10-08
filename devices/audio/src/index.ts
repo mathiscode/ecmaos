@@ -1,5 +1,11 @@
 import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions, Shell } from '@ecmaos/types'
+
+import { openMicrophoneSession, openSpeakerSession } from './session.js'
+
+export { openMicrophoneSession, openSpeakerSession, toPcm16, fromPcm16 } from './session.js'
+export type { AudioEnvironment, AudioSessionOptions } from './session.js'
 
 interface AudioDeviceState {
   context: AudioContext
@@ -228,6 +234,14 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
       }
     }
   }]
+
+  // Raw sound, 16 bit little endian mono at 16000 Hz, for tools that want samples and not a file format: what is written to
+  // /dev/dsp is played, and /dev/dspin reads the microphone (asking for it only when opened, as the browser requires)
+  const raw = sessionOperations({ open: async minor => minor === 3 ? await openSpeakerSession() : await openMicrophoneSession() })
+  drivers.push(
+    { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: raw },
+    { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: raw }
+  )
 
   return drivers
 }

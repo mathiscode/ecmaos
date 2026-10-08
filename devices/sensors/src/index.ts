@@ -4,6 +4,9 @@ import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openSensorSession, SensorKinds } from './session.js'
+export type { SensorSessionOptions } from './session.js'
+
 export const pkg = {
   name: 'sensors',
   version: '0.1.0',

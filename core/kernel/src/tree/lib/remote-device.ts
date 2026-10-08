@@ -4,6 +4,13 @@ import { openSerialSession } from '@ecmaos-devices/serial'
 import { openMidiSession } from '@ecmaos-devices/midi'
 import { openGamepadSession } from '@ecmaos-devices/gamepad'
 import { openHidSession } from '@ecmaos-devices/hid'
+import { openUsbSession } from '@ecmaos-devices/usb'
+import { openBluetoothSession } from '@ecmaos-devices/bluetooth'
+import { openBatterySession } from '@ecmaos-devices/battery'
+import { openGeoSession } from '@ecmaos-devices/geo'
+import { openSensorSession, SensorKinds } from '@ecmaos-devices/sensors'
+import { openMicrophoneSession, openSpeakerSession } from '@ecmaos-devices/audio'
+import { openCameraSession } from '@ecmaos-devices/camera'
 import { char_dev, Class, current as zenfsCurrent, Device, EPOLLIN, EPOLLOUT, WaitQueue } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
@@ -186,46 +193,125 @@ const servedRegistry = (kernel: Kernel) => { let map = served.get(kernel); if (!
  */
 export async function openLocalDevice(spec: string): Promise<DeviceSession> {
   if (spec === 'loopback') return loopbackSession()
-  const kind = spec.split(/[:,]/)[0] ?? ''
-  const need = (pattern: RegExp, form: string) => {
-    const match = pattern.exec(spec)
-    if (!match) throw new RemoteMountFailure(`bad device '${spec}' (use ${form})`)
-    return match
+  const colon = spec.indexOf(':')
+  const kind = colon < 0 ? spec.split(',')[0]! : spec.slice(0, colon)
+  const rest = colon < 0 ? spec.slice(spec.indexOf(',') < 0 ? spec.length : spec.indexOf(',') + 1) : spec.slice(colon + 1)
+  const parts = rest.split(',').filter(Boolean)
+  // The first part may be a bare index or word (`serial:2`, `sensor:gyroscope`); the others are key=value
+  const head = parts[0] !== undefined && !parts[0].includes('=') ? parts.shift() : undefined
+  const options = new Map<string, string>()
+  for (const part of parts) {
+    const equals = part.indexOf('=')
+    const key = equals < 0 ? part : part.slice(0, equals)
+    if (!/^[a-z]+$/.test(key) || (equals >= 0 && !/^[A-Za-z0-9._-]{1,64}$/.test(part.slice(equals + 1)))) throw new RemoteMountFailure(`bad device '${spec}'`)
+    options.set(key, equals < 0 ? '' : part.slice(equals + 1))
+  }
+  const allowed = (...keys: string[]) => {
+    for (const key of options.keys()) if (!keys.includes(key)) throw new RemoteMountFailure(`device '${spec}': unknown option '${key}' (this kind takes ${keys.join(', ') || 'none'})`)
+  }
+  const number = (key: string, value: string | undefined = options.get(key)): number | undefined => {
+    if (value === undefined) return undefined
+    if (!/^\d+(\.\d+)?$/.test(value)) throw new RemoteMountFailure(`device '${spec}': ${key} is a number`)
+    return Number(value)
+  }
+  const index = (): number => {
+    if (head === undefined || !/^\d+$/.test(head)) throw new RemoteMountFailure(`device '${spec}' needs a number, as in ${kind}:0`)
+    return Number(head)
   }
   const nav = (globalThis as unknown as { navigator?: Record<string, unknown> }).navigator ?? {}
+  const as = (session: unknown) => session as DeviceSession
   switch (kind) {
     case 'serial': {
-      const match = need(/^serial:(\d+)((?:,[a-z]+=[A-Za-z0-9]+)*)$/, 'serial:N[,baud=RATE]')
+      allowed('baud')
+      const at = index()
+      const baudRate = number('baud')
       const serial = nav['serial'] as { getPorts(): Promise<Array<Parameters<typeof openSerialSession>[0]>> } | undefined
       if (!serial) throw new RemoteMountFailure('this machine has no Web Serial')
-      const port = (await serial.getPorts())[Number(match[1])]
-      if (!port) throw new RemoteMountFailure(`no serial port ${match[1]} (see 'serial devices'; 'serial request' asks for one)`)
-      const options: Record<string, string> = Object.fromEntries((match[2] ?? '').split(',').filter(Boolean).map(part => part.split('=') as [string, string]))
-      const baudRate = options['baud'] === undefined ? undefined : Number(options['baud'])
-      return await openSerialSession(port, baudRate === undefined ? {} : { baudRate }) as unknown as DeviceSession
+      const port = (await serial.getPorts())[at]
+      if (!port) throw new RemoteMountFailure(`no serial port ${at} (see 'serial devices'; 'serial request' asks for one)`)
+      return as(await openSerialSession(port, baudRate === undefined ? {} : { baudRate }))
     }
     case 'midi': {
-      const match = need(/^midi:((?:in|out)=\d+(?:,(?:in|out)=\d+)?)(,sysex)?$/, 'midi:in=N, midi:out=N or midi:in=N,out=M[,sysex]')
+      allowed('in', 'out', 'sysex')
       if (typeof nav['requestMIDIAccess'] !== 'function') throw new RemoteMountFailure('this machine has no Web MIDI')
-      const ports = Object.fromEntries(match[1]!.split(',').map(part => part.split('=') as [string, string]))
-      const access = await (nav['requestMIDIAccess'] as (options: { sysex: boolean }) => Promise<Parameters<typeof openMidiSession>[0]>)({ sysex: !!match[2] })
-      return await openMidiSession(access, { ...(ports['in'] !== undefined ? { input: Number(ports['in']) } : {}), ...(ports['out'] !== undefined ? { output: Number(ports['out']) } : {}) }) as unknown as DeviceSession
+      const input = number('in')
+      const output = number('out')
+      if (input === undefined && output === undefined) throw new RemoteMountFailure('midi needs in=N, out=N or both')
+      const access = await (nav['requestMIDIAccess'] as (options: { sysex: boolean }) => Promise<Parameters<typeof openMidiSession>[0]>)({ sysex: options.has('sysex') })
+      return as(await openMidiSession(access, { ...(input !== undefined ? { input } : {}), ...(output !== undefined ? { output } : {}) }))
     }
     case 'gamepad': {
-      const match = need(/^gamepad:(\d+)$/, 'gamepad:N')
+      allowed()
       if (typeof nav['getGamepads'] !== 'function') throw new RemoteMountFailure('this machine has no Gamepad API')
-      return await openGamepadSession(Number(match[1])) as unknown as DeviceSession
+      return as(await openGamepadSession(index()))
     }
     case 'hid': {
-      const match = need(/^hid:(\d+)$/, 'hid:N')
+      allowed()
       const hid = nav['hid'] as { getDevices(): Promise<Array<Parameters<typeof openHidSession>[0]>> } | undefined
       if (!hid) throw new RemoteMountFailure('this machine has no WebHID')
-      const device = (await hid.getDevices())[Number(match[1])]
-      if (!device) throw new RemoteMountFailure(`no HID device ${match[1]} (see 'hid list'; 'hid request' asks for one)`)
-      return await openHidSession(device) as unknown as DeviceSession
+      const at = index()
+      const device = (await hid.getDevices())[at]
+      if (!device) throw new RemoteMountFailure(`no HID device ${at} (see 'hid list'; 'hid request' asks for one)`)
+      return as(await openHidSession(device))
+    }
+    case 'usb': {
+      allowed('in', 'out', 'interface', 'config')
+      const usb = nav['usb'] as { getDevices(): Promise<Array<Parameters<typeof openUsbSession>[0]>> } | undefined
+      if (!usb) throw new RemoteMountFailure('this machine has no WebUSB')
+      const at = index()
+      const device = (await usb.getDevices())[at]
+      if (!device) throw new RemoteMountFailure(`no USB device ${at} (see 'usb list'; 'usb request' asks for one)`)
+      const usbOptions: Parameters<typeof openUsbSession>[1] = {}
+      const endpointIn = number('in'); if (endpointIn !== undefined) usbOptions.in = endpointIn
+      const endpointOut = number('out'); if (endpointOut !== undefined) usbOptions.out = endpointOut
+      const iface = number('interface'); if (iface !== undefined) usbOptions.interface = iface
+      const config = number('config'); if (config !== undefined) usbOptions.configuration = config
+      return as(await openUsbSession(device, usbOptions))
+    }
+    case 'bluetooth': {
+      allowed('service', 'notify', 'write', 'chunk')
+      const bluetooth = nav['bluetooth'] as { getDevices?(): Promise<Array<Parameters<typeof openBluetoothSession>[0]>> } | undefined
+      if (!bluetooth?.getDevices) throw new RemoteMountFailure('this browser cannot list Bluetooth devices it has been given (see the Web Bluetooth flags)')
+      const at = index()
+      const device = (await bluetooth.getDevices())[at]
+      if (!device) throw new RemoteMountFailure(`no Bluetooth device ${at} (see 'bluetooth list')`)
+      const bluetoothOptions: Parameters<typeof openBluetoothSession>[1] = {}
+      const service = options.get('service'); if (service) bluetoothOptions.service = service
+      const notify = options.get('notify'); if (notify) bluetoothOptions.notify = notify
+      const write = options.get('write'); if (write) bluetoothOptions.write = write
+      const chunk = number('chunk'); if (chunk !== undefined) bluetoothOptions.chunk = chunk
+      return as(await openBluetoothSession(device, bluetoothOptions))
+    }
+    case 'battery': {
+      allowed()
+      return as(await openBatterySession())
+    }
+    case 'geo': {
+      allowed()
+      return as(await openGeoSession())
+    }
+    case 'sensor': {
+      allowed('hz')
+      if (head === undefined) throw new RemoteMountFailure(`device '${spec}' needs a sensor: ${Object.keys(SensorKinds).join(', ')}`)
+      const frequency = number('hz')
+      return as(await openSensorSession(head, frequency === undefined ? {} : { frequency }))
+    }
+    case 'audio': {
+      allowed('rate')
+      const rate = number('rate')
+      const audioOptions = rate === undefined ? {} : { rate }
+      if (head === 'in') return as(await openMicrophoneSession(audioOptions))
+      if (head === 'out') return as(await openSpeakerSession(audioOptions))
+      throw new RemoteMountFailure(`device '${spec}': audio:in is the microphone, audio:out the speakers`)
+    }
+    case 'camera': {
+      allowed('fps', 'quality')
+      const fps = number('fps')
+      const quality = number('quality')
+      return as(await openCameraSession({ index: head === undefined ? 0 : index(), ...(fps !== undefined ? { fps } : {}), ...(quality !== undefined ? { quality } : {}) }))
     }
     default:
-      throw new RemoteMountFailure(`unknown device '${spec}' (use loopback, serial:N, midi:in=N, gamepad:N or hid:N)`)
+      throw new RemoteMountFailure(`unknown device '${spec.slice(0, 64)}' (use loopback, serial:N, midi:in=N, gamepad:N, hid:N, usb:N, bluetooth:N, battery, geo, sensor:KIND, audio:in, audio:out or camera[:N])`)
   }
 }
 

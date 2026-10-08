@@ -1,6 +1,9 @@
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { openGamepadSession } from './session.js'
 
 export { openGamepadSession, jsEvent, GamepadError } from './session.js'
 export type { GamepadDeviceSession, GamepadSessionOptions } from './session.js'
@@ -94,17 +97,22 @@ Commands:
 /** `/sys/class/gamepad` */
 const gamepad_class = new Class('gamepad')
 
+/** How many `js<N>` nodes there are: a browser shows at most four pads at once */
+const PadSlots = 4
+
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  return [{
+  // Dynamically allocated: real Linux major 13 (input) is now hid's alone, since
+  // char_dev.register claims an entire major and the two can no longer share it informally.
+  const drivers: KernelCharDevice[] = [{
     name: 'gamepad',
-    // Dynamically allocated: real Linux major 13 (input) is now hid's alone, since
-    // char_dev.register claims an entire major and the two can no longer share it informally.
     major: 0,
-    minor: 1,
+    minor: 0,
     class: gamepad_class,
-    ops: {
-      read: () => 0,
-      write: () => {}
-    }
+    ops: { read: () => 0, write: () => {} }
   }]
+  if (typeof navigator === 'undefined' || !('getGamepads' in navigator)) return drivers
+  // A pad is only there once a button has been pressed on it, so the nodes are made ahead and open or fail with ENODEV
+  const ops = sessionOperations({ open: async minor => await openGamepadSession(minor - 1) })
+  for (let index = 0; index < PadSlots; index++) drivers.push({ name: `js${index}`, major: 0, minor: index + 1, class: gamepad_class, ops })
+  return drivers
 }

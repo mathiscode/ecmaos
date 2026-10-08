@@ -148,7 +148,7 @@ describe('offering a device by its spec', () => {
     await gamepad.close()
     expect((await openLocalDevice('hid:0')).info).toMatchObject({ kind: 'hid' })
     await expect(openLocalDevice('hid:2')).rejects.toThrow(/no HID device 2/)
-    await expect(openLocalDevice('midi:in=x')).rejects.toThrow(/bad device/)
+    await expect(openLocalDevice('midi:in=x')).rejects.toThrow(/in is a number/)
     await expect(openLocalDevice('webcam:0')).rejects.toThrow(/unknown device/)
     expect(output.opened).toBe(false)
     vi.stubGlobal('navigator', {})

@@ -7,6 +7,7 @@
 - `@ecmaos-devices/audio`: Audio device for sound playback and recording
 - `@ecmaos-devices/battery`: Battery status and monitoring device
 - `@ecmaos-devices/bluetooth`: Bluetooth device for wireless connectivity
+- `@ecmaos-devices/camera`: Camera device, offered to other machines as a stream of JPEG pictures
 - `@ecmaos-devices/echo`: A minimal loopback device, mainly useful as a reference driver
 - `@ecmaos-devices/gamepad`: Gamepad/controller input device
 - `@ecmaos-devices/geo`: Geolocation device for position data
@@ -16,11 +17,24 @@
 - `@ecmaos-devices/presentation`: Presentation device for display control
 - `@ecmaos-devices/sensors`: Device for various sensor inputs
 - `@ecmaos-devices/serial`: Serial port communication device
+- `@ecmaos-devices/session`: Shared plumbing for drivers built on sessions (not a device)
 - `@ecmaos-devices/tty`: No longer registers a device — superseded by `attach_xterm`'s real `/dev/xterm<n>` nodes (see below)
 - `@ecmaos-devices/usb`: USB device connectivity
 - `@ecmaos-devices/webgl`: WebGL graphics device
 
+## Sessions
+
+A driver that talks to browser hardware (`serial`, `midi`, `gamepad`, `hid`, `usb`, `bluetooth`, `battery`, `geo`, `sensors`,
+`audio`, `camera`) has a `session.ts` that opens the hardware as a `DeviceSession` (`@ecmaos-devices/session`): bytes to read,
+bytes to write, controls and events. Two things use it. `sessionOperations` makes a `/dev` node from one (`ttyS<n>`, `midi<n>`,
+`js<n>`, `hidraw<n>`, `dsp`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
+once and works both ways.
+
 ## Major/Minor Number Allocation
+
+A driver that asks for major 0 gets a dynamic major of its own (one per package), so minors only have to be unique inside a
+package.
+
 
 Devices register through `char_dev.register(major, name, ops)` (`@zenfs/linux`), which claims an
 **entire major** — all 256 minors — for one `FileOperations` object. Two packages can no longer

@@ -2333,14 +2333,18 @@ export class Kernel implements IKernel {
       for (const driver of drivers) allDrivers.push({ device, driver })
     }
 
-    const byMajor = new Map<number, typeof allDrivers>()
+    // A driver that asks for major 0 wants a dynamic major of its own: every package that did would otherwise share one
+    // dynamic major, and the dispatch below is by minor alone, so two packages using the same minor would answer each other's nodes.
+    const byMajor = new Map<number | string, typeof allDrivers>()
     for (const entry of allDrivers) {
-      const group = byMajor.get(entry.driver.major) ?? []
+      const key = !entry.driver.major ? `dynamic:${entry.device.pkg.name}` : entry.driver.major
+      const group = byMajor.get(key) ?? []
       group.push(entry)
-      byMajor.set(entry.driver.major, group)
+      byMajor.set(key, group)
     }
 
-    for (const [requestedMajor, group] of byMajor) {
+    for (const [key, group] of byMajor) {
+      const requestedMajor = typeof key === 'number' ? key : 0
       const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
         const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
         if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
@@ -2380,9 +2384,9 @@ export class Kernel implements IKernel {
       // EBUSY/EEXIST here are swallowed rather than treated as a boot failure.
       let major: number
       try {
-        major = char_dev.register(requestedMajor, `major-${requestedMajor}`, ops)
+        major = char_dev.register(requestedMajor, typeof key === 'number' ? `major-${key}` : `ecmaos-${key.slice('dynamic:'.length)}`, ops)
       } catch (error) {
-        this.log.warn(`Device major ${requestedMajor} already registered: ${error instanceof Error ? error.message : String(error)}`)
+        this.log.warn(`Device major ${key} already registered: ${error instanceof Error ? error.message : String(error)}`)
         continue
       }
 

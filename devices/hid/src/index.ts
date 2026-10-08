@@ -2,7 +2,10 @@
 
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { openHidSession } from './session.js'
 
 export { openHidSession, HidError } from './session.js'
 export type { HidDeviceSession } from './session.js'
@@ -145,53 +148,31 @@ Commands:
 const hid_class = new Class('hid')
 
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const deviceMap = new Map<number, HIDDevice>()
   const drivers: KernelCharDevice[] = [{
     name: 'hid',
     major: 13,
     minor: 64,
     class: hid_class,
     ops: {
-      read: (_file, buffer) => {
-        const view = new Uint32Array(buffer.buffer, buffer.byteOffset, 1)
-        view[0] = deviceMap.size
-        return 4
-      },
+      read: () => 0,
       write: () => {}
     }
   }]
 
-  if ('hid' in navigator) {
-    // Get initially connected devices
-    try {
-      const devices = await navigator.hid.getDevices()
-      devices.forEach(device => deviceMap.set(device.productId, device))
-    } catch (error) {
-      console.warn('HID error:', error)
-    }
-
-    // Listen for device connect/disconnect events
-    navigator.hid.addEventListener('connect', (event) => {
-      deviceMap.set(event.device.productId, event.device)
+  if (typeof navigator === 'undefined' || !('hid' in navigator)) return drivers
+  try {
+    // Devices the user has already allowed (`/dev/hid request`) get a node each, in the order the browser lists them
+    const devices = await navigator.hid.getDevices()
+    const ops = sessionOperations({
+      async open(minor) {
+        const device = (await navigator.hid.getDevices())[minor - 1]
+        if (!device) throw new Error('no such device')
+        return await openHidSession(device)
+      }
     })
-
-    navigator.hid.addEventListener('disconnect', (event) => {
-      deviceMap.delete(event.device.productId)
-    })
-
-    Array.from(deviceMap.values()).forEach((device, index) => {
-      drivers.push({
-        name: `hid-${device.productName}-${device.vendorId}-${device.productId}`,
-        major: 13,
-        minor: 65 + index,
-        class: hid_class,
-        ops: {
-          read: () => 0,
-          write: () => {}
-        }
-      })
-    })
+    devices.forEach((_device, index) => drivers.push({ name: `hidraw${index}`, major: 0, minor: index + 1, class: hid_class, ops }))
+  } catch (error) {
+    console.warn('HID error:', error)
   }
-
   return drivers
 }

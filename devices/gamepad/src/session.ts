@@ -7,22 +7,12 @@
  * the type. Reads only; the control `rumble` drives the vibration motors.
  */
 
-type Plain = string | number | boolean | null | Uint8Array | Plain[] | { [key: string]: Plain }
+import { Feed, SessionError } from '@ecmaos-devices/session'
+import type { DeviceSession, Plain } from '@ecmaos-devices/session'
 
-export interface GamepadDeviceSession {
-  info: { kind: string, read: boolean, write: boolean, [key: string]: Plain }
-  read(): Promise<Uint8Array | undefined>
-  control(op: string, args: Plain[]): Promise<Plain>
-  emit?: (name: string, data: Plain) => void
-  close(): Promise<void>
-}
-
-export class GamepadError extends Error {
-  constructor(readonly code: string, message?: string) {
-    super(message ?? code)
-    this.name = 'GamepadError'
-  }
-}
+export type GamepadDeviceSession = DeviceSession
+export { SessionError as GamepadError }
+const GamepadError = SessionError
 
 export const JS_EVENT_BUTTON = 0x01
 export const JS_EVENT_AXIS = 0x02
@@ -52,16 +42,8 @@ export async function openGamepadSession(index: number, options: GamepadSessionO
   const first = getGamepads()[index]
   if (!first) throw new GamepadError('ENODEV', `no gamepad ${index} (press a button on it first)`)
   const started = Date.now()
-  const queue: Uint8Array[] = []
-  let waiting: ((chunk: Uint8Array | undefined) => void) | undefined
-  let closed = false
-  const limit = 1024
-  const push = (event: Uint8Array) => {
-    if (waiting) { const resolve = waiting; waiting = undefined; resolve(event) } else {
-      queue.push(event)
-      if (queue.length > limit) queue.shift()
-    }
-  }
+  const feed = new Feed(1024)
+  const push = (event: Uint8Array) => feed.push(event)
   const now = () => Date.now() - started
 
   const buttons = first.buttons.map(button => button.pressed ? 1 : 0)
@@ -69,9 +51,8 @@ export async function openGamepadSession(index: number, options: GamepadSessionO
   buttons.forEach((value, number) => push(jsEvent(0, value, JS_EVENT_BUTTON | JS_EVENT_INIT, number)))
   axes.forEach((value, number) => push(jsEvent(0, value, JS_EVENT_AXIS | JS_EVENT_INIT, number)))
 
-  let timer: ReturnType<typeof setInterval> | undefined
-  const finish = () => { if (closed) return; closed = true; if (timer) clearInterval(timer); waiting?.(undefined); waiting = undefined }
-  timer = setInterval(() => {
+    const finish = () => { if (timer) clearInterval(timer); feed.end() }
+  const timer = setInterval(() => {
     const pad = getGamepads()[index]
     if (!pad || !pad.connected) { session.emit?.('disconnect', null); finish(); return }
     const time = now()
@@ -87,12 +68,7 @@ export async function openGamepadSession(index: number, options: GamepadSessionO
 
   const session: GamepadDeviceSession = {
     info: { kind: 'gamepad', read: true, write: false, id: first.id, mapping: first.mapping, buttons: first.buttons.length, axes: first.axes.length },
-    read: () => new Promise<Uint8Array | undefined>(resolve => {
-      const next = queue.shift()
-      if (next) resolve(next)
-      else if (closed) resolve(undefined)
-      else waiting = resolve
-    }),
+    read: () => feed.next(),
     async control(op, args) {
       switch (op) {
         case 'rumble': {

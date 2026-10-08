@@ -30,8 +30,9 @@ Options:
   -c, --control NAME      send an operation to the device (what it knows depends on the device); the rest are its arguments as JSON
   -s, --serve             the other way round: offer DEVICE of this machine to HOST, where it appears as /dev/NAME. DEVICE is
                           loopback, serial:N[,baud=RATE] (the Nth serial port this browser has been given, see 'serial
-                          request'), midi:in=N[,out=M] or midi:out=N, gamepad:N, or hid:N. The machine only takes it from
-                          root. -d NAME stops offering it.
+                          request'), midi:in=N[,out=M] or midi:out=N, gamepad:N, hid:N, usb:N[,in=EP,out=EP], bluetooth:N[,...],
+                          battery, geo, sensor:KIND, audio:in, audio:out or camera[:N] (see the manual page). The machine
+                          only takes it from root. -d NAME stops offering it.
   --help                  display this help and exit`
 
 function readSecret(prompt) {
