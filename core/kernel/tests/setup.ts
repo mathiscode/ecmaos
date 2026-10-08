@@ -285,6 +285,10 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
 // The site serves the prebuilt WebAssembly programs at `/programs/` (see `vite-plugin-bin-node.ts`'s `binPrograms`);
 // a test boots without a server, so answer those requests from the program packages on disk. Everything else goes
 // through whatever `fetch` was there, and a test that stubs `fetch` itself still gets its own stub.
+//
+// A booted kernel installs the catalog's programs (about 12 MB hashed and written: over a second of every boot), and
+// most test files never run one, so the default catalog is empty. A test that runs a program boots its kernel with
+// `programs: PROGRAMS_ALL` (`/programs/index.json?all`), which lists them all.
 {
   const nodeFs = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:fs') }).getBuiltinModule('node:fs')
   const nodePath = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:path') }).getBuiltinModule('node:path')
@@ -298,7 +302,8 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
     const pathname = new URL(raw, 'http://localhost/').pathname
     if (!pathname.startsWith('/programs/')) return realFetch(input as RequestInfo, init)
     if (pathname === '/programs/index.json') {
-      const catalog = { packages: packages.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) }
+      const all = new URL(raw, 'http://localhost/').searchParams.has('all')
+      const catalog = { packages: all ? packages.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) : [] }
       return Promise.resolve(new Response(JSON.stringify(catalog), { headers: { 'content-type': 'application/json' } }))
     }
     const [, , pkgName, file] = pathname.split('/')

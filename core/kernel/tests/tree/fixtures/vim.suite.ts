@@ -1,9 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { processes } from '@zenfs/linux'
+
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from './kernel.fixtures'
 
 async function waitFor(check: () => boolean, timeoutMs = 8000): Promise<void> {
   const start = Date.now()
@@ -13,11 +15,33 @@ async function waitFor(check: () => boolean, timeoutMs = 8000): Promise<void> {
   }
 }
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+/** The programs Vim started (a `:!` command, a filter, `system()`) that are still running. */
+const vimChildren = () => [...processes.values()].filter(proc => proc.code === undefined && proc.parent?.comm === 'vim')
+const sleeping = () => [...processes.values()].some(proc => proc.comm === 'sleep' && proc.code === undefined)
+
+/** Waits for the command Vim just ran to be over (keys typed while one runs are discarded by the terminal mode switch). */
+const afterShellCommand = async () => {
+  // the child starts a moment after the key; one quick enough to be over before the first look leaves nothing to wait for
+  await waitFor(() => vimChildren().length > 0, 3000).catch(() => {})
+  await waitFor(() => vimChildren().length === 0, 90000)
+  await sleep(800)
+}
+
 /**
  * `/bin/vim` is Vim 9.1 built to WebAssembly (`core/utils-copyleft/wasm/vim/build.sh`), run as an ordinary worker program
  * on the terminal, the way `/bin/vi` is. These drive it with keystrokes through the line discipline.
  */
-describe('vim', () => {
+/**
+ * The vim tests are slow (each starts Vim, which loads its runtime), so they are three files that run side by side, each
+ * with a kernel of its own; `group` picks the tests of one by the start of their title.
+ */
+export function defineVim(group: string[]) {
+const base = it
+const selected = (title: string) => group.some(prefix => title.startsWith(prefix))
+const test = ((title: string, fn: () => Promise<void> | void, timeout?: number) => selected(title) ? base(title, fn, timeout) : undefined) as unknown as typeof it
+describe(`vim (${group[0]})`, () => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -25,7 +49,8 @@ describe('vim', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
     const container = document.createElement('div')
@@ -36,7 +61,7 @@ describe('vim', () => {
     const tarball = process.getBuiltinModule('node:fs').readFileSync(`${process.cwd()}/../utils-copyleft/programs/vim-runtime.tar.gz`)
     await kernel.filesystem.fs.writeFile('/tmp/vim-runtime.tar', new Uint8Array(tarball))
     await kernel.filesystem.extractTarball('/tmp/vim-runtime.tar', '/', 0o644, 0o755)
-  }, 60000)
+  }, 180000)
 
   const typeKeys = async (keys: string) => {
     for (const key of keys) {
@@ -57,7 +82,7 @@ describe('vim', () => {
 
   /** Waits until Vim has drawn: its empty-line marker is on the screen (startup now loads the runtime, which a loaded machine takes a while over). */
   const screenReady = async () => {
-    await waitFor(() => screenLines().some(line => line.startsWith('~')), 30000)
+    await waitFor(() => screenLines().some(line => line.startsWith('~')), 90000)
     await new Promise(resolve => setTimeout(resolve, 300))
   }
 
@@ -69,7 +94,7 @@ describe('vim', () => {
     return done
   }
 
-  it('detects the filetype and turns syntax highlighting on, from the shipped runtime', async () => {
+  test('detects the filetype and turns syntax highlighting on, from the shipped runtime', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/ft.c', '#include <stdio.h>\nint main(void) { return 0; }\n')
     const code = await edit('vim /tmp/ft.c', ':call writefile([&filetype, exists("g:syntax_on") ? "syntax" : "plain", &syntax, execute("hi cType"), strlen(&t_AF) > 0 ? "color" : "mono"], "/tmp/ft.out")\r:q\r')
     expect(code).toBe(0)
@@ -77,15 +102,15 @@ describe('vim', () => {
     expect(out).toMatch(/^c\nsyntax\nc\n/)
     expect(out).toMatch(/cType\s+xxx/)
     expect(out).toMatch(/color\n$/)
-  }, 30000)
+  }, 120000)
 
-  it('says in :version that it is a modified Vim, as the Vim license requires', async () => {
+  test('says in :version that it is a modified Vim, as the Vim license requires', async () => {
     const code = await edit('vim /tmp/ver.txt', ':call writefile(split(execute("version"), "\\n"), "/tmp/ver.out")\r:q\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/ver.out', 'utf8')).toMatch(/Modified by ecmaOS/)
-  }, 30000)
+  }, 120000)
 
-  it('runs shell commands: :r !, system() and a filter', async () => {
+  test('runs shell commands: :r !, system() and a filter', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/sh.txt', 'b\na\n')
     const done = kernel.shell.execute('vim /tmp/sh.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
@@ -93,7 +118,7 @@ describe('vim', () => {
     // keys typed while a command runs are discarded by the terminal mode switch, so wait for each
     for (const command of [':r !echo from-shell\r', ':%!sort\r', ':call writefile([system("echo viasystem")[:-2], v:shell_error], "/tmp/sh.out")\r']) {
       await typeKeys(command)
-      await new Promise(resolve => setTimeout(resolve, 6000))
+      await afterShellCommand()
       await typeKeys('\r') // at "Press ENTER", or harmless in normal mode
       await new Promise(resolve => setTimeout(resolve, 300))
     }
@@ -103,28 +128,29 @@ describe('vim', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/sh.txt', 'utf8')).toBe('a\nb\nfrom-shell\n')
   }, 120000)
 
-  it('takes ^C as a key (leaves insert mode) instead of being killed by it', async () => {
+  test('takes ^C as a key (leaves insert mode) instead of being killed by it', async () => {
     const code = await edit('vim /tmp/ctrlc.txt', 'ifoo\x03:wq\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/ctrlc.txt', 'utf8')).toBe('foo\n')
-  }, 30000)
+  }, 120000)
 
-  it('^C during a shell command stops the command, not Vim', async () => {
+  test('^C during a shell command stops the command, not Vim', async () => {
     const done = kernel.shell.execute('vim /tmp/ctrlc2.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
     await screenReady()
     await typeKeys(':!sleep 60\r')
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    await waitFor(sleeping, 90000)
     const started = Date.now()
     kernel.terminal.input('\x03', true)
-    await new Promise(resolve => setTimeout(resolve, 3000))
+    await waitFor(() => !sleeping(), 60000)
+    await sleep(1000)
     await typeKeys('\r:call writefile(["alive"], "/tmp/ctrlc2.out")\r:q!\r')
     expect(await done).toBe(0)
     expect(Date.now() - started).toBeLessThan(30000)
     expect(await kernel.filesystem.fs.readFile('/tmp/ctrlc2.out', 'utf8')).toBe('alive\n')
-  }, 60000)
+  }, 180000)
 
-  it('learns of a resize at once (SIGWINCH), without a redraw', async () => {
+  test('learns of a resize at once (SIGWINCH), without a redraw', async () => {
     const terminal = kernel.terminal as unknown as { resize(cols: number, rows: number): void, cols: number, rows: number }
     const before = [terminal.cols, terminal.rows]
     const done = kernel.shell.execute('vim /tmp/size.txt')
@@ -136,9 +162,9 @@ describe('vim', () => {
     expect(await done).toBe(0)
     terminal.resize(before[0]!, before[1]!)
     expect(await kernel.filesystem.fs.readFile('/tmp/size.out', 'utf8')).toBe('97x31\n')
-  }, 60000)
+  }, 180000)
 
-  it('detects the common filetypes without a script error', async () => {
+  test('detects the common filetypes without a script error', async () => {
     const names = ['a.c', 'a.cpp', 'a.py', 'a.js', 'a.ts', 'a.json', 'a.md', 'a.sh', 'Makefile', 'a.html', 'a.css', 'a.rs', 'a.go', 'a.yaml', 'a.toml', 'Dockerfile', 'a.vim', 'a.lua', 'a.java', 'a.sql', 'noext']
     await kernel.filesystem.fs.mkdir('/tmp/ft', { recursive: true })
     for (const name of names) await kernel.filesystem.fs.writeFile(`/tmp/ft/${name}`, name === 'noext' ? '#!/bin/sh\necho hi\n' : 'x\n')
@@ -154,11 +180,11 @@ describe('vim', () => {
     expect(code).toBeLessThanOrEqual(1)
   }, 180000)
 
-  it('writes a system vimrc that turns off vi compatibility', async () => {
+  test('writes a system vimrc that turns off vi compatibility', async () => {
     expect(await kernel.filesystem.fs.readFile('/etc/vimrc', 'utf8')).toContain('set nocompatible')
   })
 
-  it('starts without a startup error (no defaults.vim to fail on)', async () => {
+  test('starts without a startup error (no defaults.vim to fail on)', async () => {
     const done = kernel.shell.execute('vim /tmp/vim-clean.txt')
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
     await screenReady()
@@ -166,9 +192,9 @@ describe('vim', () => {
     await typeKeys('\x1b:q!\r')
     expect(await done).toBe(0)
     expect(screen.filter(line => line.trim()).join('\n')).not.toMatch(/E\d{3,4}|Press ENTER/)
-  }, 30000)
+  }, 120000)
 
-  it('uses the alternate screen, so its display is gone when it exits', async () => {
+  test('uses the alternate screen, so its display is gone when it exits', async () => {
     const terminal = kernel.terminal as unknown as { write: (data: unknown, ...rest: unknown[]) => unknown }
     const original = terminal.write.bind(terminal)
     const written: string[] = []
@@ -182,42 +208,43 @@ describe('vim', () => {
     const output = written.join('')
     expect(output).toContain('\x1b[?1049h')
     expect(output.lastIndexOf('\x1b[?1049l')).toBeGreaterThan(output.indexOf('\x1b[?1049h'))
-  }, 30000)
+  }, 120000)
 
-  it('edits, searches by regex, substitutes and saves a file', async () => {
+  test('edits, searches by regex, substitutes and saves a file', async () => {
     const code = await edit('vim /tmp/vim-out.txt', 'ifoo bar foo\x1b:%s/fo\\+/baz/g\r/bar\rcwqux\x1b:wq\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/vim-out.txt', 'utf8')).toBe('baz qux baz\n')
-  }, 30000)
+  }, 120000)
 
-  it('has visual mode, undo and redo', async () => {
+  test('has visual mode, undo and redo', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/vim-visual.txt', 'one two three\n')
     // visual select "one", delete it; undo; redo; then yank-paste a word with `yw` `P`
     const code = await edit('vim /tmp/vim-visual.txt', 'vlld\x1bu\x12:wq\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/vim-visual.txt', 'utf8')).toBe(' two three\n')
-  }, 30000)
+  }, 120000)
 
-  it('runs Vimscript', async () => {
+  test('runs Vimscript', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/vim-eval.txt', 'x\n')
     const code = await edit('vim /tmp/vim-eval.txt', ':put =1+2*3\r:wq\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/vim-eval.txt', 'utf8')).toBe('x\n7\n')
-  }, 30000)
+  }, 120000)
 
-  it('is also reachable as vi, a link to vim', async () => {
+  test('is also reachable as vi, a link to vim', async () => {
     expect(await kernel.filesystem.fs.readlink('/bin/vi')).toBe('/bin/vim')
     const code = await edit('vi /tmp/vi-out.txt', 'ivi\x1b:wq\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/vi-out.txt', 'utf8')).toBe('vi\n')
-  }, 30000)
+  }, 120000)
 
-  it('leaves a file alone on :q! and writes no swap or backup file', async () => {
+  test('leaves a file alone on :q! and writes no swap or backup file', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/vim-keep.txt', 'keep me\n')
     const code = await edit('vim /tmp/vim-keep.txt', 'dd\x1b:q!\r')
     expect(code).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/vim-keep.txt', 'utf8')).toBe('keep me\n')
     const names = await kernel.filesystem.fs.readdir('/tmp')
     expect(names.filter(name => name.includes('vim-keep') && name !== 'vim-keep.txt')).toEqual([])
-  }, 30000)
+  }, 120000)
 })
+}

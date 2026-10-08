@@ -3,11 +3,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import corpusText from './fixtures/shell-parity.corpus.txt?raw'
-import golden from './fixtures/shell-parity.golden.json'
-import { FS_PREAMBLE, parseCorpus } from './fixtures/shell-parity'
-import { knownEcmash, knownKernel, type KnownTable } from './fixtures/shell-parity.known'
-import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+import corpusText from './shell-parity.corpus.txt?raw'
+import golden from './shell-parity.golden.json'
+import { FS_PREAMBLE, parseCorpus } from './shell-parity'
+import { knownEcmash, knownKernel, type KnownTable } from './shell-parity.known'
+import { TestDomOptions, TestLogOptions } from './kernel.fixtures'
 
 /**
  * The same scripts through the kernel shell and through `/bin/ecmash`, each checked against what real
@@ -17,12 +17,19 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * is how the known tables are first filled in.
  */
 const only = process.env['PARITY_ONLY'] ? new RegExp(process.env['PARITY_ONLY']) : undefined
-const cases = parseCorpus(corpusText).filter(test => !only || only.test(test.id))
+const allCases = parseCorpus(corpusText).filter(test => !only || only.test(test.id))
 const expected = golden as Record<string, { stdout: string, status: number }>
 
 interface Outcome { stdout: string, status: number }
 
-describe('shell parity with bash', () => {
+/**
+ * One slice of the corpus for one or both shells. The cases are independent (each resets the shell), so the slices run as
+ * separate test files, each with a kernel of its own, and the files run side by side instead of one after another.
+ * `PARITY_DISCOVER` runs every case on both shells in the first slice only.
+ */
+export function defineParity(shells: Array<'kernel' | 'ecmash'>, shard: number, shards: number) {
+const cases = allCases.filter((_, index) => index % shards === shard)
+describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`, () => {
   let kernel: Kernel
   let baseline: Map<string, string>
 
@@ -99,7 +106,9 @@ describe('shell parity with bash', () => {
   }
 
   if (process.env['PARITY_DISCOVER']) {
+    if (shells[0] !== 'kernel' || shard !== 0) return
     it('discovers every mismatch', async () => {
+      const cases = allCases
       const found: Record<string, Record<string, Outcome>> = { kernel: {}, ecmash: {} }
       for (const test of cases) {
         for (const shell of ['kernel', 'ecmash'] as const) {
@@ -113,7 +122,7 @@ describe('shell parity with bash', () => {
     return
   }
 
-  for (const [shell, known] of [['kernel', knownKernel], ['ecmash', knownEcmash]] as Array<['kernel' | 'ecmash', KnownTable]>) {
+  for (const [shell, known] of ([['kernel', knownKernel], ['ecmash', knownEcmash]] as Array<['kernel' | 'ecmash', KnownTable]>).filter(([name]) => shells.includes(name))) {
     describe(shell, () => {
       for (const test of cases) {
         const divergence = known[test.id]
@@ -132,3 +141,4 @@ describe('shell parity with bash', () => {
     })
   }
 })
+}

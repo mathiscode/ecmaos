@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /** `/bin/sqlite3` is the SQLite shell built to WebAssembly (`core/utils/wasm/sqlite3/build.sh`) and run as a worker program. */
 describe('sqlite3', () => {
@@ -14,7 +14,8 @@ describe('sqlite3', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
   })

@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
  * `/bin/ncdu` and `/bin/mg` are curses programs built to WebAssembly with ncurses (`core/utils/wasm/ncdu`, `core/utils/wasm/mg`).
@@ -17,7 +17,8 @@ describe('ncdu and mg', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
     const container = document.createElement('div')

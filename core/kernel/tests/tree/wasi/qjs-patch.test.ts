@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /** `/bin/qjs` (QuickJS-ng) and `/bin/patch` (toybox) are C programs built to WebAssembly (`core/utils/wasm/quickjs`, `core/utils/wasm/toybox`). */
 describe('qjs and patch', () => {
@@ -14,7 +14,8 @@ describe('qjs and patch', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
   })

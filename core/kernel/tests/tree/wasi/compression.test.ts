@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /** `/bin/bzip2`, `xz`, `zstd` and `lz4` are C programs built to WebAssembly (`core/utils/wasm/*`), each with links for the other names. */
 describe('bzip2, xz, zstd and lz4', () => {
@@ -14,7 +14,8 @@ describe('bzip2, xz, zstd and lz4', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
     await kernel.filesystem.fs.writeFile('/tmp/z.txt', 'the quick brown fox jumps over the lazy dog\n'.repeat(2000))

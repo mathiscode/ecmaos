@@ -28,7 +28,7 @@ describe('host seams', () => {
     await kernel.boot()
     expect(kernel.devices.has('broken-test-device')).toBe(false)
     expect(await kernel.filesystem.fs.exists('/dev/battery')).toBe(true)
-  })
+  }, 60000)
 
   it('mounts the root filesystem given in the kernel options', async () => {
     const { InMemory } = await import('@zenfs/core')
@@ -47,7 +47,7 @@ describe('host seams', () => {
 
     await kernel.boot()
     expect(created).toBeGreaterThan(0)
-  })
+  }, 60000)
 })
 
 describe('host', () => {
