@@ -2,6 +2,9 @@ import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openGamepadSession, jsEvent, GamepadError } from './session.js'
+export type { GamepadDeviceSession, GamepadSessionOptions } from './session.js'
+
 export const pkg = {
   name: 'gamepad',
   version: '0.1.0',

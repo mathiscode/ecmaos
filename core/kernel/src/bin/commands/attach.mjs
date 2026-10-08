@@ -29,8 +29,9 @@ Options:
   -d, --detach NAME       remove /dev/NAME and close the link
   -c, --control NAME      send an operation to the device (what it knows depends on the device); the rest are its arguments as JSON
   -s, --serve             the other way round: offer DEVICE of this machine to HOST, where it appears as /dev/NAME. DEVICE is
-                          loopback, or serial:N[,baud=RATE] for the Nth serial port this browser has been given (see 'serial
-                          request'). The machine only takes it from root. -d NAME stops offering it.
+                          loopback, serial:N[,baud=RATE] (the Nth serial port this browser has been given, see 'serial
+                          request'), midi:in=N[,out=M] or midi:out=N, gamepad:N, or hid:N. The machine only takes it from
+                          root. -d NAME stops offering it.
   --help                  display this help and exit`
 
 function readSecret(prompt) {

@@ -1,6 +1,9 @@
 import { awaitShared, Connection, DeviceChannel, DeviceError, DeviceShareChannel, FsError, loopbackSession, PeerError, RemoteDevice, serveDevice } from '@ecmaos/peer'
 import type { DeviceInfo, DeviceSession, Value } from '@ecmaos/peer'
 import { openSerialSession } from '@ecmaos-devices/serial'
+import { openMidiSession } from '@ecmaos-devices/midi'
+import { openGamepadSession } from '@ecmaos-devices/gamepad'
+import { openHidSession } from '@ecmaos-devices/hid'
 import { char_dev, Class, current as zenfsCurrent, Device, EPOLLIN, EPOLLOUT, WaitQueue } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
@@ -183,15 +186,47 @@ const servedRegistry = (kernel: Kernel) => { let map = served.get(kernel); if (!
  */
 export async function openLocalDevice(spec: string): Promise<DeviceSession> {
   if (spec === 'loopback') return loopbackSession()
-  const match = /^serial:(\d+)((?:,[a-z]+=[A-Za-z0-9]+)*)$/.exec(spec)
-  if (!match) throw new RemoteMountFailure(`unknown device '${spec}' (use loopback or serial:N[,baud=RATE])`)
-  const serial = (globalThis as { navigator?: { serial?: { getPorts(): Promise<Array<Parameters<typeof openSerialSession>[0]>> } } }).navigator?.serial
-  if (!serial) throw new RemoteMountFailure('this machine has no Web Serial')
-  const port = (await serial.getPorts())[Number(match[1])]
-  if (!port) throw new RemoteMountFailure(`no serial port ${match[1]} (see 'serial devices'; 'serial request' asks for one)`)
-  const options: Record<string, string> = Object.fromEntries((match[2] ?? '').split(',').filter(Boolean).map(part => part.split('=') as [string, string]))
-  const baudRate = options['baud'] === undefined ? undefined : Number(options['baud'])
-  return await openSerialSession(port, baudRate === undefined ? {} : { baudRate }) as unknown as DeviceSession
+  const kind = spec.split(/[:,]/)[0] ?? ''
+  const need = (pattern: RegExp, form: string) => {
+    const match = pattern.exec(spec)
+    if (!match) throw new RemoteMountFailure(`bad device '${spec}' (use ${form})`)
+    return match
+  }
+  const nav = (globalThis as unknown as { navigator?: Record<string, unknown> }).navigator ?? {}
+  switch (kind) {
+    case 'serial': {
+      const match = need(/^serial:(\d+)((?:,[a-z]+=[A-Za-z0-9]+)*)$/, 'serial:N[,baud=RATE]')
+      const serial = nav['serial'] as { getPorts(): Promise<Array<Parameters<typeof openSerialSession>[0]>> } | undefined
+      if (!serial) throw new RemoteMountFailure('this machine has no Web Serial')
+      const port = (await serial.getPorts())[Number(match[1])]
+      if (!port) throw new RemoteMountFailure(`no serial port ${match[1]} (see 'serial devices'; 'serial request' asks for one)`)
+      const options: Record<string, string> = Object.fromEntries((match[2] ?? '').split(',').filter(Boolean).map(part => part.split('=') as [string, string]))
+      const baudRate = options['baud'] === undefined ? undefined : Number(options['baud'])
+      return await openSerialSession(port, baudRate === undefined ? {} : { baudRate }) as unknown as DeviceSession
+    }
+    case 'midi': {
+      const match = need(/^midi:((?:in|out)=\d+(?:,(?:in|out)=\d+)?)(,sysex)?$/, 'midi:in=N, midi:out=N or midi:in=N,out=M[,sysex]')
+      if (typeof nav['requestMIDIAccess'] !== 'function') throw new RemoteMountFailure('this machine has no Web MIDI')
+      const ports = Object.fromEntries(match[1]!.split(',').map(part => part.split('=') as [string, string]))
+      const access = await (nav['requestMIDIAccess'] as (options: { sysex: boolean }) => Promise<Parameters<typeof openMidiSession>[0]>)({ sysex: !!match[2] })
+      return await openMidiSession(access, { ...(ports['in'] !== undefined ? { input: Number(ports['in']) } : {}), ...(ports['out'] !== undefined ? { output: Number(ports['out']) } : {}) }) as unknown as DeviceSession
+    }
+    case 'gamepad': {
+      const match = need(/^gamepad:(\d+)$/, 'gamepad:N')
+      if (typeof nav['getGamepads'] !== 'function') throw new RemoteMountFailure('this machine has no Gamepad API')
+      return await openGamepadSession(Number(match[1])) as unknown as DeviceSession
+    }
+    case 'hid': {
+      const match = need(/^hid:(\d+)$/, 'hid:N')
+      const hid = nav['hid'] as { getDevices(): Promise<Array<Parameters<typeof openHidSession>[0]>> } | undefined
+      if (!hid) throw new RemoteMountFailure('this machine has no WebHID')
+      const device = (await hid.getDevices())[Number(match[1])]
+      if (!device) throw new RemoteMountFailure(`no HID device ${match[1]} (see 'hid list'; 'hid request' asks for one)`)
+      return await openHidSession(device) as unknown as DeviceSession
+    }
+    default:
+      throw new RemoteMountFailure(`unknown device '${spec}' (use loopback, serial:N, midi:in=N, gamepad:N or hid:N)`)
+  }
 }
 
 export interface ServeOptions extends Omit<AttachOptions, 'device'> {

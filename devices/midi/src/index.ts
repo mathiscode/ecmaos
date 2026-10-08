@@ -1,6 +1,9 @@
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openMidiSession, splitMessages, MidiError } from './session.js'
+export type { MidiDeviceSession, MidiSessionOptions } from './session.js'
+
 export const pkg = {
   name: 'midi',
   version: '0.1.0',

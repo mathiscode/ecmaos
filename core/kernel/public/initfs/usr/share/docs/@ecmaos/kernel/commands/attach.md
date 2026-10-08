@@ -32,6 +32,20 @@ to (`serial request` asks for one). The machine only takes a device from root, a
 when the machine accepts it (9600 by default; changing it means offering the port again). `attach -d NAME` stops offering.
 The device ends if the port is unplugged, which removes `/dev/NAME` over there.
 
+Other devices of this machine, by what DEVICE says:
+
+- `midi:in=N`, `midi:out=N` or `midi:in=N,out=M[,sysex]`: the Nth MIDI input and/or output. Reading gives the raw bytes of the
+  messages played; writing takes raw MIDI bytes (cut into whole messages before they are sent). `sysex` asks the browser for
+  system-exclusive access. Control `ports` lists what the browser has.
+- `gamepad:N`: the Nth gamepad (press a button on it first, or the browser does not show it). Reading gives events in the
+  layout of Linux's joystick API (`struct js_event`: u32 time in ms, i16 value, u8 type, u8 number, little endian; type 1 is a
+  button, 2 an axis, and 0x80 is added for the state at the start). Control `rumble` takes `{"duration":MS,"strong":0-1,"weak":0-1}`.
+- `hid:N`: the Nth HID device this browser has been given access to (`hid request`). Each read is one input report (the report
+  id, then its data); a write in the same shape is sent as an output report. Controls: `get-feature ID`, `set-feature ID BYTES`
+  and `collections`.
+
+All of them are removed over there when the device is unplugged.
+
 ## Options
 
 ```

@@ -4,6 +4,9 @@ import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+export { openHidSession, HidError } from './session.js'
+export type { HidDeviceSession } from './session.js'
+
 export const pkg = {
   name: 'hid',
   version: '0.1.0',
