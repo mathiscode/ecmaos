@@ -15,7 +15,7 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
-import { bindContext, Credentials } from '@zenfs/core'
+import { bindContext, boundContexts, Credentials } from '@zenfs/core'
 import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -3217,16 +3217,19 @@ export class Kernel implements IKernel {
     // the object itself, not a copy: a copy's `fs` stays bound to the original, so anything set on it afterwards (the umask) would be invisible to the file operations
     const currentContext = this.shell.context
     let result: T | undefined
+    // every log line comes through here: a context left bound would stay in `/proc` (as a `[kernel]` row) for good
+    const elevated = bindContext({ root: '/', pwd: '/', credentials: cred })
 
     try {
       this.shell.credentials = cred
-      this.shell.context = bindContext({ root: '/', pwd: '/', credentials: cred })
+      this.shell.context = elevated
       result = await operation()
     } catch (error) {
       this.log.error(error)
     } finally {
       this.shell.credentials = currentCredentials
       this.shell.context = currentContext
+      boundContexts.delete(elevated.id)
     }
 
     return result

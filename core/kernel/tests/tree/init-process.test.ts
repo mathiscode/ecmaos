@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { processes } from '@zenfs/linux'
+import { boundContexts } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -86,6 +87,17 @@ describe('/sbin/init as pid 1', () => {
     const back = await until(async () => (await ps()).some(entry => entry.command === 'crond' && entry.pid !== before.pid))
     expect(back, JSON.stringify(await ps()) + ' | init children: ' + [...kernel.init.process!.children].map(c => c.pid + ':' + c.code).join(',')).toBe(true)
     expect((await ps()).some(entry => entry.pid === before.pid)).toBe(false)
+  }, 15_000)
+
+  it('leaves no unowned context behind for the log lines and the restarts it causes', async () => {
+    const unowned = () => [...boundContexts.keys()].filter(id => !processes.has(id))
+    const before = unowned()
+    for (let i = 0; i < 5; i++) kernel.log.info(`context leak probe ${i}`)
+    const crond = (await ps()).find(entry => entry.command === 'crond')!
+    await kernel.shell.execute(`kill -9 ${crond.pid}`)
+    expect(await until(async () => (await ps()).some(entry => entry.command === 'crond' && entry.pid !== crond.pid))).toBe(true)
+    await sleep(200)
+    expect(unowned()).toEqual(before)
   }, 15_000)
 
   it('does not die to SIGKILL, SIGINT or SIGQUIT (SIGTERM, SIGUSR1 and SIGUSR2 take the system down: init-shutdown.test.ts)', async () => {
