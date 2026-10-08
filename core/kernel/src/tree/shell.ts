@@ -399,13 +399,12 @@ export class Shell implements IShell {
   private _execOutputs?: { redirections: Redirection[], truncated: Set<number> }
 
   /**
-   * All jobs this shell has ever launched, insertion order (oldest first), keyed by job number.
+   * All jobs this shell has ever launched, insertion order (oldest first). A job number is reused once nothing live holds it, so look one up newest first.
    * Entries are never removed automatically -- `jobs` in a real shell keeps showing a `Done` job
    * until the next prompt reaps it; this implementation just keeps it, which `listJobs()` callers
    * (the `jobs` coreutil) can filter/trim for display if that behavior is ever wanted.
    */
   private _jobs: JobImpl[] = []
-  private _nextJobId = 1
   /**
    * The job currently occupying the foreground, if any. Simplified single-foreground-process model:
    * `@zenfs/linux` has no process-group concept, so this is one `Job` reference, not a real pgid.
@@ -1635,7 +1634,7 @@ export class Shell implements IShell {
       }
 
       const id = Number(rest)
-      if (!Number.isNaN(id)) return this._jobs.find(job => job.id === id)
+      if (!Number.isNaN(id)) return [...this._jobs].reverse().find(job => job.id === id)
 
       // %name: the most recent job whose command line starts with `name`, e.g. `%sleep`
       return [...this._jobs].reverse().find(job => job.commandLine.startsWith(rest))
@@ -2147,7 +2146,10 @@ export class Shell implements IShell {
    */
   private createJob(pipeline: Pipeline, background: boolean, rethrow: boolean): JobImpl {
     const commandLine = pipeline.commands.map(command => command.compound ? compoundLabel(command.compound) : command.words.join(' ')).join(' | ')
-    const job = new JobImpl(this._nextJobId++, commandLine, background)
+    // as in bash the numbers start again once nothing is left to refer to: a job that has finished (and, for a
+    // background one, been reported) no longer holds its number
+    const live = this._jobs.filter(job => job.status !== 'done' || (job.background && !job.notified))
+    const job = new JobImpl(live.reduce((highest, other) => Math.max(highest, other.id), 0) + 1, commandLine, background)
     const settle = (codes: number[]) => {
       job.exitCodes = codes
       job.status = 'done'

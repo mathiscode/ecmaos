@@ -69,6 +69,14 @@ describe('Shell job control — & background execution and the job table', () =>
     expect(job!.exitCodes).toEqual([0])
   })
 
+  it('a finished foreground job gives its number back, as in bash', async () => {
+    await kernel.shell.execute('true')
+    await kernel.shell.execute('true')
+    const jobs = kernel.shell.listJobs()
+    const [first, second] = [jobs[jobs.length - 2]!, jobs[jobs.length - 1]!]
+    expect(second.id).toBe(first.id)
+  })
+
   it('assigns increasing job ids across multiple backgrounded pipelines', async () => {
     await kernel.shell.execute('true &')
     await new Promise(resolve => setTimeout(resolve, 10))
