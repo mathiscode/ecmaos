@@ -1634,7 +1634,14 @@ export class Kernel implements IKernel {
             }
             // Empty and the program's end is closed: EOF (a pipe polls readable exactly then)
             if (closeOnEof && ((bridgeFile.ops.poll?.(bridgeFile) ?? 0) & 1)) break
-            if (await Promise.race([proc.exited.then(() => true), new Promise<boolean>(resolve => setTimeout(() => resolve(false), 10))])) {
+            // Sleep until the program writes (the pipe's queue wakes on data), exits, or a fallback tick: a
+            // fixed poll let a program's stderr land after whatever its parent wrote next to stdout
+            // (`ecmash` drawing its prompt), because the pump only looked every 10 ms.
+            let stopWaiting: (() => void) | undefined
+            const written = new Promise<boolean>(resolve => { stopWaiting = pipefs._end(bridgeFile.path)?.pipe.wait.wait_with(() => resolve(false)) })
+            const exited = await Promise.race([proc.exited.then(() => true), written, new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100))])
+            stopWaiting?.()
+            if (exited) {
               // Program has exited (closing its end); drain whatever is left, then stop.
               const drain = new Uint8Array(65536)
               let m: number
