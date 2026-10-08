@@ -232,6 +232,8 @@ export class Terminal extends XTerm implements ITerminal {
   private _zfsTty: TTY | undefined
   private _ttyInput: IDisposable | undefined
   private _ttyInputHolders = 0
+  /** Typed while a command ran and not read by it; replayed into the line editor after the next prompt */
+  private _typeahead = ''
   private _ttySavedTermios: TTY['termios'] | undefined
   /**
    * The active hardware-accelerated renderer, once loaded in `mount()`. `undefined` when running
@@ -264,7 +266,8 @@ export class Terminal extends XTerm implements ITerminal {
    * line editor, owns the keyboard, and turns `^C`/`^Z` into signals itself (`ISIG`).
    *
    * Reference-counted, because every stage of a foreground pipeline holds it. Returns an idempotent
-   * release; the last release flushes typeahead nobody read, as a real tty does when its session ends.
+   * release; the last release hands typeahead nobody read (what was typed while a command ran) back to the
+   * line editor, which takes it up once the next prompt is drawn, as a shell reading a tty does.
    * Mobile keeps the old path: its on-screen keyboard synthesizes `keyHandler` calls, not `onData`.
    */
   attachInput(): () => void {
@@ -287,6 +290,9 @@ export class Terminal extends XTerm implements ITerminal {
       if (--this._ttyInputHolders > 0) return
       this._ttyInput?.dispose()
       this._ttyInput = undefined
+      // `^C` and `^Z` have already thrown the queue away; what is left was typed for whoever reads next
+      const queued = [...tty.ldisc.buffer, ...tty.ldisc.line]
+      if (queued.length) this._typeahead += new TextDecoder().decode(new Uint8Array(queued))
       tty.ldisc.flush()
       if (this._ttySavedTermios) tty.set_termios(this._ttySavedTermios)
       this._ttySavedTermios = undefined
@@ -304,6 +310,15 @@ export class Terminal extends XTerm implements ITerminal {
     const container = this.element?.parentElement
     if (container && container.clientWidth === 0) return
     fit.fit()
+  }
+
+  /** Feeds text typed while a command ran to the line editor, key by key, as if it had been typed at the prompt */
+  private async replayTypeahead(text: string): Promise<void> {
+    for (const char of text) {
+      const key = char === '\n' || char === '\r' ? 'Enter' : char
+      const domEvent = { key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent
+      await this.keyHandler({ key: key === 'Enter' ? '\r' : char, domEvent })
+    }
   }
 
   private _session?: () => void
@@ -1576,6 +1591,7 @@ export class Terminal extends XTerm implements ITerminal {
           this._commandNumber++
 
           const epoch = this._stopEpoch
+          this._typeahead = ''
           try {
             this.events.dispatch<TerminalExecuteEvent>(TerminalEvents.EXECUTE, { terminal: this, command: cmdToExecute })
             await this._shell.execute(cmdToExecute)
@@ -1588,6 +1604,9 @@ export class Terminal extends XTerm implements ITerminal {
             if (epoch === this._stopEpoch && !this._sessionEnded) {
               this._editor.reset()
               this.write(this.promptLead() + this.jobNotices() + this.prompt())
+              const typeahead = this._typeahead
+              this._typeahead = ''
+              if (typeahead) await this.replayTypeahead(typeahead)
             }
           }
         } else {

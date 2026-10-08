@@ -62,6 +62,21 @@ describe('TTY line discipline input for foreground worker programs', () => {
     expect(kernel.terminal.cmd).toBe('')
   })
 
+  it('what is typed while a command runs and is not read is run when its prompt comes back', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/tty-busy.js', 'await new Promise(r => setTimeout(r, 400))', { mode: 0o755 })
+    await kernel.filesystem.fs.rm('/tmp/tty-ahead.out', { force: true })
+
+    const key = (k: string, name = k) => (kernel.terminal as unknown as { keyHandler(e: { key: string, domEvent: unknown }): Promise<void> }).keyHandler({ key: k, domEvent: { key: name, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {} } })
+    for (const char of '/tmp/tty-busy.js') await key(char)
+    void key('\r', 'Enter')
+    await foregroundReady()
+    type('echo kept > /tmp/tty-ahead.out\r')
+    await waitFor(() => !kernel.terminal.ttyInputAttached, 5000)
+    for (let i = 0; i < 200 && !await kernel.filesystem.fs.exists('/tmp/tty-ahead.out'); i++) await new Promise(r => setTimeout(r, 25))
+
+    expect(await kernel.filesystem.fs.readFile('/tmp/tty-ahead.out', 'utf8')).toBe('kept\n')
+  }, 20000)
+
   it('^C is raised by the line discipline (ISIG) and the program exits 130', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/tty-int.js', 'await new Promise(r => setTimeout(r, 5000))', { mode: 0o755 })
 
