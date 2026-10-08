@@ -7,6 +7,8 @@ export class Storage implements StorageProvider {
   get db() { return this._db }
 
   indexed: IDBFactory | undefined
+  /** Whether the browser promised not to evict this origin's storage: `undefined` until it has answered (or when it cannot say) */
+  persisted: boolean | undefined
   local: typeof globalThis.localStorage
   session: typeof globalThis.sessionStorage
 
@@ -16,7 +18,11 @@ export class Storage implements StorageProvider {
     this.local = options.host ? options.host.storage.local : globalThis.localStorage
     this.session = options.host ? options.host.storage.session : globalThis.sessionStorage
 
-    globalThis.navigator?.storage?.persist?.()
+    // Asked for at boot; the answer matters because a browser may otherwise evict the whole machine under storage pressure
+    void globalThis.navigator?.storage?.persist?.()?.then(granted => {
+      this.persisted = granted
+      this._ctx.log.debug(granted ? 'Storage is persistent' : 'Storage is best-effort: the browser may clear it when space runs low')
+    }, () => {})
 
     if (this.indexed) {
       const name = options.indexed?.name || 'ecmaos:storage'

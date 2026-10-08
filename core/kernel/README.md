@@ -134,6 +134,12 @@ Every runnable file in ecmaOS -- a coreutil, a kernel command, an app, a WASM bi
 
 ecmaOS supports multiple filesystem backends powered by [zenfs](https://zenfs.dev), allowing you to mount various storage types into the virtual filesystem.
 
+#### One tab per machine
+
+> [/core/kernel/src/tree/lib/machine-lock.ts](/core/kernel/src/tree/lib/machine-lock.ts)
+
+The root filesystem is an IndexedDB store that each tab loads whole into its own memory, and new files take their ids from that copy, so two tabs on one store would overwrite each other's files. The kernel therefore holds a Web Lock named for the store (`ecmaos:machine:root`) for as long as it runs, taken before the store is loaded. A second tab on the same origin shows "This machine is running in another tab" and starts by itself when the first closes, crashes or halts; "Use it here instead" takes the machine over, and the first tab then stops (its writes are fenced off, its programs killed) and offers "Take it back", which reloads it with what the other tab saved. `reboot`, `halt` and `poweroff` wait for pending writes to reach IndexedDB first. There is no guard for a host without Web Locks (the Node host, tests) or a root that is not the default IndexedDB store, and a separate machine per tab (a different store name) is not selectable yet.
+
 #### Supported Filesystem Types
 
 - **memory**: In-memory filesystem (temporary, lost on page reload)

@@ -36,11 +36,14 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { DEFAULT_HOSTS } from '#lib/hosts.ts'
+import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
+import type { MachineLock } from '#lib/machine-lock.ts'
+import { showOverlay } from '#lib/machine-overlay.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
-import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
+import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled } from '#filesystem.ts'
 import { browserHost } from '#host.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -198,6 +201,7 @@ export class Kernel implements IKernel {
   public readonly auth: Auth
   /** Broadcast channel for inter-kernel communication */
   public readonly channel: BroadcastChannel
+  private _machineLock?: MachineLock
   /** Web Components manager */
   public readonly components: Components
   /** DOM manipulation service */
@@ -486,7 +490,10 @@ export class Kernel implements IKernel {
 
       // Configure filesystem first (needed before we can read locale file)
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
-      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: Filesystem.options(this.options.filesystem) })
+      const filesystemOptions = Filesystem.options(this.options.filesystem)
+      // Before the root is loaded into memory: a second tab on the same store must not get that far
+      await this.claimMachine(rootStoreName(filesystemOptions))
+      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: filesystemOptions })
       configureSpan.end()
 
       // Register ecmaOS's own custom syscalls (main-thread-only capabilities like DOM window
@@ -2231,6 +2238,7 @@ export class Kernel implements IKernel {
   async stop(mode: 'reboot' | 'halt' | 'poweroff') {
     if (mode === 'reboot') return this.reboot()
     this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
+    await rootWritesSettled()
     await this.shutdown()
     if (mode === 'poweroff' && !this.host.platform.exit) {
       try { globalThis.close() } catch { /* not allowed to close this window */ }
@@ -2255,6 +2263,7 @@ export class Kernel implements IKernel {
    */
   async reboot() {
     this.log.warn(this.i18n.ns.common('Rebooting'))
+    await rootWritesSettled()
     await this.shutdown()
     await this.host.platform.restart()
   }
@@ -2750,10 +2759,52 @@ export class Kernel implements IKernel {
   }
 
   /**
+   * One tab per machine: takes the Web Lock for the IndexedDB root before it is loaded, waits (with a notice and a "use it here"
+   * button) when another tab has it, and stops this tab if another one takes it later. No lock for hosts without Web Locks, or a
+   * root that is not the IndexedDB store.
+   */
+  private async claimMachine(store: string | undefined) {
+    const locks = this.host.locks
+    if (!locks || !store) return
+    let lock: MachineLock
+    try {
+      lock = await claimMachine(locks, store, {
+        busy: takeOver => showOverlay('This machine is running in another tab', [
+          'Running it in two tabs would overwrite one tab\'s files with the other\'s.',
+          'It starts here by itself when the other tab closes or halts it. The other tab may also be inactive, or in another window.'
+        ], [{ label: 'Use it here instead', run: takeOver }])
+      })
+    } catch (error) {
+      this.log.warn(`Not guarding against a second tab: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    this._machineLock = lock
+    void lock.evicted.then(() => this.machineTaken(locks, store))
+  }
+
+  /** Another tab took this machine: stop writing before anything else, stop everything, and say so */
+  private async machineTaken(locks: LockManager, store: string) {
+    fenceRootStore()
+    this._machineLock = undefined
+    this.log.warn('This machine was taken by another tab')
+    try { this.init.killAll(9) } catch { /* init was not running yet */ }
+    await this.shutdown()
+    showOverlay('This machine moved to another tab', [
+      'Another tab took it, so this one has stopped; nothing more is saved from here.',
+      'Taking it back reloads this tab with what the other tab saved.'
+    ], [{
+      label: 'Take it back',
+      run: () => { void stealMachineLock(locks, store).then(() => this.host.platform.restart()) }
+    }])
+  }
+
+  /**
    * Shuts down the kernel.
    * @returns {Promise<void>} A promise that resolves when the kernel is shut down.
    */
   async shutdown() {
+    this._machineLock?.release()
+    this._machineLock = undefined
     this.terminal.unlisten()
     this.intervals.clearAll()
     this.channel.close()

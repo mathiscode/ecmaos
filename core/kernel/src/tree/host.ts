@@ -13,6 +13,7 @@ export function browserHost(): Host {
       get session() { return globalThis.sessionStorage },
       get indexed() { return globalThis.indexedDB }
     },
+    get locks() { return globalThis.navigator?.locks },
     platform: {
       hostname: () => globalThis.location?.hostname || '',
       restart: () => globalThis.location.reload(),

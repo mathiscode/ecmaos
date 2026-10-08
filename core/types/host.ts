@@ -41,6 +41,11 @@ export interface Host {
   readonly terminals?: number
   /** Fetches the initfs and the program catalog; the global `fetch` when absent. A Node host serves its bundled files here. */
   readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>
+  /**
+   * Web Locks (`navigator.locks`) or something shaped like it. When present, the kernel takes a lock named for its IndexedDB root
+   * before loading it, so two tabs never run one machine at once. Absent (a Node host, tests, an embedder with its own root): no guard.
+   */
+  readonly locks?: LockManager
   /** Fills the kernel options a caller left out (root mount, devices, DOM, service worker); a caller's own options win */
   readonly defaults?: Partial<KernelOptions>
 }

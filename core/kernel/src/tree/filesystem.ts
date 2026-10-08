@@ -51,6 +51,49 @@ if (!(IndexedDBStore.prototype as { flags?: string[] }).flags) {
   } as typeof IndexedDBTransaction.prototype.get
 }
 
+/**
+ * Two guards on writes to the IndexedDB root, for one machine per tab (see `lib/machine-lock.ts`).
+ *
+ * `fenceRootStore` makes every later write to any IndexedDB store a no-op: a tab whose machine was taken by another tab must not
+ * put its stale copy back. Reads still answer from the cache. `rootWritesSettled` resolves once the writes already started have
+ * reached IndexedDB (they are issued in the background, one transaction each), so a reboot does not cut the last ones off.
+ */
+let fenced = false
+let pendingWrites = 0
+const settleWaiters: Array<() => void> = []
+
+/** The IndexedDB store the root filesystem lives in, or `undefined` when the root is something else (memory, OPFS, ...) */
+export function rootStoreName(options: { mounts?: Record<string, unknown> }): string | undefined {
+  const root = options.mounts?.['/'] as { backend?: unknown, storeName?: string, options?: { storeName?: string } } | undefined
+  if (!root || root.backend !== IndexedDB) return undefined
+  return root.options?.storeName ?? root.storeName ?? 'zenfs'
+}
+
+export function fenceRootStore(): void { fenced = true }
+export function rootStoreFenced(): boolean { return fenced }
+
+export function rootWritesSettled(timeoutMs = 2000): Promise<void> {
+  if (pendingWrites === 0) return Promise.resolve()
+  return new Promise(resolve => {
+    const done = () => { clearTimeout(timer); resolve() }
+    const timer = setTimeout(() => { const at = settleWaiters.indexOf(done); if (at !== -1) settleWaiters.splice(at, 1); resolve() }, timeoutMs)
+    settleWaiters.push(done)
+  })
+}
+
+function tracked<Args extends unknown[]>(original: (this: IndexedDBTransaction, ...args: Args) => Promise<void>) {
+  return async function (this: IndexedDBTransaction, ...args: Args): Promise<void> {
+    if (fenced) return
+    pendingWrites++
+    try { await original.apply(this, args) } finally {
+      if (--pendingWrites === 0) for (const waiter of settleWaiters.splice(0)) waiter()
+    }
+  }
+}
+
+IndexedDBTransaction.prototype.set = tracked(IndexedDBTransaction.prototype.set)
+IndexedDBTransaction.prototype.remove = tracked(IndexedDBTransaction.prototype.remove)
+
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   uid: 0,
   gid: 0,
