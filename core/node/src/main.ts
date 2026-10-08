@@ -6,6 +6,8 @@ import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
 import { DefaultPort, startDaemon } from './ecmaosd.ts'
+import { DefaultSitePort, findSite, startSite } from './serve.ts'
+import type { Site } from './serve.ts'
 import { openDevice, parseDevice, parseDeviceList } from './devices.ts'
 import { openExport, parseExport } from './exports.ts'
 import type { Daemon } from './ecmaosd.ts'
@@ -21,7 +23,7 @@ const value = (flag: string) => {
 }
 
 if (args.has('--help') || args.has('-h')) {
-  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet] [--login] [--listen[=[HOST:]PORT]]
+  console.log(`usage: ecmaos [--data DIR] [--ephemeral] [--quiet] [--login] [--listen[=[HOST:]PORT]] [--serve[=[HOST:]PORT] [--site DIR]]
 
   --data DIR          keep the machine in DIR (default: $ECMAOS_DATA, else ./.ecmaos)
   --ephemeral         a root in memory; nothing is kept
@@ -29,7 +31,10 @@ if (args.has('--help') || args.has('-h')) {
   --login             ask for a user name and password on the console instead of logging in as root
 
   --listen[=ADDR]     let other ecmaOS machines log in over a WebSocket (default 127.0.0.1:${DefaultPort}; loopback only without --tls-cert)
-  --tls-cert FILE --tls-key FILE  serve wss:// with this certificate (PEM); needed to listen beyond loopback
+  --serve[=ADDR]      serve the built site over http with the headers a page needs to run ecmaOS (default 127.0.0.1:${DefaultSitePort}).
+                      Alone, it starts no machine; with --listen, both run
+  --site DIR          the folder to serve (default: $ECMAOS_SITE, else the built kernel beside this package)
+  --tls-cert FILE --tls-key FILE  serve wss:// (and https:// with --serve) with this certificate (PEM); needed to listen beyond loopback
   --allow-origin URL  a page allowed to connect from a browser (repeatable, replaces the defaults; * matches any text, as in http://localhost:*)
   --pair-user NAME    who a pairing code enrols (default: root)
   --no-pair           do not print a pairing code
@@ -38,6 +43,37 @@ if (args.has('--help') || args.has('-h')) {
                             file) or loopback; read-only unless :rw or :wo (write-only); repeatable. More are read from
                             $ECMAOS_DATA/ecmaosd/devices, one per line`)
   process.exit(0)
+}
+
+let site: Site | undefined
+
+// `--serve` hands out the built site; on its own it starts no machine
+const serve = argv.find(arg => arg === '--serve' || arg.startsWith('--serve='))
+if (serve) {
+  const address = serve.includes('=') ? serve.slice('--serve='.length) : ''
+  const split = address.lastIndexOf(':')
+  const port = split === -1 ? address : address.slice(split + 1)
+  const certFile = value('--tls-cert')
+  const keyFile = value('--tls-key')
+  try {
+    if (!!certFile !== !!keyFile) throw new Error('--tls-cert and --tls-key go together')
+    site = await startSite({
+      root: findSite(value('--site')),
+      host: split > 0 ? address.slice(0, split) : undefined,
+      port: port ? Number(port) : DefaultSitePort,
+      tls: certFile && keyFile ? { cert: readFileSync(certFile), key: readFileSync(keyFile) } : undefined
+    })
+    console.error(`ecmaos: serving ${site.root} on ${certFile ? 'https' : 'http'}://${site.host}:${site.port}`)
+  } catch (error) {
+    console.error(`ecmaos: --serve: ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(1)
+  }
+  if (!argv.some(arg => arg === '--listen' || arg.startsWith('--listen='))) {
+    const stop = () => { void site!.close().then(() => process.exit(0)) }
+    process.on('SIGINT', stop)
+    process.on('SIGTERM', stop)
+    await new Promise<void>(() => {})
+  }
 }
 
 // How long a stopped kernel gets to let go of the process (workers, ports) before it is ended
@@ -61,6 +97,7 @@ let daemon: Daemon | undefined
 let stopping = false
 
 const finish = (code: number) => {
+  void site?.close()
   void daemon?.close()
   stopThreads()
   terminal.detach?.()
@@ -78,6 +115,7 @@ const host = nodeHost({
     stopping = true
     if (action !== 'reboot') return finish(0)
     // A reboot starts the same command again: a new process is a clean kernel, with none of the old one's mounts or workers
+    void site?.close()
     void daemon?.close()
     stopThreads()
     terminal.detach?.()

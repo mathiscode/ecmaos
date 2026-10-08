@@ -45,6 +45,25 @@ it off). It is only available on this host: it needs `node:repl`, which a browse
 `console.log` and `console.error` in a guest program write to the machine's stdout and stderr, so `>` and `|` work on them.
 Programs cannot `import` other files or packages yet.
 
+## Serving the site (`--serve`)
+
+```
+ecmaos --serve                          # http://127.0.0.1:30080, no machine started
+ecmaos --serve=0.0.0.0:443 --tls-cert c.pem --tls-key k.pem --site ./dist
+ecmaos --serve --listen                 # the site and logins from other machines, together
+```
+
+ecmaOS only runs on a page that is cross-origin isolated, which needs two response headers
+(`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`). `--serve` hands out the
+built site with them on every response, so it is the quickest way to try a build or host one. The folder is `--site DIR`,
+else `$ECMAOS_SITE`, else the kernel's `dist` beside this package; it must hold an `index.html`.
+
+- GET and HEAD only, with ranges and ETags, and nothing outside the folder is served (not through `..`, an encoded
+  `..`, or a symlink that points out).
+- It listens on loopback unless you give it a certificate: a page is only a secure context over `https://`.
+- Alone, it starts no machine. With `--listen`, both run in one process.
+- Configuration for other hosts (Netlify, Cloudflare Pages, nginx, Caddy, Apache, Docker) is in `hosting/` in the source.
+
 ## Logging in from another machine (`--listen`)
 
 ```
