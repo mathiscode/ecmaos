@@ -24,6 +24,7 @@ import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/co
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { SessionLog } from '#lib/sessions.ts'
+import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
@@ -2690,10 +2691,9 @@ export class Shell implements IShell {
       }
     })
     
-    return {
-      stdout: createStream(),
-      stderr: createStream()
-    }
+    const pair = { stdout: createStream(), stderr: createStream() }
+    pairStreams(pair.stdout, pair.stderr)
+    return pair
   }
 
   /**

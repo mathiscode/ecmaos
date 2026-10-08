@@ -36,6 +36,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { SessionLog } from '#lib/sessions.ts'
+import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem } from '#filesystem.ts'
@@ -1368,16 +1369,19 @@ export class Kernel implements IKernel {
       }
       const stdoutBridged = Boolean(options.stdout && !options.stdoutIsTTY)
       if (stdoutBridged) bridge(1, options.stdout as WritableStream<Uint8Array>, options.drainStdout === true)
-      // `1>&2` (or any dup onto an fd with no redirect of its own) can hand back the *same*
-      // `WritableStream` instance for both stdout and stderr (`Shell.buildOutputStreams`'s
-      // `defaultFor` caches and reuses it) -- bridging it twice calls `.getWriter()` on an
-      // already-locked stream and throws. Only skip the fd 2 bridge when fd 1 was *actually*
-      // bridged against that same stream just above (e.g. a foreground `2>&1` with stdout still a
-      // real TTY leaves fd 1 unbridged, so fd 2 still needs its own bridge to that stream).
-      if (options.stderr && !(stdoutBridged && options.stderr === options.stdout)) {
-        // fd 2 is never a pipe to another stage -- `Shell.buildOutputStreams` only ever gives it the
-        // terminal or a file -- so its drain is always safe to await and always worth awaiting.
-        bridge(2, options.stderr, true)
+      // Both descriptors going to the same place (`> f 2>&1`, `2>&1 | cmd`, `&> f`) share one pipe, so what the
+      // program writes to each stays in order: two pipes, each pumped on its own timing, would not. The
+      // streams are the same instance (a dup) or a pair the shell registered (a file written by both).
+      // Bridging one stream twice would also fail, as `.getWriter()` on a locked stream throws.
+      if (options.stderr) {
+        if (stdoutBridged && sharesDestination(options.stdout, options.stderr)) {
+          const shared = proc.context.descriptors.get(1)
+          if (shared) proc.context.descriptors.set(2, shared)
+        } else {
+          // fd 2 is never a pipe to another stage -- `Shell.buildOutputStreams` only ever gives it the
+          // terminal or a file -- so its drain is always safe to await and always worth awaiting.
+          bridge(2, options.stderr, true)
+        }
       }
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)

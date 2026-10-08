@@ -35,6 +35,21 @@ describe('ecmash', () => {
     expect(code).toBe(0)
   })
 
+  it('keeps stdout and stderr in the order they were written when both go to one file', async () => {
+    // Two pipes, each pumped on its own timing, put every stderr line after the stdout ones.
+    const cases: Array<[string, string]> = [
+      ['echo A; echo e1 >&2; echo B; echo e2 >&2; echo C', 'A\ne1\nB\ne2\nC\n'],
+      ['echo A; ls /nope; echo B', "A\nls: cannot access '/nope': No such file or directory\nB\n"]
+    ]
+    for (const [script, expected] of cases) {
+      await fs().writeFile('/tmp/em-script', script)
+      await kernel.shell.execute('ecmash /tmp/em-script > /tmp/em-both 2>&1')
+      expect(await fs().readFile('/tmp/em-both', 'utf-8')).toBe(expected)
+      await kernel.shell.execute('ecmash /tmp/em-script &> /tmp/em-both')
+      expect(await fs().readFile('/tmp/em-both', 'utf-8')).toBe(expected)
+    }
+  })
+
   it('wires a pipeline through real pipes', async () => {
     expect((await run('echo abc | tr a-z A-Z | cat')).out).toBe('ABC\n')
   })
