@@ -8,7 +8,7 @@
  *
  * Scope is the portable core of preview1 (args/environ, clocks, random, the fd and path calls,
  * `poll_oneoff`, `proc_exit`) plus the `env.__syscall_*` names `IMPLEMENTED_SYSCALLS` lists in
- * `tree/wasm.ts`. Sockets and `epoll` answer ENOSYS/ENOTTY. Both an exported and an imported
+ * `tree/wasm.ts`. Loopback sockets and `epoll` are answered for real (see below); the WASI `sock_*` calls answer ENOSYS, since a module reaches sockets through `env.__syscall_*`. Both an exported and an imported
  * memory are supported (`runPreview1`'s own `detectMemoryImport` reads the import's declared size
  * straight out of the binary and creates it, since the JS reflection API doesn't expose memory
  * limits). Preview2 components are not routed here; see `canRunInWorker` in `tree/wasm.ts`.
