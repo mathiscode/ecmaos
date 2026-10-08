@@ -67,6 +67,7 @@ import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#li
 import { parseFstabFile } from '#lib/fstab.ts'
 import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { isolationProblem } from '#lib/isolation.ts'
+import { installSyscallTrace } from '#lib/syscall-trace.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
@@ -494,6 +495,8 @@ export class Kernel implements IKernel {
       // Wrap every registered syscall with a manifest-declared allowlist check, before any
       // program can execve and start calling them. A program with no manifest is unrestricted.
       installSyscallPolicy(this.filesystem.fs)
+      // outside the policy wrapper, so a call a manifest refuses is in the trace too
+      installSyscallTrace()
 
       // Create required filesystem paths (including /etc/default for locale file)
       const filesystemSpan = tracer.startSpan('kernel.boot.filesystem', {}, trace.setSpan(context.active(), bootSpan))

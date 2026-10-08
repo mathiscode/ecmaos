@@ -28,6 +28,7 @@
 import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
+import { fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
@@ -37,6 +38,8 @@ import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installPtys } from './pty.ts'
+import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
+import type { TraceOptions } from './syscall-trace.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
@@ -85,6 +88,7 @@ declare module '@zenfs/linux/uapi/abi' {
     dom_toast(kind: string, message: string): number
     shell_set_theme(theme: string): number
     proc_spawn(command: string, argvJson: string, cwd: string, optionsJson?: string): number
+    trace_attach(pid: number, optionsJson: string): number
     proc_waitpid(pid: number, flags: number): number
     proc_setpgid(pid: number, pgid: number): number
     proc_getpgid(pid: number): number
@@ -247,6 +251,23 @@ function findSocketConnection(kernel: Kernel, id: string) {
  * `Kernel`'s call silently failing in some more surprising way.
  */
 let installed = false
+/** Where a trace goes: one of the tracing process's own descriptors, written as a program would, waiting out a full pipe */
+function traceSink(proc: Process, fd: number): (text: string) => Promise<void> {
+  if (!proc.context.descriptors.has(fd)) throw Object.assign(new Error('Bad file descriptor'), { errno: Errno.EBADF })
+  const encoder = new TextEncoder()
+  const write = fs.writeSync as unknown as (this: unknown, fd: number, buffer: Uint8Array, offset: number, length: number) => number
+  return async text => {
+    const bytes = encoder.encode(text)
+    for (let at = 0; at < bytes.byteLength;) {
+      try { at += write.call(proc.context, fd, bytes, at, bytes.byteLength - at) } catch (error) {
+        // a full pipe: wait for the reader, as the program writing it would
+        if ((error as { code?: string }).code !== 'EAGAIN') throw error
+        await new Promise(resolve => setTimeout(resolve, 5))
+      }
+    }
+  }
+}
+
 export function installMainThreadSyscalls(): void {
   if (installed) return
   installed = true
@@ -1289,7 +1310,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] } } : {}
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
     const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     // Starting a program as someone else is `setuid` and `exec` in one: only a root process may, and it
@@ -1302,13 +1323,38 @@ export function installMainThreadSyscalls(): void {
         credentials = { uid, gid, suid: uid, sgid: gid, euid: uid, egid: gid, groups: [...groups] }
       }
     }
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal, credentials })
+    // `strace`: the trace is written to one of the caller's own descriptors, so it goes wherever the caller sends it
+    let trace: ReturnType<typeof createTracer> | undefined
+    if (options.trace) {
+      const { fd, ...traceOptions } = options.trace
+      trace = createTracer(traceOptions, traceSink(proc, fd))
+    }
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal, credentials, trace })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.
     // `system_ready` gives the keyboard back.
     if (options.tty !== undefined && !kernel.ready) ttyHoldOf(child)?.suspend()
     return child.pid
+  })
+
+  // `strace -p`: record the calls of a process that is already running. Root may trace anything but init's own
+  // business is its own; anyone else only their own user's processes.
+  define_syscall('trace_attach', async (proc: Process, pid: number, optionsJson: string) => {
+    const target = processes.get(pid)
+    if (!target || target.code !== undefined) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    if (target === proc) throw Object.assign(new Error('Invalid argument'), { errno: Errno.EINVAL })
+    const caller = identityOf(proc)
+    if (caller.euid !== 0 && !mayKill(proc, target)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    if (tracerOf(pid)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    const { fd, ...traceOptions } = JSON.parse(optionsJson) as TraceOptions & { fd: number }
+    const tracer = createTracer(traceOptions, traceSink(proc, fd))
+    traceProcess(pid, tracer)
+    void target.exited.then(async () => {
+      await finishTrace(target, tracer).catch(() => {})
+      untraceProcess(pid)
+    })
+    return 0
   })
 
   define_syscall('proc_wait', async (proc: Process, pid: number) => {

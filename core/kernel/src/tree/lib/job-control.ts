@@ -17,11 +17,16 @@ import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
 import { setuidCredentials } from './process-credentials.ts'
+import { finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
+import type { Tracer } from './syscall-trace.ts'
 
 const SIGCHLD = 17
 
 /** Process group of each pid; a process with no entry is in its parent's group, as after `fork`. */
 const groups = new Map<number, number>()
+
+/** For each traced child: resolves once the end of its trace is written */
+const traceFinished = new Map<number, Promise<void>>()
 
 /** `waitpid` option bits, as on Linux */
 export const WNOHANG = 1
@@ -145,6 +150,8 @@ export async function waitpid(caller: Process, pid: number, flags: number | bool
   for (;;) {
     const ready = children.find(child => child.code !== undefined)
     if (ready) {
+      // a traced child's last lines (its exit, the summary) are written before the parent hears it ended
+      await traceFinished.get(ready.pid)
       const reaped = ready.pid
       const status = encodeStatus(ready.code, ready.killed_by)
       ready.reap()
@@ -190,6 +197,8 @@ export interface SpawnOptions {
   credentials?: Credentials
   /** A terminal to make the child's controlling terminal and foreground, with the keyboard routed to it for as long as it runs. */
   terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
+  /** Record the child's system calls (`strace`) */
+  trace?: Tracer
 }
 
 /**
@@ -210,6 +219,10 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty
   })
   shareGroupSignals(child)
+  // A traced process's children are traced too when the tracer follows them
+  const inherited = tracerOf(parent.pid)
+  const tracer = options.trace ?? (inherited?.options.follow ? inherited : undefined)
+  if (tracer) traceProcess(child.pid, tracer)
   try {
     // Only 0 to 2 are handed on: a child that kept the caller's other descriptors would hold every
     // pipe end open and a reader downstream of it would never see EOF.
@@ -248,7 +261,16 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   } catch (error) {
     child.dispose()
     groups.delete(child.pid)
+    if (tracer) untraceProcess(child.pid)
     throw error
+  }
+  if (tracer) {
+    const finished = child.exited.then(async () => {
+      await finishTrace(child, tracer).catch(() => {})
+      untraceProcess(child.pid)
+    })
+    traceFinished.set(child.pid, finished)
+    void finished.then(() => traceFinished.delete(child.pid))
   }
   void child.exited.then(() => {
     if (parent.code === undefined) try { parent.kill(SIGCHLD) } catch { /* nobody is listening */ }
