@@ -46,6 +46,8 @@ export interface Host {
    * before loading it, so two tabs never run one machine at once. Absent (a Node host, tests, an embedder with its own root): no guard.
    */
   readonly locks?: LockManager
+  /** Which machine to run on this host's storage, by name (a browser page: `?machine=NAME`); absent or `root` is the default machine */
+  readonly machine?: string
   /** Fills the kernel options a caller left out (root mount, devices, DOM, service worker); a caller's own options win */
   readonly defaults?: Partial<KernelOptions>
 }

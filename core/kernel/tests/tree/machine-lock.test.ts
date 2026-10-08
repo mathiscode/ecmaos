@@ -107,7 +107,7 @@ describe('claiming the machine from a tab', () => {
 
 describe('the root store', () => {
   it('is a store only when the root is IndexedDB', () => {
-    expect(rootStoreName({ mounts: { '/': { backend: IndexedDB, options: { storeName: 'root' } } } })).toBe('root')
+    expect(rootStoreName({ mounts: { '/': { backend: IndexedDB, storeName: 'root' } } })).toBe('root')
     expect(rootStoreName({ mounts: { '/': { backend: IndexedDB } } })).toBe('zenfs')
     expect(rootStoreName({ mounts: { '/': { backend: InMemory, options: { name: 'x' } } } })).toBeUndefined()
     expect(rootStoreName({ mounts: {} })).toBeUndefined()

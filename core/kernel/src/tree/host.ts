@@ -13,6 +13,8 @@ export function browserHost(): Host {
       get session() { return globalThis.sessionStorage },
       get indexed() { return globalThis.indexedDB }
     },
+    /** The machine the page address asks for (`?machine=NAME`), unchecked; the kernel validates it */
+    get machine() { return new URLSearchParams(globalThis.location?.search ?? '').get('machine') ?? undefined },
     get locks() { return globalThis.navigator?.locks },
     platform: {
       hostname: () => globalThis.location?.hostname || '',

@@ -37,13 +37,14 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
+import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
 import { showOverlay } from '#lib/machine-overlay.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
-import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled } from '#filesystem.ts'
+import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled, withRootStore } from '#filesystem.ts'
 import { browserHost } from '#host.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -201,6 +202,9 @@ export class Kernel implements IKernel {
   public readonly auth: Auth
   /** Broadcast channel for inter-kernel communication */
   public readonly channel: BroadcastChannel
+  /** The machine this kernel runs (`?machine=NAME`); `undefined` is the default one. See `lib/machine.ts`. */
+  public readonly machine: string | undefined
+  private _machineError: string | undefined
   private _machineLock?: MachineLock
   /** Web Components manager */
   public readonly components: Components
@@ -334,6 +338,7 @@ export class Kernel implements IKernel {
   constructor(_options: KernelOptions = DefaultKernelOptions) {
     this.host = _options.host ?? browserHost()
     this.options = { ...DefaultKernelOptions, ...this.host.defaults, ..._options }
+    ;({ machine: this.machine, error: this._machineError } = parseMachine(this.host.machine))
 
     // Tier 0: no dependencies at all. This also establishes `this.context` (id/log/events/i18n),
     // the cross-cutting primitives every later subsystem takes instead of a back-reference to the
@@ -360,7 +365,7 @@ export class Kernel implements IKernel {
     this.telemetry = new Telemetry({ context: this.context })
 
     // Tier 2: context plus narrow, already-constructed dependencies (no cycles).
-    this.filesystem = new Filesystem(this.storage, { initfs: this.options.initfs, fetch: this.host.fetch })
+    this.filesystem = new Filesystem(this.storage, { initfs: this.options.initfs, fetch: this.host.fetch, key: key => machineKey(this.machine, key) })
     this.users = new Users({
       context: this.context,
       filesystem: this.filesystem,
@@ -490,7 +495,8 @@ export class Kernel implements IKernel {
 
       // Configure filesystem first (needed before we can read locale file)
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
-      const filesystemOptions = Filesystem.options(this.options.filesystem)
+      if (this._machineError) this.log.warn(`${this._machineError}; running the default machine`)
+      const filesystemOptions = this.machineOptions(Filesystem.options(this.options.filesystem))
       // Before the root is loaded into memory: a second tab on the same store must not get that far
       await this.claimMachine(rootStoreName(filesystemOptions))
       await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: filesystemOptions })
@@ -1041,7 +1047,7 @@ export class Kernel implements IKernel {
       }
 
       // Install recommended apps if desired by user on first boot
-      if (!this.storage.local.getItem('ecmaos:first-boot')) {
+      if (!this.storage.local.getItem(machineKey(this.machine, 'ecmaos:first-boot'))) {
         const recommendedApps = import.meta.env['ECMAOS_RECOMMENDED_APPS']
         if (recommendedApps) {
           const apps = recommendedApps.split(',')
@@ -1055,7 +1061,7 @@ export class Kernel implements IKernel {
           }
         }
 
-        this.storage.local.setItem('ecmaos:first-boot', Date.now().toString())
+        this.storage.local.setItem(machineKey(this.machine, 'ecmaos:first-boot'), Date.now().toString())
       }
 
       if (!gettyLogin) {
@@ -2322,7 +2328,7 @@ export class Kernel implements IKernel {
     // written only when the installed copy differs. See `lib/programs.ts`.
     const catalogUrl = this.programsUrl()
     if (catalogUrl) {
-      const stampKey = 'ecmaos:programs'
+      const stampKey = machineKey(this.machine, 'ecmaos:programs')
       const programs = await installPrograms(this.filesystem.fs, {
         catalogUrl,
         fetcher: this.host.fetch,
@@ -2758,6 +2764,16 @@ export class Kernel implements IKernel {
     return contents
   }
 
+  /** Points the default IndexedDB root at this machine's store; any other root (an embedder's own) is left alone */
+  private machineOptions<T extends { mounts?: Record<string, unknown> }>(options: T): T {
+    return this.machine ? withRootStore(options, machineStore(this.machine)) : options
+  }
+
+  /** The new-machine suggestion for the notice: a name no existing store has */
+  private async suggestMachine(): Promise<string> {
+    try { return freshMachineName((await globalThis.indexedDB.databases()).flatMap(db => db.name ? [db.name] : [])) } catch { return 'machine-2' }
+  }
+
   /**
    * One tab per machine: takes the Web Lock for the IndexedDB root before it is loaded, waits (with a notice and a "use it here"
    * button) when another tab has it, and stops this tab if another one takes it later. No lock for hosts without Web Locks, or a
@@ -2768,11 +2784,20 @@ export class Kernel implements IKernel {
     if (!locks || !store) return
     let lock: MachineLock
     try {
+      const suggestion = await this.suggestMachine()
       lock = await claimMachine(locks, store, {
-        busy: takeOver => showOverlay('This machine is running in another tab', [
+        busy: takeOver => showOverlay(`This machine${this.machine ? ` (${this.machine})` : ''} is running in another tab`, [
           'Running it in two tabs would overwrite one tab\'s files with the other\'s.',
-          'It starts here by itself when the other tab closes or halts it. The other tab may also be inactive, or in another window.'
-        ], [{ label: 'Use it here instead', run: takeOver }])
+          'It starts here by itself when the other tab closes or halts it. The other tab may also be inactive, or in another window.',
+          'Or run a separate machine of its own, with its own files, in a new tab:'
+        ], [
+          { label: 'Use it here instead', run: takeOver },
+          { label: 'Open a separate machine', field: suggestion, run: name => {
+            const parsed = parseMachine(name)
+            if (parsed.error || !parsed.machine) return
+            globalThis.open(`${globalThis.location?.pathname ?? '/'}?machine=${parsed.machine}`, '_blank')
+          } }
+        ])
       })
     } catch (error) {
       this.log.warn(`Not guarding against a second tab: ${error instanceof Error ? error.message : String(error)}`)
@@ -2789,7 +2814,7 @@ export class Kernel implements IKernel {
     this.log.warn('This machine was taken by another tab')
     try { this.init.killAll(9) } catch { /* init was not running yet */ }
     await this.shutdown()
-    showOverlay('This machine moved to another tab', [
+    showOverlay(`This machine${this.machine ? ` (${this.machine})` : ''} moved to another tab`, [
       'Another tab took it, so this one has stopped; nothing more is saved from here.',
       'Taking it back reloads this tab with what the other tab saved.'
     ], [{

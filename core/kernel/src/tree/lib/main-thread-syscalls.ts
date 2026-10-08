@@ -32,6 +32,7 @@ import { fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, type GatewayRequest } from './remote-gateway.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
@@ -1628,7 +1629,9 @@ export function installMainThreadSyscalls(): void {
           messages.push('IndexedDB is not available')
         } else if (typeof indexedDB.databases === 'function') {
           const databases = await indexedDB.databases()
-          const toDelete = databases.filter((db): db is { name: string, version: number } => typeof db.name === 'string' && !args.keep.includes(db.name))
+          // Other machines of this origin (`?machine=`) are not this one's to wipe: only this machine's own store goes
+          const own = machineStore(kernel.machine)
+          const toDelete = databases.filter((db): db is { name: string, version: number } => typeof db.name === 'string' && !args.keep.includes(db.name) && (!isMachineStore(db.name) || db.name === own))
 
           for (const db of toDelete) {
             await new Promise<void>((resolve, reject) => {
@@ -1651,9 +1654,17 @@ export function installMainThreadSyscalls(): void {
       }
 
       if (args.localStorage) {
-        const count = kernel.storage.local.length
-        kernel.storage.local.clear()
-        messages.push(`Cleared localStorage (${count} item(s))`)
+        // Keys that describe another machine's store stay: clearing them would make that machine install itself over its own files
+        const local = kernel.storage.local
+        const prefix = kernel.machine ? `${MachineKeyPrefix}${kernel.machine}:` : undefined
+        const doomed: string[] = []
+        for (let at = 0; at < local.length; at++) {
+          const key = local.key(at)
+          if (key === null) continue
+          if (prefix ? key.startsWith(prefix) : !key.startsWith(MachineKeyPrefix)) doomed.push(key)
+        }
+        for (const key of doomed) local.removeItem(key)
+        messages.push(`Cleared localStorage (${doomed.length} item(s))`)
       }
 
       text = JSON.stringify({ messages })

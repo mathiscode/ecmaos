@@ -64,9 +64,15 @@ const settleWaiters: Array<() => void> = []
 
 /** The IndexedDB store the root filesystem lives in, or `undefined` when the root is something else (memory, OPFS, ...) */
 export function rootStoreName(options: { mounts?: Record<string, unknown> }): string | undefined {
-  const root = options.mounts?.['/'] as { backend?: unknown, storeName?: string, options?: { storeName?: string } } | undefined
+  const root = options.mounts?.['/'] as { backend?: unknown, storeName?: string } | undefined
   if (!root || root.backend !== IndexedDB) return undefined
-  return root.options?.storeName ?? root.storeName ?? 'zenfs'
+  return root.storeName ?? 'zenfs'
+}
+
+/** `options` with the IndexedDB root pointed at `store`; any other root (an embedder's own) is returned as it was */
+export function withRootStore<T extends { mounts?: Record<string, unknown> }>(options: T, store: string): T {
+  if (!rootStoreName(options)) return options
+  return { ...options, mounts: { ...options.mounts, '/': { ...(options.mounts!['/'] as object), storeName: store } } }
 }
 
 export function fenceRootStore(): void { fenced = true }
@@ -108,7 +114,9 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
     enabled: false
   },
   mounts: {
-    '/': { backend: IndexedDB, options: { storeName: 'root' } },
+    // Options go beside `backend`, not under `options`: zenfs hands the whole object to the backend. The name is the database
+    // every existing machine already has (it is what the backend defaults to), so it must not change.
+    '/': { backend: IndexedDB, storeName: 'zenfs' } as unknown as ConfigMounts[string],
     '/dev': new DevTmpFS(),
     '/media': { backend: InMemory, options: { name: 'media' } },
     '/mnt': { backend: InMemory, options: { name: 'mnt' } },
@@ -139,14 +147,17 @@ export class Filesystem {
   private _config: Configuration<ConfigMounts> = DefaultFilesystemOptions
   private _fs: typeof fs = fs
   private _storage: StorageProvider
+  /** Names a `localStorage` key for this machine's store (see `lib/machine.ts`) */
+  private _key: (key: string) => string
   private _initfs?: string | false
   private _fetch: (url: string, init?: RequestInit) => Promise<Response>
 
   /**
    * @param sources `initfs` overrides where the initfs tarball is (`false` installs none); `fetch` is what reads it
    */
-  constructor(storage: StorageProvider, sources: { initfs?: string | false, fetch?: (url: string, init?: RequestInit) => Promise<Response> } = {}) {
+  constructor(storage: StorageProvider, sources: { initfs?: string | false, fetch?: (url: string, init?: RequestInit) => Promise<Response>, key?: (key: string) => string } = {}) {
     this._storage = storage
+    this._key = sources.key ?? (key => key)
     this._initfs = sources.initfs
     this._fetch = sources.fetch ?? ((url, init) => fetch(url, init))
   }
@@ -223,19 +234,19 @@ export class Filesystem {
    * `/etc`, `/root` and `/home` hold what users have edited.
    */
   private async installInitfs(url: string, fetcher: (url: string) => Promise<Response> = target => this._fetch(target)) {
-    const fsInitialized = await this._storage.local.getItem('ecmaos:filesystem:initialized')
+    const fsInitialized = await this._storage.local.getItem(this._key('ecmaos:filesystem:initialized'))
     try {
       const response = await fetcher(url)
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const bytes = new Uint8Array(await response.arrayBuffer())
       const stamp = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('')
-      if (fsInitialized && (await this._storage.local.getItem('ecmaos:filesystem:initfs')) === stamp) return
+      if (fsInitialized && (await this._storage.local.getItem(this._key('ecmaos:filesystem:initfs'))) === stamp) return
       // The browser will likely automatically decompress the tarball; either way, extractTarball will handle it
       await this.fs.writeFile('/tmp/initfs.tar', bytes)
       await this.extractTarball('/tmp/initfs.tar', '/', 0o644, 0o755, fsInitialized ? name => name.replace(/^\.\//, '').startsWith('usr/share/') : undefined)
       await this.fs.unlink('/tmp/initfs.tar')
-      await this._storage.local.setItem('ecmaos:filesystem:initialized', 'true')
-      await this._storage.local.setItem('ecmaos:filesystem:initfs', stamp)
+      await this._storage.local.setItem(this._key('ecmaos:filesystem:initialized'), 'true')
+      await this._storage.local.setItem(this._key('ecmaos:filesystem:initfs'), stamp)
     } catch (error) {
       globalThis.kernel?.log.error(`Failed to fetch ${url}: ${error}`)
       console.error(error)
