@@ -2271,15 +2271,17 @@ export class Kernel implements IKernel {
       ...Object.keys(getLegacyCommands())
     ].filter(name => !this.options.blacklist?.commands?.includes(name))
 
-    for (const name of names) {
+    // Independent files, so several at a time: a boot writes about 170 of them, one after another otherwise
+    const install = async (name: string) => {
       const target = `${SbinCommands.has(name) ? '/sbin' : '/bin'}/${name}`
       const source = migratedCommandSources[name] ?? migratedKernelCommandSources[name] ?? `#!ecmaos:bin:command:${name}`
       // The root persists across page loads, so an existing file is only kept if it already holds
       // exactly this build's program; otherwise an upgraded (or fixed) command would never reach
       // an existing install, which would keep running whatever version first created the file.
-      if (await this.filesystem.fs.exists(target) && await this.filesystem.fs.readFile(target, 'utf8') === source) continue
+      if (await this.filesystem.fs.exists(target) && await this.filesystem.fs.readFile(target, 'utf8') === source) return
       await this.filesystem.fs.writeFile(target, source, { mode: 0o755 })
     }
+    for (let i = 0; i < names.length; i += 16) await Promise.all(names.slice(i, i + 16).map(install))
 
     // Prebuilt WebAssembly programs (`vim`, `jq`, `make`, ...): real binaries, fetched from the site's program catalog and
     // written only when the installed copy differs. See `lib/programs.ts`.
