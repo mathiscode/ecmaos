@@ -1658,6 +1658,9 @@ export class Kernel implements IKernel {
           if ((error as { code?: string })?.code !== 'EPIPE') this.log.error(`stdio bridge (fd ${stdFd}) failed: ${error}`)
         } finally {
           try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
+          // A program asleep in a write to a full pipe (`yes | head`) is only woken when data moves, not when the
+          // reader's end closes, so wake it to find the end gone (EPIPE) instead of sleeping for ever.
+          pipefs._end(bridgeFile.path)?.pipe.wait.wake_up()
           try { await writer.close() } catch { /* already closed by the pipeline's next stage */ }
         }
       })()
