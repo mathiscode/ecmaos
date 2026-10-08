@@ -56,3 +56,38 @@ export async function openFlow(connection: Connection, target: NetTarget, option
     }
   })
 }
+
+/** A name to resolve on the host. `family` is 4 or 6 (default 4: what a guest's `AF_INET` asks for). */
+export interface NetLookup {
+  proto: 'dns'
+  name: string
+  family?: 4 | 6
+}
+
+/** Checks a lookup request that came over the wire */
+export function parseNetLookup(value: Value): Required<NetLookup> {
+  if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) throw new PeerError('protocol', 'bad net lookup')
+  const { proto, name, family } = value
+  if (proto !== 'dns') throw new PeerError('unsupported', 'not a lookup')
+  if (typeof name !== 'string' || name.length === 0 || name.length > MaxHostLength || /[\s\0/]/.test(name)) throw new PeerError('refused', 'bad host name')
+  if (family !== undefined && family !== 4 && family !== 6) throw new PeerError('refused', 'bad address family')
+  return { proto, name, family: family ?? 4 }
+}
+
+/**
+ * Asks the host to resolve `name` with its own resolver and returns the addresses it is willing to give (the policy may hold
+ * some back, or refuse the name). The answer is one `{ op: 'resolved', addresses }` message, after which the host closes the
+ * channel; a refusal closes it with the reason.
+ */
+export async function resolveName(connection: Connection, name: string, options: { family?: 4 | 6, timeout?: number } = {}): Promise<string[]> {
+  const channel = await connection.open(NetChannel, { params: { proto: 'dns', name, ...(options.family ? { family: options.family } : {}) }, timeout: options.timeout ?? 20_000 })
+  return await new Promise<string[]>((resolve, reject) => {
+    void channel.done.then(error => reject(error ?? new PeerError('closed', 'the gateway closed without an answer')))
+    channel.onMessage = message => {
+      if (!message || typeof message !== 'object' || message instanceof Uint8Array || Array.isArray(message) || message['op'] !== 'resolved') return
+      const list = message['addresses']
+      channel.close()
+      resolve(Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string') : [])
+    }
+  })
+}

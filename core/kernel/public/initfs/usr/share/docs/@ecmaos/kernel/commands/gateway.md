@@ -27,9 +27,16 @@ link-local and metadata addresses) and only lets root use it; its operator can n
 refusal reaches the program as `EACCES`; a destination that does not answer is `ECONNREFUSED`, `EHOSTUNREACH` or
 `ETIMEDOUT`, as it would be on Linux. Every connection is logged on that machine.
 
-A program names the destination by address (`connect()` to a name needs the resolver, which is not there yet), so a program
-that resolves a name itself cannot yet use it. The link carries TCP only, and nothing on it is encrypted yet, so use it only
-over loopback or a network you trust.
+## Names
+
+A program's `getaddrinfo()` and `gethostbyname()` answer from `/etc/hosts` first (it ships with `localhost`; edit it to add
+your own names), then ask the gateway, whose machine resolves with its own resolver. The program then connects to the address
+it got, and that is checked again on the way out. The gateway machine does not hand out addresses it would not connect to:
+a name that points into its own network (a private range, loopback, a metadata address) is answered as if it did not exist,
+unless its operator named that range in an allow rule. With no gateway up, a name that is not in `/etc/hosts` fails with
+"Try again", as with no nameserver. Only IPv4 answers are used, so `AF_INET6` lookups find nothing yet.
+
+The link carries TCP only (no UDP), and nothing on it is encrypted yet, so use it only over loopback or a network you trust.
 
 ## Options
 

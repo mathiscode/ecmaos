@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Connection, memoryPair, NetChannel, openFlow, parseNetTarget, PeerError } from '../src/index.ts'
+import { Connection, memoryPair, NetChannel, openFlow, parseNetLookup, parseNetTarget, PeerError, resolveName } from '../src/index.ts'
 
 describe('net targets', () => {
   it('accepts a host and a port', () => {
@@ -34,6 +34,38 @@ describe('opening a flow', () => {
     const host = new Connection(b, { role: 'server' })
     host.accept(NetChannel, () => { throw new PeerError('refused', 'not today') })
     await expect(openFlow(guest, { proto: 'tcp', host: 'example.com', port: 80 })).rejects.toThrow('not today')
+    guest.close()
+  })
+})
+
+describe('lookups', () => {
+  it('reads a name with an optional family, defaulting to IPv4', () => {
+    expect(parseNetLookup({ proto: 'dns', name: 'example.com' })).toEqual({ proto: 'dns', name: 'example.com', family: 4 })
+    expect(parseNetLookup({ proto: 'dns', name: 'example.com', family: 6 }).family).toBe(6)
+  })
+
+  it('refuses anything else', () => {
+    for (const bad of [null, 'x', [1], { proto: 'tcp', name: 'a' }, { proto: 'dns', name: '' }, { proto: 'dns', name: 'a b' },
+      { proto: 'dns', name: 'a'.repeat(254) }, { proto: 'dns', name: 'a', family: 5 }, { proto: 'dns', name: 7 }]) {
+      expect(() => parseNetLookup(bad as never), JSON.stringify(bad)).toThrow(PeerError)
+    }
+  })
+
+  it('resolveName returns the addresses the host sends and closes', async () => {
+    const [a, b] = memoryPair()
+    const guest = new Connection(a, { role: 'client' })
+    const host = new Connection(b, { role: 'server' })
+    host.accept(NetChannel, channel => { channel.send({ op: 'resolved', addresses: ['203.0.113.9', 'x'] }); channel.close() })
+    expect(await resolveName(guest, 'example.com')).toEqual(['203.0.113.9', 'x'])
+    guest.close()
+  })
+
+  it('resolveName rejects with the host\'s reason', async () => {
+    const [a, b] = memoryPair()
+    const guest = new Connection(a, { role: 'client' })
+    const host = new Connection(b, { role: 'server' })
+    host.accept(NetChannel, () => { throw new PeerError('refused', 'no such name') })
+    await expect(resolveName(guest, 'example.com')).rejects.toThrow('no such name')
     guest.close()
   })
 })

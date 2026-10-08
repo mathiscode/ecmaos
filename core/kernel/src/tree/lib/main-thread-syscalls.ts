@@ -33,7 +33,7 @@ import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
-import { GatewayFailure, manageGateway, openGatewayFlow, type GatewayRequest } from './remote-gateway.ts'
+import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, type GatewayRequest } from './remote-gateway.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -117,6 +117,7 @@ declare module '@zenfs/linux/uapi/abi' {
     net_listen(key: string, backlog: number, path: string): number
     net_connect(key: string, path: string): number
     net_connect_out(host: string, port: number, path: string): number
+    dns_lookup(name: string, family: number, path: string): number
     net_accept(key: string, nonblock: number, path: string): number
   }
 }
@@ -686,6 +687,19 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, address: flow.address })
     } catch (error) {
       text = JSON.stringify({ error: error instanceof GatewayFailure ? error.errno : 'ECONNREFUSED', message: error instanceof Error ? error.message : String(error) })
+    }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  /** A name's addresses for `getaddrinfo`: `/etc/hosts`, then the gateway. Writes `{ addresses }` or `{ error: 'NONAME' | 'AGAIN', message }`. */
+  define_syscall('dns_lookup', async (proc: Process, name: string, family: number, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    try {
+      text = JSON.stringify({ addresses: await resolveHostname(kernel, name, family === 6 ? 6 : 4) })
+    } catch (error) {
+      text = JSON.stringify({ error: error instanceof LookupFailure ? error.kind : 'AGAIN', message: error instanceof Error ? error.message : String(error) })
     }
     await writeScratch(kernel, proc, path, text)
     return text.length

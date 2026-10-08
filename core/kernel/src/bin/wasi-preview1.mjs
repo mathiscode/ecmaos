@@ -140,7 +140,7 @@ function sleepMs(ms) {
 }
 
 /** Builds the `wasi_snapshot_preview1` import object for one instance. `getMemory` is late-bound. */
-export function createPreview1(getMemory, getTable = () => undefined) {
+export function createPreview1(getMemory, getTable = () => undefined, getExports = () => undefined) {
   const cwd = getcwd()
   const args = argv()
   const env = Object.entries(environ()).map(([key, value]) => `${key}=${value}`)
@@ -958,7 +958,100 @@ export function createPreview1(getMemory, getTable = () => undefined) {
     return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd }
   }
 
+  // -- name resolution (`getaddrinfo`, `gethostbyname`) -------------------------------------------------------------------
+  // An emscripten build does not use musl's resolver: it imports `env.getaddrinfo` and `env._emscripten_lookup_name`, which
+  // normally invent addresses. Here they ask the main thread (`dns_lookup`: /etc/hosts, then the gateway's resolver, see
+  // `remote-gateway.ts`). Only IPv4 and TCP-style results; the structs are wasm32 musl's (`struct addrinfo` is 32 bytes).
+  const EAI = { BADFLAGS: -1, NONAME: -2, AGAIN: -3, FAMILY: -6, SERVICE: -8, MEMORY: -10 }
+  const AI_PASSIVE = 0x01
+  const AI_CANONNAME = 0x02
+  const AI_NUMERICHOST = 0x04
+  const SERVICES = { ftp: 21, ssh: 22, telnet: 23, smtp: 25, domain: 53, http: 80, pop3: 110, ntp: 123, imap: 143, https: 443, imaps: 993, pop3s: 995 }
+  const isDottedQuad = (text) => /^(\d{1,3}\.){3}\d{1,3}$/.test(text) && text.split('.').every(part => Number(part) <= 255)
+
+  /** The IPv4 addresses for `name`: a literal is itself, `localhost` is this machine, anything else is asked for. `{ error }` is an EAI code. */
+  function lookupAddresses(name) {
+    if (isDottedQuad(name)) return { addresses: [name] }
+    const result = callMainThread('dns_lookup', name, 4)
+    if (result.error) return { error: result.error === 'AGAIN' ? EAI.AGAIN : EAI.NONAME }
+    return { addresses: result.addresses }
+  }
+
+  function writeInt32(ptr, value) { view().setInt32(ptr, value, true) }
+
+  /** Allocates in the program's own heap (so its `freeaddrinfo` can free it); `0` when it exports no `malloc` */
+  function heapAlloc(size) {
+    const malloc = getExports()?.malloc
+    return typeof malloc === 'function' ? malloc(size) : 0
+  }
+
   const envSyscalls = {
+    // The first IPv4 address of a name, packed as the four bytes in memory order; `0` for none (emscripten's libc treats that as not found).
+    _emscripten_lookup_name: (namePtr) => {
+      const found = lookupAddresses(readCString(namePtr))
+      if (!found.addresses?.length) return 0
+      const [a, b, c, d] = found.addresses[0].split('.').map(Number)
+      return (a | (b << 8) | (c << 16) | (d << 24)) | 0
+    },
+    // getaddrinfo(3): builds the `struct addrinfo` list in the program's heap. IPv4 only, one entry per address, stream by default.
+    getaddrinfo: (nodePtr, servicePtr, hintPtr, outPtr) => {
+      let flags = 0, family = 0, socktype = 0, protocol = 0
+      if (hintPtr) {
+        flags = view().getInt32(hintPtr, true)
+        family = view().getInt32(hintPtr + 4, true)
+        socktype = view().getInt32(hintPtr + 8, true)
+        protocol = view().getInt32(hintPtr + 12, true)
+      }
+      if (family !== 0 && family !== AF_INET) return family === 10 ? EAI.NONAME : EAI.FAMILY
+      const node = nodePtr ? readCString(nodePtr) : null
+      const service = servicePtr ? readCString(servicePtr) : null
+      if (node === null && service === null) return EAI.NONAME
+      let port = 0
+      if (service !== null) {
+        if (/^\d+$/.test(service) && Number(service) <= 65535) port = Number(service)
+        else if (flags & 0x400 /* AI_NUMERICSERV */) return EAI.NONAME
+        else if (SERVICES[service] !== undefined) port = SERVICES[service]
+        else return EAI.SERVICE
+      }
+      let addresses
+      if (node === null) addresses = [flags & AI_PASSIVE ? '0.0.0.0' : '127.0.0.1']
+      else if (flags & AI_NUMERICHOST && !isDottedQuad(node)) return EAI.NONAME
+      else {
+        const found = lookupAddresses(node)
+        if (found.error) return found.error
+        addresses = found.addresses
+      }
+      const type = socktype || SOCK_STREAM
+      const proto = protocol || (type === SOCK_STREAM ? 6 : type === 2 ? 17 : 0)
+      let head = 0, tail = 0
+      for (const address of addresses) {
+        const sa = heapAlloc(16)
+        const ai = heapAlloc(32)
+        if (!sa || !ai) return EAI.MEMORY
+        const b = bytes()
+        b.fill(0, sa, sa + 16)
+        writeSockaddrIn(sa, address, port)
+        writeInt32(ai, 0)
+        writeInt32(ai + 4, AF_INET)
+        writeInt32(ai + 8, type)
+        writeInt32(ai + 12, proto)
+        writeInt32(ai + 16, 16)
+        writeInt32(ai + 20, sa)
+        writeInt32(ai + 24, 0)
+        writeInt32(ai + 28, 0)
+        if (!head) {
+          head = ai
+          if (flags & AI_CANONNAME && node !== null) {
+            const canon = encoder.encode(node + '\0')
+            const text = heapAlloc(canon.length)
+            if (text) { bytes().set(canon, text); writeInt32(ai + 24, text) }
+          }
+        } else writeInt32(tail + 28, ai)
+        tail = ai
+      }
+      writeInt32(outPtr, head)
+      return 0
+    },
     __syscall_chdir: (pathPtr) => guardLinux(() => chdir(readCString(pathPtr))),
     __syscall_fchdir: (fd) => guardLinux(() => { dirPaths.set(fd, dirPaths.get(fd) ?? '.') }),
     __syscall_chmod: (pathPtr, mode) => guardLinux(() => chmod(readCString(pathPtr), mode)),
@@ -1504,7 +1597,7 @@ export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   const module = await WebAssembly.compile(source)
   let memory
-  const { imports, ProcExit: Exit, args } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table)
+  const { imports, ProcExit: Exit, args } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports)
   const memoryImport = detectMemoryImport(bytes)
   if (memoryImport) {
     // The module wants its memory handed in rather than exported -- create it to the module's own

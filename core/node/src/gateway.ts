@@ -2,7 +2,7 @@ import dns from 'node:dns'
 import net, { BlockList, isIP } from 'node:net'
 import type { Socket } from 'node:net'
 
-import { NetChannel, parseNetTarget, PeerError } from '@ecmaos/peer'
+import { NetChannel, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 /**
@@ -102,10 +102,14 @@ export interface GatewayOptions {
   idleMs?: number
   /** Where a name resolves; replaced in tests */
   resolve?: (host: string) => Promise<string[]>
+  /** Where a name resolves for a given family (lookups for the guest); replaced in tests. Defaults to `resolve` for IPv4. */
+  resolveFamily?: (host: string, family: 4 | 6) => Promise<string[]>
   /** How a flow is connected; replaced in tests */
   connect?: (address: string, port: number) => Socket
   log?: (text: string) => void
 }
+
+const defaultResolveFamily = async (host: string, family: 4 | 6) => (await dns.promises.lookup(host, { all: true, family })).map(entry => entry.address)
 
 const defaultResolve = async (host: string) => (await dns.promises.lookup(host, { all: true })).map(entry => entry.address)
 
@@ -116,6 +120,7 @@ export class Gateway {
   private readonly _maxFlows: number
   private readonly _idleMs: number
   private readonly _resolve: (host: string) => Promise<string[]>
+  private readonly _resolveFamily: (host: string, family: 4 | 6) => Promise<string[]>
   private readonly _connect: (address: string, port: number) => Socket
   private readonly _log: (text: string) => void
   private readonly _flows = new WeakMap<Connection, number>()
@@ -127,6 +132,7 @@ export class Gateway {
     this._maxFlows = options.maxFlows ?? 32
     this._idleMs = options.idleMs ?? 5 * 60_000
     this._resolve = options.resolve ?? defaultResolve
+    this._resolveFamily = options.resolveFamily ?? (options.resolve ? async (host, family) => (await options.resolve!(host)).filter(address => isIP(address) === family) : defaultResolveFamily)
     this._connect = options.connect ?? ((address, port) => net.connect({ host: address, port, allowHalfOpen: true }))
     this._log = options.log ?? (() => {})
   }
@@ -160,9 +166,53 @@ export class Gateway {
     return addresses[0]!
   }
 
+  /**
+   * The addresses of `host` this gateway is willing to hand to a guest. The guest then connects by address, and that is
+   * checked again, so this is about not exposing this host's surroundings through names: an address in a blocked range is
+   * left out unless a rule names an address range that holds it (a name rule never opens one), as is anything a deny rule
+   * without ports covers. With allow rules, the name or one of its addresses must match one of them (ports are not known yet).
+   */
+  async lookup(host: string, family: 4 | 6): Promise<string[]> {
+    const name = host.toLowerCase().replace(/\.$/, '')
+    let addresses: string[]
+    if (isIP(name)) addresses = isIP(name) === family ? [name] : []
+    else {
+      try { addresses = await this._resolveFamily(name, family) } catch { throw new PeerError('refused', `could not resolve ${host}`) }
+    }
+    if (addresses.length === 0) throw new PeerError('refused', `could not resolve ${host}`)
+
+    const everywhere = (rule: Rule) => !rule.ports
+    if (this._deny.some(rule => everywhere(rule) && ruleMatches(rule, name, addresses, 0))) throw new PeerError('refused', `${host} is denied by the gateway`)
+    if (this._allow.length > 0 && !this._allow.some(rule => ruleMatches({ ...rule, ports: undefined }, name, addresses, 0))) throw new PeerError('refused', `${host} is not allowed by the gateway`)
+
+    const reachable = addresses.filter(address => {
+      const bare = plain(address)
+      if (this._deny.some(rule => everywhere(rule) && !rule.name && rule.addresses!.check(bare, family === 4 ? 'ipv4' : 'ipv6'))) return false
+      if (!Blocked.check(bare, family === 4 ? 'ipv4' : 'ipv6')) return true
+      return this._allow.some(rule => !rule.name && rule.addresses!.check(bare, family === 4 ? 'ipv4' : 'ipv6'))
+    })
+    if (reachable.length === 0) throw new PeerError('refused', `${host} is ${addresses[0]}, which this gateway does not reach`)
+    return reachable
+  }
+
+  /** Answers one lookup channel: the addresses in one message, then the channel closes */
+  private async answer(channel: Channel, user: string): Promise<void> {
+    const request = parseNetLookup(channel.params)
+    try {
+      const addresses = await this.lookup(request.name, request.family)
+      this._log(`${user} lookup ${request.name} -> ${addresses.join(', ')}`)
+      channel.send({ op: 'resolved', addresses })
+      channel.close()
+    } catch (error) {
+      this._log(`${user} lookup ${request.name} refused: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
+  }
+
   /** Serves one `net` channel for `user`. Throwing refuses it. */
   async serve(connection: Connection, channel: Channel, user: string): Promise<void> {
     if (!this.users.includes(user)) throw new PeerError('refused', `${user} may not use this gateway`)
+    if (channel.params && typeof channel.params === 'object' && !Array.isArray(channel.params) && !(channel.params instanceof Uint8Array) && channel.params['proto'] === 'dns') return this.answer(channel, user)
     const target = parseNetTarget(channel.params)
     const open = this._flows.get(connection) ?? 0
     if (open >= this._maxFlows) throw new PeerError('limit', `too many flows (${this._maxFlows})`)

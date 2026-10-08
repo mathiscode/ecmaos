@@ -35,6 +35,7 @@ import { Components } from '#components.ts'
 import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
+import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
@@ -561,6 +562,10 @@ export class Kernel implements IKernel {
         ].filter(Boolean).join('\n') + '\n'
 
         await this.filesystem.fs.writeFile('/etc/os-release', osRelease, { mode: 0o444 })
+      }
+
+      if (!(await this.filesystem.fs.exists('/etc/hosts'))) {
+        await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
       }
 
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {

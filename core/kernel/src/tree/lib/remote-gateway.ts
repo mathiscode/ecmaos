@@ -7,7 +7,7 @@
  * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
  */
 
-import { openFlow, PeerError } from '@ecmaos/peer'
+import { openFlow, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 import type { Shell } from '@ecmaos/types'
@@ -15,6 +15,7 @@ import type { Shell } from '@ecmaos/types'
 import type { Kernel } from '#kernel.ts'
 
 import type { Outcome, OutcomeLine } from './outcome.ts'
+import { DEFAULT_HOSTS, isIPv4, lookupHosts } from './hosts.ts'
 import { dialPeer, parseRemoteSource, RemoteMountFailure } from './remote-mount.ts'
 
 interface Link {
@@ -96,6 +97,34 @@ export async function openGatewayFlow(kernel: Kernel, host: string, port: number
   const { channel } = opened
   void channel.done.then(() => { link.flows-- })
   return { ...streamsOf(channel), address: opened.address, close: () => channel.close() }
+}
+
+/** Why a name did not resolve, in the terms of `getaddrinfo`: no such name, or no answer to be had (no gateway, or it failed) */
+export class LookupFailure extends Error {
+  constructor(readonly kind: 'NONAME' | 'AGAIN', message: string) { super(message) }
+}
+
+/**
+ * The addresses for `name`, the way a program's `getaddrinfo` should see them: an address literal is itself, then `/etc/hosts`,
+ * then the gateway's resolver. With no gateway up that is a temporary failure ("no nameserver"), as on a machine that cannot
+ * reach one. A name the gateway cannot or will not give is no such name, with its reason.
+ */
+export async function resolveHostname(kernel: Kernel, name: string, family: 4 | 6 = 4): Promise<string[]> {
+  if (family === 4 && isIPv4(name)) return [name]
+  const hosts = await kernel.filesystem.fs.exists('/etc/hosts') ? await kernel.filesystem.fs.readFile('/etc/hosts', 'utf-8') : DEFAULT_HOSTS
+  const local = lookupHosts(hosts, name, family)
+  if (local.length > 0) return local
+  const link = links.get(kernel)
+  if (!link) throw new LookupFailure('AGAIN', 'no gateway is up (see gateway up)')
+  try {
+    const addresses = await resolveName(link.connection, name, { family, timeout: 20_000 })
+    if (addresses.length === 0) throw new LookupFailure('NONAME', `${name}: no address`)
+    return addresses
+  } catch (error) {
+    if (error instanceof LookupFailure) throw error
+    if (error instanceof PeerError && (error.code === 'timeout' || error.code === 'closed')) throw new LookupFailure('AGAIN', error.message)
+    throw new LookupFailure('NONAME', error instanceof Error ? error.message : String(error))
+  }
 }
 
 export type GatewayRequest =

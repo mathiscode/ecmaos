@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import net from 'node:net'
 import type { Server } from 'node:net'
 
-import { Connection, memoryPair, NetChannel, openFlow, PeerError } from '@ecmaos/peer'
+import { Connection, memoryPair, NetChannel, openFlow, PeerError, resolveName } from '@ecmaos/peer'
 
 import { Gateway, parseRule } from '../src/gateway.ts'
 import type { GatewayOptions } from '../src/gateway.ts'
@@ -218,5 +218,65 @@ describe('rules', () => {
     for (const bad of ['', '10.0.0.0/40', 'a b', 'example.com:99999', 'example.com:9-1', '[fd00::', '*.example.com/8']) {
       expect(() => parseRule(bad), bad).toThrow()
     }
+  })
+})
+
+describe('name lookups for the guest', () => {
+  const table: Record<string, string[]> = {
+    'example.test': ['93.184.216.34', '2606:2800:220:1::1'],
+    'internal.test': ['10.0.0.5'],
+    'mixed.test': ['10.0.0.5', '93.184.216.35'],
+    'lab.test': ['192.168.1.20'],
+    'local.test': ['127.0.0.2']
+  }
+  const resolve = async (host: string) => table[host] ?? Promise.reject(new Error('ENOTFOUND'))
+  const ask = (options: GatewayOptions, name: string, family: 4 | 6 = 4) => {
+    const { guest, log } = link({ resolve, ...options })
+    return { answer: resolveName(guest, name, { family, timeout: 2000 }), log }
+  }
+
+  it('answers with the addresses of the family asked for', async () => {
+    expect(await ask({}, 'example.test').answer).toEqual(['93.184.216.34'])
+    expect(await ask({}, 'example.test', 6).answer).toEqual(['2606:2800:220:1::1'])
+  })
+
+  it('answers an address literal with itself, and logs the lookup', async () => {
+    const { answer, log } = ask({}, '93.184.216.34')
+    expect(await answer).toEqual(['93.184.216.34'])
+    expect(log.join('\n')).toContain('lookup 93.184.216.34')
+  })
+
+  it('does not tell a guest where a name inside this host\'s network points, unless a rule names that range', async () => {
+    await expect(ask({}, 'internal.test').answer).rejects.toThrow(/does not reach/)
+    await expect(ask({}, 'lab.test').answer).rejects.toThrow(/does not reach/)
+    await expect(ask({ allow: [parseRule('lab.test')] }, 'lab.test').answer).rejects.toThrow(/does not reach/) // a name rule never opens an address
+    expect(await ask({ allow: [parseRule('192.168.1.0/24')] }, 'lab.test').answer).toEqual(['192.168.1.20'])
+  })
+
+  it('leaves out only the addresses it would not connect to', async () => {
+    expect(await ask({}, 'mixed.test').answer).toEqual(['93.184.216.35'])
+  })
+
+  it('applies allow and deny rules to the name or its addresses, whatever the ports', async () => {
+    await expect(ask({ deny: [parseRule('example.test')] }, 'example.test').answer).rejects.toThrow(/denied/)
+    await expect(ask({ deny: [parseRule('93.184.216.0/24')] }, 'example.test').answer).rejects.toThrow(/denied|does not reach/)
+    await expect(ask({ allow: [parseRule('other.test')] }, 'example.test').answer).rejects.toThrow(/not allowed/)
+    expect(await ask({ allow: [parseRule('example.test:443')] }, 'example.test').answer).toEqual(['93.184.216.34'])
+    expect(await ask({ allow: [parseRule('93.184.216.34')] }, 'example.test').answer).toEqual(['93.184.216.34'])
+  })
+
+  it('says so when the name does not resolve', async () => {
+    await expect(ask({}, 'nope.test').answer).rejects.toThrow(/could not resolve/)
+  })
+
+  it('is for the users the gateway serves, like a flow', async () => {
+    const { guest } = link({ resolve }, 'somebody')
+    await expect(resolveName(guest, 'example.test', { timeout: 2000 })).rejects.toThrow(/may not use this gateway/)
+  })
+
+  it('refuses a request that is not a name', async () => {
+    const { guest } = link({ resolve })
+    await expect(resolveName(guest, 'a b', { timeout: 2000 })).rejects.toThrow()
+    await expect(guest.open(NetChannel, { params: { proto: 'dns', name: 'x', family: 5 }, timeout: 2000 }).then(channel => channel.done)).resolves.toBeDefined()
   })
 })

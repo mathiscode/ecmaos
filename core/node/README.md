@@ -122,7 +122,10 @@ whatever it can, so it is off unless asked for and closed by default:
   also under `--quiet`.
 - **From a program:** `gateway up root@host:30022` on the guest keeps a link to this machine, and a program's `connect()` to an
   IPv4 address (a WASM program's `socket()`/`connect()`) is then a flow through it, subject to the same rules.
-- **Not yet:** UDP, name lookups for the guest (`getaddrinfo`), and listening for inbound connections. The scope is in
+- **Name lookups:** a guest can ask this machine to resolve a name (`getaddrinfo` in a program, after `/etc/hosts`). It answers only
+  with addresses it would connect to: a name pointing into a blocked range is answered as unresolvable unless an allow rule
+  names that range, deny rules apply, and with allow rules the name (or an address) must match one. Each lookup is logged.
+- **Not yet:** UDP, IPv6 answers for the guest, and listening for inbound connections. The scope is in
   `.docs/NODE_NETWORK_GATEWAY.md`.
 
 ### Sharing files between machines

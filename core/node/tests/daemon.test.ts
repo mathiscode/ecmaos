@@ -890,6 +890,58 @@ describe('the network gateway', () => {
     expect(await me.run('/tmp/gw.wasm; echo code=$?')).toContain('code=2')
   }, 90_000)
 
+  /** Puts a file in a session's machine, a piece of base64 per line (a 24 KB line is too much to type at a terminal) */
+  async function install(me: Session, file: Buffer, destination: string) {
+    const encoded = file.toString('base64')
+    await me.run(`rm -f ${destination}.b64`)
+    for (let at = 0; at < encoded.length; at += 1500) await me.run(`echo ${encoded.slice(at, at + 1500)} >> ${destination}.b64`)
+    await me.run(`base64 -d ${destination}.b64 > ${destination}; chmod 755 ${destination}; rm ${destination}.b64`)
+  }
+  const lookupProgram = () => readFileSync(path.resolve(import.meta.dirname, 'fixtures/emcc-lookup.wasm'))
+
+  async function bringUp(me: Session, port: number, code: string | undefined) {
+    const mark = me.output.length
+    me.send(`gateway up root@127.0.0.1:${port} --pair ${code} -y\r`)
+    await me.waitFor('unlocks your key', mark)
+    me.send('root\r')
+    await me.waitFor('is up as root', mark)
+  }
+
+  it('getaddrinfo answers from /etc/hosts, and a name from there connects through the gateway', async () => {
+    const target = net.createServer(socket => socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())))
+    await new Promise<void>(resolve => target.listen(0, '127.0.0.2', resolve))
+    afterEachClose.push(() => target.close())
+    const targetPort = (target.address() as net.AddressInfo).port
+    const { port, code } = await host(['--gateway', `--gateway-allow=127.0.0.2:${targetPort}`])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, lookupProgram(), '/tmp/lookup.wasm')
+
+    expect(await me.run('/tmp/lookup.wasm localhost 80')).toContain('127.0.0.1:80')
+    expect(await me.run('/tmp/lookup.wasm 10.1.2.3 8080')).toContain('10.1.2.3:8080')
+    expect(await me.run('/tmp/lookup.wasm localhost 80 byname')).toContain('gethostbyname 127.0.0.1')
+    expect(await me.run('/tmp/lookup.wasm nowhere.test 80')).toContain('getaddrinfo: Try again')
+    await me.run("echo '127.0.0.2 echo.test' >> /etc/hosts")
+    await bringUp(me, port, code)
+    const talk = await me.run(`/tmp/lookup.wasm echo.test ${targetPort} talk`)
+    expect(talk).toContain(`127.0.0.2:${targetPort}`)
+    expect(talk).toContain('HELLO DNS')
+  }, 120_000)
+
+  it('a name only the gateway can resolve is asked of it, and a refusal reads as no such name', async () => {
+    const { port, code, session } = await host(['--gateway', '--gateway-allow=127.0.0.1'])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, lookupProgram(), '/tmp/lookup.wasm')
+    await me.run('echo "# nothing" > /etc/hosts')
+    await bringUp(me, port, code)
+    expect(await me.run('/tmp/lookup.wasm localhost 80')).toContain('127.0.0.1:80')
+    await session.waitFor('lookup localhost -> 127.0.0.1')
+    expect(await me.run('/tmp/lookup.wasm no-such-host.invalid 80')).toContain('getaddrinfo: Name does not resolve')
+  }, 120_000)
+
   it('will not be on beyond loopback without --gateway-public', async () => {
     const session = new Session(['--listen=0.0.0.0:0', '--gateway'])
     sessions.push(session)
