@@ -1,7 +1,7 @@
 
 import i18nextLoader from 'vite-plugin-i18next-loader'
 import path from 'path'
-import { defineConfig, ViteUserConfig } from 'vitest/config'
+import { configDefaults, defineConfig, ViteUserConfig } from 'vitest/config'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import dts from 'vite-plugin-dts'
 import { playwright } from '@vitest/browser-playwright'
@@ -204,6 +204,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
+    // `*.slow.test.ts` (Vim, which each test starts anew) is a run of its own: `pnpm test:slow`
+    exclude: process.env['SLOW'] ? [...configDefaults.exclude] : [...configDefaults.exclude, '**/*.slow.test.ts'],
     // Every test file boots a whole kernel and spawns a worker per program, so a run is CPU-bound
     // rather than I/O-bound. With one fork per core (8 here) roughly half of all full runs failed on
     // a different timing-sensitive test each time (empty redirect output, a `stat` that briefly

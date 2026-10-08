@@ -51,7 +51,7 @@ const merged = mergeConfig(base, defineConfig({
   // Each file boots a kernel and spawns a worker per program, so a loaded machine occasionally trips a timing-sensitive
   // test (a different one each run, none failing alone); the main config pins its worker count for the same reason.
   // One retry keeps that from failing CI, and a test that fails twice still fails.
-  test: { environment: 'node', retry: 1, include: ['tests/**/*.test.ts'], exclude: ['**/node_modules/**', ...Object.keys(DomBound)] }
+  test: { environment: 'node', retry: 1, include: ['tests/**/*.test.ts'], exclude: ['**/node_modules/**', '**/*.slow.test.ts', ...Object.keys(DomBound)] }
 }))
 
 // `mergeConfig` joins arrays, which would keep the jsdom setup file; this project has its own
