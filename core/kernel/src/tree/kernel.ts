@@ -1644,9 +1644,13 @@ export class Kernel implements IKernel {
             // Sleep until the program writes (the pipe's queue wakes on data), exits, or a fallback tick: a
             // fixed poll let a program's stderr land after whatever its parent wrote next to stdout
             // (`ecmash` drawing its prompt), because the pump only looked every 10 ms.
+            // Only for stderr: waking stdout the same way loses the end of a large transfer through a pipe
+            // (`cat big | prog | wc -c` came up a few KiB short), which has not been explained.
             let stopWaiting: (() => void) | undefined
-            const written = new Promise<boolean>(resolve => { stopWaiting = pipefs._end(bridgeFile.path)?.pipe.wait.wait_with(() => resolve(false)) })
-            const exited = await Promise.race([proc.exited.then(() => true), written, new Promise<boolean>(resolve => setTimeout(() => resolve(false), 100))])
+            const written = stdFd === 2
+              ? new Promise<boolean>(resolve => { stopWaiting = pipefs._end(bridgeFile.path)?.pipe.wait.wait_with(() => resolve(false)) })
+              : new Promise<boolean>(() => {})
+            const exited = await Promise.race([proc.exited.then(() => true), written, new Promise<boolean>(resolve => setTimeout(() => resolve(false), stdFd === 2 ? 100 : 10))])
             stopWaiting?.()
             if (exited) {
               // Program has exited (closing its end); drain whatever is left, then stop.
