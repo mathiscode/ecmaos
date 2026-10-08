@@ -232,6 +232,7 @@ export class Terminal extends XTerm implements ITerminal {
   private _zfsTty: TTY | undefined
   private _ttyInput: IDisposable | undefined
   private _ttyInputHolders = 0
+  private _readlineActive = 0
   /** Typed while a command ran and not read by it; replayed into the line editor after the next prompt */
   private _typeahead = ''
   private _ttySavedTermios: TTY['termios'] | undefined
@@ -280,7 +281,9 @@ export class Terminal extends XTerm implements ITerminal {
       // typing into a raw terminal. Restored once, by the last release, not per stage -- in
       // `cat f | less`, `cat` finishing must not cook the terminal out from under `less`.
       this._ttySavedTermios = { ...tty.termios, cc: [...tty.termios.cc] }
-      this._ttyInput = this.onData(data => tty.receive(data))
+      // not while `readline()` is answering a question for the kernel: what is typed then is the answer, and must not
+      // also wait in the line discipline to be run as a command when the program ends
+      this._ttyInput = this.onData(data => { if (!this._readlineActive) tty.receive(data) })
     }
 
     let released = false
@@ -1034,6 +1037,7 @@ export class Terminal extends XTerm implements ITerminal {
     this.write(stripMarkers(prompt))
     this.focus()
 
+    this._readlineActive++
     const result = await new Promise<string>((resolve) => {
       const disposable = this.onKey(({ key, domEvent }) => {
         if (domEvent.target && this._passwordInputElement && domEvent.target === this._passwordInputElement) {
@@ -1060,6 +1064,7 @@ export class Terminal extends XTerm implements ITerminal {
       })
     })
 
+    this._readlineActive--
     restoreTtyEcho?.()
     if (wasListening && !noListen) this.listen()
     return result

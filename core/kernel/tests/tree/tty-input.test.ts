@@ -77,6 +77,20 @@ describe('TTY line discipline input for foreground worker programs', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/tty-ahead.out', 'utf8')).toBe('kept\n')
   }, 20000)
 
+  it('what is typed as the answer to a question the kernel asks (readline) never waits in the line discipline to be run later', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/tty-hold.js', 'await new Promise(r => setTimeout(r, 600))', { mode: 0o755 })
+    const done = kernel.shell.execute('/tmp/tty-hold.js')
+    await foregroundReady()
+    const terminal = kernel.terminal as unknown as { _readlineActive: number }
+    terminal._readlineActive++
+    type('secret')
+    terminal._readlineActive--
+    const ldisc = kernel.terminal.zfsTty!.ldisc
+    expect([...ldisc.buffer, ...ldisc.line]).toEqual([])
+    await done
+    await waitFor(() => !kernel.terminal.ttyInputAttached)
+  }, 10000)
+
   it('^C is raised by the line discipline (ISIG) and the program exits 130', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/tty-int.js', 'await new Promise(r => setTimeout(r, 5000))', { mode: 0o755 })
 

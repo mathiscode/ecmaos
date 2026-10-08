@@ -474,20 +474,6 @@ export class Users {
     }
   }
 
-  /**
-   * Sets `uid`'s password without knowing the old one, which only root may ask for (`passwd LOGIN`). The
-   * account's private key stays encrypted under the old password, since there is nothing to unlock it with.
-   */
-  async resetPassword(uid: number, newPassword: string) {
-    const user = this._users.get(uid)
-    if (!user) throw new Error(this._options.context.i18n.t('User not found'))
-    validatePassword(newPassword)
-    user.password = await hashPassword(newPassword)
-    user.aging = { ...user.aging, lastChange: daysSinceEpoch() }
-    await this.update(user.uid, user)
-    await this.writeShadowEntry(user)
-  }
-
   // -- /etc/shadow ----------------------------------------------------------------------------------
 
   /** The line `/etc/shadow` holds for `user`: what it knows, and whatever the file had past the ninth field */
