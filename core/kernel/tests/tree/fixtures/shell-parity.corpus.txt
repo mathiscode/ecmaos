@@ -578,3 +578,9 @@ f() { g=1; local l=2; h=3; echo $g $l; }; f; echo "[$g] [$l] [$h]"
 n=5; f() { n=$((n+1)); }; f; f; echo $n
 ### gaps/function-array-global
 f() { arr=(1 2); arr[2]=3; }; f; echo ${arr[@]}
+### gaps/background-pipeline-compound-stage
+(echo bg) | cat & wait; echo done
+### gaps/background-pipeline-compound-last
+echo x | while read a; do echo got $a; done & wait; echo done
+### gaps/background-pipeline-subshell-scope
+x=1; (x=2; echo in$x) | cat & wait; echo out$x

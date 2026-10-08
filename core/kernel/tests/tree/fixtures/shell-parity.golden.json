@@ -990,5 +990,17 @@
   "gaps/function-array-global": {
     "stdout": "1 2 3\n",
     "status": 0
+  },
+  "gaps/background-pipeline-compound-stage": {
+    "stdout": "bg\ndone\n",
+    "status": 0
+  },
+  "gaps/background-pipeline-compound-last": {
+    "stdout": "got x\ndone\n",
+    "status": 0
+  },
+  "gaps/background-pipeline-subshell-scope": {
+    "stdout": "in2\nout1\n",
+    "status": 0
   }
 }

@@ -435,7 +435,7 @@ class Shell {
    * fresh `ecmash` that is given this shell's state (variables, arrays, functions, aliases, traps, options,
    * positional parameters, `$?`) and the statement itself, as JSON. Returns the same handle a pipeline does.
    */
-  async forkCompound(statement) {
+  async forkCompound(statement, pipeline) {
     const file = this.scratchPath()
     const payload = JSON.stringify({
       state: serializeSnapshot(this.state.snapshot()),
@@ -443,6 +443,7 @@ class Shell {
       name: this.name,
       status: this.status,
       statement,
+      pipeline,
     })
     const fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
     try { writeAllFd(fd, payload) } finally { close(fd) }
@@ -483,15 +484,12 @@ class Shell {
 
   async runBackground(pipeline) {
     const compound = pipeline.commands.length === 1 ? pipeline.commands[0].compound : undefined
-    if (!compound && pipeline.commands.some(command => command.compound)) {
-      // A compound stage in the middle of a pipeline runs in this process, which cannot also carry on with the next prompt.
-      writeAllFd(2, 'ecmash: a compound command in a background pipeline is not supported\n')
-      return 1
-    }
+    // a compound stage inside a longer pipeline runs in this process, which cannot also carry on with the prompt: the whole pipeline goes to a forked shell
+    const mixed = !compound && pipeline.commands.some(command => command.compound)
     const mark = this.procsubs.length
     let job
-    if (compound) {
-      try { job = await this.forkCompound(compound) } catch (error) { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); return 1 }
+    if (compound || mixed) {
+      try { job = await this.forkCompound(compound, mixed ? pipeline : undefined) } catch (error) { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); return 1 }
     } else job = await this.startPipeline(pipeline, true)
     if (!job) return 1
     const record = this.addJob(job, pipeline, { background: true })
@@ -1228,7 +1226,7 @@ async function main() {
     shell.state.traps.clear()
     let status = 0
     try {
-      status = await shell.interpreter.runStage(payload.statement)
+      status = payload.pipeline ? await shell.interpreter.runForkedPipeline(payload.pipeline) : await shell.interpreter.runStage(payload.statement)
     } catch (error) {
       if (error instanceof ExitSignal) status = error.code
       else if (isUnwind(error)) status = 0

@@ -9,7 +9,7 @@
  */
 
 import { parseStatements, type PipelineStatement, type Statement } from '../control-flow-parser.js'
-import { parseScript, type Command, type Pipeline, type Script } from '../shell-parser.js'
+import { parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
 import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
@@ -285,7 +285,10 @@ export class Interpreter {
     const host = this.host
     const commands: Command[] = []
     let background = Boolean(statement.background)
-    for (const stage of statement.stages) {
+    // what follows the pipeline on the same line (`(a) | cat & wait`): the last plain stage carries it
+    let rest: ScriptStage[] = []
+    let lastOperator: ScriptStage['operator'] = null
+    for (const [index, stage] of statement.stages.entries()) {
       if (stage.type !== 'simple') {
         commands.push({ type: 'command', words: [], wordsQuoted: [], wordParts: [], redirections: [], compound: stage })
         continue
@@ -294,12 +297,14 @@ export class Interpreter {
       const prepared = host.prepareLine ? host.prepareLine(expanded) : expanded
       const script = parseScript(prepared)
       const only = script.stages[0]
-      if (script.stages.length !== 1 || !only) throw new Error(`unsupported pipeline stage: ${stage.line}`)
+      if (!only || (script.stages.length !== 1 && index !== statement.stages.length - 1)) throw new Error(`unsupported pipeline stage: ${stage.line}`)
       if (only.operator === '&') background = true
+      else lastOperator = only.operator
+      rest = script.stages.slice(1)
       commands.push(...only.pipeline.commands)
     }
     const pipeline: Pipeline = { type: 'pipeline', commands, negated: false }
-    return await this.runScript({ type: 'script', stages: [{ pipeline, operator: background ? '&' : null }] })
+    return await this.runScript({ type: 'script', stages: [{ pipeline, operator: background ? '&' : lastOperator }, ...rest] })
   }
 
   /**
@@ -313,6 +318,11 @@ export class Interpreter {
   /** A shell function used as a pipeline stage (`f | cat`, `cat | f`): called in a subshell, as in bash. */
   async runFunctionStage(name: string, args: string[]): Promise<number> {
     return await this.inSubshell(() => this.callFunction(name, args))
+  }
+
+  /** A whole pipeline with compound stages, run in the foreground of a forked shell (what `( a ) | b &` starts). */
+  async runForkedPipeline(pipeline: Pipeline): Promise<number> {
+    return await this.inSubshell(() => this.runScript({ type: 'script', stages: [{ pipeline, operator: null }] }))
   }
 
   private async runScript(script: Script): Promise<number> {
