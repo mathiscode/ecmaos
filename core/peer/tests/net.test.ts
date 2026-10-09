@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { Connection, datagram, datagramOf, MaxDatagram, memoryPair, NetChannel, openFlow, parseNetLookup, parseNetTarget, PeerError, resolveName } from '../src/index.ts'
+import { Connection, datagram, datagramOf, MaxDatagram, memoryPair, NetChannel, openFlow, parseNetLookup, parseNetTarget, parseNetListen, parseNetAccept, PeerError, resolveName } from '../src/index.ts'
 
 describe('net targets', () => {
   it('accepts a host and a port', () => {
@@ -80,6 +80,23 @@ describe('datagrams', () => {
     expect(datagramOf(datagram(bytes))).toEqual(bytes)
     for (const other of [null, 'x', [1], { op: 'eof' }, { op: 'd' }, { op: 'd', data: 'text' }, { op: 'd', data: new Uint8Array(MaxDatagram + 1) }]) {
       expect(datagramOf(other as never), JSON.stringify(other)).toBeUndefined()
+    }
+  })
+})
+
+describe('listen requests', () => {
+  it('defaults the host port to the guest port and checks both', () => {
+    expect(parseNetListen({ proto: 'listen', port: 3000 })).toEqual({ proto: 'listen', port: 3000, as: 3000 })
+    expect(parseNetListen({ proto: 'listen', port: 3000, as: 8080 }).as).toBe(8080)
+    for (const bad of [{ proto: 'listen', port: 0 }, { proto: 'listen', port: 70000 }, { proto: 'listen', port: 1.5 }, { proto: 'listen', port: 80, as: 0 }, { proto: 'listen', port: '80' }, null, [], new Uint8Array(1)]) {
+      expect(() => parseNetListen(bad as never), JSON.stringify(bad)).toThrow(PeerError)
+    }
+  })
+
+  it('checks an announced connection', () => {
+    expect(parseNetAccept({ proto: 'accept', id: 3, peer: '203.0.113.5:4000' })).toEqual({ proto: 'accept', id: 3, peer: '203.0.113.5:4000' })
+    for (const bad of [{ proto: 'accept', id: -1, peer: 'x' }, { proto: 'accept', id: 1, peer: 5 }, { proto: 'accept', id: 'a', peer: 'x' }, { proto: 'tcp', id: 1, peer: 'x' }, null]) {
+      expect(() => parseNetAccept(bad as never), JSON.stringify(bad)).toThrow(PeerError)
     }
   })
 })

@@ -105,3 +105,66 @@ export async function resolveName(connection: Connection, name: string, options:
     }
   })
 }
+
+/** Asks the host to listen: `port` here, the port on the host to open (`as`, default the same). */
+export interface NetListen {
+  proto: 'listen'
+  port: number
+  as?: number
+}
+
+/** Checks a listen request that came over the wire */
+export function parseNetListen(value: Value): { proto: 'listen', port: number, as: number } {
+  if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) throw new PeerError('protocol', 'bad net listen')
+  const { proto, port, as } = value
+  if (proto !== 'listen') throw new PeerError('unsupported', 'not a listen request')
+  const valid = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 65535
+  if (!valid(port)) throw new PeerError('refused', 'bad port')
+  if (as !== undefined && !valid(as)) throw new PeerError('refused', 'bad port')
+  return { proto, port, as: as ?? port }
+}
+
+/** What the host opens towards the guest for each connection its listener accepts */
+export interface NetAccept {
+  proto: 'accept'
+  /** The `id` the listener answered with */
+  id: number
+  /** Who connected, `address:port`, for the guest to show */
+  peer: string
+}
+
+/** Checks an incoming connection announced over the wire */
+export function parseNetAccept(value: Value): NetAccept {
+  if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) throw new PeerError('protocol', 'bad net accept')
+  const { proto, id, peer } = value
+  if (proto !== 'accept') throw new PeerError('unsupported', 'not an incoming connection')
+  if (typeof id !== 'number' || !Number.isSafeInteger(id) || id < 0) throw new PeerError('protocol', 'bad listener id')
+  if (typeof peer !== 'string' || peer.length > MaxHostLength + 8) throw new PeerError('protocol', 'bad peer')
+  return { proto, id, peer }
+}
+
+export interface OpenedListener {
+  /** Closing it stops listening (connections already accepted carry on until they end) */
+  channel: Channel
+  /** The id the host's incoming connections will name */
+  id: number
+  address: string
+  port: number
+}
+
+/**
+ * Asks the host to open a port and forward what connects to it. Resolves when it is listening, or rejects with the reason
+ * (outside the ports the host allows, in use, too many). Each connection then arrives as a channel the host opens, which the
+ * caller takes with `connection.accept(NetChannel, ...)` and recognises by {@link parseNetAccept}.
+ */
+export async function openListener(connection: Connection, request: { port: number, as?: number }, options: { timeout?: number } = {}): Promise<OpenedListener> {
+  const channel = await connection.open(NetChannel, { params: { proto: 'listen', port: request.port, ...(request.as ? { as: request.as } : {}) }, timeout: options.timeout ?? 20_000 })
+  return await new Promise<OpenedListener>((resolve, reject) => {
+    void channel.done.then(error => reject(error ?? new PeerError('closed', 'the gateway closed the listener')))
+    channel.onMessage = message => {
+      if (!message || typeof message !== 'object' || message instanceof Uint8Array || Array.isArray(message) || message['op'] !== 'listening') return
+      channel.onMessage = undefined
+      resolve({ channel, id: Number(message['id']), address: String(message['address'] ?? ''), port: Number(message['port']) })
+    }
+  })
+}

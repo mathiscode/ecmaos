@@ -1564,10 +1564,11 @@ export class Kernel implements IKernel {
     proc: InstanceType<typeof ZenFSProcess>,
     direction: 'read' | 'write',
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
-  ): { fd: number, stop: () => void } {
+  ): { fd: number, stop: () => void, done: Promise<void> } {
     let fd = 3
     while (proc.context.descriptors.has(fd)) fd++
-    return { fd, stop: this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true }).stop }
+    const { stop, done } = this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true })
+    return { fd, stop, done }
   }
 
   /**

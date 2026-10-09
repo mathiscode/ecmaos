@@ -3,7 +3,7 @@ import dns from 'node:dns'
 import net, { BlockList, isIP } from 'node:net'
 import type { Socket } from 'node:net'
 
-import { datagram, datagramOf, NetChannel, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
+import { datagram, datagramOf, NetChannel, parseNetListen, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
 import type { NetTarget } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
@@ -31,7 +31,7 @@ export interface Rule {
   ports?: Array<[number, number]>
 }
 
-const portsOf = (text: string): Array<[number, number]> | undefined => {
+const portsOf = (text: string): Array<[number, number]> => {
   const ranges: Array<[number, number]> = []
   for (const part of text.split(',')) {
     const match = /^(\d+)(?:-(\d+))?$/.exec(part)
@@ -91,7 +91,26 @@ function ruleMatches(rule: Rule, host: string, addresses: string[], port: number
   return addresses.some(address => rule.addresses!.check(plain(address), family(plain(address))))
 }
 
+/** What a guest may ask this host to listen on for it. Absent means no guest can open a port. */
+export interface ListenOptions {
+  /** The ports a guest may open (the port on this host, not the guest's own) */
+  ports: Array<[number, number]>
+  /** Where they are opened (default 127.0.0.1, so only this host can reach them; anything wider is the operator's say) */
+  address?: string
+  /** Most listeners at once, per connection (default 4) */
+  maxListeners?: number
+  /** Most incoming connections at once, per listener (default 16) */
+  maxInbound?: number
+}
+
+/** `PORTS` as `--gateway-listen` takes them: `8000-8099,9000` */
+export const parsePorts = portsOf
+
 export interface GatewayOptions {
+  /** Let guests open ports on this host (see {@link ListenOptions}) */
+  listen?: ListenOptions
+  /** How a listening socket is made; replaced in tests */
+  server?: () => net.Server
   /** Guest users who may use it (default: root) */
   users?: string[]
   /** If any are given, only destinations one of them matches are reachable; they are also what lets a blocked address through */
@@ -128,6 +147,10 @@ export class Gateway {
   private readonly _connect: (address: string, port: number) => Socket
   private readonly _udp: (type: 'udp4' | 'udp6') => dgram.Socket
   private readonly _log: (text: string) => void
+  private readonly _listen?: ListenOptions
+  private readonly _server: () => net.Server
+  private readonly _listeners = new WeakMap<Connection, number>()
+  private _nextListener = 1
   private readonly _flows = new WeakMap<Connection, number>()
 
   constructor(options: GatewayOptions = {}) {
@@ -141,6 +164,8 @@ export class Gateway {
     this._connect = options.connect ?? ((address, port) => net.connect({ host: address, port, allowHalfOpen: true }))
     this._udp = options.udp ?? (type => dgram.createSocket(type))
     this._log = options.log ?? (() => {})
+    this._listen = options.listen
+    this._server = options.server ?? (() => net.createServer({ allowHalfOpen: true }))
   }
 
   /**
@@ -219,6 +244,7 @@ export class Gateway {
   async serve(connection: Connection, channel: Channel, user: string): Promise<void> {
     if (!this.users.includes(user)) throw new PeerError('refused', `${user} may not use this gateway`)
     if (channel.params && typeof channel.params === 'object' && !Array.isArray(channel.params) && !(channel.params instanceof Uint8Array) && channel.params['proto'] === 'dns') return this.answer(channel, user)
+    if (channel.params && typeof channel.params === 'object' && !Array.isArray(channel.params) && !(channel.params instanceof Uint8Array) && channel.params['proto'] === 'listen') return this.listenFor(connection, channel, user)
     const target = parseNetTarget(channel.params)
     const open = this._flows.get(connection) ?? 0
     if (open >= this._maxFlows) throw new PeerError('limit', `too many flows (${this._maxFlows})`)
@@ -272,15 +298,129 @@ export class Gateway {
       alive()
       socket.write(data, () => channel.grant(data.length))
     }
+    // 'end' follows the last chunk at once even while paused, so the end is sent only after the chunk before it has gone
+    let written: Promise<void> = Promise.resolve()
     socket.on('data', chunk => {
       sent += chunk.length
       alive()
       socket.pause()
-      channel.write(chunk).then(() => socket.resume(), () => finish())
+      written = channel.write(chunk)
+      written.then(() => socket.resume(), () => finish())
     })
-    socket.on('end', () => { try { channel.send({ op: 'eof' }) } catch { /* already closed */ } })
+    socket.on('end', () => { written.then(() => { try { channel.send({ op: 'eof' }) } catch { /* already closed */ } }, () => {}) })
     socket.on('close', () => finish())
     void channel.done.then(() => finish())
+  }
+
+  /**
+   * Opens a port on this host for the guest and forwards each connection to it back over the link, one channel the host
+   * opens per connection. The channel the guest asked on is the listener's lifetime: closing it (or the link) closes the port.
+   */
+  private async listenFor(connection: Connection, channel: Channel, user: string): Promise<void> {
+    const request = parseNetListen(channel.params)
+    const listen = this._listen
+    const refuse = (message: string): never => {
+      this._log(`${user} listen ${request.as} refused: ${message}`)
+      throw new PeerError('refused', message)
+    }
+    if (!listen) return refuse('this gateway does not open ports')
+    if (!listen.ports.some(([low, high]) => request.as >= low && request.as <= high)) return refuse(`port ${request.as} is not one this gateway opens`)
+    const held = this._listeners.get(connection) ?? 0
+    if (held >= (listen.maxListeners ?? 4)) throw new PeerError('limit', `too many listeners (${listen.maxListeners ?? 4})`)
+
+    const address = listen.address ?? '127.0.0.1'
+    const id = this._nextListener++
+    const maxInbound = listen.maxInbound ?? 16
+    const server = this._server()
+    let inbound = 0
+    let closed = false
+    const stop = () => {
+      if (closed) return
+      closed = true
+      this._listeners.set(connection, (this._listeners.get(connection) ?? 1) - 1)
+      this._log(`${user} listen ${address}:${request.as} closed`)
+      try { server.close() } catch { /* never listening */ }
+      channel.close()
+    }
+
+    server.on('connection', socket => {
+      const peer = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`
+      if (inbound >= maxInbound) { this._log(`${user} listen ${address}:${request.as} dropped ${peer} (${maxInbound} connections open)`); socket.destroy(); return }
+      inbound++
+      void this.forwardInbound(connection, socket, { id, peer, port: request.as, user }, () => { inbound-- })
+    })
+
+    this._listeners.set(connection, held + 1)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(request.as, address, () => resolve())
+      })
+    } catch (error) {
+      this._listeners.set(connection, (this._listeners.get(connection) ?? 1) - 1)
+      closed = true
+      try { server.close() } catch { /* never listening */ }
+      return refuse(`${address}:${request.as}: ${(error as NodeJS.ErrnoException).code ?? (error as Error).message}`)
+    }
+    server.on('error', () => stop())
+    const bound = server.address()
+    const port = bound && typeof bound === 'object' ? bound.port : request.as
+    this._log(`${user} listening on ${address}:${port} for guest port ${request.port}`)
+    channel.send({ op: 'listening', id, address, port })
+    void channel.done.then(() => stop())
+  }
+
+  /** One accepted connection: announce it to the guest on a channel of its own and carry bytes both ways until either side ends */
+  private async forwardInbound(connection: Connection, socket: Socket, info: { id: number, peer: string, port: number, user: string }, release: () => void): Promise<void> {
+    const label = `${info.user} listen ${info.port} <- ${info.peer}`
+    let channel: Channel | undefined
+    let finished = false
+    let sent = 0
+    let received = 0
+    const finish = (error?: PeerError) => {
+      if (finished) return
+      finished = true
+      release()
+      clearTimeout(timer)
+      this._log(`${label} closed (${received} bytes in, ${sent} out)`)
+      socket.destroy()
+      channel?.close(error)
+    }
+    let timer = setTimeout(() => finish(new PeerError('timeout', 'idle')), this._idleMs)
+    const alive = () => { clearTimeout(timer); timer = setTimeout(() => finish(new PeerError('timeout', 'idle')), this._idleMs) }
+    socket.pause()
+    socket.on('error', () => finish())
+    socket.on('close', () => finish())
+    try {
+      channel = await connection.open(NetChannel, { params: { proto: 'accept', id: info.id, peer: info.peer }, timeout: 20_000 })
+    } catch (error) {
+      this._log(`${label} refused by the guest: ${error instanceof Error ? error.message : String(error)}`)
+      finish()
+      return
+    }
+    if (finished) { channel.close(); return }
+    this._log(`${label} opened`)
+    channel.manualCredit = true
+    channel.onMessage = message => {
+      if (message && typeof message === 'object' && !(message instanceof Uint8Array) && !Array.isArray(message) && message['op'] === 'eof') socket.end()
+    }
+    channel.onData = data => {
+      sent += data.length
+      alive()
+      socket.write(data, () => channel!.grant(data.length))
+    }
+    // 'end' follows the last chunk at once even while paused, so the end is sent only after the chunk before it has gone
+    let written: Promise<void> = Promise.resolve()
+    socket.on('data', chunk => {
+      received += chunk.length
+      alive()
+      socket.pause()
+      written = channel!.write(chunk)
+      written.then(() => socket.resume(), () => finish())
+    })
+    socket.on('end', () => { written.then(() => { try { channel!.send({ op: 'eof' }) } catch { /* already closed */ } }, () => {}) })
+    void channel.done.then(() => finish())
+    socket.resume()
   }
 
   /**

@@ -875,6 +875,60 @@ describe('the network gateway', () => {
     expect(await me.run('/tmp/gw.wasm; echo code=$?')).toContain('code=40')
   }, 90_000)
 
+  async function unusedPort() {
+    const probe = net.createServer()
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve))
+    const { port } = probe.address() as net.AddressInfo
+    await new Promise<void>(resolve => probe.close(() => resolve()))
+    return port
+  }
+
+  it('gateway expose lets something outside reach a server listening on the guest', async () => {
+    const outside = await unusedPort()
+    const { port, code, session } = await host(['--gateway', `--gateway-listen=${outside}`])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, readFileSync(path.resolve(import.meta.dirname, 'fixtures/emcc-serve.wasm')), '/tmp/serve.wasm')
+
+    // no gateway: no route
+    expect(await me.run(`gateway expose 3000 ${outside}`)).toContain('no gateway is up')
+    await bringUp(me, port, code)
+    // a gateway that opens the port, but nothing listening yet
+    expect(await me.run(`gateway expose 3000 ${outside + 1}`)).toContain('not one this gateway opens')
+    expect(await me.run(`gateway expose 3000 ${outside}`)).toContain(`reachable at 127.0.0.1:${outside}`)
+    expect(await me.run('gateway')).toContain(`Exposed: 127.0.0.1:${outside} -> port 3000 here`)
+
+    // nothing listening on 3000 yet: the connection is dropped
+    const refused = await new Promise<string>(resolve => {
+      const socket = net.connect({ host: '127.0.0.1', port: outside }, () => socket.write('early'))
+      const chunks: string[] = []
+      socket.on('data', chunk => chunks.push(chunk.toString()))
+      socket.on('error', () => {})
+      socket.on('close', () => resolve(chunks.join('')))
+    })
+    expect(refused).toBe('')
+
+    await me.run('/tmp/serve.wasm 3000 2 > /tmp/serve.out 2>&1 &')
+    for (let i = 0; i < 50 && !(await me.run('cat /tmp/serve.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+
+    const talk = (text: string) => new Promise<string>((resolve, reject) => {
+      const socket = net.connect({ host: '127.0.0.1', port: outside }, () => { socket.write(text); socket.end() })
+      const chunks: string[] = []
+      socket.on('data', chunk => chunks.push(chunk.toString()))
+      socket.on('error', reject)
+      socket.on('close', () => resolve(chunks.join('')))
+    })
+    expect(await talk('hello inbound')).toBe('HELLO INBOUND|BYE')
+    expect(await talk('second one')).toBe('SECOND ONE|BYE')
+    await session.waitFor(`listening on 127.0.0.1:${outside} for guest port 3000`)
+    expect(await me.run('gateway')).toContain('2 so far')
+
+    expect(await me.run(`gateway unexpose ${outside}`)).toContain('Stopped forwarding')
+    const gone = await new Promise<string>(resolve => { const socket = net.connect({ host: '127.0.0.1', port: outside }); socket.on('error', error => resolve((error as NodeJS.ErrnoException).code ?? '')); socket.on('connect', () => { socket.destroy(); resolve('connected') }) })
+    expect(gone).toBe('ECONNREFUSED')
+  }, 120_000)
+
   it('a program connecting somewhere the gateway does not allow gets EACCES', async () => {
     const { port, code } = await host(['--gateway', '--gateway-allow=example.com'])
     const wasm = Buffer.from(readFileSync(path.resolve(import.meta.dirname, 'fixtures/gateway-client.wasm')))

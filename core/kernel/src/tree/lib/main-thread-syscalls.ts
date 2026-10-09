@@ -34,7 +34,7 @@ import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
-import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, type GatewayRequest } from './remote-gateway.ts'
+import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setInboundSink, type GatewayRequest } from './remote-gateway.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -631,6 +631,20 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
+  // A connection the gateway's host forwarded (`gateway expose`) joins the loopback listener's queue like one from another program,
+  // except both its ends are streams bridged to the link instead of pipes to a process. Nothing listening there: refused.
+  setInboundSink((kernel, port, streams, peer, ended) => {
+    const listener = loopbackListeners.get(`inet:127.0.0.1:${port}`)
+    if (!listener?.listening) return false
+    const serverProc = listener.serverProc
+    const rxEnd = kernel.attachStream(serverProc, 'read', streams.rx)
+    const txEnd = kernel.attachStream(serverProc, 'write', streams.tx)
+    listener.queue.push({ fd: rxEnd.fd, writeFd: txEnd.fd, peerKey: `remote:${peer}` })
+    // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain, then end the flow
+    void serverProc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(ended) })
+    return true
+  })
+
   define_syscall('net_listen', async (proc: Process, key: string, backlog: number, path: string) => {
     const kernel = kernelOf(proc)
     const listener = loopbackListeners.get(key)
@@ -684,7 +698,8 @@ export function installMainThreadSyscalls(): void {
       const flow = await openGatewayFlow(kernel, host, port, proto === 'udp' ? 'udp' : 'tcp')
       const rxEnd = kernel.attachStream(proc, 'read', flow.rx)
       const txEnd = kernel.attachStream(proc, 'write', flow.tx)
-      void proc.exited.then(() => { rxEnd.stop(); txEnd.stop(); flow.close() })
+      // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain, then end the flow
+      void proc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(() => flow.close()) })
       text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, address: flow.address })
     } catch (error) {
       text = JSON.stringify({ error: error instanceof GatewayFailure ? error.errno : 'ECONNREFUSED', message: error instanceof Error ? error.message : String(error) })

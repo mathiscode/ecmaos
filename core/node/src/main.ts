@@ -6,7 +6,7 @@ import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
 
 import { DefaultPort, startDaemon } from './ecmaosd.ts'
-import { Gateway, parseRule } from './gateway.ts'
+import { Gateway, parsePorts, parseRule } from './gateway.ts'
 import { DefaultSitePort, findSite, startSite } from './serve.ts'
 import type { Site } from './serve.ts'
 import { openDevice, parseDevice, parseDeviceList } from './devices.ts'
@@ -44,6 +44,8 @@ if (args.has('--help') || args.has('-h')) {
   --gateway-deny RULE never reachable, whatever else says (repeatable)
   --gateway-user NAME  who may use it (default: root; repeatable)
   --gateway-max-flows N  most flows at once per login (default: 32)
+  --gateway-listen PORTS  let a guest open these ports on this host (inbound forwarding, e.g. 8000-8099); off by default
+  --gateway-listen-address ADDR  where they are opened (default 127.0.0.1; a wider address also needs --gateway-public)
   --gateway-public    allow --gateway on an address beyond loopback (it then proxies for anyone who can log in; use TLS)
   --pair-user NAME    who a pairing code enrols (default: root)
   --no-pair           do not print a pairing code
@@ -168,7 +170,13 @@ if (listen) {
     const gatewayHost = split > 0 ? address.slice(0, split) : undefined
     const loopbackOnly = !gatewayHost || gatewayHost === 'localhost' || gatewayHost === '127.0.0.1' || gatewayHost === '::1'
     if (args.has('--gateway') && !loopbackOnly && !args.has('--gateway-public')) throw new Error('--gateway on an address beyond loopback also needs --gateway-public: it lets everyone who can log in use this host to reach the network')
+    const listenPorts = value('--gateway-listen')
+    if (listenPorts && !args.has('--gateway')) throw new Error('--gateway-listen needs --gateway')
+    const listenAddress = value('--gateway-listen-address')
+    if (listenAddress && !listenPorts) throw new Error('--gateway-listen-address needs --gateway-listen')
+    if (listenAddress && !['127.0.0.1', 'localhost', '::1'].includes(listenAddress) && !args.has('--gateway-public')) throw new Error(`--gateway-listen-address ${listenAddress} exposes guest ports beyond this host, which also needs --gateway-public`)
     const gateway = args.has('--gateway') ? new Gateway({
+      listen: listenPorts ? { ports: parsePorts(listenPorts), address: listenAddress } : undefined,
       users: all('--gateway-user').length ? all('--gateway-user') : undefined,
       allow: all('--gateway-allow').map(parseRule),
       deny: all('--gateway-deny').map(parseRule),
@@ -191,7 +199,7 @@ if (listen) {
       log: text => { if (!args.has('--quiet')) say(`ecmaosd: ${text}`) }
     })
     say(`ecmaosd: listening on ${daemon.host}:${daemon.port}${certFile ? ' (TLS)' : ''}\r\necmaosd: host key ${daemon.fingerprint}`)
-    if (gateway) say(`gateway: on for ${gateway.users.join(', ')}`)
+    if (gateway) say(`gateway: on for ${gateway.users.join(', ')}${listenPorts ? `; guests may open ports ${listenPorts} on ${listenAddress ?? '127.0.0.1'}` : ''}`)
     for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
     for (const device of devices) say(`ecmaosd: offering device ${device.name} (${device.kind}, ${device.read && device.write ? 'read-write' : device.write ? 'write-only' : 'read-only'})`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)

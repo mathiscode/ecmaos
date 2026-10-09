@@ -7,7 +7,7 @@
  * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
  */
 
-import { datagram, datagramOf, openFlow, PeerError, resolveName } from '@ecmaos/peer'
+import { datagram, datagramOf, NetChannel, openFlow, openListener, parseNetAccept, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 import type { Shell } from '@ecmaos/types'
@@ -18,8 +18,21 @@ import type { Outcome, OutcomeLine } from './outcome.ts'
 import { DEFAULT_HOSTS, isIPv4, lookupHosts } from './hosts.ts'
 import { dialPeer, parseRemoteSource, RemoteMountFailure } from './remote-mount.ts'
 
+/** A port opened on the gateway for this machine: what connects there arrives at `local` on this machine's loopback */
+interface Exposure {
+  /** Where the host opened it (`address:port` as it answered) */
+  address: string
+  port: number
+  local: number
+  listener: Channel
+  /** Connections forwarded so far, and open now */
+  total: number
+  open: number
+}
+
 interface Link {
   connection: Connection
+  exposures: Map<number, Exposure>
   host: string
   user: string
   since: number
@@ -30,10 +43,18 @@ interface Link {
 const links = new WeakMap<Kernel, Link>()
 
 /** Who is on the other end, or `undefined` when no gateway is up */
-export function gatewayLink(kernel: Kernel): Pick<Link, 'host' | 'user' | 'since' | 'flows'> | undefined {
+export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'since' | 'flows'> & { exposed: Array<{ address: string, port: number, local: number, total: number, open: number }> }) | undefined {
   const link = links.get(kernel)
-  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows }
+  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows, exposed: [...link.exposures.values()].map(({ address, port, local, total, open }) => ({ address, port, local, total, open })) }
 }
+
+/**
+ * How an incoming connection is handed to a program listening on this machine's loopback. Registered by the syscall layer
+ * (which owns the loopback listeners), so this file does not import it. Returns false when nothing is listening on `port`.
+ */
+export type InboundSink = (kernel: Kernel, port: number, streams: { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> }, peer: string, ended: () => void) => boolean
+let inboundSink: InboundSink | undefined
+export function setInboundSink(sink: InboundSink) { inboundSink = sink }
 
 /** A failure carrying the errno the program's `connect()` should see */
 export class GatewayFailure extends Error {
@@ -171,8 +192,38 @@ export async function resolveHostname(kernel: Kernel, name: string, family: 4 | 
   }
 }
 
+/** Takes the connections the gateway's host forwards for a port this machine exposed, and gives each to the local listener */
+function acceptInbound(kernel: Kernel, link: Link, channel: Channel): void {
+  const target = parseNetAccept(channel.params)
+  const exposure = link.exposures.get(target.id)
+  if (!exposure) throw new PeerError('refused', 'no such listener')
+  const streams = streamsOf(channel)
+  if (!inboundSink?.(kernel, exposure.local, streams, target.peer, () => channel.close())) {
+    throw new PeerError('refused', `nothing is listening on port ${exposure.local}`)
+  }
+  exposure.total++
+  exposure.open++
+  void channel.done.then(() => { exposure.open-- })
+}
+
+/** Opens a port on the gateway's host that forwards to `local` on this machine; throws a {@link GatewayFailure} with the host's reason */
+export async function exposePort(kernel: Kernel, local: number, as?: number): Promise<{ address: string, port: number }> {
+  const link = links.get(kernel)
+  if (!link) throw new GatewayFailure('ENETUNREACH', 'no gateway is up (see gateway up)')
+  let opened
+  try { opened = await openListener(link.connection, { port: local, as }, { timeout: 20_000 }) } catch (error) {
+    throw new GatewayFailure(error instanceof PeerError && error.code === 'refused' ? 'EACCES' : 'ECONNREFUSED', error instanceof Error ? error.message : String(error))
+  }
+  const exposure: Exposure = { address: opened.address, port: opened.port, local, listener: opened.channel, total: 0, open: 0 }
+  link.exposures.set(opened.id, exposure)
+  void opened.channel.done.then(() => { if (link.exposures.get(opened.id) === exposure) link.exposures.delete(opened.id) })
+  return { address: opened.address, port: opened.port }
+}
+
 export type GatewayRequest =
   | { action: 'up', target: string, options: Record<string, string> }
+  | { action: 'expose', port: number, as?: number }
+  | { action: 'unexpose', port: number }
   | { action: 'down' }
   | { action: 'status' }
 
@@ -185,6 +236,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
   if (request.action === 'status') {
     const link = gatewayLink(kernel)
     out(link ? `Gateway: ${link.user}@${link.host}, up since ${new Date(link.since).toISOString()}, ${link.flows} flow${link.flows === 1 ? '' : 's'} open` : 'No gateway is up.')
+    for (const item of link?.exposed ?? []) out(`Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`)
     return { code: link ? 0 : 1, lines }
   }
 
@@ -194,6 +246,27 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
     links.delete(kernel)
     link.connection.close()
     out(`Gateway ${link.host} closed`)
+    return { code: 0, lines }
+  }
+
+  if (request.action === 'expose') {
+    try {
+      const where = await exposePort(kernel, request.port, request.as)
+      out(`Port ${request.port} is reachable at ${where.address}:${where.port} on the gateway host`)
+      return { code: 0, lines }
+    } catch (error) {
+      err(`gateway: ${error instanceof Error ? error.message : String(error)}`)
+      return { code: 1, lines }
+    }
+  }
+
+  if (request.action === 'unexpose') {
+    const link = links.get(kernel)
+    const found = link && [...link.exposures.entries()].find(([, item]) => item.port === request.port || item.local === request.port)
+    if (!found) { err(`gateway: port ${request.port} is not exposed`); return { code: 1, lines } }
+    found[1].listener.close()
+    link!.exposures.delete(found[0])
+    out(`Stopped forwarding ${found[1].address}:${found[1].port}`)
     return { code: 0, lines }
   }
 
@@ -210,8 +283,10 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
       fingerprint: options['fingerprint'],
       acceptNew: options['accept-new'] === 'yes' || options['accept-new'] === 'true'
     })
-    const link: Link = { connection, host: `${source.host}:${source.port}`, user: source.user, since: Date.now(), flows: 0 }
+    const link: Link = { connection, exposures: new Map(), host: `${source.host}:${source.port}`, user: source.user, since: Date.now(), flows: 0 }
     links.set(kernel, link)
+    // what the host forwards for a port this machine exposed comes as channels it opens
+    connection.accept(NetChannel, channel => acceptInbound(kernel, link, channel))
     // the other side going away takes the route with it
     void connection.done.then(() => { if (links.get(kernel) === link) links.delete(kernel) })
     out(`Gateway ${link.host} is up as ${link.user}`)

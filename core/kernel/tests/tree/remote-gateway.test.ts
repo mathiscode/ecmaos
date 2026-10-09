@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, PeerError } from '@ecmaos/peer'
 
-import { datagramStreamsOf, errnoFor, GatewayFailure, openGatewayFlow, streamsOf } from '#lib/remote-gateway.ts'
+import { datagramStreamsOf, errnoFor, exposePort, GatewayFailure, openGatewayFlow, streamsOf } from '#lib/remote-gateway.ts'
 import type { Kernel } from '#kernel.ts'
 
 describe('what a program sees when the gateway cannot connect', () => {
@@ -22,6 +22,14 @@ describe('what a program sees when the gateway cannot connect', () => {
 
   it('is ENETUNREACH when no gateway is up', async () => {
     const error = await openGatewayFlow({} as Kernel, '93.184.216.34', 80).catch(error => error)
+    expect(error).toBeInstanceOf(GatewayFailure)
+    expect(error.errno).toBe('ENETUNREACH')
+  })
+})
+
+describe('exposing a port', () => {
+  it('is ENETUNREACH when no gateway is up', async () => {
+    const error = await exposePort({} as Kernel, 3000).catch(error => error)
     expect(error).toBeInstanceOf(GatewayFailure)
     expect(error.errno).toBe('ENETUNREACH')
   })

@@ -14,11 +14,17 @@ const say = (fd, text) => write(fd, encoder.encode(text + '\n'))
 
 const usage = `Usage: gateway up [OPTIONS] [USER@]HOST[:PORT]
        gateway down
+       gateway expose PORT [HOSTPORT]
+       gateway unexpose PORT
        gateway [status]
 
 Send this machine's outbound connections through HOST, an ecmaOS machine started with 'ecmaos --listen --gateway'. It logs in
 with your key like 'connect' and asks for your password to unlock it. Only root can bring the gateway up or down. The machine
 decides what it will reach; it never reaches its own network unless its operator said so.
+
+expose asks the gateway's host to open HOSTPORT (default: PORT) and forward each connection to PORT on this machine, where a
+program is listening on loopback. The host decides which ports it opens and where; it opens none unless its operator said so.
+unexpose stops forwarding a port (named by either number). Both are for root.
 
 Options (gateway up):
   -p, --pair CODE         enrol your key with this one-time pairing code first
@@ -61,6 +67,11 @@ async function main() {
   const action = rest[0] ?? 'status'
   if (action === 'status' && rest.length <= 1) return await ask({ action: 'status' })
   if (action === 'down' && rest.length === 1) return await ask({ action: 'down' })
+  const port = text => /^\d+$/.test(text ?? '') && Number(text) >= 1 && Number(text) <= 65535 ? Number(text) : undefined
+  if (action === 'expose' && (rest.length === 2 || rest.length === 3) && port(rest[1]) && (rest.length === 2 || port(rest[2]))) {
+    return await ask({ action: 'expose', port: port(rest[1]), ...(rest[2] ? { as: port(rest[2]) } : {}) })
+  }
+  if (action === 'unexpose' && rest.length === 2 && port(rest[1])) return await ask({ action: 'unexpose', port: port(rest[1]) })
   if (action === 'up' && rest.length === 2) {
     const options = {}
     if (opts.p) options.pair = opts.p

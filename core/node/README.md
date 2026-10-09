@@ -127,8 +127,13 @@ whatever it can, so it is off unless asked for and closed by default:
   names that range, deny rules apply, and with allow rules the name (or an address) must match one. Each lookup is logged.
 - **UDP:** a flow can be UDP (`{ proto: 'udp' }`): one connected socket to one checked address, each datagram a control message in
   both directions, same rules and limits as TCP, logged on open and close. Not flow controlled; datagrams are dropped, not queued.
-- **Not yet:** IPv6 answers for the guest, and listening for inbound connections (TCP or UDP). The scope is in
-  `.docs/NODE_NETWORK_GATEWAY.md`.
+- **Inbound (`--gateway-listen PORTS`):** off unless named. With `--gateway-listen 8000-8099` a guest may ask this host to open one
+  of those ports (`gateway expose 3000 8080` on the guest), and every connection to it is carried to the guest on a channel this
+  host opens, under the same user list, idle timeout and audit log. Ports open on `127.0.0.1` unless `--gateway-listen-address`
+  says otherwise (a wider address also needs `--gateway-public`). At most 4 listeners per login and 16 connections per listener;
+  the port closes when the guest stops it or the link goes. Nothing filters who may connect to an opened port: the bind address
+  is the control.
+- **Not yet:** IPv6 answers for the guest, and inbound UDP. The scope is in `.docs/NODE_NETWORK_GATEWAY.md`.
 
 ### Sharing files between machines
 

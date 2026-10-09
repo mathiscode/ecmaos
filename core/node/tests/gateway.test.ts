@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import net from 'node:net'
 import type { Server } from 'node:net'
 
-import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, PeerError, resolveName } from '@ecmaos/peer'
+import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, openListener, parseNetAccept, PeerError, resolveName } from '@ecmaos/peer'
+import type { Channel } from '@ecmaos/peer'
 
 import { Gateway, parseRule } from '../src/gateway.ts'
 import type { GatewayOptions } from '../src/gateway.ts'
@@ -332,5 +333,128 @@ describe('a UDP flow through the gateway', () => {
     const { guest } = link({ allow: [parseRule('127.0.0.1')], idleMs: 80 })
     const flow = await reachUdp(guest, '127.0.0.1', port)
     expect((await flow.channel.done)?.code).toBe('timeout')
+  })
+})
+
+/** A port nothing is using, found by asking for one and giving it back */
+async function freePort() {
+  const probe = net.createServer()
+  await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve))
+  const { port } = probe.address() as net.AddressInfo
+  await new Promise<void>(resolve => probe.close(() => resolve()))
+  return port
+}
+
+/** Connects to a port on the host side and collects what comes back until it ends */
+function dial(port: number, send?: string) {
+  const socket = net.connect({ host: '127.0.0.1', port, allowHalfOpen: true })
+  const chunks: string[] = []
+  socket.on('data', chunk => chunks.push(chunk.toString()))
+  socket.on('error', () => {})
+  socket.on('end', () => socket.end())
+  if (send !== undefined) socket.on('connect', () => socket.write(send))
+  const ended = new Promise<string>(resolve => socket.on('close', () => resolve(chunks.join(''))))
+  return { socket, ended, chunks }
+}
+
+describe('inbound listening', () => {
+  /** The guest side of a listener: connections come as channels the host opens; this one answers each in upper case */
+  function guestEchoes(guest: Connection, seen: string[] = []) {
+    guest.accept(NetChannel, async (channel: Channel) => {
+      seen.push(parseNetAccept(channel.params).peer)
+      channel.manualCredit = true
+      channel.onData = data => { void channel.write(new TextEncoder().encode(text(data).toUpperCase())); channel.grant(data.length) }
+      channel.onMessage = message => { if (message && typeof message === 'object' && !(message instanceof Uint8Array) && !Array.isArray(message) && message['op'] === 'eof') { channel.send({ op: 'eof' }) } }
+    })
+    return seen
+  }
+
+  it('is refused unless the operator named ports', async () => {
+    const { guest } = link()
+    await expect(openListener(guest, { port: 8080 }, { timeout: 2000 })).rejects.toThrow(/does not open ports/)
+  })
+
+  it('refuses a port outside the range, and is refused for a user who may not use the gateway', async () => {
+    const port = await freePort()
+    const { guest } = link({ listen: { ports: [[port, port]] } })
+    await expect(openListener(guest, { port: 80, as: port + 1 }, { timeout: 2000 })).rejects.toThrow(/not one this gateway opens/)
+    const other = link({ listen: { ports: [[port, port]] } }, 'mallory')
+    await expect(openListener(other.guest, { port: 80, as: port }, { timeout: 2000 })).rejects.toThrow(/may not use/)
+  })
+
+  it('forwards a connection to the guest and carries bytes both ways', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]] } })
+    const seen = guestEchoes(guest)
+    const listener = await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    expect(listener.port).toBe(port)
+    expect(listener.address).toBe('127.0.0.1')
+    const client = dial(port, 'hello')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    client.socket.end()
+    expect(await client.ended).toBe('HELLO')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatch(/^127\.0\.0\.1:\d+$/)
+    expect(log.some(line => line.includes(`listening on 127.0.0.1:${port} for guest port 3000`))).toBe(true)
+  })
+
+  it('drops the connection when the guest has nothing to take it', async () => {
+    const port = await freePort()
+    const { guest } = link({ listen: { ports: [[port, port]] } })
+    await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    const client = dial(port, 'hi')
+    expect(await client.ended).toBe('')
+  })
+
+  it('stops listening when the guest closes the listener, and the port is free again', async () => {
+    const port = await freePort()
+    const { guest } = link({ listen: { ports: [[port, port]] } })
+    guestEchoes(guest)
+    const listener = await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    listener.channel.close()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const again = await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    expect(again.port).toBe(port)
+  })
+
+  it('refuses a port already in use, and enforces the per-login listener limit', async () => {
+    const port = await freePort()
+    const taken = net.createServer()
+    servers.push(taken)
+    await new Promise<void>(resolve => taken.listen(port, '127.0.0.1', resolve))
+    const { guest } = link({ listen: { ports: [[port, port]] } })
+    await expect(openListener(guest, { port: 1, as: port }, { timeout: 2000 })).rejects.toThrow(/EADDRINUSE/)
+
+    const a = await freePort()
+    const b = await freePort()
+    const limited = link({ listen: { ports: [[Math.min(a, b), Math.max(a, b)]], maxListeners: 1 } })
+    await openListener(limited.guest, { port: 1, as: a }, { timeout: 2000 })
+    await expect(openListener(limited.guest, { port: 2, as: b }, { timeout: 2000 })).rejects.toThrow(/too many listeners/)
+  })
+
+  it('closes the port when the link goes away', async () => {
+    const port = await freePort()
+    const { guest, host } = link({ listen: { ports: [[port, port]] } })
+    await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    guest.close()
+    host.close()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const client = dial(port)
+    const code = await new Promise<string>(resolve => client.socket.on('error', error => resolve((error as NodeJS.ErrnoException).code ?? '')))
+    expect(code).toBe('ECONNREFUSED')
+  })
+
+  it('drops connections beyond the per-listener limit', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]], maxInbound: 1 } })
+    const held: Channel[] = []
+    guest.accept(NetChannel, channel => { held.push(channel) })
+    await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    const first = dial(port)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const second = dial(port)
+    await second.ended
+    expect(log.some(line => line.includes('connections open'))).toBe(true)
+    first.socket.destroy()
   })
 })

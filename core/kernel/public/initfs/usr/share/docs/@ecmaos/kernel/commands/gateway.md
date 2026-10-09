@@ -7,6 +7,8 @@
 ```
 gateway up [OPTIONS] [USER@]HOST[:PORT]
 gateway down
+gateway expose PORT [HOSTPORT]
+gateway unexpose PORT
 gateway [status]
 ```
 
@@ -45,6 +47,18 @@ opens a flow to it, the same rules apply, and `send`/`recv`/`read`/`write`/`send
 is received for it, and UDP between programs on this machine is not provided (`ECONNREFUSED`). Datagrams are not flow
 controlled: when the link or the program cannot keep up they are dropped, as UDP allows.
 
+## Inbound
+
+`gateway expose PORT [HOSTPORT]` asks the gateway machine to open HOSTPORT (default: PORT) and carry every connection to it
+back to PORT on this machine, where a program is listening on loopback (an ordinary `bind()`/`listen()`/`accept()`). The
+program does not change and does not know. `gateway unexpose PORT` (either number) stops it, and `gateway` lists what is
+exposed and how many connections came.
+
+The gateway machine opens nothing unless its operator named ports with `--gateway-listen`, opens them on its own loopback
+unless `--gateway-listen-address` says otherwise, and logs every connection. A refusal says so: a port outside its range, a
+port already in use, or too many listeners. A connection that arrives with nothing listening on PORT is dropped. Exposing
+ends when you stop it, when the link goes down, or when `gateway down` is run. Only root can expose.
+
 Nothing on the link is encrypted yet, so use it only over loopback or a network you trust.
 
 ## Options
@@ -58,6 +72,8 @@ Nothing on the link is encrypted yet, so use it only over loopback or a network 
 ```
 gateway up -y root@192.168.1.5
 gateway
+gateway expose 3000 8080
+gateway unexpose 8080
 gateway down
 ```
 
