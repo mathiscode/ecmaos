@@ -45,6 +45,7 @@ if (args.has('--help') || args.has('-h')) {
   --gateway-user NAME  who may use it (default: root; repeatable)
   --gateway-max-flows N  most flows at once per login (default: 32)
   --gateway-listen PORTS  let a guest open these ports on this host (inbound forwarding, e.g. 8000-8099); off by default
+  --gateway-listen-allow LIST  only these clients (addresses or networks, comma separated) may connect to an opened port
   --gateway-listen-address ADDR  where they are opened (default 127.0.0.1; a wider address also needs --gateway-public)
   --gateway-public    allow --gateway on an address beyond loopback (it then proxies for anyone who can log in; use TLS)
   --pair-user NAME    who a pairing code enrols (default: root)
@@ -175,8 +176,12 @@ if (listen) {
     const listenAddress = value('--gateway-listen-address')
     if (listenAddress && !listenPorts) throw new Error('--gateway-listen-address needs --gateway-listen')
     if (listenAddress && !['127.0.0.1', 'localhost', '::1'].includes(listenAddress) && !args.has('--gateway-public')) throw new Error(`--gateway-listen-address ${listenAddress} exposes guest ports beyond this host, which also needs --gateway-public`)
+    const listenAllow = value('--gateway-listen-allow')
+    if (listenAllow && !listenPorts) throw new Error('--gateway-listen-allow needs --gateway-listen')
+    const allowed = listenAllow ? listenAllow.split(',').map(parseRule) : undefined
+    if (allowed?.some(rule => !rule.addresses || rule.ports)) throw new Error('--gateway-listen-allow takes addresses or networks (10.0.0.0/8), not names or ports')
     const gateway = args.has('--gateway') ? new Gateway({
-      listen: listenPorts ? { ports: parsePorts(listenPorts), address: listenAddress } : undefined,
+      listen: listenPorts ? { ports: parsePorts(listenPorts), address: listenAddress, allow: allowed } : undefined,
       users: all('--gateway-user').length ? all('--gateway-user') : undefined,
       allow: all('--gateway-allow').map(parseRule),
       deny: all('--gateway-deny').map(parseRule),

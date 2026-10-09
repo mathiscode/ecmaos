@@ -111,17 +111,30 @@ export interface NetListen {
   proto: 'listen'
   port: number
   as?: number
+  /** Listen for datagrams instead of connections: each arrives as one `{ op: 'd', data, peer }` message on the listener's channel, and a reply is the same message back */
+  udp?: boolean
 }
 
 /** Checks a listen request that came over the wire */
-export function parseNetListen(value: Value): { proto: 'listen', port: number, as: number } {
+export function parseNetListen(value: Value): { proto: 'listen', port: number, as: number, udp: boolean } {
   if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) throw new PeerError('protocol', 'bad net listen')
-  const { proto, port, as } = value
+  const { proto, port, as, udp } = value
   if (proto !== 'listen') throw new PeerError('unsupported', 'not a listen request')
   const valid = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 65535
   if (!valid(port)) throw new PeerError('refused', 'bad port')
   if (as !== undefined && !valid(as)) throw new PeerError('refused', 'bad port')
-  return { proto, port, as: as ?? port }
+  if (udp !== undefined && typeof udp !== 'boolean') throw new PeerError('protocol', 'bad net listen')
+  return { proto, port, as: as ?? port, udp: udp === true }
+}
+
+/** A datagram that came from, or goes to, `peer` (`address:port`) through a `udp` listener */
+export function peerDatagram(data: Uint8Array, peer: string): Value { return { op: 'd', data, peer } }
+
+/** The bytes and peer of such a message, or `undefined` if it is something else (or malformed) */
+export function peerDatagramOf(message: Value): { data: Uint8Array, peer: string } | undefined {
+  const data = datagramOf(message)
+  const peer = message && typeof message === 'object' && !(message instanceof Uint8Array) && !Array.isArray(message) ? message['peer'] : undefined
+  return data && typeof peer === 'string' && peer.length <= MaxHostLength + 8 ? { data, peer } : undefined
 }
 
 /** What the host opens towards the guest for each connection its listener accepts */
@@ -157,8 +170,8 @@ export interface OpenedListener {
  * (outside the ports the host allows, in use, too many). Each connection then arrives as a channel the host opens, which the
  * caller takes with `connection.accept(NetChannel, ...)` and recognises by {@link parseNetAccept}.
  */
-export async function openListener(connection: Connection, request: { port: number, as?: number }, options: { timeout?: number } = {}): Promise<OpenedListener> {
-  const channel = await connection.open(NetChannel, { params: { proto: 'listen', port: request.port, ...(request.as ? { as: request.as } : {}) }, timeout: options.timeout ?? 20_000 })
+export async function openListener(connection: Connection, request: { port: number, as?: number, udp?: boolean }, options: { timeout?: number } = {}): Promise<OpenedListener> {
+  const channel = await connection.open(NetChannel, { params: { proto: 'listen', port: request.port, ...(request.as ? { as: request.as } : {}), ...(request.udp ? { udp: true } : {}) }, timeout: options.timeout ?? 20_000 })
   return await new Promise<OpenedListener>((resolve, reject) => {
     void channel.done.then(error => reject(error ?? new PeerError('closed', 'the gateway closed the listener')))
     channel.onMessage = message => {

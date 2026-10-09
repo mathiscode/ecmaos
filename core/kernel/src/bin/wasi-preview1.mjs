@@ -957,12 +957,28 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   // framed as a 2-byte big-endian length then its bytes, so the main thread (`net_connect_out` with `udp`) can turn the pipe
   // back into datagrams. It talks to one peer, fixed by `connect()` or by the first `sendto()`; there is no `bind()` to a
   // port and no datagram from anyone else.
-  function dgramSend(sock, data) {
+  // A socket that was bound (or took a port to receive on) is "addressed": the same pipes, but every frame also names the other end
+  // (4 bytes of IPv4 address and 2 of port after the length), so one socket can hear from and answer many peers.
+  function dgramSend(sock, data, dst) {
     if (data.length > MAX_DATAGRAM) throw { code: 'EMSGSIZE' }
-    const frame = new Uint8Array(2 + data.length)
-    frame[0] = data.length >> 8
-    frame[1] = data.length & 0xff
-    frame.set(data, 2)
+    let frame
+    if (sock.addressed) {
+      const to = dst ?? (sock.peerAddr ? { addr: sock.peerAddr, port: sock.peerPort } : undefined)
+      if (!to) throw { code: 'EDESTADDRREQ' }
+      const parts = to.addr.split('.').map(Number)
+      frame = new Uint8Array(8 + data.length)
+      frame[0] = data.length >> 8
+      frame[1] = data.length & 0xff
+      for (let i = 0; i < 4; i++) frame[2 + i] = parts[i] || 0
+      frame[6] = to.port >> 8
+      frame[7] = to.port & 0xff
+      frame.set(data, 8)
+    } else {
+      frame = new Uint8Array(2 + data.length)
+      frame[0] = data.length >> 8
+      frame[1] = data.length & 0xff
+      frame.set(data, 2)
+    }
     for (let done = 0; done < frame.length;) {
       const n = write(sock.writeFd, frame.subarray(done), -1)
       if (n <= 0) throw { code: 'EPIPE' }
@@ -982,8 +998,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       return out
     }
-    const header = take(2)
+    const header = take(sock.addressed ? 8 : 2)
     if (!header) return new Uint8Array(0)
+    if (sock.addressed) sock.from = { addr: `${header[2]}.${header[3]}.${header[4]}.${header[5]}`, port: (header[6] << 8) | header[7] }
     const body = take((header[0] << 8) | header[1])
     return body ? body.subarray(0, max) : new Uint8Array(0)
   }
@@ -994,6 +1011,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   /** connect() on a UDP socket: fixes the peer. Only addresses beyond this machine, through the gateway. */
   function dgramConnect(sock, sa) {
     if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+    if (sock.addressed) { sock.peerAddr = sa.addr === '0.0.0.0' ? '127.0.0.1' : sa.addr; sock.peerPort = sa.port; return ESUCCESS } // the default destination, no flow of its own
     if (isLoopbackAddress(sa.addr)) return -SYSCALL_ERRNO.ECONNREFUSED // no UDP between programs on this machine
     const result = callMainThread('net_connect_out', sa.addr, sa.port, 'udp')
     if (result.error) return socketErrno(result.error)
@@ -1437,10 +1455,18 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
       if (sock.dgram) {
-        // nothing receives datagrams for a port here; a program that binds only to choose a source port still works
+        // claims a loopback port: datagrams from the gateway (an exposed UDP port), from other programs and from the peers this
+        // socket has sent to arrive on it, each naming its sender
         if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+        if (sock.bound || sock.connected) return -SYSCALL_ERRNO.EINVAL
+        const result = callMainThread('net_udp_bind', sa.addr, sa.port)
+        if (result.error) return socketErrno(result.error)
         sock.bound = true
-        sock.port = sa.port
+        sock.addressed = true
+        sock.connected = true
+        sock.port = result.port
+        sock.readFd = result.fd
+        sock.writeFd = result.writeFd
         return ESUCCESS
       }
       let result
@@ -1464,8 +1490,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_connect: (fd, addrPtr, _addrlen) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
-      if (sock.connected) return -SYSCALL_ERRNO.EISCONN
       const sa = readSockaddr(addrPtr)
+      if (sock.dgram && sock.addressed) return dgramConnect(sock, sa)
+      if (sock.connected) return -SYSCALL_ERRNO.EISCONN
       if (sock.dgram) return dgramConnect(sock, sa)
       let key
       let result
@@ -1505,7 +1532,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (result.pending) { sleepMs(50); continue }
         const newFd = nextFd++
         sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey })
-        writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', 0)
+        // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`, IPv4)
+        const from = /^remote:(\d+\.\d+\.\d+\.\d+):(\d+)$/.exec(result.peerKey ?? '')
+        const peer = sockets.get(newFd)
+        if (from) { peer.peerAddr = from[1]; peer.peerPort = Number(from[2]) }
+        writeSockaddrResult(addrPtr, addrlenPtr, from ? from[1] : '127.0.0.1', from ? Number(from[2]) : 0)
         return newFd
       }
     },
@@ -1518,7 +1549,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_getpeername: (fd, addrPtr, addrlenPtr) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
-      if (!sock.connected) return -SYSCALL_ERRNO.ENOTCONN
+      if (!sock.connected || (sock.addressed && !sock.peerAddr)) return -SYSCALL_ERRNO.ENOTCONN
       writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr ?? '127.0.0.1', sock.peerPort ?? 0)
       return ESUCCESS
     },
@@ -1533,6 +1564,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
       if (sock.dgram) {
+        if (sock.addressed) {
+          const to = addrPtr ? readSockaddr(addrPtr) : undefined
+          if (to && to.family !== AF_INET) throw { code: 'EAFNOSUPPORT' }
+          return dgramSend(sock, bytes().slice(buf, buf + len), to ? { addr: to.addr === '0.0.0.0' ? '127.0.0.1' : to.addr, port: to.port } : undefined)
+        }
         if (addrPtr) {
           const sa = readSockaddr(addrPtr)
           if (!sock.connected) { const rc = dgramConnect(sock, sa); if (rc < 0) throw { code: Object.keys(SYSCALL_ERRNO).find(name => SYSCALL_ERRNO[name] === -rc) ?? 'EIO' } }
@@ -1550,7 +1586,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (sock.dgram) {
         const data = dgramRecv(sock, len)
         bytes().set(data, buf)
-        writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr, sock.peerPort)
+        const source = sock.addressed ? sock.from : { addr: sock.peerAddr, port: sock.peerPort }
+        writeSockaddrResult(addrPtr, addrlenPtr, source?.addr ?? '127.0.0.1', source?.port ?? 0)
         return data.length
       }
       const chunk = new Uint8Array(len)

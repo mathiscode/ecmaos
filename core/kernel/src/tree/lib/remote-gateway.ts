@@ -7,7 +7,7 @@
  * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
  */
 
-import { datagram, datagramOf, NetChannel, openFlow, openListener, parseNetAccept, PeerError, resolveName } from '@ecmaos/peer'
+import { datagram, datagramOf, NetChannel, openFlow, openListener, parseNetAccept, peerDatagram, peerDatagramOf, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 import type { Shell } from '@ecmaos/types'
@@ -25,7 +25,8 @@ interface Exposure {
   port: number
   local: number
   listener: Channel
-  /** Connections forwarded so far, and open now */
+  udp: boolean
+  /** Connections (or, for UDP, peers) forwarded so far, and open now (UDP has none) */
   total: number
   open: number
 }
@@ -43,9 +44,9 @@ interface Link {
 const links = new WeakMap<Kernel, Link>()
 
 /** Who is on the other end, or `undefined` when no gateway is up */
-export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'since' | 'flows'> & { exposed: Array<{ address: string, port: number, local: number, total: number, open: number }> }) | undefined {
+export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'since' | 'flows'> & { exposed: Array<{ address: string, port: number, local: number, total: number, open: number, udp: boolean }> }) | undefined {
   const link = links.get(kernel)
-  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows, exposed: [...link.exposures.values()].map(({ address, port, local, total, open }) => ({ address, port, local, total, open })) }
+  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows, exposed: [...link.exposures.values()].map(({ address, port, local, total, open, udp }) => ({ address, port, local, total, open, udp })) }
 }
 
 /**
@@ -55,6 +56,11 @@ export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'sinc
 export type InboundSink = (kernel: Kernel, port: number, streams: { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> }, peer: string, ended: () => void) => boolean
 let inboundSink: InboundSink | undefined
 export function setInboundSink(sink: InboundSink) { inboundSink = sink }
+
+/** The same for a datagram from `peer` (`address:port`): `reply` carries one back. Returns false when no program has `port` bound. */
+export type DatagramSink = (port: number, data: Uint8Array, peer: string, reply: (data: Uint8Array) => void) => boolean
+let datagramSink: DatagramSink | undefined
+export function setDatagramSink(sink: DatagramSink) { datagramSink = sink }
 
 /** A failure carrying the errno the program's `connect()` should see */
 export class GatewayFailure extends Error {
@@ -207,14 +213,23 @@ function acceptInbound(kernel: Kernel, link: Link, channel: Channel): void {
 }
 
 /** Opens a port on the gateway's host that forwards to `local` on this machine; throws a {@link GatewayFailure} with the host's reason */
-export async function exposePort(kernel: Kernel, local: number, as?: number): Promise<{ address: string, port: number }> {
+export async function exposePort(kernel: Kernel, local: number, as?: number, udp = false): Promise<{ address: string, port: number }> {
   const link = links.get(kernel)
   if (!link) throw new GatewayFailure('ENETUNREACH', 'no gateway is up (see gateway up)')
   let opened
-  try { opened = await openListener(link.connection, { port: local, as }, { timeout: 20_000 }) } catch (error) {
+  try { opened = await openListener(link.connection, { port: local, as, udp }, { timeout: 20_000 }) } catch (error) {
     throw new GatewayFailure(error instanceof PeerError && error.code === 'refused' ? 'EACCES' : 'ECONNREFUSED', error instanceof Error ? error.message : String(error))
   }
-  const exposure: Exposure = { address: opened.address, port: opened.port, local, listener: opened.channel, total: 0, open: 0 }
+  const exposure: Exposure = { address: opened.address, port: opened.port, local, listener: opened.channel, udp, total: 0, open: 0 }
+  if (udp) {
+    const seen = new Set<string>()
+    opened.channel.onMessage = message => {
+      const got = peerDatagramOf(message)
+      if (!got) return
+      if (!datagramSink?.(local, got.data, got.peer, data => { try { opened.channel.send(peerDatagram(data, got.peer)) } catch { /* the link is going away */ } })) return
+      if (!seen.has(got.peer) && seen.size < 1024) { seen.add(got.peer); exposure.total++ }
+    }
+  }
   link.exposures.set(opened.id, exposure)
   void opened.channel.done.then(() => { if (link.exposures.get(opened.id) === exposure) link.exposures.delete(opened.id) })
   return { address: opened.address, port: opened.port }
@@ -222,7 +237,7 @@ export async function exposePort(kernel: Kernel, local: number, as?: number): Pr
 
 export type GatewayRequest =
   | { action: 'up', target: string, options: Record<string, string> }
-  | { action: 'expose', port: number, as?: number }
+  | { action: 'expose', port: number, as?: number, udp?: boolean }
   | { action: 'unexpose', port: number }
   | { action: 'down' }
   | { action: 'status' }
@@ -236,7 +251,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
   if (request.action === 'status') {
     const link = gatewayLink(kernel)
     out(link ? `Gateway: ${link.user}@${link.host}, up since ${new Date(link.since).toISOString()}, ${link.flows} flow${link.flows === 1 ? '' : 's'} open` : 'No gateway is up.')
-    for (const item of link?.exposed ?? []) out(`Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`)
+    for (const item of link?.exposed ?? []) out(item.udp ? `Exposed: udp ${item.address}:${item.port} -> port ${item.local} here (${item.total} peer${item.total === 1 ? '' : 's'} so far)` : `Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`)
     return { code: link ? 0 : 1, lines }
   }
 
@@ -251,8 +266,8 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
 
   if (request.action === 'expose') {
     try {
-      const where = await exposePort(kernel, request.port, request.as)
-      out(`Port ${request.port} is reachable at ${where.address}:${where.port} on the gateway host`)
+      const where = await exposePort(kernel, request.port, request.as, request.udp)
+      out(`${request.udp ? 'UDP port' : 'Port'} ${request.port} is reachable at ${where.address}:${where.port} on the gateway host`)
       return { code: 0, lines }
     } catch (error) {
       err(`gateway: ${error instanceof Error ? error.message : String(error)}`)

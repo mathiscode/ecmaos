@@ -24,6 +24,7 @@ describe('what a program sees when the gateway cannot connect', () => {
     const error = await openGatewayFlow({} as Kernel, '93.184.216.34', 80).catch(error => error)
     expect(error).toBeInstanceOf(GatewayFailure)
     expect(error.errno).toBe('ENETUNREACH')
+    expect((await exposePort({} as Kernel, 5300, undefined, true).catch(error => error)).errno).toBe('ENETUNREACH')
   })
 })
 

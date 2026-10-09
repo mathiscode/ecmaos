@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 
+import dgram from 'node:dgram'
 import net from 'node:net'
 
 import { openFlow } from '@ecmaos/peer'
@@ -912,21 +913,49 @@ describe('the network gateway', () => {
     await me.run('/tmp/serve.wasm 3000 2 > /tmp/serve.out 2>&1 &')
     for (let i = 0; i < 50 && !(await me.run('cat /tmp/serve.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
 
-    const talk = (text: string) => new Promise<string>((resolve, reject) => {
-      const socket = net.connect({ host: '127.0.0.1', port: outside }, () => { socket.write(text); socket.end() })
+    const talk = (text: string, localAddress?: string) => new Promise<string>((resolve, reject) => {
+      const socket = net.connect({ host: '127.0.0.1', port: outside, localAddress }, () => { socket.write(text); socket.end() })
       const chunks: string[] = []
       socket.on('data', chunk => chunks.push(chunk.toString()))
       socket.on('error', reject)
       socket.on('close', () => resolve(chunks.join('')))
     })
     expect(await talk('hello inbound')).toBe('HELLO INBOUND|BYE')
-    expect(await talk('second one')).toBe('SECOND ONE|BYE')
+    expect(await talk('second one', '127.0.0.2')).toBe('SECOND ONE|BYE')
+    expect(await me.run('cat /tmp/serve.out')).toMatch(/peer 127\.0\.0\.1\s+peer 127\.0\.0\.2/)
     await session.waitFor(`listening on 127.0.0.1:${outside} for guest port 3000`)
     expect(await me.run('gateway')).toContain('2 so far')
 
     expect(await me.run(`gateway unexpose ${outside}`)).toContain('Stopped forwarding')
     const gone = await new Promise<string>(resolve => { const socket = net.connect({ host: '127.0.0.1', port: outside }); socket.on('error', error => resolve((error as NodeJS.ErrnoException).code ?? '')); socket.on('connect', () => { socket.destroy(); resolve('connected') }) })
     expect(gone).toBe('ECONNREFUSED')
+  }, 120_000)
+
+  it('gateway expose -u delivers datagrams from outside to a bound socket and answers each sender', async () => {
+    const outside = await unusedPort()
+    const { port, code } = await host(['--gateway', `--gateway-listen=${outside}`, '--gateway-listen-allow=127.0.0.0/8'])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, readFileSync(path.resolve(import.meta.dirname, 'fixtures/emcc-udp-serve.wasm')), '/tmp/userve.wasm')
+    await bringUp(me, port, code)
+
+    expect(await me.run(`gateway expose -u 5300 ${outside}`)).toContain(`UDP port 5300 is reachable at 127.0.0.1:${outside}`)
+    expect(await me.run('gateway')).toContain(`Exposed: udp 127.0.0.1:${outside} -> port 5300 here`)
+
+    await me.run('/tmp/userve.wasm 5300 2 > /tmp/userve.out 2>&1 &')
+    for (let i = 0; i < 50 && !(await me.run('cat /tmp/userve.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+
+    // two different clients, one socket on the guest: each gets its own answer, and the program saw the real sender
+    const ask = (text: string) => new Promise<string>((resolve, reject) => {
+      const socket = dgram.createSocket('udp4')
+      const timer = setTimeout(() => { socket.close(); reject(new Error('no reply')) }, 15_000)
+      socket.on('message', data => { clearTimeout(timer); socket.close(); resolve(data.toString()) })
+      socket.send(text, outside, '127.0.0.1')
+    })
+    expect(await ask('first client')).toBe('FIRST CLIENT|127.0.0.1')
+    expect(await ask('second client')).toBe('SECOND CLIENT|127.0.0.1')
+    expect(await me.run('gateway')).toContain('2 peers so far')
   }, 120_000)
 
   it('a program connecting somewhere the gateway does not allow gets EACCES', async () => {

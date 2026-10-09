@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import dgram from 'node:dgram'
 import net from 'node:net'
 import type { Server } from 'node:net'
 
-import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, openListener, parseNetAccept, PeerError, resolveName } from '@ecmaos/peer'
+import { Connection, datagram, datagramOf, memoryPair, NetChannel, openFlow, openListener, parseNetAccept, peerDatagram, peerDatagramOf, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel } from '@ecmaos/peer'
 
 import { Gateway, parseRule } from '../src/gateway.ts'
@@ -406,6 +407,24 @@ describe('inbound listening', () => {
     expect(await client.ended).toBe('')
   })
 
+  it('drops clients outside the allowed list and serves those inside it', async () => {
+    const port = await freePort()
+    const blocked = link({ listen: { ports: [[port, port]], allow: [parseRule('10.0.0.0/8')] } })
+    guestEchoes(blocked.guest)
+    await openListener(blocked.guest, { port: 3000, as: port }, { timeout: 2000 })
+    expect(await dial(port, 'hi').ended).toBe('')
+    expect(blocked.log.some(line => line.includes('not in the allowed list'))).toBe(true)
+
+    const other = await freePort()
+    const open = link({ listen: { ports: [[other, other]], allow: [parseRule('127.0.0.0/8')] } })
+    guestEchoes(open.guest)
+    await openListener(open.guest, { port: 3000, as: other }, { timeout: 2000 })
+    const client = dial(other, 'hi')
+    await new Promise(resolve => setTimeout(resolve, 150))
+    client.socket.end()
+    expect(await client.ended).toBe('HI')
+  })
+
   it('stops listening when the guest closes the listener, and the port is free again', async () => {
     const port = await freePort()
     const { guest } = link({ listen: { ports: [[port, port]] } })
@@ -456,5 +475,85 @@ describe('inbound listening', () => {
     await second.ended
     expect(log.some(line => line.includes('connections open'))).toBe(true)
     first.socket.destroy()
+  })
+})
+
+describe('inbound datagrams', () => {
+  const sockets: dgram.Socket[] = []
+  afterEach(() => { for (const socket of sockets.splice(0)) try { socket.close() } catch { /* closed */ } })
+
+  /** The guest side: every datagram that arrives is answered in upper case to the peer it came from */
+  function guestAnswers(listener: { channel: Channel }, seen: string[] = []) {
+    listener.channel.onMessage = message => {
+      const got = peerDatagramOf(message)
+      if (!got) return
+      seen.push(got.peer)
+      listener.channel.send(peerDatagram(new TextEncoder().encode(text(got.data).toUpperCase()), got.peer))
+    }
+    return seen
+  }
+
+  /** A UDP client on loopback: sends `message` to `port` and resolves with the first reply (or '' after a moment) */
+  function ask(port: number, message: string, wait = 400) {
+    const socket = dgram.createSocket('udp4')
+    sockets.push(socket)
+    return new Promise<{ reply: string, from: number }>(resolve => {
+      const timer = setTimeout(() => resolve({ reply: '', from: (socket.address() as net.AddressInfo).port }), wait)
+      socket.on('message', data => { clearTimeout(timer); resolve({ reply: data.toString(), from: (socket.address() as net.AddressInfo).port }) })
+      socket.bind(0, '127.0.0.1', () => socket.send(message, port, '127.0.0.1'))
+    })
+  }
+
+  it('carries datagrams in and replies to each peer that sent one', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]] } })
+    const listener = await openListener(guest, { port: 5353, as: port, udp: true }, { timeout: 2000 })
+    expect(listener.port).toBe(port)
+    const seen = guestAnswers(listener)
+    const [one, two] = await Promise.all([ask(port, 'one'), ask(port, 'two')])
+    expect(one.reply).toBe('ONE')
+    expect(two.reply).toBe('TWO')
+    expect(seen).toHaveLength(2)
+    expect(new Set(seen).size).toBe(2)
+    expect(seen[0]).toMatch(/^127\.0\.0\.1:\d+$/)
+    expect(log.some(line => line.includes(`listening on udp 127.0.0.1:${port} for guest port 5353`))).toBe(true)
+  })
+
+  it('will not send to a peer that has not sent anything', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]] } })
+    const listener = await openListener(guest, { port: 5353, as: port, udp: true }, { timeout: 2000 })
+    listener.channel.send(peerDatagram(new TextEncoder().encode('hi'), '127.0.0.1:9'))
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(log.some(line => line.includes('reply to 127.0.0.1:9 refused'))).toBe(true)
+  })
+
+  it('drops clients outside the allowed list', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]], allow: [parseRule('10.0.0.0/8')] } })
+    const listener = await openListener(guest, { port: 5353, as: port, udp: true }, { timeout: 2000 })
+    guestAnswers(listener)
+    expect((await ask(port, 'x')).reply).toBe('')
+    expect(log.some(line => line.includes('not in the allowed list'))).toBe(true)
+  })
+
+  it('shares the listener limit with TCP, and frees the port when closed', async () => {
+    const a = await freePort()
+    const b = await freePort()
+    const { guest } = link({ listen: { ports: [[Math.min(a, b), Math.max(a, b)]], maxListeners: 1 } })
+    const first = await openListener(guest, { port: 1, as: a, udp: true }, { timeout: 2000 })
+    await expect(openListener(guest, { port: 2, as: b }, { timeout: 2000 })).rejects.toThrow(/too many listeners/)
+    first.channel.close()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect((await openListener(guest, { port: 1, as: a, udp: true }, { timeout: 2000 })).port).toBe(a)
+  })
+
+  it('refuses a UDP port already in use', async () => {
+    const port = await freePort()
+    const taken = dgram.createSocket('udp4')
+    sockets.push(taken)
+    await new Promise<void>(resolve => taken.bind(port, '127.0.0.1', () => resolve()))
+    const { guest } = link({ listen: { ports: [[port, port]] } })
+    await expect(openListener(guest, { port: 1, as: port, udp: true }, { timeout: 2000 })).rejects.toThrow(/EADDRINUSE/)
   })
 })

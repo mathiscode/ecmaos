@@ -3,7 +3,7 @@ import dns from 'node:dns'
 import net, { BlockList, isIP } from 'node:net'
 import type { Socket } from 'node:net'
 
-import { datagram, datagramOf, NetChannel, parseNetListen, parseNetLookup, parseNetTarget, PeerError } from '@ecmaos/peer'
+import { MaxDatagram, datagram, datagramOf, NetChannel, parseNetListen, parseNetLookup, parseNetTarget, peerDatagram, peerDatagramOf, PeerError } from '@ecmaos/peer'
 import type { NetTarget } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
@@ -91,6 +91,12 @@ function ruleMatches(rule: Rule, host: string, addresses: string[], port: number
   return addresses.some(address => rule.addresses!.check(plain(address), family(plain(address))))
 }
 
+/** Datagrams a UDP listener passes to the guest per second; the rest are dropped, as UDP allows */
+const MaxDatagramsPerSecond = 500
+/** Peers a UDP listener remembers to answer, and how long after hearing from one it will still send to it (ms) */
+const MaxUdpPeers = 256
+const UdpReplyWindow = 120_000
+
 /** What a guest may ask this host to listen on for it. Absent means no guest can open a port. */
 export interface ListenOptions {
   /** The ports a guest may open (the port on this host, not the guest's own) */
@@ -101,6 +107,8 @@ export interface ListenOptions {
   maxListeners?: number
   /** Most incoming connections at once, per listener (default 16) */
   maxInbound?: number
+  /** Who may connect, as addresses or networks (`10.0.0.0/8`); anyone else is dropped. Absent means anyone who can reach the bind address. */
+  allow?: Rule[]
 }
 
 /** `PORTS` as `--gateway-listen` takes them: `8000-8099,9000` */
@@ -330,6 +338,7 @@ export class Gateway {
 
     const address = listen.address ?? '127.0.0.1'
     const id = this._nextListener++
+    if (request.udp) return this.listenDatagrams(connection, channel, user, { id, address, as: request.as, port: request.port, allow: listen.allow, held })
     const maxInbound = listen.maxInbound ?? 16
     const server = this._server()
     let inbound = 0
@@ -344,7 +353,13 @@ export class Gateway {
     }
 
     server.on('connection', socket => {
-      const peer = `${socket.remoteAddress ?? 'unknown'}:${socket.remotePort ?? 0}`
+      const remote = plain(socket.remoteAddress ?? 'unknown')
+      const peer = `${remote}:${socket.remotePort ?? 0}`
+      if (listen.allow && !listen.allow.some(rule => rule.addresses && isIP(remote) && rule.addresses.check(remote, family(remote)))) {
+        this._log(`${user} listen ${address}:${request.as} dropped ${peer} (not in the allowed list)`)
+        socket.destroy()
+        return
+      }
       if (inbound >= maxInbound) { this._log(`${user} listen ${address}:${request.as} dropped ${peer} (${maxInbound} connections open)`); socket.destroy(); return }
       inbound++
       void this.forwardInbound(connection, socket, { id, peer, port: request.as, user }, () => { inbound-- })
@@ -368,6 +383,74 @@ export class Gateway {
     this._log(`${user} listening on ${address}:${port} for guest port ${request.port}`)
     channel.send({ op: 'listening', id, address, port })
     void channel.done.then(() => stop())
+  }
+
+  /**
+   * The datagram form of {@link listenFor}: one UDP socket on this host. Whatever arrives goes to the guest as a `{ op: 'd', data, peer }`
+   * message on the listener's channel; the guest's replies come back the same way. A reply goes only to a peer that sent something
+   * lately (so the guest cannot use this to reach arbitrary addresses, which the outbound rules decide), and the rate in is capped.
+   */
+  private listenDatagrams(connection: Connection, channel: Channel, user: string, info: { id: number, address: string, as: number, port: number, allow?: Rule[], held: number }): Promise<void> {
+    const { address, allow } = info
+    const label = `${user} listen udp ${address}:${info.as}`
+    const heard = new Map<string, number>()
+    const socket = this._udp(isIP(address) === 6 ? 'udp6' : 'udp4')
+    let closed = false
+    let windowStart = Date.now()
+    let inWindow = 0
+    const stop = () => {
+      if (closed) return
+      closed = true
+      this._listeners.set(connection, (this._listeners.get(connection) ?? 1) - 1)
+      this._log(`${label} closed`)
+      try { socket.close() } catch { /* never bound */ }
+      channel.close()
+    }
+
+    socket.on('message', (data, remote) => {
+      const from = plain(remote.address)
+      const peer = `${from}:${remote.port}`
+      if (isIP(from) !== 4) return
+      if (allow && !allow.some(rule => rule.addresses?.check(from, 'ipv4'))) { this._log(`${label} dropped ${peer} (not in the allowed list)`); return }
+      const now = Date.now()
+      if (now - windowStart >= 1000) { windowStart = now; inWindow = 0 }
+      if (++inWindow > MaxDatagramsPerSecond) return
+      if (!heard.has(peer) && heard.size >= MaxUdpPeers) heard.delete(heard.keys().next().value as string)
+      heard.delete(peer)
+      heard.set(peer, now)
+      if (data.length > MaxDatagram) return
+      try { channel.send(peerDatagram(new Uint8Array(data), peer)) } catch { /* the link is going away */ }
+    })
+    channel.onMessage = message => {
+      const reply = peerDatagramOf(message)
+      if (!reply) return
+      const seen = heard.get(reply.peer)
+      if (seen === undefined || Date.now() - seen > UdpReplyWindow) { this._log(`${label} reply to ${reply.peer} refused (it has not sent lately)`); return }
+      const colon = reply.peer.lastIndexOf(':')
+      socket.send(reply.data, Number(reply.peer.slice(colon + 1)), reply.peer.slice(0, colon), error => { if (error) this._log(`${label} reply failed: ${(error as NodeJS.ErrnoException).code ?? error.message}`) })
+    }
+
+    this._listeners.set(connection, info.held + 1)
+    return new Promise<void>((resolve, reject) => {
+      const fail = (error: Error) => {
+        closed = true
+        this._listeners.set(connection, (this._listeners.get(connection) ?? 1) - 1)
+        try { socket.close() } catch { /* never bound */ }
+        this._log(`${label} refused: ${(error as NodeJS.ErrnoException).code ?? error.message}`)
+        reject(new PeerError('refused', `${address}:${info.as}: ${(error as NodeJS.ErrnoException).code ?? error.message}`))
+      }
+      socket.once('error', fail)
+      socket.bind(info.as, address, () => {
+        socket.removeListener('error', fail)
+        socket.on('error', () => stop())
+        const bound = socket.address()
+        const port = bound.port
+        this._log(`${user} listening on udp ${address}:${port} for guest port ${info.port}`)
+        channel.send({ op: 'listening', id: info.id, address, port })
+        void channel.done.then(() => stop())
+        resolve()
+      })
+    })
   }
 
   /** One accepted connection: announce it to the guest on a channel of its own and carry bytes both ways until either side ends */

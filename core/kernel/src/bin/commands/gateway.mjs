@@ -14,7 +14,7 @@ const say = (fd, text) => write(fd, encoder.encode(text + '\n'))
 
 const usage = `Usage: gateway up [OPTIONS] [USER@]HOST[:PORT]
        gateway down
-       gateway expose PORT [HOSTPORT]
+       gateway expose [-u] PORT [HOSTPORT]
        gateway unexpose PORT
        gateway [status]
 
@@ -23,13 +23,15 @@ with your key like 'connect' and asks for your password to unlock it. Only root 
 decides what it will reach; it never reaches its own network unless its operator said so.
 
 expose asks the gateway's host to open HOSTPORT (default: PORT) and forward each connection to PORT on this machine, where a
-program is listening on loopback. The host decides which ports it opens and where; it opens none unless its operator said so.
+program is listening on loopback. With -u it forwards datagrams instead: whatever UDP arrives at HOSTPORT reaches the program that
+bound PORT (naming its sender, so a reply from recvfrom/sendto goes back to the right peer). The host decides which ports it opens and where; it opens none unless its operator said so.
 unexpose stops forwarding a port (named by either number). Both are for root.
 
 Options (gateway up):
   -p, --pair CODE         enrol your key with this one-time pairing code first
   -F, --fingerprint FP    accept the host only if its key has this fingerprint (SHA256:...)
   -y, --accept-new        remember a host seen for the first time
+  -u, --udp               (expose) forward UDP datagrams, not TCP connections
   --help                  display this help and exit`
 
 function readSecret(prompt) {
@@ -60,7 +62,7 @@ async function ask(request) {
 }
 
 async function main() {
-  const parsed = getopt(argv.slice(1), { flags: 'yh', values: 'pF', long: { pair: 'p', fingerprint: 'F', 'accept-new': 'y' } })
+  const parsed = getopt(argv.slice(1), { flags: 'yhu', values: 'pF', long: { pair: 'p', fingerprint: 'F', 'accept-new': 'y', udp: 'u' } })
   if (parsed.error) { say(2, `gateway: ${parsed.error}`); return 1 }
   const { opts, rest } = parsed
   if (opts.help) { say(2, usage); return 0 }
@@ -69,7 +71,7 @@ async function main() {
   if (action === 'down' && rest.length === 1) return await ask({ action: 'down' })
   const port = text => /^\d+$/.test(text ?? '') && Number(text) >= 1 && Number(text) <= 65535 ? Number(text) : undefined
   if (action === 'expose' && (rest.length === 2 || rest.length === 3) && port(rest[1]) && (rest.length === 2 || port(rest[2]))) {
-    return await ask({ action: 'expose', port: port(rest[1]), ...(rest[2] ? { as: port(rest[2]) } : {}) })
+    return await ask({ action: 'expose', port: port(rest[1]), ...(rest[2] ? { as: port(rest[2]) } : {}), ...(opts.u ? { udp: true } : {}) })
   }
   if (action === 'unexpose' && rest.length === 2 && port(rest[1])) return await ask({ action: 'unexpose', port: port(rest[1]) })
   if (action === 'up' && rest.length === 2) {

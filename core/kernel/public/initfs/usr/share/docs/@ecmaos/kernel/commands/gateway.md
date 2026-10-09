@@ -7,7 +7,7 @@
 ```
 gateway up [OPTIONS] [USER@]HOST[:PORT]
 gateway down
-gateway expose PORT [HOSTPORT]
+gateway expose [-u] PORT [HOSTPORT]
 gateway unexpose PORT
 gateway [status]
 ```
@@ -42,22 +42,33 @@ unless its operator named that range in an allow rule. With no gateway up, a nam
 
 A program's `SOCK_DGRAM` socket works the same way: `connect()` (or the first `sendto()`) to an address beyond this machine
 opens a flow to it, the same rules apply, and `send`/`recv`/`read`/`write`/`sendto`/`recvfrom` carry one datagram each, up to
-65507 bytes, with their boundaries kept. A UDP socket talks to one peer, fixed by `connect()` or by the first `sendto()`
-(`sendto()` to another address fails with `EINVAL`), and hears only from that peer. `bind()` to a port is accepted but nothing
-is received for it, and UDP between programs on this machine is not provided (`ECONNREFUSED`). Datagrams are not flow
-controlled: when the link or the program cannot keep up they are dropped, as UDP allows.
+65507 bytes, with their boundaries kept. A socket that was never bound talks to one peer, fixed by `connect()` or by the first
+`sendto()` (`sendto()` to another address fails with `EINVAL`), and hears only from that peer.
+
+A socket that `bind()`s a loopback port receives: from other programs on this machine that send to that port, from peers outside
+when the port is exposed with `gateway expose -u`, and from whatever it has sent to. `recvfrom()` names the sender, and
+`sendto()` can answer any number of peers from the one socket. A destination beyond this machine goes through the gateway, one
+flow per destination, so the same rules apply (with no gateway the datagram is dropped). Datagrams are not flow controlled: when
+the link or the program cannot keep up they are dropped, as UDP allows.
 
 ## Inbound
 
-`gateway expose PORT [HOSTPORT]` asks the gateway machine to open HOSTPORT (default: PORT) and carry every connection to it
+`gateway expose [-u] PORT [HOSTPORT]` asks the gateway machine to open HOSTPORT (default: PORT) and carry every connection to it
 back to PORT on this machine, where a program is listening on loopback (an ordinary `bind()`/`listen()`/`accept()`). The
 program does not change and does not know. `gateway unexpose PORT` (either number) stops it, and `gateway` lists what is
-exposed and how many connections came.
+exposed and how many connections came. With `-u` the port carries datagrams: what arrives at HOSTPORT over UDP reaches the
+program that bound PORT, `recvfrom()` names the real sender, and a reply with `sendto()` goes back to that sender. The gateway
+machine answers only a peer that has sent something in the last two minutes, so a guest cannot use an exposed port to send to
+arbitrary addresses, and it passes on at most 500 datagrams a second per port.
 
 The gateway machine opens nothing unless its operator named ports with `--gateway-listen`, opens them on its own loopback
 unless `--gateway-listen-address` says otherwise, and logs every connection. A refusal says so: a port outside its range, a
 port already in use, or too many listeners. A connection that arrives with nothing listening on PORT is dropped. Exposing
 ends when you stop it, when the link goes down, or when `gateway down` is run. Only root can expose.
+
+Who may connect is up to the gateway machine's operator: `--gateway-listen-allow` limits it to named addresses or networks (anyone
+else is dropped and logged); without it, anyone who can reach the address the port was opened on may connect. `accept()` and
+`recvfrom()` report the connecting client's real IPv4 address and port.
 
 Nothing on the link is encrypted yet, so use it only over loopback or a network you trust.
 
@@ -73,6 +84,7 @@ Nothing on the link is encrypted yet, so use it only over loopback or a network 
 gateway up -y root@192.168.1.5
 gateway
 gateway expose 3000 8080
+gateway expose -u 5300 5353
 gateway unexpose 8080
 gateway down
 ```

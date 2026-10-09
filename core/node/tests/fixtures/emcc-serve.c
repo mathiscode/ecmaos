@@ -1,5 +1,5 @@
 /* serve PORT [N]: listens on 127.0.0.1:PORT, accepts N connections (default 1), and for each reads until the peer ends,
- * sending the bytes back upper-cased plus "|BYE". Prints "listening" once it is ready. Exit 3 when a call fails. */
+ * sending the bytes back upper-cased plus "|BYE". Prints "listening" once it is ready and "peer ADDRESS" for each connection. Exit 3 when a call fails. */
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -24,8 +24,12 @@ int main(int argc, char **argv) {
   printf("listening\n");
   fflush(stdout);
   for (int i = 0; i < served; i++) {
-    int c = accept(fd, NULL, NULL);
+    struct sockaddr_in from;
+    socklen_t length = sizeof from;
+    int c = accept(fd, (struct sockaddr *)&from, &length);
     if (c < 0) { printf("accept: errno %d\n", errno); return 3; }
+    printf("peer %s\n", inet_ntoa(from.sin_addr));
+    fflush(stdout);
     char buf[1024];
     ssize_t n;
     while ((n = read(c, buf, sizeof buf)) > 0) {

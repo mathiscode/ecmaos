@@ -20,5 +20,5 @@ export { fingerprint, generateKeyPair, publicKeyOf, randomNonce, sameKey, sign, 
 export type { KeyPair, PublicKey } from './keys.ts'
 export { announceShared, awaitShared, DeviceChannel, DeviceError, DeviceShareChannel, loopbackSession, parseDeviceInfo, RemoteDevice, serveDevice } from './device.ts'
 export type { DeviceInfo, DeviceSession, DeviceSource } from './device.ts'
-export { datagram, datagramOf, MaxDatagram, MaxHostLength, NetChannel, openFlow, openListener, parseNetAccept, parseNetListen, parseNetLookup, parseNetTarget, resolveName } from './net.ts'
+export { datagram, datagramOf, MaxDatagram, MaxHostLength, NetChannel, openFlow, openListener, parseNetAccept, parseNetListen, parseNetLookup, parseNetTarget, peerDatagram, peerDatagramOf, resolveName } from './net.ts'
 export type { NetAccept, NetListen, NetLookup, NetTarget, OpenedFlow, OpenedListener } from './net.ts'

@@ -34,7 +34,8 @@ import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
-import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setInboundSink, type GatewayRequest } from './remote-gateway.ts'
+import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, type GatewayRequest } from './remote-gateway.ts'
+import { bindUdpPort, udpPortAt } from './udp-ports.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -115,6 +116,7 @@ declare module '@zenfs/linux/uapi/abi' {
     terminal_reload_history(): number
     system_format(argsJson: string, path: string): number
     net_bind(family: string, addr: string, port: number, path: string): number
+    net_udp_bind(addr: string, port: number, path: string): number
     net_listen(key: string, backlog: number, path: string): number
     net_connect(key: string, path: string): number
     net_connect_out(host: string, port: number, proto: string, path: string): number
@@ -643,6 +645,41 @@ export function installMainThreadSyscalls(): void {
     // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain, then end the flow
     void serverProc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(ended) })
     return true
+  })
+
+  // A datagram from a peer that reached an exposed UDP port: handed to the program that bound it, with the way to answer
+  setDatagramSink((port, data, peer, reply) => {
+    const bound = udpPortAt(port)
+    const match = /^(\d+\.\d+\.\d+\.\d+):(\d+)$/.exec(peer)
+    if (!bound || !match) return false
+    bound.hear(peer, reply)
+    bound.deliver(match[1]!, Number(match[2]), data)
+    return true
+  })
+
+  /**
+   * `bind()` on a datagram socket: claims the loopback port (`0` for an ephemeral one) and attaches the socket's two streams as
+   * descriptors, carrying addressed datagrams (see `udp-ports.ts`). Writes `{ fd, writeFd, port }` or `{ error }`.
+   */
+  define_syscall('net_udp_bind', async (proc: Process, addr: string, port: number, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    if (addr && !isLoopbackHost(addr)) text = JSON.stringify({ error: 'EADDRNOTAVAIL' })
+    else {
+      const bound = bindUdpPort(port, { open: (host, to) => openGatewayFlow(kernel, host, to, 'udp') })
+      if (!bound) text = JSON.stringify({ error: 'EADDRINUSE' })
+      else {
+        const rxEnd = kernel.attachStream(proc, 'read', bound.rx)
+        const txEnd = kernel.attachStream(proc, 'write', bound.tx)
+        // the program closing the socket ends the writing side; its exit does the same for one it left open
+        void txEnd.done.then(() => bound.close())
+        // what the program sent just before exiting is still on its way: let the writing side drain, then release the port
+        void proc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(() => bound.close()) })
+        text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, port: bound.port })
+      }
+    }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
   })
 
   define_syscall('net_listen', async (proc: Process, key: string, backlog: number, path: string) => {
