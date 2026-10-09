@@ -184,6 +184,12 @@ describe('ecmaosd', () => {
   })
 })
 
+/** Where the password question ends: the first prompt after this is the command's own, not one from before it or inside its echo */
+function afterAsk(me: Session, mark: number) {
+  const at = me.output.indexOf('unlocks your key', mark)
+  return at === -1 ? mark : at
+}
+
 describe('connect, from one machine to another', () => {
   /** A second machine whose shell is at /tmp, so its prompt differs from the host's, which is at /root */
   async function client() {
@@ -321,8 +327,9 @@ describe('mounting a directory of another machine', () => {
     const mark = me.output.length
     me.send(`mount -t ecmaos -o pair=${code},accept-new=yes${options.extra ?? ''} root@127.0.0.1:${port}/share /mnt/share\r`)
     await me.waitFor('unlocks your key', mark)
+    const answered = me.output.length
     me.send('root\r')
-    await me.waitFor(Local, mark + 200)
+    await me.waitFor(Local, answered)
     return { me, dir, port, mount: me.output.slice(mark) }
   }
 
@@ -466,7 +473,7 @@ describe('sharing a directory with another machine', () => {
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
     await me.waitFor('Sharing /tmp/data', mark)
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     return { me, remote }
   }
 
@@ -540,7 +547,7 @@ describe('using a device of another machine', () => {
     me.send(`attach -y -p ${code} root@127.0.0.1:${port}/${wanted} ${as}\r`)
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     return { me, remote, port, code, result: me.output.slice(mark) }
   }
 
@@ -642,7 +649,7 @@ describe('using a device of another machine', () => {
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
     await me.waitFor('Offering loopback', mark)
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     expect(await local(me, 'attach -l')).toContain('offered to 127.0.0.1')
 
     await eventually(async () => (await remote.run('ls /dev')).includes('mydev'), 'the host to get the device node')
@@ -669,7 +676,7 @@ describe('using a device of another machine', () => {
     me.send(`attach -y -p ${code} root@127.0.0.1:${port}/secret x\r`)
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     expect(me.output.slice(mark)).toContain('no device named secret')
     expect(await local(me, 'attach -l')).toContain('No devices are attached')
 
@@ -695,7 +702,7 @@ describe('using a device of another machine', () => {
     me.send(`attach root@127.0.0.1:${port}/zero z2\r`)
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     expect(me.output.slice(mark)).toContain('zero is in use')
     void code
   })
@@ -742,7 +749,7 @@ describe('over TLS', () => {
     me.send(`attach -y -p ${code} root@127.0.0.1:${port}/loop plain\r`)
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
-    await me.waitFor(Local, mark + 100)
+    await me.waitFor(Local, afterAsk(me, mark))
     expect(me.output.slice(mark)).toContain('could not connect')
 
     const mark2 = me.output.length
@@ -867,6 +874,7 @@ describe('the network gateway', () => {
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
     await me.waitFor('is up as root', mark)
+    await me.waitFor('root:/root# ', me.output.indexOf('is up as root', mark))
     expect(await me.run('gateway')).toContain('flows open')
 
     expect(await me.run('/tmp/gw.wasm; echo code=$?')).toMatch(/HELLO GW\s*code=0/)
@@ -1027,6 +1035,7 @@ describe('the network gateway', () => {
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
     await me.waitFor('is up as root', mark)
+    await me.waitFor('root:/root# ', me.output.indexOf('is up as root', mark))
     expect(await me.run('/tmp/gw.wasm; echo code=$?')).toContain('code=2')
   }, 90_000)
 
@@ -1045,6 +1054,7 @@ describe('the network gateway', () => {
     await me.waitFor('unlocks your key', mark)
     me.send('root\r')
     await me.waitFor('is up as root', mark)
+    await me.waitFor('root:/root# ', me.output.indexOf('is up as root', mark))
   }
 
   it('getaddrinfo answers from /etc/hosts, and a name from there connects through the gateway', async () => {

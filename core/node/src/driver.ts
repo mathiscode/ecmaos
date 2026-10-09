@@ -14,6 +14,8 @@ export interface DrivenTerminal {
   paste(text: string): Promise<void>
   resize(cols: number, rows: number): void
   prompt(): string
+  /** Whether a running program's line discipline owns the keyboard, so the line editor must not see keys */
+  readonly ttyInputAttached?: boolean
 }
 
 /**
@@ -52,7 +54,13 @@ export class TerminalDriver {
 
   private _dispatch(tokens: InputToken[]) {
     const term = this._term
+    // Decided now, not when a queued key is finally handled: `input()` has already given these keys to the program's
+    // line discipline, and if the program has ended by the time the queue reaches them the line editor would run them
+    // too (a password typed to `gateway up` ran again as a command). `keyHandler` ignores a key while a program owns
+    // the keyboard, and its check runs before its first await, so calling it at once is what makes that check true.
+    const owned = term.ttyInputAttached === true
     for (const token of tokens) {
+      if (owned) { if (token.type !== 'paste') void term.keyHandler(token.input); continue }
       if (token.type === 'paste') { this._queue = this._queue.then(() => term.paste(token.text)).catch(() => {}); continue }
       const { input } = token
       const event = input.domEvent
