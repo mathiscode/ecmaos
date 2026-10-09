@@ -43,3 +43,10 @@ emcc emcc-readdir.c -O1 -sSTANDALONE_WASM=0 -o emcc-readdir.js && rm emcc-readdi
 ```sh
 emcc emcc-inet6.c -O1 -sSTANDALONE_WASM=0 -o emcc-inet6.js && rm emcc-inet6.js
 ```
+
+`emcc-scm.wasm` (`emcc-scm.c`: `SCM_RIGHTS`, `SCM_CREDENTIALS`, `SO_PEERCRED` in one program) and `emcc-scm-peer.wasm` (`emcc-scm-peer.c`: a descriptor sent from one program to another) are built the same way:
+
+```sh
+emcc emcc-scm.c -O1 -sSTANDALONE_WASM=0 -o emcc-scm.js && rm emcc-scm.js
+emcc emcc-scm-peer.c -O1 -sSTANDALONE_WASM=0 -o emcc-scm-peer.js && rm emcc-scm-peer.js
+```

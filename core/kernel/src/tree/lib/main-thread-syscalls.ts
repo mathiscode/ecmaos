@@ -129,6 +129,9 @@ declare module '@zenfs/linux/uapi/abi' {
     net_connect_out(host: string, port: number, proto: string, path: string): number
     dns_lookup(name: string, family: number, path: string): number
     net_accept(key: string, nonblock: number, path: string): number
+    scm_send(conn: number, dir: string, offset: number, length: number, items: string, path: string): number
+    scm_take(conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string): number
+    scm_cred(conn: number, dir: string, path: string): number
   }
 }
 
@@ -223,9 +226,41 @@ interface LoopbackListener {
   serverProc: Process
   listening: boolean
   /** `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client) */
-  queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string }>
+  queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string, conn?: number }>
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
+
+/**
+ * Ancillary data on a local stream connection (`sendmsg`/`recvmsg` with `SCM_RIGHTS`). Each connection between programs on this
+ * machine has a number and two ends (`c` the client, `s` the one that accepted). A descriptor sent is held here as an
+ * extra reference to the sender's open file (so it survives the sender closing it, as in Linux), tied to the byte offset of the data it
+ * travels with, and is put into the receiver's table when that data is received. What nobody receives is released when the receiving
+ * program exits.
+ */
+type Held = { ref(): unknown, closeSync(): void }
+type ScmItem = { t: 'fd', handle: Held } | { t: 'sock', read?: Held, write?: Held, meta: Record<string, unknown> }
+interface ScmEntry { offset: number, length: number, items: ScmItem[] }
+interface LocalConnection { ends: Record<string, Process> }
+const localConnections = new Map<number, LocalConnection>()
+const scmQueues = new Map<string, ScmEntry[]>()
+let nextConnection = 1
+const MaxInFlight = 253
+const otherEnd = (dir: string) => dir === 'c' ? 's' : 'c'
+
+function releaseItems(items: ScmItem[]): void {
+  for (const item of items) for (const handle of item.t === 'fd' ? [item.handle] : [item.read, item.write]) { try { handle?.closeSync() } catch { /* already closed */ } }
+}
+
+function openConnection(ends: Record<string, Process>): number {
+  const id = nextConnection++
+  localConnections.set(id, { ends })
+  // both programs gone: nothing can be received any more
+  void Promise.all(Object.values(ends).map(end => end.exited)).then(() => {
+    localConnections.delete(id)
+    for (const dir of Object.keys(ends)) { const queue = scmQueues.get(`${id}${dir}`); if (queue) for (const entry of queue) releaseItems(entry.items); scmQueues.delete(`${id}${dir}`) }
+  })
+  return id
+}
 let nextEphemeralPort = 49152
 
 /** Normalizes an `AF_INET`/`AF_INET6` bind/connect target; anything not loopback is rejected by
@@ -773,10 +808,89 @@ export function installMainThreadSyscalls(): void {
     } else {
       const toServer = kernel.linkProcesses(proc, listener.serverProc) // client writes -> server reads
       const toClient = kernel.linkProcesses(listener.serverProc, proc) // server writes -> client reads
-      listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined })
-      text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd })
+      const conn = openConnection({ c: proc, s: listener.serverProc })
+      listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn })
+      text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd, conn })
     }
 
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  /**
+   * `sendmsg()` with `SCM_RIGHTS`: holds the named descriptors (an `{ t: 'fd', fd }` for a plain one, `{ t: 'sock', readFd, writeFd, meta }`
+   * for a socket, which is a pair of them) for the other end of connection `conn`, tied to the stream `offset` of the data they go with.
+   */
+  define_syscall('scm_send', async (proc: Process, conn: number, dir: string, offset: number, length: number, specs: string, path: string) => {
+    const kernel = kernelOf(proc)
+    let text: string
+    const connection = localConnections.get(conn)
+    const list = JSON.parse(specs) as Array<{ t: 'fd', fd: number } | { t: 'sock', readFd: number, writeFd: number, meta: Record<string, unknown> }>
+    const key = `${conn}${dir}`
+    const queue = scmQueues.get(key) ?? []
+    const held = queue.reduce((sum, entry) => sum + entry.items.length, 0)
+    const lookup = (fd: number) => proc.context.descriptors.get(fd) as unknown as Held | undefined
+    if (!connection || connection.ends[dir] !== proc) text = JSON.stringify({ error: 'ENOTCONN' })
+    else if (list.some(item => item.t === 'fd' ? !lookup(item.fd) : !lookup(item.readFd) || !lookup(item.writeFd))) text = JSON.stringify({ error: 'EBADF' })
+    else if (held + list.length > MaxInFlight) text = JSON.stringify({ error: 'ENOBUFS' })
+    else {
+      const items: ScmItem[] = list.map(item => item.t === 'fd'
+        ? { t: 'fd' as const, handle: lookup(item.fd)!.ref() as Held }
+        : { t: 'sock' as const, read: lookup(item.readFd)!.ref() as Held, write: lookup(item.writeFd)!.ref() as Held, meta: item.meta })
+      if (queue.length === 0) {
+        const peer = connection.ends[otherEnd(dir)]
+        // what the receiving program never took goes when it does
+        if (peer) void peer.exited.then(() => { for (const entry of scmQueues.get(key) ?? []) releaseItems(entry.items); scmQueues.delete(key) })
+      }
+      queue.push({ offset, length, items })
+      scmQueues.set(key, queue)
+      text = JSON.stringify({ ok: true })
+    }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  /**
+   * `recvmsg()`: what the other end sent that goes with the data at stream offset `rx`. Anything held for earlier bytes was read past by
+   * an ordinary read and is dropped (as Linux drops it). `max` is how much data the program asked for; `limit` says where to stop, since
+   * data from before and after a descriptor are never returned together. Up to `room` descriptors are put into the caller's table from
+   * `hint` upwards; the rest are dropped and `ctrunc` is set. Writes `{ limit, items, ctrunc, peer }`.
+   */
+  define_syscall('scm_take', async (proc: Process, conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string) => {
+    const kernel = kernelOf(proc)
+    const key = `${conn}${dir}`
+    const queue = scmQueues.get(key) ?? []
+    while (queue.length > 0 && queue[0]!.offset < rx) releaseItems(queue.shift()!.items)
+    const taken: ScmItem[] = []
+    let end = rx
+    while (queue.length > 0 && queue[0]!.offset === rx) { const entry = queue.shift()!; taken.push(...entry.items); end = Math.max(end, entry.offset + entry.length) }
+    if (queue.length === 0) scmQueues.delete(key)
+    // a read never runs on past the message that carried descriptors, nor into the next one that carries some
+    const nextAt = queue.length > 0 ? queue[0]!.offset - rx : null
+    const limit = end > rx ? (nextAt === null ? end - rx : Math.min(end - rx, nextAt)) : nextAt
+    const given = taken.slice(0, Math.max(room, 0))
+    releaseItems(taken.slice(given.length))
+    let next = hint
+    const place = (handle: Held | undefined) => {
+      if (!handle) return -1
+      while (proc.context.descriptors.has(next)) next++
+      proc.context.descriptors.set(next, handle as never)
+      return next++
+    }
+    const items = given.map(item => item.t === 'fd' ? { t: 'fd', fd: place(item.handle) } : { t: 'sock', readFd: place(item.read), writeFd: place(item.write), meta: item.meta })
+    const sender = localConnections.get(conn)?.ends[dir]
+    const identity = sender ? identityOf(sender) : undefined
+    const text = JSON.stringify({ limit, items, ctrunc: taken.length > given.length, max, peer: sender ? { pid: sender.pid, uid: identity?.uid ?? 0, gid: identity?.gid ?? 0 } : undefined })
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  /** `SO_PEERCRED`: the process, user and group at the other end of connection `conn` (the caller is `dir`). Writes `{ pid, uid, gid }` or `{ error }`. */
+  define_syscall('scm_cred', async (proc: Process, conn: number, dir: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const peer = localConnections.get(conn)?.ends[otherEnd(dir)]
+    const identity = peer ? identityOf(peer) : undefined
+    const text = JSON.stringify(peer ? { pid: peer.pid, uid: identity?.uid ?? 0, gid: identity?.gid ?? 0 } : { error: 'ENOTCONN' })
     await writeScratch(kernel, proc, path, text)
     return text.length
   })

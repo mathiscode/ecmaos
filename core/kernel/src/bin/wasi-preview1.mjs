@@ -166,7 +166,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     [preopenRoot, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
     [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
-  let nextFd = Math.max(preopenRoot, preopenCwd) + 1
+  // Synthetic descriptors (sockets, epoll instances) count up from here, well clear of the real ones, which the kernel hands out lowest first:
+  // a program using a few hundred descriptors would otherwise be given a real number a socket already has.
+  let nextFd = Math.max(preopenRoot, preopenCwd, 255) + 1
 
   // epoll instances: a synthetic fd from the same real allocator (`nextFd`), so it can never
   // collide with a real fd `env.__syscall_openat` hands out, but is never registered in `fds` --
@@ -356,7 +358,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           for (const [ptr, len] of list) { const part = data.subarray(at, at + len); bytes().set(part, ptr); at += part.length }
           view().setUint32(nreadPtr, data.length, true)
         })
-        return guard(() => { const n = readInto(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nreadPtr, n, true) })
+        return guard(() => { const n = readInto(sr.fd, iovecs(iovPtr, iovCnt)); sr.local.rxCount = (sr.local.rxCount ?? 0) + n; view().setUint32(nreadPtr, n, true) })
       }
       const entry = entryOf(fd)
       if (!entry) return EBADF
@@ -389,7 +391,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           for (const [ptr, len] of list) { data.set(bytes().subarray(ptr, ptr + len), at); at += len }
           view().setUint32(nwrittenPtr, dgramSend(sr.sock, data), true)
         })
-        return guard(() => { const n = writeFrom(sr.fd, iovecs(iovPtr, iovCnt)); view().setUint32(nwrittenPtr, n, true) })
+        return guard(() => { const n = writeFrom(sr.fd, iovecs(iovPtr, iovCnt)); sr.local.txCount = (sr.local.txCount ?? 0) + n; view().setUint32(nwrittenPtr, n, true) })
       }
       const entry = entryOf(fd)
       if (!entry) return EBADF
@@ -889,6 +891,14 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const AF_INET6 = 10
   const IPPROTO_IPV6 = 41
   const IPV6_V6ONLY = 26
+  const SOL_SOCKET = 1
+  const SCM_RIGHTS = 1
+  const SCM_CREDENTIALS = 2
+  const SO_PASSCRED = 16
+  const SO_PEERCRED = 17
+  const MSG_CTRUNC = 8
+  const CMSG_HEADER = 12 // struct cmsghdr on wasm32: len (u32), level (i32), type (i32)
+  const cmsgAlign = (n) => (n + 3) & ~3
   const SIN_SIZE = 16 // sizeof(struct sockaddr_in)
   const SIN6_SIZE = 28 // sizeof(struct sockaddr_in6)
   const SOCK_STREAM_MASK = 0xff // socket()'s type also carries SOCK_NONBLOCK/SOCK_CLOEXEC as high bits
@@ -1057,10 +1067,39 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     Object.assign(sock, { bound: true, addressed: true, connected: true, port: result.port, readFd: result.fd, writeFd: result.writeFd })
   }
 
+  /** The descriptors named by `SCM_RIGHTS` messages in a control buffer, as the main thread wants them */
+  function readRights(controlPtr, controlLen) {
+    const out = []
+    if (!controlPtr || controlLen < CMSG_HEADER) return out
+    const dv = view()
+    for (let p = controlPtr; p + CMSG_HEADER <= controlPtr + controlLen;) {
+      const len = dv.getUint32(p, true)
+      if (len < CMSG_HEADER) break
+      if (dv.getInt32(p + 4, true) === SOL_SOCKET && dv.getInt32(p + 8, true) === SCM_RIGHTS) {
+        for (let i = 0; i < Math.floor((len - CMSG_HEADER) / 4); i++) {
+          const number = dv.getInt32(p + CMSG_HEADER + i * 4, true)
+          const made = sockets.get(number)
+          if (made) {
+            if (!made.connected || made.dgram || !made.conn) throw { code: 'EINVAL' }
+            out.push({ t: 'sock', readFd: made.readFd, writeFd: made.writeFd, meta: { family: made.family, conn: made.conn, dir: made.dir, txCount: made.txCount ?? 0, rxCount: made.rxCount ?? 0, peerKey: made.peerKey, peerAddr: made.peerAddr, peerPort: made.peerPort } })
+          } else {
+            const entry = entryOf(number)
+            if (!entry) throw { code: 'EBADF' }
+            out.push({ t: 'fd', fd: realFd(entry) })
+          }
+        }
+      }
+      p += cmsgAlign(len)
+    }
+    return out
+  }
+
   function sockSend(sock, data, to) {
     if (!sock.dgram) {
       if (!sock.connected) throw { code: 'ENOTCONN' }
-      return write(sock.writeFd, data)
+      const n = write(sock.writeFd, data)
+      sock.txCount = (sock.txCount ?? 0) + n
+      return n
     }
     if (to && to.family !== AF_INET && to.family !== AF_INET6) throw { code: 'EAFNOSUPPORT' }
     if (to && to.family === AF_INET6 && sock.family !== AF_INET6) throw { code: 'EAFNOSUPPORT' }
@@ -1091,6 +1130,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     }
     const chunk = new Uint8Array(max)
     const n = read(sock.readFd, chunk, -1)
+    if (n > 0) sock.rxCount = (sock.rxCount ?? 0) + n
     return { data: chunk.subarray(0, Math.max(n, 0)), from: undefined }
   }
 
@@ -1109,7 +1149,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     const sock = sockets.get(fd)
     if (!sock) return { isSocket: false }
     if (!sock.connected) return { isSocket: true, error: EBADF }
-    return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined }
+    return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined, local: sock.dgram ? undefined : sock }
   }
 
   // -- name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`) -------------------------------------------------------
@@ -1683,6 +1723,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (result.error) return socketErrno(result.error)
       sock.connected = true
       sock.peerKey = key
+      if (result.conn) { sock.conn = result.conn; sock.dir = 'c' }
       sock.readFd = result.fd
       sock.writeFd = result.writeFd
       return ESUCCESS
@@ -1701,7 +1742,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (result.error) return socketErrno(result.error)
         if (result.pending) { sleepMs(50); continue }
         const newFd = nextFd++
-        sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey })
+        sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey, conn: result.conn, dir: result.conn ? 's' : undefined })
         // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`, `remote:[ADDR]:PORT` for IPv6); one from
         // a program on this machine is from loopback, in the family it connected with
         const from = /^remote:(?:\[([0-9a-fA-F:.]+)\]|(\d+\.\d+\.\d+\.\d+)):(\d+)$/.exec(result.peerKey ?? '')
@@ -1747,8 +1788,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       return data.length
     }),
     // `struct msghdr` on wasm32: name 0, namelen 4, iov 8, iovlen 12, control 16, controllen 20, flags 24 (28 bytes). The iovec array is
-    // gathered into one datagram (or one stream write) and scattered back on receive. Ancillary data (SCM_RIGHTS, IP_PKTINFO) is not
-    // supported: a send ignores it and a receive says it carries none.
+    // gathered into one datagram (or one stream write) and scattered back on receive. Ancillary data: on a local `AF_UNIX` stream connection
+    // (emscripten's libc has no `socketpair`, so a named connection is the only kind) `SCM_RIGHTS` passes open descriptors, files, pipes and connected sockets alike, and `SO_PASSCRED` has the sender's
+    // credentials come with each message. A descriptor travels with the first byte of the data it was sent with; an ordinary read that
+    // passes that byte drops it, and a receive never joins data from before and after one. Other kinds (`IP_PKTINFO` and the rest) are ignored on send and absent on receive.
     __syscall_sendmsg: (fd, msgPtr, _flags) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
@@ -1758,6 +1801,12 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const data = new Uint8Array(list.reduce((sum, [, size]) => sum + size, 0))
       let at = 0
       for (const [ptr, size] of list) { data.set(bytes().subarray(ptr, ptr + size), at); at += size }
+      const passed = readRights(dv.getUint32(msgPtr + 16, true), dv.getUint32(msgPtr + 20, true))
+      if (passed.length > 0) {
+        if (!sock.conn || sock.dgram) throw { code: 'EINVAL' }
+        const sent = callMainThread('scm_send', sock.conn, sock.dir, sock.txCount ?? 0, data.length, JSON.stringify(passed))
+        if (sent.error) throw { code: sent.error }
+      }
       return sockSend(sock, data, namePtr ? readSockaddr(namePtr) : undefined)
     }),
     __syscall_recvmsg: (fd, msgPtr, _flags) => guardLinux(() => {
@@ -1765,7 +1814,18 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) throw { code: 'ENOTSOCK' }
       const dv = view()
       const list = iovecs(dv.getUint32(msgPtr + 8, true), dv.getUint32(msgPtr + 12, true))
-      const { data, from } = sockRecv(sock, list.reduce((sum, [, size]) => sum + size, 0))
+      let wanted = list.reduce((sum, [, size]) => sum + size, 0)
+      const controlPtr = dv.getUint32(msgPtr + 16, true)
+      const controlLen = dv.getUint32(msgPtr + 20, true)
+      let took
+      let credSpace = 0
+      if (sock.conn && !sock.dgram) {
+        credSpace = sock.passcred && controlLen >= cmsgAlign(CMSG_HEADER + 12) ? cmsgAlign(CMSG_HEADER + 12) : 0
+        const room = Math.max(Math.floor((controlLen - credSpace - CMSG_HEADER) / 4), 0)
+        took = callMainThread('scm_take', sock.conn, sock.dir === 'c' ? 's' : 'c', sock.rxCount ?? 0, wanted, room, 3)
+        if (took.limit !== null && took.limit !== undefined) wanted = Math.min(wanted, took.limit)
+      }
+      const { data, from } = sockRecv(sock, wanted)
       let at = 0
       for (const [ptr, size] of list) { const part = data.subarray(at, at + size); bytes().set(part, ptr); at += part.length }
       const namePtr = dv.getUint32(msgPtr, true)
@@ -1775,8 +1835,36 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         bytes().set(full.subarray(0, Math.min(room, full.length)), namePtr)
         dv.setUint32(msgPtr + 4, full.length, true)
       } else dv.setUint32(msgPtr + 4, 0, true)
-      dv.setUint32(msgPtr + 20, 0, true) // no ancillary data
-      dv.setInt32(msgPtr + 24, 0, true)
+      let used = 0
+      if (took) {
+        if (credSpace > 0 && took.peer) {
+          const base = controlPtr + used
+          dv.setUint32(base, CMSG_HEADER + 12, true); dv.setInt32(base + 4, SOL_SOCKET, true); dv.setInt32(base + 8, SCM_CREDENTIALS, true)
+          dv.setInt32(base + 12, took.peer.pid, true); dv.setUint32(base + 16, took.peer.uid, true); dv.setUint32(base + 20, took.peer.gid, true)
+          used += credSpace
+        }
+        const received = []
+        for (const item of took.items) {
+          if (item.t === 'fd') received.push(item.fd)
+          else if (item.readFd >= 0 && item.writeFd >= 0) received.push(item)
+        }
+        for (const item of received) for (const real of typeof item === 'number' ? [item] : [item.readFd, item.writeFd]) nextFd = Math.max(nextFd, real + 1)
+        const numbers = received.map(item => {
+          if (typeof item === 'number') return item
+          const made = nextFd++
+          const meta = item.meta
+          sockets.set(made, { family: meta.family, key: null, bound: false, listening: false, connected: true, readFd: item.readFd, writeFd: item.writeFd, conn: meta.conn, dir: meta.dir, txCount: meta.txCount, rxCount: meta.rxCount, peerKey: meta.peerKey, peerAddr: meta.peerAddr, peerPort: meta.peerPort })
+          return made
+        })
+        if (numbers.length > 0) {
+          const base = controlPtr + used
+          dv.setUint32(base, CMSG_HEADER + numbers.length * 4, true); dv.setInt32(base + 4, SOL_SOCKET, true); dv.setInt32(base + 8, SCM_RIGHTS, true)
+          numbers.forEach((number, i) => dv.setInt32(base + CMSG_HEADER + i * 4, number, true))
+          used += cmsgAlign(CMSG_HEADER + numbers.length * 4)
+        }
+      }
+      dv.setUint32(msgPtr + 20, used, true)
+      dv.setInt32(msgPtr + 24, took?.ctrunc ? MSG_CTRUNC : 0, true)
       return data.length
     }),
     // No real socket-level options exist for a loopback pipe pair -- accepted as a harmless no-op
@@ -1785,6 +1873,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_setsockopt: (fd, level, optname, optvalPtr, optlen) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
+      if (level === SOL_SOCKET && optname === SO_PASSCRED && optlen >= 4) sock.passcred = view().getInt32(optvalPtr, true) !== 0
       if (level === IPPROTO_IPV6 && optname === IPV6_V6ONLY) {
         if (sock.family !== AF_INET6) return -SYSCALL_ERRNO.ENOPROTOOPT
         if (optlen < 4) return -SYSCALL_ERRNO.EINVAL
@@ -1797,7 +1886,20 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       if (level === IPPROTO_IPV6 && optname === IPV6_V6ONLY && sock.family !== AF_INET6) return -SYSCALL_ERRNO.ENOPROTOOPT
-      if (optvalPtr) view().setInt32(optvalPtr, level === IPPROTO_IPV6 && optname === IPV6_V6ONLY && sock.v6only ? 1 : 0, true)
+      // SO_PEERCRED: `struct ucred` (pid, uid, gid) of the program at the other end of a local connection
+      if (level === SOL_SOCKET && optname === SO_PEERCRED) {
+        if (!sock.conn) return -SYSCALL_ERRNO.ENOTCONN
+        const peer = callMainThread('scm_cred', sock.conn, sock.dir)
+        if (peer.error) return socketErrno(peer.error)
+        if (!optvalPtr || !optlenPtr || view().getUint32(optlenPtr, true) < 12) return -SYSCALL_ERRNO.EINVAL
+        view().setInt32(optvalPtr, peer.pid, true)
+        view().setUint32(optvalPtr + 4, peer.uid, true)
+        view().setUint32(optvalPtr + 8, peer.gid, true)
+        view().setUint32(optlenPtr, 12, true)
+        return ESUCCESS
+      }
+      const flag = level === IPPROTO_IPV6 && optname === IPV6_V6ONLY ? sock.v6only : level === SOL_SOCKET && optname === SO_PASSCRED ? sock.passcred : false
+      if (optvalPtr) view().setInt32(optvalPtr, flag ? 1 : 0, true)
       if (optlenPtr) view().setUint32(optlenPtr, 4, true)
       return ESUCCESS
     },
