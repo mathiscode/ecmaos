@@ -15,6 +15,7 @@ import { StoreFS } from '@zenfs/core'
 import { VNode } from '@zenfs/core/vfs/vnode.js'
 
 import { checkFileSize, meterChange, meterStart } from '#lib/storage-limits.ts'
+import { chargeQuota } from '#lib/quota.ts'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { init_uts } from '@zenfs/linux/uts'
@@ -84,7 +85,48 @@ export function withMemoryRoot<T extends { mounts?: Record<string, unknown> }>(o
 export function fenceRootStore(): void { fenced = true }
 export function rootStoreFenced(): boolean { return fenced }
 
+/**
+ * Writes of large records are put off briefly and merged. A file is one record, so every change to it clones and rewrites all of it
+ * (about 7 ms of main-thread stall per MB), and a program that appends in small pieces to a big file (a log, a database) paid that
+ * for each piece. A record of `DeferBytes` or more is now updated in memory at once, as before, and written to IndexedDB once after
+ * `DeferMs`, whatever number of changes it took; reads see the in-memory copy, so nothing observable changes except that a crash in
+ * that window loses the last changes to a large file (a crash during the old write lost the same). Small records are written at once.
+ * `rootWritesSettled` (reboot, halt, a takeover) flushes them first.
+ */
+export const DeferBytes = 256 * 1024
+export const DeferMs = 100
+const deferred = new Map<IndexedDBStore, Set<number>>()
+let deferTimer: ReturnType<typeof setTimeout> | undefined
+
+const settleIfIdle = () => { if (pendingWrites === 0) for (const waiter of settleWaiters.splice(0)) waiter() }
+
+/** Writes every deferred record to IndexedDB now, one transaction per store */
+export async function flushDeferredWrites(): Promise<void> {
+  if (deferTimer) { clearTimeout(deferTimer); deferTimer = undefined }
+  const work = [...deferred]
+  deferred.clear()
+  await Promise.all(work.map(async ([store, ids]) => {
+    try {
+      if (!fenced) {
+        const tx = (store as unknown as { db: IDBDatabase }).db.transaction(store.name, 'readwrite')
+        const objects = tx.objectStore(store.name)
+        for (const id of ids) {
+          const data = store.cache.get(id)
+          if (data) objects.put(data, id)
+        }
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error) })
+      }
+    } catch (error) {
+      globalThis.console?.error?.(`ecmaos: writing ${ids.size} deferred record(s) to IndexedDB failed:`, error)
+    } finally {
+      pendingWrites -= ids.size
+      settleIfIdle()
+    }
+  }))
+}
+
 export function rootWritesSettled(timeoutMs = 2000): Promise<void> {
+  if (deferred.size > 0) void flushDeferredWrites()
   if (pendingWrites === 0) return Promise.resolve()
   return new Promise(resolve => {
     const done = () => { clearTimeout(timer); resolve() }
@@ -107,8 +149,43 @@ function tracked<Args extends [number, ...unknown[]]>(original: (this: IndexedDB
   }
 }
 
-IndexedDBTransaction.prototype.set = tracked(IndexedDBTransaction.prototype.set)
-IndexedDBTransaction.prototype.remove = tracked(IndexedDBTransaction.prototype.remove)
+const immediateSet = tracked(IndexedDBTransaction.prototype.set)
+const immediateRemove = tracked(IndexedDBTransaction.prototype.remove)
+const storedGet = IndexedDBTransaction.prototype.get
+
+IndexedDBTransaction.prototype.set = async function (this: IndexedDBTransaction, id: number, data: Uint8Array): Promise<void> {
+  if (fenced) return
+  const store = this.store
+  const waiting = deferred.get(store)
+  if (data.byteLength < DeferBytes && !waiting?.has(id)) return immediateSet.call(this, id, data)
+  const cache = store.cache as Map<number, Uint8Array>
+  meterStart({ cache })
+  const before = cache.get(id)?.byteLength ?? 0
+  cache.set(id, new Uint8Array(data))
+  meterChange({ cache }, data.byteLength - before)
+  if (!waiting?.has(id)) {
+    pendingWrites++
+    if (waiting) waiting.add(id)
+    else deferred.set(store, new Set([id]))
+  }
+  deferTimer ??= setTimeout(() => { void flushDeferredWrites() }, DeferMs)
+} as typeof IndexedDBTransaction.prototype.set
+
+IndexedDBTransaction.prototype.remove = async function (this: IndexedDBTransaction, id: number): Promise<void> {
+  const waiting = deferred.get(this.store)
+  if (waiting?.delete(id)) {
+    pendingWrites--
+    if (waiting.size === 0) deferred.delete(this.store)
+    settleIfIdle()
+  }
+  return immediateRemove.call(this, id)
+} as typeof IndexedDBTransaction.prototype.remove
+
+// a record whose newest bytes are not in IndexedDB yet must not be read back from there over the in-memory copy
+IndexedDBTransaction.prototype.get = async function (this: IndexedDBTransaction, id: number) {
+  if (deferred.get(this.store)?.has(id)) return this.store.cache.get(id)
+  return storedGet.call(this, id)
+} as typeof IndexedDBTransaction.prototype.get
 
 /**
  * A file bigger than the limit (`lib/storage-limits.ts`) is refused with `EFBIG` before anything is written, on the IndexedDB root
@@ -133,6 +210,30 @@ for (const name of ['write', 'writeSync']) {
 }
 for (const name of ['touch', 'touchSync']) {
   proto[name] = limited(proto[name]!, ((_path: string, metadata: { size?: number }) => metadata.size) as never)
+}
+
+/**
+ * What `uid` owns on the root: the sizes of its regular files (hard links once), walking the root's own tree and not the other
+ * mounts. Synchronous, because it runs inside a write that is about to cross a quota.
+ */
+export function measureOwnedBytes(uid: number): number {
+  const elsewhere = new Set([...mounts.keys()].filter(path => path !== '/'))
+  const seen = new Set<number>()
+  let total = 0
+  const walk = (directory: string) => {
+    let names: string[]
+    try { names = fs.readdirSync(directory) } catch { return }
+    for (const name of names) {
+      const path = directory === '/' ? `/${name}` : `${directory}/${name}`
+      if (elsewhere.has(path)) continue
+      let info
+      try { info = fs.lstatSync(path) } catch { continue }
+      if (info.isDirectory()) walk(path)
+      else if (info.isFile() && info.uid === uid && !seen.has(info.ino)) { seen.add(info.ino); total += info.size }
+    }
+  }
+  walk('/')
+  return total
 }
 
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
@@ -660,7 +761,11 @@ type NodeLike = { fs: StoreFSLike, path: string }
 const nodeProto = VNode.prototype as unknown as Record<string, (this: NodeLike, ...args: never[]) => unknown>
 const limitedNode = (original: (this: NodeLike, ...args: never[]) => unknown, size: (...args: never[]) => number) =>
   function (this: NodeLike, ...args: never[]) {
-    if (this.fs.store instanceof IndexedDBStore) checkFileSize(size(...args), this.path)
+    if (this.fs.store instanceof IndexedDBStore) {
+      const end = size(...args)
+      checkFileSize(end, this.path)
+      chargeQuota((this as unknown as { inode: { uid: number, size: number } }).inode, end, this.path)
+    }
     return original.apply(this, args)
   }
 for (const name of ['write', 'writeSync']) nodeProto[name] = limitedNode(nodeProto[name]!, ((data: Uint8Array, offset: number) => offset + data.byteLength) as never)

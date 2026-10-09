@@ -3,7 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { configure, fs, umount } from '@zenfs/core'
 import { IndexedDB } from '@zenfs/dom'
 
-import { rootWritesSettled } from '#filesystem.ts'
+import { DeferMs, flushDeferredWrites, measureOwnedBytes, rootWritesSettled } from '#filesystem.ts'
+import { configureQuotas } from '#lib/quota.ts'
 import { configureStorageLimits } from '#lib/storage-limits.ts'
 
 /**
@@ -131,5 +132,102 @@ describe('limits on a root that is held in memory', () => {
     configureStorageLimits({ maxFileBytes: false, warnResidentBytes: false })
     await fs.promises.writeFile('/free.bin', new Uint8Array((1 << 20) * 3))
     expect((await fs.promises.stat('/free.bin')).size).toBe((1 << 20) * 3)
+  })
+})
+
+
+describe('writes to a large record are merged', () => {
+  const store = `idb-defer-${process.pid}`
+  const puts: number[] = []
+  const realPut = IDBObjectStore.prototype.put
+
+  beforeAll(async () => {
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      puts.push((value as Uint8Array).byteLength)
+      return realPut.call(this, value, key)
+    }
+    await mount(store)
+  })
+  afterAll(async () => {
+    IDBObjectStore.prototype.put = realPut
+    try { umount('/') } catch { /* nothing mounted */ }
+  })
+
+  const bigPuts = () => puts.filter(size => size >= 300_000).length
+
+  it('writes a big file once for many appends, and the file reads back whole at every step', async () => {
+    await fs.promises.writeFile('/log', new Uint8Array(300_000).fill(1))
+    await rootWritesSettled(5000)
+    const before = bigPuts()
+    for (let i = 0; i < 20; i++) {
+      await fs.promises.appendFile('/log', 'x')
+      expect((await fs.promises.readFile('/log')).length).toBe(300_001 + i)
+    }
+    await rootWritesSettled(5000)
+    // 20 appends, merged: far fewer writes of the whole record than appends (one per merge window)
+    expect(bigPuts() - before).toBeLessThan(10)
+    expect(bigPuts() - before).toBeGreaterThanOrEqual(1)
+  })
+
+  it('has the last bytes after the store is loaded again', async () => {
+    await fs.promises.appendFile('/log', 'END')
+    await rootWritesSettled(5000)
+    umount('/')
+    await mount(store)
+    const data = await fs.promises.readFile('/log')
+    expect(data.length).toBe(300_000 + 20 + 3)
+    expect(text(data.slice(-3))).toBe('END')
+  })
+
+  it('does not bring a removed file back, and a file that shrank below the threshold keeps its new size', async () => {
+    await fs.promises.writeFile('/gone', new Uint8Array(400_000))
+    await fs.promises.unlink('/gone')
+    await fs.promises.writeFile('/shrinks', new Uint8Array(400_000))
+    await fs.promises.writeFile('/shrinks', 'tiny')
+    await rootWritesSettled(5000)
+    umount('/')
+    await mount(store)
+    expect(await fs.promises.exists('/gone')).toBe(false)
+    expect(text(await fs.promises.readFile('/shrinks'))).toBe('tiny')
+  })
+
+  it('writes at once when asked to flush, without waiting for the window', async () => {
+    await fs.promises.writeFile('/flush', new Uint8Array(500_000))
+    const before = bigPuts()
+    await flushDeferredWrites()
+    expect(bigPuts()).toBeGreaterThan(before)
+    expect(DeferMs).toBeGreaterThan(0)
+  })
+})
+
+
+describe('a storage quota on the IndexedDB root', () => {
+  const store = `idb-quota-${process.pid}`
+  beforeAll(async () => { await mount(store); await fs.promises.mkdir('/q'); configureQuotas(new Map([[1000, 1_000_000]]), measureOwnedBytes) })
+  afterAll(async () => { configureQuotas(new Map()); try { umount('/') } catch { /* nothing mounted */ } })
+
+  const owned = async (path: string, size: number) => {
+    await fs.promises.writeFile(path, new Uint8Array(size))
+    await fs.promises.chown(path, 1000, 1000)
+  }
+
+  it('refuses a write that would take the owner past the quota with EDQUOT, leaving the file as it was', async () => {
+    await owned('/q/a', 600_000)
+    const error = await fs.promises.appendFile('/q/a', new Uint8Array(500_000)).catch(failure => failure)
+    expect((error as { code?: string }).code).toBe('EDQUOT')
+    expect((await fs.promises.stat('/q/a')).size).toBe(600_000)
+    // a write that fits is still fine, and so is another user's file
+    await fs.promises.appendFile('/q/a', new Uint8Array(300_000))
+    await fs.promises.writeFile('/q/root-owned', new Uint8Array(5_000_000))
+  })
+
+  it('counts a truncate that grows a file, and finds the space again after files are deleted', async () => {
+    expect((await fs.promises.truncate('/q/a', 2_000_000).catch(failure => failure) as { code?: string }).code).toBe('EDQUOT')
+    await owned('/q/b', 90_000)
+    await fs.promises.unlink('/q/b')
+    await fs.promises.unlink('/q/a')
+    await owned('/q/c', 900_000)
+    await fs.promises.appendFile('/q/c', new Uint8Array(50_000))
+    expect((await fs.promises.stat('/q/c')).size).toBe(950_000)
   })
 })

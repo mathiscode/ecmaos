@@ -9,7 +9,8 @@ const { exit, write, custom } = syscalls
 function formatUsage(usage) {
   const data = {}
   for (const [key, value] of Object.entries(usage)) {
-    if (typeof value === 'object' && value !== null) data[key] = formatUsage(value)
+    if (Array.isArray(value)) data[key] = value.map(formatUsage)
+    else if (typeof value === 'object' && value !== null) data[key] = formatUsage(value)
     else if (typeof value === 'number') data[key] = humanFormat(value)
     else data[key] = String(value)
   }

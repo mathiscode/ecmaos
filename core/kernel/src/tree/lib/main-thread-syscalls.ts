@@ -28,7 +28,7 @@
 import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
-import { fs } from '@zenfs/core'
+import { fs, mounts } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
@@ -36,6 +36,9 @@ import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, type GatewayRequest } from './remote-gateway.ts'
 import { bindUdpPort, udpPortAt } from './udp-ports.ts'
+import { heldInMemory, totalHeld } from './memory-usage.ts'
+import { quotaLimit, quotaLimits, quotaUsage } from './quota.ts'
+import { currentStorageLimits } from './storage-limits.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
@@ -60,6 +63,7 @@ declare module '@zenfs/linux/uapi/abi' {
     window_close(handle: number): number
     window_present(kind: string, paramsJson: string, path: string): number
     storage_usage(path: string): number
+    quota_report(argsJson: string, path: string): number
     klog(level: string, message: string): number
     reboot(): number
     users_lookup(query: string, path: string): number
@@ -352,7 +356,39 @@ export function installMainThreadSyscalls(): void {
   define_syscall('storage_usage', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const usage = await kernel.storage.usage()
-    const text = JSON.stringify(usage ?? {})
+    // what the file systems hold in RAM (the IndexedDB root, /tmp and the other memory mounts, and browser directories)
+    const held = heldInMemory(mounts)
+    const limits = currentStorageLimits()
+    const memory = { held: totalHeld(held), warnAt: limits.warnResidentBytes === false ? 'never' : limits.warnResidentBytes, maxFile: limits.maxFileBytes === false ? 'unlimited' : limits.maxFileBytes, mounts: held }
+    const text = JSON.stringify({ ...(usage ?? {}), persistent: kernel.storage.persisted, memory })
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `quota`: what a user's files on the root come to against the limit in /etc/quota. A user sees their own; root names anyone, or gets
+  // every quota that is set. `reload` (root) reads /etc/quota again first.
+  define_syscall('quota_report', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const args = JSON.parse(argsJson) as { user?: string, reload?: boolean }
+    const me = identityOf(proc)
+    let result: Record<string, unknown>
+    try {
+      const problems = args.reload ? (requireRoot(proc, 'quota -r'), await kernel.loadQuotas()) : []
+      const nameOf = (uid: number) => kernel.users.get(uid)?.username ?? String(uid)
+      const row = (uid: number) => ({ user: nameOf(uid), uid, used: quotaUsage(uid), limit: quotaLimit(uid)! })
+      let rows: Array<ReturnType<typeof row>>
+      if (args.user) {
+        const target = [...kernel.users.all.values()].find(user => user.username === args.user)
+        if (!target) throw new Error(`no such user '${args.user}'`)
+        if (target.uid !== me.euid && me.euid !== 0) throw new Error('only root can look at another user\'s quota')
+        rows = quotaLimit(target.uid) === undefined ? [] : [row(target.uid)]
+      } else if (me.euid === 0) rows = [...quotaLimits().keys()].map(row)
+      else rows = quotaLimit(me.euid) === undefined ? [] : [row(me.euid)]
+      result = { rows, problems, listing: !args.user && me.euid === 0 }
+    } catch (error) {
+      result = { error: error instanceof Error ? error.message : String(error) }
+    }
+    const text = JSON.stringify(result)
     await writeScratch(kernel, proc, path, text)
     return text.length
   })

@@ -40,12 +40,13 @@ import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
 import { showBadge, showOverlay } from '#lib/machine-overlay.ts'
+import { configureQuotas, parseQuotas } from '#lib/quota.ts'
 import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
-import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled, withMemoryRoot, withRootStore } from '#filesystem.ts'
+import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, measureOwnedBytes, rootWritesSettled, withMemoryRoot, withRootStore } from '#filesystem.ts'
 import { browserHost } from '#host.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -973,6 +974,7 @@ export class Kernel implements IKernel {
         await this.users.ensureGroup(SHADOW_GROUP, SHADOW_GID)
         await this.users.secureShadow()
         usersSpan.setAttribute('users.count', this.users.all.size)
+        await this.loadQuotas()
       } catch (err) {
         usersSpan.recordException(err as Error)
         usersSpan.setStatus({ code: 2, message: (err as Error).message })
@@ -2850,6 +2852,17 @@ export class Kernel implements IKernel {
         if (id && id !== this._guestId && Date.now() - parseInt(id.slice(0, 8), 36) > 86_400_000) local.removeItem(key)
       }
     } catch { /* storage is gone */ }
+  }
+
+  /** Reads `/etc/quota` and applies it (see `lib/quota.ts`); a bad line is reported and skipped. Returns the problems found. */
+  async loadQuotas(): Promise<string[]> {
+    let text = ''
+    try { if (await this.filesystem.fs.exists('/etc/quota')) text = await this.filesystem.fs.readFile('/etc/quota', 'utf-8') } catch { /* no quotas */ }
+    const byName = new Map([...this.users.all.values()].map(user => [user.username, user.uid]))
+    const { limits, errors } = parseQuotas(text, name => byName.get(name))
+    for (const error of errors) this.log.warn(`/etc/quota: ${error}`)
+    configureQuotas(limits, measureOwnedBytes)
+    return errors
   }
 
   /** Another tab took this machine: stop writing before anything else, stop everything, and say so */

@@ -10,6 +10,8 @@ import type { Shell } from '@ecmaos/types'
 import type { Kernel } from '#kernel.ts'
 
 import type { Outcome, OutcomeLine } from './outcome.ts'
+import { heldBy, heldInMemory, totalHeld } from './memory-usage.ts'
+import { currentStorageLimits, formatBytes } from './storage-limits.ts'
 import { DefaultLimits, openRemoteFs, parseRemoteSource, parseSize, RemoteMountFailure } from './remote-mount.ts'
 
 /**
@@ -22,6 +24,8 @@ import { DefaultLimits, openRemoteFs, parseRemoteSource, parseSize, RemoteMountF
  * Results come back as lines for the program to print (`{ stream, text }`) plus an exit code, since a
  * syscall can only return a number and the messages are the whole user-visible output.
  */
+
+const MiB = 1024 * 1024
 
 export interface MountRequest {
   type: string
@@ -72,6 +76,14 @@ export async function mountFilesystem(kernel: Kernel, shell: Shell, request: Mou
 
     const mount = async (config: unknown) => {
       await kernel.filesystem.fsSync.mount(target, await resolveMountConfig(config as never))
+      // Some backends (OPFS, a directory handle, a cloud drive) copy what they mount into memory: say so, since it is RAM the machine now holds
+      const held = heldBy(kernel.filesystem.mounts.get(target))
+      if (held && held.bytes >= MiB) {
+        out(`${target} holds ${formatBytes(held.bytes)} in memory (${held.kind === 'directory-cache' ? 'the directory is cached whole' : 'a memory file system'}); see df`)
+        const total = totalHeld(heldInMemory(kernel.filesystem.mounts.entries()))
+        const warnAt = currentStorageLimits().warnResidentBytes
+        if (warnAt !== false && total >= warnAt) out(`warning: the machine now holds ${formatBytes(total)} in memory (warning at ${formatBytes(warnAt)})`)
+      }
     }
 
     switch (type) {
