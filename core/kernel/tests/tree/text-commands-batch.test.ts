@@ -55,6 +55,53 @@ describe('text command batch: head/tail/wc/nl/rev/tac, real execve', () => {
     expect((await kernel.filesystem.fs.readFile('/tmp/head-stdin.out', 'utf-8')).trim()).toBe('piped')
   })
 
+  describe('tail options', () => {
+    const tail = async (args: string, input?: string) => {
+      const source = input === undefined ? '' : ` < /tmp/tail.in`
+      if (input !== undefined) await kernel.filesystem.fs.writeFile('/tmp/tail.in', input)
+      const code = await kernel.shell.execute(`tail ${args}${source} > /tmp/tail.out 2> /tmp/tail.err`)
+      return { code, out: await kernel.filesystem.fs.readFile('/tmp/tail.out', 'utf-8'), err: await kernel.filesystem.fs.readFile('/tmp/tail.err', 'utf-8') }
+    }
+
+    it('-c takes the last bytes, in every spelling', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/tail.txt', 'abcdefghij\n')
+      expect((await tail('-c 4 /tmp/tail.txt')).out).toBe('hij\n')
+      expect((await tail('-c4 /tmp/tail.txt')).out).toBe('hij\n')
+      expect((await tail('--bytes=4 /tmp/tail.txt')).out).toBe('hij\n')
+      expect((await tail('-c +9 /tmp/tail.txt')).out).toBe('ij\n')
+      expect((await tail('-c 1k /tmp/tail.txt')).out).toBe('abcdefghij\n')
+      expect((await tail('-c 0 /tmp/tail.txt')).out).toBe('')
+    })
+
+    it('-n takes lines, +N starts at line N, a missing final newline is kept as it was', async () => {
+      expect((await tail('-n 2', 'a\nb\nc\nd\n')).out).toBe('c\nd\n')
+      expect((await tail('-n +3', 'a\nb\nc\nd\n')).out).toBe('c\nd\n')
+      expect((await tail('--lines=1', 'a\nb\nc')).out).toBe('c')
+      expect((await tail('-n 5', 'a\nb\n')).out).toBe('a\nb\n')
+      expect((await tail('-2', 'a\nb\nc\n')).out).toBe('b\nc\n')
+      expect((await tail('-n 0', 'a\n')).out).toBe('')
+    })
+
+    it('passes bytes through untouched, headers for several files, and -q hides them', async () => {
+      await kernel.filesystem.fs.writeFile('/tmp/tail.bin', new Uint8Array([0xff, 0xfe, 10, 0x80, 10]))
+      await tail('-c 4 /tmp/tail.bin')
+      expect(Array.from(await kernel.filesystem.fs.readFile('/tmp/tail.out'))).toEqual([0xfe, 10, 0x80, 10])
+      await kernel.filesystem.fs.writeFile('/tmp/tail.a', 'A\n')
+      await kernel.filesystem.fs.writeFile('/tmp/tail.b', 'B\n')
+      expect((await tail('/tmp/tail.a /tmp/tail.b')).out).toBe('==> /tmp/tail.a <==\nA\n\n==> /tmp/tail.b <==\nB\n')
+      expect((await tail('-q /tmp/tail.a /tmp/tail.b')).out).toBe('A\nB\n')
+      expect((await tail('-v /tmp/tail.a')).out).toBe('==> /tmp/tail.a <==\nA\n')
+    })
+
+    it('says what is wrong: a bad count, an unknown option, a missing file', async () => {
+      expect(await tail('-n x /tmp/tail.a')).toMatchObject({ code: 1, err: "tail: invalid number of lines: 'x'\n" })
+      expect((await tail('-z /tmp/tail.a')).err).toMatch(/invalid option -- 'z'/)
+      const missing = await tail('/tmp/nope-tail')
+      expect(missing.code).toBe(1)
+      expect(missing.err).toMatch(/cannot open '\/tmp\/nope-tail' for reading: No such file or directory/)
+    })
+  })
+
   it('tail prints the last N lines of a file', async () => {
     const code = await kernel.shell.execute('tail -n 2 /tmp/text-batch.txt > /tmp/tail.out')
     expect(code).toBe(0)
