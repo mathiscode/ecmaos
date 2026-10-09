@@ -524,6 +524,8 @@ export default async function main(params: ProcessEntryParams) {
 
 ## Known gaps
 
+- **The root filesystem lives in memory.** The IndexedDB root is loaded whole at boot and each file is one record, so every file costs its size in RAM (measured: about 1:1, up to 1 GB in a 32 GB desktop Chrome, booting in 4.9 s with a 1 GB store), and changing a file rewrites all of it (a 1-byte edit of a 400 MB file stalls the page for about 1.7 s). Very large files will exhaust a tab, a phone sooner. `/tmp`, `/media` and `/mnt` are in memory by design; `mount -t opfs` does not avoid this (its backend also preloads).
+
 ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number of things are deliberately not done, either because the browser can't support them or because they're scoped past this release:
 
 - **No copy-on-write `fork()`.** Processes are created by spawn (`execve`) only -- there is no `fork()` that clones an existing process's address space. This is a deliberate scope decision, not a missing feature: a browser worker has no cheap way to clone memory the way a real OS `fork()` does.

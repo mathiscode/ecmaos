@@ -10,7 +10,7 @@
 
 import { TFunction } from 'i18next'
 import { _version as zenfsCoreVersion, configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
-import { IndexedDB, IndexedDBStore, IndexedDBTransaction } from '@zenfs/dom'
+import { IndexedDB, IndexedDBTransaction } from '@zenfs/dom'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { init_uts } from '@zenfs/linux/uts'
@@ -29,27 +29,24 @@ import type {
 } from '@ecmaos/types'
 
 /**
- * Works around a `@zenfs/dom` 1.2.14 / `@zenfs/core` 2.7.6 mismatch that made every positional read
- * on an IndexedDB-backed filesystem (the root, so `/bin`) return zeros for any offset above 0.
+ * Works around a `@zenfs/dom` 1.2.14 / `@zenfs/core` 2.7.6 mismatch that made every positional read on an IndexedDB-backed
+ * filesystem (the root, so `/bin`) return zeros for any offset above 0.
  *
- * `StoreFS.read`/`readSync` slice what the transaction hands back with `subarray(offset, end)`
- * unless the store declares the `partial` flag, meaning "the transaction already sliced". The
- * IndexedDB backend's `getSync(id, offset, end)` does slice but never declared the flag, so the
- * sync path sliced twice (a 64-byte read at offset 1000 became an empty second slice). Its async
- * `get(id)` ignores `offset`/`end` entirely and returns the whole record. Declaring `partial` fixes
- * the sync path, so `get` must then slice as well or the async path would overflow the buffer.
- * Remove both once `@zenfs/dom` is consistent about this itself.
+ * `StoreFS.read`/`readSync` slice what the transaction hands back with `subarray(offset, end)` unless the store declares the
+ * `partial` flag, meaning "the transaction already sliced". The IndexedDB backend's `getSync(id, offset, end)` slices anyway, so
+ * the sync path sliced twice (a 64-byte read at offset 1000 became an empty second slice). The fix is for the transaction to
+ * return the whole record and leave the slicing to `StoreFS`.
+ *
+ * Declaring `partial` instead (which an earlier version of this patch did) is wrong: it also tells `StoreFS` that the store
+ * honours `set(id, chunk, offset)`, and this backend's `set(id, data)` ignores the offset, so every write that was not a whole
+ * replacement (an append, a handle write into an existing file, a database page) replaced the file's whole record with the chunk,
+ * on disk and in the cache. Without the flag `StoreFS` merges the chunk into the whole record itself.
+ * Remove this once `@zenfs/dom` is consistent about it.
  */
-if (!(IndexedDBStore.prototype as { flags?: string[] }).flags) {
-  Object.defineProperty(IndexedDBStore.prototype, 'flags', { value: ['partial'], configurable: true })
-
-  const originalGet = IndexedDBTransaction.prototype.get
-  IndexedDBTransaction.prototype.get = async function (this: IndexedDBTransaction, id: number, offset?: number, end?: number) {
-    const data = await originalGet.call(this, id)
-    if (!data || (offset === undefined && end === undefined)) return data
-    return new Uint8Array(data).subarray(offset, end)
-  } as typeof IndexedDBTransaction.prototype.get
-}
+IndexedDBTransaction.prototype.getSync = function (this: IndexedDBTransaction, id: number) {
+  const record = this.store.cache.get(id)
+  return record ? new Uint8Array(record) : undefined
+} as typeof IndexedDBTransaction.prototype.getSync
 
 /**
  * Two guards on writes to the IndexedDB root, for one machine per tab (see `lib/machine-lock.ts`).
