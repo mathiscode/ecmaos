@@ -10,7 +10,11 @@
 
 import { TFunction } from 'i18next'
 import { _version as zenfsCoreVersion, configure as configureZenFS, fs, InMemory, mounts } from '@zenfs/core'
-import { IndexedDB, IndexedDBTransaction } from '@zenfs/dom'
+import { IndexedDB, IndexedDBStore, IndexedDBTransaction } from '@zenfs/dom'
+import { StoreFS } from '@zenfs/core'
+import { VNode } from '@zenfs/core/vfs/vnode.js'
+
+import { checkFileSize, meterChange, meterStart } from '#lib/storage-limits.ts'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { init_uts } from '@zenfs/linux/uts'
@@ -84,11 +88,15 @@ export function rootWritesSettled(timeoutMs = 2000): Promise<void> {
   })
 }
 
-function tracked<Args extends unknown[]>(original: (this: IndexedDBTransaction, ...args: Args) => Promise<void>) {
+function tracked<Args extends [number, ...unknown[]]>(original: (this: IndexedDBTransaction, ...args: Args) => Promise<void>) {
   return async function (this: IndexedDBTransaction, ...args: Args): Promise<void> {
     if (fenced) return
+    const cache = this.store.cache as Map<number, Uint8Array>
+    meterStart({ cache })
+    const before = cache.get(args[0])?.byteLength ?? 0
     pendingWrites++
     try { await original.apply(this, args) } finally {
+      meterChange({ cache }, (cache.get(args[0])?.byteLength ?? 0) - before)
       if (--pendingWrites === 0) for (const waiter of settleWaiters.splice(0)) waiter()
     }
   }
@@ -96,6 +104,31 @@ function tracked<Args extends unknown[]>(original: (this: IndexedDBTransaction, 
 
 IndexedDBTransaction.prototype.set = tracked(IndexedDBTransaction.prototype.set)
 IndexedDBTransaction.prototype.remove = tracked(IndexedDBTransaction.prototype.remove)
+
+/**
+ * A file bigger than the limit (`lib/storage-limits.ts`) is refused with `EFBIG` before anything is written, on the IndexedDB root
+ * and any other IndexedDB mount: every write into a file, and a truncate that would make one bigger. Other stores are untouched.
+ *
+ * It has to be refused where the write enters the file's in-memory copy (`VNode`): by the time it reaches the store, at `close`, the
+ * copy has already grown and stays dirty, so the same refusal would come back from every later `close`, even of a read. The check on
+ * the store itself is only the backstop for writes that do not go through a file.
+ */
+type StoreFSLike = { store: unknown }
+const limited = <Fn extends (this: StoreFSLike, ...args: never[]) => unknown>(original: Fn, size: (...args: Parameters<Fn>) => number | undefined) =>
+  function (this: StoreFSLike, ...args: Parameters<Fn>) {
+    if (this.store instanceof IndexedDBStore) {
+      const bytes = size(...args)
+      if (bytes !== undefined) checkFileSize(bytes, String(args[0]))
+    }
+    return original.apply(this, args)
+  } as unknown as Fn
+const proto = StoreFS.prototype as unknown as Record<string, (this: StoreFSLike, ...args: never[]) => unknown>
+for (const name of ['write', 'writeSync']) {
+  proto[name] = limited(proto[name]!, ((_path: string, data: Uint8Array, offset: number) => offset + data.byteLength) as never)
+}
+for (const name of ['touch', 'touchSync']) {
+  proto[name] = limited(proto[name]!, ((_path: string, metadata: { size?: number }) => metadata.size) as never)
+}
 
 export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   uid: 0,
@@ -617,3 +650,13 @@ export class Filesystem {
     ])
   }
 }
+
+type NodeLike = { fs: StoreFSLike, path: string }
+const nodeProto = VNode.prototype as unknown as Record<string, (this: NodeLike, ...args: never[]) => unknown>
+const limitedNode = (original: (this: NodeLike, ...args: never[]) => unknown, size: (...args: never[]) => number) =>
+  function (this: NodeLike, ...args: never[]) {
+    if (this.fs.store instanceof IndexedDBStore) checkFileSize(size(...args), this.path)
+    return original.apply(this, args)
+  }
+for (const name of ['write', 'writeSync']) nodeProto[name] = limitedNode(nodeProto[name]!, ((data: Uint8Array, offset: number) => offset + data.byteLength) as never)
+nodeProto['truncate'] = limitedNode(nodeProto['truncate']!, ((length: number) => length) as never)

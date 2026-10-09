@@ -40,6 +40,7 @@ import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
 import { showOverlay } from '#lib/machine-overlay.ts'
+import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
@@ -496,6 +497,7 @@ export class Kernel implements IKernel {
       // Configure filesystem first (needed before we can read locale file)
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
       if (this._machineError) this.log.warn(`${this._machineError}; running the default machine`)
+      configureStorageLimits(this.options.limits, (resident, threshold) => this.log.warn(`The root filesystem holds ${formatBytes(resident)} in memory (warning at ${formatBytes(threshold)}); large files cost their size in RAM, so a small device may struggle. See the README's known gaps.`))
       const filesystemOptions = this.machineOptions(Filesystem.options(this.options.filesystem))
       // Before the root is loaded into memory: a second tab on the same store must not get that far
       await this.claimMachine(rootStoreName(filesystemOptions))

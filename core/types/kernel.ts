@@ -274,6 +274,12 @@ export interface KernelOptions {
   devices?: Record<string, KernelDevice>
   dom?: DomOptions
   filesystem?: FilesystemOptions<FilesystemConfigMounts>
+  /**
+   * Limits for the IndexedDB root, which is held whole in memory: the most one file may hold (`EFBIG` past it) and the total in
+   * memory that logs a warning. Both default from the device's memory (512 MiB and 1 GiB on an 8 GB machine or better); `false`
+   * turns one off.
+   */
+  limits?: { maxFileBytes?: number | false, warnResidentBytes?: number | false }
   /** The environment the kernel runs in; the browser when omitted */
   host?: Host
   /** Where the initfs tarball is (default `/initfs.tar.gz`, or `ECMAOS_INITFS`); `false` installs none */

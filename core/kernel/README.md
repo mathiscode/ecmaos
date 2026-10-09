@@ -524,7 +524,7 @@ export default async function main(params: ProcessEntryParams) {
 
 ## Known gaps
 
-- **The root filesystem lives in memory.** The IndexedDB root is loaded whole at boot and each file is one record, so every file costs its size in RAM (measured: about 1:1, up to 1 GB in a 32 GB desktop Chrome, booting in 4.9 s with a 1 GB store), and changing a file rewrites all of it (a 1-byte edit of a 400 MB file stalls the page for about 1.7 s). Very large files will exhaust a tab, a phone sooner. `/tmp`, `/media` and `/mnt` are in memory by design; `mount -t opfs` does not avoid this (its backend also preloads).
+- **The root filesystem lives in memory.** The IndexedDB root is loaded whole at boot and each file is one record, so every file costs its size in RAM (measured: about 1:1, up to 2 GB in a 32 GB desktop Chrome, a 1 GB store booting in 4.9 s), and changing a file rewrites all of it (a 1-byte edit of a 400 MB file stalls the page for about 1.7 s). Very large files will exhaust a tab, a phone sooner, so a file past a limit is refused with `EFBIG` (default 512 MiB on a device reporting 8 GB or more, 256, 128 or 64 MiB below that) and a warning is logged when the total held crosses twice that; set `limits: { maxFileBytes, warnResidentBytes }` in the kernel options (`false` turns one off). `/tmp`, `/media` and `/mnt` are in memory by design and not limited; `mount -t opfs` does not avoid this (its backend also preloads).
 
 ecmaOS 1.0.0 runs its execution model on real `execve` processes, but a number of things are deliberately not done, either because the browser can't support them or because they're scoped past this release:
 
