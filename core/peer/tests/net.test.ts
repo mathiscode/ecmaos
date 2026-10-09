@@ -104,3 +104,16 @@ describe('listen requests', () => {
     }
   })
 })
+
+describe('peer names', () => {
+  it('writes IPv6 in brackets and reads both forms back', async () => {
+    const { formatEndpoint, parseEndpoint } = await import('../src/net.ts')
+    expect(formatEndpoint('10.0.0.1', 53)).toBe('10.0.0.1:53')
+    expect(formatEndpoint('2001:db8::1', 5353)).toBe('[2001:db8::1]:5353')
+    expect(parseEndpoint('10.0.0.1:53')).toEqual({ address: '10.0.0.1', port: 53 })
+    expect(parseEndpoint('[2001:db8::1]:5353')).toEqual({ address: '2001:db8::1', port: 5353 })
+    expect(parseEndpoint('[::1]:70000')).toBeUndefined()
+    expect(parseEndpoint('::1:80')).toBeUndefined()
+    expect(parseEndpoint('example.com:80')).toBeUndefined()
+  })
+})

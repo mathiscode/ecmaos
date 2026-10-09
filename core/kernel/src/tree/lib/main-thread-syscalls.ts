@@ -36,6 +36,8 @@ import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
 import { bindUdpPort, udpPortAt } from './udp-ports.ts'
+import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
+import { canonicalIp, isIPv6, isLoopbackIp } from './ip.ts'
 import { heldInMemory, totalHeld } from './memory-usage.ts'
 import { quotaLimit, quotaLimits, quotaUsage } from './quota.ts'
 import { currentStorageLimits } from './storage-limits.ts'
@@ -220,7 +222,8 @@ interface LoopbackListener {
   key: string
   serverProc: Process
   listening: boolean
-  queue: Array<{ fd: number, writeFd: number, peerKey: string }>
+  /** `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client) */
+  queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string }>
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
 let nextEphemeralPort = 49152
@@ -228,7 +231,9 @@ let nextEphemeralPort = 49152
 /** Normalizes an `AF_INET`/`AF_INET6` bind/connect target; anything not loopback is rejected by
  * the caller before this is even consulted -- see `net_bind`/`net_connect`'s own checks. */
 function isLoopbackHost(host: string): boolean {
-  return host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' || host === '::' || host === 'localhost'
+  if (host === 'localhost') return true
+  const address = canonicalIp(host)
+  return address !== undefined && isLoopbackIp(address)
 }
 
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
@@ -626,40 +631,45 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  /** `family`: `'unix'` or `'inet'` (`'inet6'` isn't supported -- `sockaddr_in6`'s layout wasn't
-   * worth the extra surface for a first loopback-only pass; `-EAFNOSUPPORT` from the worker side
-   * before this is ever reached). `addr`/`port` are `''`/`0` for `unix` (the socket's own path is
-   * `addr`, unused). `port: 0` picks the next ephemeral port, same meaning as real Linux. Writes
-   * `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall
-   * above already uses. */
+  /** `family`: `'unix'`, `'inet'` (IPv4), `'inet6'` (IPv6 only) or `'inet46'` (an IPv6 socket that also takes IPv4, which is what
+   * `bind(::)` is unless `IPV6_V6ONLY` is set). An IPv4 port and an IPv6-only port are separate names (`inet:` and `inet6:`); a dual-stack
+   * one holds both, so a connection of either family reaches it and neither family can bind the same port again. `addr`/`port` are
+   * `''`/`0` for `unix` (the socket's own path is `addr`, unused). `port: 0` picks the next ephemeral port, same meaning as real
+   * Linux. Writes `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall above already uses. */
   define_syscall('net_bind', async (proc: Process, family: string, addr: string, port: number, path: string) => {
     const kernel = kernelOf(proc)
     let text: string
 
     // A dead server must not leave its address permanently squatted -- the next bind to the same
     // address (very common: restart the same local dev server) has to see it as free again.
-    const register = (key: string) => {
-      loopbackListeners.set(key, { key, serverProc: proc, listening: false, queue: [] })
-      void proc.exited.then(() => { if (loopbackListeners.get(key)?.serverProc === proc) loopbackListeners.delete(key) })
+    const register = (keys: string[]) => {
+      const listener: LoopbackListener = { key: keys[0]!, serverProc: proc, listening: false, queue: [] }
+      for (const key of keys) loopbackListeners.set(key, listener)
+      void proc.exited.then(() => { for (const key of keys) if (loopbackListeners.get(key) === listener) loopbackListeners.delete(key) })
     }
 
     if (family === 'unix') {
       const key = `unix:${addr}`
       if (loopbackListeners.has(key)) text = JSON.stringify({ error: 'EADDRINUSE' })
       else {
-        register(key)
+        register([key])
         text = JSON.stringify({ ok: true, key })
       }
-    } else if (family === 'inet') {
+    } else if (family === 'inet' || family === 'inet6' || family === 'inet46') {
       if (addr && !isLoopbackHost(addr)) {
         text = JSON.stringify({ error: 'EADDRNOTAVAIL' })
       } else {
-        const assigned = port || nextEphemeralPort++
-        const key = `inet:127.0.0.1:${assigned}`
-        if (loopbackListeners.has(key)) text = JSON.stringify({ error: 'EADDRINUSE' })
+        const keysFor = (assigned: number) => [
+          ...(family === 'inet6' ? [] : [`inet:127.0.0.1:${assigned}`]),
+          ...(family === 'inet' ? [] : [`inet6:${assigned}`])
+        ]
+        let assigned = port
+        if (!assigned) { do assigned = nextEphemeralPort++; while (keysFor(assigned).some(key => loopbackListeners.has(key))) }
+        const keys = keysFor(assigned)
+        if (keys.some(key => loopbackListeners.has(key))) text = JSON.stringify({ error: 'EADDRINUSE' })
         else {
-          register(key)
-          text = JSON.stringify({ ok: true, key, port: assigned })
+          register(keys)
+          text = JSON.stringify({ ok: true, key: keys[0], port: assigned })
         }
       }
     } else {
@@ -673,7 +683,7 @@ export function installMainThreadSyscalls(): void {
   // A connection the gateway's host forwarded (`gateway expose`) joins the loopback listener's queue like one from another program,
   // except both its ends are streams bridged to the link instead of pipes to a process. Nothing listening there: refused.
   setInboundSink((kernel, port, streams, peer, ended) => {
-    const listener = loopbackListeners.get(`inet:127.0.0.1:${port}`)
+    const listener = loopbackListeners.get(isIPv6(parseEndpoint(peer)?.address ?? '') ? `inet6:${port}` : `inet:127.0.0.1:${port}`)
     if (!listener?.listening) return false
     const serverProc = listener.serverProc
     const rxEnd = kernel.attachStream(serverProc, 'read', streams.rx)
@@ -684,15 +694,16 @@ export function installMainThreadSyscalls(): void {
     return true
   })
 
-  setLocalProbe((port, udp) => udp ? udpPortAt(port) !== undefined : loopbackListeners.get(`inet:127.0.0.1:${port}`)?.listening === true)
+  setLocalProbe((port, udp) => udp ? udpPortAt(port) !== undefined : loopbackListeners.get(`inet:127.0.0.1:${port}`)?.listening === true || loopbackListeners.get(`inet6:${port}`)?.listening === true)
 
   // A datagram from a peer that reached an exposed UDP port: handed to the program that bound it, with the way to answer
   setDatagramSink((port, data, peer, reply) => {
     const bound = udpPortAt(port)
-    const match = /^(\d+\.\d+\.\d+\.\d+):(\d+)$/.exec(peer)
-    if (!bound || !match) return false
-    bound.hear(peer, reply)
-    bound.deliver(match[1]!, Number(match[2]), data)
+    const from = parseEndpoint(peer)
+    const address = from ? canonicalIp(from.address) : undefined
+    if (!bound || !from || !address) return false
+    bound.hear(formatEndpoint(address, from.port), reply)
+    bound.deliver(address, from.port, data)
     return true
   })
 
@@ -762,7 +773,7 @@ export function installMainThreadSyscalls(): void {
     } else {
       const toServer = kernel.linkProcesses(proc, listener.serverProc) // client writes -> server reads
       const toClient = kernel.linkProcesses(listener.serverProc, proc) // server writes -> client reads
-      listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}` })
+      listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined })
       text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd })
     }
 

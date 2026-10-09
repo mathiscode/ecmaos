@@ -121,7 +121,7 @@ whatever it can, so it is off unless asked for and closed by default:
 - **Audit:** each flow is logged to the console (`gateway: root -> example.com:443 (93.184.216.34) opened`, and the bytes at the end),
   also under `--quiet`.
 - **From a program:** `gateway up root@host:30022` on the guest keeps a link to this machine, and a program's `connect()` to an
-  IPv4 address (a WASM program's `socket()`/`connect()`) is then a flow through it, subject to the same rules.
+  IPv4 or IPv6 address (a WASM program's `socket()`/`connect()`) is then a flow through it, subject to the same rules.
 - **Name lookups:** a guest can ask this machine to resolve a name (`getaddrinfo` in a program, after `/etc/hosts`). It answers only
   with addresses it would connect to: a name pointing into a blocked range is answered as unresolvable unless an allow rule
   names that range, deny rules apply, and with allow rules the name (or an address) must match one. Each lookup is logged.
@@ -133,9 +133,9 @@ whatever it can, so it is off unless asked for and closed by default:
   says otherwise (a wider address also needs `--gateway-public`). At most 4 listeners per login and 16 connections per listener;
   the port closes when the guest stops it or the link goes. `--gateway-listen-allow 10.0.0.0/8,192.168.1.5` drops anyone else
   (logged); without it the bind address is the only control. With `gateway expose -u` the port is a UDP socket: each datagram goes
-  to the guest as a control message naming its sender (IPv4 only, at most 500 a second, dropped past that), and the guest's reply
+  to the guest as a control message naming its sender (at most 500 a second, dropped past that), and the guest's reply
   goes only to a peer that sent something in the last two minutes, so an exposed port cannot be used to reach other addresses.
-- **Not yet:** IPv6 answers for the guest. The scope is in `.docs/NODE_NETWORK_GATEWAY.md`.
+- **IPv6:** destinations, names (AAAA), inbound ports and peers all work as for IPv4, with the same rules (`[::1]:80`-style rules, the blocked ranges above). `--gateway-listen-address ::1` opens guest ports on the host's IPv6 loopback and `::` on every address (also needs `--gateway-public`; it takes IPv4 clients as well, shown to the guest by their IPv4 address). A peer is named `[address]:port` on the wire for IPv6, and `address:port` for IPv4.
 
 ### Sharing files between machines
 

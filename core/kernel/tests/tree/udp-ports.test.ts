@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GatewayFlow } from '#lib/remote-gateway.ts'
+import { formatEndpoint } from '@ecmaos/peer'
+import { formatIp } from '#lib/ip.ts'
 import { bindUdpPort, FrameHeader, frameOf, udpPortAt } from '#lib/udp-ports.ts'
 
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
@@ -10,7 +12,7 @@ const bytes = (value: string) => new TextEncoder().encode(value)
 async function received(reader: ReadableStreamDefaultReader<Uint8Array>) {
   const { value } = await reader.read()
   const frame = value!
-  return { from: `${frame[2]}.${frame[3]}.${frame[4]}.${frame[5]}:${(frame[6]! << 8) | frame[7]!}`, data: text(frame.slice(FrameHeader)) }
+  return { from: formatEndpoint(formatIp(frame.subarray(2, 18)), (frame[18]! << 8) | frame[19]!), data: text(frame.slice(FrameHeader)) }
 }
 
 const noFlows = { open: () => Promise.reject(new Error('no gateway')) }
@@ -71,6 +73,31 @@ describe('bound UDP sockets', () => {
     expect(await received(reader)).toEqual({ from: '127.0.0.1:6006', data: 'hello' })
     server.close()
     client.close()
+  })
+
+  it('delivers over IPv6 loopback, from ::1, and keeps the two families apart in what it reports', async () => {
+    const server = bindUdpPort(6010, noFlows)!
+    const client = bindUdpPort(6011, noFlows)!
+    const reader = server.rx.getReader()
+    const writer = client.tx.getWriter()
+    await writer.write(frameOf('::1', 6010, bytes('six')))
+    expect(await received(reader)).toEqual({ from: '[::1]:6011', data: 'six' })
+    await writer.write(frameOf('::ffff:127.0.0.1', 6010, bytes('four'))) // the mapped form is the IPv4 address
+    expect(await received(reader)).toEqual({ from: '127.0.0.1:6011', data: 'four' })
+    server.close()
+    client.close()
+  })
+
+  it('names an IPv6 sender whole, and answers a peer that came in through the gateway by its bracketed name', async () => {
+    const port = bindUdpPort(6012, noFlows)!
+    const reader = port.rx.getReader()
+    const replies: string[] = []
+    port.hear('[2001:db8::7]:4000', data => replies.push(text(data)))
+    port.deliver('2001:db8::7', 4000, bytes('ping'))
+    expect(await received(reader)).toEqual({ from: '[2001:db8::7]:4000', data: 'ping' })
+    await port.tx.getWriter().write(frameOf('2001:db8::7', 4000, bytes('pong')))
+    expect(replies).toEqual(['pong'])
+    port.close()
   })
 
   it('reaches other addresses through one gateway flow per destination, and brings replies back from that destination', async () => {

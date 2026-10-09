@@ -29,6 +29,7 @@
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
+import { canonicalIp, formatIp, isIPv6, isLoopbackIp, parseIp } from '../tree/lib/ip.ts'
 
 const ESUCCESS = 0
 const EBADF = 8
@@ -885,6 +886,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   // is answered locally here, with no further main-thread round trip.
   const AF_UNIX = 1
   const AF_INET = 2
+  const AF_INET6 = 10
+  const IPPROTO_IPV6 = 41
+  const IPV6_V6ONLY = 26
+  const SIN_SIZE = 16 // sizeof(struct sockaddr_in)
+  const SIN6_SIZE = 28 // sizeof(struct sockaddr_in6)
   const SOCK_STREAM_MASK = 0xff // socket()'s type also carries SOCK_NONBLOCK/SOCK_CLOEXEC as high bits
   const SOCK_STREAM = 1
   const SOCK_DGRAM = 2
@@ -933,24 +939,40 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const b = bytes()
       return { family, port, addr: `${b[ptr + 4]}.${b[ptr + 5]}.${b[ptr + 6]}.${b[ptr + 7]}` }
     }
+    // `struct sockaddr_in6`: family 0, port 2 (big-endian), flow info 4, the 16 address bytes at 8, scope id 24 (28 bytes). An address
+    // that is IPv4-mapped reads back as the IPv4 address, so one address has one spelling everywhere below.
+    if (family === AF_INET6) return { family, port: dv.getUint16(ptr + 2, false), addr: formatIp(bytes().slice(ptr + 8, ptr + 24)) }
     return { family }
   }
 
-  function writeSockaddrIn(ptr, addr, port) {
-    const dv = view()
-    dv.setUint16(ptr, AF_INET, true)
-    dv.setUint16(ptr + 2, port, false)
-    const parts = (addr || '127.0.0.1').split('.').map(Number)
-    const b = bytes()
-    for (let i = 0; i < 4; i++) b[ptr + 4 + i] = parts[i] || 0
+  /** The errno for an address of the wrong kind for this socket (or `0`): an IPv4 socket cannot take an IPv6 address, and an IPv6 socket cannot take a `sockaddr_in` */
+  function checkInet(sock, sa, addrlen) {
+    if (sa.family === sock.family) return 0
+    if (sock.family === AF_INET6 && sa.family === AF_INET) return addrlen < 24 ? -SYSCALL_ERRNO.EINVAL : -SYSCALL_ERRNO.EAFNOSUPPORT
+    return -SYSCALL_ERRNO.EAFNOSUPPORT
   }
 
-  /** `addrlenPtr` is a real in/out `socklen_t*` (`accept4`/`getsockname`/`getpeername`) -- writes
-   * back how many bytes were actually available, same as the real syscalls this answers for. */
-  function writeSockaddrResult(addrPtr, addrlenPtr, addr, port) {
+  /** The bytes of a `sockaddr_in` (16) or, for an IPv6 socket, a `sockaddr_in6` (28); an IPv4 address goes into the latter mapped, which
+   * is how an IPv6 socket shows one */
+  function sockaddrBytes(addr, port, family) {
+    const out = new Uint8Array(family === AF_INET6 ? SIN6_SIZE : SIN_SIZE)
+    const dv = new DataView(out.buffer)
+    dv.setUint16(0, family === AF_INET6 ? AF_INET6 : AF_INET, true)
+    dv.setUint16(2, port, false)
+    if (family === AF_INET6) out.set(parseIp(addr || '::1') ?? new Uint8Array(16), 8)
+    else for (let i = 0, parts = (addr || '127.0.0.1').split('.').map(Number); i < 4; i++) out[4 + i] = parts[i] || 0
+    return out
+  }
+
+  /** `addrlenPtr` is a real in/out `socklen_t*` (`accept4`/`getsockname`/`getpeername`/`recvfrom`): the address is cut to the room the
+   * caller said it has, and the length written back is the whole size, same as the real syscalls this answers for. `family` is the
+   * socket's own: an IPv6 socket is given a `sockaddr_in6`. */
+  function writeSockaddrResult(addrPtr, addrlenPtr, addr, port, family = AF_INET) {
     if (!addrPtr) return
-    writeSockaddrIn(addrPtr, addr, port)
-    if (addrlenPtr) view().setUint32(addrlenPtr, 16, true)
+    const full = sockaddrBytes(addr, port, family)
+    const room = addrlenPtr ? view().getUint32(addrlenPtr, true) : full.length
+    bytes().set(full.subarray(0, Math.min(room, full.length)), addrPtr)
+    if (addrlenPtr) view().setUint32(addrlenPtr, full.length, true)
   }
 
   // UDP sockets (`SOCK_DGRAM`, `AF_INET`): a datagram socket is the same pair of pipes a stream socket is, with every datagram
@@ -958,21 +980,20 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   // back into datagrams. It talks to one peer, fixed by `connect()` or by the first `sendto()`; there is no `bind()` to a
   // port and no datagram from anyone else.
   // A socket that was bound (or took a port to receive on) is "addressed": the same pipes, but every frame also names the other end
-  // (4 bytes of IPv4 address and 2 of port after the length), so one socket can hear from and answer many peers.
+  // (16 bytes of address, an IPv4 one mapped, and 2 of port after the length), so one socket can hear from and answer many peers.
   function dgramSend(sock, data, dst) {
     if (data.length > MAX_DATAGRAM) throw { code: 'EMSGSIZE' }
     let frame
     if (sock.addressed) {
       const to = dst ?? (sock.peerAddr ? { addr: sock.peerAddr, port: sock.peerPort } : undefined)
       if (!to) throw { code: 'EDESTADDRREQ' }
-      const parts = to.addr.split('.').map(Number)
-      frame = new Uint8Array(8 + data.length)
+      frame = new Uint8Array(20 + data.length)
       frame[0] = data.length >> 8
       frame[1] = data.length & 0xff
-      for (let i = 0; i < 4; i++) frame[2 + i] = parts[i] || 0
-      frame[6] = to.port >> 8
-      frame[7] = to.port & 0xff
-      frame.set(data, 8)
+      frame.set(parseIp(to.addr) ?? new Uint8Array(16), 2)
+      frame[18] = to.port >> 8
+      frame[19] = to.port & 0xff
+      frame.set(data, 20)
     } else {
       frame = new Uint8Array(2 + data.length)
       frame[0] = data.length >> 8
@@ -998,20 +1019,24 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       return out
     }
-    const header = take(sock.addressed ? 8 : 2)
+    const header = take(sock.addressed ? 20 : 2)
     if (!header) return new Uint8Array(0)
-    if (sock.addressed) sock.from = { addr: `${header[2]}.${header[3]}.${header[4]}.${header[5]}`, port: (header[6] << 8) | header[7] }
+    if (sock.addressed) sock.from = { addr: formatIp(header.subarray(2, 18)), port: (header[18] << 8) | header[19] }
     const body = take((header[0] << 8) | header[1])
     return body ? body.subarray(0, max) : new Uint8Array(0)
   }
 
-  /** 127.0.0.1, and 0.0.0.0 (what `connect()` to "any" means on Linux: this machine) */
-  const isLoopbackAddress = addr => addr === '127.0.0.1' || addr === '0.0.0.0'
+  /** 127.0.0.1 and ::1, and 0.0.0.0 and :: (what `connect()` to "any" means on Linux: this machine) */
+  const isLoopbackAddress = isLoopbackIp
+  /** The loopback address "any" stands for when it is a destination */
+  const anyToLoopback = addr => addr === '0.0.0.0' ? '127.0.0.1' : addr === '::' ? '::1' : addr
 
   /** connect() on a UDP socket: fixes the peer. Only addresses beyond this machine, through the gateway. */
   function dgramConnect(sock, sa) {
-    if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
-    if (sock.addressed) { sock.peerAddr = sa.addr === '0.0.0.0' ? '127.0.0.1' : sa.addr; sock.peerPort = sa.port; return ESUCCESS } // the default destination, no flow of its own
+    // an IPv6 datagram socket also takes an IPv4 address (as Linux does unless IPV6_V6ONLY is set); an IPv4 one cannot name an IPv6 peer
+    if (sa.family !== AF_INET && sa.family !== AF_INET6) return -SYSCALL_ERRNO.EAFNOSUPPORT
+    if (sa.family === AF_INET6 && sock.family !== AF_INET6) return -SYSCALL_ERRNO.EAFNOSUPPORT
+    if (sock.addressed) { sock.peerAddr = anyToLoopback(sa.addr); sock.peerPort = sa.port; return ESUCCESS } // the default destination, no flow of its own
     if (isLoopbackAddress(sa.addr)) return -SYSCALL_ERRNO.ECONNREFUSED // no UDP between programs on this machine
     const result = callMainThread('net_connect_out', sa.addr, sa.port, 'udp')
     if (result.error) return socketErrno(result.error)
@@ -1037,8 +1062,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock.connected) throw { code: 'ENOTCONN' }
       return write(sock.writeFd, data)
     }
-    if (to && to.family !== AF_INET) throw { code: 'EAFNOSUPPORT' }
-    const dst = to ? { addr: to.addr === '0.0.0.0' ? '127.0.0.1' : to.addr, port: to.port } : undefined
+    if (to && to.family !== AF_INET && to.family !== AF_INET6) throw { code: 'EAFNOSUPPORT' }
+    if (to && to.family === AF_INET6 && sock.family !== AF_INET6) throw { code: 'EAFNOSUPPORT' }
+    const dst = to ? { addr: anyToLoopback(to.addr), port: to.port } : undefined
     if (!sock.connected && !sock.addressed) {
       if (!dst) throw { code: 'EDESTADDRREQ' }
       ensureAddressed(sock)
@@ -1086,23 +1112,39 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined }
   }
 
-  // -- name resolution (`getaddrinfo`, `gethostbyname`) -------------------------------------------------------------------
-  // An emscripten build does not use musl's resolver: it imports `env.getaddrinfo` and `env._emscripten_lookup_name`, which
-  // normally invent addresses. Here they ask the main thread (`dns_lookup`: /etc/hosts, then the gateway's resolver, see
-  // `remote-gateway.ts`). Only IPv4 and TCP-style results; the structs are wasm32 musl's (`struct addrinfo` is 32 bytes).
-  const EAI = { BADFLAGS: -1, NONAME: -2, AGAIN: -3, FAMILY: -6, SERVICE: -8, MEMORY: -10 }
+  // -- name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`) -------------------------------------------------------
+  // An emscripten build does not use musl's resolver: it imports `env.getaddrinfo`, `env.getnameinfo` and `env._emscripten_lookup_name`,
+  // which normally invent addresses. Here they ask the main thread (`dns_lookup`: /etc/hosts, then the gateway's resolver, see
+  // `remote-gateway.ts`). The structs are wasm32 musl's (`struct addrinfo` is 32 bytes). `gethostbyname` is IPv4 by definition.
+  const EAI = { BADFLAGS: -1, NONAME: -2, AGAIN: -3, FAMILY: -6, SERVICE: -8, MEMORY: -10, OVERFLOW: -12 }
   const AI_PASSIVE = 0x01
   const AI_CANONNAME = 0x02
   const AI_NUMERICHOST = 0x04
+  const AI_V4MAPPED = 0x08
+  const AI_ALL = 0x10
+  const AI_NUMERICSERV = 0x400
+  const NI_NUMERICHOST = 1
+  const NI_NUMERICSERV = 2
+  const NI_NAMEREQD = 8
+  const NI_DGRAM = 16
   const SERVICES = { ftp: 21, ssh: 22, telnet: 23, smtp: 25, domain: 53, http: 80, pop3: 110, ntp: 123, imap: 143, https: 443, imaps: 993, pop3s: 995 }
-  const isDottedQuad = (text) => /^(\d{1,3}\.){3}\d{1,3}$/.test(text) && text.split('.').every(part => Number(part) <= 255)
 
-  /** The IPv4 addresses for `name`: a literal is itself, `localhost` is this machine, anything else is asked for. `{ error }` is an EAI code. */
-  function lookupAddresses(name) {
-    if (isDottedQuad(name)) return { addresses: [name] }
-    const result = callMainThread('dns_lookup', name, 4)
-    if (result.error) return { error: result.error === 'AGAIN' ? EAI.AGAIN : EAI.NONAME }
-    return { addresses: result.addresses }
+  /** The addresses for `name` in `family` (`AF_INET`, `AF_INET6`, or `0` for both, IPv4 first): a literal is itself, `localhost` is this
+   * machine, anything else is asked for. `{ error }` is an EAI code. */
+  function lookupAddresses(name, family = AF_INET) {
+    const literal = canonicalIp(name)
+    if (literal !== undefined) {
+      const v6 = isIPv6(literal)
+      return family === 0 || (family === AF_INET6) === v6 ? { addresses: [literal] } : { error: EAI.NONAME }
+    }
+    const addresses = []
+    let error
+    for (const wanted of family === 0 ? [4, 6] : [family === AF_INET6 ? 6 : 4]) {
+      const result = callMainThread('dns_lookup', name, wanted)
+      if (result.error) error ??= result.error === 'AGAIN' ? EAI.AGAIN : EAI.NONAME
+      else addresses.push(...result.addresses)
+    }
+    return addresses.length > 0 ? { addresses } : { error: error ?? EAI.NONAME }
   }
 
   function writeInt32(ptr, value) { view().setInt32(ptr, value, true) }
@@ -1113,6 +1155,45 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return typeof malloc === 'function' ? malloc(size) : 0
   }
 
+  /** The first name /etc/hosts gives an address, if it lists it */
+  function hostsNameOf(address) {
+    let text = '127.0.0.1 localhost\n::1 localhost ip6-localhost\n'
+    try {
+      const fd = open('/etc/hosts', O_RDONLY)
+      try {
+        const chunks = []
+        for (;;) {
+          const buf = new Uint8Array(16384)
+          const n = read(fd, buf, -1)
+          if (n <= 0) break
+          chunks.push(buf.subarray(0, n))
+        }
+        text = decoder.decode(joinChunks(chunks))
+      } finally { close(fd) }
+    } catch { /* no /etc/hosts: the built-in one above */ }
+    for (const line of text.split('\n')) {
+      const fields = line.replace(/#.*/, '').trim().split(/\s+/)
+      if (fields.length >= 2 && canonicalIp(fields[0]) === address) return fields[1]
+    }
+    return undefined
+  }
+  function joinChunks(chunks) {
+    const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0))
+    let at = 0
+    for (const chunk of chunks) { out.set(chunk, at); at += chunk.length }
+    return out
+  }
+
+  /** Writes a C string into a caller's buffer, cut to fit; `false` when it did not fit whole */
+  function putString(ptr, size, text) {
+    const encoded = encoder.encode(text)
+    const room = Math.max(size - 1, 0)
+    const part = encoded.subarray(0, room)
+    bytes().set(part, ptr)
+    bytes()[ptr + part.length] = 0
+    return encoded.length <= room
+  }
+
   const envSyscalls = {
     // The first IPv4 address of a name, packed as the four bytes in memory order; `0` for none (emscripten's libc treats that as not found).
     _emscripten_lookup_name: (namePtr) => {
@@ -1121,7 +1202,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const [a, b, c, d] = found.addresses[0].split('.').map(Number)
       return (a | (b << 8) | (c << 16) | (d << 24)) | 0
     },
-    // getaddrinfo(3): builds the `struct addrinfo` list in the program's heap. IPv4 only, one entry per address, stream by default.
+    // getaddrinfo(3): builds the `struct addrinfo` list in the program's heap, one entry per address, stream by default. With no family
+    // asked for, IPv4 addresses come before IPv6 ones (a machine with no IPv6 route of its own sorts them that way).
     getaddrinfo: (nodePtr, servicePtr, hintPtr, outPtr) => {
       let flags = 0, family = 0, socktype = 0, protocol = 0
       if (hintPtr) {
@@ -1130,40 +1212,53 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         socktype = view().getInt32(hintPtr + 8, true)
         protocol = view().getInt32(hintPtr + 12, true)
       }
-      if (family !== 0 && family !== AF_INET) return family === 10 ? EAI.NONAME : EAI.FAMILY
+      if (family !== 0 && family !== AF_INET && family !== AF_INET6) return EAI.FAMILY
       const node = nodePtr ? readCString(nodePtr) : null
       const service = servicePtr ? readCString(servicePtr) : null
       if (node === null && service === null) return EAI.NONAME
       let port = 0
       if (service !== null) {
         if (/^\d+$/.test(service) && Number(service) <= 65535) port = Number(service)
-        else if (flags & 0x400 /* AI_NUMERICSERV */) return EAI.NONAME
+        else if (flags & AI_NUMERICSERV) return EAI.NONAME
         else if (SERVICES[service] !== undefined) port = SERVICES[service]
         else return EAI.SERVICE
       }
       let addresses
-      if (node === null) addresses = [flags & AI_PASSIVE ? '0.0.0.0' : '127.0.0.1']
-      else if (flags & AI_NUMERICHOST && !isDottedQuad(node)) return EAI.NONAME
+      if (node === null) {
+        const any = flags & AI_PASSIVE
+        addresses = family === AF_INET ? [any ? '0.0.0.0' : '127.0.0.1'] : family === AF_INET6 ? [any ? '::' : '::1'] : any ? ['0.0.0.0', '::'] : ['127.0.0.1', '::1']
+      } else if (flags & AI_NUMERICHOST && canonicalIp(node) === undefined) return EAI.NONAME
       else {
-        const found = lookupAddresses(node)
-        if (found.error) return found.error
-        addresses = found.addresses
+        const found = lookupAddresses(node, family)
+        // an IPv6 caller that asked for IPv4-mapped answers takes an IPv4 address when the name has no IPv6 one
+        if (found.error && family === AF_INET6 && flags & AI_V4MAPPED) {
+          const mapped = lookupAddresses(node, AF_INET)
+          if (mapped.error) return found.error
+          addresses = mapped.addresses
+        } else if (found.error) return found.error
+        else {
+          addresses = found.addresses
+          if (family === AF_INET6 && flags & AI_V4MAPPED && flags & AI_ALL) {
+            const more = lookupAddresses(node, AF_INET)
+            if (!more.error) addresses = [...addresses, ...more.addresses]
+          }
+        }
       }
       const type = socktype || SOCK_STREAM
       const proto = protocol || (type === SOCK_STREAM ? 6 : type === 2 ? 17 : 0)
       let head = 0, tail = 0
       for (const address of addresses) {
-        const sa = heapAlloc(16)
+        const v6 = family === AF_INET6 || (family === 0 && isIPv6(address))
+        const size = v6 ? SIN6_SIZE : SIN_SIZE
+        const sa = heapAlloc(size)
         const ai = heapAlloc(32)
         if (!sa || !ai) return EAI.MEMORY
-        const b = bytes()
-        b.fill(0, sa, sa + 16)
-        writeSockaddrIn(sa, address, port)
+        bytes().set(sockaddrBytes(address, port, v6 ? AF_INET6 : AF_INET), sa)
         writeInt32(ai, 0)
-        writeInt32(ai + 4, AF_INET)
+        writeInt32(ai + 4, v6 ? AF_INET6 : AF_INET)
         writeInt32(ai + 8, type)
         writeInt32(ai + 12, proto)
-        writeInt32(ai + 16, 16)
+        writeInt32(ai + 16, size)
         writeInt32(ai + 20, sa)
         writeInt32(ai + 24, 0)
         writeInt32(ai + 28, 0)
@@ -1179,6 +1274,26 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       writeInt32(outPtr, head)
       return 0
+    },
+    // getnameinfo(3): the text form of a socket address. The host name comes from /etc/hosts (which is all a reverse lookup consults
+    // here), or is the number itself; the service is the number, or the well-known name for it.
+    getnameinfo: (saPtr, salen, hostPtr, hostlen, servPtr, servlen, flags) => {
+      if (salen < 2) return EAI.FAMILY
+      const sa = readSockaddr(saPtr)
+      if (sa.family !== AF_INET && sa.family !== AF_INET6) return EAI.FAMILY
+      if (sa.family === AF_INET && salen < SIN_SIZE) return EAI.FAMILY
+      if (sa.family === AF_INET6 && salen < SIN6_SIZE) return EAI.FAMILY
+      let overflow = false
+      if (hostPtr && hostlen) {
+        const name = flags & NI_NUMERICHOST ? undefined : hostsNameOf(sa.addr)
+        if (name === undefined && flags & NI_NAMEREQD) return EAI.NONAME
+        if (!putString(hostPtr, hostlen, name ?? sa.addr)) overflow = true
+      }
+      if (servPtr && servlen) {
+        const known = flags & NI_NUMERICSERV || flags & NI_DGRAM ? undefined : Object.keys(SERVICES).find(key => SERVICES[key] === sa.port)
+        if (!putString(servPtr, servlen, known ?? String(sa.port))) overflow = true
+      }
+      return overflow ? EAI.OVERFLOW : 0
     },
     __syscall_chdir: (pathPtr) => guardLinux(() => chdir(readCString(pathPtr))),
     __syscall_fchdir: (fd) => guardLinux(() => { dirPaths.set(fd, dirPaths.get(fd) ?? '.') }),
@@ -1484,8 +1599,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     },
 
     __syscall_socket: (domain, type, _protocol) => {
-      if (domain !== AF_UNIX && domain !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
-      if (domain === AF_INET && (type & SOCK_STREAM_MASK) === SOCK_DGRAM) {
+      if (domain !== AF_UNIX && domain !== AF_INET && domain !== AF_INET6) return -SYSCALL_ERRNO.EAFNOSUPPORT
+      if ((domain === AF_INET || domain === AF_INET6) && (type & SOCK_STREAM_MASK) === SOCK_DGRAM) {
         const fd = nextFd++
         sockets.set(fd, { family: domain, dgram: true, key: null, bound: false, listening: false, connected: false })
         return fd
@@ -1495,18 +1610,20 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false })
       return fd
     },
-    __syscall_bind: (fd, addrPtr, _addrlen) => {
+    __syscall_bind: (fd, addrPtr, addrlen) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
       if (sock.dgram) {
         // claims a loopback port: datagrams from the gateway (an exposed UDP port), from other programs and from the peers this
         // socket has sent to arrive on it, each naming its sender
-        if (sa.family !== AF_INET) return -SYSCALL_ERRNO.EAFNOSUPPORT
+        const wrong = checkInet(sock, sa, addrlen)
+        if (wrong) return wrong
         if (sock.bound || sock.connected) return -SYSCALL_ERRNO.EINVAL
         const result = callMainThread('net_udp_bind', sa.addr, sa.port)
         if (result.error) return socketErrno(result.error)
         sock.bound = true
+        sock.boundAddr = sa.addr
         sock.addressed = true
         sock.connected = true
         sock.port = result.port
@@ -1516,8 +1633,14 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       let result
       if (sa.family === AF_UNIX) result = callMainThread('net_bind', 'unix', sa.path, 0)
-      else if (sa.family === AF_INET) result = callMainThread('net_bind', 'inet', sa.addr, sa.port)
-      else return -SYSCALL_ERRNO.EAFNOSUPPORT
+      else if (sa.family === AF_INET || sa.family === AF_INET6) {
+        const wrong = checkInet(sock, sa, addrlen)
+        if (wrong) return wrong
+        // `::` takes IPv4 too unless the program asked otherwise; any other IPv6 address is IPv6 only; a mapped address is IPv4
+        const kind = !isIPv6(sa.addr) ? 'inet' : sa.addr === '::' && !sock.v6only ? 'inet46' : 'inet6'
+        result = callMainThread('net_bind', kind, sa.addr, sa.port)
+        if (!result.error) sock.boundAddr = sa.addr
+      } else return -SYSCALL_ERRNO.EAFNOSUPPORT
       if (result.error) return socketErrno(result.error)
       sock.bound = true
       sock.key = result.key
@@ -1532,7 +1655,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       sock.listening = true
       return ESUCCESS
     },
-    __syscall_connect: (fd, addrPtr, _addrlen) => {
+    __syscall_connect: (fd, addrPtr, addrlen) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
@@ -1542,8 +1665,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       let key
       let result
       if (sa.family === AF_UNIX) key = `unix:${sa.path}`
-      else if (sa.family === AF_INET) {
-        if (isLoopbackAddress(sa.addr)) key = `inet:127.0.0.1:${sa.port}`
+      else if (sa.family === AF_INET || sa.family === AF_INET6) {
+        const wrong = checkInet(sock, sa, addrlen)
+        if (wrong) return wrong
+        if (isLoopbackAddress(sa.addr)) key = isIPv6(sa.addr) ? `inet6:${sa.port}` : `inet:127.0.0.1:${sa.port}`
         else {
           // not this machine: through the gateway, if one is up (`gateway up`); otherwise ENETUNREACH, as with no route
           result = callMainThread('net_connect_out', sa.addr, sa.port, 'tcp')
@@ -1577,25 +1702,28 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (result.pending) { sleepMs(50); continue }
         const newFd = nextFd++
         sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey })
-        // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`, IPv4)
-        const from = /^remote:(\d+\.\d+\.\d+\.\d+):(\d+)$/.exec(result.peerKey ?? '')
+        // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`, `remote:[ADDR]:PORT` for IPv6); one from
+        // a program on this machine is from loopback, in the family it connected with
+        const from = /^remote:(?:\[([0-9a-fA-F:.]+)\]|(\d+\.\d+\.\d+\.\d+)):(\d+)$/.exec(result.peerKey ?? '')
         const peer = sockets.get(newFd)
-        if (from) { peer.peerAddr = from[1]; peer.peerPort = Number(from[2]) }
-        writeSockaddrResult(addrPtr, addrlenPtr, from ? from[1] : '127.0.0.1', from ? Number(from[2]) : 0)
+        const peerAddr = from ? canonicalIp(from[1] ?? from[2]) ?? '127.0.0.1' : result.peerAddr ?? '127.0.0.1'
+        const peerPort = from ? Number(from[3]) : 0
+        if (from) { peer.peerAddr = peerAddr; peer.peerPort = peerPort }
+        writeSockaddrResult(addrPtr, addrlenPtr, peerAddr, peerPort, sock.family)
         return newFd
       }
     },
     __syscall_getsockname: (fd, addrPtr, addrlenPtr) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
-      writeSockaddrResult(addrPtr, addrlenPtr, '127.0.0.1', sock.port ?? 0)
+      writeSockaddrResult(addrPtr, addrlenPtr, sock.family === AF_INET6 ? sock.boundAddr ?? '::1' : '127.0.0.1', sock.port ?? 0, sock.family)
       return ESUCCESS
     },
     __syscall_getpeername: (fd, addrPtr, addrlenPtr) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       if (!sock.connected || (sock.addressed && !sock.peerAddr)) return -SYSCALL_ERRNO.ENOTCONN
-      writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr ?? '127.0.0.1', sock.peerPort ?? 0)
+      writeSockaddrResult(addrPtr, addrlenPtr, sock.peerAddr ?? (sock.family === AF_INET6 ? '::1' : '127.0.0.1'), sock.peerPort ?? 0, sock.family)
       return ESUCCESS
     },
     __syscall_shutdown: (fd, how) => {
@@ -1615,7 +1743,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) throw { code: 'ENOTSOCK' }
       const { data, from } = sockRecv(sock, len)
       bytes().set(data, buf)
-      if (from) writeSockaddrResult(addrPtr, addrlenPtr, from.addr, from.port)
+      if (from) writeSockaddrResult(addrPtr, addrlenPtr, from.addr, from.port, sock.family)
       return data.length
     }),
     // `struct msghdr` on wasm32: name 0, namelen 4, iov 8, iovlen 12, control 16, controllen 20, flags 24 (28 bytes). The iovec array is
@@ -1641,17 +1769,35 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       let at = 0
       for (const [ptr, size] of list) { const part = data.subarray(at, at + size); bytes().set(part, ptr); at += part.length }
       const namePtr = dv.getUint32(msgPtr, true)
-      if (namePtr && from) { writeSockaddrIn(namePtr, from.addr, from.port); dv.setUint32(msgPtr + 4, 16, true) } else dv.setUint32(msgPtr + 4, 0, true)
+      if (namePtr && from) {
+        const full = sockaddrBytes(from.addr, from.port, sock.family)
+        const room = dv.getUint32(msgPtr + 4, true)
+        bytes().set(full.subarray(0, Math.min(room, full.length)), namePtr)
+        dv.setUint32(msgPtr + 4, full.length, true)
+      } else dv.setUint32(msgPtr + 4, 0, true)
       dv.setUint32(msgPtr + 20, 0, true) // no ancillary data
       dv.setInt32(msgPtr + 24, 0, true)
       return data.length
     }),
     // No real socket-level options exist for a loopback pipe pair -- accepted as a harmless no-op
     // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.
-    __syscall_setsockopt: () => ESUCCESS,
-    __syscall_getsockopt: (fd, _level, _optname, optvalPtr, optlenPtr) => {
-      if (!sockets.has(fd)) return -SYSCALL_ERRNO.ENOTSOCK
-      if (optvalPtr) view().setInt32(optvalPtr, 0, true)
+    // The one that matters is IPV6_V6ONLY: whether an IPv6 socket bound to `::` also takes IPv4 (not by default). It must be set before bind().
+    __syscall_setsockopt: (fd, level, optname, optvalPtr, optlen) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
+      if (level === IPPROTO_IPV6 && optname === IPV6_V6ONLY) {
+        if (sock.family !== AF_INET6) return -SYSCALL_ERRNO.ENOPROTOOPT
+        if (optlen < 4) return -SYSCALL_ERRNO.EINVAL
+        if (sock.bound) return -SYSCALL_ERRNO.EINVAL
+        sock.v6only = view().getInt32(optvalPtr, true) !== 0
+      }
+      return ESUCCESS
+    },
+    __syscall_getsockopt: (fd, level, optname, optvalPtr, optlenPtr) => {
+      const sock = sockets.get(fd)
+      if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
+      if (level === IPPROTO_IPV6 && optname === IPV6_V6ONLY && sock.family !== AF_INET6) return -SYSCALL_ERRNO.ENOPROTOOPT
+      if (optvalPtr) view().setInt32(optvalPtr, level === IPPROTO_IPV6 && optname === IPV6_V6ONLY && sock.v6only ? 1 : 0, true)
       if (optlenPtr) view().setUint32(optlenPtr, 4, true)
       return ESUCCESS
     },

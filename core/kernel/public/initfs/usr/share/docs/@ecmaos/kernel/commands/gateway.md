@@ -16,7 +16,7 @@ gateway [status]
 
 A browser tab cannot open a TCP socket. `gateway up` gives this machine a way onto the network anyway: it logs in to another
 ecmaOS machine, one started with `ecmaos --listen --gateway`, with your key (like `connect`; it asks for your password to
-unlock the key), and keeps the link up. From then on a program's `connect()` to an IPv4 address that is not this machine
+unlock the key), and keeps the link up. From then on a program's `connect()` to an IPv4 or IPv6 address that is not this machine
 goes through that machine, which makes the real connection and carries the bytes back. `nc -g` does the same for one command
 without leaving anything up.
 
@@ -36,7 +36,7 @@ your own names), then ask the gateway, whose machine resolves with its own resol
 it got, and that is checked again on the way out. The gateway machine does not hand out addresses it would not connect to:
 a name that points into its own network (a private range, loopback, a metadata address) is answered as if it did not exist,
 unless its operator named that range in an allow rule. With no gateway up, a name that is not in `/etc/hosts` fails with
-"Try again", as with no nameserver. Only IPv4 answers are used, so `AF_INET6` lookups find nothing yet.
+"Try again", as with no nameserver. `AF_INET6` and unspecified-family lookups get the AAAA answers too (IPv4 ones come first when no family is asked for).
 
 ## UDP
 
@@ -69,7 +69,7 @@ ends when you stop it, when the link goes down, or when `gateway down` is run. O
 
 Who may connect is up to the gateway machine's operator: `--gateway-listen-allow` limits it to named addresses or networks (anyone
 else is dropped and logged); without it, anyone who can reach the address the port was opened on may connect. `accept()` and
-`recvfrom()` report the connecting client's real IPv4 address and port.
+`recvfrom()` report the connecting client's real address and port, IPv4 or IPv6 (`[::1]:5000` is how the gateway names an IPv6 client).
 
 Nothing on the link is encrypted yet, so use it only over loopback or a network you trust.
 

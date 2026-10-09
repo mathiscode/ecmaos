@@ -557,3 +557,114 @@ describe('inbound datagrams', () => {
     await expect(openListener(guest, { port: 1, as: port, udp: true }, { timeout: 2000 })).rejects.toThrow(/EADDRINUSE/)
   })
 })
+
+describe('IPv6', () => {
+  const sockets: dgram.Socket[] = []
+  afterEach(() => { for (const socket of sockets.splice(0)) try { socket.close() } catch { /* closed */ } })
+
+  /** A UDP client from `from` to `host`: sends `message` to `port` and resolves with the first reply (or '' after a moment) */
+  function ask(type: 'udp4' | 'udp6', from: string, host: string, port: number, message: string) {
+    const socket = dgram.createSocket(type)
+    sockets.push(socket)
+    return new Promise<string>(resolve => {
+      const timer = setTimeout(() => resolve(''), 500)
+      socket.on('message', data => { clearTimeout(timer); resolve(data.toString()) })
+      socket.bind(0, from, () => socket.send(message, port, host))
+    })
+  }
+  const upperCase = (listener: { channel: Channel }, seen: string[]) => {
+    listener.channel.onMessage = message => {
+      const got = peerDatagramOf(message)
+      if (!got) return
+      seen.push(got.peer)
+      listener.channel.send(peerDatagram(new TextEncoder().encode(text(got.data).toUpperCase()), got.peer))
+    }
+  }
+
+  it('reaches a TCP server by its IPv6 address, and reports the address it used', async () => {
+    const server = net.createServer({ allowHalfOpen: true }, socket => { socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())) })
+    servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '::1', resolve))
+    const port = (server.address() as net.AddressInfo).port
+    expect(await refusal({}, '::1', port)).toMatch(/does not reach/)
+    const { guest } = link({ allow: [parseRule('::1/128')] })
+    const flow = await reach(guest, '::1', port)
+    expect(flow.address).toBe('::1')
+    await flow.channel.write(new TextEncoder().encode('v6'))
+    expect(text((await flow.channel.read())!)).toBe('V6')
+  })
+
+  it('blocks the IPv6 ranges a host should not be reached on unless a rule names them', async () => {
+    for (const host of ['::1', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1']) expect(await refusal({}, host, 80), host).toMatch(/does not reach/)
+    expect(await refusal({ allow: [parseRule('fd00::/8')] }, 'fd00::1', 80)).toBeUndefined()
+  })
+
+  it('carries UDP to an IPv6 address', async () => {
+    const server = dgram.createSocket('udp6')
+    sockets.push(server)
+    server.on('message', (message, remote) => server.send(Buffer.from(message.toString().toUpperCase()), remote.port, remote.address))
+    await new Promise<void>(resolve => server.bind(0, '::1', resolve))
+    const { guest } = link({ allow: [parseRule('::1/128')] })
+    const flow = await openFlow(guest, { proto: 'udp', host: '::1', port: server.address().port }, { timeout: 2000 })
+    expect(flow.address).toBe('::1')
+    const reply = new Promise<Uint8Array | undefined>(resolve => { flow.channel.onMessage = message => resolve(datagramOf(message)) })
+    flow.channel.send(datagram(new TextEncoder().encode('six')))
+    expect(text((await reply)!)).toBe('SIX')
+  })
+
+  it('opens an IPv6 port for inbound datagrams and names each peer in brackets', async () => {
+    const port = await freePort()
+    const { guest, log } = link({ listen: { ports: [[port, port]], address: '::1' } })
+    const listener = await openListener(guest, { port: 5353, as: port, udp: true }, { timeout: 2000 })
+    expect(listener.address).toBe('::1')
+    const seen: string[] = []
+    upperCase(listener, seen)
+    expect(await ask('udp6', '::1', '::1', port, 'hello')).toBe('HELLO')
+    expect(seen[0]).toMatch(/^\[::1\]:\d+$/)
+    expect(log.some(line => line.includes(`listening on udp ::1:${port} for guest port 5353`))).toBe(true)
+  })
+
+  it('applies the allowed list to IPv6 peers', async () => {
+    const port = await freePort()
+    const refused = link({ listen: { ports: [[port, port]], address: '::1', allow: [parseRule('10.0.0.0/8')] } })
+    const first = await openListener(refused.guest, { port: 1, as: port, udp: true }, { timeout: 2000 })
+    upperCase(first, [])
+    expect(await ask('udp6', '::1', '::1', port, 'x')).toBe('')
+    expect(refused.log.some(line => line.includes('not in the allowed list'))).toBe(true)
+    first.channel.close()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const allowed = link({ listen: { ports: [[port, port]], address: '::1', allow: [parseRule('::1/128')] } })
+    const second = await openListener(allowed.guest, { port: 1, as: port, udp: true }, { timeout: 2000 })
+    upperCase(second, [])
+    expect(await ask('udp6', '::1', '::1', port, 'y')).toBe('Y')
+  })
+
+  it('answers IPv4 and IPv6 peers on one dual-stack port, each by its own name', async () => {
+    const port = await freePort()
+    const { guest } = link({ listen: { ports: [[port, port]], address: '::' } })
+    const listener = await openListener(guest, { port: 5353, as: port, udp: true }, { timeout: 2000 })
+    const seen: string[] = []
+    upperCase(listener, seen)
+    expect(await ask('udp4', '127.0.0.1', '127.0.0.1', port, 'four')).toBe('FOUR')
+    expect(await ask('udp6', '::1', '::1', port, 'six')).toBe('SIX')
+    expect(seen[0]).toMatch(/^127\.0\.0\.1:\d+$/)
+    expect(seen[1]).toMatch(/^\[::1\]:\d+$/)
+  })
+
+  it('forwards a TCP connection from an IPv6 client and names it in brackets', async () => {
+    const port = await freePort()
+    const { guest } = link({ listen: { ports: [[port, port]], address: '::1' } })
+    const peers: string[] = []
+    guest.accept(NetChannel, async (channel: Channel) => {
+      peers.push(parseNetAccept(channel.params).peer)
+      channel.manualCredit = true
+      channel.onData = data => { void channel.write(new TextEncoder().encode(text(data).toUpperCase())); channel.grant(data.length) }
+    })
+    await openListener(guest, { port: 3000, as: port }, { timeout: 2000 })
+    const socket = net.connect({ host: '::1', port })
+    const reply = await new Promise<string>(resolve => { socket.on('data', data => resolve(data.toString())); socket.on('connect', () => socket.write('v6')) })
+    socket.destroy()
+    expect(reply).toBe('V6')
+    expect(peers[0]).toMatch(/^\[::1\]:\d+$/)
+  })
+})

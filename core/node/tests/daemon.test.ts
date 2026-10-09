@@ -962,6 +962,59 @@ describe('the network gateway', () => {
     expect(await me.run('gateway')).toContain('2 peers so far')
   }, 120_000)
 
+  it('an IPv6 socket on the guest reaches an IPv4 address through the gateway as the mapped address', async () => {
+    const target = net.createServer(socket => socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())))
+    await new Promise<void>(resolve => target.listen(0, '127.0.0.2', resolve))
+    afterEachClose.push(() => target.close())
+    const targetPort = (target.address() as net.AddressInfo).port
+    const { port, code } = await host(['--gateway', `--gateway-allow=127.0.0.2:${targetPort}`])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, readFileSync(path.resolve(import.meta.dirname, 'fixtures/emcc-net6.wasm')), '/tmp/net6.wasm')
+
+    expect(await me.run(`/tmp/net6.wasm connect 127.0.0.2 ${targetPort}`)).toContain('connect: errno 40') // no route yet
+    await bringUp(me, port, code)
+    expect(await me.run(`/tmp/net6.wasm connect 127.0.0.2 ${targetPort}`)).toContain('reply HELLO MAPPED family=10')
+  }, 120_000)
+
+  it('gateway expose on an IPv6 address reaches a dual-stack server on the guest, with the real IPv6 peer', async () => {
+    const outside = await unusedPort()
+    const { port, code } = await host(['--gateway', `--gateway-listen=${outside}`, '--gateway-listen-address=::1'])
+    const me = new Session(['--quiet'])
+    sessions.push(me)
+    await me.ready()
+    await install(me, readFileSync(path.resolve(import.meta.dirname, 'fixtures/emcc-net6.wasm')), '/tmp/net6.wasm')
+    await bringUp(me, port, code)
+
+    expect(await me.run(`gateway expose 3000 ${outside}`)).toContain(`reachable at [::1]:${outside}`)
+    expect(await me.run('gateway')).toContain(`Exposed: [::1]:${outside} -> port 3000 here`)
+    await me.run('/tmp/net6.wasm serve tcp 3000 > /tmp/net6.out 2>&1 &')
+    for (let i = 0; i < 50 && !(await me.run('cat /tmp/net6.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+    const talk = (text: string) => new Promise<string>((resolve, reject) => {
+      const socket = net.connect({ host: '::1', port: outside }, () => { socket.write(text); socket.end() })
+      const chunks: string[] = []
+      socket.on('data', chunk => chunks.push(chunk.toString()))
+      socket.on('error', reject)
+      socket.on('close', () => resolve(chunks.join('')))
+    })
+    expect(await talk('hello six')).toBe('HELLO SIX|BYE')
+    expect(await me.run('cat /tmp/net6.out')).toMatch(/peer ::1\s/)
+
+    // the same for datagrams, on the same outside port once the first is closed
+    expect(await me.run(`gateway unexpose ${outside}`)).toContain('Stopped forwarding')
+    expect(await me.run(`gateway expose -u 5300 ${outside}`)).toContain(`UDP port 5300 is reachable at [::1]:${outside}`)
+    await me.run('/tmp/net6.wasm serve udp 5300 > /tmp/net6u.out 2>&1 &')
+    for (let i = 0; i < 50 && !(await me.run('cat /tmp/net6u.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+    const reply = await new Promise<string>((resolve, reject) => {
+      const socket = dgram.createSocket('udp6')
+      const timer = setTimeout(() => { socket.close(); reject(new Error('no reply')) }, 15_000)
+      socket.on('message', data => { clearTimeout(timer); socket.close(); resolve(data.toString()) })
+      socket.send('datagram six', outside, '::1')
+    })
+    expect(reply).toBe('DATAGRAM SIX|::1')
+  }, 120_000)
+
   it('a program connecting somewhere the gateway does not allow gets EACCES', async () => {
     const { port, code } = await host(['--gateway', '--gateway-allow=example.com'])
     const wasm = Buffer.from(readFileSync(path.resolve(import.meta.dirname, 'fixtures/gateway-client.wasm')))

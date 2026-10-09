@@ -3,7 +3,7 @@ import dns from 'node:dns'
 import net, { BlockList, isIP } from 'node:net'
 import type { Socket } from 'node:net'
 
-import { MaxDatagram, datagram, datagramOf, NetChannel, parseNetListen, parseNetLookup, parseNetTarget, peerDatagram, peerDatagramOf, PeerError } from '@ecmaos/peer'
+import { MaxDatagram, datagram, datagramOf, formatEndpoint, NetChannel, parseEndpoint, parseNetListen, parseNetLookup, parseNetTarget, peerDatagram, peerDatagramOf, PeerError } from '@ecmaos/peer'
 import type { NetTarget } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
@@ -354,7 +354,7 @@ export class Gateway {
 
     server.on('connection', socket => {
       const remote = plain(socket.remoteAddress ?? 'unknown')
-      const peer = `${remote}:${socket.remotePort ?? 0}`
+      const peer = formatEndpoint(remote, socket.remotePort ?? 0)
       if (listen.allow && !listen.allow.some(rule => rule.addresses && isIP(remote) && rule.addresses.check(remote, family(remote)))) {
         this._log(`${user} listen ${address}:${request.as} dropped ${peer} (not in the allowed list)`)
         socket.destroy()
@@ -409,9 +409,9 @@ export class Gateway {
 
     socket.on('message', (data, remote) => {
       const from = plain(remote.address)
-      const peer = `${from}:${remote.port}`
-      if (isIP(from) !== 4) return
-      if (allow && !allow.some(rule => rule.addresses?.check(from, 'ipv4'))) { this._log(`${label} dropped ${peer} (not in the allowed list)`); return }
+      const peer = formatEndpoint(from, remote.port)
+      if (!isIP(from)) return
+      if (allow && !allow.some(rule => rule.addresses?.check(from, family(from)))) { this._log(`${label} dropped ${peer} (not in the allowed list)`); return }
       const now = Date.now()
       if (now - windowStart >= 1000) { windowStart = now; inWindow = 0 }
       if (++inWindow > MaxDatagramsPerSecond) return
@@ -426,8 +426,11 @@ export class Gateway {
       if (!reply) return
       const seen = heard.get(reply.peer)
       if (seen === undefined || Date.now() - seen > UdpReplyWindow) { this._log(`${label} reply to ${reply.peer} refused (it has not sent lately)`); return }
-      const colon = reply.peer.lastIndexOf(':')
-      socket.send(reply.data, Number(reply.peer.slice(colon + 1)), reply.peer.slice(0, colon), error => { if (error) this._log(`${label} reply failed: ${(error as NodeJS.ErrnoException).code ?? error.message}`) })
+      const to = parseEndpoint(reply.peer)
+      if (!to) return
+      // a socket bound to an IPv6 address answers an IPv4 peer by its mapped address
+      const target = isIP(address) === 6 && isIP(to.address) === 4 ? `::ffff:${to.address}` : to.address
+      socket.send(reply.data, to.port, target, error => { if (error) this._log(`${label} reply failed: ${(error as NodeJS.ErrnoException).code ?? error.message}`) })
     }
 
     this._listeners.set(connection, info.held + 1)

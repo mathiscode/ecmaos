@@ -127,7 +127,18 @@ export function parseNetListen(value: Value): { proto: 'listen', port: number, a
   return { proto, port, as: as ?? port, udp: udp === true }
 }
 
-/** A datagram that came from, or goes to, `peer` (`address:port`) through a `udp` listener */
+/** `address:port` for IPv4 and `[address]:port` for IPv6, the way a peer is named on the wire */
+export function formatEndpoint(address: string, port: number): string { return address.includes(':') ? `[${address}]:${port}` : `${address}:${port}` }
+
+/** The address and port of such a name, or `undefined` if it is not one */
+export function parseEndpoint(text: string): { address: string, port: number } | undefined {
+  const match = /^\[([0-9a-fA-F:.]+)\]:(\d{1,5})$/.exec(text) ?? /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/.exec(text)
+  if (!match) return undefined
+  const port = Number(match[2])
+  return port <= 65535 ? { address: match[1]!, port } : undefined
+}
+
+/** A datagram that came from, or goes to, `peer` (`address:port`, `[address]:port` for IPv6) through a `udp` listener */
 export function peerDatagram(data: Uint8Array, peer: string): Value { return { op: 'd', data, peer } }
 
 /** The bytes and peer of such a message, or `undefined` if it is something else (or malformed) */

@@ -7,7 +7,7 @@
  * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
  */
 
-import { datagram, datagramOf, NetChannel, openFlow, openListener, parseNetAccept, peerDatagram, peerDatagramOf, PeerError, resolveName } from '@ecmaos/peer'
+import { datagram, datagramOf, formatEndpoint, NetChannel, openFlow, openListener, parseNetAccept, peerDatagram, peerDatagramOf, PeerError, resolveName } from '@ecmaos/peer'
 import type { Channel, Connection } from '@ecmaos/peer'
 
 import type { Shell } from '@ecmaos/types'
@@ -15,7 +15,8 @@ import type { Shell } from '@ecmaos/types'
 import type { Kernel } from '#kernel.ts'
 
 import type { Outcome, OutcomeLine } from './outcome.ts'
-import { DEFAULT_HOSTS, isIPv4, lookupHosts } from './hosts.ts'
+import { DEFAULT_HOSTS, lookupHosts } from './hosts.ts'
+import { canonicalIp, isIPv6 } from './ip.ts'
 import { dialPeer, parseRemoteSource, RemoteMountFailure } from './remote-mount.ts'
 
 /** A port opened on the gateway for this machine: what connects there arrives at `local` on this machine's loopback */
@@ -186,7 +187,9 @@ export class LookupFailure extends Error {
  * reach one. A name the gateway cannot or will not give is no such name, with its reason.
  */
 export async function resolveHostname(kernel: Kernel, name: string, family: 4 | 6 = 4): Promise<string[]> {
-  if (family === 4 && isIPv4(name)) return [name]
+  const literal = canonicalIp(name)
+  if (literal !== undefined && isIPv6(literal) === (family === 6)) return [literal]
+  if (literal !== undefined) return [] // an address of the other family has no address of this one
   const hosts = await kernel.filesystem.fs.exists('/etc/hosts') ? await kernel.filesystem.fs.readFile('/etc/hosts', 'utf-8') : DEFAULT_HOSTS
   const local = lookupHosts(hosts, name, family)
   if (local.length > 0) return local
@@ -256,7 +259,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
   if (request.action === 'status') {
     const link = gatewayLink(kernel)
     out(link ? `Gateway: ${link.user}@${link.host}, up since ${new Date(link.since).toISOString()}, ${link.flows} flow${link.flows === 1 ? '' : 's'} open` : 'No gateway is up.')
-    for (const item of link?.exposed ?? []) out((item.udp ? `Exposed: udp ${item.address}:${item.port} -> port ${item.local} here (${item.total} peer${item.total === 1 ? '' : 's'} so far)` : `Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`) + (item.listening ? '' : ' - nothing is listening on it here (connections are dropped until a program is)'))
+    for (const item of link?.exposed ?? []) out((item.udp ? `Exposed: udp ${formatEndpoint(item.address, item.port)} -> port ${item.local} here (${item.total} peer${item.total === 1 ? '' : 's'} so far)` : `Exposed: ${formatEndpoint(item.address, item.port)} -> port ${item.local} here (${item.open} open, ${item.total} so far)`) + (item.listening ? '' : ' - nothing is listening on it here (connections are dropped until a program is)'))
     return { code: link ? 0 : 1, lines }
   }
 
@@ -272,7 +275,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
   if (request.action === 'expose') {
     try {
       const where = await exposePort(kernel, request.port, request.as, request.udp)
-      out(`${request.udp ? 'UDP port' : 'Port'} ${request.port} is reachable at ${where.address}:${where.port} on the gateway host`)
+      out(`${request.udp ? 'UDP port' : 'Port'} ${request.port} is reachable at ${formatEndpoint(where.address, where.port)} on the gateway host`)
       return { code: 0, lines }
     } catch (error) {
       err(`gateway: ${error instanceof Error ? error.message : String(error)}`)

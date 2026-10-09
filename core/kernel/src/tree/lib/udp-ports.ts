@@ -1,7 +1,7 @@
 /**
  * Bound UDP sockets. A program that `bind()`s a datagram socket gets a pair of streams (attached as descriptors by the syscall layer)
- * carrying addressed datagrams: each is a 2-byte big-endian length, the IPv4 address (4 bytes), the port (2 bytes), then the
- * payload. What it receives comes from three places, and what it sends goes to the same three:
+ * carrying addressed datagrams: each is a 2-byte big-endian length, the address (16 bytes; an IPv4 address is the mapped
+ * `::ffff:a.b.c.d`, see `ip.ts`), the port (2 bytes), then the payload. What it receives comes from three places, and what it sends goes to the same three:
  *
  *  - peers that reached a port this machine exposed through the gateway (`gateway expose -u`); a reply goes back the way the
  *    datagram came, and only to a peer that has sent something;
@@ -10,9 +10,11 @@
  *
  * Datagrams arriving faster than the program reads are dropped past a small queue, which UDP allows.
  */
+import { formatEndpoint } from '@ecmaos/peer'
+import { formatIp, isLoopbackIp, loopbackLike, parseIp } from './ip.ts'
 import type { GatewayFlow } from './remote-gateway.ts'
 
-export const FrameHeader = 8
+export const FrameHeader = 20
 const MaxFlows = 16
 const MaxRoutes = 256
 const QueueLimit = 256
@@ -41,13 +43,12 @@ export function bindUdpPort(port: number, deps: UdpDeps): UdpPort | undefined {
 }
 
 export function frameOf(address: string, port: number, data: Uint8Array): Uint8Array {
-  const parts = address.split('.').map(Number)
   const frame = new Uint8Array(FrameHeader + data.length)
   frame[0] = data.length >> 8
   frame[1] = data.length & 0xff
-  for (let i = 0; i < 4; i++) frame[2 + i] = parts[i] ?? 0
-  frame[6] = port >> 8
-  frame[7] = port & 0xff
+  frame.set(parseIp(address) ?? new Uint8Array(16), 2)
+  frame[18] = port >> 8
+  frame[19] = port & 0xff
   frame.set(data, FrameHeader)
   return frame
 }
@@ -73,8 +74,7 @@ export class UdpPort {
         while (joined.length - at >= FrameHeader) {
           const size = (joined[at]! << 8) | joined[at + 1]!
           if (joined.length - at - FrameHeader < size) break
-          const address = `${joined[at + 2]}.${joined[at + 3]}.${joined[at + 4]}.${joined[at + 5]}`
-          this.send(address, (joined[at + 6]! << 8) | joined[at + 7]!, joined.slice(at + FrameHeader, at + FrameHeader + size))
+          this.send(formatIp(joined.subarray(at + 2, at + 18)), (joined[at + 18]! << 8) | joined[at + 19]!, joined.slice(at + FrameHeader, at + FrameHeader + size))
           at += FrameHeader + size
         }
         pending = joined.slice(at)
@@ -100,11 +100,11 @@ export class UdpPort {
   /** The program sent a datagram */
   private send(address: string, port: number, data: Uint8Array): void {
     if (this.closed) return
-    const key = `${address}:${port}`
+    const key = formatEndpoint(address, port)
     const route = this.routes.get(key)
     if (route) { route(data); return }
-    if (address === '127.0.0.1' || address === '0.0.0.0') {
-      ports.get(port)?.deliver('127.0.0.1', this.port, data) // nothing there: dropped, as a datagram to a closed port is
+    if (isLoopbackIp(address)) {
+      ports.get(port)?.deliver(loopbackLike(address), this.port, data) // nothing there: dropped, as a datagram to a closed port is
       return
     }
     void this.flowTo(address, port).then(entry => {
@@ -118,7 +118,7 @@ export class UdpPort {
   }
 
   private flowTo(address: string, port: number) {
-    const key = `${address}:${port}`
+    const key = formatEndpoint(address, port)
     let flow = this.flows.get(key)
     if (flow) return flow
     if (this.flows.size >= MaxFlows) return Promise.resolve(undefined)

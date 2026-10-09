@@ -37,3 +37,9 @@ position per directory descriptor or the loop never ends. Rebuild it with:
 ```sh
 emcc emcc-readdir.c -O1 -sSTANDALONE_WASM=0 -o emcc-readdir.js && rm emcc-readdir.js
 ```
+
+`emcc-inet6.wasm` is `emcc-inet6.c` (IPv6 on loopback: `getaddrinfo`/`getnameinfo`, `sockaddr_in6`, v6-only and dual-stack TCP, IPv6 UDP, family errors, no route), built the same way:
+
+```sh
+emcc emcc-inet6.c -O1 -sSTANDALONE_WASM=0 -o emcc-inet6.js && rm emcc-inet6.js
+```
