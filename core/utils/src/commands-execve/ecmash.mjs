@@ -37,6 +37,7 @@ import { Interpreter } from '../lib/shell-core/interpreter.ts'
 import { runSharedBuiltin, sharedBuiltinNames, shellQuote } from '../lib/shell-core/builtins.ts'
 import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../lib/shell-core/signals.ts'
+import { SIGNAL_NUMBERS, UNCATCHABLE_SIGNALS } from '../lib/shell-core/signal-table.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
 
@@ -49,8 +50,8 @@ const decoder = new TextDecoder()
 const SIGINT = 2
 const SIGTSTP = 20
 const SIGCONT = 18
-// Signals `trap` can name, and the number `onSignal` wants for each.
-const TRAP_SIGNALS = { HUP: 1, INT: 2, QUIT: 3, USR1: 10, USR2: 12, PIPE: 13, ALRM: 14, TERM: 15, CHLD: 17 }
+// Signals `trap` can catch, and the number `onSignal` wants for each: all of them but KILL and STOP.
+const TRAP_SIGNALS = Object.fromEntries(Object.entries(SIGNAL_NUMBERS).filter(([name]) => !UNCATCHABLE_SIGNALS.has(name)))
 
 // -- small fs helpers -----------------------------------------------------------------------------
 
@@ -957,16 +958,13 @@ class Shell {
         const old = await sys.custom('proc_umask', mask ?? -1)
         return old < 0 ? undefined : old
       },
-      signalName: number => Object.entries(TRAP_SIGNALS).find(([, n]) => n === number)?.[0],
-      signalNames: () => Object.keys(TRAP_SIGNALS),
       // INT is reported by the wait that saw the child die; the rest arrive as real signals.
       trapSignal: (signal, handler) => {
-        if (signal !== 'EXIT' && signal !== 'ERR' && !(signal in TRAP_SIGNALS)) {
-          return `unsupported signal (EXIT, ERR and ${Object.keys(TRAP_SIGNALS).join(', ')} are)`
-        }
         if (signal in TRAP_SIGNALS && signal !== 'INT') {
           const number = TRAP_SIGNALS[signal]
           if (handler !== undefined) onSignal(number, () => shell.pending.push(signal))
+          // an interactive shell keeps ignoring ^Z once its trap is gone, or it would stop itself
+          else if (signal === 'TSTP' && shell.interactive) onSignal(number, () => {})
           else if (sys.offSignal) sys.offSignal(number)
         }
         return undefined

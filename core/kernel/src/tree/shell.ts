@@ -27,6 +27,7 @@ import { SessionLog } from '#lib/sessions.ts'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
+import { signalNameOf } from '@ecmaos/coreutils/lib/shell-core/signal-table'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
@@ -329,9 +330,6 @@ const DefaultShellOptions = {
   * The Shell class handles the Terminal environment and interaction with the Kernel.
   * 
  */
-/** Signal numbers (Linux) a trap can be set for. */
-const TRAPPABLE_SIGNALS: Record<number, string> = { 1: 'HUP', 2: 'INT', 3: 'QUIT', 10: 'USR1', 12: 'USR2', 13: 'PIPE', 14: 'ALRM', 15: 'TERM', 17: 'CHLD' }
-
 export class Shell implements IShell {
   private _createPipeStream: ShellCreatePipeStream
   private _adoptProcess?: (process: object) => void
@@ -716,8 +714,9 @@ export class Shell implements IShell {
    * is for. False when there is no trap and the signal is left to the default.
    */
   async deliverSignal(signal: number): Promise<boolean> {
-    const name = TRAPPABLE_SIGNALS[signal]
-    if (!name || !this.state.getTrap(name)) return false
+    const name = signalNameOf(signal)
+    // `trap '' SIG` ignores the signal: it is consumed here too, so it never reaches the process behind the shell
+    if (!name || this.state.getTrap(name) === undefined) return false
     await this.runTrap(name)
     return true
   }

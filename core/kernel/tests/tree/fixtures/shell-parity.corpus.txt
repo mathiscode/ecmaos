@@ -584,3 +584,19 @@ f() { arr=(1 2); arr[2]=3; }; f; echo ${arr[@]}
 echo x | while read a; do echo got $a; done & wait; echo done
 ### gaps/background-pipeline-subshell-scope
 x=1; (x=2; echo in$x) | cat & wait; echo out$x
+### signals/trap-winch
+trap 'echo winch' WINCH; kill -WINCH $$; echo after
+### signals/trap-cont
+trap 'echo cont' CONT; kill -CONT $$; echo after
+### signals/trap-tstp
+trap 'echo tstp' TSTP; kill -TSTP $$; echo after
+### signals/trap-by-number
+trap 'echo n' 28; kill -28 $$; echo after
+### signals/trap-sig-prefix
+trap 'echo p' SIGWINCH; kill -SIGWINCH $$; echo after
+### signals/trap-ignore-winch
+trap '' WINCH; kill -WINCH $$; echo survived
+### signals/trap-invalid
+trap 'echo x' FOO; echo st=$?
+### signals/trap-invalid-number
+trap 'echo x' 999; echo st=$?

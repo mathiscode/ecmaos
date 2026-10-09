@@ -15,6 +15,7 @@ import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
 import { echoOutput } from '../echo-text.js'
 import type { Interpreter } from './interpreter.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
+import { UNCATCHABLE_SIGNALS, normalizeSignal, signalNameList } from './signal-table.js'
 import type { ShellOptionName, ShellState } from './state.js'
 
 export interface ReadLineOptions {
@@ -74,8 +75,6 @@ export interface BuiltinHost {
    * error message when the host cannot deliver `signal`.
    */
   trapSignal?(signal: string, handler: string | undefined): string | undefined
-  signalName?(number: number): string | undefined
-  signalNames?(): string[]
   /** Called after the environment changed, so a host can republish it. */
   changed?(): void
 
@@ -1168,7 +1167,7 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
     return 0
   }
   if (argv[0] === '-l') {
-    await io.writeln(['EXIT', 'ERR', 'DEBUG', 'RETURN', ...(host.signalNames?.() ?? [])].join(' '))
+    await io.writeln(['EXIT', 'ERR', 'DEBUG', 'RETURN', ...signalNameList()].join(' '))
     return 0
   }
 
@@ -1180,10 +1179,12 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
 
   const handler = first === '-' ? undefined : (first as string)
   for (const raw of signals) {
-    let signal = raw.replace(/^SIG/, '').toUpperCase()
-    if (/^\d+$/.test(signal)) signal = signal === '0' ? 'EXIT' : (host.signalName?.(Number(signal)) ?? signal)
-    // DEBUG and RETURN are the interpreter's own, not signals a host delivers
-    const failure = signal === 'DEBUG' || signal === 'RETURN' ? undefined : host.trapSignal?.(signal, handler)
+    const upper = raw.replace(/^SIG/i, '').toUpperCase()
+    // EXIT (also `0`), ERR, DEBUG and RETURN are the interpreter's own; the rest are the signal table's
+    const signal = upper === '0' ? 'EXIT' : ['EXIT', 'ERR', 'DEBUG', 'RETURN'].includes(upper) ? upper : normalizeSignal(raw)
+    if (signal === undefined) { await io.writelnErr(`trap: ${raw}: invalid signal specification`); return 1 }
+    const own = signal === 'EXIT' || signal === 'ERR' || signal === 'DEBUG' || signal === 'RETURN'
+    const failure = own || UNCATCHABLE_SIGNALS.has(signal) ? undefined : host.trapSignal?.(signal, handler)
     if (failure !== undefined) { await io.writelnErr(`trap: ${raw}: ${failure}`); return 1 }
     state.setTrap(handler, signal)
   }

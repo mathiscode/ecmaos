@@ -1002,5 +1002,37 @@
   "gaps/background-pipeline-subshell-scope": {
     "stdout": "in2\nout1\n",
     "status": 0
+  },
+  "signals/trap-winch": {
+    "stdout": "winch\nafter\n",
+    "status": 0
+  },
+  "signals/trap-cont": {
+    "stdout": "cont\nafter\n",
+    "status": 0
+  },
+  "signals/trap-tstp": {
+    "stdout": "tstp\nafter\n",
+    "status": 0
+  },
+  "signals/trap-by-number": {
+    "stdout": "n\nafter\n",
+    "status": 0
+  },
+  "signals/trap-sig-prefix": {
+    "stdout": "p\nafter\n",
+    "status": 0
+  },
+  "signals/trap-ignore-winch": {
+    "stdout": "survived\n",
+    "status": 0
+  },
+  "signals/trap-invalid": {
+    "stdout": "st=1\n",
+    "status": 0
+  },
+  "signals/trap-invalid-number": {
+    "stdout": "st=1\n",
+    "status": 0
   }
 }
