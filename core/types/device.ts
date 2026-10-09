@@ -9,7 +9,7 @@ import type { Kernel, KernelContext, Shell, Terminal } from './index.ts'
  * One character device a `KernelDevice` package registers, in the shape `@zenfs/linux`'s
  * `char_dev.register` and `Device` expect.
  *
- * `major` claims an entire major (all 256 minors) for `ops` — matching `char_dev.register`'s real
+ * `major` claims an entire major (all 256 minors) for `ops` - matching `char_dev.register`'s real
  * semantics, so a package registering more than one device under the same major must dispatch on
  * `file.devt.minor` inside its own `ops`, the way `@zenfs/linux`'s own `mem.js` does for
  * null/zero/full/random. Pass `major: 0` to have one allocated dynamically.

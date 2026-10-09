@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
-describe('Shell.execute — real execution over the new parser', () => {
+describe('Shell.execute - real execution over the new parser', () => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -81,7 +81,7 @@ describe('Shell.execute — real execution over the new parser', () => {
     expect(output.trim()).toBe('2')
   })
 
-  it('supports || — the defect the old split-chain could not express at all', async () => {
+  it('supports || - the defect the old split-chain could not express at all', async () => {
     const code = await run('false || true')
     expect(code).toBe(0)
   })

@@ -2383,7 +2383,7 @@ export class Kernel implements IKernel {
    * `char_dev.register` claims an entire major (all 256 minors) for one `FileOperations` object, so
    * a package that returns more than one {@link KernelCharDevice} under the same major is registered
    * once per distinct major, with a dispatcher that routes to the right entry's own `ops` by minor
-   * — the same pattern `@zenfs/linux`'s own `mem.js` uses for `/dev/{null,zero,full,random}`.
+   * - the same pattern `@zenfs/linux`'s own `mem.js` uses for `/dev/{null,zero,full,random}`.
    *
    * @returns {Promise<void>} A promise that resolves when the devices are registered.
    */

@@ -1087,11 +1087,11 @@ export class Shell implements IShell {
 
   /**
    * Builds the (fd -> writable stream) map for one pipeline command, following its redirections in
-   * order so later ones win — the same left-to-right rule real shells apply (`> f 2>&1` and
+   * order so later ones win - the same left-to-right rule real shells apply (`> f 2>&1` and
    * `2>&1 > f` mean different things, and both are expressible this way).
    *
    * fd 1 and fd 2 default to the terminal (or the pipe, mid-pipeline) when nothing redirects them;
-   * any other fd a script names is left for a caller that cares about it — this shell doesn't open
+   * any other fd a script names is left for a caller that cares about it - this shell doesn't open
    * arbitrary fds yet.
    *
    */

@@ -13,7 +13,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * something), which is out of scope for a plain coreutil pipeline per `Kernel.executeViaExecve`'s
  * and `Terminal`'s own doc comments on what can genuinely be signaled.
  */
-describe('Shell job control — & background execution and the job table', () => {
+describe('Shell job control - & background execution and the job table', () => {
   let kernel: Kernel
 
   beforeAll(async () => {

@@ -11,11 +11,11 @@ persisted to the origin's IndexedDB. This has real consequences for what "securi
 
 - **Same-origin, not local-attacker-resistant.** Anyone with access to the browser profile,
   device, or IndexedDB store for the ecmaOS origin can read the raw filesystem, including
-  `/etc/shadow`, directly — no login is required to reach that data at rest. Credential hashing
+  `/etc/shadow`, directly - no login is required to reach that data at rest. Credential hashing
   and key wrapping protect against *reuse of a leaked hash elsewhere* and against *casual
   inspection*, not against a local attacker with full access to the browser's storage.
 - **Password hashing and key derivation** use PBKDF2-SHA256 with a per-user random salt (not a
-  memory-hard KDF like Argon2 — WebCrypto does not expose one). This raises the cost of offline
+  memory-hard KDF like Argon2 - WebCrypto does not expose one). This raises the cost of offline
   guessing against a stolen hash; it does not make the hash itself inaccessible to whoever can
   read the origin's storage. `/etc/shadow` has the Linux layout
   (`name:hash:lastchg:min:max:warn:inactive:expire:reserved`), with hashes in passlib's
@@ -34,7 +34,7 @@ persisted to the origin's IndexedDB. This has real consequences for what "securi
   attacker (e.g. a malicious extension, or an XSS in a co-hosted page sharing the origin).
 
 If your use case requires resistance to local-device attackers or genuine confidentiality at
-rest, ecmaOS is not the right tool as currently designed — treat it as a sandboxed, organizational
+rest, ecmaOS is not the right tool as currently designed - treat it as a sandboxed, organizational
 Unix-like environment for the browser, not a security boundary.
 
 ### Running in Node (`@ecmaos/node`)

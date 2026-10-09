@@ -69,7 +69,7 @@ describe('shell-parser', () => {
     })
   })
 
-  describe('parseScript — sequencing operators', () => {
+  describe('parseScript - sequencing operators', () => {
     it('parses a single command with no operator', () => {
       const script = parseScript('echo hi')
       expect(script.stages).toHaveLength(1)
@@ -90,7 +90,7 @@ describe('shell-parser', () => {
       expect(script.stages[0]?.operator).toBe('&&')
     })
 
-    it('parses || — the defect the old split-chain could not express at all', () => {
+    it('parses || - the defect the old split-chain could not express at all', () => {
       const script = parseScript('false || echo recovered')
       expect(script.stages).toHaveLength(2)
       expect(script.stages[0]?.operator).toBe('||')
@@ -110,7 +110,7 @@ describe('shell-parser', () => {
     })
   })
 
-  describe('parseScript — quote-aware splitting', () => {
+  describe('parseScript - quote-aware splitting', () => {
     it('does not split a pipeline on a | inside double quotes', () => {
       const script = parseScript('echo "a | b"')
       expect(script.stages).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('shell-parser', () => {
     })
   })
 
-  describe('parseScript — quote tracking for glob eligibility', () => {
+  describe('parseScript - quote tracking for glob eligibility', () => {
     it('marks an unquoted word as not quoted, so it remains glob-eligible', () => {
       const command = firstCommand(parseScript('echo *.txt'))
       expect(command.wordsQuoted).toEqual([false, false])
@@ -167,7 +167,7 @@ describe('shell-parser', () => {
     })
   })
 
-  describe('parseScript — redirection as tokens, not regex over the whole line', () => {
+  describe('parseScript - redirection as tokens, not regex over the whole line', () => {
     it('parses a redirection that would corrupt a naive regex-strip if the target looked like an operator', () => {
       const script = parseScript('echo "a > b"')
       const command = firstCommand(script)
@@ -241,7 +241,7 @@ describe('shell-parser', () => {
     })
   })
 
-  describe('parseScript — error handling', () => {
+  describe('parseScript - error handling', () => {
     it('throws when a command is empty', () => {
       expect(() => parseScript(';')).toThrow()
     })

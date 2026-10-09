@@ -55,7 +55,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 ## Typecheck error-budget ratchet
 
-The budget is **0** — `tsc --noEmit` must report zero diagnostics. The dual
+The budget is **0** - `tsc --noEmit` must report zero diagnostics. The dual
 `@zenfs/core` copies and stray `vim-wasm` sources that used to produce a
 pre-existing error baseline are gone (removed during the `feat/1.0.0`
 overhaul); there is no longer a tolerated error count to work within.
@@ -63,13 +63,13 @@ overhaul); there is no longer a tolerated error count to work within.
 CI enforces this with `scripts/typecheck-ratchet.mjs`, which runs
 `tsc --noEmit` in `core/kernel` **after `pnpm build`**, counts diagnostics, and
 compares against the budget in `.ci/typecheck-baseline.json`. Run it after a
-build locally too — several packages resolve their types from `dist/`, so the
+build locally too - several packages resolve their types from `dist/`, so the
 count is only stable once `dist/` is populated.
 
-* **Any error at all** — CI fails. Fix it; there is no headroom to spend.
+* **Any error at all** - CI fails. Fix it; there is no headroom to spend.
 * If a legitimate reason ever reopens headroom (a new third-party dependency
   with broken types, say), raise the budget deliberately with
-  `node scripts/typecheck-ratchet.mjs --write` and explain why in the commit —
+  `node scripts/typecheck-ratchet.mjs --write` and explain why in the commit -
   don't let it drift up silently.
 
 The number only ever ratchets down from wherever it's set.

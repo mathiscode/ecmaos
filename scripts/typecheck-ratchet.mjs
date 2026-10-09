@@ -7,7 +7,7 @@
  * updates the baseline in --write mode) but may never rise.
  *
  * Run this AFTER `pnpm build`. Several workspace packages resolve their types
- * from dist/, so the error surface — and the count — is only stable once the
+ * from dist/, so the error surface - and the count - is only stable once the
  * packages that build have populated dist/. The CI workflow enforces this order.
  *
  * Usage:
@@ -53,7 +53,7 @@ if (write) {
 }
 
 if (count > baseline.budget) {
-  console.error(`ratchet: FAIL — ${count} typecheck errors, budget is ${baseline.budget} (+${count - baseline.budget})`)
+  console.error(`ratchet: FAIL - ${count} typecheck errors, budget is ${baseline.budget} (+${count - baseline.budget})`)
   console.error('Fix the new errors, or if you genuinely reduced the count elsewhere, run with --write and commit the baseline.')
   process.exit(1)
 }
@@ -64,4 +64,4 @@ if (count < baseline.budget) {
   process.exit(0)
 }
 
-console.log(`ratchet: OK — ${count} errors, exactly at budget`)
+console.log(`ratchet: OK - ${count} errors, exactly at budget`)

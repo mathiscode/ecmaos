@@ -59,7 +59,7 @@ export interface Redirection {
 export interface Command {
   type: 'command'
   words: string[]
-  /** Whether each word in `words` (by index) was fully quoted — an unquoted word may still glob */
+  /** Whether each word in `words` (by index) was fully quoted - an unquoted word may still glob */
   wordsQuoted: boolean[]
   /** Each word's parts, by index, for quote-aware expansion */
   wordParts: WordPart[][]

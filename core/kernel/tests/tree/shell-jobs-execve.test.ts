@@ -29,7 +29,7 @@ async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
  * counterpart to `shell-jobs.test.ts`'s pure-coreutil job-table tests, and to `execve-js.test.ts`'s
  * proof that `.js` files run through real `execve`.
  */
-describe('Shell job control — real @zenfs/linux Process handles', () => {
+describe('Shell job control - real @zenfs/linux Process handles', () => {
   let kernel: Kernel
 
   beforeAll(async () => {
