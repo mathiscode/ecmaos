@@ -1023,6 +1023,51 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return ESUCCESS
   }
 
+  // A datagram socket that was never bound claims an ephemeral port the first time it sends to an address, as on Linux, and is then
+  // "addressed" like a bound one: it can send to any number of peers and hears from each. A socket that was `connect()`ed keeps to its peer.
+  function ensureAddressed(sock) {
+    if (sock.addressed) return
+    const result = callMainThread('net_udp_bind', '', 0)
+    if (result.error) throw { code: result.error }
+    Object.assign(sock, { bound: true, addressed: true, connected: true, port: result.port, readFd: result.fd, writeFd: result.writeFd })
+  }
+
+  function sockSend(sock, data, to) {
+    if (!sock.dgram) {
+      if (!sock.connected) throw { code: 'ENOTCONN' }
+      return write(sock.writeFd, data)
+    }
+    if (to && to.family !== AF_INET) throw { code: 'EAFNOSUPPORT' }
+    const dst = to ? { addr: to.addr === '0.0.0.0' ? '127.0.0.1' : to.addr, port: to.port } : undefined
+    if (!sock.connected && !sock.addressed) {
+      if (!dst) throw { code: 'EDESTADDRREQ' }
+      ensureAddressed(sock)
+    }
+    if (sock.addressed) {
+      const target = dst ?? (sock.peerAddr ? { addr: sock.peerAddr, port: sock.peerPort } : undefined)
+      // beyond this machine there has to be a route: without a gateway it is a send error, not a datagram lost on the way
+      if (target && !isLoopbackAddress(target.addr) && sock.routed !== true) {
+        if (!callMainThread('net_gateway_up').up) throw { code: 'ENETUNREACH' }
+        sock.routed = true
+      }
+      return dgramSend(sock, data, dst)
+    }
+    if (to && (to.addr !== sock.peerAddr || to.port !== sock.peerPort)) throw { code: 'EINVAL' } // connected through a flow of its own: one peer
+    return dgramSend(sock, data)
+  }
+
+  /** The next bytes for the program and who they came from (`undefined` for a stream, whose peer is fixed) */
+  function sockRecv(sock, max) {
+    if (!sock.connected) throw { code: 'ENOTCONN' }
+    if (sock.dgram) {
+      const data = dgramRecv(sock, max)
+      return { data, from: sock.addressed ? sock.from : { addr: sock.peerAddr, port: sock.peerPort } }
+    }
+    const chunk = new Uint8Array(max)
+    const n = read(sock.readFd, chunk, -1)
+    return { data: chunk.subarray(0, Math.max(n, 0)), from: undefined }
+  }
+
   function socketErrno(error) {
     if (typeof error === 'string') return -(SYSCALL_ERRNO[error] ?? SYSCALL_ERRNO.EIO)
     return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
@@ -1563,37 +1608,43 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_sendto: (fd, buf, len, _flags, addrPtr, _addrlen) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
-      if (sock.dgram) {
-        if (sock.addressed) {
-          const to = addrPtr ? readSockaddr(addrPtr) : undefined
-          if (to && to.family !== AF_INET) throw { code: 'EAFNOSUPPORT' }
-          return dgramSend(sock, bytes().slice(buf, buf + len), to ? { addr: to.addr === '0.0.0.0' ? '127.0.0.1' : to.addr, port: to.port } : undefined)
-        }
-        if (addrPtr) {
-          const sa = readSockaddr(addrPtr)
-          if (!sock.connected) { const rc = dgramConnect(sock, sa); if (rc < 0) throw { code: Object.keys(SYSCALL_ERRNO).find(name => SYSCALL_ERRNO[name] === -rc) ?? 'EIO' } }
-          else if (sa.addr !== sock.peerAddr || sa.port !== sock.peerPort) throw { code: 'EINVAL' } // one peer per socket
-        } else if (!sock.connected) throw { code: 'EDESTADDRREQ' }
-        return dgramSend(sock, bytes().slice(buf, buf + len))
-      }
-      if (!sock.connected) throw { code: 'ENOTCONN' }
-      return write(sock.writeFd, bytes().subarray(buf, buf + len))
+      return sockSend(sock, bytes().slice(buf, buf + len), addrPtr ? readSockaddr(addrPtr) : undefined)
     }),
     __syscall_recvfrom: (fd, buf, len, _flags, addrPtr, addrlenPtr) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
-      if (!sock.connected) throw { code: 'ENOTCONN' }
-      if (sock.dgram) {
-        const data = dgramRecv(sock, len)
-        bytes().set(data, buf)
-        const source = sock.addressed ? sock.from : { addr: sock.peerAddr, port: sock.peerPort }
-        writeSockaddrResult(addrPtr, addrlenPtr, source?.addr ?? '127.0.0.1', source?.port ?? 0)
-        return data.length
-      }
-      const chunk = new Uint8Array(len)
-      const n = read(sock.readFd, chunk, -1)
-      bytes().set(chunk.subarray(0, Math.max(n, 0)), buf)
-      return Math.max(n, 0)
+      const { data, from } = sockRecv(sock, len)
+      bytes().set(data, buf)
+      if (from) writeSockaddrResult(addrPtr, addrlenPtr, from.addr, from.port)
+      return data.length
+    }),
+    // `struct msghdr` on wasm32: name 0, namelen 4, iov 8, iovlen 12, control 16, controllen 20, flags 24 (28 bytes). The iovec array is
+    // gathered into one datagram (or one stream write) and scattered back on receive. Ancillary data (SCM_RIGHTS, IP_PKTINFO) is not
+    // supported: a send ignores it and a receive says it carries none.
+    __syscall_sendmsg: (fd, msgPtr, _flags) => guardLinux(() => {
+      const sock = sockets.get(fd)
+      if (!sock) throw { code: 'ENOTSOCK' }
+      const dv = view()
+      const namePtr = dv.getUint32(msgPtr, true)
+      const list = iovecs(dv.getUint32(msgPtr + 8, true), dv.getUint32(msgPtr + 12, true))
+      const data = new Uint8Array(list.reduce((sum, [, size]) => sum + size, 0))
+      let at = 0
+      for (const [ptr, size] of list) { data.set(bytes().subarray(ptr, ptr + size), at); at += size }
+      return sockSend(sock, data, namePtr ? readSockaddr(namePtr) : undefined)
+    }),
+    __syscall_recvmsg: (fd, msgPtr, _flags) => guardLinux(() => {
+      const sock = sockets.get(fd)
+      if (!sock) throw { code: 'ENOTSOCK' }
+      const dv = view()
+      const list = iovecs(dv.getUint32(msgPtr + 8, true), dv.getUint32(msgPtr + 12, true))
+      const { data, from } = sockRecv(sock, list.reduce((sum, [, size]) => sum + size, 0))
+      let at = 0
+      for (const [ptr, size] of list) { const part = data.subarray(at, at + size); bytes().set(part, ptr); at += part.length }
+      const namePtr = dv.getUint32(msgPtr, true)
+      if (namePtr && from) { writeSockaddrIn(namePtr, from.addr, from.port); dv.setUint32(msgPtr + 4, 16, true) } else dv.setUint32(msgPtr + 4, 0, true)
+      dv.setUint32(msgPtr + 20, 0, true) // no ancillary data
+      dv.setInt32(msgPtr + 24, 0, true)
+      return data.length
     }),
     // No real socket-level options exist for a loopback pipe pair -- accepted as a harmless no-op
     // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.

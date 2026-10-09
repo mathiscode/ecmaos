@@ -40,7 +40,8 @@ int main(int argc, char **argv) {
   char big[3000];
   memset(big, 'a', sizeof big);
   big[0] = 'b'; big[sizeof big - 1] = 'c';
-  if (send(fd, big, sizeof big, 0) < 0) { printf("send: errno %d\n", errno); return 3; }
+  /* an unconnected socket has to name the peer every time, as on Linux (send() would be EDESTADDRREQ) */
+  if ((sendto_mode ? sendto(fd, big, sizeof big, 0, (struct sockaddr *)&to, sizeof to) : send(fd, big, sizeof big, 0)) < 0) { printf("send: errno %d\n", errno); return 3; }
   n = recv(fd, reply, sizeof reply, 0);
   printf("big %zd %c %c\n", n, n > 0 ? reply[0] : '?', n > 0 ? reply[n - 1] : '?');
   close(fd);

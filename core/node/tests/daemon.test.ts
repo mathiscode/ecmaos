@@ -899,6 +899,7 @@ describe('the network gateway', () => {
     expect(await me.run(`gateway expose 3000 ${outside + 1}`)).toContain('not one this gateway opens')
     expect(await me.run(`gateway expose 3000 ${outside}`)).toContain(`reachable at 127.0.0.1:${outside}`)
     expect(await me.run('gateway')).toContain(`Exposed: 127.0.0.1:${outside} -> port 3000 here`)
+    expect(await me.run('gateway')).toContain('nothing is listening on it here')
 
     // nothing listening on 3000 yet: the connection is dropped
     const refused = await new Promise<string>(resolve => {
@@ -913,6 +914,7 @@ describe('the network gateway', () => {
     await me.run('/tmp/serve.wasm 3000 2 > /tmp/serve.out 2>&1 &')
     for (let i = 0; i < 50 && !(await me.run('cat /tmp/serve.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
 
+    expect(await me.run('gateway')).not.toContain('nothing is listening')
     const talk = (text: string, localAddress?: string) => new Promise<string>((resolve, reject) => {
       const socket = net.connect({ host: '127.0.0.1', port: outside, localAddress }, () => { socket.write(text); socket.end() })
       const chunks: string[] = []
@@ -942,10 +944,12 @@ describe('the network gateway', () => {
 
     expect(await me.run(`gateway expose -u 5300 ${outside}`)).toContain(`UDP port 5300 is reachable at 127.0.0.1:${outside}`)
     expect(await me.run('gateway')).toContain(`Exposed: udp 127.0.0.1:${outside} -> port 5300 here`)
+    expect(await me.run('gateway')).toContain('nothing is listening on it here')
 
     await me.run('/tmp/userve.wasm 5300 2 > /tmp/userve.out 2>&1 &')
     for (let i = 0; i < 50 && !(await me.run('cat /tmp/userve.out')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
 
+    expect(await me.run('gateway')).not.toContain('nothing is listening')
     // two different clients, one socket on the guest: each gets its own answer, and the program saw the real sender
     const ask = (text: string) => new Promise<string>((resolve, reject) => {
       const socket = dgram.createSocket('udp4')

@@ -34,7 +34,7 @@ import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
-import { GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, type GatewayRequest } from './remote-gateway.ts'
+import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
 import { bindUdpPort, udpPortAt } from './udp-ports.ts'
 import { heldInMemory, totalHeld } from './memory-usage.ts'
 import { quotaLimit, quotaLimits, quotaUsage } from './quota.ts'
@@ -121,6 +121,7 @@ declare module '@zenfs/linux/uapi/abi' {
     system_format(argsJson: string, path: string): number
     net_bind(family: string, addr: string, port: number, path: string): number
     net_udp_bind(addr: string, port: number, path: string): number
+    net_gateway_up(path: string): number
     net_listen(key: string, backlog: number, path: string): number
     net_connect(key: string, path: string): number
     net_connect_out(host: string, port: number, proto: string, path: string): number
@@ -683,6 +684,8 @@ export function installMainThreadSyscalls(): void {
     return true
   })
 
+  setLocalProbe((port, udp) => udp ? udpPortAt(port) !== undefined : loopbackListeners.get(`inet:127.0.0.1:${port}`)?.listening === true)
+
   // A datagram from a peer that reached an exposed UDP port: handed to the program that bound it, with the way to answer
   setDatagramSink((port, data, peer, reply) => {
     const bound = udpPortAt(port)
@@ -714,6 +717,14 @@ export function installMainThreadSyscalls(): void {
         text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, port: bound.port })
       }
     }
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  /** Whether a gateway is up, so a datagram to an address beyond this machine has somewhere to go */
+  define_syscall('net_gateway_up', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const text = JSON.stringify({ up: gatewayLink(kernel) !== undefined })
     await writeScratch(kernel, proc, path, text)
     return text.length
   })

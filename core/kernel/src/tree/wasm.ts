@@ -30,7 +30,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_epoll_create1', '__syscall_epoll_ctl', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking',
   '__syscall_socket', '__syscall_bind', '__syscall_listen', '__syscall_connect', '__syscall_accept4',
   '__syscall_getsockname', '__syscall_getpeername', '__syscall_shutdown', '__syscall_sendto',
-  '__syscall_recvfrom', '__syscall_setsockopt', '__syscall_getsockopt',
+  '__syscall_recvfrom', '__syscall_sendmsg', '__syscall_recvmsg', '__syscall_setsockopt', '__syscall_getsockopt',
   '__syscall_poll', '__syscall_poll_nonblocking',
   'exit', '_abort_js', '_emscripten_runtime_keepalive_clear', 'emscripten_resize_heap', '__call_sighandler', '_emscripten_system',
   'emscripten_get_now', 'emscripten_date_now', 'emscripten_get_heap_max', 'emscripten_err', '__assert_fail', '_tzset_js', '_localtime_js', '_mktime_js', '_gmtime_js', '_timegm_js', '_mmap_js', '_munmap_js', '_setitimer_js', 'strptime',

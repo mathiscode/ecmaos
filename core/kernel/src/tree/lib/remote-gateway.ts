@@ -44,9 +44,9 @@ interface Link {
 const links = new WeakMap<Kernel, Link>()
 
 /** Who is on the other end, or `undefined` when no gateway is up */
-export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'since' | 'flows'> & { exposed: Array<{ address: string, port: number, local: number, total: number, open: number, udp: boolean }> }) | undefined {
+export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'since' | 'flows'> & { exposed: Array<{ address: string, port: number, local: number, total: number, open: number, udp: boolean, listening: boolean }> }) | undefined {
   const link = links.get(kernel)
-  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows, exposed: [...link.exposures.values()].map(({ address, port, local, total, open, udp }) => ({ address, port, local, total, open, udp })) }
+  return link && { host: link.host, user: link.user, since: link.since, flows: link.flows, exposed: [...link.exposures.values()].map(({ address, port, local, total, open, udp }) => ({ address, port, local, total, open, udp, listening: localProbe?.(local, udp) ?? true })) }
 }
 
 /**
@@ -61,6 +61,11 @@ export function setInboundSink(sink: InboundSink) { inboundSink = sink }
 export type DatagramSink = (port: number, data: Uint8Array, peer: string, reply: (data: Uint8Array) => void) => boolean
 let datagramSink: DatagramSink | undefined
 export function setDatagramSink(sink: DatagramSink) { datagramSink = sink }
+
+/** Whether a program on this machine is listening on `port` (TCP) or has it bound (UDP). Registered by the syscall layer, which owns both. */
+export type LocalProbe = (port: number, udp: boolean) => boolean
+let localProbe: LocalProbe | undefined
+export function setLocalProbe(probe: LocalProbe) { localProbe = probe }
 
 /** A failure carrying the errno the program's `connect()` should see */
 export class GatewayFailure extends Error {
@@ -251,7 +256,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
   if (request.action === 'status') {
     const link = gatewayLink(kernel)
     out(link ? `Gateway: ${link.user}@${link.host}, up since ${new Date(link.since).toISOString()}, ${link.flows} flow${link.flows === 1 ? '' : 's'} open` : 'No gateway is up.')
-    for (const item of link?.exposed ?? []) out(item.udp ? `Exposed: udp ${item.address}:${item.port} -> port ${item.local} here (${item.total} peer${item.total === 1 ? '' : 's'} so far)` : `Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`)
+    for (const item of link?.exposed ?? []) out((item.udp ? `Exposed: udp ${item.address}:${item.port} -> port ${item.local} here (${item.total} peer${item.total === 1 ? '' : 's'} so far)` : `Exposed: ${item.address}:${item.port} -> port ${item.local} here (${item.open} open, ${item.total} so far)`) + (item.listening ? '' : ' - nothing is listening on it here (connections are dropped until a program is)'))
     return { code: link ? 0 : 1, lines }
   }
 

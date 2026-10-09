@@ -103,7 +103,7 @@ export class UdpPort {
     const key = `${address}:${port}`
     const route = this.routes.get(key)
     if (route) { route(data); return }
-    if (address.startsWith('127.') || address === '0.0.0.0') {
+    if (address === '127.0.0.1' || address === '0.0.0.0') {
       ports.get(port)?.deliver('127.0.0.1', this.port, data) // nothing there: dropped, as a datagram to a closed port is
       return
     }
