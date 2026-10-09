@@ -39,13 +39,13 @@ import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
-import { showOverlay } from '#lib/machine-overlay.ts'
+import { showBadge, showOverlay } from '#lib/machine-overlay.ts'
 import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
-import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled, withRootStore } from '#filesystem.ts'
+import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, rootWritesSettled, withMemoryRoot, withRootStore } from '#filesystem.ts'
 import { browserHost } from '#host.ts'
 import { DefaultLogOptions, Log } from '#log.ts'
 import { Terminal } from '#terminal.ts'
@@ -207,6 +207,7 @@ export class Kernel implements IKernel {
   public readonly machine: string | undefined
   private _machineError: string | undefined
   private _machineLock?: MachineLock
+  private _guestId?: string
   /** Web Components manager */
   public readonly components: Components
   /** DOM manipulation service */
@@ -366,7 +367,7 @@ export class Kernel implements IKernel {
     this.telemetry = new Telemetry({ context: this.context })
 
     // Tier 2: context plus narrow, already-constructed dependencies (no cycles).
-    this.filesystem = new Filesystem(this.storage, { initfs: this.options.initfs, fetch: this.host.fetch, key: key => machineKey(this.machine, key) })
+    this.filesystem = new Filesystem(this.storage, { initfs: this.options.initfs, fetch: this.host.fetch, key: key => this.machineKey(key) })
     this.users = new Users({
       context: this.context,
       filesystem: this.filesystem,
@@ -500,8 +501,12 @@ export class Kernel implements IKernel {
       configureStorageLimits(this.options.limits, (resident, threshold) => this.log.warn(`The root filesystem holds ${formatBytes(resident)} in memory (warning at ${formatBytes(threshold)}); large files cost their size in RAM, so a small device may struggle. See the README's known gaps.`))
       const filesystemOptions = this.machineOptions(Filesystem.options(this.options.filesystem))
       // Before the root is loaded into memory: a second tab on the same store must not get that far
-      await this.claimMachine(rootStoreName(filesystemOptions))
-      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: filesystemOptions })
+      const guest = await this.claimMachine(rootStoreName(filesystemOptions))
+      await this.configure({ devices: this.options.devices || DefaultDevices, filesystem: guest ? withMemoryRoot(filesystemOptions) : filesystemOptions })
+      if (guest) {
+        this.log.warn('Guest session: this tab runs a scratch machine and nothing in it is saved')
+        showBadge('Guest session: nothing is saved')
+      }
       configureSpan.end()
 
       // Register ecmaOS's own custom syscalls (main-thread-only capabilities like DOM window
@@ -1049,7 +1054,7 @@ export class Kernel implements IKernel {
       }
 
       // Install recommended apps if desired by user on first boot
-      if (!this.storage.local.getItem(machineKey(this.machine, 'ecmaos:first-boot'))) {
+      if (!this.storage.local.getItem(this.machineKey('ecmaos:first-boot'))) {
         const recommendedApps = import.meta.env['ECMAOS_RECOMMENDED_APPS']
         if (recommendedApps) {
           const apps = recommendedApps.split(',')
@@ -1063,7 +1068,7 @@ export class Kernel implements IKernel {
           }
         }
 
-        this.storage.local.setItem(machineKey(this.machine, 'ecmaos:first-boot'), Date.now().toString())
+        this.storage.local.setItem(this.machineKey('ecmaos:first-boot'), Date.now().toString())
       }
 
       if (!gettyLogin) {
@@ -2331,7 +2336,7 @@ export class Kernel implements IKernel {
     // written only when the installed copy differs. See `lib/programs.ts`.
     const catalogUrl = this.programsUrl()
     if (catalogUrl) {
-      const stampKey = machineKey(this.machine, 'ecmaos:programs')
+      const stampKey = this.machineKey('ecmaos:programs')
       const programs = await installPrograms(this.filesystem.fs, {
         catalogUrl,
         fetcher: this.host.fetch,
@@ -2782,19 +2787,20 @@ export class Kernel implements IKernel {
    * button) when another tab has it, and stops this tab if another one takes it later. No lock for hosts without Web Locks, or a
    * root that is not the IndexedDB store.
    */
-  private async claimMachine(store: string | undefined) {
+  private async claimMachine(store: string | undefined): Promise<boolean> {
     const locks = this.host.locks
-    if (!locks || !store) return
-    let lock: MachineLock
+    if (!locks || !store) return false
+    let lock: MachineLock | 'guest'
     try {
       const suggestion = await this.suggestMachine()
       lock = await claimMachine(locks, store, {
-        busy: takeOver => showOverlay(`This machine${this.machine ? ` (${this.machine})` : ''} is running in another tab`, [
+        busy: (takeOver, guest) => showOverlay(`This machine${this.machine ? ` (${this.machine})` : ''} is running in another tab`, [
           'Running it in two tabs would overwrite one tab\'s files with the other\'s.',
           'It starts here by itself when the other tab closes or halts it. The other tab may also be inactive, or in another window.',
-          'Or run a separate machine of its own, with its own files, in a new tab:'
+          'Or run a separate machine of its own, with its own files, in a new tab, or try a guest session here (nothing in it is saved):'
         ], [
           { label: 'Use it here instead', run: takeOver },
+          { label: 'Guest session', run: guest },
           { label: 'Open a separate machine', field: suggestion, run: name => {
             const parsed = parseMachine(name)
             if (parsed.error || !parsed.machine) return
@@ -2804,10 +2810,46 @@ export class Kernel implements IKernel {
       })
     } catch (error) {
       this.log.warn(`Not guarding against a second tab: ${error instanceof Error ? error.message : String(error)}`)
-      return
+      return false
+    }
+    if (lock === 'guest') {
+      // its own stamps: this machine installs itself from nothing on every boot, and must not see (or leave) the real machine's
+      this._guestId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      this.sweepGuestKeys()
+      globalThis.addEventListener?.('pagehide', () => this.dropGuestKeys())
+      return true
     }
     this._machineLock = lock
     void lock.evicted.then(() => this.machineTaken(locks, store))
+    return false
+  }
+
+  /** Whether this tab runs a guest session (a scratch machine in memory, nothing saved) */
+  get guest(): boolean { return this._guestId !== undefined }
+
+  /** A `localStorage` key that describes this tab's machine: the machine's own, or a guest session's throwaway one */
+  private machineKey(key: string): string {
+    return this._guestId ? `ecmaos:guest:${this._guestId}:${key}` : machineKey(this.machine, key)
+  }
+
+  private dropGuestKeys() {
+    const prefix = `ecmaos:guest:${this._guestId}:`
+    try {
+      const local = this.storage.local
+      for (let at = local.length - 1; at >= 0; at--) { const key = local.key(at); if (key?.startsWith(prefix)) local.removeItem(key) }
+    } catch { /* storage is gone */ }
+  }
+
+  /** Keys of guest sessions whose tab never got to clean up (a crash), older than a day */
+  private sweepGuestKeys() {
+    try {
+      const local = this.storage.local
+      for (let at = local.length - 1; at >= 0; at--) {
+        const key = local.key(at)
+        const id = key && /^ecmaos:guest:([0-9a-z]+):/.exec(key)?.[1]
+        if (id && id !== this._guestId && Date.now() - parseInt(id.slice(0, 8), 36) > 86_400_000) local.removeItem(key)
+      }
+    } catch { /* storage is gone */ }
   }
 
   /** Another tab took this machine: stop writing before anything else, stop everything, and say so */

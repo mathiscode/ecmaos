@@ -1662,6 +1662,12 @@ export function installMainThreadSyscalls(): void {
       return text.length
     }
 
+    if (kernel.guest) {
+      text = JSON.stringify({ error: 'this is a guest session: nothing is saved, and the machine in the other tab is not this tab\'s to format' })
+      await writeScratch(kernel, proc, path, text)
+      return text.length
+    }
+
     try {
       const args = JSON.parse(argsJson) as { indexedDB: boolean, localStorage: boolean, keep: string[] }
 

@@ -55,24 +55,28 @@ export async function stealMachineLock(locks: LockManager, store: string): Promi
 }
 
 export interface MachineBusyUi {
-  /** Tells the user another tab has the machine; `takeOver` is what the "use it here" button calls. Returns how to take the message down. */
-  busy(takeOver: () => void): { close(): void }
+  /**
+   * Tells the user another tab has the machine; `takeOver` is what the "use it here" button calls, and `guest` runs a scratch
+   * machine in this tab instead (nothing saved, the other tab untouched). Returns how to take the message down.
+   */
+  busy(takeOver: () => void, guest: () => void): { close(): void }
 }
 
 /**
  * Gets the machine for this tab. If another tab has it, `ui.busy` is shown and one of two things happens: that tab lets go (it
  * closed, crashed or halted), and this one starts by itself, or the user asks to take over, and this one takes the machine and
- * the other tab is told it lost it. Rejects only when the platform refuses locks.
+ * the other tab is told it lost it, or the user asks for a guest session and this resolves to `'guest'` without the machine. Rejects
+ * only when the platform refuses locks.
  */
-export async function claimMachine(locks: LockManager, store: string, ui: MachineBusyUi): Promise<MachineLock> {
+export async function claimMachine(locks: LockManager, store: string, ui: MachineBusyUi): Promise<MachineLock | 'guest'> {
   const free = await acquireMachineLock(locks, store)
   if (free) return free
 
   const waiting = new AbortController()
   let notice: { close(): void } | undefined
   try {
-    return await new Promise<MachineLock>((resolve, reject) => {
-      notice = ui.busy(() => { waiting.abort(); stealMachineLock(locks, store).then(resolve, reject) })
+    return await new Promise<MachineLock | 'guest'>((resolve, reject) => {
+      notice = ui.busy(() => { waiting.abort(); stealMachineLock(locks, store).then(resolve, reject) }, () => { waiting.abort(); resolve('guest') })
       waitForMachineLock(locks, store, waiting.signal).then(lock => { if (lock) resolve(lock) }, error => {
         if ((error as { name?: string })?.name !== 'AbortError') reject(error)
       })

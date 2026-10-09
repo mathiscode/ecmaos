@@ -76,6 +76,11 @@ export function withRootStore<T extends { mounts?: Record<string, unknown> }>(op
   return { ...options, mounts: { ...options.mounts, '/': { ...(options.mounts!['/'] as object), storeName: store } } }
 }
 
+/** `options` with the root held in memory instead of whatever it was: a guest session keeps nothing */
+export function withMemoryRoot<T extends { mounts?: Record<string, unknown> }>(options: T): T {
+  return { ...options, mounts: { ...options.mounts, '/': { backend: InMemory, options: { name: 'guest' } } } }
+}
+
 export function fenceRootStore(): void { fenced = true }
 export function rootStoreFenced(): boolean { return fenced }
 

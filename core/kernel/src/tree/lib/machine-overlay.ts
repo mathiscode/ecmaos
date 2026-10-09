@@ -42,3 +42,14 @@ export function showOverlay(title: string, lines: string[], actions: OverlayActi
   document.body.append(root)
   return { close() { root.remove() } }
 }
+
+/** A small standing label in a corner of the page (it takes no clicks), for a state the user should not forget */
+export function showBadge(text: string): { close(): void } {
+  const document = globalThis.document
+  if (!document) return { close() {} }
+  const badge = document.createElement('div')
+  badge.textContent = text
+  badge.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:2147483646;pointer-events:none;background:#7a2d00;color:#fff;font:12px/1.4 system-ui,sans-serif;padding:3px 8px;border-radius:4px;opacity:.9'
+  document.body.append(badge)
+  return { close() { badge.remove() } }
+}

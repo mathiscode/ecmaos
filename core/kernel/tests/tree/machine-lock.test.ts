@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { acquireMachineLock, claimMachine, machineLockName, stealMachineLock, waitForMachineLock } from '#lib/machine-lock.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
-import { fenceRootStore, rootStoreFenced, rootStoreName, rootWritesSettled } from '#filesystem.ts'
+import { fenceRootStore, rootStoreFenced, rootStoreName, rootWritesSettled, withMemoryRoot } from '#filesystem.ts'
 import { IndexedDB, InMemory } from '@zenfs/dom'
 
 const locks = process.getBuiltinModule('node:worker_threads').locks as unknown as LockManager
@@ -63,8 +63,8 @@ describe('one tab per machine', () => {
 
 describe('claiming the machine from a tab', () => {
   const ui = () => {
-    const seen = { shown: 0, closed: 0, takeOver: undefined as undefined | (() => void) }
-    return { seen, ui: { busy: (takeOver: () => void) => { seen.shown++; seen.takeOver = takeOver; return { close: () => { seen.closed++ } } } } }
+    const seen = { shown: 0, closed: 0, takeOver: undefined as undefined | (() => void), guest: undefined as undefined | (() => void) }
+    return { seen, ui: { busy: (takeOver: () => void, guest: () => void) => { seen.shown++; seen.takeOver = takeOver; seen.guest = guest; return { close: () => { seen.closed++ } } } } }
   }
 
   it('says nothing when the machine is free', async () => {
@@ -105,7 +105,36 @@ describe('claiming the machine from a tab', () => {
   })
 })
 
+describe('a guest session', () => {
+  it('runs without the machine, leaves the other tab holding it, and queues nothing behind it', async () => {
+    const name = `guest-${Math.random().toString(36).slice(2)}`
+    const other = (await acquireMachineLock(locks, name))!
+    let evicted = false
+    void other.evicted.then(() => { evicted = true })
+    const seen = { closed: 0, guest: undefined as undefined | (() => void) }
+    const claim = claimMachine(locks, name, { busy: (_takeOver, guest) => { seen.guest = guest; return { close: () => { seen.closed++ } } } })
+    await tick()
+    seen.guest!()
+    expect(await claim).toBe('guest')
+    expect(seen.closed).toBe(1)
+    expect(evicted).toBe(false)
+    // the abandoned queued request must not take the machine when the other tab lets go
+    other.release()
+    await tick()
+    const free = await acquireMachineLock(locks, name)
+    expect(free).toBeDefined()
+    free!.release()
+  })
+})
+
 describe('the root store', () => {
+  it('is held in memory for a guest, whatever it was', () => {
+    const guest = withMemoryRoot({ mounts: { '/': { backend: IndexedDB, storeName: 'zenfs' }, '/tmp': { backend: InMemory } } })
+    expect(rootStoreName(guest)).toBeUndefined()
+    expect((guest.mounts['/'] as { backend: { name: string } }).backend.name).toBe('InMemory')
+    expect(guest.mounts['/tmp']).toBeDefined()
+  })
+
   it('is a store only when the root is IndexedDB', () => {
     expect(rootStoreName({ mounts: { '/': { backend: IndexedDB, storeName: 'root' } } })).toBe('root')
     expect(rootStoreName({ mounts: { '/': { backend: IndexedDB } } })).toBe('zenfs')
