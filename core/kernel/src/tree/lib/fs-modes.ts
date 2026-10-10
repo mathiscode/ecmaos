@@ -119,7 +119,10 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/unlz4': '/bin/lz4',
   '/bin/lz4cat': '/bin/lz4',
   '/bin/python': '/bin/micropython',
-  '/bin/python3': '/bin/micropython'
+  '/bin/python3': '/bin/micropython',
+  '/bin/xdg-open': '/bin/open',
+  '/bin/pbcopy': '/bin/xclip',
+  '/bin/pbpaste': '/bin/xclip'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */

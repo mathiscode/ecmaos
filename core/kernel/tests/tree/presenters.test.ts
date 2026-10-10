@@ -298,3 +298,101 @@ describe('open: a real execve program driving the external and download presente
     })
   })
 })
+
+
+describe('browser bridge: notify-send, xclip and say drive their presenters', () => {
+  let kernel: Kernel
+  const run = async (command: string) => {
+    const code = await kernel.shell.execute(`${command} > /tmp/bridge.out 2> /tmp/bridge.err`)
+    return {
+      code,
+      out: await kernel.filesystem.fs.readFile('/tmp/bridge.out', 'utf8'),
+      err: await kernel.filesystem.fs.readFile('/tmp/bridge.err', 'utf8')
+    }
+  }
+
+  beforeAll(async () => {
+    kernel = new Kernel({
+      credentials: { username: 'root', password: 'root' },
+      dom: TestDomOptions,
+      filesystem: DefaultFilesystemOptions,
+      log: TestLogOptions
+    })
+    await kernel.boot()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
+  })
+
+  // jsdom's `Notification` is writable but not configurable, so it is assigned and put back rather than stubbed
+  const realNotification = (globalThis as { Notification?: unknown }).Notification
+  const setNotification = (value: unknown) => { (globalThis as { Notification?: unknown }).Notification = value }
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); setNotification(realNotification) })
+
+  it('notify-send shows a notification with its summary and body', async () => {
+    const shown: unknown[][] = []
+    class FakeNotification { static permission = 'granted'; constructor(...args: unknown[]) { shown.push(args) } }
+    setNotification(FakeNotification)
+    expect((await run('notify-send -u critical Build "all green"')).code).toBe(0)
+    expect(shown).toEqual([['Build', { body: 'all green', tag: undefined, icon: undefined }]])
+  })
+
+  it('notify-send says so when notifications are blocked', async () => {
+    class Blocked { static permission = 'denied' }
+    setNotification(Blocked)
+    const result = await run('notify-send hi')
+    expect(result.code).toBe(1)
+    expect(result.err).toContain('blocked')
+  })
+
+  it('xclip copies standard input and pbpaste prints the clipboard', async () => {
+    let clipboard = ''
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async (t: string) => { clipboard = t }, readText: async () => clipboard } })
+    expect((await run('printf "hello\\nworld\\n" | xclip')).code).toBe(0)
+    expect(clipboard).toBe('hello\nworld\n')
+    const pasted = await run('xclip -o')
+    expect(pasted.err).toBe('')
+    expect(pasted.out).toBe('hello\nworld\n')
+  })
+
+  it('pbcopy and pbpaste are xclip under the names macOS scripts use, and xdg-open is open', async () => {
+    let clipboard = ''
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async (t: string) => { clipboard = t }, readText: async () => clipboard } })
+    expect((await run('echo mac | pbcopy')).code).toBe(0)
+    expect(clipboard).toBe('mac\n')
+    expect((await run('pbpaste')).out).toBe('mac\n')
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    expect((await run('xdg-open https://example.com/x')).code).toBe(0)
+    expect(open).toHaveBeenCalledWith('https://example.com/x', '_blank')
+  })
+
+  it('xclip copies a file', async () => {
+    let clipboard = ''
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: async (t: string) => { clipboard = t }, readText: async () => clipboard } })
+    await kernel.filesystem.fs.writeFile('/tmp/clip-src.txt', 'from a file')
+    expect((await run('xclip /tmp/clip-src.txt')).code).toBe(0)
+    expect(clipboard).toBe('from a file')
+  })
+
+  it('say speaks its arguments with the options given', async () => {
+    const spoken: { text: string, rate: number }[] = []
+    class Utterance { onend?: () => void; rate = 1; constructor(public text: string) {} }
+    vi.stubGlobal('SpeechSynthesisUtterance', Utterance)
+    vi.stubGlobal('speechSynthesis', {
+      getVoices: () => [],
+      cancel: () => {},
+      speak: (u: Utterance) => { spoken.push({ text: u.text, rate: u.rate }); queueMicrotask(() => u.onend?.()) }
+    })
+    expect((await run('say -r 1.5 hello there')).code).toBe(0)
+    expect(spoken).toEqual([{ text: 'hello there', rate: 1.5 }])
+  })
+
+  it('say refuses an unknown voice', async () => {
+    vi.stubGlobal('SpeechSynthesisUtterance', class { onend?: () => void })
+    vi.stubGlobal('speechSynthesis', { getVoices: () => [], cancel: () => {}, speak: () => {} })
+    const result = await run('say -v Nobody hi')
+    expect(result.err).toContain('no voice named Nobody')
+    expect(result.code).toBe(1)
+    expect(result.err).toContain('no voice named Nobody')
+  })
+})

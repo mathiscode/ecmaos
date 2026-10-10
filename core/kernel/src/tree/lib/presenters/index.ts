@@ -25,6 +25,7 @@ import { presentApp } from './app.ts'
 import { presentBrowser } from './browser.ts'
 import { presentDocument } from './document.ts'
 import { presentAudio, presentVideo } from './media.ts'
+import { presentNotify, presentClipboardRead, presentClipboardWrite, presentSpeak } from './bridge.ts'
 import { presentExternal, presentDownload } from './open.ts'
 import { presentScript } from './script.ts'
 import { presentUpload } from './upload.ts'
@@ -53,5 +54,9 @@ export const presenters: Record<string, Presenter> = {
   document: presentDocument,
   app: presentApp,
   script: presentScript,
-  upload: presentUpload
+  upload: presentUpload,
+  notify: presentNotify,
+  'clipboard-write': presentClipboardWrite,
+  'clipboard-read': presentClipboardRead,
+  speak: presentSpeak
 }
