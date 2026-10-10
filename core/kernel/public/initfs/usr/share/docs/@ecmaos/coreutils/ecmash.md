@@ -53,4 +53,4 @@ Output redirected to a file is written to a scratch file and copied over when th
 
 ## See also
 
-`chsh`, `/etc/shells`, `skel`, and a page for each builtin added beyond POSIX: `caller`, `pushd`, `popd`, `dirs`, `select`, `help`, `fc`, `hash`, `times`, `logout`, `ulimit`, `complete`, `compgen`, `compopt` (`man pushd` finds them).
+`chsh`, `/etc/shells`, `skel`, and a page for every builtin (`man pushd`, `man trap`, `man test` and so on; `help` lists them, and a test keeps the two in step).

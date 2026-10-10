@@ -1,6 +1,8 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { helpTopicNames } from '@ecmaos/coreutils/lib/shell-core/help'
+
 const here = join(__dirname, '..', '..')
 const docs = join(here, 'public/initfs/usr/share/docs/@ecmaos')
 
@@ -44,9 +46,10 @@ describe('man page coverage', () => {
     expect(wrong).toEqual([])
   })
 
-  it('has a page for each shell builtin that goes beyond POSIX, which no program file would announce', () => {
-    const builtins = ['caller', 'pushd', 'popd', 'dirs', 'select', 'help', 'fc', 'hash', 'times', 'logout', 'ulimit', 'complete', 'compgen', 'compopt']
-    expect(builtins.filter(name => !existsSync(join(docs, 'coreutils', `${name}.md`)))).toEqual([])
+  it('has a page for every builtin `help` knows, so a new builtin cannot ship without one', () => {
+    // `:`, `.` and `[` are documented on the pages for `true`, `source` and `test`
+    const names = helpTopicNames.filter(name => ![':', '.', '['].includes(name))
+    expect(names.filter(name => !['coreutils', 'kernel/commands'].some(dir => existsSync(join(docs, dir, `${name}.md`))))).toEqual([])
     expect(existsSync(join(docs, 'coreutils', 'skel.md'))).toBe(true)
   })
 })
