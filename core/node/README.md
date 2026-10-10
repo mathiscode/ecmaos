@@ -257,3 +257,9 @@ The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); fi
   pseudo-terminal (needs `python3`; skipped on Windows).
 - `pnpm --filter @ecmaos/kernel test:node` runs the kernel's own tests on Node with no DOM (`vitest.node.config.ts`). The
   files that need a page are listed there, each with its reason, and stay in the jsdom project.
+
+## Licensing
+
+`@ecmaos/node` is MIT OR Apache-2.0. `dist/ecmaos.mjs` has [ZenFS](https://github.com/zen-fs/core) (`@zenfs/core`, `@zenfs/linux` and others) bundled into it, Copyright © James Prevett and other ZenFS contributors, licensed under the [LGPL 3.0 or later](https://www.gnu.org/licenses/lgpl-3.0.html) and [COPYING.md](https://github.com/zen-fs/core/blob/main/COPYING.md); the texts are in `/usr/share/licenses/@zenfs/` inside the machine.
+
+To run with a modified ZenFS, build this package from the [ecmaOS repository](https://github.com/ecmaos/ecmaos) against your copy: the steps are in `/usr/share/licenses/@zenfs/README.md` (in the repository, `core/kernel/public/initfs/usr/share/licenses/@zenfs/README.md`).

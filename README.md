@@ -610,6 +610,11 @@ ecmaOS itself (the kernel, `@ecmaos/coreutils`, and the other packages here) is 
 
 Everything is also in the running system: the texts are in `/usr/share/licenses/@ecmaos/`, one directory per package and program.
 
+### Third-party notices
+
+- **[ZenFS](https://github.com/zen-fs/core)** (`@zenfs/core`, `@zenfs/linux`, `@zenfs/dom`, `@zenfs/archives`, `@zenfs/cloud`, `@zenfs/emscripten`), Copyright © James Prevett and other ZenFS contributors, licensed under the [LGPL 3.0 or later](https://www.gnu.org/licenses/lgpl-3.0.html) and [COPYING.md](https://github.com/zen-fs/core/blob/main/COPYING.md). ecmaOS is built on it and is grateful to it. It is a dependency, bundled by the build and not copied into this repository. Its texts are in `/usr/share/licenses/@zenfs/` in the running system, and in `core/kernel/public/initfs/usr/share/licenses/@zenfs/` here.
+- **Using your own ZenFS.** To build ecmaOS (the site, or the Node host, which has ZenFS bundled into `dist/ecmaos.mjs`) against a modified ZenFS, point the dependency at your copy and rebuild; the steps are in `/usr/share/licenses/@zenfs/README.md` (the same file is in the repository under `core/kernel/public/initfs/`).
+
 ## Security Vulnerabilities
 
 See [SECURITY.md](/SECURITY.md) for more information.
