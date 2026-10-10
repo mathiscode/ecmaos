@@ -122,7 +122,8 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/python3': '/bin/micropython',
   '/bin/xdg-open': '/bin/open',
   '/bin/pbcopy': '/bin/xclip',
-  '/bin/pbpaste': '/bin/xclip'
+  '/bin/pbpaste': '/bin/xclip',
+  '/bin/neofetch': '/bin/fastfetch'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */

@@ -574,12 +574,14 @@ export class Kernel implements IKernel {
       // booted, never picking up a real version bump. It's read-only to users (`0o444`), not
       // something they're expected to hand-edit, so overwriting it here is always safe.
       {
+        // `this.name` is the package name in a build (`@ecmaos/kernel`), which is neither a name to show
+        // nor a valid `ID` (lowercase letters, digits, `.`, `_` and `-`), so the file names the system itself.
         const osRelease = [
-          `NAME="${this.name}"`,
+          'NAME="ecmaOS"',
           `VERSION="${this.version}"`,
-          `ID=${this.name.toLowerCase().replace(/\s+/g, '')}`,
+          'ID=ecmaos',
           `VERSION_ID="${this.version}"`,
-          `PRETTY_NAME="${this.name} ${this.version}"`,
+          `PRETTY_NAME="ecmaOS ${this.version}"`,
           import.meta.env['HOMEPAGE'] ? `HOME_URL="${import.meta.env['HOMEPAGE']}"` : ''
         ].filter(Boolean).join('\n') + '\n'
 
