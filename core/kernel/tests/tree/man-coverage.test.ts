@@ -43,4 +43,10 @@ describe('man page coverage', () => {
     }
     expect(wrong).toEqual([])
   })
+
+  it('has a page for each shell builtin that goes beyond POSIX, which no program file would announce', () => {
+    const builtins = ['caller', 'pushd', 'popd', 'dirs', 'select', 'help', 'fc', 'hash', 'times', 'logout', 'ulimit', 'complete', 'compgen', 'compopt']
+    expect(builtins.filter(name => !existsSync(join(docs, 'coreutils', `${name}.md`)))).toEqual([])
+    expect(existsSync(join(docs, 'coreutils', 'skel.md'))).toBe(true)
+  })
 })
