@@ -84,7 +84,10 @@ describe('the quota command', () => {
     const listing = await run('quota')
     expect(listing.out).toMatch(/User\s+Used\s+Limit\s+Use%/)
     expect(listing.out).toMatch(/alice\s+2\.0M\s+10M\s+20%/)
-    expect((await run('quota -b alice')).out).toMatch(/alice\s+2097152\s+10485760/)
+    // her home also holds the few hundred bytes `/etc/skel` gave it
+    const bytes = Number(/alice\s+(\d+)\s+10485760/.exec((await run('quota -b alice')).out)?.[1])
+    expect(bytes).toBeGreaterThanOrEqual(2097152)
+    expect(bytes).toBeLessThan(2097152 + 4096)
     expect((await run('quota nobody')).code).toBe('1')
   })
 })

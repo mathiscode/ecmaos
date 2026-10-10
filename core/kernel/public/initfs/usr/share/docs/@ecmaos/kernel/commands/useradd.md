@@ -25,7 +25,7 @@ Creates a user account. Without `-g` the user gets a new group of their own, nam
 
 ## Notes
 
-Unlike Linux, an account has to have a password, so `useradd` asks for one when there is no `-p`; a system account made with `-r` has none instead. The password goes in `/etc/shadow` with `lastchg` set to today, no minimum age, a maximum of 99999 days and 7 days of warning. No key pair is made: it is created the first time something needs one, in `~/.ssh`. There is no `/etc/skel` to copy into the home directory. Only root may run it.
+Unlike Linux, an account has to have a password, so `useradd` asks for one when there is no `-p`; a system account made with `-r` has none instead. The password goes in `/etc/shadow` with `lastchg` set to today, no minimum age, a maximum of 99999 days and 7 days of warning. No key pair is made: it is created the first time something needs one, in `~/.ssh`. With `-m`, the new home directory starts as a copy of `/etc/skel` (`.profile`, `.bashrc` with the colored `ls`, `grep`, `egrep` and `fgrep` aliases, the `ll`, `la` and `l` aliases and history settings, `.bash_logout`), owned by the new user and keeping the modes it has there; boot writes any of those that are missing and never overwrites an edit, and a home that already exists is left as it is. Only root may run it.
 
 ## Exit status
 

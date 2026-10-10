@@ -7,6 +7,7 @@
  *
  */
 
+import { installSkel, type SkelFs } from './lib/skel.ts'
 import '#lib/process-shim.ts'
 import ansi from 'ansi-escape-sequences'
 import chalk from 'chalk'
@@ -598,6 +599,9 @@ export class Kernel implements IKernel {
       if (!(await this.filesystem.fs.exists('/etc/vimrc'))) {
         await this.filesystem.fs.writeFile('/etc/vimrc', DEFAULT_VIMRC, { mode: 0o644 })
       }
+
+      // The files `useradd -m` gives a new home directory
+      await installSkel(this.filesystem.fs as unknown as SkelFs)
 
       // The login shells `chsh` accepts. `ecmaos` is the shell built into the kernel and has no file;
       // `/bin/ecmash` is the same language as a program.

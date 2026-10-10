@@ -14,6 +14,7 @@ import type {
   UsersOptions
 } from '@ecmaos/types'
 import { createCredentials, Credentials } from '@zenfs/core'
+import { copySkel, type SkelFs } from './lib/skel.ts'
 import { hashPassword, needsRehash, verifyPassword } from './lib/credentials.ts'
 import { AUTHORIZED_KEYS_FILE, generateKeyPair, parseAuthorizedKeys, parseWrappedKey, publicKeyLine, parsePublicKeyLine, PRIVATE_KEY_FILE, PUBLIC_KEY_FILE, unwrapKey, wrapKey } from './lib/keys.ts'
 import {
@@ -131,6 +132,8 @@ export class Users {
       user.password = await hashPassword(unhashedPassword)
     }
 
+    // `/etc/skel` fills a home this call creates; one that is already there is the user's and stays as it is
+    const createdHome = !options.noHome && !(await this.fs.exists(user.home))
     if (!options.noHome) {
       await this.fs.mkdir(user.home, { recursive: true, mode: 0o750 })
     }
@@ -145,6 +148,8 @@ export class Users {
     // Fix user home permissions
     try { await this.fs.chown(user.home, user.uid, user.gid) }
     catch {}
+
+    if (createdHome) await copySkel(this.fs as unknown as SkelFs, user.home, user.uid, user.gid)
   }
 
   /**
