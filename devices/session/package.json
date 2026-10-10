@@ -18,7 +18,7 @@
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
     "@types/node": "22.20.2",
-    "@zenfs/core": "^2.7.6",
+    "@zenfs/core": "^2.7.7",
     "@zenfs/linux": "0.6.1",
     "typescript": "^7.0.2"
   },

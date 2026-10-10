@@ -17,11 +17,10 @@ Show the system at a glance.
 Everything shown comes from /etc/os-release, /proc and the environment; a line is left out when it is not known.`
 
 const LOGO = [
-  '   ___ ___ __  __  ___  ',
-  '  | __/ __|  \\/  |/ _ \\ ',
-  '  | _| (__| |\\/| | (_) |',
-  '  |___\\___|_|  |_|\\___/ ',
-  '                        '
+  ' ___ ___ __  __   _    ___  ___ ',
+  '| __/ __|  \\/  | /_\\  / _ \\/ __|',
+  '| _| (__| |\\/| |/ _ \\| (_) \\__ \\',
+  '|___\\___|_|  |_/_/ \\_\\\\___/|___/'
 ]
 
 const tryRead = path => { try { return readTextFile(path) } catch { return '' } }

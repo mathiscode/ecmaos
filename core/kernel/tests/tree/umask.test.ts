@@ -8,7 +8,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The file mode creation mask is a property of a context in @zenfs/core (newer than the published 2.7.6, which
+ * The file mode creation mask is a property of a context in @zenfs/core (newer than the published 2.7.7, which
  * has none). Where it is missing `umask` says so instead of pretending; the rest of these need it.
  */
 describe('umask', () => {

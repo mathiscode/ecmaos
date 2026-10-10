@@ -1,12 +1,18 @@
 /**
  * Whether a program may run as the user who started it.
  *
- * A program is `execve`'d by reading its file with a synchronous `open(path, 'r', mode)`. Before the
- * fix in `@zenfs/core` (sync `open` checked the *creation* mode as if it were the access requested),
- * that call failed for any user who does not own the file, so a non-root program could not even start.
- * Rather than assume which `@zenfs/core` is installed, the kernel asks it once at boot: a throwaway
- * context as an unprivileged user tries to read a root-owned file mode 0644. When that fails every
- * program keeps running as root, as before, and one log line says why.
+ * Running as the user is only worth it when the installed `@zenfs/core` enforces the rules that make a user
+ * different from root, and every one of them has been missing from some release. Rather than assume which is
+ * installed, the kernel asks once at boot, with a throwaway context as an unprivileged user:
+ *
+ * - it can read a root-owned file mode 0644. A program is `execve`'d by reading its file with a synchronous
+ *   `open(path, 'r', mode)`, which once checked the *creation* mode as if it were the access requested, so a
+ *   non-root program could not even start;
+ * - it can `chmod` a directory and a read-only file it owns (changing a mode needs ownership, not access bits;
+ *   the synchronous call once refused directories outright), so `chmod` works for the people who run it;
+ * - it cannot read through a directory it has no search permission on, so one user's 0700 home is private.
+ *
+ * When any fails every program keeps running as root, as before, and one log line says why.
  */
 
 import { bindContext } from '@zenfs/core'
@@ -18,19 +24,37 @@ import type { Filesystem } from '#filesystem.ts'
 const PROBE_ID = 64000
 
 export async function canRunProgramsAsUser(fs: Filesystem['fs']): Promise<boolean> {
-  const path = '/run/.credentials-probe'
+  const base = '/run/.credentials-probe'
   try {
-    await fs.writeFile(path, 'probe', { mode: 0o644 })
+    await fs.mkdir(base, { mode: 0o755 })
+    await fs.writeFile(`${base}/file`, 'probe', { mode: 0o644 })
+    await fs.mkdir(`${base}/private`, { mode: 0o700 })
+    await fs.writeFile(`${base}/private/file`, 'probe', { mode: 0o644 })
+    await fs.mkdir(`${base}/owned`, { mode: 0o755 })
+    await fs.chown(`${base}/owned`, PROBE_ID, PROBE_ID)
+    await fs.writeFile(`${base}/readonly`, 'probe', { mode: 0o444 })
+    await fs.chown(`${base}/readonly`, PROBE_ID, PROBE_ID)
+
     const stranger = bindContext({
       root: '/',
       pwd: '/',
       credentials: { uid: PROBE_ID, gid: PROBE_ID, suid: PROBE_ID, sgid: PROBE_ID, euid: PROBE_ID, egid: PROBE_ID, groups: [] }
     })
-    return stranger.fs.readFileSync(path, 'utf8') === 'probe'
+    if (stranger.fs.readFileSync(`${base}/file`, 'utf8') !== 'probe') return false
+
+    stranger.fs.chmodSync(`${base}/owned`, 0o700)
+    stranger.fs.chmodSync(`${base}/readonly`, 0o640)
+
+    try {
+      stranger.fs.readFileSync(`${base}/private/file`, 'utf8')
+      return false
+    } catch {
+      return true
+    }
   } catch {
     return false
   } finally {
-    await fs.unlink(path).catch(() => {})
+    await fs.rm(base, { recursive: true, force: true }).catch(() => {})
   }
 }
 

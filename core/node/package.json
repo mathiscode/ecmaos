@@ -36,7 +36,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.7.4",
     "@types/ws": "^8.18.1",
-    "@zenfs/core": "^2.7.6",
+    "@zenfs/core": "^2.7.7",
     "@zenfs/linux": "0.6.1",
     "eslint": "^10.11.0",
     "globals": "^17.12.0",

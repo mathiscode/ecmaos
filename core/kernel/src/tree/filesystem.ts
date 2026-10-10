@@ -245,6 +245,9 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   disableAccessChecks: false,
   disableAsyncCache: false,
   onlySyncOnClose: false,
+  // Without it a path is resolved without asking each directory along it for search permission, so a user could read a
+  // world-readable file inside another user's 0700 home. It makes each path resolution slower, which is the price of the rule.
+  resolveFullWalk: true,
   log: {
     level: 'debug',
     enabled: false

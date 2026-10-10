@@ -76,7 +76,7 @@
     "overrides": {
       "@types/node": "22.20.2",
       "memium": "^1.0.4",
-      "@zenfs/core": "^2.7.6"
+      "@zenfs/core": "^2.7.7"
     }
   }
 }
