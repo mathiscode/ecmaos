@@ -62,6 +62,10 @@ describe('programs run as the user who started them', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/root-status', 'utf-8')).toMatch(/Uid:\t0\t0\t0\t0/)
   })
 
+  it('the published @zenfs/core is enough to run programs as the user', () => {
+    expect(gateOpen).toBe(true)
+  })
+
   it('a user shell starts programs as that user when the installed zenfs allows it', async () => {
     await asAlice(async () => {
       const result = await status('cat /proc/self/status')
@@ -155,6 +159,32 @@ describe('programs run as the user who started them', () => {
     expect((await kernel.filesystem.fs.stat('/home/alice/dir')).mode & 0o777).toBe(0o700)
     expect((await kernel.filesystem.fs.stat('/home/alice/ro')).mode & 0o777).toBe(0o640)
     expect((await kernel.filesystem.fs.stat('/tmp/not-alices')).mode & 0o777).toBe(0o666)
+  }, 60000)
+
+  it('chgrp and chown ask the kernel for what an owner may do, and refuse what only root may', async () => {
+    if (!gateOpen) return
+    await kernel.filesystem.fs.mkdir('/home/alice/shared')
+    await kernel.filesystem.fs.chown('/home/alice/shared', alice.uid, alice.gid)
+    await kernel.filesystem.fs.writeFile('/home/alice/keep', 'x', { mode: 0o444 })
+    await kernel.filesystem.fs.chown('/home/alice/keep', alice.uid, alice.gid)
+
+    await asAlice(async () => {
+      // her own directory and read-only file, to the group she is in, are hers to change
+      expect((await status(`chgrp ${alice.gid} /home/alice/shared`)).code).toBe(0)
+      expect((await status(`chown ${alice.uid}:${alice.gid} /home/alice/keep`)).code).toBe(0)
+      expect((await status('chmod u+w /home/alice/keep')).code).toBe(0)
+      // a group she is not in, and giving a file away, are root's
+      const group = await status('chgrp 0 /home/alice/shared')
+      expect(group.code).not.toBe(0)
+      expect(group.err).toMatch(/EPERM|not permitted/i)
+      expect((await status(`chown ${bob.uid} /home/alice/keep`)).code).not.toBe(0)
+      // and nobody else's file is theirs to change
+      expect((await status('chmod 777 /etc/passwd')).code).not.toBe(0)
+      expect((await status(`chgrp ${alice.gid} /etc`)).code).not.toBe(0)
+    })
+    expect((await kernel.filesystem.fs.stat('/home/alice/shared')).gid).toBe(alice.gid)
+    expect((await kernel.filesystem.fs.stat('/home/alice/keep')).uid).toBe(alice.uid)
+    expect((await kernel.filesystem.fs.stat('/etc/passwd')).mode & 0o777).not.toBe(0o777)
   }, 60000)
 
   it('one user cannot reach into another user\'s home directory', async () => {

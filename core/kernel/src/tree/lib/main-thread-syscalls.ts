@@ -28,7 +28,7 @@
 import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
-import { fs, mounts } from '@zenfs/core'
+import { boundContexts, fs, mounts } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
@@ -68,6 +68,8 @@ declare module '@zenfs/linux/uapi/abi' {
     quota_report(argsJson: string, path: string): number
     klog(level: string, message: string): number
     reboot(): number
+    fs_chmod(path: string, mode: number): number
+    fs_chown(path: string, uid: number, gid: number): number
     users_lookup(query: string, path: string): number
     tty_get(): number
     tty_switch(ttyNumber: number): number
@@ -189,6 +191,14 @@ function processIsRoot(proc: Process): boolean {
 /** Refuses a caller that is not a root process, for what only the system may do. */
 function requireRoot(proc: Process, what: string): void {
   if (!processIsRoot(proc)) throw Object.assign(new Error(`${what}: Operation not permitted`), { errno: Errno.EPERM })
+}
+
+/** What a file's metadata says, looked up as the caller, so a directory it may not search is refused as it would be for the caller. */
+async function statAsCaller(proc: Process, path: string): Promise<{ uid: number, gid: number }> {
+  const bound = boundContexts.get(proc.context.id)
+  if (!bound) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+  const info = await bound.fs.promises.stat(path)
+  return { uid: Number(info.uid), gid: Number(info.gid) }
 }
 
 /** Removes a directory tree, as `userdel -r` removes a home directory. */
@@ -1661,6 +1671,29 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
   define_syscall('proc_killpg', (proc: Process, pgid: number, signal: number) => { killpg(pgid, signal, proc); return 0 })
+
+  // Changing a file's mode or owner is a matter of owning it, not of having read or write access to it, and the
+  // installed @zenfs/core does not know that for a directory (its synchronous `chmod` refuses one outright) or for a
+  // file the owner has made read-only. So `chmod`, `chown` and `chgrp` ask here when their own call is refused: the
+  // caller's own context looks the file up (so every directory on the way still has to let it through), the rule is
+  // Linux's, and the change itself is made with the kernel's filesystem. Delete both when @zenfs/core does this itself.
+  define_syscall('fs_chmod', async (proc: Process, path: string, mode: number) => {
+    const info = await statAsCaller(proc, path)
+    const caller = proc.context.credentials
+    if (caller.euid !== 0 && caller.euid !== info.uid) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    await kernelOf(proc).filesystem.fs.chmod(path, mode & 0o7777)
+    return 0
+  })
+
+  define_syscall('fs_chown', async (proc: Process, path: string, uid: number, gid: number) => {
+    const info = await statAsCaller(proc, path)
+    const { euid, egid, groups } = proc.context.credentials
+    // root may give a file to anyone; an owner may only move it to a group they belong to
+    const allowed = euid === 0 || (euid === info.uid && uid === info.uid && (gid === info.gid || gid === egid || groups.includes(gid)))
+    if (!allowed) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    await kernelOf(proc).filesystem.fs.chown(path, uid, gid)
+    return 0
+  })
 
   define_syscall('proc_kill', async (proc: Process, pid: number, signal: number) => {
     const target = processes.get(pid)

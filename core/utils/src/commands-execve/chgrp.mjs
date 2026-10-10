@@ -9,7 +9,10 @@
 import { readTextFile } from './lib/fs-text.mjs'
 import { join, resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll, getcwd, lstat, stat, chown, readdir } = globalThis.ecmaosSyscalls
+import { chownOwned } from './lib/owner-ops.mjs'
+
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, lstat, stat, readdir } = sys
 
 const encoder = new TextEncoder()
 const err = text => writeAll(2, encoder.encode(`chgrp: ${text}\n`))
@@ -38,7 +41,7 @@ function groupId(spec) {
   return undefined
 }
 
-function main() {
+async function main() {
   const args = argv.slice(1)
   const o = { recursive: false, verbose: false, changes: false, quiet: false, reference: undefined }
   const rest = []
@@ -68,24 +71,24 @@ function main() {
   if (files.length === 0) { err('missing operand'); return 1 }
 
   let failed = false
-  const apply = (shown, full) => {
+  const apply = async (shown, full) => {
     let info
     try { info = lstat(full) } catch (error) { if (!o.quiet) err(`cannot access '${shown}': ${error?.message ?? error}`); failed = true; return }
     const changed = info.gid !== gid
     try {
-      if (changed) chown(full, info.uid, gid)
+      if (changed) await chownOwned(sys, full, info.uid, gid)
       if (o.verbose || (o.changes && changed)) writeAll(1, encoder.encode(changed ? `changed group of '${shown}' to ${gid}\n` : `group of '${shown}' retained as ${gid}\n`))
     } catch (error) { if (!o.quiet) err(`changing group of '${shown}': ${error?.message ?? error}`); failed = true }
     if (o.recursive && (info.mode & S_IFMT) === S_IFDIR) {
-      for (const name of readdir(full).filter(entry => entry !== '.' && entry !== '..').sort()) apply(`${shown.replace(/\/+$/, '')}/${name}`, join(full, name))
+      for (const name of readdir(full).filter(entry => entry !== '.' && entry !== '..').sort()) await apply(`${shown.replace(/\/+$/, '')}/${name}`, join(full, name))
     }
   }
-  for (const file of files) apply(file, resolve(cwd, file))
+  for (const file of files) await apply(file, resolve(cwd, file))
   return failed ? 1 : 0
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   err(error?.message ?? String(error))
   exit(1)

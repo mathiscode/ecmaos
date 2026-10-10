@@ -2,7 +2,10 @@
 
 import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, chmod } = globalThis.ecmaosSyscalls
+import { chmodOwned } from './lib/owner-ops.mjs'
+
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat } = sys
 
 const usage = `Usage: chmod [OPTION]... MODE[,MODE]... FILE...
    or:  chmod [OPTION]... OCTAL-MODE FILE...
@@ -58,7 +61,7 @@ function parseMode(mode, filePath) {
   return parseSymbolicMode(mode, currentMode)
 }
 
-function main() {
+async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
     writeAll(2, new TextEncoder().encode(usage + '\n'))
@@ -83,7 +86,7 @@ function main() {
   for (const target of targets) {
     const fullPath = resolve(cwd, target)
     try {
-      chmod(fullPath, parseMode(mode, fullPath))
+      await chmodOwned(sys, fullPath, parseMode(mode, fullPath))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       writeAll(2, new TextEncoder().encode(`chmod: ${target}: ${message}\n`))
@@ -95,7 +98,7 @@ function main() {
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   writeAll(2, new TextEncoder().encode(`chmod: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)

@@ -8,7 +8,10 @@
 
 import { resolve, join } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll, read, getcwd, open, close, stat, lstat, isDirectory, readdir, chown, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
+import { chownOwned } from './lib/owner-ops.mjs'
+
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, stat, lstat, isDirectory, readdir, unlink, custom, O_RDONLY } = sys
 
 const usage = `Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...
    or:  chown [OPTION]... :GROUP FILE...
@@ -159,7 +162,7 @@ async function changeOwnership(filePath, spec) {
     if (spec.group !== undefined) newGid = spec.group
   }
 
-  chown(filePath, newUid, newGid)
+  await chownOwned(sys, filePath, newUid, newGid)
   return { uid: newUid, gid: newGid }
 }
 
