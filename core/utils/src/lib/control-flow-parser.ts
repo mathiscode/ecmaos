@@ -11,6 +11,7 @@
  * If         := 'if' Line 'then' Statements ('elif' Line 'then' Statements)* ('else' Statements)? 'fi'
  * While      := 'while' Line 'do' Statements 'done'
  * For        := 'for' NAME 'in' Word* ';'? 'do' Statements 'done'
+ * Select     := 'select' NAME ('in' Word*)? ';'? 'do' Statements 'done'
  * ArithFor   := 'for' '((' Arith ';' Arith ';' Arith '))' ';'? 'do' Statements 'done'
  * Case       := 'case' Word 'in' (Pattern ('|' Pattern)* ')' Statements ';;')* 'esac'
  * Group      := '{' Statements '}'
@@ -74,6 +75,15 @@ export interface ArithmeticForStatement extends Redirected, Positioned {
   init: string
   cond: string
   step: string
+  body: Statement[]
+}
+
+/** `select NAME [in WORDS]; do ...; done`: a numbered menu on standard error, the choice read from standard input. */
+export interface SelectStatement extends Redirected, Positioned {
+  type: 'select'
+  variable: string
+  /** The list text as written; absent for `select NAME; do`, which offers the positional parameters. */
+  wordsText?: string
   body: Statement[]
 }
 
@@ -189,7 +199,7 @@ export interface AndOrStatement extends Positioned {
   rest: Array<{ op: '&&' | '||', statement: Statement }>
 }
 
-export type Statement = AndOrStatement | PipelineStatement | SimpleStatement | IfStatement | WhileStatement | ForStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
+export type Statement = AndOrStatement | PipelineStatement | SimpleStatement | IfStatement | WhileStatement | ForStatement | SelectStatement | ArithmeticForStatement | CaseStatement | GroupStatement | SubshellStatement | FunctionDef
 
 /**
  * A parse failure in the statement tree.
@@ -251,7 +261,7 @@ function normalizeOneLineIfNeeded(line: string): string {
 
 
 /** Words that open a compound command when they stand where a command could start. */
-const COMPOUND_OPENERS = new Set(['if', 'while', 'until', 'for', 'case'])
+const COMPOUND_OPENERS = new Set(['if', 'while', 'until', 'for', 'select', 'case'])
 /** Words after which a new command starts, so a following `if`/`while`/... opens a compound. */
 const COMMAND_STARTERS = new Set(['then', 'do', 'else', 'elif', '!', 'time'])
 
@@ -325,7 +335,7 @@ export function splitTopLevel(line: string): string[] {
       if (commandStart) {
         if (COMPOUND_OPENERS.has(w)) keywords.push(w)
         else if ((w === 'fi' && keywords[keywords.length - 1] === 'if')
-          || (w === 'done' && ['while', 'until', 'for'].includes(keywords[keywords.length - 1] ?? ''))
+          || (w === 'done' && ['while', 'until', 'for', 'select'].includes(keywords[keywords.length - 1] ?? ''))
           || (w === 'esac' && keywords[keywords.length - 1] === 'case')) keywords.pop()
       }
       current += w
@@ -432,7 +442,7 @@ function closingBrace(text: string): number {
   return -1
 }
 
-const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'until', 'do', 'done', 'for', 'in', 'case', 'esac', 'function'])
+const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'fi', 'while', 'until', 'do', 'done', 'for', 'select', 'in', 'case', 'esac', 'function'])
 
 /** Indices of the `|` in `text` that join pipeline stages: not `||`, and not inside quotes, `( )`, `{ }` or `$( )`. */
 function pipeIndexes(text: string): number[] {
@@ -690,6 +700,7 @@ class LineParser {
       case 'while': return this.parseWhile()
       case 'until': return this.parseWhile(true)
       case 'for': return this.parseFor()
+      case 'select': return this.parseSelect()
       case 'case': return this.parseCase()
       case 'function': return this.parseFunctionKeywordForm()
       case '{': return this.parseGroup()
@@ -808,6 +819,24 @@ class LineParser {
     const body = this.parseStatements(['done'])
     const redirect = this.expectKeywordLine('done')
     return { type: 'for', variable, wordsText: wordsPart.trim(), body, ...(redirect ? { redirect } : {}) }
+  }
+
+  private parseSelect(): SelectStatement {
+    const header = this.restAfterKeyword(this.advance(), 'select')
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+in\s+(.*?))?\s*;?\s*((?<![^\s;])do)?$/.exec(header)
+    if (!match) throw new ControlFlowParseError(`Malformed select header: select ${header}`)
+
+    const [, variable, wordsPart, inlineDo] = match as unknown as [string, string, string | undefined, string | undefined]
+    if (!inlineDo) {
+      if (this.firstWord(this.peek() ?? '') !== 'do') {
+        throw new ControlFlowParseError(`Expected 'do' after 'select ${header}'`, this.atEnd())
+      }
+      this.takeKeyword()
+    }
+
+    const body = this.parseStatements(['done'])
+    const redirect = this.expectKeywordLine('done')
+    return { type: 'select', variable, ...(wordsPart === undefined ? {} : { wordsText: wordsPart.trim() }), body, ...(redirect ? { redirect } : {}) }
   }
 
   private parseGroup(): GroupStatement {
@@ -996,7 +1025,7 @@ export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
  */
 const ATTACH_AND_CLOSE_LINE = new Set(['then', 'do'])
 /** Start a new line on their own; the word itself continues to accumulate normally afterward. */
-const START_NEW_LINE = new Set(['if', 'while', 'until', 'for', 'elif'])
+const START_NEW_LINE = new Set(['if', 'while', 'until', 'for', 'select', 'elif'])
 
 /**
  * Close a block, so they own their line up to the next top-level `;` and whatever follows that `;`

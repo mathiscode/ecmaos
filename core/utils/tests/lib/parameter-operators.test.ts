@@ -54,6 +54,14 @@ describe('parameter operators', () => {
     expect(await s.string('${a[1]#q}')).toBe('')
   })
 
+  it('trims the shortest or the longest match when several fit, from either end', async () => {
+    const s = make({ v: 'a.b.c' })
+    expect(await s.string('${v#*.}')).toBe('b.c')
+    expect(await s.string('${v##*.}')).toBe('c')
+    expect(await s.string('${v%.*}')).toBe('a.b')
+    expect(await s.string('${v%%.*}')).toBe('a')
+  })
+
   it('replaces the first match, all matches, or an anchored one', async () => {
     const s = shell()
     expect(await s.string('${b/a/X}')).toBe('bXnana')

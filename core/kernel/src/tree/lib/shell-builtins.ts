@@ -14,6 +14,7 @@
 
 import type { Shell } from '#shell.ts'
 import type { ShellBuiltinIO } from '@ecmaos/types'
+import { currentStorageLimits } from './storage-limits.ts'
 import { sharedBuiltinNames, runSharedBuiltin, shellQuote, type BuiltinHost } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import path from 'path'
 
@@ -67,12 +68,22 @@ export function kernelBuiltinHost(shell: Shell): BuiltinHost {
       } catch { return undefined }
     },
     readFile: target => shell.context.fs.promises.readFile(target, 'utf-8'),
+    listDir: dir => shell.context.fs.promises.readdir(dir),
+    builtinNames: () => trueBuiltinNames,
+    writeFile: (target, text) => shell.context.fs.promises.writeFile(target, text),
+    removeFile: target => shell.context.fs.promises.unlink(target),
     positional: () => shell.positionalParameters,
     setPositional: args => shell.setPositionalParameters([shell.env.get('0') ?? 'ecmaos', ...args]),
     getStatus: () => Number(shell.env.get('?') ?? 0),
     describe: name => shell.describeCommand(name),
     runArgv: argv => shell.execute(argv.map(shellQuote).join(' ')),
     changed: () => shell.publishEnv(),
+    // the built-in shell is what a login runs, so it is always a login shell
+    isLoginShell: () => true,
+    fileSizeLimit: () => {
+      const { maxFileBytes } = currentStorageLimits()
+      return maxFileBytes === false ? undefined : maxFileBytes
+    },
     umask: mask => {
       const old = shell.umask
       if (old !== undefined && mask !== undefined) shell.umask = mask

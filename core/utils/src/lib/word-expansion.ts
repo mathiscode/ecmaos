@@ -228,9 +228,10 @@ class Expander {
       const trim = (text: string): string => {
         const prefix = operator[0] === '#'
         const longest = operator.length === 2
-        // The candidate cut points, shortest first; the longest match is the last one that fits.
+        // The candidate lengths of what gets cut off, shortest first. `cut` is the length of the piece
+        // removed whichever end it comes from, so the longest match is the largest `cut` that fits.
         const cuts = Array.from({ length: text.length + 1 }, (_, i) => i)
-        const order = prefix === longest ? cuts.reverse() : cuts
+        const order = longest ? cuts.reverse() : cuts
         for (const cut of order) {
           const piece = prefix ? text.slice(0, cut) : text.slice(text.length - cut)
           if (pattern.test(piece)) return prefix ? text.slice(cut) : text.slice(0, text.length - cut)

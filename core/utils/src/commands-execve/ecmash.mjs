@@ -35,8 +35,11 @@ import { History } from '../lib/history.ts'
 import { ShellState, serializeSnapshot, deserializeSnapshot } from '../lib/shell-core/state.ts'
 import { Interpreter } from '../lib/shell-core/interpreter.ts'
 import { runSharedBuiltin, sharedBuiltinNames, shellQuote } from '../lib/shell-core/builtins.ts'
+import { programmableCompletion } from '../lib/shell-core/programmable-completion.ts'
+import { promptCommands } from '../lib/shell-core/prompt-command.ts'
 import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../lib/shell-core/signals.ts'
+import { startupFiles } from '../lib/shell-core/startup-files.ts'
 import { SIGNAL_NUMBERS, UNCATCHABLE_SIGNALS } from '../lib/shell-core/signal-table.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
@@ -92,6 +95,17 @@ function writeWholeFile(path, text) {
 
 const exists = path => { try { stat(path); return true } catch { return false } }
 const isDir = path => { try { return (stat(path).mode & 0xf000) === 0x4000 } catch { return false } }
+/** `$GROUPS`: the primary group, then the supplementary ones the kernel reports for this process. */
+function groupIds(gid) {
+  const ids = []
+  if (gid !== undefined && gid !== '') ids.push(gid)
+  try {
+    const line = readFileText('/proc/self/status').split('\n').find(entry => entry.startsWith('Groups:'))
+    for (const id of (line ?? '').slice(7).trim().split(/\s+/)) if (id !== '' && !ids.includes(id)) ids.push(id)
+  } catch { /* no /proc: the primary group alone */ }
+  return ids
+}
+
 const isFile = path => { try { return (stat(path).mode & 0xf000) === 0x8000 } catch { return false } }
 const resolvePath = (path, cwd = getcwd()) => normalize(path.startsWith('/') ? path : `${cwd}/${path}`)
 
@@ -122,7 +136,7 @@ class Shell {
     // What the process was started with is inherited by its children; what the shell assigns is not, until `export`.
     /** Redirections `exec` installed on this shell, finished when it leaves. */
     this.execRedirections = []
-    this.state = new ShellState({ pid: getpid, ppid: getppid }, new Map(Object.entries(sys.env)))
+    this.state = new ShellState({ pid: getpid, ppid: getppid, groups: () => groupIds(this.state.vars.get('GID')) }, new Map(Object.entries(sys.env)))
     this.positional = args
     this.name = name
     this.status = 0
@@ -941,6 +955,13 @@ class Shell {
         } catch { return undefined }
       },
       readFile: async path => readFileText(path),
+      listDir: async dir => readdir(resolvePath(dir)),
+      builtinNames: () => BUILTINS,
+      writeFile: async (path, text) => {
+        const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+        try { writeAllFd(fd, text) } finally { close(fd) }
+      },
+      removeFile: async path => { unlink(path) },
       positional: () => shell.positional,
       setPositional: args => { shell.positional = args },
       getStatus: () => shell.status,
@@ -953,6 +974,11 @@ class Shell {
         return program ? { kind: 'file', path: program } : undefined
       },
       runArgv: argv => shell.interpreter.runText(argv.map(shellQuote).join(' ')),
+      isLoginShell: () => Boolean(shell.login),
+      fileSizeLimit: async () => {
+        const bytes = Number(await sys.custom('proc_file_limit'))
+        return bytes < 0 ? undefined : bytes
+      },
       // a negative mask asks without changing; the kernel answers -1 where the file system has no such thing
       umask: async mask => {
         const old = await sys.custom('proc_umask', mask ?? -1)
@@ -1112,6 +1138,12 @@ async function interactive(shell, tty) {
       }
     }
     shell.jobs = shell.jobs.filter(job => !job.reported)
+    // PROMPT_COMMAND runs after the job notices and before PS1, and leaves `$?` as the last command had it.
+    const status = shell.status
+    for (const text of promptCommands(shell.state)) {
+      try { await shell.runText(text) } catch (error) { if (!isUnwind(error)) writeAllFd(2, `ecmash: PROMPT_COMMAND: ${error?.message ?? error}\n`) }
+    }
+    shell.status = status
     const restore = rawMode(tty)
     let line
     try { line = await readLine(shell, tty, history) } finally { restore() }
@@ -1182,6 +1214,7 @@ async function readLine(shell, tty, history, fixedPrompt) {
             get cwd() { return getcwd() },
             expandTilde: text => (text.startsWith('~') ? (shell.vars.get('HOME') ?? '') + text.slice(1) : text),
             builtins: BUILTINS,
+            programmable: line => programmableCompletion(shell.builtinHost(), line),
           }
           let matches = []
           try { matches = await completionMatches(editor.text, provider) } catch { /* nothing to offer */ }
@@ -1245,10 +1278,25 @@ async function main() {
   const name = command !== undefined ? (argv.shift() ?? 'ecmash') : (argv[0] ?? 'ecmash')
   const script = command === undefined && argv.length ? argv.shift() : undefined
   const shell = new Shell(script ?? name, argv)
+  shell.login = login
 
+  // Which startup files run is shared with the kernel shell (`shell-core/startup-files`). A login shell
+  // reads the profile files here; the rc files wait until we know the shell is interactive.
+  const startupHost = {
+    isFile: path => isFile(path),
+    list: dir => { try { return readdir(dir) } catch { return [] } }
+  }
+  const runStartupFile = async file => {
+    shell.state.pushSourceFrame(file, 0)
+    try { await shell.runText(readFileText(file)) } catch (error) {
+      if (error instanceof ExitSignal) return false
+      /* a broken startup file must not lock the shell out */
+    } finally { shell.state.popSourceFrame() }
+    return true
+  }
   if (login) {
-    for (const file of ['/etc/profile', `${shell.vars.get('HOME') ?? ''}/.ecmash_profile`, `${shell.vars.get('HOME') ?? ''}/.profile`]) {
-      if (isFile(file)) { try { await shell.runText(readFileText(file)) } catch { /* a broken profile must not lock the shell out */ } }
+    for (const file of await startupFiles({ home: shell.vars.get('HOME'), login: true, interactive: false }, startupHost)) {
+      if (!await runStartupFile(file)) break
     }
   }
 
@@ -1257,10 +1305,12 @@ async function main() {
     if (command !== undefined) status = await shell.runText(command)
     else if (script !== undefined) {
       if (!isFile(resolvePath(script))) { writeAllFd(2, `ecmash: ${script}: No such file or directory\n`); exit(127) }
+      shell.state.pushSourceFrame(script, 0)
       status = await shell.runText(readFileText(resolvePath(script)))
     } else if (isTty(0)) {
-      const rc = `${shell.vars.get('HOME') ?? ''}/.ecmashrc`
-      if (isFile(rc)) { try { await shell.runText(readFileText(rc)) } catch { /* ignore */ } }
+      for (const file of await startupFiles({ home: shell.vars.get('HOME'), login: false, interactive: true }, startupHost)) {
+        if (!await runStartupFile(file)) break
+      }
       await interactive(shell, ttyFd())
     } else {
       status = await shell.runText(readFd(0))

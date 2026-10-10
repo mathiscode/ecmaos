@@ -50,6 +50,21 @@ describe('ecmash', () => {
     }
   })
 
+  it('a login shell reads the shared startup files: profile, profile.d, then the first user profile', async () => {
+    const files = ['/etc/profile', '/etc/profile.d/10-em.sh', '/root/.bash_profile', '/root/.profile']
+    await fs().mkdir('/etc/profile.d', { recursive: true })
+    await fs().writeFile('/etc/profile', 'EM_ORDER=profile\n')
+    await fs().writeFile('/etc/profile.d/10-em.sh', 'EM_ORDER=$EM_ORDER:d\n')
+    await fs().writeFile('/root/.bash_profile', 'EM_ORDER=$EM_ORDER:bash_profile\n')
+    await fs().writeFile('/root/.profile', 'EM_ORDER=$EM_ORDER:hidden\n')
+    try {
+      expect((await run('echo $EM_ORDER', '-l')).out).toBe('profile:d:bash_profile\n')
+      expect((await run('echo ${EM_ORDER:-none}')).out).toBe('none\n')
+    } finally {
+      for (const file of files) await fs().unlink(file).catch(() => {})
+    }
+  })
+
   it('wires a pipeline through real pipes', async () => {
     expect((await run('echo abc | tr a-z A-Z | cat')).out).toBe('ABC\n')
   })

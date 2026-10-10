@@ -32,7 +32,7 @@ describe('startup files', () => {
   const shell = () => kernel.shell
   const fs = () => kernel.filesystem.fs
 
-  const FILES = ['/etc/profile', '/etc/ecmashrc', '/root/.profile', '/root/.ecmash_profile', '/root/.ecmashrc']
+  const FILES = ['/etc/profile', '/etc/profile.d/10-test.sh', '/etc/ecmashrc', '/root/.profile', '/root/.ecmash_profile', '/root/.bash_profile', '/root/.bashrc', '/root/.ecmashrc']
 
   beforeEach(async () => {
     // The kernel's shell is long-lived and shared across this file, so anything a previous test left
@@ -46,6 +46,20 @@ describe('startup files', () => {
   })
 
   const write = (file: string, text: string) => fs().writeFile(file, text)
+
+  it('reads ~/.bashrc and /etc/profile.d/*.sh, and ~/.bash_profile hides ~/.profile', async () => {
+    await fs().mkdir('/etc/profile.d', { recursive: true })
+    await write('/etc/profile', 'ORDER=profile\n')
+    await write('/etc/profile.d/10-test.sh', 'ORDER=$ORDER:d\n')
+    await write('/root/.bash_profile', 'ORDER=$ORDER:bash_profile\n')
+    await write('/root/.profile', 'ORDER=$ORDER:profile_hidden\n')
+    await write('/root/.bashrc', 'ORDER=$ORDER:bashrc\n')
+    await write('/root/.ecmashrc', 'ORDER=$ORDER:rc\n')
+
+    await shell().loadProfile()
+
+    expect(shell().env.get('ORDER')).toBe('profile:d:bash_profile:bashrc:rc')
+  })
 
   it('runs /etc/profile and ~/.ecmashrc, in that order, and keeps what they define', async () => {
     await write('/etc/profile', 'STARTUP_ORDER=profile\nexport FROM_PROFILE=yes\n')

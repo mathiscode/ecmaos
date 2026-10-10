@@ -214,7 +214,7 @@ export interface Shell {
    * @param text - The text to run
    * @param positional - Replaces `$1..` for the duration (`source f a b`), restored on the way out
    */
-  executeSourced(text: string, positional?: string[]): Promise<number>
+  executeSourced(text: string, positional?: string[], file?: string): Promise<number>
 
   /**
    * Expands tilde (~) to the user's home directory
@@ -229,7 +229,7 @@ export interface Shell {
    * old flat line-by-line runner.
    * @param script - The script's full text
    */
-  executeScriptText(script: string): Promise<number>
+  executeScriptText(script: string, file?: string): Promise<number>
 
   /**
    * Sets a variable, honoring an active `local` scope if one exists (writes to the innermost
@@ -343,6 +343,10 @@ export interface Shell {
   listJobs(): Job[]
   /** `[n]+  Done  cmd` lines for background jobs that finished since the last prompt; each is reported once */
   takeJobNotifications(): string[]
+  /** Whether `PROMPT_COMMAND` has anything to run before the next prompt. */
+  hasPromptCommand(): boolean
+  /** Runs `PROMPT_COMMAND`; call it just before drawing a primary prompt. */
+  runPromptCommand(): Promise<void>
 
   /**
    * Resolves a job spec the way bash does: `%N` (job N), `%%`/`%+` (current/most recent job),

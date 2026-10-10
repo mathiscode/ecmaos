@@ -1,6 +1,6 @@
 /**
  * Show or manage command history. With no arguments, prints the history list; `N` limits it to the
- * last N entries. `-c` clears history, `-d` deletes one entry, `-r` re-reads history from disk.
+ * last N entries. `-c` clears history, `-d` deletes one entry, `-r` re-reads history from disk, `-a` and `-w` succeed (the file is always current).
  * `-d` and `-c` also refresh the terminal's own up-arrow recall so it matches what's on disk.
  */
 
@@ -15,6 +15,7 @@ Display or manipulate the command history.
   -c             clear the history list
   -d N           delete the history entry at position N
   -r             reload the history file (useful after manual edits)
+  -a, -w         append or write the history file; every command is saved as it runs, so there is nothing left to do
   --help         display this help and exit
 
 If N is provided without options, display the last N entries.
@@ -88,6 +89,9 @@ async function main() {
       clearHistory = true
     } else if (arg === '-r') {
       readHistory = true
+    } else if (arg === '-a' || arg === '-w') {
+      // The terminal appends each command before it runs, so the file is always current.
+      return 0
     } else if (arg === '-d') {
       if (i + 1 < args.length) {
         i++

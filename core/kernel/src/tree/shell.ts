@@ -27,6 +27,9 @@ import { SessionLog } from '#lib/sessions.ts'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
+import { startupFiles } from '@ecmaos/coreutils/lib/shell-core/startup-files'
+import { promptCommands } from '@ecmaos/coreutils/lib/shell-core/prompt-command'
+import { isControlFlowSignal } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { signalNameOf } from '@ecmaos/coreutils/lib/shell-core/signal-table'
 import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
@@ -135,6 +138,7 @@ function compoundLabel(statement: Statement): string {
     case 'case': return 'case ...; esac'
     case 'while': return `${statement.until ? 'until' : 'while'} ...; done`
     case 'for': case 'cfor': return 'for ...; done'
+    case 'select': return 'select ...; done'
     default: return '...'
   }
 }
@@ -471,7 +475,11 @@ export class Shell implements IShell {
    * `set` options, shared with `/bin/ecmash`. The underscore names below are views onto it, so the
    * rest of this class reads as it always did.
    */
-  readonly state = new ShellState({ pid: () => this.process.pid, ppid: () => this.process.ppid })
+  readonly state = new ShellState({
+    pid: () => this.process.pid,
+    ppid: () => this.process.ppid,
+    groups: () => [String(this.credentials.gid), ...this.credentials.groups.filter(group => group !== this.credentials.gid).map(String)]
+  })
 
   /** The shared statement walk. This shell supplies how a pipeline runs (see {@link hostInterface}). */
   readonly interpreter = new Interpreter(this.hostInterface(), this.state)
@@ -848,7 +856,8 @@ export class Shell implements IShell {
 
   /**
    * Runs the shell startup files, in bash's order: the system-wide ones first, then the user's, so a
-   * user file can override what the system set.
+   * user file can override what the system set. Which files, and in what order, is
+   * `shell-core/startup-files`, shared with `/bin/ecmash`.
    *
    * Two things this deliberately does not do. It does not go through `executeScriptText`, which fires
    * the `EXIT` trap when the text ends -- an rc file that installs a trap wants it to survive for the
@@ -861,32 +870,20 @@ export class Shell implements IShell {
    * `argv[0]` starting with a `-` and only the `ecmashrc` half stays unconditional.
    */
   async loadProfile() {
-    const home = this._env.get('HOME')
-    const candidates = ['/etc/profile']
-
-    // bash reads the *first* of these three that exists, not all of them, so that a `~/.bash_profile`
-    // can suppress `~/.profile` rather than adding to it.
-    if (home) {
-      for (const name of ['.ecmash_profile', '.profile']) {
-        const candidate = path.join(home, name)
-        try {
-          if (await this.context.fs.promises.exists(candidate)) {
-            candidates.push(candidate)
-            break
-          }
-        } catch {}
+    const fs = this.context.fs.promises
+    const candidates = await startupFiles(
+      { home: this._env.get('HOME'), login: true, interactive: true },
+      {
+        isFile: async file => { try { return (await fs.stat(file)).isFile() } catch { return false } },
+        list: async dir => { try { return await fs.readdir(dir) } catch { return [] } }
       }
-    }
-
-    candidates.push('/etc/ecmashrc')
-    if (home) candidates.push(path.join(home, '.ecmashrc'))
+    )
 
     for (const file of candidates) {
       try {
-        if (!await this.context.fs.promises.exists(file)) continue
         const content = await this.context.fs.promises.readFile(file, 'utf-8')
         this._sourceFile = file
-        await this.executeSourced(content)
+        await this.executeSourced(content, undefined, file)
       } catch (error) {
         // `exit` in a startup file stops startup, as in bash -- there is no process to end here, so
         // the remaining files are skipped and the prompt is reached anyway.
@@ -1841,8 +1838,28 @@ export class Shell implements IShell {
    *
    * `positional` replaces `$1..` for the duration (`source f a b`), restored on the way out.
    */
-  async executeSourced(text: string, positional?: string[]): Promise<number> {
-    return await this.interpreter.runSourced(text, positional)
+  async executeSourced(text: string, positional?: string[], file?: string): Promise<number> {
+    return await this.interpreter.runSourced(text, positional, file)
+  }
+
+  /** True when `PROMPT_COMMAND` has something to run, so the prompt can skip the async hop when it does not. */
+  hasPromptCommand(): boolean {
+    return promptCommands(this.state).length > 0
+  }
+
+  /**
+   * Runs `PROMPT_COMMAND` just before a primary prompt is drawn. Like bash, `$?` is what the command that
+   * just finished left it, whatever the prompt commands did, and a failure in one is not the prompt's problem.
+   */
+  async runPromptCommand(): Promise<void> {
+    const status = this.env.get('?')
+    try {
+      for (const text of promptCommands(this.state)) {
+        try { await this.executeSourced(text) } catch (error) { if (isControlFlowSignal(error)) break }
+      }
+    } finally {
+      if (status !== undefined) this.env.set('?', status)
+    }
   }
 
   /**
@@ -1988,7 +2005,9 @@ export class Shell implements IShell {
         const arrays = new Map([...this._arrays].map(([name, array]) => [name, new Map(array)]))
         const functions = new Map(this._functions)
         const cwd = this._cwd
+        const dirStack = [...this.state.dirStack]
         return () => {
+          this.state.dirStack = dirStack
           this._arrays = arrays
           this._functions = functions
           this._cwd = cwd
@@ -2281,9 +2300,12 @@ export class Shell implements IShell {
    * Runs a full script's text (multiple lines, potentially containing control flow and function
    * definitions) to completion. This is `Kernel.executeScript`'s entry point.
    */
-  async executeScriptText(script: string): Promise<number> {
+  async executeScriptText(script: string, file?: string): Promise<number> {
     const statements = parseStatements(script)
     this._signalCatchers.exit++
+    // Running a file: `$0` names it for the duration, and so does `BASH_SOURCE`.
+    const previousName = this._env.get('0')
+    if (file !== undefined) { this.state.pushSourceFrame(file, 0); this._env.set('0', file) }
     try {
       return await this.executeStatements(statements)
     } catch (signal) {
@@ -2294,6 +2316,11 @@ export class Shell implements IShell {
     } finally {
       this._signalCatchers.exit--
       await this.runTrap('EXIT')
+      if (file !== undefined) {
+        this.state.popSourceFrame()
+        if (previousName === undefined) this._env.delete('0')
+        else this._env.set('0', previousName)
+      }
     }
   }
 

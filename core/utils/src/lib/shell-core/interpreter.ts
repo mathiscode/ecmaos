@@ -8,9 +8,10 @@
  * descriptors) and stays with each host, reached through {@link InterpreterHost}.
  */
 
-import { parseStatements, type PipelineStatement, type Statement } from '../control-flow-parser.js'
+import { parseStatements, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
 import { parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
 import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
+import { formatSelectMenu } from './select-menu.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
 
@@ -146,6 +147,7 @@ export class Interpreter {
 
       case 'function':
         this.state.functions.set(statement.name, statement.body)
+        this.state.recordFunctionDefinition(statement.name)
         return 0
 
       case 'if': return await host.withRedirect(statement, async () => {
@@ -177,6 +179,8 @@ export class Interpreter {
         }
         return last
       })
+
+      case 'select': return await host.withRedirect(statement, () => this.runSelect(statement))
 
       case 'cfor': return await host.withRedirect(statement, async () => {
         let last = 0
@@ -256,6 +260,52 @@ export class Interpreter {
     } finally {
       this.catchers.loop--
     }
+  }
+
+  /**
+   * `select NAME in WORDS; do ...; done`. The menu and the prompt go to standard error, the reply is read
+   * from standard input into `REPLY`, and the body runs with NAME set to the chosen word (or empty when the
+   * reply is not a number in range). An empty reply draws the menu again; end of input ends the loop with 1.
+   * The menu and the read are ordinary commands, so a redirection on the `select` reaches them as it does the body.
+   */
+  private async runSelect(statement: SelectStatement): Promise<number> {
+    const host = this.host
+    const items = await host.expandWords(statement.wordsText === undefined ? '"$@"' : statement.wordsText)
+    if (items.length === 0) return 0
+
+    // One physical line of command text: a newline or tab in the menu travels as an escape for `printf %b`.
+    const quote = (text: string) => `'${text.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/\t/g, '\\t').replace(/'/g, `'\\''`)}'`
+    const emit = async (text: string): Promise<void> => {
+      const line = this.state.lineNumber
+      try { await this.runText(`printf %b ${quote(text)} >&2`) } finally { this.state.lineNumber = line }
+    }
+    const columns = Number(this.state.lookup('COLUMNS')) || 80
+
+    let last = 0
+    let draw = true
+    for (;;) {
+      if (await host.checkpoint()) break
+      if (draw) await emit(formatSelectMenu(items, columns))
+      draw = false
+      await emit(this.state.lookup('PS3') ?? '#? ')
+
+      const line = this.state.lineNumber
+      let read: number
+      try { read = await this.runText('read -r') } finally { this.state.lineNumber = line }
+      // bash ends the abandoned prompt line on standard output, not standard error
+      if (read !== 0) { await this.runText("printf '\\n'"); return 1 }
+
+      const reply = this.state.lookup('REPLY') ?? ''
+      if (reply === '') { draw = true; continue }
+
+      const choice = /^\s*[+-]?\d+\s*$/.test(reply) ? Number(reply) : 0
+      host.assign(statement.variable, choice >= 1 && choice <= items.length ? items[choice - 1] as string : '')
+      const turn = await this.runLoopBody(statement.body)
+      if (turn.status !== undefined) last = turn.status
+      host.setStatus(last)
+      if (turn.stop) break
+    }
+    return last
   }
 
   /**
@@ -418,6 +468,7 @@ export class Interpreter {
     this.depth++
     this.callStack.unshift(name)
     this.state.setArray('FUNCNAME', [...this.callStack, 'main'])
+    this.state.pushSourceFrame(this.state.functionFile(name))
     this.state.pushLocalScope()
     this.catchers.return++
     const enclosingLoops = this.catchers.loop
@@ -438,6 +489,7 @@ export class Interpreter {
       this.catchers.loop = enclosingLoops
       this.state.popLocalScope()
       await this.runReturnTrap(status).catch(() => undefined)
+      this.state.popSourceFrame()
       this.callStack.shift()
       if (this.callStack.length > 0) this.state.setArray('FUNCNAME', [...this.callStack, 'main'])
       else this.state.unsetArray('FUNCNAME')
@@ -451,16 +503,18 @@ export class Interpreter {
    * and `cd` persist. `return` ends it; `exit` is not caught, because `exit` in a sourced file ends
    * the shell that sourced it.
    */
-  async runSourced(text: string, positional?: string[]): Promise<number> {
+  async runSourced(text: string, positional?: string[], file?: string): Promise<number> {
     const statements = parseStatements(text)
     const restoreParameters = positional ? this.host.enterParameters(positional) : undefined
     this.catchers.return++
+    if (file !== undefined) this.state.pushSourceFrame(file)
     try {
       return await this.runStatements(statements)
     } catch (signal) {
       if (signal instanceof ReturnSignal) return signal.code
       throw signal
     } finally {
+      if (file !== undefined) this.state.popSourceFrame()
       this.catchers.return--
       restoreParameters?.()
     }

@@ -92,6 +92,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_authenticate(username: string, password: string): number
     credentials_supported(): number
     proc_umask(mask: number): number
+    proc_file_limit(): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
     device_cli_wait(): number
@@ -1471,6 +1472,12 @@ export function installMainThreadSyscalls(): void {
     const old = context.umask
     if (mask >= 0) context.umask = mask & 0o777
     return old
+  })
+
+  // The most one file on the machine's storage may hold, in bytes (`ulimit -f`), or -1 when there is no limit.
+  define_syscall('proc_file_limit', () => {
+    const { maxFileBytes } = currentStorageLimits()
+    return maxFileBytes === false ? -1 : maxFileBytes
   })
 
   // 1 when a program runs as the user who started it. `su` and `sudo` refuse to work otherwise: with

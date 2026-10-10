@@ -331,7 +331,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - The shell manages the environment, filesystem context, execution, and terminal interface
 - System-wide terminal configuration is stored in `/etc/terminal.toml`
 - User-specific terminal configuration is stored in `~/.config/terminal.toml`
-- Startup files are run at login, in order: `/etc/profile`, the first of `~/.ecmash_profile` or `~/.profile`, `/etc/ecmashrc`, `~/.ecmashrc`
+- Startup files are run at login, in order: `/etc/profile`, `/etc/profile.d/*.sh`, the first of `~/.bash_profile`, `~/.ecmash_profile` or `~/.profile`, `/etc/ecmashrc`, `~/.bashrc`, `~/.ecmashrc`
 - See [tutorials/shell-customization.md](/tutorials/shell-customization.md) for more information
 
 ### Sockets
@@ -387,10 +387,10 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - `/etc/crontab`: System-wide crontab file (loaded on boot)
 - `/etc/packages`: A list of installed packages to load on boot
 - `/etc/terminal.toml`: System-wide terminal configuration
-- `/etc/profile`, `/etc/ecmashrc`: System-wide shell startup files
+- `/etc/profile`, `/etc/profile.d/*.sh`, `/etc/ecmashrc`: System-wide shell startup files
 - `/home/`: Contains user home directories
 - `~/.config/crontab`: User-specific crontab file (loaded on login)
-- `~/.profile`, `~/.ecmash_profile`, `~/.ecmashrc`: User-specific shell startup files
+- `~/.profile`, `~/.bash_profile`, `~/.ecmash_profile`, `~/.bashrc`, `~/.ecmashrc`: User-specific shell startup files
 - `~/.config/terminal.toml`: User-specific terminal configuration
 - `/proc/`: Contains various dynamic system information
 - `/root/`: The home directory for the root user

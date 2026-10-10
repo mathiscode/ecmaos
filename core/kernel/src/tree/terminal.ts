@@ -13,6 +13,7 @@ import spinners from 'cli-spinners'
 
 import * as emoji from '@thi.ng/emoji'
 import { attach_xterm, detach_xterm, Signal } from '@zenfs/linux'
+import type { Shell as KernelShell } from '#shell.ts'
 import type { TTY } from '@zenfs/linux'
 import { lflags } from '@zenfs/linux/uapi/abi'
 import { IDisposable, ITerminalAddon, ITheme, Terminal as XTerm } from '@xterm/xterm'
@@ -27,9 +28,10 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 
 import '@xterm/xterm/css/xterm.css'
-import { trueBuiltinNames } from '#lib/shell-builtins.ts'
+import { kernelBuiltinHost, trueBuiltinNames } from '#lib/shell-builtins.ts'
 import { needsMoreInput } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { completionMatches } from '@ecmaos/coreutils/lib/completion'
+import { programmableCompletion } from '@ecmaos/coreutils/lib/shell-core/programmable-completion'
 import { History } from '@ecmaos/coreutils/lib/history'
 import { LineEditor, NONPRINTING_END, NONPRINTING_START, ReverseSearch, stripMarkers, visibleWidth } from '@ecmaos/coreutils/lib/line-editor'
 
@@ -340,7 +342,8 @@ export class Terminal extends XTerm implements ITerminal {
       this._shell.onExit = () => this.endSession()
       this.listen()
       // from column 0: erasing the line does not move the cursor, which may be wherever login left it
-      this.write('\r' + ansi.erase.inLine(2) + this.prompt())
+      this.write('\r' + ansi.erase.inLine(2))
+      void this.drawPrompt()
       this.focus()
     })
   }
@@ -1328,6 +1331,17 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalInputEvent>(TerminalEvents.INPUT, { terminal: this, data: clip })
   }
 
+  /**
+   * Draws the primary prompt the way bash does: finished-job notices first, then `PROMPT_COMMAND`, then
+   * `$PS1`. Without a `PROMPT_COMMAND` it is one synchronous write, as before.
+   */
+  private async drawPrompt(lead = ''): Promise<void> {
+    if (!this._shell?.hasPromptCommand?.()) { this.write(lead + this.jobNotices() + this.prompt()); return }
+    this.write(lead + this.jobNotices())
+    try { await this._shell.runPromptCommand() } catch { /* a broken PROMPT_COMMAND must not take the prompt with it */ }
+    this.write(this.prompt())
+  }
+
   /** Finished background jobs, reported once as bash does just before it draws PS1. */
   private jobNotices(): string {
     const lines = this._shell?.takeJobNotifications?.() ?? []
@@ -1513,7 +1527,7 @@ export class Terminal extends XTerm implements ITerminal {
           this._multiLineMode = false
           this._multiLineBuffer = ''
           this.unlisten()
-          this.write('\n' + this.prompt())
+          await this.drawPrompt('\n')
           this.listen()
           return
         }
@@ -1608,8 +1622,10 @@ export class Terminal extends XTerm implements ITerminal {
             // finishes, after an `fg` and a `^C` say, the `fg` that resumed it draws the prompt; a
             // second one here landed after the first, indented by its width.
             if (epoch === this._stopEpoch && !this._sessionEnded) {
+              // `read` and `select` take the keyboard with `readline(..., noListen)`, so the prompt takes it back
+              if (this._keyListener === undefined) this.listen()
               this._editor.reset()
-              this.write(this.promptLead() + this.jobNotices() + this.prompt())
+              await this.drawPrompt(this.promptLead())
               const typeahead = this._typeahead
               this._typeahead = ''
               if (typeahead) await this.replayTypeahead(typeahead)
@@ -1617,7 +1633,7 @@ export class Terminal extends XTerm implements ITerminal {
           }
         } else {
           editor.reset()
-          this.write(this.promptLead() + this.jobNotices() + this.prompt())
+          await this.drawPrompt(this.promptLead())
         }
         break
       }
@@ -1999,7 +2015,8 @@ export class Terminal extends XTerm implements ITerminal {
       variable: name => shell.env.get(name),
       get cwd() { return shell.cwd },
       expandTilde: text => shell.expandTilde(text),
-      builtins: trueBuiltinNames
+      builtins: trueBuiltinNames,
+      programmable: line => programmableCompletion(kernelBuiltinHost(shell as unknown as KernelShell), line)
     })
   }
 }

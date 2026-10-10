@@ -8,6 +8,7 @@
  * `1`, `2`, `?`, and `ecmash` keeps them as fields.
  */
 
+import { CompletionRegistry } from './completion-spec.js'
 import type { Statement } from '../control-flow-parser.js'
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 
@@ -40,6 +41,8 @@ export type ShellOptionName = keyof ShellOptions
 export interface ShellIdentity {
   pid(): number
   ppid(): number
+  /** The group ids of the user the shell runs as, primary first: `GROUPS`. */
+  groups?(): string[]
 }
 
 /** Shell-internal names: never part of a child's environment, whatever else is true of them. */
@@ -48,6 +51,29 @@ const INTERNAL_NAMES: ReadonlySet<string> = new Set(['?', '$', '!', '-', '_'])
 /** Whether `name` is shell-internal state (`$?`, `$$`, the positional parameters) rather than a variable. */
 export function isInternalVariable(name: string): boolean {
   return INTERNAL_NAMES.has(name) || /^\d+$/.test(name)
+}
+
+/**
+ * What the shells say about themselves to a script that asks `$BASH_VERSION` or `$OSTYPE`. The
+ * language is checked against bash 5.3 (see the parity corpus), so that is the version reported.
+ */
+export const BASH_VERSION_TEXT = '5.3.0(1)-release'
+export const BASH_VERSINFO = ['5', '3', '0', '1', 'release', 'x86_64-pc-linux-gnu']
+
+/** Variables that read as these until the script assigns its own. Not exported, as in bash. */
+const DEFAULT_VARIABLES: Readonly<Record<string, string>> = {
+  BASH: '/bin/bash',
+  BASH_VERSION: BASH_VERSION_TEXT,
+  OSTYPE: 'linux-gnu',
+  HOSTTYPE: 'x86_64',
+  MACHTYPE: 'x86_64-pc-linux-gnu'
+}
+
+/** A file the shell is reading commands from (a script, or a sourced file) or a function defined in one. */
+interface SourceFrame {
+  file: string
+  /** `$LINENO` of the call or `source` that entered this frame, for `BASH_LINENO`. */
+  callLine: number
 }
 
 export class ShellState {
@@ -101,6 +127,10 @@ export class ShellState {
 
   /** The `shopt` options that are on. */
   shopts = new Set<string>()
+  /** What `complete` registered, and the completion being run. */
+  readonly completions = new CompletionRegistry()
+  /** The directory stack below the working directory (`DIRSTACK[1..]`): the top first. `pushd`, `popd` and `dirs` own it. */
+  dirStack: string[] = []
   options: ShellOptions = { errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false }
 
   /** `getopts`' position inside a cluster such as `-abc` */
@@ -115,6 +145,13 @@ export class ShellState {
   private randomState = Math.floor(Math.random() * 0x7fffffff) + 1
   private secondsOrigin = Date.now()
 
+  /** Where each function was defined, so `BASH_SOURCE` can name the file a function body came from. */
+  private readonly functionFiles = new Map<string, string>()
+  /** The files being run, innermost first: the script, anything it sourced, and the functions called. */
+  private sourceFrames: SourceFrame[] = []
+  /** Default variables the script has `unset`; they stay gone until assigned again. */
+  private readonly removedDefaults = new Set<string>()
+
   constructor(private readonly identity: ShellIdentity, vars: Map<string, string> = new Map()) {
     this.vars = vars
   }
@@ -122,6 +159,46 @@ export class ShellState {
   /** Replaces the variable store with the host's own map, keeping the rest of the state. */
   adopt(vars: Map<string, string>): void {
     this.vars = vars
+  }
+
+  // -- source frames: BASH_SOURCE and BASH_LINENO ----------------------------------------------------
+
+  /** The file whose commands are running now, if the shell is reading one. */
+  currentSourceFile(): string | undefined {
+    return this.sourceFrames[0]?.file
+  }
+
+  /** Enters a script, a sourced file or a function body; `file` is what `BASH_SOURCE` will say. */
+  pushSourceFrame(file: string, callLine = this.lineNumber): void {
+    this.sourceFrames.unshift({ file, callLine })
+    this.publishSourceFrames()
+  }
+
+  popSourceFrame(): void {
+    this.sourceFrames.shift()
+    this.publishSourceFrames()
+  }
+
+  /** Remembers the file a function was defined in (the one running at the time). */
+  recordFunctionDefinition(name: string): void {
+    const file = this.currentSourceFile()
+    if (file === undefined) this.functionFiles.delete(name)
+    else this.functionFiles.set(name, file)
+  }
+
+  /** The file `name` was defined in; empty when it was typed at a prompt. */
+  functionFile(name: string): string {
+    return this.functionFiles.get(name) ?? ''
+  }
+
+  private publishSourceFrames(): void {
+    if (this.sourceFrames.length === 0) {
+      this.unsetArray('BASH_SOURCE')
+      this.unsetArray('BASH_LINENO')
+      return
+    }
+    this.setArray('BASH_SOURCE', this.sourceFrames.map(frame => frame.file))
+    this.setArray('BASH_LINENO', this.sourceFrames.map(frame => String(frame.callLine)))
   }
 
   // -- variables ----------------------------------------------------------------------------------
@@ -168,7 +245,7 @@ export class ShellState {
     }
     const computed = this.computed(name)
     if (computed !== undefined) return computed
-    return this.vars.get(name)
+    return this.vars.get(name) ?? (this.removedDefaults.has(name) ? undefined : DEFAULT_VARIABLES[name])
   }
 
   /**
@@ -234,6 +311,7 @@ export class ShellState {
     // Restarting the option scan restarts it fully, cluster cursor included.
     if (name === 'OPTIND') this.getoptsCharIndex = 1
 
+    this.removedDefaults.delete(name)
     if (!this.vars.has(name)) this.unexported.add(name)
     this.vars.set(name, value)
   }
@@ -263,6 +341,7 @@ export class ShellState {
       if (frame.has(name)) { frame.set(name, undefined); return }
     }
     this.vars.delete(name)
+    if (name in DEFAULT_VARIABLES) this.removedDefaults.add(name)
     this.unexported.delete(name)
     this.integerNames.delete(name)
   }
@@ -353,7 +432,18 @@ export class ShellState {
   lookupArray(name: string): ArrayStore | undefined {
     name = this.resolveName(name)
     const frame = this.arrayFrameFor(name)
-    return frame ? frame.get(name) : this.arrays.get(name)
+    return (frame ? frame.get(name) : this.arrays.get(name)) ?? this.defaultArray(name)
+  }
+
+  /** Arrays that read as something until the script assigns its own: `BASH_VERSINFO`, `GROUPS` and `DIRSTACK`. */
+  private defaultArray(name: string): ArrayStore | undefined {
+    if (name === 'BASH_VERSINFO') return new Map(BASH_VERSINFO.map((value, index) => [index, value]))
+    if (name === 'DIRSTACK') return new Map([this.vars.get('PWD') ?? '/', ...this.dirStack].map((value, index) => [index, value]))
+    if (name === 'GROUPS') {
+      const groups = this.identity.groups?.()
+      return groups ? new Map(groups.map((value, index) => [index, value])) : undefined
+    }
+    return undefined
   }
 
   private storeArray(name: string, array: ArrayStore): void {
@@ -444,6 +534,7 @@ export class ShellState {
       traps: new Map(this.traps),
       options: { ...this.options },
       shopts: new Set(this.shopts),
+      dirStack: [...this.dirStack],
     }
   }
 
@@ -459,6 +550,7 @@ export class ShellState {
       traps: new Map(snapshot.traps),
       options: { ...snapshot.options },
       shopts: new Set(snapshot.shopts),
+      dirStack: [...(snapshot.dirStack ?? [])],
     })
   }
 
@@ -474,6 +566,7 @@ export class ShellState {
     this.traps = snapshot.traps
     this.options = snapshot.options
     this.shopts = snapshot.shopts
+    this.dirStack = snapshot.dirStack ?? []
   }
 }
 
@@ -487,6 +580,7 @@ export interface ShellSnapshot {
   traps: Map<string, string>
   options: ShellOptions
   shopts: Set<string>
+  dirStack?: string[]
 }
 
 /**

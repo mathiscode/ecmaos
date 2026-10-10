@@ -67,6 +67,7 @@ describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`,
     shell.state.integerNames.clear()
     shell.state.namerefNames.clear()
     shell.state.shopts.clear()
+    shell.state.dirStack = []
     shell.state.unsetArray('FUNCNAME')
     internals._execOutputs = undefined
     internals._interrupted = false
@@ -83,7 +84,7 @@ describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`,
     resetKernelShell()
     const out = `/tmp/pk-out-${serial++}`
     // `exec >` redirects the shell itself, so the whole script is captured, EXIT trap included.
-    const status = await kernel.shell.executeScriptText(`exec > ${out} 2> ${out}.err; ${script}`)
+    const status = await kernel.shell.executeScriptText(`exec > ${out} 2> ${out}.err; ${script}`, `${out}.sh`)
     const stdout = await fs().readFile(out, 'utf-8').catch(() => '')
     return { stdout, status }
   }

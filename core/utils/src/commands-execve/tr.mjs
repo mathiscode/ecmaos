@@ -25,19 +25,45 @@ function readAllStdin() {
   return new TextDecoder().decode(bytes)
 }
 
+const range = (from, to) => { let out = ''; for (let c = from.charCodeAt(0); c <= to.charCodeAt(0); c++) out += String.fromCharCode(c); return out }
+const CLASSES = {
+  upper: range('A', 'Z'), lower: range('a', 'z'), digit: range('0', '9'),
+  alpha: range('A', 'Z') + range('a', 'z'), alnum: range('0', '9') + range('A', 'Z') + range('a', 'z'),
+  xdigit: range('0', '9') + range('A', 'F') + range('a', 'f'),
+  space: ' \t\n\r\f\v', blank: ' \t', cntrl: range('\0', '\x1f') + '\x7f',
+  punct: range('!', '/') + range(':', '@') + range('[', '`') + range('{', '~'),
+  print: range(' ', '~'), graph: range('!', '~'),
+}
+const ESCAPES = { n: '\n', t: '\t', r: '\r', f: '\f', v: '\v', a: '\x07', b: '\b', '\\': '\\' }
+
+/** SET as the characters it names: backslash escapes, `[:class:]`, and `a-z` ranges. */
 function expandSet(set) {
-  let result = ''
-  let i = 0
-  while (i < set.length) {
-    if (i < set.length - 2 && set[i + 1] === '-') {
-      const start = set.charCodeAt(i)
-      const end = set.charCodeAt(i + 2)
-      for (let j = start; j <= end; j++) result += String.fromCharCode(j)
-      i += 3
-    } else {
-      result += set[i]
-      i++
+  const tokens = []
+  for (let i = 0; i < set.length; i++) {
+    const char = set[i]
+    if (char === '[' && set[i + 1] === ':') {
+      const end = set.indexOf(':]', i + 2)
+      const name = end === -1 ? undefined : set.slice(i + 2, end)
+      if (name !== undefined && name in CLASSES) { for (const c of CLASSES[name]) tokens.push({ c, plain: false }); i = end + 1; continue }
     }
+    if (char === '\\' && i + 1 < set.length) {
+      const octal = /^[0-7]{1,3}/.exec(set.slice(i + 1))
+      if (octal) { tokens.push({ c: String.fromCharCode(parseInt(octal[0], 8)), plain: false }); i += octal[0].length; continue }
+      const next = set[i + 1]
+      tokens.push({ c: ESCAPES[next] ?? next, plain: false })
+      i++
+      continue
+    }
+    tokens.push({ c: char, plain: true })
+  }
+
+  let result = ''
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (i + 2 < tokens.length && tokens[i + 1].plain && tokens[i + 1].c === '-') {
+      result += range(token.c, tokens[i + 2].c)
+      i += 2
+    } else result += token.c
   }
   return result
 }

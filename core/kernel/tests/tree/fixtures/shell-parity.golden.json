@@ -1034,5 +1034,173 @@
   "signals/trap-invalid-number": {
     "stdout": "st=1\n",
     "status": 0
+  },
+  "bashvars/identity": {
+    "stdout": "5 5 3 linux-gnu x86_64 x86_64-pc-linux-gnu\n",
+    "status": 0
+  },
+  "bashvars/identity-assignable": {
+    "stdout": "custom\n[gone]\n",
+    "status": 0
+  },
+  "bashvars/not-exported": {
+    "stdout": "0\n0\n",
+    "status": 1
+  },
+  "bashvars/groups": {
+    "stdout": "yes\n",
+    "status": 0
+  },
+  "bashvars/funcname-sources": {
+    "stdout": "2 f main\n",
+    "status": 0
+  },
+  "bashvars/caller": {
+    "stdout": "0\n0 NULL\n0\n",
+    "status": 0
+  },
+  "bashvars/source-frames": {
+    "stdout": "in inc.sh 2\nafter 1\n",
+    "status": 0
+  },
+  "bashvars/main-guard": {
+    "stdout": "sourced\nmain\n",
+    "status": 0
+  },
+  "bashvars/function-defined-in-sourced": {
+    "stdout": "def.sh g\n",
+    "status": 0
+  },
+  "bashvars/trim-longest": {
+    "stdout": "a.b a b.c c\n",
+    "status": 0
+  },
+  "dirstack/basic": {
+    "stdout": "b\na\npc\na\npc\nst=1\n",
+    "status": 0
+  },
+  "dirstack/dirs-forms": {
+    "stdout": " 0  /b\n 1  /a\n 2  /pc\na\npc\nst=1\n",
+    "status": 0
+  },
+  "dirstack/rotate": {
+    "stdout": "pc\nb\n3\n",
+    "status": 0
+  },
+  "dirstack/no-cd": {
+    "stdout": "pc\n2\n1\n",
+    "status": 0
+  },
+  "dirstack/clear": {
+    "stdout": "1\nst=1\n",
+    "status": 0
+  },
+  "dirstack/failure": {
+    "stdout": "st=1\n1\n",
+    "status": 0
+  },
+  "dirstack/subshell": {
+    "stdout": "2\n1\n",
+    "status": 0
+  },
+  "builtin/hash-empty": {
+    "stdout": "hash: hash table empty\nst=0\n",
+    "status": 0
+  },
+  "builtin/hash-found": {
+    "stdout": "st=0\nst=1\nst=0\n",
+    "status": 0
+  },
+  "builtin/hash-type": {
+    "stdout": "ls\nst=1\n",
+    "status": 0
+  },
+  "select/basic": {
+    "stdout": "got b 2\nst=0\n",
+    "status": 0
+  },
+  "select/invalid-and-eof": {
+    "stdout": "[][9]\n[][foo]\n[c][3]\n\nst=1\n",
+    "status": 0
+  },
+  "select/empty-redraws": {
+    "stdout": "5\n",
+    "status": 0
+  },
+  "select/menu-columns": {
+    "stdout": "1) alpha      3) gamma~   5) epsilon   7) eta~     9) iota\n2) beta~      4) delta~   6) zeta      8) theta    10) kappa\n#? ",
+    "status": 0
+  },
+  "select/menu-single": {
+    "stdout": "1) a\n2) b\n3) c\n#? ",
+    "status": 0
+  },
+  "select/ps3": {
+    "stdout": "pick: ",
+    "status": 0
+  },
+  "select/positional": {
+    "stdout": "r\n",
+    "status": 0
+  },
+  "select/body-status": {
+    "stdout": "st=0\n",
+    "status": 0
+  },
+  "select/columns-var": {
+    "stdout": "1) aaaaaaaa    4) dddddddd\n2) bbbbbbbbb   5) eeeeee\n3) cccccccccc\n",
+    "status": 0
+  },
+  "compgen/wordlist": {
+    "stdout": "apple\navocado\nst=0\nst=1\n",
+    "status": 0
+  },
+  "compgen/affixes": {
+    "stdout": "<apple>\n",
+    "status": 0
+  },
+  "compgen/filter": {
+    "stdout": "y\nz\n---\nx\n",
+    "status": 0
+  },
+  "compgen/wordlist-expands": {
+    "stdout": "two\nthree\n",
+    "status": 0
+  },
+  "compgen/functions-aliases-vars": {
+    "stdout": "fa\nfb\naa\nZZ_ONE\nZZ_TWO\n",
+    "status": 0
+  },
+  "compgen/keyword-builtin": {
+    "stdout": "while\necho\ncd\n",
+    "status": 0
+  },
+  "compgen/files": {
+    "stdout": "f1\nf2\nd1\nd2\n",
+    "status": 1
+  },
+  "compgen/signals-shopt": {
+    "stdout": "SIGHUP\nnullglob\nnoglob\n",
+    "status": 0
+  },
+  "compgen/invalid": {
+    "stdout": "st=2\nst=2\n",
+    "status": 0
+  },
+  "complete/print": {
+    "stdout": "complete -o nospace -W 'a b' foo\ncomplete -F _x -D\nst=1\n",
+    "status": 0
+  },
+  "complete/actions-order": {
+    "stdout": "complete -o default -o filenames -d -u -v bar\n",
+    "status": 0
+  },
+  "complete/usage": {
+    "stdout": "st=2\n",
+    "status": 0
+  },
+  "complete/compopt-outside": {
+    "stdout": "st=1\n",
+    "status": 0
   }
 }

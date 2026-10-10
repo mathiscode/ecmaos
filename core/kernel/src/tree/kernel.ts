@@ -2008,7 +2008,7 @@ export class Kernel implements IKernel {
       // Multi-line control flow (if/while/for/case), functions, and `set -e/-u/-o pipefail` all
       // live in the statement tree `executeScriptText` walks -- the old per-line `execute()` loop
       // here had no way to let a `then`/`do`/`fi` span lines at all.
-      const exitCode = await options.shell.executeScriptText(script)
+      const exitCode = await options.shell.executeScriptText(script, options.command)
 
       if (options.terminal && terminalCmdBefore && options.terminal.cmd === terminalCmdBefore) {
         options.terminal.clearCommand()

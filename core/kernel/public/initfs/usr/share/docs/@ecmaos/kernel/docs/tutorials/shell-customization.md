@@ -113,9 +113,13 @@ name = "Dracula"
 Appearance is TOML; behavior is shell script. At login the shell runs, in order:
 
 1.  `/etc/profile`
-2.  the first of `~/.ecmash_profile` or `~/.profile` that exists
-3.  `/etc/ecmashrc`
-4.  `~/.ecmashrc`
+2.  every `*.sh` in `/etc/profile.d`, in name order
+3.  the first of `~/.bash_profile`, `~/.ecmash_profile` or `~/.profile` that exists
+4.  `/etc/ecmashrc`
+5.  `~/.bashrc`
+6.  `~/.ecmashrc`
+
+`/bin/ecmash` reads the same files: `ecmash -l` the first three, and an interactive shell the last three.
 
 Each is an ordinary shell script, so aliases, functions, `export`, and `set` options all work:
 

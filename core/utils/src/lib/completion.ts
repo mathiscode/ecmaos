@@ -41,6 +41,11 @@ export interface CompletionProvider {
   expandTilde(text: string): string
   /** True shell builtins, which have no file under `$PATH` to be found by the scan. */
   builtins: Iterable<string>
+  /**
+   * Programmable completion (`complete`): the whole-line candidates a registered spec gives for `line`, or
+   * undefined when none applies and the ordinary completion should answer.
+   */
+  programmable?(line: string): Promise<string[] | undefined>
 }
 
 /** Characters a completed filename needs escaped to survive being read back as one word. */
@@ -48,6 +53,10 @@ const ESCAPE = /([ ()[\]{}|&;<>`$"'\\])/g
 
 /** Completion candidates for `partial`, each a complete replacement for the line. */
 export async function completionMatches(partial: string, provider: CompletionProvider): Promise<string[]> {
+  if (provider.programmable) {
+    const programmed = await provider.programmable(partial)
+    if (programmed !== undefined) return programmed
+  }
   const parts = partial.split(' ')
   const lastWord = parts[parts.length - 1]
   if (!lastWord) return []

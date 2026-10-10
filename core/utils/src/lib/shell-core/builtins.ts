@@ -13,6 +13,12 @@ import { formatUmask, formatUmaskSymbolic, parseUmask } from './umask.js'
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
 import { echoOutput } from '../echo-text.js'
+import { dirsBuiltin, popdBuiltin, pushdBuiltin } from './directory-stack.js'
+import { SHOPT_EFFECTIVE, SHOPT_NAMES } from './shopt-names.js'
+import { fcBuiltin } from './builtin-fc.js'
+import { compgenBuiltin, completeBuiltin, compoptBuiltin } from './builtin-complete.js'
+import { ulimitBuiltin } from './builtin-ulimit.js'
+import { hashBuiltin, helpBuiltin, logoutBuiltin, timesBuiltin } from './builtins-info.js'
 import type { Interpreter } from './interpreter.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
 import { UNCATCHABLE_SIGNALS, normalizeSignal, signalNameList } from './signal-table.js'
@@ -60,6 +66,13 @@ export interface BuiltinHost {
   expandTilde?(path: string): string
   stat(path: string): Promise<{ file: boolean, directory: boolean, size: number } | undefined>
   readFile(path: string): Promise<string>
+  /** The names in a directory, for completion; a host without it completes no filenames or commands from `$PATH`. */
+  listDir?(dir: string): Promise<string[]>
+  /** Every builtin the shell has, for `compgen -b` and command completion. */
+  builtinNames?(): Iterable<string>
+  /** For `fc`'s editor round trip; a host without them has no `fc` editing. */
+  writeFile?(path: string, text: string): Promise<void>
+  removeFile?(path: string): Promise<void>
 
   /** `$1`, `$2`, ... (not `$0`). */
   positional(): string[]
@@ -77,6 +90,10 @@ export interface BuiltinHost {
   trapSignal?(signal: string, handler: string | undefined): string | undefined
   /** Called after the environment changed, so a host can republish it. */
   changed?(): void
+  /** The most one file on this machine's storage may hold, in bytes, or undefined when there is no limit (`ulimit -f`). */
+  fileSizeLimit?(): number | undefined | Promise<number | undefined>
+  /** Whether this is a login shell, which is what `logout` requires. */
+  isLoginShell?(): boolean
 
   /**
    * The file mode creation mask: reads it, or sets it when `mask` is given. Returns the mask as it was before,
@@ -90,6 +107,8 @@ export const sharedBuiltinNames: ReadonlySet<string> = new Set([
   'cd', 'set', 'local', 'export', 'read', 'trap', 'unset', ':', '.', 'break', 'continue', 'eval', 'exit',
   'return', 'shift', 'source', 'alias', 'unalias', 'command', 'getopts', 'type', 'readonly', 'declare',
   'typeset', 'test', '[', 'echo', 'umask', 'let', 'mapfile', 'readarray', 'shopt', 'printf',
+  'caller', 'pushd', 'popd', 'dirs', 'help', 'hash', 'times', 'logout', 'fc', 'ulimit',
+  'compgen', 'complete', 'compopt',
 ])
 
 /** Whether `error` is one of the interpreter's unwind signals, which a builtin must never swallow. */
@@ -114,6 +133,19 @@ export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: st
     case 'shopt': return shoptBuiltin(host, argv, io)
     case 'printf': return printfBuiltin(host, argv, io)
     case 'mapfile': case 'readarray': return mapfileBuiltin(host, argv, io)
+    case 'caller': return callerBuiltin(host, argv, io)
+    case 'pushd': return pushdBuiltin(host, argv, io)
+    case 'popd': return popdBuiltin(host, argv, io)
+    case 'dirs': return dirsBuiltin(host, argv, io)
+    case 'help': return helpBuiltin(host, argv, io)
+    case 'hash': return hashBuiltin(host, argv, io)
+    case 'times': return timesBuiltin(host, argv, io)
+    case 'logout': return logoutBuiltin(host, argv, io)
+    case 'fc': return fcBuiltin(host, argv, io)
+    case 'ulimit': return ulimitBuiltin(host, argv, io)
+    case 'compgen': return compgenBuiltin(host, argv, io)
+    case 'complete': return completeBuiltin(host, argv, io)
+    case 'compopt': return compoptBuiltin(host, argv, io)
     case 'set': return set(host, argv, io)
     case 'local': return local(host, argv, io)
     case 'export': return exportVariables(host, argv, io)
@@ -777,11 +809,6 @@ async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   return 0
 }
 
-/** The `shopt` options that change what the shell does. */
-const SHOPT_EFFECTIVE = ['dotglob', 'extglob', 'failglob', 'globstar', 'nocaseglob', 'nocasematch', 'nullglob']
-/** Options about a terminal session or history that there is nothing here for them to change: accepted, kept, not acted on. */
-const SHOPT_STORED = ['checkwinsize', 'cmdhist', 'histappend', 'huponexit', 'progcomp']
-const SHOPT_NAMES = [...SHOPT_EFFECTIVE, ...SHOPT_STORED].sort()
 
 /**
  * `shopt [-pqsu] [NAME...]`: shell options beyond `set -o`. The ones that change behavior are `nullglob`,
@@ -830,6 +857,30 @@ async function shoptBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): P
   }
   // listing everything is not a test of anything
   return names.length === 0 ? 0 : status
+}
+
+/**
+ * `caller [EXPR]`: where the current function was called from, read out of `BASH_LINENO`,
+ * `FUNCNAME` and `BASH_SOURCE`. With no argument it prints `LINE FILE`; `caller N` goes N frames up
+ * and adds the function name. Fails, printing nothing, outside a function or past the outermost frame.
+ */
+async function callerBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
+  if (argv[0] === '--help') {
+    await io.writeln('Usage: caller [EXPR]\nReturn the context of the current subroutine call.\n\nWithout EXPR, prints "LINE FILENAME". With EXPR, prints "LINE SUBROUTINE FILENAME" for that many frames up.')
+    return 0
+  }
+  const frame = argv.length > 0 ? Number(argv[0]) : 0
+  if (argv.length > 0 && (!Number.isInteger(frame) || frame < 0)) { await io.writelnErr(`caller: ${argv[0]}: invalid number`); return 2 }
+  const at = (name: string, index: number): string | undefined => host.state.lookupArray(name)?.get(index)
+  const line = at('BASH_LINENO', frame)
+  if (line === undefined) return 1
+  // bash prints NULL for a frame that has no file, which is what a script's own top level reports.
+  const file = at('BASH_SOURCE', frame + 1) ?? 'NULL'
+  if (argv.length === 0) { await io.writeln(`${line} ${file}`); return 0 }
+  const caller = at('FUNCNAME', frame + 1)
+  if (caller === undefined) return 1
+  await io.writeln(`${line} ${caller} ${file}`)
+  return 0
 }
 
 /**
@@ -999,7 +1050,7 @@ async function source(host: BuiltinHost, argv: string[], io: BuiltinIO, keyword:
 
   const args = argv.slice(1)
   try {
-    return await host.interpreter.runSourced(text, args.length > 0 ? args : undefined)
+    return await host.interpreter.runSourced(text, args.length > 0 ? args : undefined, resolved)
   } catch (error) {
     if (isControlFlowSignal(error)) throw error
     await io.writelnErr(`${keyword}: ${name}: ${message(error)}`)

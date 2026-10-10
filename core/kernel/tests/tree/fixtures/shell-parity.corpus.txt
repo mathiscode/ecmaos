@@ -600,3 +600,87 @@ trap '' WINCH; kill -WINCH $$; echo survived
 trap 'echo x' FOO; echo st=$?
 ### signals/trap-invalid-number
 trap 'echo x' 999; echo st=$?
+### bashvars/identity
+echo "${BASH_VERSION%%.*} ${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]} $OSTYPE $HOSTTYPE $MACHTYPE"
+### bashvars/identity-assignable
+OSTYPE=custom; echo $OSTYPE; unset OSTYPE; echo "[${OSTYPE-gone}]"
+### bashvars/not-exported
+env | grep -c '^BASH_VERSION=' ; env | grep -c '^OSTYPE='
+### bashvars/groups
+[ "${GROUPS[0]}" = "$(id -g)" ] && echo yes
+### bashvars/funcname-sources
+f() { echo "${#BASH_SOURCE[@]} ${FUNCNAME[0]} ${FUNCNAME[1]}"; }; f
+### bashvars/caller
+h() { caller 0 > /dev/null; echo $?; }; h; caller; echo $?
+### bashvars/source-frames fs
+printf 'echo "in ${BASH_SOURCE[0]##*/} ${#BASH_SOURCE[@]}"\n' > inc.sh; source ./inc.sh; echo "after ${#BASH_SOURCE[@]}"
+### bashvars/main-guard fs
+printf '[[ "${BASH_SOURCE[0]}" == "$0" ]] && echo main || echo sourced\n' > g.sh; source ./g.sh; [[ "${BASH_SOURCE[0]}" == "$0" ]] && echo main || echo sourced
+### bashvars/function-defined-in-sourced fs
+printf 'g() { echo "${BASH_SOURCE[0]##*/} ${FUNCNAME[0]}"; }\n' > def.sh; source ./def.sh; g
+### bashvars/trim-longest
+v=a.b.c; echo ${v%.*} ${v%%.*} ${v#*.} ${v##*.}
+### dirstack/basic fs
+mkdir -p a b; pushd a >/dev/null; pushd ../b >/dev/null; dirs -p | sed 's|.*/||'; popd >/dev/null; basename "$PWD"; popd >/dev/null; basename "$PWD"; popd; echo st=$?
+### dirstack/dirs-forms fs
+mkdir -p a b; pushd a >/dev/null; pushd ../b >/dev/null; dirs -v | sed 's|/[^ ]*/|/|'; dirs +1 | sed 's|.*/||'; dirs -0 | sed 's|.*/||'; dirs +9; echo st=$?
+### dirstack/rotate fs
+mkdir -p a b; pushd a >/dev/null; pushd ../b >/dev/null; pushd +2 >/dev/null; basename "$PWD"; pushd >/dev/null; basename "$PWD"; echo ${#DIRSTACK[@]}
+### dirstack/no-cd fs
+mkdir -p a b; pushd -n a >/dev/null; basename "$PWD"; dirs -p | wc -l; popd -n >/dev/null; dirs -p | wc -l
+### dirstack/clear fs
+mkdir -p a; pushd a >/dev/null; dirs -c; dirs -p | wc -l; pushd; echo st=$?
+### dirstack/failure fs
+pushd /no/such/dir; echo st=$?; dirs -p | wc -l
+### dirstack/subshell fs
+mkdir -p a; (pushd a >/dev/null; dirs -p | wc -l); dirs -p | wc -l
+### builtin/hash-empty
+hash; echo st=$?
+### builtin/hash-found
+hash ls; echo st=$?; hash nosuchthing 2>/dev/null; echo st=$?; hash -r; echo st=$?
+### builtin/hash-type
+hash ls; hash -t ls | sed 's|.*/||'; hash -t cd 2>/dev/null; echo st=$?
+### select/basic
+echo 2 | { select x in a b c; do echo "got $x $REPLY"; break; done; } 2>/dev/null; echo st=$?
+### select/invalid-and-eof
+printf '9\nfoo\n3\n' | { select x in a b c; do echo "[$x][$REPLY]"; done; } 2>/dev/null; echo st=$?
+### select/empty-redraws
+printf '\n1\n' | { select x in a b; do echo "$x"; break; done; } 2>&1 | wc -l
+### select/menu-columns
+echo 1 | { select x in alpha beta gamma delta epsilon zeta eta theta iota kappa; do break; done; } 2>&1 >/dev/null | tr '\t' '~'
+### select/menu-single
+echo 1 | { select x in a b c; do break; done; } 2>&1 | tr '\t' '~'
+### select/ps3
+PS3='pick: '; echo 1 | { select x in a b; do break; done; } 2>&1 | tail -1
+### select/positional
+set -- p q r; echo 3 | { select x; do echo $x; break; done; } 2>/dev/null
+### select/body-status
+echo 1 | { select x in a; do false; break; done; } 2>/dev/null; echo st=$?
+### select/columns-var
+COLUMNS=30; echo 1 | { select x in aaaaaaaa bbbbbbbbb cccccccccc dddddddd eeeeee; do break; done; } 2>&1 | tr '\t' '~' | head -3
+### compgen/wordlist
+compgen -W 'apple avocado banana' a; echo st=$?; compgen -W 'apple' z; echo st=$?
+### compgen/affixes
+compgen -W 'apple avocado' -P '<' -S '>' ap
+### compgen/filter
+compgen -W 'x y z' -X 'x'; echo ---; compgen -W 'x y z' -X '!x'
+### compgen/wordlist-expands
+v='one two'; compgen -W '$v three' t
+### compgen/functions-aliases-vars
+fa() { :; }; fb() { :; }; alias aa=true; ZZ_ONE=1; ZZ_TWO=2; compgen -A function f; compgen -a a; compgen -v ZZ_
+### compgen/keyword-builtin
+compgen -k wh; compgen -b -- ech; compgen -A builtin -- cd
+### compgen/files fs
+mkdir -p d1 d2; : > f1; : > f2; compgen -f -- f | sort; compgen -d -- d | sort; compgen -f -- d1/
+### compgen/signals-shopt
+compgen -A signal SIGHU; compgen -A shopt null; compgen -A setopt nogl
+### compgen/invalid
+compgen -A nonsense; echo st=$?; compgen -z 2>/dev/null; echo st=$?
+### complete/print
+complete -W 'a b' -o nospace foo; complete -p foo; complete -F _x -D; complete -p -D; complete -r foo; complete -p foo 2>/dev/null; echo st=$?
+### complete/actions-order
+complete -v -d -A user -o default -o filenames bar; complete -p bar
+### complete/usage
+complete -W 'a'  2>/dev/null; echo st=$?
+### complete/compopt-outside
+compopt -o nospace 2>/dev/null; echo st=$?
