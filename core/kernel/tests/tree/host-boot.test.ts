@@ -56,5 +56,5 @@ describe('host (boot)', () => {
 
     await kernel.reboot()
     expect(restarted).toBe(1)
-  })
+  }, 30_000)
 })

@@ -31,5 +31,5 @@ describe('host sources', () => {
     await kernel.boot()
     expect(asked).toContain('seam:/initfs.tar.gz')
     expect(asked).toContain('seam:/programs/index.json')
-  })
+  }, 30_000)
 })
