@@ -36,6 +36,17 @@ describe('tar -C, rm -v and the initfs refresh', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/elsewhere/tarroot-dir/a.txt', 'utf8')).toBe('hello\n')
   }, 60000)
 
+  it('takes the old option form with no dash: tar czf, tar tzf, tar xzf -C', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/oldtar/src/sub', { recursive: true })
+    await kernel.filesystem.fs.writeFile('/tmp/oldtar/src/sub/a.txt', 'old style\n')
+    expect(await run('cd /tmp/oldtar && tar czf out.tgz src')).toMatchObject({ code: 0, err: '' })
+    expect((await run('tar tzf /tmp/oldtar/out.tgz')).out).toContain('src/sub/a.txt')
+    await kernel.filesystem.fs.mkdir('/tmp/oldtar/dest')
+    expect(await run('tar xzf /tmp/oldtar/out.tgz -C /tmp/oldtar/dest')).toMatchObject({ code: 0, err: '' })
+    expect(await kernel.filesystem.fs.readFile('/tmp/oldtar/dest/src/sub/a.txt', 'utf8')).toBe('old style\n')
+    expect(await run('tar --gzip --file=/tmp/oldtar/out.tgz --directory=/tmp/oldtar/dest -x')).toMatchObject({ code: 0, err: '' })
+  }, 60000)
+
   it('rm -v says what it removed', async () => {
     await kernel.filesystem.fs.mkdir('/tmp/rmv/sub', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/rmv/a.txt', 'x')

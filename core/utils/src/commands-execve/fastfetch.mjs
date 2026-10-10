@@ -40,8 +40,19 @@ function memory() {
     if (match) info[match[1]] = Number(match[2])
   }
   const mib = kb => `${Math.round(kb / 1024)} MiB`
-  if (info.MemTotal && info.MemAvailable !== undefined) return `${mib(info.MemTotal - info.MemAvailable)} / ${mib(info.MemTotal)}`
-  if (info.MemAvailable !== undefined) return `${mib(info.MemAvailable)} available`
+  // MemAvailable is what is left of the tab's own heap limit, not of the machine's memory, so the two are not subtracted
+  if (info.MemTotal && info.MemAvailable !== undefined) return `${mib(info.MemAvailable)} available to this tab (${mib(info.MemTotal)} in the device)`
+  if (info.MemAvailable !== undefined) return `${mib(info.MemAvailable)} available to this tab`
+  if (info.MemTotal) return `${mib(info.MemTotal)} in the device`
+  return ''
+}
+
+/** `Chrome/126.0` from a user agent string: Edge, Firefox, then Chrome, then Safari, since Chrome's own string also says Safari. */
+function browserName(agent) {
+  for (const [token, name] of [['Edg/', 'Edge'], ['Firefox/', 'Firefox'], ['Chrome/', 'Chrome'], ['Version/', 'Safari']]) {
+    const at = agent.indexOf(token)
+    if (at >= 0) return `${name} ${agent.slice(at + token.length).split(/[ ;)]/)[0]}`
+  }
   return ''
 }
 
@@ -71,7 +82,7 @@ function main() {
     ['Terminal', env?.TERM],
     ['CPU', cores ? `${cores} core${cores === 1 ? '' : 's'} (browser)` : ''],
     ['Memory', memory()],
-    ['Browser', tryRead('/proc/userAgent').trim().split(' ').pop()],
+    ['Browser', browserName(tryRead('/proc/userAgent').trim())],
     ['Platform', tryRead('/proc/platform').trim()]
   ].filter(([, value]) => value)
 

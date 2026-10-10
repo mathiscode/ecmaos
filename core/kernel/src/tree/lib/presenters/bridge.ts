@@ -2,6 +2,23 @@ import type { Kernel } from '#kernel.ts'
 
 import type { Presented } from './index.ts'
 
+/**
+ * A browser holds clipboard and notification calls until the page has focus or the user answers a prompt, and
+ * says nothing meanwhile, so a program waiting on one would wait for ever. `ms` is how long to wait.
+ */
+export async function withDeadline<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms) })])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const ClipboardWait = 10_000
+const PermissionWait = 30_000
+const NoAnswer = 'the browser did not answer; is the page in focus?'
+
 /** Shows a desktop notification (`notify-send`). Asks for permission the first time. */
 export async function presentNotify(_kernel: Kernel, _proc: unknown, params: Record<string, unknown>): Promise<Presented> {
   const title = params['title']
@@ -9,7 +26,7 @@ export async function presentNotify(_kernel: Kernel, _proc: unknown, params: Rec
   if (typeof Notification === 'undefined') throw new Error('this browser has no notifications')
 
   let permission = Notification.permission
-  if (permission === 'default') permission = await Notification.requestPermission()
+  if (permission === 'default') permission = await withDeadline(Promise.resolve(Notification.requestPermission()), PermissionWait, NoAnswer)
   if (permission !== 'granted') throw new Error('notifications are blocked for this site')
 
   const body = typeof params['body'] === 'string' ? params['body'] : undefined
@@ -24,14 +41,14 @@ export async function presentClipboardWrite(_kernel: Kernel, _proc: unknown, par
   const text = params['text']
   if (typeof text !== 'string') throw new Error('missing text')
   if (!navigator.clipboard?.writeText) throw new Error('this browser has no clipboard access here')
-  await navigator.clipboard.writeText(text)
+  await withDeadline(navigator.clipboard.writeText(text), ClipboardWait, NoAnswer)
   return { result: { bytes: new TextEncoder().encode(text).length } }
 }
 
 /** Reads the clipboard text (`xclip -o`, `pbpaste`). The browser may ask the user first. */
 export async function presentClipboardRead(): Promise<Presented> {
   if (!navigator.clipboard?.readText) throw new Error('this browser has no clipboard access here')
-  return { result: { text: await navigator.clipboard.readText() } }
+  return { result: { text: await withDeadline(navigator.clipboard.readText(), PermissionWait, NoAnswer) } }
 }
 
 /** Speaks text (`say`), or lists the voices. The process lives until the speech ends or is killed. */

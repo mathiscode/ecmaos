@@ -12,10 +12,12 @@ Create, extract, or list tar archives.
   -x, --extract   extract files from an archive
   -t, --list      list the contents of an archive
   -f, --file      use archive file (required for create, optional for extract/list - uses stdin if omitted)
-  -z              filter the archive through gzip
+  -z, --gzip      filter the archive through gzip
   -v, --verbose   verbosely list files processed
   -C, --directory change to directory before extracting
-  -h, --help      display this help and exit`
+  -h, --help      display this help and exit
+
+The options may be given without a dash as the first word: tar czf out.tgz dir, tar xzf out.tgz -C /tmp`
 
 function readWholeFile(fullPath) {
   const size = stat(fullPath).size
@@ -92,6 +94,8 @@ async function gzipDecompress(bytes) {
 }
 
 function parseArgs(args) {
+  // The old form, `tar czf out.tgz dir`: a first word of option letters with no dash, whose arguments follow in order.
+  if (/^[a-zA-Z]+$/.test(args[0] ?? '') && /[cxt]/.test(args[0])) args = [`-${args[0]}`, ...args.slice(1)]
   const options = { create: false, extract: false, list: false, file: null, gzip: false, verbose: false, directory: null }
   const files = []
   let i = 0
@@ -101,6 +105,9 @@ function parseArgs(args) {
     if (!arg) { i++; continue }
 
     if (arg === '--help' || arg === '-h') { i++; continue }
+    else if (arg === '--gzip' || arg === '--gunzip') { options.gzip = true; i++ }
+    else if (arg.startsWith('--file=')) { options.file = arg.slice(7) || null; i++ }
+    else if (arg.startsWith('--directory=')) { options.directory = arg.slice(12) || null; i++ }
     else if (arg === '-c' || arg === '--create') { options.create = true; i++ }
     else if (arg === '-x' || arg === '--extract') { options.extract = true; i++ }
     else if (arg === '-t' || arg === '--list') { options.list = true; i++ }

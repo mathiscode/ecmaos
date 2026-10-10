@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
+import { withDeadline } from '#lib/presenters/bridge.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
@@ -394,5 +395,12 @@ describe('browser bridge: notify-send, xclip and say drive their presenters', ()
     expect(result.err).toContain('no voice named Nobody')
     expect(result.code).toBe(1)
     expect(result.err).toContain('no voice named Nobody')
+  })
+})
+
+describe('withDeadline', () => {
+  it('passes a prompt answer through and gives up on one that never comes', async () => {
+    expect(await withDeadline(Promise.resolve('ok'), 50, 'late')).toBe('ok')
+    await expect(withDeadline(new Promise(() => {}), 20, 'the browser did not answer')).rejects.toThrow('the browser did not answer')
   })
 })
