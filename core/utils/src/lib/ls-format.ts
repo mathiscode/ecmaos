@@ -17,6 +17,8 @@ export interface LsOptions {
   long: boolean
   oneColumn: boolean
   sort: 'name' | 'time' | 'size' | 'none'
+  /** `--color`: never colors; auto colors on a terminal; always colors regardless. */
+  color: 'never' | 'auto' | 'always'
   operands: string[]
   help: boolean
 }
@@ -25,14 +27,14 @@ export interface LsParseResult { options: LsOptions, error?: string }
 
 const LONG_FLAGS: Record<string, string> = {
   all: 'a', 'almost-all': 'A', directory: 'd', 'human-readable': 'h', recursive: 'R', reverse: 'r',
-  classify: 'F', 'file-type': 'F', inode: 'i', 'dereference-command-line': 'H', color: '', help: '?'
+  classify: 'F', 'file-type': 'F', inode: 'i', 'dereference-command-line': 'H', color: '', colour: '', help: '?'
 }
 
 /** Parses `ls` arguments: short flags may be clustered (`-la`), `--` ends options, `--help` asks for usage. */
 export function parseLsArguments(args: string[]): LsParseResult {
   const options: LsOptions = {
     all: false, almostAll: false, directory: false, human: false, recursive: false, reverse: false, classify: false,
-    slash: false, inode: false, long: false, oneColumn: false, sort: 'name', operands: [], help: false
+    slash: false, inode: false, long: false, oneColumn: false, sort: 'name', color: 'never', operands: [], help: false
   }
   const apply = (flag: string): string | undefined => {
     switch (flag) {
@@ -65,6 +67,14 @@ export function parseLsArguments(args: string[]): LsParseResult {
       const name = arg.slice(2).split('=')[0]!
       const flag = LONG_FLAGS[name]
       if (flag === undefined) return { options, error: `unrecognized option '${arg}'` }
+      if (name === 'color' || name === 'colour') {
+        // `--color` alone means always, as in GNU ls; `yes`/`force`/`no`/`none`/`tty`/`if-tty` are its other spellings
+        const when = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : 'always'
+        const mapped = ({ always: 'always', yes: 'always', force: 'always', never: 'never', no: 'never', none: 'never', auto: 'auto', tty: 'auto', 'if-tty': 'auto' } as Record<string, LsOptions['color']>)[when]
+        if (!mapped) return { options, error: `invalid argument '${when}' for '--color'\nValid arguments are:\n  - 'always', 'yes', 'force'\n  - 'never', 'no', 'none'\n  - 'auto', 'tty', 'if-tty'` }
+        options.color = mapped
+        continue
+      }
       apply(flag)
       continue
     }
@@ -170,7 +180,8 @@ export function parseNames(text: string): Map<number, string> {
 
 const DEVICE_MINOR_BITS = 20
 
-export interface LongFormatOptions { human: boolean, inode: boolean, classify: boolean, slash: boolean }
+/** `paint` colors a file's name for `--color`; widths are measured before it is applied. */
+export interface LongFormatOptions { human: boolean, inode: boolean, classify: boolean, slash: boolean, paint?: (entry: LsEntry, name: string) => string }
 
 /** Lines of `ls -l` for one directory's entries, columns aligned; `total` is in 1K blocks. */
 export function longLines(entries: LsEntry[], names: Names, options: LongFormatOptions, now: number, withTotal: boolean): string[] {
@@ -178,7 +189,7 @@ export function longLines(entries: LsEntry[], names: Names, options: LongFormatO
     const size = isDeviceMode(entry.mode)
       ? `${entry.rdev >>> DEVICE_MINOR_BITS}, ${entry.rdev & ((1 << DEVICE_MINOR_BITS) - 1)}`
       : options.human ? humanSize(entry.size) : String(entry.size)
-    const name = entry.name + indicator(entry, options) + (entry.linkTarget !== undefined ? ` -> ${entry.linkTarget}` : '')
+    const name = (options.paint ? options.paint(entry, entry.name) : entry.name) + indicator(entry, options) + (entry.linkTarget !== undefined ? ` -> ${entry.linkTarget}` : '')
     return {
       inode: String(entry.ino),
       mode: modeString(entry.mode),
@@ -204,11 +215,11 @@ export function longLines(entries: LsEntry[], names: Names, options: LongFormatO
 }
 
 /** The names laid out like `ls` on a terminal: filled down the columns, as many as fit in `width`. */
-export function columnLines(labels: string[], width: number): string[] {
+export function columnLines(labels: string[], width: number, paint?: (label: string, index: number) => string): string[] {
   if (!labels.length) return []
   const gap = 2
   const longest = Math.max(...labels.map(label => label.length))
-  if (longest + gap > width && labels.length > 1) return labels
+  if (longest + gap > width && labels.length > 1) return paint ? labels.map(paint) : labels
   let columns = Math.max(1, Math.min(labels.length, Math.floor((width + gap) / (longest + gap))))
   // The widest layout whose lines all fit, each column as wide as its own longest name
   for (; columns > 1; columns--) {
@@ -227,7 +238,8 @@ export function columnLines(labels: string[], width: number): string[] {
     for (let c = 0; c < columns; c++) {
       const label = labels[c * rows + r]
       if (label === undefined) continue
-      line += c === columns - 1 || labels[(c + 1) * rows + r] === undefined ? label : label.padEnd(widths[c]! + gap)
+      const shown = paint ? paint(label, c * rows + r) : label
+      line += c === columns - 1 || labels[(c + 1) * rows + r] === undefined ? shown : shown + ' '.repeat(widths[c]! + gap - label.length)
     }
     lines.push(line)
   }

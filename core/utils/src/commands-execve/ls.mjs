@@ -5,11 +5,12 @@
  */
 
 import { columnLines, isDirectoryMode, isLinkMode, longLines, parseLsArguments, parseNames, sortEntries, indicator } from '../lib/ls-format.ts'
+import { colorFor, paint, parseLsColors } from '../lib/ls-colors.ts'
 import { readTextFile } from './lib/fs-text.mjs'
 import { basename, dirname, join, resolve } from './lib/path-utils.mjs'
 import { isTty, terminalSize } from './lib/tty.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, lstat, isDirectory, readdir, readlink } = globalThis.ecmaosSyscalls
+const { argv, env, exit, writeAll, getcwd, stat, lstat, isDirectory, readdir, readlink } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
 const out = text => writeAll(1, encoder.encode(text))
@@ -32,6 +33,7 @@ List information about the FILEs (the current directory by default), sorted by n
   -S                    sort by file size, largest first
   -t                    sort by modification time, newest first
   -U                    do not sort; list in directory order
+  --color[=WHEN]        color names by type: always (the default for --color), auto or never
   --help                display this help and exit`
 
 const REASONS = { EACCES: 'Permission denied', ENOENT: 'No such file or directory', ENOTDIR: 'Not a directory', ELOOP: 'Too many levels of symbolic links' }
@@ -63,7 +65,9 @@ function main() {
   const width = tty ? terminalSize(1).cols : 80
   const names = options.long ? loadNames() : { users: new Map(), groups: new Map() }
   const now = Date.now()
-  const format = { human: options.human, inode: options.inode, classify: options.classify, slash: options.slash }
+  const colors = options.color === 'always' || (options.color === 'auto' && tty && env?.TERM !== 'dumb') ? parseLsColors(env?.LS_COLORS) : undefined
+  const paintEntry = colors ? (entry, text) => paint(text, colorFor(entry, colors)) : undefined
+  const format = { human: options.human, inode: options.inode, classify: options.classify, slash: options.slash, paint: paintEntry }
   let status = 0
 
   const labelOf = entry => (options.inode ? `${entry.ino} ` : '') + entry.name + indicator(entry, options)
@@ -71,7 +75,13 @@ function main() {
     if (!entries.length) return []
     if (options.long) return longLines(entries, names, format, now, withTotal)
     const labels = entries.map(labelOf)
-    return options.oneColumn || !tty ? labels : columnLines(labels, width)
+    // the label may start with an inode number and end in an indicator: only the name is colored
+    const shown = paintEntry ? (label, index) => {
+      const entry = entries[index]
+      const start = (options.inode ? `${entry.ino} ` : '').length
+      return label.slice(0, start) + paintEntry(entry, entry.name) + label.slice(start + entry.name.length)
+    } : undefined
+    return options.oneColumn || !tty ? (shown ? labels.map(shown) : labels) : columnLines(labels, width, shown)
   }
 
   const listDirectory = (path, label, header, top) => {

@@ -59,3 +59,7 @@ the modification time (the year instead of the time for a file older than six mo
 ## See also
 
 `stat`, `find`
+
+## Color
+
+`--color[=WHEN]` colors each name by what it is, as GNU `ls` does: directories blue, links cyan, executables green, archives red, images and video magenta, audio cyan, and the setuid, setgid, sticky and world-writable cases with their own backgrounds. `WHEN` is `always` (also what a bare `--color` means), `auto` (only when standard output is a terminal) or `never`. `$LS_COLORS` replaces the defaults (`di=01;34:*.tar=01;31:...`). Only the name is colored, so `-l` and the columns still line up. The default `.bashrc` in `/etc/skel` aliases `ls` to `ls --color=auto`.
