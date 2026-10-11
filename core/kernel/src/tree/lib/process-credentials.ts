@@ -15,7 +15,7 @@
  * (`fs_chmod`, `fs_chown`) until the filesystem can.
  */
 
-import { bindContext } from '@zenfs/core'
+import { bindContext, boundContexts } from '@zenfs/core'
 
 import type { Credentials } from '@zenfs/core'
 import type { Filesystem } from '#filesystem.ts'
@@ -25,13 +25,14 @@ const PROBE_ID = 64000
 
 export async function canRunProgramsAsUser(fs: Filesystem['fs']): Promise<boolean> {
   const base = '/run/.credentials-probe'
+  let stranger: ReturnType<typeof bindContext> | undefined
   try {
     await fs.mkdir(base, { mode: 0o755 })
     await fs.writeFile(`${base}/file`, 'probe', { mode: 0o644 })
     await fs.mkdir(`${base}/private`, { mode: 0o700 })
     await fs.writeFile(`${base}/private/file`, 'probe', { mode: 0o644 })
 
-    const stranger = bindContext({
+    stranger = bindContext({
       root: '/',
       pwd: '/',
       credentials: { uid: PROBE_ID, gid: PROBE_ID, suid: PROBE_ID, sgid: PROBE_ID, euid: PROBE_ID, egid: PROBE_ID, groups: [] }
@@ -47,6 +48,8 @@ export async function canRunProgramsAsUser(fs: Filesystem['fs']): Promise<boolea
   } catch {
     return false
   } finally {
+    // the probe's context is not a process: left bound, `ps` lists it as a kernel row owned by an id nobody has
+    if (stranger) boundContexts.delete(stranger.id)
     await fs.rm(base, { recursive: true, force: true }).catch(() => {})
   }
 }

@@ -55,6 +55,8 @@ describe('programs run as the user who started them', () => {
   it('the boot probe agrees with a direct check and leaves nothing behind', async () => {
     expect(internals()._programsRunAsUser).toBe(gateOpen)
     expect(await kernel.filesystem.fs.exists('/run/.credentials-probe')).toBe(false)
+    // and its context is not left behind for `ps` to list as a kernel row owned by an id nobody has
+    expect((await status('ps')).out).not.toContain('64000')
   })
 
   it('a root shell still starts root programs', async () => {
