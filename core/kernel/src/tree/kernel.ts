@@ -38,6 +38,8 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
+import { DisplayOwner } from '#lib/remote-display.ts'
+import { displayAddress } from '#lib/display-client.ts'
 import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
 import { showBadge, showOverlay } from '#lib/machine-overlay.ts'
@@ -209,6 +211,8 @@ export class Kernel implements IKernel {
   public readonly machine: string | undefined
   private _machineError: string | undefined
   private _machineLock?: MachineLock
+  /** Other tabs showing this machine's ttys (see `lib/remote-display.ts`) */
+  private _displays?: DisplayOwner
   private _guestId?: string
   /** Web Components manager */
   public readonly components: Components
@@ -2805,10 +2809,15 @@ export class Kernel implements IKernel {
         busy: (takeOver, guest) => showOverlay(`This machine${this.machine ? ` (${this.machine})` : ''} is running in another tab`, [
           'Running it in two tabs would overwrite one tab\'s files with the other\'s.',
           'It starts here by itself when the other tab closes or halts it. The other tab may also be inactive, or in another window.',
-          'Or run a separate machine of its own, with its own files, in a new tab, or try a guest session here (nothing in it is saved):'
+          'Or open a console on it here (this tab shows one of its terminals), run a separate machine of its own in a new tab, or try a guest session here (nothing in it is saved):'
         ], [
           { label: 'Use it here instead', run: takeOver },
           { label: 'Guest session', run: guest },
+          { label: 'Open a console on it (tty)', field: '1', run: tty => {
+            const number = Number.parseInt(tty, 10)
+            if (!(number >= 0 && number <= 7)) return
+            globalThis.location.href = displayAddress(globalThis.location.href, number)
+          } },
           { label: 'Open a separate machine', field: suggestion, run: name => {
             const parsed = parseMachine(name)
             if (parsed.error || !parsed.machine) return
@@ -2828,6 +2837,7 @@ export class Kernel implements IKernel {
       return true
     }
     this._machineLock = lock
+    this._displays = new DisplayOwner(store, async tty => (tty >= 0 && tty <= 7 ? (await this.shellForTty(tty)).terminal : undefined), locks)
     void lock.evicted.then(() => this.machineTaken(locks, store))
     return false
   }
@@ -2875,6 +2885,8 @@ export class Kernel implements IKernel {
   private async machineTaken(locks: LockManager, store: string) {
     fenceRootStore()
     this._machineLock = undefined
+    this._displays?.close()
+    this._displays = undefined
     this.log.warn('This machine was taken by another tab')
     try { this.init.killAll(9) } catch { /* init was not running yet */ }
     await this.shutdown()
@@ -2892,6 +2904,8 @@ export class Kernel implements IKernel {
    * @returns {Promise<void>} A promise that resolves when the kernel is shut down.
    */
   async shutdown() {
+    this._displays?.close()
+    this._displays = undefined
     this._machineLock?.release()
     this._machineLock = undefined
     this.terminal.unlisten()
