@@ -7,11 +7,17 @@
  *
  * Wire: a display announces itself on a discovery channel (`hello`) and the owner answers (`welcome`, with the screen as it is now).
  * The session then runs on a channel named for a random token. Presence is a Web Lock the display holds for as long as it is open, so
- * the owner learns of a closed or crashed display without a heartbeat.
+ * the owner learns of a closed or crashed display without a heartbeat; the display learns the owner is gone from the machine lock
+ * (`keepDisplay`), and attaches again when a machine is back.
  *
- * The token travels on the discovery channel, which any same-origin page can read, so this is a spike's privacy: it does not keep a
- * same-origin script out. A MessagePort brokered by the service worker would; see the notes in the plan.
+ * Some browser calls only work in a page the user is looking at (the clipboard, notifications, speech). A program on a tty with a
+ * display attached has them done by that display (`DisplayOwner.present`), not by the owner's tab, which may be in the background.
+ *
+ * The token travels on the discovery channel, which any same-origin page can read. That is not a boundary worth defending: a
+ * same-origin script can read the machine's whole IndexedDB root, `/etc/shadow` included. The origin is the trust boundary.
  */
+
+import { machineLockName } from '#lib/machine-lock.ts'
 
 export const displayChannelName = (store: string) => `ecmaos:display:${store}`
 export const displaySessionName = (store: string, token: string) => `ecmaos:display:${store}:${token}`
@@ -29,7 +35,7 @@ export interface MirroredTerminal {
   remoteData(data: string): void
   /** A key pressed at the display, as `onKey` carries it */
   remoteKey(key: string, mods: KeyMods): void
-  /** The display's window is this size: the tty takes it, as the last display to speak decides (tmux would take the smallest) */
+  /** The tty's window is this size: the smallest of the displays attached to it */
   remoteResize(cols: number, rows: number): void
 }
 
@@ -40,19 +46,40 @@ export type ToOwner =
   | { t: 'data', data: string }
   | { t: 'key', key: string, mods: KeyMods }
   | { t: 'size', cols: number, rows: number }
+  | { t: 'presented', id: number, result?: unknown, error?: string }
   | { t: 'bye' }
 
 export type ToDisplay =
   | { t: 'welcome', token: string, tty: number, cols: number, rows: number, screen: string }
   | { t: 'refused', token: string, reason: string }
   | { t: 'out', data: string | Uint8Array }
+  | { t: 'present', id: number, kind: string, params: Record<string, unknown> }
+  | { t: 'cancel', id: number }
 
 type ChannelFactory = (name: string) => BroadcastChannel
+
+/** What a display does with a browser call routed to it: finishes with a result, and can be cancelled */
+export interface RemoteCall {
+  done: Promise<unknown>
+  cancel(): void
+}
+
+interface Session {
+  channel: BroadcastChannel
+  stop: () => void
+  tty: number
+  terminal: MirroredTerminal
+  size?: { cols: number, rows: number }
+  /** When this display last sent input: the one the user is at is the one a browser call goes to */
+  lastInput: number
+  pending: Map<number, { resolve: (result: unknown) => void, reject: (error: Error) => void }>
+}
 
 /** Runs in the tab that owns the machine */
 export class DisplayOwner {
   private readonly _discovery: BroadcastChannel
-  private readonly _sessions = new Map<string, { channel: BroadcastChannel, stop: () => void }>()
+  private readonly _sessions = new Map<string, Session>()
+  private _call = 0
 
   constructor(
     private readonly _store: string,
@@ -81,17 +108,54 @@ export class DisplayOwner {
     // The snapshot and the subscription are taken in one go, so nothing written between them is lost or shown twice
     const screen = terminal.serialize() ?? ''
     const stop = terminal.mirror(data => channel.postMessage({ t: 'out', data } satisfies ToDisplay))
+    const session: Session = { channel, stop, tty, terminal, lastInput: Date.now(), pending: new Map() }
     channel.onmessage = event => {
       const message = event.data as ToOwner
-      if (message.t === 'data') terminal.remoteData(message.data)
-      else if (message.t === 'key') terminal.remoteKey(message.key, message.mods)
-      else if (message.t === 'size') terminal.remoteResize(message.cols, message.rows)
-      else if (message.t === 'bye') this.detach(token)
+      if (message.t === 'data') { session.lastInput = Date.now(); terminal.remoteData(message.data) }
+      else if (message.t === 'key') { session.lastInput = Date.now(); terminal.remoteKey(message.key, message.mods) }
+      else if (message.t === 'size') { session.size = { cols: message.cols, rows: message.rows }; this.fit(tty) }
+      else if (message.t === 'presented') {
+        const waiting = session.pending.get(message.id)
+        session.pending.delete(message.id)
+        if (message.error !== undefined) waiting?.reject(new Error(message.error))
+        else waiting?.resolve(message.result ?? null)
+      } else if (message.t === 'bye') this.detach(token)
     }
-    this._sessions.set(token, { channel, stop })
+    this._sessions.set(token, session)
     this.reply({ t: 'welcome', token, tty, cols: terminal.cols, rows: terminal.rows, screen })
     // The display holds this lock while it is open; being granted it here means the display is gone
     void this._locks?.request(displayLockName(this._store, token), () => this.detach(token)).catch(() => this.detach(token))
+  }
+
+  /** A tty with several displays is as big as the smallest, so every one of them shows all of it (as tmux does) */
+  private fit(tty: number) {
+    const sizes = [...this._sessions.values()].filter(s => s.tty === tty && s.size)
+    const first = sizes[0]
+    if (!first) return
+    const cols = Math.min(...sizes.map(s => s.size!.cols))
+    const rows = Math.min(...sizes.map(s => s.size!.rows))
+    first.terminal.remoteResize(cols, rows)
+  }
+
+  /**
+   * Has a browser call done by the display the user is at on `tty`, or `undefined` when no display is attached to it (the owner's
+   * tab does it then). The call ends with the display's answer, with an error if the display goes away first, or on `cancel()`.
+   */
+  present(tty: number, kind: string, params: Record<string, unknown>): RemoteCall | undefined {
+    let target: Session | undefined
+    for (const session of this._sessions.values()) if (session.tty === tty && (!target || session.lastInput >= target.lastInput)) target = session
+    if (!target) return undefined
+    const session = target
+    const id = ++this._call
+    const done = new Promise<unknown>((resolve, reject) => { session.pending.set(id, { resolve, reject }) })
+    session.channel.postMessage({ t: 'present', id, kind, params } satisfies ToDisplay)
+    return {
+      done,
+      cancel: () => {
+        if (!session.pending.delete(id)) return
+        session.channel.postMessage({ t: 'cancel', id } satisfies ToDisplay)
+      }
+    }
   }
 
   private reply(message: ToDisplay) { this._discovery.postMessage(message) }
@@ -102,6 +166,9 @@ export class DisplayOwner {
     this._sessions.delete(token)
     session.stop()
     session.channel.close()
+    for (const waiting of session.pending.values()) waiting.reject(new Error('the display went away'))
+    session.pending.clear()
+    this.fit(session.tty)
   }
 
   close() {
@@ -112,13 +179,15 @@ export class DisplayOwner {
 
 /** What a display does with the owner's terminal: an xterm, or anything with these */
 export interface DisplaySurface {
-  /** Called once with the owner's screen size and what is on it */
+  /** Called with the owner's screen size and what is on it; again, from scratch, after a reconnect */
   open(cols: number, rows: number, screen: string): void
   write(data: string | Uint8Array): void
-  /** Subscribes to typed text and to key presses */
+  /** Subscribes to typed text and to key presses. Called again after a reconnect: replace the senders, do not subscribe twice. */
   onInput(data: (text: string) => void, key: (key: string, mods: KeyMods) => void): void
-  /** Subscribes to the display's own size changing, and reports the size it has now */
+  /** Subscribes to the display's own size changing and reports the size it has now. Called again after a reconnect, as `onInput` is. */
   onResize(size: (cols: number, rows: number) => void): void
+  /** No machine is there (the first try was refused) or it went away; the display keeps trying */
+  lost?(reason: string): void
 }
 
 export const newToken = () => {
@@ -127,11 +196,16 @@ export const newToken = () => {
   return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+export interface AttachOptions {
+  locks?: LockManager
+  timeoutMs?: number
+  channel?: ChannelFactory
+  /** Does a browser call the owner routed here (the clipboard, a notification); absent means this display cannot */
+  present?: (kind: string, params: Record<string, unknown>) => RemoteCall
+}
+
 /** Runs in a tab that shows the owner's tty. Resolves to `close` once attached; rejects when the owner refuses or is not there. */
-export async function attachDisplay(
-  store: string, tty: number, surface: DisplaySurface,
-  options: { locks?: LockManager, timeoutMs?: number, channel?: ChannelFactory } = {}
-): Promise<() => void> {
+export async function attachDisplay(store: string, tty: number, surface: DisplaySurface, options: AttachOptions = {}): Promise<() => void> {
   const channelFor = options.channel ?? (name => new BroadcastChannel(name))
   const token = newToken()
   const discovery = channelFor(displayChannelName(store))
@@ -147,15 +221,30 @@ export async function attachDisplay(
   // Opened before announcing, so what the owner writes after taking the snapshot is held here until the screen is drawn
   const held: Array<string | Uint8Array> = []
   let drawn = false
+  const calls = new Map<number, RemoteCall>()
   const session = channelFor(displaySessionName(store, token))
   session.onmessage = event => {
     const message = event.data as ToDisplay
-    if (message.t !== 'out') return
-    if (drawn) surface.write(message.data)
-    else held.push(message.data)
+    if (message.t === 'out') {
+      if (drawn) surface.write(message.data)
+      else held.push(message.data)
+    } else if (message.t === 'present') {
+      const id = message.id
+      const reply = (answer: { result?: unknown, error?: string }) => { calls.delete(id); session.postMessage({ t: 'presented', id, ...answer } satisfies ToOwner) }
+      if (!options.present) { reply({ error: 'this display cannot do that' }); return }
+      try {
+        const call = options.present(message.kind, message.params)
+        calls.set(id, call)
+        call.done.then(result => reply({ result }), (error: unknown) => reply({ error: error instanceof Error ? error.message : String(error) }))
+      } catch (error) { reply({ error: error instanceof Error ? error.message : String(error) }) }
+    } else if (message.t === 'cancel') {
+      calls.get(message.id)?.cancel()
+      calls.delete(message.id)
+    }
   }
 
   const close = () => {
+    for (const call of calls.values()) call.cancel()
     session.postMessage({ t: 'bye' } satisfies ToOwner)
     session.close()
     discovery.close()
@@ -186,4 +275,50 @@ export async function attachDisplay(
     close()
     throw error
   }
+}
+
+export interface KeepOptions extends AttachOptions {
+  /** How long to wait between tries while no machine answers (default 1000) */
+  retryMs?: number
+}
+
+/**
+ * A display that stays: attaches, notices when the machine goes away (the owner's tab reloaded, closed or halted: it lets go of the
+ * machine lock) and attaches again when a machine answers, from a fresh screen. `close()` ends it for good.
+ */
+export function keepDisplay(store: string, tty: number, surface: DisplaySurface, options: KeepOptions = {}): { close(): void } {
+  const stop = new AbortController()
+  const wait = (ms: number) => new Promise<void>(resolve => {
+    const timer = setTimeout(resolve, ms)
+    stop.signal.addEventListener('abort', () => { clearTimeout(timer); resolve() }, { once: true })
+  })
+
+  /** Resolves when no tab holds the machine: a shared request is granted only once the exclusive holder has let go */
+  const ownerGone = async () => {
+    if (!options.locks) return new Promise<void>(resolve => stop.signal.addEventListener('abort', () => resolve(), { once: true }))
+    try { await options.locks.request(machineLockName(store), { mode: 'shared', signal: stop.signal }, () => undefined) } catch { /* aborted */ }
+  }
+
+  void (async () => {
+    let reported = false
+    while (!stop.signal.aborted) {
+      let close: (() => void) | undefined
+      try {
+        close = await attachDisplay(store, tty, surface, options)
+      } catch (error) {
+        if (!reported) surface.lost?.(error instanceof Error ? error.message : String(error))
+        reported = true
+        await wait(options.retryMs ?? 1000)
+        continue
+      }
+      await ownerGone()
+      close()
+      if (stop.signal.aborted) return
+      surface.lost?.('the machine went away; waiting for it')
+      reported = true
+      await wait(options.retryMs ?? 1000)
+    }
+  })()
+
+  return { close: () => stop.abort() }
 }

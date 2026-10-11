@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DisplayOwner, attachDisplay, type DisplaySurface, type KeyMods, type MirroredTerminal } from '#lib/remote-display.ts'
+import { DisplayOwner, attachDisplay, keepDisplay, type DisplaySurface, type KeyMods, type MirroredTerminal, type RemoteCall } from '#lib/remote-display.ts'
+import { machineLockName } from '#lib/machine-lock.ts'
 import { displayAddress, displayRequest } from '#lib/display-client.ts'
 
 const store = 'zenfs-test'
@@ -25,16 +26,18 @@ function fakeSurface() {
   const log: string[] = []
   let sendData: (text: string) => void = () => {}
   let sendKey: (key: string, mods: KeyMods) => void = () => {}
+  let sendSize: (cols: number, rows: number) => void = () => {}
   const surface: DisplaySurface = {
+    lost: reason => { log.push(`lost ${reason}`) },
     open: (cols, rows, screen) => { log.push(`open ${cols}x${rows} ${screen}`) },
     write: data => { log.push(`write ${data}`) },
     onInput: (data, key) => { sendData = data; sendKey = key },
-    onResize: size => { size(80, 24) }
+    onResize: size => { sendSize = size; size(80, 24) }
   }
-  return { surface, log, type: (text: string) => sendData(text), press: (key: string, mods: KeyMods) => sendKey(key, mods) }
+  return { surface, log, resize: (cols: number, rows: number) => sendSize(cols, rows), type: (text: string) => sendData(text), press: (key: string, mods: KeyMods) => sendKey(key, mods) }
 }
 
-/** A lock manager of one: `request` runs its callback once the name is free, as Web Locks do */
+/** A lock manager: `request` runs its callback once the name is free, as Web Locks do (a shared request waits for the holder too) */
 function fakeLocks() {
   const held = new Map<string, { release: () => void }>()
   const waiting = new Map<string, Array<() => void>>()
@@ -48,10 +51,17 @@ function fakeLocks() {
     })
   }
   const locks = {
-    request: (name: string, callback: () => Promise<unknown> | unknown) =>
-      held.has(name)
-        ? new Promise<unknown>((resolve, reject) => { (waiting.get(name) ?? waiting.set(name, []).get(name)!).push(() => grant(name, callback).then(resolve, reject)) })
-        : grant(name, callback)
+    request: (name: string, a: unknown, b?: unknown) => {
+      const callback = (typeof a === 'function' ? a : b) as () => Promise<unknown> | unknown
+      const signal = (typeof a === 'object' ? (a as { signal?: AbortSignal }).signal : undefined)
+      if (!held.has(name)) return grant(name, callback)
+      return new Promise<unknown>((resolve, reject) => {
+        const queue = waiting.get(name) ?? waiting.set(name, []).get(name)!
+        const turn = () => { if (signal?.aborted) return; grant(name, callback).then(resolve, reject) }
+        queue.push(turn)
+        signal?.addEventListener('abort', () => { queue.splice(queue.indexOf(turn) >>> 0, 1); reject(new DOMException('aborted', 'AbortError')) }, { once: true })
+      })
+    }
   } as unknown as LockManager
   return { locks, held }
 }
@@ -123,6 +133,131 @@ describe('remote display', () => {
     expect(a.log).toContain('write hello')
     expect(b.log).toContain('write hello')
     closeA(); closeB(); owner.close()
+  })
+})
+
+describe('remote display: sizes, browser calls, reconnect', () => {
+  it('sizes a tty to the smallest display on it', async () => {
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    const a = fakeSurface()
+    const b = fakeSurface()
+    const closeA = await attachDisplay(store, 0, a.surface)
+    const closeB = await attachDisplay(store, 0, b.surface)
+    await settle()
+    a.resize(120, 40)
+    b.resize(100, 50)
+    await settle()
+    expect(tty.sizes.at(-1)).toEqual([100, 40])
+    closeB()
+    await settle()
+    expect(tty.sizes.at(-1)).toEqual([120, 40])
+    closeA(); owner.close()
+  })
+
+  const doing = (log: string[]) => (kind: string, params: Record<string, unknown>): RemoteCall => {
+    log.push(`${kind}:${JSON.stringify(params)}`)
+    return { done: Promise.resolve({ text: 'from the display' }), cancel: () => { log.push(`cancelled ${kind}`) } }
+  }
+
+  it('has a browser call done by the display on the tty, and answers with its result', async () => {
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    expect(owner.present(0, 'clipboard-read', {})).toBeUndefined()
+    const log: string[] = []
+    const close = await attachDisplay(store, 0, fakeSurface().surface, { present: doing(log) })
+    const call = owner.present(0, 'clipboard-read', { a: 1 })!
+    await expect(call.done).resolves.toEqual({ text: 'from the display' })
+    expect(log).toEqual(['clipboard-read:{"a":1}'])
+    expect(owner.present(3, 'clipboard-read', {})).toBeUndefined()
+    close(); owner.close()
+  })
+
+  it('sends the call to the display the user last typed at', async () => {
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    const first: string[] = []
+    const second: string[] = []
+    const a = fakeSurface()
+    const closeA = await attachDisplay(store, 0, a.surface, { present: doing(first) })
+    const closeB = await attachDisplay(store, 0, fakeSurface().surface, { present: doing(second) })
+    await settle(10)
+    a.type('x')
+    await settle()
+    await owner.present(0, 'notify', {})!.done
+    expect(first).toEqual(['notify:{}'])
+    expect(second).toEqual([])
+    closeA(); closeB(); owner.close()
+  })
+
+  it('passes a cancel to the display, and fails a call whose display went away', async () => {
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    const log: string[] = []
+    const never = (kind: string): RemoteCall => ({ done: new Promise(() => {}), cancel: () => { log.push(`cancelled ${kind}`) } })
+    const close = await attachDisplay(store, 0, fakeSurface().surface, { present: kind => never(kind) })
+    owner.present(0, 'speak', {})!.cancel()
+    await settle()
+    expect(log).toEqual(['cancelled speak'])
+
+    const stranded = owner.present(0, 'speak', {})!
+    const outcome = expect(stranded.done).rejects.toThrow('the display went away')
+    close()
+    await outcome
+    owner.close()
+  })
+
+  it('tells a display with no way to do it that it cannot', async () => {
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    const close = await attachDisplay(store, 0, fakeSurface().surface)
+    await expect(owner.present(0, 'notify', {})!.done).rejects.toThrow('cannot do that')
+    close(); owner.close()
+  })
+
+  it('attaches again, from a fresh screen, when the machine comes back', async () => {
+    const { locks, held } = fakeLocks()
+    const first = fakeTerminal()
+    const second = fakeTerminal()
+    const display = fakeSurface()
+
+    // the first machine: its tab holds the machine lock and answers displays
+    void locks.request(machineLockName(store), () => new Promise(() => {}))
+    let owner = new DisplayOwner(store, () => first.terminal, locks)
+    const keeping = keepDisplay(store, 0, display.surface, { locks, retryMs: 20, timeoutMs: 100 })
+    await settle(100)
+    expect(display.log).toEqual(['open 100x30 SCREEN'])
+
+    // that tab reloads: it lets go of the machine and stops answering
+    owner.close()
+    held.get(machineLockName(store))!.release()
+    await settle(100)
+    expect(display.log.at(-1)).toContain('lost')
+
+    // a new machine starts
+    void locks.request(machineLockName(store), () => new Promise(() => {}))
+    owner = new DisplayOwner(store, () => second.terminal, locks)
+    await settle(200)
+    expect(display.log.filter(line => line.startsWith('open'))).toHaveLength(2)
+    display.type('after')
+    await settle()
+    expect(second.typed).toEqual(['after'])
+    expect(first.typed).toEqual([])
+
+    keeping.close()
+    owner.close()
+  })
+
+  it('reports a first refusal once and keeps trying', async () => {
+    const display = fakeSurface()
+    const keeping = keepDisplay(store, 0, display.surface, { retryMs: 20, timeoutMs: 30 })
+    await settle(150)
+    expect(display.log.filter(line => line.startsWith('lost'))).toHaveLength(1)
+    const tty = fakeTerminal()
+    const owner = new DisplayOwner(store, () => tty.terminal, undefined)
+    await settle(150)
+    expect(display.log.some(line => line.startsWith('open'))).toBe(true)
+    keeping.close(); owner.close()
   })
 })
 

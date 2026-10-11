@@ -38,7 +38,7 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
-import { DisplayOwner } from '#lib/remote-display.ts'
+import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
 import { displayAddress } from '#lib/display-client.ts'
 import { freshMachineName, machineKey, machineStore, parseMachine } from '#lib/machine.ts'
 import type { MachineLock } from '#lib/machine-lock.ts'
@@ -2840,6 +2840,11 @@ export class Kernel implements IKernel {
     this._displays = new DisplayOwner(store, async tty => (tty >= 0 && tty <= 7 ? (await this.shellForTty(tty)).terminal : undefined), locks)
     void lock.evicted.then(() => this.machineTaken(locks, store))
     return false
+  }
+
+  /** Has a browser call done by the display the user is at on `tty`; `undefined` when none is attached (see `lib/remote-display.ts`) */
+  presentOnDisplay(tty: number, kind: string, params: Record<string, unknown>): RemoteCall | undefined {
+    return this._displays?.present(tty, kind, params)
   }
 
   /** Whether this tab runs a guest session (a scratch machine in memory, nothing saved) */
