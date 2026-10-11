@@ -261,6 +261,26 @@ describe('remote display: sizes, browser calls, reconnect', () => {
   })
 })
 
+describe('a remote key', () => {
+  it('reaches every onKey listener, as the keyboard does, until the listener is disposed', async () => {
+    const { Kernel } = await import('#kernel.ts')
+    const { DefaultFilesystemOptions } = await import('#filesystem.ts')
+    const { TestDomOptions, TestLogOptions } = await import('./fixtures/kernel.fixtures')
+    const kernel = new Kernel({ dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, credentials: { username: 'root', password: 'root' } })
+    await kernel.boot()
+    const terminal = kernel.terminal
+    const mods: KeyMods = { key: 'a', ctrl: false, alt: false, shift: false, meta: false }
+    const seen: string[] = []
+    // a password prompt, or a program reading keys, subscribes itself like this
+    const subscription = terminal.onKey(({ key }) => { seen.push(key) })
+    terminal.remoteKey('a', mods)
+    expect(seen).toEqual(['a'])
+    subscription.dispose()
+    terminal.remoteKey('b', { ...mods, key: 'b' })
+    expect(seen).toEqual(['a'])
+  }, 60_000)
+})
+
 describe('display address', () => {
   it('reads a tty and a machine from the address', () => {
     expect(displayRequest('')).toBeUndefined()

@@ -370,6 +370,17 @@ export class Terminal extends XTerm implements ITerminal {
 
   constructor(options: TerminalOptions & { tty?: number }) {
     super({ ...DefaultTerminalOptions, ...options })
+
+    // xterm's `onKey`, which also hands every listener the keys a remote display sends (see `remoteKey`)
+    const baseOnKey = this.onKey
+    Object.defineProperty(this, 'onKey', {
+      configurable: true,
+      value: ((listener: (event: { key: string, domEvent: KeyboardEvent }) => unknown) => {
+        const subscription = baseOnKey(listener)
+        this._keyListeners.add(listener)
+        return { dispose: () => { subscription.dispose(); this._keyListeners.delete(listener) } }
+      }) as XTerm['onKey']
+    })
     this._ctx = options.context
     this._dom = options.dom
     this._users = options.users
@@ -1687,10 +1698,12 @@ export class Terminal extends XTerm implements ITerminal {
 
   /** A key pressed at a remote display: what `onKey` carries, so the line editor sees it */
   remoteKey(key: string, mods: { key: string, ctrl: boolean, alt: boolean, shift: boolean, meta: boolean }): void {
-    if (this._isMobile) return
     const domEvent = { key: mods.key, ctrlKey: mods.ctrl, altKey: mods.alt, shiftKey: mods.shift, metaKey: mods.meta, preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent
-    void this.keyHandler({ key, domEvent })
+    // to every `onKey` listener, as the keyboard does: the line editor, but also a password prompt or a program reading keys, which subscribe themselves
+    for (const listener of [...this._keyListeners]) listener({ key, domEvent })
   }
+
+  private readonly _keyListeners = new Set<(event: { key: string, domEvent: KeyboardEvent }) => unknown>()
 
   serialize() {
     if (this.addons?.get('serialize')) return (this.addons.get('serialize') as SerializeAddon).serialize()
