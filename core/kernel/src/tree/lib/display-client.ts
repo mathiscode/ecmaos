@@ -8,8 +8,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { machineStore, parseMachine } from '#lib/machine.ts'
 import { keepDisplay, type DisplaySurface, type KeyMods, type RemoteCall } from '#lib/remote-display.ts'
-import { presentClipboardRead, presentClipboardWrite, presentNotify, presentSpeak } from '#lib/presenters/bridge.ts'
-import type { Presenter } from '#lib/presenters/index.ts'
+import { remoteKinds } from '#lib/presenters/remote.ts'
 
 /** The address of the display page for tty `tty`, keeping the machine the address names */
 export function displayAddress(href: string, tty: number): string {
@@ -70,13 +69,11 @@ export async function runDisplay(request: { tty: number, store: string } | { err
   }
 
   // Calls that only work in the page the user is at: this one, since this is where they type
-  const remote: Record<string, Presenter> = { notify: presentNotify, 'clipboard-write': presentClipboardWrite, 'clipboard-read': presentClipboardRead, speak: presentSpeak }
   const present = (kind: string, params: Record<string, unknown>): RemoteCall => {
-    const presenter = remote[kind]
-    if (!presenter) throw new Error(`this display cannot do ${kind}`)
-    const started = Promise.resolve(presenter(undefined as never, undefined as never, params))
+    const spec = Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
+    if (!spec) throw new Error(`this display cannot do ${kind}`)
     let dispose: (() => void) | undefined
-    const done = started.then(async presented => {
+    const done = Promise.resolve(spec.run(params)).then(async presented => {
       dispose = presented?.dispose
       if (presented?.closed) return presented.closed
       return presented?.result ?? null

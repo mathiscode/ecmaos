@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DisplayOwner, attachDisplay, keepDisplay, type DisplaySurface, type KeyMods, type MirroredTerminal, type RemoteCall } from '#lib/remote-display.ts'
 import { machineLockName } from '#lib/machine-lock.ts'
 import { displayAddress, displayRequest } from '#lib/display-client.ts'
+import { remoteKinds } from '#lib/presenters/remote.ts'
 
 const store = 'zenfs-test'
 const settle = (ms = 40) => new Promise(resolve => setTimeout(resolve, ms))
@@ -279,6 +280,47 @@ describe('a remote key', () => {
     terminal.remoteKey('b', { ...mods, key: 'b' })
     expect(seen).toEqual(['a'])
   }, 60_000)
+})
+
+describe('the browser calls a display does', () => {
+  const kernel = (events: unknown[] = []) => ({
+    filesystem: { fs: { readFile: async () => new Uint8Array([1, 2, 3]) } },
+    events: { dispatch: (_name: unknown, detail: unknown) => { events.push(detail) } }
+  }) as never
+
+  it('reads a file for a download in the owner, so the display needs no filesystem', async () => {
+    const params = await remoteKinds['download']!.prepare!(kernel(), undefined as never, { path: '/home/a/report.txt' })
+    expect(params).toEqual({ name: 'report.txt', bytes: new Uint8Array([1, 2, 3]) })
+    await expect(remoteKinds['download']!.prepare!(kernel(), undefined as never, {})).rejects.toThrow('missing path')
+  })
+
+  it('writes the files a display picked into the directory the program named', async () => {
+    const written: Array<[string, Uint8Array]> = []
+    const events: unknown[] = []
+    const shell = { context: { fs: { promises: { writeFile: async (path: string, data: Uint8Array) => { written.push([path, data]) } } } } } as never
+    const answer = [{ name: 'a.txt', data: new Uint8Array([9]) }, { name: 'b.txt', data: new Uint8Array([8]) }]
+    const outcome = await remoteKinds['upload']!.finish!(kernel(events), shell, answer, { directory: '/home/bob/' })
+    expect(outcome).toEqual({ uploaded: ['a.txt', 'b.txt'], errors: [] })
+    expect(written.map(([path]) => path)).toEqual(['/home/bob/a.txt', '/home/bob/b.txt'])
+    expect(events).toHaveLength(2)
+  })
+
+  it('tells a cancelled picker from an empty one', async () => {
+    const shell = { context: { fs: { promises: { writeFile: async () => {} } } } } as never
+    const finish = remoteKinds['upload']!.finish!
+    expect(await finish(kernel(), shell, null, { directory: '/x' })).toEqual({ uploaded: [], errors: [] })
+    expect(await finish(kernel(), shell, [], { directory: '/x' })).toEqual({ uploaded: [], errors: ['No file selected'] })
+  })
+
+  it('reports a file it could not write and goes on', async () => {
+    const shell = { context: { fs: { promises: { writeFile: async (path: string) => { if (path.endsWith('bad')) throw new Error('EACCES') } } } } } as never
+    const outcome = await remoteKinds['upload']!.finish!(kernel(), shell, [{ name: 'bad', data: new Uint8Array() }, { name: 'ok', data: new Uint8Array() }], { directory: '/x' })
+    expect(outcome).toEqual({ uploaded: ['ok'], errors: ['Failed to upload bad: EACCES'] })
+  })
+
+  it('has a way to do every call the owner routes', () => {
+    expect(Object.keys(remoteKinds).sort()).toEqual(['clipboard-read', 'clipboard-write', 'download', 'external', 'notify', 'speak', 'upload'])
+  })
 })
 
 describe('display address', () => {

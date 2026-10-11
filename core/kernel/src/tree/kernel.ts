@@ -2842,6 +2842,9 @@ export class Kernel implements IKernel {
     return false
   }
 
+  /** Whether a display is attached to `tty` */
+  hasDisplay(tty: number): boolean { return this._displays?.has(tty) ?? false }
+
   /** Has a browser call done by the display the user is at on `tty`; `undefined` when none is attached (see `lib/remote-display.ts`) */
   presentOnDisplay(tty: number, kind: string, params: Record<string, unknown>): RemoteCall | undefined {
     return this._displays?.present(tty, kind, params)

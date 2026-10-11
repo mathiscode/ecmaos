@@ -94,6 +94,12 @@ export class DisplayOwner {
     }
   }
 
+  /** Whether a display is attached to `tty` */
+  has(tty: number): boolean {
+    for (const session of this._sessions.values()) if (session.tty === tty) return true
+    return false
+  }
+
   /** How many displays are attached */
   get attached() { return this._sessions.size }
 

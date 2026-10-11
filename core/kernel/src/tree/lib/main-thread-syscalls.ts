@@ -52,6 +52,7 @@ import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } f
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { presenters, type Presented } from './presenters/index.ts'
+import { remoteKinds } from './presenters/remote.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) -- the
@@ -165,9 +166,6 @@ async function writeScratch(kernel: Kernel, proc: Process, path: string, text: s
   const { euid, egid } = proc.context.credentials
   if (euid !== 0) await kernel.filesystem.fs.chown(path, euid, egid)
 }
-
-/** The presenters whose browser call needs the page the user is looking at, so a display attached to the program's tty does them */
-const RemoteKinds = new Set(['notify', 'clipboard-write', 'clipboard-read', 'speak'])
 
 /** The tty a process is on, or `undefined` when it has none */
 function ttyNumberOf(kernel: Kernel, proc: Process): number | undefined {
@@ -370,9 +368,14 @@ export function installMainThreadSyscalls(): void {
       if (!presenter) throw new Error(`unknown presenter: ${kind}`)
       const params = JSON.parse(paramsJson) as Record<string, unknown>
       // A browser call that needs the page the user is at goes to the display attached to the program's tty, if there is one
-      const tty = RemoteKinds.has(kind) ? ttyNumberOf(kernel, proc) : undefined
-      const remote = tty === undefined ? undefined : kernel.presentOnDisplay(tty, kind, params)
-      const presented = remote ? { closed: remote.done, dispose: remote.cancel } satisfies Presented : await presenter(kernel, proc, params, shellOf(proc))
+      const spec = Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
+      const tty = spec ? ttyNumberOf(kernel, proc) : undefined
+      const remote = spec && tty !== undefined && kernel.hasDisplay(tty)
+        ? kernel.presentOnDisplay(tty, kind, await spec.prepare?.(kernel, proc, params, shellOf(proc)) ?? params)
+        : undefined
+      const presented = remote
+        ? { closed: spec?.finish ? remote.done.then(answer => spec.finish!(kernel, shellOf(proc), answer, params)) : remote.done, dispose: remote.cancel } satisfies Presented
+        : await presenter(kernel, proc, params, shellOf(proc))
       let result: unknown = presented?.result ?? null
 
       if (presented?.closed) {
