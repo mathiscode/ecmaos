@@ -14,9 +14,7 @@
  *   node scripts/typecheck-ratchet.mjs          # check only; non-zero exit if over budget
  *   node scripts/typecheck-ratchet.mjs --write  # rewrite the baseline to the current count
  *
- * The overhaul carries ~108 pre-existing errors (dual @zenfs/core copies plus
- * third-party vim-wasm sources). Nobody has to fix them all; nobody may add to
- * them. See CONTRIBUTING.md.
+ * The budget is currently 0; it may fall, never rise. See CONTRIBUTING.md.
  */
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'

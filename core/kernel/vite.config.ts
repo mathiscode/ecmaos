@@ -40,7 +40,6 @@ const gzipFixPlugin = () => {
   }
 }
 
-// TODO: Revisit this approach
 const jcoBrowserFixPlugin = () => {
   return {
     name: 'jco-browser-fix',

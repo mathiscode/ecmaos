@@ -513,8 +513,7 @@ export class Filesystem {
 
   /**
    * Extracts a tarball to the given path.
-   * TODO: Just use the tar coreutil
-   * 
+   *
    * @param {string} tarballPath - The path to the tarball.
    * @param {string} extractPath - The path to extract the tarball to.
    * @param {number} fileMode - The mode to set for files. Defaults to 0o644.

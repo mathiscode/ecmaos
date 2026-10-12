@@ -3,7 +3,6 @@ FROM debian:13-slim
 ARG TZ
 ENV TZ="$TZ"
 
-ARG CLAUDE_CODE_VERSION=latest
 ARG NODE_MAJOR=24
 
 # Install basic development tools
@@ -118,9 +117,9 @@ RUN SNIPPET="export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhisto
 # Set `DEVCONTAINER` environment variable to help with orientation
 ENV DEVCONTAINER=true
 
-# Create workspace and config directories and set permissions
-RUN mkdir -p /workspace /home/node/.claude && \
-  chown -R node:node /workspace /home/node/.claude
+# Create the workspace directory and set permissions
+RUN mkdir -p /workspace && \
+  chown -R node:node /workspace
 
 WORKDIR /workspace
 
@@ -222,6 +221,3 @@ RUN echo '\n# --- zsh plugins ---' >> /home/node/.zshrc && \
   echo 'HISTSIZE=50000' >> /home/node/.zshrc && \
   echo 'SAVEHIST=50000' >> /home/node/.zshrc && \
   echo 'setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE HIST_EXPIRE_DUPS_FIRST INC_APPEND_HISTORY SHARE_HISTORY' >> /home/node/.zshrc
-
-# Install Claude Code
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}

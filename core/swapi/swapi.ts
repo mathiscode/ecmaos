@@ -37,7 +37,7 @@ app.get('/fs/:file{.*}', async (c) => {
     pendingFileRequests.set(file, { resolve, reject, timeout })
   })
 
-  // TODO: target client by kernelId?
+  // Messages go to every client
   clients.forEach(client => client.postMessage({ type: 'fs', file }))
 
   try {

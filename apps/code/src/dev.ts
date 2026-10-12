@@ -13,7 +13,7 @@ const kernel = globalThis.kernel = new Kernel({
   credentials: { username: 'root', password: 'root' },
   filesystem: {
     mounts: {
-      // @ts-expect-error
+      // @ts-expect-error - InMemory is passed as a backend class here
       '/': InMemory
     }
   }

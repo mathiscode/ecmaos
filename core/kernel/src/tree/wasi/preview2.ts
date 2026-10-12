@@ -427,13 +427,13 @@ Object.defineProperty(globalThis.URL, 'prototype', {
   exitCodePromise = exitCodePromise.finally(async () => {
     try {
       await stdinReader.releaseLock()
-    } catch {}
+    } catch { /* the lock may already be released */ }
     try {
       await stdoutWriter.releaseLock()
-    } catch {}
+    } catch { /* the lock may already be released */ }
     try {
       await stderrWriter.releaseLock()
-    } catch {}
+    } catch { /* the lock may already be released */ }
     // Clean up blob URLs
     URL.revokeObjectURL(jsUrl)
     for (const url of wasmFileMap.values()) {

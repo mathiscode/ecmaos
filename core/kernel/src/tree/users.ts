@@ -147,7 +147,7 @@ export class Users {
 
     // Fix user home permissions
     try { await this.fs.chown(user.home, user.uid, user.gid) }
-    catch {}
+    catch { /* ownership is best-effort */ }
 
     if (createdHome) await copySkel(this.fs as unknown as SkelFs, user.home, user.uid, user.gid)
   }
@@ -740,7 +740,7 @@ export class Users {
     
     try {
       await this.fs.chown(passkeysPath, uid, user.gid)
-    } catch {}
+    } catch { /* ownership is best-effort */ }
   }
 
   /**

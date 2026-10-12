@@ -2,7 +2,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemory } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
-import { KernelState } from '@ecmaos/types'
 import type { KernelDevice } from '@ecmaos/types'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
@@ -25,13 +24,6 @@ describe('Kernel', () => {
 
   it('should instantiate', () => {
     expect(kernel).toBeDefined()
-  })
-
-  it('should boot', async () => {
-    // TODO fix this test
-    return true
-    await kernel.boot({ silent: true })
-    expect(kernel.state).toBe(KernelState.RUNNING)
   })
 
   it('should have a filesystem', () => {

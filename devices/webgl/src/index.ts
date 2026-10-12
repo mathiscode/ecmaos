@@ -105,7 +105,7 @@ async function test(kernel: Kernel) {
     throw new Error('WebGL not available')
   }
 
-  // @ts-ignore
+  // @ts-ignore - the terminal's element is not part of its public type
   if (kernel.terminal?.element) kernel.terminal.element.style.display = 'none'
 
   canvas.width = window.innerWidth
@@ -120,7 +120,7 @@ async function test(kernel: Kernel) {
   await runWebGLTest(context as WebGLRenderingContext)
 
   setTimeout(() => {
-    // @ts-ignore
+    // @ts-ignore - the terminal's element is not part of its public type
     if (kernel.terminal?.element) kernel.terminal.element.style.display = ''
     canvas.remove()
     kernel.terminal?.focus()

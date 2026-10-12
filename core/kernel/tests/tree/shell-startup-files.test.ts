@@ -34,7 +34,7 @@ describe('startup files', () => {
     shell().functions.clear()
     for (const [signal] of shell().listTraps()) shell().setTrap(undefined, signal)
     for (const file of FILES) {
-      try { await fs().unlink(file) } catch {}
+      try { await fs().unlink(file) } catch { /* may not exist */ }
     }
   })
 
@@ -85,7 +85,7 @@ describe('startup files', () => {
 
   it('does not fire the EXIT trap, so a trap set at startup survives for the session', async () => {
     const OUT = '/tmp/startup-trap.out'
-    try { await fs().unlink(OUT) } catch {}
+    try { await fs().unlink(OUT) } catch { /* may not exist */ }
     await write('/root/.ecmashrc', `trap 'echo left >> ${OUT}' EXIT\n`)
 
     await shell().loadProfile()
@@ -120,7 +120,7 @@ describe('startup files', () => {
 
   it('reports a missing command as exit 127 without ending the script', async () => {
     const OUT = '/tmp/startup-127.out'
-    try { await fs().unlink(OUT) } catch {}
+    try { await fs().unlink(OUT) } catch { /* may not exist */ }
 
     await shell().executeScriptText(`this-command-does-not-exist\necho "code=$?" > ${OUT}\n`)
 

@@ -37,8 +37,7 @@ export async function cli(options: KernelDeviceCLIOptions) {
         `
       })
 
-      // TODO: Proper fix
-      // @ts-expect-error
+      // @ts-expect-error - the window's dom element is typed too loosely for querySelector
       win.dom.querySelector('.request-permission-bluetooth').addEventListener('click', async () => {
         try {
           await navigator.bluetooth.requestDevice({ acceptAllDevices: true })
@@ -61,15 +60,13 @@ export async function cli(options: KernelDeviceCLIOptions) {
             `
           })
 
-          // TODO: Proper fix
-          // @ts-expect-error
+          // @ts-expect-error - the window's dom element is typed too loosely for querySelector
           dialog.dom.querySelector('.request-permission-bluetooth-error-close').addEventListener('click', () => dialog.close())
           resolve(false)
         }
       })
 
-      // TODO: Proper fix
-      // @ts-expect-error
+      // @ts-expect-error - the window's dom element is typed too loosely for querySelector
       win.dom.querySelector('.request-permission-bluetooth-cancel').addEventListener('click', () => {
         win.close()
         resolve(false)
@@ -302,11 +299,11 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     class: bluetooth_class,
     ops: {
       read: () => {
-        // TODO: Implement reading from connected Bluetooth device
+        // Not implemented: reads return no data
         return 0
       },
       write: () => {
-        // TODO: Implement writing to connected Bluetooth device
+        // Not implemented: writes are discarded
       }
     }
   }]

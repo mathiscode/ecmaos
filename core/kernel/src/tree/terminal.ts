@@ -703,7 +703,7 @@ export class Terminal extends XTerm implements ITerminal {
   dispose() {
     // Not in `unlisten()`: this is the handler behind `Ctrl+Shift+F1`, which re-listens a terminal, so it must
     // outlive `unlisten`.
-    try { this._shortcutListener?.dispose() } catch {}
+    try { this._shortcutListener?.dispose() } catch { /* already disposed */ }
     this._shortcutListener = undefined
     this._cleanupViewportListeners()
     this._webglAddon?.dispose()
@@ -949,8 +949,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   unlisten() {
-    try { this._keyListener?.dispose() } catch {}
-    try { this._mobileInputListener?.dispose() } catch {}
+    try { this._keyListener?.dispose() } catch { /* already disposed */ }
+    try { this._mobileInputListener?.dispose() } catch { /* already disposed */ }
     // Remove TTY switch handler
     if (this.element && this._ttySwitchHandler) {
       this.element.removeEventListener('keydown', this._ttySwitchHandler, true)
@@ -962,7 +962,7 @@ export class Terminal extends XTerm implements ITerminal {
     this.events.dispatch<TerminalUnlistenEvent>(TerminalEvents.UNLISTEN, { terminal: this })
   }
 
-  // TODO: Make configurable; expand and organize keyboard shortcut functionality
+  // Keyboard shortcuts are fixed
   async shortcutKeyHandler({ domEvent }: { domEvent: KeyboardEvent }) {
     this.events.dispatch<TerminalKeyEvent>(TerminalEvents.KEY, { key: domEvent.key, domEvent })
 

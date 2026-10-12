@@ -14,7 +14,7 @@ import { fromDev, Process as ZenFSProcess, Signal } from '@zenfs/linux'
 import type {
   Filesystem, Job, JobProcessHandle, JobStatus, KernelContext,
   Shell as IShell, ShellBuiltinIO, ShellCreatePipeStream, ShellExecute, ShellOptionName, ShellOptions, TerminalConfig as ITerminalConfig, Terminal as ITerminal, Users
-} from '@ecmaos/types' // TODO: Consistency
+} from '@ecmaos/types'
 import { ThemePresets } from '@ecmaos/types'
 
 import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
@@ -581,7 +581,7 @@ export class Shell implements IShell {
   async runTrap(signal: string): Promise<void> {
     const handler = this.getTrap(signal)
     if (!handler) return
-    try { await this.execute(handler) } catch {}
+    try { await this.execute(handler) } catch { /* a failing trap handler does not stop the shell */ }
   }
 
   /** Builds the `ExpansionContext` bound to this shell's variables, arrays and positional parameters. */
@@ -668,7 +668,7 @@ export class Shell implements IShell {
           this._env.set(key, value)
         }
       }
-    } catch {}
+    } catch { /* a missing or unreadable file leaves the environment as is */ }
 
     // Load user ~/.env second (overwrites global values)
     const home = this._env.get('HOME')
@@ -685,7 +685,7 @@ export class Shell implements IShell {
       }
 
       this.publishEnv()
-    } catch {}
+    } catch { /* the process mirror is optional */ }
   }
 
   /**
@@ -713,7 +713,7 @@ export class Shell implements IShell {
         if (error instanceof ExitSignal) break
         try {
           this.terminal?.writeln(`ecmash: ${file}: ${(error as Error).message}`)
-        } catch {}
+        } catch { /* no terminal to report to */ }
       } finally {
         this._sourceFile = undefined
       }
@@ -765,7 +765,7 @@ export class Shell implements IShell {
    */
   attach(terminal: ITerminal) {
     if (this._terminalWriter) {
-      try { this._terminalWriter.releaseLock() } catch {}
+      try { this._terminalWriter.releaseLock() } catch { /* the lock may already be released */ }
     }
     
     this._terminal = terminal

@@ -738,11 +738,11 @@ export class Kernel implements IKernel {
 
         let logoFiglet: string | undefined
         try {
-          // TODO: A lot of trouble with Figlet fonts; revamp later - default to Poison now
+          // Poison is the default Figlet font
           const loadedFont = await import('figlet/importable-fonts/Poison.js')
           figlet.parseFont(figletFont || 'Poison', loadedFont.default)
           logoFiglet = figlet.textSync(import.meta.env['FIGLET_TEXT'] || 'ECMAOS', { font: figletFont as keyof typeof figlet.fonts })
-          // TODO: Fancier detection of figlet width and terminal width
+          // The logo is shown only when the page is at least 650px wide
           if ((globalThis.document?.body?.clientWidth ?? Infinity) >= 650) this.terminal.writeln(colorFiglet(figletColor, logoFiglet))
         } catch (error) {
           this.log.error(`Failed to load figlet font ${figletFont}: ${(error as Error).message}`)
@@ -830,7 +830,7 @@ export class Kernel implements IKernel {
               }
               await this.filesystem.fs.rmdir(entryPath)
             }
-          } catch {}
+          } catch { /* best-effort cleanup */ }
         }
       }
 
@@ -1088,17 +1088,17 @@ export class Kernel implements IKernel {
   private showBootFailure(error: unknown, spinner?: { stop(): void }) {
     const detail = error instanceof Error ? error.message : String(error)
 
-    try { spinner?.stop() } catch {}
+    try { spinner?.stop() } catch { /* the spinner may already be gone */ }
     try {
       void this.dom.topbarProgress(0)
       void this.dom.topbar(false)
-    } catch {}
+    } catch { /* no DOM to update */ }
 
     let headline = 'Uh oh, kernel panic! Check the logs for more details.'
     try {
       const translated = this.i18n.ns.kernel('panic')
       if (translated && translated !== 'panic') headline = translated
-    } catch {}
+    } catch { /* keep the untranslated headline */ }
 
     const message = detail ? `${headline}\n${detail}` : headline
     try {
@@ -2391,7 +2391,7 @@ export class Kernel implements IKernel {
           URL.revokeObjectURL(url)
         }
       }
-    } catch {}
+    } catch { /* best-effort cleanup */ }
   }
 
   /**

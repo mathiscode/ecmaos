@@ -149,7 +149,7 @@ async function test(kernel: Kernel) {
 
   device.queue.submit([commandEncoder.finish()])
 
-  // @ts-ignore
+  // @ts-ignore - the terminal's element is not part of its public type
   if (kernel.terminal?.element) kernel.terminal.element.style.display = 'none'
 
   canvas.style.position = 'absolute'
@@ -159,7 +159,7 @@ async function test(kernel: Kernel) {
   document.body.appendChild(canvas)
 
   setTimeout(() => {
-    // @ts-ignore
+    // @ts-ignore - the terminal's element is not part of its public type
     if (kernel.terminal?.element) kernel.terminal.element.style.display = ''
     canvas.remove()
     kernel.terminal.focus()

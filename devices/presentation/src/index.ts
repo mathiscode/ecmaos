@@ -32,7 +32,7 @@ export const pkg = {
   description: 'Web Presentation API device driver'
 }
 
-// @ts-ignore
+// @ts-ignore - PresentationRequest is not in the DOM lib types
 let activeRequest: PresentationRequest | null = null
 let activeConnection: PresentationConnection | null = null
 

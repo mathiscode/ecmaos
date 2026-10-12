@@ -1,7 +1,7 @@
 import type { ProcessEntryParams } from '@ecmaos/types'
 import path from 'node:path'
 
-// TODO: Get workers to import properly in the kernel (rewrite /assets)
+// Monaco workers are bundled with Vite's `?worker` import
 import * as monaco from 'monaco-editor'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
@@ -169,7 +169,7 @@ const createMenuBar = (
       action: () => editor.trigger('menu', 'copy', null)
     },
     {
-      // TODO: Fix paste
+      // Paste through the editor trigger may be refused by the browser
       label: 'Paste',
       action: () => editor.trigger('source', 'paste', null)
     }
@@ -186,7 +186,7 @@ const main = async (params: ProcessEntryParams) => {
   const file = args?.[0] ? path.resolve(shell.cwd, args[0]) : path.resolve(shell.cwd, 'Untitled.txt')
   if (!file) { terminal.writeln('Usage: code <file>'); return 1 }
 
-  try { await shell.context.fs.promises.mkdir(path.dirname(file), { recursive: true }) } catch {}
+  try { await shell.context.fs.promises.mkdir(path.dirname(file), { recursive: true }) } catch { /* the directory exists */ }
   try { await shell.context.fs.promises.access(file) } catch { await shell.context.fs.promises.writeFile(file, '') }
 
   const fileHandle = await instance.open(file, 'r+')

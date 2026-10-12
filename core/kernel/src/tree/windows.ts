@@ -100,7 +100,7 @@ export class Windows implements IWindows {
   private _updateBodyClass() {
     let minimizedCount = 0
     for (const win of this._manager.values()) {
-      // @ts-ignore
+      // @ts-ignore - WinBox does not type its `min` flag
       if (win.min) minimizedCount++
     }
 

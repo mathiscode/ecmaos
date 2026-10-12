@@ -82,16 +82,6 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 - To publish to Verdaccio, run `# npm publish --registry http://localhost:4873` in your app's development environment
 - Then to install from your local registry, run (inside ecmaOS) `# install @myscope/mypackage --registry http://localhost:4873`
 
-<!-- Will revamp once more work is done on this -->
-<!-- ### BIOS
-
-> [/core/bios](/core/bios)
-
-- The BIOS is a C++ module compiled to WebAssembly with [Emscripten](https://emscripten.org) providing performance-critical functionality
-- The BIOS has its own filesystem, located at `/bios` — this allows data to be copied in and out of the BIOS for custom code and utilities
-- The main idea is that data and custom code can be loaded into it from the OS for WASM-native performance, as well as providing various utilities
-- Confusingly, the Kernel loads the BIOS — not the other way around -->
-
 ### Execution Model
 
 > [/core/kernel/src/tree/kernel.ts](/core/kernel/src/tree/kernel.ts) · [/core/kernel/src/bin](/core/kernel/src/bin)
@@ -231,15 +221,6 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - Generators are used to scaffold new apps, devices, modules, etc.
 - They are located in the `turbo/generators` directory of the repository
 - They are used by the `turbo gen` command, e.g. `turbo gen app`, `turbo gen device`, `turbo gen module`, etc.
-
-<!-- Will revamp once more work is done on this -->
-<!-- ### Jaffa
-
-> [/core/jaffa](/core/jaffa)
-
-- Jaffa is a [Tauri](https://tauri.app) wrapper for the ecmaOS kernel
-- It's used to tie the kernel into a desktop or mobile environment, allowing for native functionality
-- It needs more work -->
 
 ### Internationalization
 
