@@ -11,6 +11,7 @@ import { makeLoginIO } from './login-io.mjs'
 const SIGINT = 2
 const SIGQUIT = 3
 const SIGCONT = 18
+const SIGSTOP = 19
 const SIGTSTP = 20
 
 const ECHO = 0o10
@@ -19,7 +20,7 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 export function makePriv(sys, name) {
-  const { write, writeAll, read, open, close, tcgetattr, tcsetattr, custom, spawn, waitpid, onSignal, stat, isDirectory, env, getuid } = sys
+  const { write, writeAll, read, open, close, tcgetattr, tcsetattr, custom, spawn, waitpid, onSignal, stat, isDirectory, env, getuid, getpid } = sys
   const io = makeLoginIO(sys)
 
   const err = text => write(2, encoder.encode(`${name}: ${text}\n`))
@@ -124,7 +125,8 @@ export function makePriv(sys, name) {
 
   /**
    * Runs `program` as `user` and waits for it; resolves to its exit status (128 + n when a signal ended it).
-   * A child that is stopped (`^Z`) is resumed at once: these programs are not a job a shell can hold.
+   * `^Z` reaches this program, not the child, so it is passed on; once the child has stopped this program stops too
+   * (as sudo does), which is what the shell sees as the job being stopped, and `fg`/`bg` resume both.
    */
   async function runAs(user, program, argv, { cwd, env: childEnv }) {
     let pid
@@ -134,6 +136,7 @@ export function makePriv(sys, name) {
       err(`${program}: ${error?.message ?? error}`)
       return 126
     }
+    onSignal(SIGTSTP, () => { custom('proc_kill', pid, SIGTSTP).catch(() => {}) })
     for (;;) {
       let done
       try {
@@ -142,7 +145,14 @@ export function makePriv(sys, name) {
         if (`${error?.code} ${error?.message ?? error}`.includes('EINTR')) continue
         throw error
       }
-      if (done.stopped) { try { await custom('proc_kill', pid, SIGCONT) } catch { /* gone */ } continue }
+      if (done.stopped) {
+        // stop here too; when the shell continues this program, continue the child
+        try { await custom('proc_kill', getpid(), SIGSTOP) } catch { /* cannot stop */ }
+        // the terminal's signals (^C, ^Z) go to the child again, as before the stop
+        try { await custom('proc_tcsetpgrp', pid) } catch { /* no terminal */ }
+        try { await custom('proc_kill', pid, SIGCONT) } catch { /* gone */ }
+        continue
+      }
       return done.signal ? 128 + done.signal : done.code
     }
   }

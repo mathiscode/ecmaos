@@ -1405,7 +1405,9 @@ export class Kernel implements IKernel {
       proc.kill = (signal) => {
         const wasStopped = proc.stopped
         const delivered = deliver(signal)
-        if (!wasStopped && proc.stopped && tty?.foreground === proc) {
+        // (a program that stops itself because what it runs was stopped, as `sudo` does, is the job's process
+        // while the terminal's foreground is its child)
+        if (!wasStopped && proc.stopped && isForeground && (tty?.foreground === proc || options.shell.foregroundJob?.processes.some(p => p.pid === proc.pid))) {
           dropInput()
           terminal.foregroundStopped()
         }

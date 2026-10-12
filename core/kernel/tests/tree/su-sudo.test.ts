@@ -207,6 +207,23 @@ describe('su and sudo', () => {
       })
     }, 60000)
 
+    it('^Z stops sudo and what it runs, and fg carries on', async () => {
+      if (!gateOpen) return
+      await setSudoers('alice ALL=(ALL) NOPASSWD: ALL\n')
+      await asAlice(async () => {
+        const run = kernel.shell.execute('sudo sleep 8')
+        await waitFor(() => (kernel.shell.foregroundJob?.processes.length ?? 0) > 0)
+        const job = kernel.shell.foregroundJob!
+        // let sudo get as far as starting its child
+        await new Promise(r => setTimeout(r, 1500))
+        kernel.terminal.input('\x1a', true)
+        await waitFor(() => { if (job.status === 'done') throw new Error('job already done'); return job.status === 'stopped' }, 5000)
+        const fg = kernel.shell.fg()
+        expect(await Promise.race([fg.then(() => 'done'), new Promise(r => setTimeout(() => r('hung'), 15000))])).toBe('done')
+        expect(await run).toBe(0)
+      })
+    }, 60000)
+
     it('refuses a user the file does not name', async () => {
       if (!gateOpen) return
       await asBob(async () => {
