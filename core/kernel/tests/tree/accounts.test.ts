@@ -398,10 +398,10 @@ describe('account commands', () => {
     }, 30000)
 
     it('notes what is valid sudoers but not supported here, and -s makes it an error', async () => {
-      await fs().writeFile('/tmp/alias-sudoers', 'User_Alias ADMINS = alice\nroot ALL=(ALL) ALL\n')
+      await fs().writeFile('/tmp/alias-sudoers', '#includedir /etc/sudoers.d\nroot ALL=(ALL) ALL\n')
       const lenient = await sh('visudo -c -f /tmp/alias-sudoers')
       expect(lenient.code).toBe(0)
-      expect(lenient.err).toContain('User_Alias is not supported')
+      expect(lenient.err).toContain('#includedir is not supported')
       expect((await sh('visudo -cs -f /tmp/alias-sudoers')).code).toBe(1)
     }, 30000)
 

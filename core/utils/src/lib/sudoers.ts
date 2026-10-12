@@ -17,8 +17,13 @@
  * means every file in that directory; `*` matches anything), optionally followed by the exact arguments
  * allowed, and `!` in front forbids it. The last rule that matches decides.
  *
- * Not supported, and reported as a warning rather than guessed at: aliases (`User_Alias` and the rest),
- * `#include`/`#includedir`, `Runas_Alias`, `SETENV:`/`NOEXEC:` tags, `Defaults` other than the two above.
+ * Aliases name a list: `User_Alias ADMINS = alice, %ops`, `Runas_Alias OPERATORS = root, alice`,
+ * `Host_Alias SERVERS = ecmaos, build`, `Cmnd_Alias READ = /bin/ls, /bin/cat /etc/hosts`, with several
+ * definitions on one line separated by `:`. An alias may use others and may be defined after the rule that uses
+ * it; `!READ` forbids every command in it. Names are upper case.
+ *
+ * Not supported, and reported as a warning rather than guessed at: `#include`/`#includedir`,
+ * `SETENV:`/`NOEXEC:` tags, `Defaults` other than the two above.
  * A line that does not parse is skipped, never fatal, so one typo cannot lock everyone out.
  */
 
@@ -74,7 +79,21 @@ export interface SudoDecision {
 }
 
 const TAGS = new Set(['PASSWD', 'NOPASSWD', 'SETENV', 'NOSETENV', 'EXEC', 'NOEXEC', 'LOG_INPUT', 'NOLOG_INPUT', 'LOG_OUTPUT', 'NOLOG_OUTPUT'])
-const ALIAS_WORDS = new Set(['User_Alias', 'Runas_Alias', 'Host_Alias', 'Cmnd_Alias'])
+const ALIAS_KINDS = { User_Alias: 'user', Runas_Alias: 'runas', Host_Alias: 'host', Cmnd_Alias: 'cmnd' } as const
+const ALIAS_NAME = /^[A-Z][A-Z0-9_]*$/
+const ALIAS_DEPTH = 16
+
+type AliasKind = (typeof ALIAS_KINDS)[keyof typeof ALIAS_KINDS]
+type Aliases = Record<AliasKind, Map<string, string[]>>
+
+/** Replaces each alias in `items` with what it stands for (an unknown name stays as it is, a user or host of that name). */
+function expandAliases(items: string[], maps: Map<string, string[]>[], depth = 0): string[] {
+  if (depth > ALIAS_DEPTH) throw new Error('aliases are nested too deeply (a loop?)')
+  return items.flatMap(item => {
+    const members = ALIAS_NAME.test(item) && item !== 'ALL' ? maps.map(map => map.get(item)).find(found => found !== undefined) : undefined
+    return members ? expandAliases(members, maps, depth + 1) : [item]
+  })
+}
 
 /** Splits at commas that are outside parentheses, so `(a,b) /bin/ls, /bin/cat` is two entries. */
 function splitList(text: string): string[] {
@@ -90,7 +109,8 @@ function splitList(text: string): string[] {
   return parts.filter(Boolean)
 }
 
-function parseCommands(text: string): SudoCommandSpec[] {
+function parseCommands(text: string, aliases: Aliases, depth = 0): SudoCommandSpec[] {
+  if (depth > ALIAS_DEPTH) throw new Error('aliases are nested too deeply (a loop?)')
   const specs: SudoCommandSpec[] = []
   let runAs = ['root']
   let noPassword = false
@@ -99,7 +119,7 @@ function parseCommands(text: string): SudoCommandSpec[] {
       const runAsMatch = /^\(([^)]*)\)\s*/.exec(entry)
       if (runAsMatch) {
         const [users] = (runAsMatch[1] ?? '').split(':')
-        runAs = (users ?? '').split(',').map(name => name.trim()).filter(Boolean)
+        runAs = expandAliases((users ?? '').split(',').map(name => name.trim()).filter(Boolean), [aliases.runas, aliases.user])
         if (runAs.length === 0) runAs = ['root']
         entry = entry.slice(runAsMatch[0].length)
         continue
@@ -116,6 +136,11 @@ function parseCommands(text: string): SudoCommandSpec[] {
     if (!entry) continue
     const negated = entry.startsWith('!')
     const body = (negated ? entry.slice(1) : entry).trim()
+    const alias = ALIAS_NAME.test(body) && body !== 'ALL' ? aliases.cmnd.get(body) : undefined
+    if (alias) {
+      for (const spec of parseCommands(alias.join(', '), aliases, depth + 1)) specs.push({ ...spec, negated: negated !== spec.negated, runAs: [...runAs], noPassword })
+      continue
+    }
     const space = body.search(/\s/)
     const command = space === -1 ? body : body.slice(0, space)
     const args = space === -1 ? undefined : body.slice(space).trim()
@@ -129,14 +154,31 @@ export function parseSudoers(text: string): SudoPolicy {
   const policy: SudoPolicy = { rules: [], defaults: { timestampTimeout: 5, authenticate: true }, warnings: [] }
   // a line ending in a backslash continues on the next
   const lines = text.replace(/\\\r?\n/g, ' ').split('\n')
+  const stripComment = (raw: string) => raw.replace(/(^|\s)#(?![0-9]).*$/, '').trim()
+  // aliases first, so a rule may use one defined further down
+  const aliases: Aliases = { user: new Map(), runas: new Map(), host: new Map(), cmnd: new Map() }
+  const aliasLines = new Set<number>()
   lines.forEach((raw, index) => {
+    const line = raw.trim().startsWith('#include') ? '' : stripComment(raw)
+    const word = line.split(/\s+/)[0] ?? ''
+    const kind = (ALIAS_KINDS as Record<string, AliasKind>)[word]
+    if (!kind) return
+    aliasLines.add(index)
+    const warn = (message: string) => policy.warnings.push(`line ${index + 1}: ${message}`)
+    for (const definition of line.slice(word.length).split(/\s*:\s*(?=[A-Z][A-Z0-9_]*\s*=)/)) {
+      const match = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.+)$/.exec(definition)
+      if (!match) { warn(`expected "${word} NAME = members"`); continue }
+      aliases[kind].set(match[1] ?? '', splitList(match[2] ?? ''))
+    }
+  })
+  lines.forEach((raw, index) => {
+    if (aliasLines.has(index)) return
     const warn = (message: string) => policy.warnings.push(`line ${index + 1}: ${message}`)
     // `#include` looks like a comment but is a directive; `#1000` is a uid, not a comment
     if (raw.trim().startsWith('#include')) return warn(`${raw.trim().split(/\s+/)[0]} is not supported`)
-    const line = raw.replace(/(^|\s)#(?![0-9]).*$/, '').trim()
+    const line = stripComment(raw)
     if (!line) return
     const word = line.split(/\s+/)[0] ?? ''
-    if (ALIAS_WORDS.has(word)) return warn(`${word} is not supported`)
     if (word.startsWith('Defaults')) {
       if (word !== 'Defaults') return warn(`${word} is not supported`)
       for (const item of splitList(line.slice(word.length))) {
@@ -153,11 +195,11 @@ export function parseSudoers(text: string): SudoPolicy {
     const headMatch = /^(.+?)\s+(\S+)$/.exec(head)
     if (!headMatch) return warn('expected "users host=(runas) commands"')
     try {
-      const commands = parseCommands(line.slice(equals + 1))
+      const commands = parseCommands(line.slice(equals + 1), aliases)
       if (commands.length === 0) return warn('no commands')
       policy.rules.push({
-        users: (headMatch[1] ?? '').split(',').map(name => name.trim()).filter(Boolean),
-        hosts: (headMatch[2] ?? '').split(',').map(name => name.trim()).filter(Boolean),
+        users: expandAliases((headMatch[1] ?? '').split(',').map(name => name.trim()).filter(Boolean), [aliases.user]),
+        hosts: expandAliases((headMatch[2] ?? '').split(',').map(name => name.trim()).filter(Boolean), [aliases.host]),
         commands
       })
     } catch (error) {

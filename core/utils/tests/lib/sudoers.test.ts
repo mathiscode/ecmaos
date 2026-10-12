@@ -28,10 +28,10 @@ describe('parseSudoers', () => {
     expect(policy.warnings[1]).toContain("'ls' is not an absolute path")
   })
 
-  it('warns about aliases and includes instead of guessing', () => {
-    const policy = parseSudoers('User_Alias ADMINS = alice\n#includedir /etc/sudoers.d\n')
+  it('warns about includes instead of guessing', () => {
+    const policy = parseSudoers('#includedir /etc/sudoers.d\n#include /etc/more\n')
     expect(policy.rules).toEqual([])
-    expect(policy.warnings).toEqual(['line 1: User_Alias is not supported', 'line 2: #includedir is not supported'])
+    expect(policy.warnings).toEqual(['line 1: #includedir is not supported', 'line 2: #include is not supported'])
   })
 
   it('joins a line continued with a backslash', () => {
@@ -111,5 +111,58 @@ describe('listPrivileges', () => {
     const policy = parseSudoers('alice ALL=(root) NOPASSWD: /bin/ls, !/bin/rm\nbob ALL=(root) ALL')
     expect(listPrivileges(policy, alice)).toEqual(['    (root) NOPASSWD: /bin/ls', '    (root) NOPASSWD: !/bin/rm'])
     expect(listPrivileges(policy, bob)).toEqual(['    (root) ALL'])
+  })
+})
+
+describe('aliases', () => {
+  const text = [
+    'Cmnd_Alias READ = /bin/ls, /bin/cat /etc/hosts',
+    'Cmnd_Alias DANGER = /bin/rm, /bin/dd',
+    'Cmnd_Alias ALLOWED = READ, DANGER',
+    'User_Alias ADMINS = alice, %ops : GUESTS = bob',
+    'Runas_Alias OPERATORS = root, carol',
+    'Host_Alias SERVERS = ecmaos, build',
+    'ADMINS SERVERS = (OPERATORS) NOPASSWD: ALLOWED, !DANGER',
+    'GUESTS ALL = READ'
+  ].join('\n')
+  const policy = parseSudoers(text)
+
+  it('parses every kind, several definitions on a line, and nesting, with no warnings', () => {
+    expect(policy.warnings).toEqual([])
+    expect(policy.rules[0]?.users).toEqual(['alice', '%ops'])
+    expect(policy.rules[0]?.hosts).toEqual(['ecmaos', 'build'])
+    expect(policy.rules[1]?.users).toEqual(['bob'])
+  })
+
+  it('applies the expanded users, hosts, run-as users and commands', () => {
+    expect(checkSudo(policy, ask(alice, '/bin/ls', [], 'carol'))).toEqual({ allowed: true, noPassword: true })
+    expect(checkSudo(policy, ask(alice, '/bin/cat', ['/etc/hosts']))).toEqual({ allowed: true, noPassword: true })
+    expect(checkSudo(policy, ask(alice, '/bin/ls', [], 'bob')).allowed).toBe(false)
+    expect(checkSudo(policy, { ...ask(alice, '/bin/ls'), host: 'elsewhere' }).allowed).toBe(false)
+  })
+
+  it('forbids every command of an alias behind a !', () => {
+    expect(checkSudo(policy, ask(alice, '/bin/rm')).allowed).toBe(false)
+    expect(checkSudo(policy, ask(alice, '/bin/dd')).allowed).toBe(false)
+    expect(checkSudo(policy, ask(bob, '/bin/ls')).allowed).toBe(true)
+    expect(checkSudo(policy, ask(bob, '/bin/rm')).allowed).toBe(false)
+  })
+
+  it('lets a rule use an alias defined after it', () => {
+    const later = parseSudoers('ADMINS ALL = (root) ALL\nUser_Alias ADMINS = alice\n')
+    expect(later.warnings).toEqual([])
+    expect(checkSudo(later, ask(alice, '/bin/ls')).allowed).toBe(true)
+    expect(checkSudo(later, ask(bob, '/bin/ls')).allowed).toBe(false)
+  })
+
+  it('skips a rule with an alias loop, and a malformed definition, with a warning', () => {
+    const bad = parseSudoers('Cmnd_Alias A = B\nCmnd_Alias B = A\nalice ALL = A\nUser_Alias BROKEN\nroot ALL = ALL\n')
+    expect(bad.rules).toHaveLength(1)
+    expect(bad.warnings).toEqual(['line 4: expected "User_Alias NAME = members"', 'line 3: aliases are nested too deeply (a loop?)'])
+  })
+
+  it('treats an upper-case name that is no alias as a user name', () => {
+    const plain = parseSudoers('DEPLOY ALL = /bin/ls\n')
+    expect(plain.rules[0]?.users).toEqual(['DEPLOY'])
   })
 })

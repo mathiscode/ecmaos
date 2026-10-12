@@ -21,7 +21,7 @@ Edits `/etc/sudoers` safely. The file is copied to `/etc/sudoers.tmp`, the copy 
 
 ## Notes
 
-A rule `sudo` does not understand is an error. A construct that is valid sudoers but not supported here (a `User_Alias`, `#include`) is noted and does not stop the save, unless `-s`. Only root may run it.
+A rule `sudo` does not understand is an error. A construct that is valid sudoers but not supported here (an `#include`) is noted and does not stop the save, unless `-s`. Only root may run it.
 
 ## Exit status
 
