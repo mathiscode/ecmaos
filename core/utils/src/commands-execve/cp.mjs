@@ -6,10 +6,10 @@
  */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
-import { chmodOwned, chownOwned } from './lib/owner-ops.mjs'
+import { chmodOwned, chownOwned, utimesOwned } from './lib/owner-ops.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, utimes, copyFile } = sys
+const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, copyFile } = sys
 
 const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
@@ -30,7 +30,7 @@ async function preserve(stats, destPath) {
   await chmodOwned(sys, destPath, stats.mode & 0o7777)
   // last, since writing into a directory changes its times
   // seconds, as Node's `utimes` takes them (the upstream wrapper's comment says milliseconds; it is not)
-  try { utimes(destPath, stats.atimeMs / 1000, stats.mtimeMs / 1000) } catch (error) { if (!isDirectory(destPath)) throw error }
+  await utimesOwned(sys, destPath, stats.atimeMs / 1000, stats.mtimeMs / 1000)
 }
 
 async function copyOne(sourcePath, destPath, keep) {

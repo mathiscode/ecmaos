@@ -1,18 +1,17 @@
-/**
- * Create a file if it doesn't exist. Unlike a real `touch`, this does not update the modification
- * time of a file that already exists.
- */
+/** Create a file if it doesn't exist; otherwise set its access and modification times to now (a directory's too). */
 
 import { resolve } from './lib/path-utils.mjs'
+import { utimesOwned } from './lib/owner-ops.mjs'
 
-const { argv, exit, writeAll, getcwd, open, close, O_WRONLY, O_CREAT } = globalThis.ecmaosSyscalls
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, open, close, stat, O_WRONLY, O_CREAT } = sys
 
 const usage = `Usage: touch [OPTION]... FILE...
 Update the access and modification times of each FILE to the current time.
 
   --help  display this help and exit`
 
-function main() {
+async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
     writeAll(2, new TextEncoder().encode(usage + '\n'))
@@ -30,7 +29,10 @@ function main() {
     if (!target || target.startsWith('-')) continue
     const fullPath = resolve(cwd, target)
     try {
-      close(open(fullPath, O_WRONLY | O_CREAT, 0o644))
+      let exists = true
+      try { stat(fullPath) } catch { exists = false }
+      if (exists) await utimesOwned(sys, fullPath, -1, -1)
+      else close(open(fullPath, O_WRONLY | O_CREAT, 0o644))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       writeAll(2, new TextEncoder().encode(`touch: ${target}: ${message}\n`))
@@ -42,7 +44,7 @@ function main() {
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   writeAll(2, new TextEncoder().encode(`touch: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)

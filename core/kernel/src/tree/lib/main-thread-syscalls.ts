@@ -110,6 +110,7 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_tcsetpgrp(pid: number): number
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
+    fs_utimes(path: string, atime: number, mtime: number): number
     shell_exec(command: string): number
     init_wait(timeoutMs: number): number
     init_booted(): number
@@ -1707,6 +1708,18 @@ export function installMainThreadSyscalls(): void {
     const allowed = euid === 0 || (euid === info.uid && uid === info.uid && (gid === info.gid || gid === egid || groups.includes(gid)))
     if (!allowed) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
     await kernelOf(proc).filesystem.fs.chown(path, uid, gid)
+    return 0
+  })
+
+  // Setting a file's times to chosen values is a matter of owning it (any caller with write access may set them to the
+  // present, which the plain call already allows). Asked when the plain `utimes` is refused: a directory, or a file the
+  // owner has made read-only. Times are seconds; a negative one means now.
+  define_syscall('fs_utimes', async (proc: Process, path: string, atime: number, mtime: number) => {
+    const info = await statAsCaller(proc, path)
+    const caller = proc.context.credentials
+    if (caller.euid !== 0 && caller.euid !== info.uid) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    const now = Date.now() / 1000
+    await kernelOf(proc).filesystem.fs.utimes(path, atime < 0 ? now : atime, mtime < 0 ? now : mtime)
     return 0
   })
 

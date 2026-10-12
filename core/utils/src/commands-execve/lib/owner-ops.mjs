@@ -1,5 +1,5 @@
 /**
- * `chmod` and `chown` for someone who owns a file but has no access bits on it, or whose file is a directory.
+ * `chmod`, `chown` and `utimes` for someone who owns a file but has no access bits on it, or whose file is a directory.
  *
  * Changing a mode or an owner depends on owning the file, not on read or write access to it, but the filesystem
  * underneath refuses the call in two cases that Linux allows: a directory (the synchronous `chmod`) and a file
@@ -25,5 +25,15 @@ export async function chownOwned(sys, path, uid, gid) {
   } catch (error) {
     if (!refusedByTheFilesystem(error)) throw error
     await sys.custom('fs_chown', path, uid, gid)
+  }
+}
+
+/** Seconds, as Node's `utimes` takes them; a negative time means now. */
+export async function utimesOwned(sys, path, atime, mtime) {
+  try {
+    sys.utimes(path, atime < 0 ? Date.now() / 1000 : atime, mtime < 0 ? Date.now() / 1000 : mtime)
+  } catch (error) {
+    if (!refusedByTheFilesystem(error)) throw error
+    await sys.custom('fs_utimes', path, atime, mtime)
   }
 }
