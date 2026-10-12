@@ -48,7 +48,7 @@ function writeWholeFile(fullPath, bytes) {
 }
 
 /**
- * `mkdir` (from `globalThis.ecmaosSyscalls`) is the raw single-level `mkdir(2)` syscall -- it has
+ * `mkdir` (from `globalThis.ecmaosSyscalls`) is the raw single-level `mkdir(2)` syscall - it has
  * no `{ recursive: true }` of its own and fails if the parent doesn't already exist. Most npm
  * tarballs don't emit an explicit directory entry for every intermediate level (e.g. a file at
  * `dist/assets/foo.js` with no separate entry for `dist/` or `dist/assets/`), so extraction must
@@ -180,7 +180,7 @@ function collectFiles(cwd, filePaths, basePath = '') {
         const relativePath = memberName(basePath, filePath)
         result.push({ path: relativePath.endsWith('/') ? relativePath : relativePath + '/', fullPath, isDirectory: true })
         const entries = readdir(fullPath)
-        // Recurse using each entry's bare name, not an absolute path -- collectFiles resolves
+        // Recurse using each entry's bare name, not an absolute path - collectFiles resolves
         // filePaths against cwd itself, so passing an already-absolute subFiles entry back through
         // would double up (cwd + absolute path), producing a garbled archive entry name.
         const subResults = collectFiles(fullPath, entries, memberName(basePath, filePath))

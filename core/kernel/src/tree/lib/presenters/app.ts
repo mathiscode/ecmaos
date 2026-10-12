@@ -12,7 +12,7 @@ import type { Presented } from './index.ts'
  * The main-thread half of a DOM app (`#!ecmaos:bin:app:<name>`: webamp, the Monaco `code` editor, and
  * anything else that builds real DOM). The real process is `/bin/app`, a worker with a pid, signals and an
  * exit code; the app's own `main(params)` still needs `document`, so it runs here, on the main thread,
- * with the live `kernel`/`shell`/`terminal` it was written against -- the ABI DOM apps already have.
+ * with the live `kernel`/`shell`/`terminal` it was written against - the ABI DOM apps already have.
  *
  * The process lives as long as `main` does and exits with its number. A
  * main-thread `main` cannot be interrupted from outside, so `^C` ends the process but the app's own

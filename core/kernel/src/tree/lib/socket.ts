@@ -10,11 +10,11 @@
  *   returns a short read, exactly like `recv()` on a stream socket with no `MSG_WAITALL`.
  * - `read` returns 0 (EOF) once the socket has closed and the buffer is drained.
  * - `write` throws `ECONNRESET` once the socket has closed.
- * - `write` before the connection finishes opening buffers nothing -- the caller gets `EAGAIN`,
+ * - `write` before the connection finishes opening buffers nothing - the caller gets `EAGAIN`,
  *   matching a non-blocking `connect()` in progress; poll for `EPOLLOUT` (or await `opened`) first.
  * - Message framing is `WebSocket`'s own: each `message` event's payload becomes one push into the
  *   inbound buffer, so a reader on this end sees exactly the byte boundaries the sender wrote in
- *   (an ecmaOS socket is a message-stream hybrid, not a raw TCP byte stream -- documented here
+ *   (an ecmaOS socket is a message-stream hybrid, not a raw TCP byte stream - documented here
  *   because there's no lower layer to enforce true TCP-style coalescing over a browser WebSocket).
  */
 

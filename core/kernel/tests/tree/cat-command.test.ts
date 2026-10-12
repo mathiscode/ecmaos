@@ -6,10 +6,10 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `cat` migrated onto real execve (`core/utils/src/commands-execve/cat.mjs`) -- the first of the 90
+ * `cat` migrated onto real execve (`core/utils/src/commands-execve/cat.mjs`) - the first of the 90
  * remaining `@ecmaos/coreutils` legacy commands to move, continuing the "migrate opportunistically"
  * plan. No special in-band interrupt handling is needed in the worker-hosted version (unlike the old
- * in-process one, which polled `kernel.terminal.events`'s `INTERRUPT`) -- a real `execve`'d process
+ * in-process one, which polled `kernel.terminal.events`'s `INTERRUPT`) - a real `execve`'d process
  * is killed like any other, matching real `cat`'s own SIGINT behavior.
  */
 describe('cat command: real execve, plain filesystem/stdio syscalls only', () => {

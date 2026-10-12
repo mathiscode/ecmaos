@@ -9,16 +9,15 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * The worker-syscall-bridge pilot: `/bin/pilot-window.js` (`src/bin/pilot-window.mjs`) is a real,
- * worker-hosted program calling `window_create`/`window_write`/`window_close` -- custom syscalls
+ * worker-hosted program calling `window_create`/`window_write`/`window_close` - custom syscalls
  * (`main-thread-syscalls.ts`) that cross back onto the main thread for a capability no worker can
- * reach directly (creating a real `WinBox`). This proves the design this session settled on for
- * porting DOM-bound apps/devices (`apps/webamp`, `apps/code`, `devices/bluetooth`, `devices/battery`)
+ * reach directly (creating a real `WinBox`). This is the design for porting DOM-bound apps/devices (`apps/webamp`, `apps/code`, `devices/bluetooth`, `devices/battery`)
  * onto real `execve`: purpose-built syscalls via `define_syscall`, not a generic RPC device or a
  * permanent non-worker fallback.
  *
  * Also proves the `Process -> Kernel` resolution `main-thread-syscalls.ts` needs: this test file (and
  * `kernel.test.ts`/`protocol.test.ts` elsewhere) constructs more than one `Kernel`, all sharing
- * `@zenfs/linux`'s module-global `syscalls` map -- a handler that closed over one `Kernel` instead of
+ * `@zenfs/linux`'s module-global `syscalls` map - a handler that closed over one `Kernel` instead of
  * resolving it per-`Process` would silently operate on the wrong kernel's `Windows` manager.
  */
 describe('worker-syscall bridge: a real execve program reaching a main-thread-only DOM capability', () => {
@@ -59,7 +58,7 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     const output = await kernel.filesystem.fs.readFile('/tmp/pilot-window.out', 'utf-8')
     expect(Number(output.trim())).toBeGreaterThan(0)
 
-    // window_close already ran inside the pilot program itself -- the window should be gone by now,
+    // window_close already ran inside the pilot program itself - the window should be gone by now,
     // not merely created; asserting count returns to baseline catches a close() that silently no-ops.
     expect(kernel.windows.stack.length).toBe(before)
   })
@@ -87,7 +86,7 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     const code = await second.shell.execute('/bin/pilot-window.js > /tmp/pilot-window-2.out')
     expect(code).toBe(0)
 
-    // window_close ran inside the pilot, so both kernels' stacks are back at their own baseline --
+    // window_close ran inside the pilot, so both kernels' stacks are back at their own baseline -
     // the only way to tell them apart is that neither kernel ever saw the other's window at all,
     // which a shared/closed-over Kernel reference would not guarantee.
     expect(kernel.windows.stack.length).toBe(firstBefore)

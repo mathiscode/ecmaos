@@ -15,7 +15,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * read/write, because `attach_xterm`'s per-TTY registration is not the same as the driver-level
  * `xterm_driver.register()`/`console_driver.register()` that actually publishes a `CharDevice`).
  * This test's console write-through assertion is the exact shape of check whose absence let the
- * second bug hide -- the existing terminal test only checked `exists()` before this.
+ * second bug hide - the existing terminal test only checked `exists()` before this.
  */
 describe('boot smoke test', () => {
   let kernel: Kernel

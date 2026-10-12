@@ -6,7 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * head/tail/wc/nl/rev/tac migrated onto real execve in one batch -- all six are `cat`-shaped
+ * head/tail/wc/nl/rev/tac migrated onto real execve in one batch - all six are `cat`-shaped
  * (open/read a file or stdin, transform in memory, write the result), continuing the "migrate
  * opportunistically" plan. See `cat-command.test.ts` for why there's no in-band interrupt handling
  * or `/dev`-path special case anymore in any of these.
@@ -108,10 +108,10 @@ describe('text command batch: head/tail/wc/nl/rev/tac, real execve', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/tail.out', 'utf-8')).toBe('four\nfive\n')
   })
 
-  // Real `wc` counts newline characters, not text "segments" -- confirmed against a real `wc`:
+  // Real `wc` counts newline characters, not text "segments" - confirmed against a real `wc`:
   // `printf 'one\ntwo\nthree\nfour\nfive\n' | wc` reports "5 5 24", not "6 5 24". The previous
   // expected values here (6/6) matched wc.mjs's own prior off-by-one bug rather than real wc
-  // semantics -- fixed alongside that bug (see wc.mjs's countText doc comment).
+  // semantics - fixed alongside that bug (see wc.mjs's countText doc comment).
   it('wc counts lines, words, and bytes', async () => {
     const code = await kernel.shell.execute('wc /tmp/text-batch.txt > /tmp/wc.out')
     expect(code).toBe(0)

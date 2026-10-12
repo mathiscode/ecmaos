@@ -14,8 +14,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-n` -- remove the export attribute
-- `-p` -- list the exported variables as `NAME=VALUE`
+- `-n` - remove the export attribute
+- `-p` - list the exported variables as `NAME=VALUE`
 
 ## Examples
 

@@ -1,15 +1,15 @@
 /**
  * `$VAR` / `${VAR}` / `${VAR:-default}` / `${VAR:+alt}` variable expansion, and `$((expr))`
  * arithmetic expansion. Neither existed before this branch: word expansion only ever covered
- * tilde, `$(...)` command substitution, and history-bang (`Shell.prepareCommand`) -- a plain `$VAR`
+ * tilde, `$(...)` command substitution, and history-bang (`Shell.prepareCommand`) - a plain `$VAR`
  * in a command word passed through untouched. Control flow needs both (`while [ $i -lt 10 ]`,
- * `for i in $(seq 1 3)`, `x=$((x + 1))`), so this is genuinely new shell surface, not a rewire.
+ * `for i in $(seq 1 3)`, `x=$((x + 1))`), so this is new shell surface, not a rewire.
  *
  * Expansion order matches a real shell closely enough for scripting purposes: arithmetic first
  * (its `$((...))` syntax would otherwise be mistaken for two nested `${(...)}` expansions), then
  * variables. Single-quoted spans are already stripped of their quote characters by the tokenizer
  * before expansion ever sees them, so this module only has one job left: don't mistake a literal
- * `$` inside what was double-quoted content for something to skip -- there is nothing to skip,
+ * `$` inside what was double-quoted content for something to skip - there is nothing to skip,
  * since quote characters are gone by this point. This mirrors `expandTilde`'s comment: expansion
  * happens on close-to-final text, not on a quote-aware token stream.
  */

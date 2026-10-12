@@ -19,7 +19,7 @@ which copies the whole directory into memory), the largest file the root takes (
 
 ## Notes
 
-This reports browser-level storage quota/usage, not per-filesystem-backend disk usage the way Linux `df` reports per-mount block usage -- ecmaOS has multiple mountable filesystem backends (IndexedDB, OPFS, memory, WebStorage, and more), and this command does not yet break usage down per mount.
+This reports browser-level storage quota/usage, not per-filesystem-backend disk usage the way Linux `df` reports per-mount block usage - ecmaOS has multiple mountable filesystem backends (IndexedDB, OPFS, memory, WebStorage, and more), and this command does not yet break usage down per mount.
 
 ## See also
 

@@ -10,7 +10,7 @@ cron [COMMAND] [OPTIONS]
 
 ## Description
 
-Manage scheduled tasks (crontabs). Actual scheduling is done by the crond daemon (see /boot/init) -- this command reads/writes crontab files and inspects cron expressions.
+Manage scheduled tasks (crontabs). Actual scheduling is done by the crond daemon (see /boot/init) - this command reads/writes crontab files and inspects cron expressions.
 
 ## Options
 

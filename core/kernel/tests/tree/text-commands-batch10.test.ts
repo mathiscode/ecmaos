@@ -6,7 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * diff/grep/sed/awk migrated onto real execve, all pure-computation ports over real file reads --
+ * diff/grep/sed/awk migrated onto real execve, all pure-computation ports over real file reads -
  * ls and tar were assessed and deliberately deferred (ls needs live kernel.i18n/kernel.users/
  * kernel.devices/terminal.isMobile state, tar depends on the modern-tar npm package and Web Streams
  * unproven in this worker, risking the same bundle-size import wall stat.mjs hit with zip.js).
@@ -148,7 +148,7 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
   it('awk with a bare /pattern/ program prints every line unfiltered, matching the original parser', async () => {
     // parseAwkProgram's mainMatch regex is non-greedy and matches empty at position 0 for a bare
     // /pattern/ program (confirmed directly in Node against the original's own regex), so no
-    // pattern is ever captured and every line passes through -- a pre-existing bug carried over
+    // pattern is ever captured and every line passes through - a pre-existing bug carried over
     // faithfully, not something this migration fixes.
     await kernel.filesystem.fs.writeFile('/tmp/awk-pattern-in.txt', 'apple\nbanana\ngrape\n')
     const code = await kernel.shell.execute("awk '/an/' /tmp/awk-pattern-in.txt > /tmp/awk-pattern-out.txt")

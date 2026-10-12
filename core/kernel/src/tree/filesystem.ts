@@ -393,7 +393,7 @@ export class Filesystem {
   }
 
   /**
-   * Writes the real `/bin/node` interpreter -- the worker-hosted body `@zenfs/linux`'s own default
+   * Writes the real `/bin/node` interpreter - the worker-hosted body `@zenfs/linux`'s own default
    * `binfmt_js` already points every plain JS/ESM program at via `execve`. Rewritten on every boot
    * so it always matches this build; see `src/bin/node.mjs` for what it actually does and why it
    * ships as one bundle with no import statements.
@@ -404,9 +404,9 @@ export class Filesystem {
   }
 
   /**
-   * Writes the real `/bin/wali` interpreter -- the worker-hosted body `@zenfs/linux`'s own default
+   * Writes the real `/bin/wali` interpreter - the worker-hosted body `@zenfs/linux`'s own default
    * `binfmt_wasm` already points every `.wasm` file at via `execve` (matched on magic bytes alone,
-   * with no way to tell WALI-format modules from plain WASI-preview1 ones at that layer -- see
+   * with no way to tell WALI-format modules from plain WASI-preview1 ones at that layer - see
    * `src/bin/wali.mjs`'s doc comment). Rewritten on every boot so it always matches this build.
    */
   private async installBinWali() {
@@ -418,14 +418,14 @@ export class Filesystem {
    * Adds ecmaOS's browser-backed entries to ProcFS's `/proc` root.
    *
    * `/proc/version` exists upstream too, but reports `@zenfs/linux`'s own package version as if it
-   * were the kernel -- accurate for a real Linux build (`uname -r` genuinely is the kernel's own
+   * were the kernel - accurate for a real Linux build (`uname -r` is the kernel's own
    * version), but misleading here, since `@zenfs/linux` is the POSIX layer ecmaOS runs on top of, not
    * ecmaOS itself. Overridden below so ecmaOS's own version is the headline "kernel" version (matching
    * `Kernel.version`, `import.meta.env['VERSION']`), with `@zenfs/linux` (`init_uts.release`) and
    * `@zenfs/core` (its own exported `_version`) kept separately in the parenthetical, same place a
    * real `/proc/version` keeps its compiler/build info. `cpuinfo`
    * and `meminfo` are new here, generated on read from `navigator.*` and `performance.memory`. A field
-   * that cannot be populated honestly is omitted rather than zero-filled or fabricated.
+   * that cannot be populated accurately is omitted rather than zero-filled or fabricated.
    */
   private registerProcEntries() {
     proc_root.children.set('version', {
@@ -505,14 +505,14 @@ export class Filesystem {
 
   /**
    * Recursively copy every file and directory under `source` to `destination`, both already
-   * mounted paths within this filesystem (they may be on different backends -- this is plain
+   * mounted paths within this filesystem (they may be on different backends - this is plain
    * `@zenfs/core` file I/O, so it works across mount boundaries the same way `cp -r` does).
    *
    * This is the migration primitive for moving a filesystem's contents onto another backend, e.g.
    * an IndexedDB-backed root's contents onto an `opfs`-mounted directory: mount the destination
    * somewhere temporary, `copyTree('/', '/mnt/opfs-migration')`, then repoint `/etc/fstab` at it.
-   * There is no automatic root-swap here -- that needs `root=` cmdline parsing, which does not
-   * exist until the overhaul's `init` branch adopts `@zenfs/linux`'s `init()`.
+   * There is no automatic root-swap here - that needs `root=` cmdline parsing, which
+   * ecmaOS does not parse.
    *
    * @returns the number of files copied (directories are not counted)
    */
@@ -521,7 +521,7 @@ export class Filesystem {
     if (!stats.isDirectory()) {
       // Not `this.fs.copyFile()`: it throws "the 'data' argument must be of type string or an
       // instance of Buffer..." against a mounted (non-root-InMemory) backend in @zenfs/core@2.7.4
-      // -- readFile+writeFile is the same work `copyFile` does internally, without the bug.
+      // - readFile+writeFile is the same work `copyFile` does internally, without the bug.
       // The extra `new Uint8Array(...)` guards against `writeFile`'s `instanceof Uint8Array` check
       // failing across a module-instance boundary (observed under vitest/jsdom) even though the
       // buffer `readFile` returns is structurally a real Buffer.

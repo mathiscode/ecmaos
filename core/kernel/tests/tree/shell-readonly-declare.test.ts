@@ -9,7 +9,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * `readonly` and `declare`/`typeset`.
  *
  * The readonly attribute is shell-wide rather than per-scope, matching bash: it lives on the
- * variable, so a later assignment fails wherever it happens, and there is no way to take it back --
+ * variable, so a later assignment fails wherever it happens, and there is no way to take it back -
  * which is the entire point, since a script marks a name readonly precisely to rely on it.
  */
 describe('readonly and declare', () => {

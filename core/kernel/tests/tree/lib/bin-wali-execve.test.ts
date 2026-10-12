@@ -9,12 +9,12 @@ import { defaultContext, configure, InMemory, fs } from '@zenfs/core'
 /**
  * A real end-to-end proof of the execve pipeline for `/bin/wali`, mirroring
  * `bin-node-execve.test.ts` for `/bin/node`. `@zenfs/linux`'s own default `binfmt_wasm` already
- * points any `.wasm` file's magic bytes at `/bin/wali` as its interpreter -- this is what happens
+ * points any `.wasm` file's magic bytes at `/bin/wali` as its interpreter - this is what happens
  * once that file is real. See `src/bin/wali.mjs` for what it is and why a WALI module is a
  * different format from the WASI-preview1 `.wasm` files ecmaOS's own `executeWasm` path runs.
  *
  * There is no WALI-targeting toolchain available to compile a real program with here, so these
- * tests hand-assemble minimal WALI modules via `wabt` -- just enough to prove the interpreter
+ * tests hand-assemble minimal WALI modules via `wabt` - just enough to prove the interpreter
  * really does load a `.wasm` file, link it against `uapi/wali`'s real syscalls, and run `_start`.
  */
 describe('/bin/wali via execve', () => {

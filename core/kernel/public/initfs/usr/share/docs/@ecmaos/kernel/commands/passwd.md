@@ -21,10 +21,10 @@ With `-l`, `-u` or `-S`, root works on another account's password. Only root may
 
 ## Options
 
-- `-l, --lock` -- lock the password: a `!` goes before the hash, and the password no longer logs in. A passkey still does; `chage -E` closes the account entirely
-- `-u, --unlock` -- take the `!` away. Refused when that would leave an account with no password
-- `-S, --status` -- print `LOGIN STATE LASTCHANGE MIN MAX WARN INACTIVE`; the state is `L` (locked, or `*`), `P` (a usable password) or `NP` (none)
-- `--help` -- display usage and exit
+- `-l, --lock` - lock the password: a `!` goes before the hash, and the password no longer logs in. A passkey still does; `chage -E` closes the account entirely
+- `-u, --unlock` - take the `!` away. Refused when that would leave an account with no password
+- `-S, --status` - print `LOGIN STATE LASTCHANGE MIN MAX WARN INACTIVE`; the state is `L` (locked, or `*`), `P` (a usable password) or `NP` (none)
+- `--help` - display usage and exit
 
 ## Notes
 

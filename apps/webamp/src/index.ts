@@ -32,7 +32,7 @@ const main = async (params: ProcessEntryParams) => {
   player.renderWhenReady(mount)
 
   // Without this, `main` returning right after render resolves the process's `closed` promise
-  // immediately, so the process exits while the player is still open -- its lifetime was never
+  // immediately, so the process exits while the player is still open - its lifetime was never
   // actually tied to the process's. `keepAlive` ties it to the player's own close, the same way
   // `apps/code/src/main.ts` ties its process to its editor window: `onClose` (the user closing
   // the player through its own UI) exits the process; `onDispose` (killed from outside) disposes

@@ -14,8 +14,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-a -b -c -d -e -f -g -j -k -s -u -v` -- aliases, builtins, commands, directories, exported variables, files, groups, jobs, keywords, services, users, variables
-- `-A ACTION` -- any action name `complete` takes; an unknown name is `invalid action name`
+- `-a -b -c -d -e -f -g -j -k -s -u -v` - aliases, builtins, commands, directories, exported variables, files, groups, jobs, keywords, services, users, variables
+- `-A ACTION` - any action name `complete` takes; an unknown name is `invalid action name`
 
 ## Examples
 

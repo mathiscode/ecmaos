@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * `free` (`core/utils/src/commands-execve/free.mjs`) reads the already-populated `/proc/meminfo`
  * and reports it in `free`'s traditional column layout. jsdom doesn't implement
- * `navigator.deviceMemory`/`performance.memory`, so `/proc/meminfo` is typically empty here --
+ * `navigator.deviceMemory`/`performance.memory`, so `/proc/meminfo` is typically empty here -
  * this asserts the command runs cleanly and produces the expected shape either way, not specific
  * numbers no test environment can promise.
  */

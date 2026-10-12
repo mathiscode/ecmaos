@@ -2,7 +2,7 @@
  * Change file ownership (user and group).
  *
  * Note: `-R` on a directory always fails with `EISDIR`, and because of that, `chown -R somedir`
- * never gets to change ownership of `somedir`'s contents either -- a pre-existing limitation in the
+ * never gets to change ownership of `somedir`'s contents either - a pre-existing limitation in the
  * underlying filesystem's `chown` implementation, not specific to any one file or flag combination.
  */
 

@@ -100,7 +100,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 
 /**
  * Derive an AES-256-GCM key from a password for wrapping a user's private key. Uses its own
- * salt (distinct from the password-hash salt) and a lower iteration count is not used here --
+ * salt (distinct from the password-hash salt) and a lower iteration count is not used here -
  * every derivation, hash or key, runs the full PBKDF2_ITERATIONS.
  */
 export async function deriveAesKey(password: string, salt: Uint8Array): Promise<CryptoKey> {

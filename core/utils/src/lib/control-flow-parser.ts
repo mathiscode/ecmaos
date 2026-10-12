@@ -1,7 +1,7 @@
 /**
  * Groups a script's lines into a tree of statements: plain lines plus `if`/`while`/`for`/`case`
  * blocks and function definitions. `shell-parser.ts` still owns everything *within* one logical
- * line (words, redirections, `;`/`&&`/`||`/`|`) -- this is the layer above it, the one that lets a
+ * line (words, redirections, `;`/`&&`/`||`/`|`) - this is the layer above it, the one that lets a
  * script span multiple lines around a keyword.
  *
  * Grammar (line-oriented; each production consumes whole lines, not characters):
@@ -20,7 +20,7 @@
  * ```
  *
  * A block's condition/list line (the text after `if`/`while`/`elif`, or between `case` and `in`)
- * is kept as raw text -- it is a normal shell line and goes through `Shell.execute`/`parseScript`
+ * is kept as raw text - it is a normal shell line and goes through `Shell.execute`/`parseScript`
  * unchanged, so this parser never needs to know about pipes, redirections, or substitutions.
  */
 
@@ -36,7 +36,7 @@ export interface SimpleStatement extends Positioned {
  * `while ...; done < input.txt`. Kept verbatim: this parser deliberately knows nothing about
  * redirections, so `Shell` hands it to `shell-parser.ts`'s `parseRedirections`.
  *
- * It is what makes `while IFS= read -r line; do ...; done < file` work -- the whole statement reads
+ * It is what makes `while IFS= read -r line; do ...; done < file` work - the whole statement reads
  * from one open input, so successive `read` calls advance through it.
  */
 export interface Redirected {
@@ -204,7 +204,7 @@ export type Statement = AndOrStatement | PipelineStatement | SimpleStatement | I
 /**
  * A parse failure in the statement tree.
  *
- * `incomplete` distinguishes "this input is wrong" from "this input is only a prefix" -- the parser
+ * `incomplete` distinguishes "this input is wrong" from "this input is only a prefix" - the parser
  * ran out of lines partway through a construct, so more input would resolve it. An interactive
  * prompt uses that to decide between printing an error and asking for the next line; a script file,
  * which has no more lines coming, treats both the same. See {@link needsMoreInput}.
@@ -727,14 +727,14 @@ class LineParser {
     return line.slice(keyword.length).trim()
   }
 
-  /** `if COND; then` / `if COND` with `then` on its own following line -- both are legal. */
+  /** `if COND; then` / `if COND` with `then` on its own following line - both are legal. */
   private consumeConditionThroughKeyword(openKeyword: string, throughKeyword: string): string {
     const line = this.restAfterKeyword(this.advance(), openKeyword)
     // Strip a trailing `; then` on the same line.
     const inlineMatch = new RegExp(`;?\\s*${throughKeyword}\\s*$`).exec(line)
     if (inlineMatch) return line.slice(0, inlineMatch.index).replace(/;\s*$/, '').trim()
 
-    // Otherwise `then`/`do` must be the next line by itself (or the tail of this one via more lines --
+    // Otherwise `then`/`do` must be the next line by itself (or the tail of this one via more lines -
     // scripts here are line-oriented, so a condition never itself spans multiple lines).
     if (this.firstWord(this.peek() ?? '') === throughKeyword) {
       this.takeKeyword()
@@ -893,7 +893,7 @@ class LineParser {
     while (!this.atEnd() && this.firstWord(this.peek() as string) !== 'esac') {
       const clauseHeaderLine = this.advance().trim()
       // A clause pattern header (`a|b)`) may be followed on the same line by its entire body and
-      // terminator (`a) echo hi ;;`), just the terminator (`*) ;;`), or nothing at all -- the
+      // terminator (`a) echo hi ;;`), just the terminator (`*) ;;`), or nothing at all - the
       // common case, with the body on subsequent lines.
       const clauseMatch = splitCaseClauseHeader(clauseHeaderLine)
       if (!clauseMatch) throw new ControlFlowParseError(`Malformed case pattern: ${clauseHeaderLine}`)
@@ -950,7 +950,7 @@ class LineParser {
    * `inlineBodyStart` is whatever followed the opening brace on the header line, for a definition that
    * begins on one line and ends on a later one (`greet() { echo hi` then `}`). It is pushed back onto
    * the line stream at the current position rather than parsed separately, so it goes through exactly
-   * the same `parseStatement` the rest of the body does -- a nested block opened there
+   * the same `parseStatement` the rest of the body does - a nested block opened there
    * (`greet() { if true; then`) therefore still works.
    */
   private finishFunctionBody(name: string, openBraceOnHeaderLine: boolean, inlineBodyStart?: string): FunctionDef {
@@ -996,7 +996,7 @@ const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/
 const OPEN_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(?:\{(.*))?$/
 
 /**
- * A physical line that opens a function body and puts something after the brace -- complete
+ * A physical line that opens a function body and puts something after the brace - complete
  * (`f() { echo hi; }`) or not (`f() { echo hi`). {@link normalizeInlineControlFlow} hands these
  * through untouched, because its keyword splitting has no idea the keywords are inside a function
  * body and would tear `f() { if x; then y; fi; }` apart at `then` and `fi`.
@@ -1016,7 +1016,7 @@ function parseInlineBody(text: string, line: number): Statement[] {
   return new LineParser(preprocessLines(body, line)).parseStatements([])
 }
 
-/** Reserved words this parser understands -- used by the shell to reject them as command names. */
+/** Reserved words this parser understands - used by the shell to reject them as command names. */
 export const CONTROL_FLOW_KEYWORDS: ReadonlySet<string> = KEYWORDS
 
 /**
@@ -1032,13 +1032,13 @@ const START_NEW_LINE = new Set(['if', 'while', 'until', 'for', 'select', 'elif']
  * starts a line of its own.
  *
  * Only up to the `;`, because a closing keyword can legitimately carry a redirection
- * (`done < input.txt`) that belongs on its line. Before this they were treated like `if`/`while` --
- * "start a new line, then keep accumulating" -- which left `done; shift 1` as a single line whose
+ * (`done < input.txt`) that belongs on its line. Before this they were treated like `if`/`while` -
+ * "start a new line, then keep accumulating" - which left `done; shift 1` as a single line whose
  * first word was `done;`, so the parser never recognized the block as closed. Unreachable while the
  * only compact form was a whole statement on one line; a one-line function body made it routine.
  */
 const CLOSE_LINE = new Set(['fi', 'done', 'esac'])
-/** Stands alone on its own line, with nothing else -- its body starts as a fresh line after it. */
+/** Stands alone on its own line, with nothing else - its body starts as a fresh line after it. */
 const ISOLATE_ALONE = new Set(['else'])
 
 /**
@@ -1046,14 +1046,14 @@ const ISOLATE_ALONE = new Set(['else'])
  * typed at an interactive prompt) into the newline-delimited form `LineParser` above actually
  * understands (it is strictly line-oriented: `then`/`do` attached to the end of a line, `else` alone
  * on its own line, bodies on the following lines). Already multi-line script text is left untouched
- * -- each of these keywords is only ever recognized right after a top-level `;` (a real statement
+ * - each of these keywords is only ever recognized right after a top-level `;` (a real statement
  * boundary), never after plain whitespace, so an ordinary argument that happens to spell a keyword
  * (`echo done`, `touch fi`) is never misread as control flow; real shells enforce the same
  * command-position restriction on these reserved words.
  */
 export function normalizeInlineControlFlow(text: string): string {
   // A physical line that opens a function body with content after the brace is handed through
-  // untouched. Its `;`-joined body is normalized later -- by `parseInlineBody` for a complete
+  // untouched. Its `;`-joined body is normalized later - by `parseInlineBody` for a complete
   // one-liner, or by the ordinary line parser once `finishFunctionBody` pushes the started body back
   // onto the stream. Either way the keyword splitting below must not see it first: it has no idea the
   // keywords are inside a function body, and would tear `f() { if x; then y; fi; }` apart.
@@ -1198,8 +1198,8 @@ function normalizeOneLine(text: string): string {
 
 /**
  * Parse a full script into a statement tree. Blank lines and full-line comments are dropped.
- * Heredoc bodies (`foldHeredocs`) are lifted out first -- before anything else here goes
- * line-by-line -- so a body that happens to contain `if`/`do`/`;` or a blank line is never
+ * Heredoc bodies (`foldHeredocs`) are lifted out first - before anything else here goes
+ * line-by-line - so a body that happens to contain `if`/`do`/`;` or a blank line is never
  * mistaken for script structure; each `<<`/`<<-` becomes one self-contained encoded token on its
  * command's own line, exactly like `shell-parser.ts`'s own single-line entry points expect.
  */
@@ -1220,7 +1220,7 @@ export function parseStatements(script: string): Statement[] {
  *   `esac`, a function body with no closing brace), which the statement parser reports as a
  *   {@link ControlFlowParseError} with `incomplete` set.
  *
- * A genuine syntax error -- `fi` with no `if`, a malformed `for` header -- is deliberately *not*
+ * A genuine syntax error - `fi` with no `if`, a malformed `for` header - is deliberately *not*
  * incomplete: no amount of further typing fixes it, so the prompt reports it rather than hanging in
  * a continuation the user cannot escape.
  */

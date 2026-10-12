@@ -106,7 +106,7 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     class: battery_class,
     ops: {
       // level as a percentage (0-100), charging as 0/1, then chargingTime and dischargingTime in
-      // seconds as float64s -- Infinity (unknown) round-trips correctly, unlike a single byte each
+      // seconds as float64s - Infinity (unknown) round-trips correctly, unlike a single byte each
       read: (_file, buffer, start, end) => {
         const count = Math.min(18, end - start)
         buffer.set(batteryRecord(battery as unknown as BatteryLike).subarray(0, count), start)

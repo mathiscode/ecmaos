@@ -11,7 +11,7 @@ function exists(path) {
   try { access(path); return true } catch { return false }
 }
 
-/** Minimal whole-file read -- `read()` never blocks past what's buffered, so read in a loop. */
+/** Minimal whole-file read - `read()` never blocks past what's buffered, so read in a loop. */
 function readWholeFile(path) {
   const { open, read, close } = globalThis.ecmaosSyscalls
   const fd = open(path, 0 /* O_RDONLY */)

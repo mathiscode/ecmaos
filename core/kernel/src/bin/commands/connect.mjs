@@ -36,7 +36,7 @@ Options:
 
 The host's key is remembered in ~/.ssh/known_hosts and a different key later is refused.`
 
-// -- terminal ---------------------------------------------------------------------------------------
+// - terminal ---------------------------------------------------------------------------------------
 
 /** Everything the remote terminal needs from the keys: no line editing, echo or signals here, they all happen on the other side */
 function rawTerminal() {
@@ -46,7 +46,7 @@ function rawTerminal() {
   return () => tcsetattr(0, { lflag: saved.lflag })
 }
 
-// -- the connection ---------------------------------------------------------------------------------
+// - the connection ---------------------------------------------------------------------------------
 
 async function main() {
   const parsed = getopt(argv.slice(1), { flags: 'y', values: 'lpF', long: { login: 'l', pair: 'p', fingerprint: 'F', 'accept-new': 'y' } })

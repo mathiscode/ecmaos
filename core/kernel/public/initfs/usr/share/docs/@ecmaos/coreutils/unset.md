@@ -14,9 +14,9 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-v` -- variables only
-- `-f` -- functions only
-- `-n` -- remove the reference NAME itself, not the variable it names
+- `-v` - variables only
+- `-f` - functions only
+- `-n` - remove the reference NAME itself, not the variable it names
 
 ## Exit status
 

@@ -8,7 +8,7 @@ import type { WordPart } from '../../src/lib/shell-parser.ts'
  * Brace expansion, the shell's first expansion and the only purely textual one: `{a,b}` becomes two
  * words whether or not anything by those names exists, which is what separates it from globbing.
  *
- * Unit-level here because the interesting cases are all about what is *not* expanded -- quoting,
+ * Unit-level here because the interesting cases are all about what is *not* expanded - quoting,
  * `${...}`, and the several forms that are literal text in every real shell.
  */
 describe('expandBraces', () => {

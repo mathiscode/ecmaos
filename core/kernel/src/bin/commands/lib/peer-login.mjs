@@ -36,7 +36,7 @@ export function parseTarget(text, defaultUser) {
   return { url: `ws://${host}:${port}/ecmaos`, id: `${host}:${port}`, user, label: `${host}:${port}` }
 }
 
-// -- known hosts ------------------------------------------------------------------------------------
+// - known hosts ------------------------------------------------------------------------------------
 
 const home = () => env['HOME'] || '/root'
 const sshDirectory = () => `${home()}/.ssh`

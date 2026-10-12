@@ -9,12 +9,12 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * boot()'s post-login setup used to run unconditionally: MOTD display, user-crontab loading, and
  * the screensaver idle-timeout daemon were inline code, not something a user could see or change.
  * They now live in /boot/init's own script (real, editable, on disk), run as a tracked ecmaOS
- * `Process` the same way any other script runs -- these are real, booted-kernel proofs that they
+ * `Process` the same way any other script runs - these are real, booted-kernel proofs that they
  * still happen, just from there instead of from boot() directly.
  *
  * One shared, booted kernel for the whole file: several kernels booted in one file/process leaks
  * char_dev/Device registrations across them (a pre-existing, documented artifact of those
- * registries being module-level globals -- see the `devices` branch), which showed up here as
+ * registries being module-level globals - see the `devices` branch), which showed up here as
  * flaky failures once this file grew past a couple of `beforeAll` kernels.
  */
 describe('/boot/init and its script commands', () => {
@@ -42,13 +42,13 @@ describe('/boot/init and its script commands', () => {
   })
 
   it('starts crond as a real process, outside this shell\'s own job table', async () => {
-    // Started directly from `Kernel.boot()`, not a `crond &` line in /boot/init's own script -- see
+    // Started directly from `Kernel.boot()`, not a `crond &` line in /boot/init's own script - see
     // the comment left in that script (and at the real call site) for why: backgrounding it through
     // `Shell`'s own pipeline parsing would push it onto `this.shell`'s `_jobs`, and since crond never
     // finishes, a later bare `wait` (every non-done job) would hang forever.
     expect(kernel.shell.listJobs().some(job => job.commandLine.includes('crond'))).toBe(false)
 
-    // `void this.execute(...)` (the real call site) is fire-and-forget -- boot() doesn't await
+    // `void this.execute(...)` (the real call site) is fire-and-forget - boot() doesn't await
     // crond actually registering its real Process, so give it a moment before checking `ps`.
     await new Promise(resolve => setTimeout(resolve, 100))
 
@@ -85,7 +85,7 @@ describe('/boot/init and its script commands', () => {
 
   describe('screensaver-daemon command', () => {
     it('starts successfully for the default (matrix) screensaver', async () => {
-      // Quiet on success like a real daemon (see screensaver-daemon.ts) -- exit code plus the
+      // Quiet on success like a real daemon (see screensaver-daemon.ts) - exit code plus the
       // real Kernel.startScreensaverDaemon() stop-function contract is the actual signal here,
       // not stdout text, which /boot/init prints on every boot and shouldn't have to carry this.
       const code = await kernel.shell.execute('screensaver-daemon > /tmp/daemon-test.out')

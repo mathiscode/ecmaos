@@ -1,6 +1,6 @@
 /**
  * `help`, `hash`, `times` and `logout`: the builtins that report on the shell rather than change what
- * runs. `hash` and `times` are honest about what the system under the shell lacks: there is no command
+ * runs. `hash` and `times` report what the system under the shell lacks: there is no command
  * location cache (every lookup walks `$PATH`) and no CPU accounting in a browser.
  */
 

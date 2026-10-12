@@ -5,7 +5,7 @@ import { createSocket } from '#lib/socket.ts'
 
 /**
  * A fake WebSocket standing in for a real network connection, driven manually by the test via
- * `emitOpen`/`emitMessage`/`emitClose`/`emitError` -- createSocket only touches `binaryType`,
+ * `emitOpen`/`emitMessage`/`emitClose`/`emitError` - createSocket only touches `binaryType`,
  * `readyState`, `send`, `close`, and `addEventListener`, so that's all this needs to implement.
  */
 class FakeWebSocket {

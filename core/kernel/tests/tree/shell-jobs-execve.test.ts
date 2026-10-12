@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * Polls `check` until it returns true or `timeoutMs` elapses. `onProcess` fires synchronously
  * inside `executeViaExecve`, but that itself runs after several of the shell's own await points
- * (prepareCommand's expansions, buildOutputStreams, etc.) -- a fixed sleep is either too short
+ * (prepareCommand's expansions, buildOutputStreams, etc.) - a fixed sleep is either too short
  * under load (flaky) or needlessly long normally, so poll instead.
  */
 async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -22,7 +22,7 @@ async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
 /**
  * Real, execve-backed proof that a backgrounded/foregrounded `js` pipeline stage's `Job` actually
  * acquires a real `@zenfs/linux` Process handle (via `KernelExecuteOptions.onProcess`, wired from
- * `Kernel.executeViaExecve`), and that signaling it through that handle does something real -- not
+ * `Kernel.executeViaExecve`), and that signaling it through that handle does something real - not
  * just a mocked assertion. `@zenfs/linux`'s own `Process.kill` (see `process.js`'s `default_action`
  * dispatch) synchronously exits an unhandled `SIGINT`/`SIGTERM` recipient with code `128 + signal`,
  * which is what this test observes through `proc.exited`/`job.done`. This is the real-process
@@ -105,7 +105,7 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
    * ioctl just answers with whatever was there before (nothing, on a fresh terminal). These are the
    * real-process proof that a foreground execve-backed stage actually takes over the terminal, that
    * a backgrounded one never does, and that `fg`/`bg` move that ownership as a job crosses between
-   * them -- exactly what a real process would see through `ioctl(fd, TIOCGPGRP)` on its tty.
+   * them - exactly what a real process would see through `ioctl(fd, TIOCGPGRP)` on its tty.
    */
   it('a foreground .js process becomes the tty\'s foreground process, and gives it back on exit', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/job-tty-fg.js', 'await new Promise(r => setTimeout(r, 300))', { mode: 0o755 })
@@ -121,7 +121,7 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
   })
 
   it('a backgrounded .js process never takes over the tty\'s foreground', async () => {
-    // Comparing pids, not the `Process` objects themselves -- vitest's pretty-printer chokes on
+    // Comparing pids, not the `Process` objects themselves - vitest's pretty-printer chokes on
     // the struct-backed fields a real `@zenfs/linux` `Process` carries when it has to render one
     // for a failure diff, which is a test-tooling wrinkle, not something this assertion cares about.
     const beforePid = kernel.terminal.zfsTty?.foreground?.pid
@@ -147,7 +147,7 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
     const proc = job.processes[0]!
     expect(kernel.terminal.zfsTty?.foreground?.pid).toBe(proc.pid)
 
-    // `^Z`: stops the job and must give the tty back (real tty semantics -- a stopped process
+    // `^Z`: stops the job and must give the tty back (real tty semantics - a stopped process
     // group doesn't own the terminal).
     await kernel.terminal.keyHandler({
       key: 'z',
@@ -175,7 +175,7 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
    * block based on `isForeground`, captured once at spawn time (`false` for a `&`-backgrounded
    * job). `fg()` promotes a job's process to the real foreground live (`setForeground(true)`
    * above), but never touched that stale captured flag, so a job started backgrounded and later
-   * `fg`'d never released `tty.foreground` on exit -- it stayed pinned to the now-dead process,
+   * `fg`'d never released `tty.foreground` on exit - it stayed pinned to the now-dead process,
    * silently swallowing the next foreground job's `^C`/`^Z`. The fix checks `tty.foreground ===
    * proc` live in `finally` instead of the stale flag.
    */

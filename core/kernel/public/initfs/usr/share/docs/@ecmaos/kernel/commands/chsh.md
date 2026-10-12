@@ -15,5 +15,5 @@ Changes a login shell. A user may change their own; root may change anyone's. SH
 
 ## Options
 
-- `-s, --shell SHELL` -- the new login shell
-- `-l, --list-shells` -- print the shells in `/etc/shells`
+- `-s, --shell SHELL` - the new login shell
+- `-l, --list-shells` - print the shells in `/etc/shells`

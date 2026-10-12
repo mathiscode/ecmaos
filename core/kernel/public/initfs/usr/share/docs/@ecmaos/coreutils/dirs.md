@@ -14,12 +14,12 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-c` -- clear the stack
-- `-l` -- print full paths, not `~`
-- `-p` -- print one entry per line
-- `-v` -- one entry per line, each with its index
-- `+N` -- print only the Nth entry from the left, counting from zero
-- `-N` -- print only the Nth entry from the right
+- `-c` - clear the stack
+- `-l` - print full paths, not `~`
+- `-p` - print one entry per line
+- `-v` - one entry per line, each with its index
+- `+N` - print only the Nth entry from the left, counting from zero
+- `-N` - print only the Nth entry from the right
 
 ## Exit status
 

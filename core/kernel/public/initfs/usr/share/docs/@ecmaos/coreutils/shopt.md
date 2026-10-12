@@ -14,10 +14,10 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-s` -- turn each NAME on
-- `-u` -- turn each NAME off
-- `-q` -- print nothing; the status says whether every NAME is on
-- `-p` -- print in a form that can be read back
+- `-s` - turn each NAME on
+- `-u` - turn each NAME off
+- `-q` - print nothing; the status says whether every NAME is on
+- `-p` - print in a form that can be read back
 
 ## Examples
 

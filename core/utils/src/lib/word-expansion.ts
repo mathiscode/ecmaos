@@ -1,7 +1,7 @@
 /**
  * Word expansion over quote-aware words (`WordPart[]`, from `shell-parser.ts`): tilde, parameter
  * and variable expansion (arrays included), command substitution, arithmetic, then word splitting
- * and pathname globbing -- in that order, with bash's quoting rules:
+ * and pathname globbing - in that order, with bash's quoting rules:
  *
  * - '...' and a backslash escape are literal.
  * - "..." expands `$...` and command substitutions, but its result is never split or globbed.
@@ -79,7 +79,7 @@ const isIFSWhitespace = (c: string): boolean => c === ' ' || c === '\t' || c ===
  * can't be one regex:
  *
  * - **IFS whitespace** (space, tab, newline, when present in `$IFS`). A run of it delimits one
- *   field, and a run at either end of the input delimits nothing at all -- `a  b` is two fields,
+ *   field, and a run at either end of the input delimits nothing at all - `a  b` is two fields,
  *   and so is `  a  b  `.
  * - **IFS non-whitespace** (anything else in `$IFS`, e.g. `:`). *Each* occurrence delimits a field,
  *   with any adjacent IFS whitespace absorbed into the same delimiter. So `IFS=:` on `a::b` is

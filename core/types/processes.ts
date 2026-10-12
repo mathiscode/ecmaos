@@ -70,7 +70,7 @@ export interface ProcessInstance {
   keepAlive(): void
   /**
    * Registers a callback run if the process ends from outside (`^C`, `kill`) rather than by calling
-   * `exit()` itself -- the app's chance to close whatever window it opened.
+   * `exit()` itself - the app's chance to close whatever window it opened.
    */
   onDispose(callback: () => void): void
 }

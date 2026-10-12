@@ -4,7 +4,7 @@
  * see `#lib/main-thread-syscalls.ts`'s own doc comment on why a custom syscall can't just return a
  * string): the main-thread handler writes its JSON result into a real file under `/tmp`, and this
  * reads it back with the plain filesystem syscalls a worker-hosted program already has, then
- * deletes it -- no custom syscall needed on the read side at all.
+ * deletes it - no custom syscall needed on the read side at all.
  *
  * Extracted here once three call sites (`df.mjs`, `ps.mjs`, `sockets.mjs`) needed the identical
  * function; was duplicated verbatim in the first two before that.
@@ -29,7 +29,7 @@ export async function readBackAndDelete({ open, read, close, unlink }, path) {
 }
 
 /** A scratch path under `/tmp` unique enough to not collide with a concurrent invocation of the
- * same or another command -- the same shape `df.mjs`/`ps.mjs` each hand-rolled inline before. */
+ * same or another command - the same shape `df.mjs`/`ps.mjs` each hand-rolled inline before. */
 export function scratchPath(prefix) {
   return `/tmp/.${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

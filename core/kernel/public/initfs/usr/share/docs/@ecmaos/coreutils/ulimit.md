@@ -21,14 +21,14 @@ Setting a limit to the value it already has succeeds, so `ulimit -c 0` and `ulim
 
 ## Options
 
-- `-a` -- list every limit
-- `-f` -- the largest file (the default when no resource is named)
-- `-c` -- core file size
-- `-n` -- open files
-- `-s` -- stack size
-- `-t` -- cpu time
-- `-u` -- user processes
-- `-v` -- virtual memory
+- `-a` - list every limit
+- `-f` - the largest file (the default when no resource is named)
+- `-c` - core file size
+- `-n` - open files
+- `-s` - stack size
+- `-t` - cpu time
+- `-u` - user processes
+- `-v` - virtual memory
 
 ## Examples
 

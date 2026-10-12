@@ -16,7 +16,7 @@ async function waitFor(check: () => boolean, timeoutMs = 3000): Promise<void> {
 /**
  * Real TTY input for worker programs: `Terminal.attachInput` routes `onData` into the `@zenfs/linux`
  * line discipline while a foreground process runs, so a program reading fd 0 gets canonical/raw
- * input and `^C`/`^Z` become signals via `ISIG` -- the same thing Linux does. Keystrokes here are
+ * input and `^C`/`^Z` become signals via `ISIG` - the same thing Linux does. Keystrokes here are
  * injected the way a real user's arrive: through xterm's `input()`, which fires `onData`.
  */
 describe('TTY line discipline input for foreground worker programs', () => {
@@ -38,7 +38,7 @@ describe('TTY line discipline input for foreground worker programs', () => {
     document.body.appendChild(container)
     kernel.terminal.mount(container)
 
-    // jsdom defines `ontouchstart`, so `Terminal._detectMobileSupport` calls this a mobile device --
+    // jsdom defines `ontouchstart`, so `Terminal._detectMobileSupport` calls this a mobile device -
     // which keeps the old `keyHandler` path (on-screen keyboards synthesize `keyHandler` calls, not
     // `onData`). These tests are about the desktop path, so pin it.
     ;(kernel.terminal as unknown as { _isMobile: boolean })._isMobile = false

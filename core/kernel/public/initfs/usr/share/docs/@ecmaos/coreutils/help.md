@@ -14,9 +14,9 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-d` -- print a one-line description of each topic
-- `-s` -- print only the synopsis
-- `-m` -- accepted; the default layout is already manual-like
+- `-d` - print a one-line description of each topic
+- `-s` - print only the synopsis
+- `-m` - accepted; the default layout is already manual-like
 
 ## Exit status
 

@@ -161,7 +161,7 @@ export class ShellState {
     this.vars = vars
   }
 
-  // -- source frames: BASH_SOURCE and BASH_LINENO ----------------------------------------------------
+  // - source frames: BASH_SOURCE and BASH_LINENO ----------------------------------------------------
 
   /** The file whose commands are running now, if the shell is reading one. */
   currentSourceFile(): string | undefined {
@@ -201,7 +201,7 @@ export class ShellState {
     this.setArray('BASH_LINENO', this.sourceFrames.map(frame => String(frame.callLine)))
   }
 
-  // -- variables ----------------------------------------------------------------------------------
+  // - variables ----------------------------------------------------------------------------------
 
   /**
    * A variable by name the way `local` scoping requires: the innermost frame that declares it, then
@@ -379,7 +379,7 @@ export class ShellState {
   isReadonly(name: string): boolean { return this.readonlyNames.has(name) }
   markReadonly(name: string): void { this.readonlyNames.add(name) }
 
-  // -- local frames -------------------------------------------------------------------------------
+  // - local frames -------------------------------------------------------------------------------
 
   pushLocalScope(): void {
     this.localScopes.push(new Map())
@@ -406,7 +406,7 @@ export class ShellState {
     if (!arrayFrame.has(name)) arrayFrame.set(name, undefined)
   }
 
-  // -- arrays -------------------------------------------------------------------------------------
+  // - arrays -------------------------------------------------------------------------------------
 
   /** Every array currently visible, `local` frames applied. */
   visibleArrays(): Map<string, ArrayStore> {
@@ -499,7 +499,7 @@ export class ShellState {
     else { this.arrays.delete(name); this.assocNames.delete(name) }
   }
 
-  // -- traps and options --------------------------------------------------------------------------
+  // - traps and options --------------------------------------------------------------------------
 
   setTrap(handler: string | undefined, signal: string): void {
     const name = signal.replace(/^SIG/, '').toUpperCase()

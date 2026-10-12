@@ -1,4 +1,4 @@
-/** Resolves `target` against `cwd`, collapsing `.` and `..` -- `path.resolve`, for programs with no `path` module. */
+/** Resolves `target` against `cwd`, collapsing `.` and `..` - `path.resolve`, for programs with no `path` module. */
 export function resolvePath(cwd, target) {
   const parts = (target.startsWith('/') ? target : `${cwd}/${target}`).split('/')
   const resolved = []

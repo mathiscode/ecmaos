@@ -619,7 +619,7 @@ function findHeredocOperators(line: string): HeredocOperator[] {
 /**
  * Lifts every heredoc body out of `text` and folds it, encoded, into its `<<` operator on the
  * command's own line, so everything line-based downstream (control-flow grouping, comment
- * stripping) never sees -- or mangles -- a body's lines. A body with no terminator runs to the end
+ * stripping) never sees - or mangles - a body's lines. A body with no terminator runs to the end
  * of the text, as in bash.
  */
 export function foldHeredocs(text: string): string {
@@ -661,7 +661,7 @@ export function foldHeredocs(text: string): string {
 
 /**
  * The delimiter of the first heredoc in `text` still waiting for its terminator line, or `null`
- * if every heredoc is complete -- what the interactive prompt checks to decide whether Enter should
+ * if every heredoc is complete - what the interactive prompt checks to decide whether Enter should
  * run the line or ask for another (`> `).
  */
 export function pendingHeredocDelimiter(text: string): string | null {

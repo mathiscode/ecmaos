@@ -6,12 +6,12 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `uninstall` migrated off the legacy shim onto real execve (`src/bin/commands/uninstall.mjs`) --
+ * `uninstall` migrated off the legacy shim onto real execve (`src/bin/commands/uninstall.mjs`) -
  * unlike `install`, it only ever reads a directory, reads/parses one `package.json`, and
  * unlinks/removes real files, all plain filesystem syscalls, no kernel-only state or custom syscall
  * needed. See `install-command.test.ts` for the sibling `install` real-tarball test and why `install`
  * itself stays on the legacy shim (recursive `shell.execute()` for pre/postinstall scripts and
- * dependencies -- a worker can't drive its own parent shell).
+ * dependencies - a worker can't drive its own parent shell).
  */
 describe('uninstall command: real execve, plain filesystem syscalls only', () => {
   let kernel: Kernel

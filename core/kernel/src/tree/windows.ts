@@ -44,7 +44,7 @@ export class Windows implements IWindows {
     if (WinBoxCtor || !globalThis.document) return
     await import('winbox')
     await import('winbox/dist/css/winbox.min.css')
-    // @ts-ignore -- the ESM source ships no types; @types/winbox describes it as WinBox.WinBoxConstructor
+    // @ts-ignore - the ESM source ships no types; @types/winbox describes it as WinBox.WinBoxConstructor
     const module = await import('winbox/src/js/winbox.js')
     WinBoxCtor = module.default as WinBox.WinBoxConstructor
   }

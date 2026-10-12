@@ -14,9 +14,9 @@ The skeleton of a new home directory. `useradd -m` (and `user add -m`) copies ev
 
 Boot writes any default that is missing and never overwrites one, so an edit to `/etc/skel` stands. The defaults, as on Debian:
 
-- `.profile` -- read by login shells after `/etc/profile`; puts `~/bin` and `~/.local/bin` on `$PATH` when they exist.
-- `.bashrc` -- read by every interactive shell; history settings (`HISTCONTROL`, `HISTSIZE`, `HISTFILESIZE`), `ls`, `grep`, `egrep` and `fgrep` with `--color=auto`, and the `ll`, `la` and `l` aliases.
-- `.bash_logout` -- run when a login shell exits.
+- `.profile` - read by login shells after `/etc/profile`; puts `~/bin` and `~/.local/bin` on `$PATH` when they exist.
+- `.bashrc` - read by every interactive shell; history settings (`HISTCONTROL`, `HISTSIZE`, `HISTFILESIZE`), `ls`, `grep`, `egrep` and `fgrep` with `--color=auto`, and the `ll`, `la` and `l` aliases.
+- `.bash_logout` - run when a login shell exits.
 
 Add files or directories to `/etc/skel` to give every future user the same starting point.
 

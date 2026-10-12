@@ -14,8 +14,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-S` -- print the mask symbolically
-- `-p` -- print it as a command that sets it
+- `-S` - print the mask symbolically
+- `-p` - print it as a command that sets it
 
 ## Examples
 

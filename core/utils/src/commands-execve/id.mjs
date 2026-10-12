@@ -91,7 +91,7 @@ async function main() {
 
   // A user's group list always begins with their primary group, then the supplementary groups from
   // `/etc/group`. `self.groups` carries only the supplementary ones, so reporting it alone printed
-  // `groups=` (empty) for any user with no supplementary memberships -- root included.
+  // `groups=` (empty) for any user with no supplementary memberships - root included.
   const groups = [self.gid, ...(self.groups || []).filter(gid => gid !== self.gid)]
 
   const resolveGroupName = async (gid) => {

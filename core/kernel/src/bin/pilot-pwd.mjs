@@ -7,15 +7,15 @@
  * `getcwd()` (a real syscall, not a value read off a JS object) and writes the result to fd 1 with
  * `write()` (a real syscall too), so redirected/piped stdout is exercised for real, not simulated.
  *
- * Deliberately has NO import of `@zenfs/linux/uapi/*` itself -- a second, separately bundled copy
- * of those modules would have its own private, never-resolved `ready` (confirmed by hand: it hangs
- * forever), since only the module instance that actually received the real `init` message --
- * `/bin/node.mjs` itself, the real Worker entrypoint -- has a working syscall channel. `/bin/node`
+ * Deliberately has NO import of `@zenfs/linux/uapi/*` itself - a second, separately bundled copy
+ * of those modules would have its own private, never-resolved `ready` (it hangs
+ * forever), since only the module instance that actually received the real `init` message -
+ * `/bin/node.mjs` itself, the real Worker entrypoint - has a working syscall channel. `/bin/node`
  * exposes its own already-initialized wrappers on `globalThis.ecmaosSyscalls` for exactly this
  * reason; see its own doc comment.
  *
  * Bundled the same way `/bin/node`/`/bin/wali` are (see `vite-plugin-bin-node.ts`) even though it
- * has no imports left to inline -- kept consistent with how every other worker-hosted program in
+ * has no imports left to inline - kept consistent with how every other worker-hosted program in
  * this codebase ships, not because bundling does anything for this particular file.
  */
 

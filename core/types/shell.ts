@@ -19,7 +19,7 @@ export type JobStatus = 'running' | 'stopped' | 'done'
 /**
  * One pipeline the shell is tracking for job control: `a | b | c &` is a single job with one entry
  * in `processes` per stage that went through a real `@zenfs/linux` Process (`executeViaExecve`'s
- * `js`/`node` binfmt path) -- a pipeline of ordinary coreutils has no process handle at all, since
+ * `js`/`node` binfmt path) - a pipeline of ordinary coreutils has no process handle at all, since
  * those run synchronously in the shell's own tick and can't be signaled independently. This is a
  * deliberately simplified single-foreground-job model, not POSIX process groups: `@zenfs/linux`
  * exposes one thread per `Process` and no pgid concept, so "the foreground job" is tracked as a
@@ -44,7 +44,7 @@ export interface Job {
 }
 
 /**
- * Run a command the way `Kernel.execute` would, minus the `kernel` field -- `Shell` never holds a
+ * Run a command the way `Kernel.execute` would, minus the `kernel` field - `Shell` never holds a
  * `Kernel` reference of its own, so whoever hands it this function closes over `kernel` already.
  */
 export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Promise<number>
@@ -52,7 +52,7 @@ export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Pr
 /**
  * Joins one pipeline stage's stdout to the next stage's stdin. `Shell` never holds a `Kernel`
  * reference of its own, so whoever constructs it hands over a function already closed over
- * `kernel` -- same pattern as {@link ShellExecute}. Backed by a real `@zenfs/linux` pipe
+ * `kernel` - same pattern as {@link ShellExecute}. Backed by a real `@zenfs/linux` pipe
  * (`Kernel.createPipeStream`), not a plain `TransformStream`, so pipeline stage-to-stage joins go
  * through the same real `pipe` syscall `Kernel.bridgeStdio` already proved out for redirected
  * single-process stdio.
@@ -81,7 +81,7 @@ export type ShellCreatePipeStream = () => {
  * boundary belongs in one place instead of in fifteen of them.
  */
 export interface ShellBuiltinIO {
-  /** Whether fd 1 is a terminal, i.e. `isatty(1)` -- `type`/`jobs` colorize only when it is */
+  /** Whether fd 1 is a terminal, i.e. `isatty(1)` - `type`/`jobs` colorize only when it is */
   readonly stdoutIsTTY: boolean
   /** Whether fd 0 is a terminal, which is what makes `read` prompt and echo rather than slurp */
   readonly stdinIsTTY: boolean
@@ -224,8 +224,8 @@ export interface Shell {
   expandTilde(input: string): string
 
   /**
-   * Runs a full script's text -- potentially spanning multiple lines with `if`/`while`/`for`/
-   * `case`/function definitions -- to completion. Used by `Kernel.executeScript` in place of the
+   * Runs a full script's text - potentially spanning multiple lines with `if`/`while`/`for`/
+   * `case`/function definitions - to completion. Used by `Kernel.executeScript` in place of the
    * old flat line-by-line runner.
    * @param script - The script's full text
    */
@@ -255,7 +255,7 @@ export interface Shell {
   readonly aliases: Map<string, string>
 
   /**
-   * How a command name would be resolved -- the first of alias, keyword, builtin, function or
+   * How a command name would be resolved - the first of alias, keyword, builtin, function or
    * `$PATH` file that claims it, in the order the shell itself checks them. Backs `type` and
    * `command -v`.
    */
@@ -317,7 +317,7 @@ export interface Shell {
   /** Runs the handler registered for `signal`, if any (a no-op if none is registered). */
   runTrap(signal: string): Promise<void>
 
-  /** The job currently occupying the foreground, if any -- see {@link Job}'s doc comment for scope. */
+  /** The job currently occupying the foreground, if any - see {@link Job}'s doc comment for scope. */
   /** Called when `exit` runs at the prompt; the terminal sets it while the built-in shell is a login session. */
   onExit?: (code: number) => void
   readonly foregroundJob: Job | undefined

@@ -15,14 +15,14 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-e FILE, -f FILE, -d FILE` -- exists; is a regular file; is a directory
-- `-r, -w, -x FILE` -- readable, writable, executable
-- `-s FILE` -- exists and is not empty
-- `-L FILE, -h FILE` -- is a symbolic link
-- `-n STRING, -z STRING` -- not empty; empty
-- `A = B, A != B` -- strings are equal; differ
-- `N -eq M, -ne, -lt, -le, -gt, -ge` -- integer comparison
-- `! E, ( E ), E1 -a E2, E1 -o E2` -- not, grouping, and, or
+- `-e FILE, -f FILE, -d FILE` - exists; is a regular file; is a directory
+- `-r, -w, -x FILE` - readable, writable, executable
+- `-s FILE` - exists and is not empty
+- `-L FILE, -h FILE` - is a symbolic link
+- `-n STRING, -z STRING` - not empty; empty
+- `A = B, A != B` - strings are equal; differ
+- `N -eq M, -ne, -lt, -le, -gt, -ge` - integer comparison
+- `! E, ( E ), E1 -a E2, E1 -o E2` - not, grouping, and, or
 
 ## Examples
 

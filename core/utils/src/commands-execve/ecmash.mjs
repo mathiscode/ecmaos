@@ -56,7 +56,7 @@ const SIGCONT = 18
 // Signals `trap` can catch, and the number `onSignal` wants for each: all of them but KILL and STOP.
 const TRAP_SIGNALS = Object.fromEntries(Object.entries(SIGNAL_NUMBERS).filter(([name]) => !UNCATCHABLE_SIGNALS.has(name)))
 
-// -- small fs helpers -----------------------------------------------------------------------------
+// - small fs helpers -----------------------------------------------------------------------------
 
 function readFileText(path) {
   const fd = open(path, O_RDONLY, 0)
@@ -121,7 +121,7 @@ function normalize(path) {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-// -- shell state ----------------------------------------------------------------------------------
+// - shell state ----------------------------------------------------------------------------------
 
 /** A `break`, `continue`, `return` or `exit` unwinding: not an error to report. */
 const isUnwind = error => error instanceof BreakSignal || error instanceof ContinueSignal || error instanceof ReturnSignal || error instanceof ExitSignal
@@ -197,7 +197,7 @@ class Shell {
 
   environment() { return this.state.environment() }
 
-  // -- expansion ----------------------------------------------------------------------------------
+  // - expansion ----------------------------------------------------------------------------------
 
   context() {
     return {
@@ -279,7 +279,7 @@ class Shell {
     }
   }
 
-  // -- arrays -------------------------------------------------------------------------------------
+  // - arrays -------------------------------------------------------------------------------------
 
   /**
    * `a=(x y)`, `a+=(z)` and `a[i]=v` at the start of a line. Returns the status, or `undefined` when
@@ -320,7 +320,7 @@ class Shell {
     }, options)
   }
 
-  // -- running text -------------------------------------------------------------------------------
+  // - running text -------------------------------------------------------------------------------
 
   async runText(text) { return await this.interpreter.runText(text) }
   async runStatements(statements) { return await this.interpreter.runStatements(statements) }
@@ -425,7 +425,7 @@ class Shell {
     }
   }
 
-  // -- pipelines ----------------------------------------------------------------------------------
+  // - pipelines ----------------------------------------------------------------------------------
 
   /** A job-table entry for a started pipeline. Numbers are never reused while an entry is alive. */
   addJob(handle, pipeline, extra = {}) {
@@ -683,7 +683,7 @@ class Shell {
     return handle
   }
 
-  // -- one command --------------------------------------------------------------------------------
+  // - one command --------------------------------------------------------------------------------
 
   async runCommand(command, fds, options) {
     if (command.conditional !== undefined) {
@@ -798,7 +798,7 @@ class Shell {
     return undefined
   }
 
-  // -- redirections -------------------------------------------------------------------------------
+  // - redirections -------------------------------------------------------------------------------
 
   /**
    * Opens what `redirections` name and returns the descriptor table to run with, `release()` to drop
@@ -887,7 +887,7 @@ class Shell {
     }
   }
 
-  // -- builtins -----------------------------------------------------------------------------------
+  // - builtins -----------------------------------------------------------------------------------
 
   out(text, fd = 1) { writeAllFd(this.stdio[fd] ?? fd, text) }
 
@@ -1087,7 +1087,7 @@ class Shell {
 
 }
 
-// -- interactive ----------------------------------------------------------------------------------
+// - interactive ----------------------------------------------------------------------------------
 
 function promptText(shell) {
   const custom = shell.vars.get('PS1')
@@ -1242,7 +1242,7 @@ async function readLine(shell, tty, history, fixedPrompt) {
   }
 }
 
-// -- entry ----------------------------------------------------------------------------------------
+// - entry ----------------------------------------------------------------------------------------
 
 async function main() {
   const argv = sys.argv.slice(1)

@@ -13,7 +13,7 @@ Started automatically from `/boot/init` as a backgrounded process; not normally 
 
 ## Description
 
-The real cron daemon: a genuine, long-running `execve`'d worker process with its own pid, startable/killable/visible in `ps` like any other process -- unlike the earlier in-process scheduler it replaced, which held cron jobs as live closures on the main-thread `Kernel` object with no pid and no way to be killed independently.
+The real cron daemon: a genuine, long-running `execve`'d worker process with its own pid, startable/killable/visible in `ps` like any other process - unlike the earlier in-process scheduler it replaced, which held cron jobs as live closures on the main-thread `Kernel` object with no pid and no way to be killed independently.
 
 Scheduling needs no main-thread syscall: `setInterval`/`setTimeout` work natively inside a Web Worker, so `crond` wakes once a minute and matches each crontab entry's expression against `cron-schedule`'s `matchDate()`.
 
@@ -27,7 +27,7 @@ A job is run by `/bin/ecmash -c COMMAND`, as real cron runs `sh -c`, so a cronta
 
 `crond --run USER COMMAND` runs one job as USER the way the daemon would, waits for it, and exits with its status. It is for trying a job without waiting for its minute. Only root can start a job as someone else.
 
-`crond`'s own startup/failure logging goes through the `klog` custom syscall to `kernel.log`/`/var/log/kernel.log`, not raw stdout -- a backgrounded daemon's routine bookkeeping doesn't resurface in whatever interactive terminal happens to share its session.
+`crond`'s own startup/failure logging goes through the `klog` custom syscall to `kernel.log`/`/var/log/kernel.log`, not raw stdout - a backgrounded daemon's routine bookkeeping doesn't resurface in whatever interactive terminal happens to share its session.
 
 ## See also
 

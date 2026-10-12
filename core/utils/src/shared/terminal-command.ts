@@ -30,7 +30,7 @@ function createCommandIO(process: CommandInvocation | undefined, terminal: Termi
  * Supports two modes:
  * - Unified parser mode: When options are provided, uses command-line-args (for kernel commands)
  * - Raw argv mode: When options are not provided, passes `(ctx, io)` instead of raw `(pid, argv)`
- *   (for coreutils commands) -- see `CommandContext`/`CommandIO` in `@ecmaos/types`.
+ *   (for coreutils commands) - see `CommandContext`/`CommandIO` in `@ecmaos/types`.
  */
 export class TerminalCommand implements ITerminalCommand {
   command: string = ''

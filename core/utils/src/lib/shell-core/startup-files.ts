@@ -3,7 +3,7 @@
  * `/bin/ecmash` program) ask this one function, so they cannot disagree about it.
  *
  * Login shells read the system profile, every `*.sh` in `/etc/profile.d`, and then the first of the
- * user's profile files that exists -- bash's rule, so a `~/.bash_profile` can suppress `~/.profile`
+ * user's profile files that exists - bash's rule, so a `~/.bash_profile` can suppress `~/.profile`
  * rather than adding to it. An interactive shell then reads the per-shell files, which unlike the
  * profile ones all run: `/etc/ecmashrc`, `~/.bashrc`, `~/.ecmashrc`.
  *

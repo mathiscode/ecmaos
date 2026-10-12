@@ -1,5 +1,5 @@
 /**
- * A small, local copy of `@zenfs/linux`'s `Signal` enum (`signal.js`) -- standard Linux signal
+ * A small, local copy of `@zenfs/linux`'s `Signal` enum (`signal.js`) - standard Linux signal
  * numbers, stable since forever, not worth importing the whole package (a large barrel export
  * pulling in every driver) into a worker bundle just for one enum, the same reasoning
  * `path-utils.mjs`'s own doc comment gives for not importing real `path`.
@@ -19,7 +19,7 @@ export function signalName(num) {
 
 /**
  * Parses a `kill`/`killall`-style signal argument: `-9`, `-KILL`, `-SIGKILL`, or a bare number/name
- * (no leading dash) -- returns `null` if `arg` isn't a signal spec at all (the caller should treat it
+ * (no leading dash) - returns `null` if `arg` isn't a signal spec at all (the caller should treat it
  * as a positional pid/name instead), or `undefined` if it looked like one but didn't resolve to a
  * real signal.
  */

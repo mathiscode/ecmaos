@@ -14,8 +14,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-v` -- print what would run
-- `-V` -- describe what would run
+- `-v` - print what would run
+- `-V` - describe what would run
 
 ## Exit status
 

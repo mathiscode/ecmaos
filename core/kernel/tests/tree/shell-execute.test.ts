@@ -59,7 +59,7 @@ describe('Shell.execute - real execution over the new parser', () => {
 
   /**
    * Pipeline stage-to-stage joins now go through a real `@zenfs/linux` `create_pipe`-backed stream
-   * (`Kernel.createPipeStream`), not a plain web `TransformStream` -- see that method's own doc
+   * (`Kernel.createPipeStream`), not a plain web `TransformStream` - see that method's own doc
    * comment for why. This payload is deliberately larger than the pipe bridge's own 65536-byte
    * poll chunk size, so a correct result here also proves the multi-read/multi-write loop (not
    * just a single-chunk happy path) actually reassembles the stream correctly.
@@ -74,7 +74,7 @@ describe('Shell.execute - real execution over the new parser', () => {
 
   it('joins pipeline stages correctly whether or not either side has a real Process handle', async () => {
     // `grep` and `wc` are both real execve'd stages here, but `Kernel.createPipeStream` makes no
-    // such assumption -- it has to work as a plain web ReadableStream/WritableStream pair
+    // such assumption - it has to work as a plain web ReadableStream/WritableStream pair
     // regardless of which kind of thing (execve'd Process or legacy in-process coreutil closure)
     // is on either side of the join, since a legacy stage has no real fd of its own to bridge.
     const { output } = await runCapturing('printf "a\\nb\\na\\n" | grep a | wc -l')

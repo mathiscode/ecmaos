@@ -91,7 +91,7 @@ function main() {
 
         if (isDir && !isLink) searchDirectory(fullPath)
       } catch {
-        // unreadable/racy entry -- skip silently, since a listing racing a concurrent delete is expected
+        // unreadable/racy entry - skip silently, since a listing racing a concurrent delete is expected
       }
     }
   }

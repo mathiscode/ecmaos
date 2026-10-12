@@ -1,12 +1,12 @@
 /**
  * Crontab-line parsing shared between `crond.mjs` (the real scheduler) and `cron.mjs` (the
- * `crontab`-shaped inspection/editing CLI) -- a straight port of the legacy `cron.ts`'s own
+ * `crontab`-shaped inspection/editing CLI) - a straight port of the legacy `cron.ts`'s own
  * `parseCrontabLine`/`parseCrontabFile`, minus anything that only one of the two needs.
  */
 
 import { parseCronExpression } from 'cron-schedule'
 
-/** Parse a single crontab line -- `null` for an empty line, a comment, or something unparseable. */
+/** Parse a single crontab line - `null` for an empty line, a comment, or something unparseable. */
 export function parseCrontabLine(line) {
   const trimmed = line.trim()
   if (trimmed === '' || trimmed.startsWith('#')) return null

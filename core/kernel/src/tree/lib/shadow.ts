@@ -118,7 +118,7 @@ export function renameEntry(file: ShadowFile, from: string, to: string): boolean
   return true
 }
 
-// -- states of the hash field -------------------------------------------------------------------------
+// - states of the hash field -------------------------------------------------------------------------
 
 /** A `!` in front: `passwd -l` */
 export const isLocked = (hash: string): boolean => hash.startsWith('!')

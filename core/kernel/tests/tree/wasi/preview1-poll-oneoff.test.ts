@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
  * `poll_oneoff` used to be a bare stub returning ENOSYS (52) unconditionally, which fails any
- * preview1 program that calls it at all -- including ones that only use it for a trivial "is my
+ * preview1 program that calls it at all - including ones that only use it for a trivial "is my
  * fd ready" check rather than a real blocking wait. This proves the real implementation: it
  * parses the WASI `subscription_t`/`event_t` binary layout correctly and reports every
  * subscription as resolved immediately (this file's fds are never genuinely not-yet-ready outside

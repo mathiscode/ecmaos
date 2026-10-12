@@ -14,7 +14,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * `install` is a real worker program now, and a worker's `fetch` is its own (the test cannot stub it),
  * so the registry here is a real local HTTP server.
  *
- * `install` used to call `kernel.filesystem.extractTarball` directly -- a second, kernel-only
+ * `install` used to call `kernel.filesystem.extractTarball` directly - a second, kernel-only
  * tar-reading path (`@gera2ld/tarjs` + `pako`) duplicating the real, streaming `tar` coreutil.
  * `extractTarball` itself stays (it's also used by `Filesystem.init()`'s boot-time initfs
  * extraction, which runs before any `Shell` exists to `shell.execute` against), but `install` now

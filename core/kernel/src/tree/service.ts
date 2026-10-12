@@ -70,12 +70,12 @@ export class Service implements IService {
         event.source?.postMessage({
           type: 'fs',
           file: data.file,
-          // A real Uint8Array, not whatever object readFile returned -- zenfs's return value has
+          // A real Uint8Array, not whatever object readFile returned - zenfs's return value has
           // been observed to fail `instanceof Uint8Array`/structured-clone across a module-instance
           // or realm boundary (see filesystem.ts's copyTree, same guard for the vitest/jsdom case;
           // the service worker is exactly this kind of boundary from the page). Cloning into a
-          // fresh Uint8Array here guarantees postMessage's structured clone -- and the service
-          // worker's later `new Response(fileData, ...)` -- see a normal, unambiguous binary buffer.
+          // fresh Uint8Array here guarantees postMessage's structured clone - and the service
+          // worker's later `new Response(fileData, ...)` - see a normal, unambiguous binary buffer.
           data: new Uint8Array(contents)
         })
       } catch (error) {

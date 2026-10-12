@@ -17,11 +17,11 @@ FIRST and LAST are history numbers, negative ones counting back from the last co
 
 ## Options
 
-- `-l` -- list the commands instead of editing them
-- `-n` -- leave the numbers out of the list
-- `-r` -- reverse the order
-- `-s` -- run COMMAND again (the most recent by default) after replacing the first PAT in it with REP; the command is shown first
-- `-e ENAME` -- edit the commands in ENAME, then run what comes back; the default is `$FCEDIT`, `$EDITOR`, then `vim`. `-e -` is the same as `-s`
+- `-l` - list the commands instead of editing them
+- `-n` - leave the numbers out of the list
+- `-r` - reverse the order
+- `-s` - run COMMAND again (the most recent by default) after replacing the first PAT in it with REP; the command is shown first
+- `-e ENAME` - edit the commands in ENAME, then run what comes back; the default is `$FCEDIT`, `$EDITOR`, then `vim`. `-e -` is the same as `-s`
 
 ## Examples
 

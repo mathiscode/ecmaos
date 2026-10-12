@@ -9,7 +9,7 @@ function exists(path) {
 }
 
 /** `mkdir -p`-equivalent: create every missing segment from the root down (`@zenfs/linux`'s `mkdir`
- * syscall has no recursive option, matching real `mkdir(2)`), ignoring EEXIST along the way -- the
+ * syscall has no recursive option, matching real `mkdir(2)`), ignoring EEXIST along the way - the
  * same approach `mkdir.mjs`'s own `mkdirRecursive` uses. */
 function mkdirRecursive(path, mode) {
   const segments = path.split('/').filter(Boolean)

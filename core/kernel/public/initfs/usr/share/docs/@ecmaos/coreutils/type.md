@@ -14,8 +14,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-t` -- print only the kind: `alias`, `keyword`, `builtin`, `function` or `file`
-- `-p` -- print only the path, and nothing for a name that is not a file
+- `-t` - print only the kind: `alias`, `keyword`, `builtin`, `function` or `file`
+- `-p` - print only the path, and nothing for a name that is not a file
 
 ## Examples
 

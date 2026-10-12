@@ -14,7 +14,7 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-a` -- remove every alias
+- `-a` - remove every alias
 
 ## Exit status
 

@@ -2329,7 +2329,7 @@ export default function createWasiPreview1Bindings({
     //
     // This resolves every subscription immediately rather than truly blocking: fd_read/fd_write
     // report ready right away (this file's fds are regular files or already-buffered stdio, never
-    // genuinely not-yet-ready outside of stdin -- see fd_read's own asyncify-only blocking path),
+    // genuinely not-yet-ready outside of stdin - see fd_read's own asyncify-only blocking path),
     // and a clock subscription with a nonzero timeout is reported ready immediately too, since
     // nothing here can suspend a non-asyncify module to actually wait out a duration. A module
     // built with asyncify that wants a real sleep should still get correct behavior from the

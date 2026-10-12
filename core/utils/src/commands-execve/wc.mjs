@@ -48,7 +48,7 @@ function readWholeFileText(fullPath) {
 }
 
 function countText(content) {
-  // GNU wc -l counts newline characters, not "segments" -- `"a\na\n".split('\n')` is `["a","a",""]`
+  // GNU wc -l counts newline characters, not "segments" - `"a\na\n".split('\n')` is `["a","a",""]`
   // (length 3), which overcounts by exactly one whenever content ends with '\n' (the norm for any
   // real text file) since the trailing empty segment isn't a line. A content ending without '\n'
   // has one fewer newline than segments, and its last (partial) line correctly isn't counted at all,

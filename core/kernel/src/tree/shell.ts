@@ -43,7 +43,7 @@ import { evaluateConditional, type ConditionalFs } from '@ecmaos/coreutils/lib/c
  * `process.env` is a single global object and ecmaOS runs up to eight shells at once, one per virtual
  * console. Every shell used to write to it directly, so two TTYs clobbered each other's `$PATH` and
  * whichever logged in last won. It is a compatibility mirror for code written against Node, not a
- * source of truth -- each shell's own `Map` is -- so exactly one shell publishes to it: the one whose
+ * source of truth - each shell's own `Map` is - so exactly one shell publishes to it: the one whose
  * TTY is active. `Kernel.switchTty` hands ownership over as consoles switch, the way `/proc/self`
  * follows the current process rather than being shared between them.
  */
@@ -52,7 +52,7 @@ let processEnvOwner: object | undefined
 /**
  * Names that live in a shell's environment `Map` for lookup's sake but are the shell's own state and
  * must never reach a child process: `$?`, the positional parameters (`$0`, `$1`, ...), and the other
- * one-character specials. A real shell keeps these out of the environment entirely -- `execve` passes
+ * one-character specials. A real shell keeps these out of the environment entirely - `execve` passes
  * `envp`, and `1=arg` is not an environment variable.
  *
  * Known limit: this is the boundary in the *other* direction only. A bare `X=1` still reaches a child
@@ -64,7 +64,7 @@ let processEnvOwner: object | undefined
  * Finds the first top-level (unquoted, unescaped, not nested inside `$(...)`/`$((...))`)
  * `;`/`&`/`|` in `text`, for splitting a bare `VAR=value` assignment from whatever statement
  * follows it on the same line (`tryExecuteAssignment`). Deliberately simpler than
- * `shell-parser.ts`'s `tokenize` -- it doesn't word-split on whitespace, so `$((X + 3))` survives
+ * `shell-parser.ts`'s `tokenize` - it doesn't word-split on whitespace, so `$((X + 3))` survives
  * intact inside an assignment's value the same way it already does today. Returns -1 if none found.
  */
 function findTopLevelOperatorIndex(text: string): number {
@@ -106,7 +106,7 @@ function findTopLevelOperatorIndex(text: string): number {
 /**
  * Whether reading this character device yields end-of-file immediately.
  *
- * Only `/dev/null` does, and on Linux it is device 1:3 -- the same numbers `@zenfs/linux` gives it
+ * Only `/dev/null` does, and on Linux it is device 1:3 - the same numbers `@zenfs/linux` gives it
  * (`memMajor` is 1, null is minor 3). `/dev/zero`, `/dev/full`, `/dev/random` and `/dev/urandom` all
  * produce data endlessly, and a tty blocks, so none of them belong here.
  *
@@ -286,7 +286,7 @@ class JobImpl implements Job {
   background: boolean
   /**
    * Assigned by `Shell.createJob` right after construction, once `runPipeline` has actually been
-   * started against this job -- not in the constructor, so `runPipeline` can close over `this` and
+   * started against this job - not in the constructor, so `runPipeline` can close over `this` and
    * push process handles onto `processes` as they appear while it's still running.
    */
   done!: Promise<number[]>
@@ -374,7 +374,7 @@ export class Shell implements IShell {
   private _heldFloor: number[] = []
 
   /**
-   * Output redirections belonging to an enclosing *aggregate* command -- a redirected compound
+   * Output redirections belonging to an enclosing *aggregate* command - a redirected compound
    * statement (`done > f`), a redirected function call (`greet > f`), or `eval`/`source` with a
    * redirection. Outermost first.
    *
@@ -382,7 +382,7 @@ export class Shell implements IShell {
    * runs a whole statement tree whose commands build their own streams. So the redirection is kept
    * here and consulted by `buildOutputStreams`, where a command with no redirection of its own
    * inherits it instead of defaulting to the terminal. Without this the redirection parsed and was
-   * then silently discarded -- the same bug `done < f` had on the input side.
+   * then silently discarded - the same bug `done < f` had on the input side.
    *
    * `truncated` is what keeps `> f` from truncating once per command in the body: the first command
    * to write to that fd truncates, every later one appends, which is what one shared descriptor
@@ -402,7 +402,7 @@ export class Shell implements IShell {
 
   /**
    * All jobs this shell has ever launched, insertion order (oldest first). A job number is reused once nothing live holds it, so look one up newest first.
-   * Entries are never removed automatically -- `jobs` in a real shell keeps showing a `Done` job
+   * Entries are never removed automatically - `jobs` in a real shell keeps showing a `Done` job
    * until the next prompt reaps it; this implementation just keeps it, which `listJobs()` callers
    * (the `jobs` coreutil) can filter/trim for display if that behavior is ever wanted.
    */
@@ -459,8 +459,8 @@ export class Shell implements IShell {
    * A real, registered `@zenfs/linux` `Process` standing for this shell, created on first use.
    *
    * `$$` and `$PPID` have to come from somewhere, and inventing a number would eventually collide
-   * with a real pid -- ecmaOS allocates pids from `@zenfs/linux`'s own table, so the only way to get
-   * one that is genuinely the shell's is to take one from that table. The process is registered and
+   * with a real pid - ecmaOS allocates pids from `@zenfs/linux`'s own table, so the only way to get
+   * one that is really the shell's is to take one from that table. The process is registered and
    * never exits, which is correct: a shell is a process, and Linux's `ps` shows it. Its standard
    * descriptors go to `/dev/null` rather than the console, the same choice `Kernel.pipeProcess`
    * makes, so holding it costs nothing and touches no terminal.
@@ -583,7 +583,7 @@ export class Shell implements IShell {
    *
    * This is the only path by which an interactive `^C` reaches the shell's trap table. While a
    * foreground `execve`'d process holds the terminal, `Terminal.keyHandler` returns early
-   * (`if (this._ttyInput) return` -- the line discipline owns the keyboard) and the keystroke is
+   * (`if (this._ttyInput) return` - the line discipline owns the keyboard) and the keystroke is
    * turned into a real `SIGINT` by `ISIG` instead. So the `runTrap('INT')` call in that key handler
    * never fires for exactly the case an `INT` trap is written for; `Kernel.executeViaExecve` calls
    * this when it observes `proc.killed_by === Signal.INT`, where the signal actually lands.
@@ -686,7 +686,7 @@ export class Shell implements IShell {
   }
 
   /**
-   * Indexed arrays -- `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for
+   * Indexed arrays - `arrays` for `word-expansion.ts`'s `lookupArray`, and direct mutators for
    * `=(...)`, `a[i]=`, `unset a[i]`, `a+=(...)`.
    *
    * Every one of these honors `local`: a name declared local in an active frame is read and written
@@ -731,7 +731,7 @@ export class Shell implements IShell {
   getTrap(signal: string): string | undefined { return this.state.getTrap(signal) }
   listTraps(): Array<[string, string]> { return this.state.listTraps() }
 
-  /** Runs the handler registered for `signal`, if any (and it isn't the `''` ignore marker). Errors from the handler are swallowed -- a bad trap must not crash the shell. */
+  /** Runs the handler registered for `signal`, if any (and it isn't the `''` ignore marker). Errors from the handler are swallowed - a bad trap must not crash the shell. */
   async runTrap(signal: string): Promise<void> {
     const handler = this.getTrap(signal)
     if (!handler) return
@@ -774,7 +774,7 @@ export class Shell implements IShell {
   applyShellOption(flag: ShellOptionName, enabled: boolean): void { this.state.setOption(flag, enabled) }
 
   /**
-   * `set -x` -- writes `$PS4` followed by the command about to run to stderr.
+   * `set -x` - writes `$PS4` followed by the command about to run to stderr.
    *
    * The arguments are the expanded ones, which is the point: xtrace exists to show what a command
    * actually received after the shell was done with it, not what was typed.
@@ -785,7 +785,7 @@ export class Shell implements IShell {
     await this.terminalBuiltinIO().writelnErr(ps4 + args.join(' '))
   }
 
-  /** `set -v` -- echoes a line of input to stderr before it runs. */
+  /** `set -v` - echoes a line of input to stderr before it runs. */
   private async traceVerbose(line: string): Promise<void> {
     if (!this._shellOptions.verbose || !line) return
     await this.terminalBuiltinIO().writelnErr(line)
@@ -860,14 +860,13 @@ export class Shell implements IShell {
    * `shell-core/startup-files`, shared with `/bin/ecmash`.
    *
    * Two things this deliberately does not do. It does not go through `executeScriptText`, which fires
-   * the `EXIT` trap when the text ends -- an rc file that installs a trap wants it to survive for the
+   * the `EXIT` trap when the text ends - an rc file that installs a trap wants it to survive for the
    * session, not to run immediately. And it does not stop when one file fails: a broken `~/.ecmashrc`
    * should not cost you a shell, which is why each file is guarded on its own.
    *
    * Login files (`profile`) and per-shell files (`ecmashrc`) run together here because every shell in
-   * ecmaOS is a login shell today: each virtual console authenticates, and nothing nests shells yet.
-   * When `/bin/ecmash` can run inside another shell, the `profile` half becomes conditional on
-   * `argv[0]` starting with a `-` and only the `ecmashrc` half stays unconditional.
+   * ecmaOS is a login shell: each virtual console authenticates. `/bin/ecmash` decides for itself
+   * from `argv[0]` starting with a `-`; the kernel shell is only ever started that way.
    */
   async loadProfile() {
     const fs = this.context.fs.promises
@@ -885,7 +884,7 @@ export class Shell implements IShell {
         this._sourceFile = file
         await this.executeSourced(content, undefined, file)
       } catch (error) {
-        // `exit` in a startup file stops startup, as in bash -- there is no process to end here, so
+        // `exit` in a startup file stops startup, as in bash - there is no process to end here, so
         // the remaining files are skipped and the prompt is reached anyway.
         if (error instanceof ExitSignal) break
         try {
@@ -1142,7 +1141,7 @@ export class Shell implements IShell {
     }
 
     // Two fds that both resolved to the same underlying file need one shared, serialized writer,
-    // not two independent ones racing each other -- this is what &> and 2>&1 > f actually need.
+    // not two independent ones racing each other - this is what &> and 2>&1 > f actually need.
     const stdoutFile = fdFiles.get(1)
     const stderrFile = fdFiles.get(2)
     if (stdoutFile && stderrFile && stdoutFile.path === stderrFile.path) {
@@ -1160,7 +1159,7 @@ export class Shell implements IShell {
   /**
    * Resolves one pipeline stage's words (substitution, history-bang, tilde, variables, arithmetic,
    * glob) into a runnable command. Single-quoted words are exempt from variable/arithmetic
-   * expansion the same way they are from globbing (`wordsQuoted`, tracked by the parser) --
+   * expansion the same way they are from globbing (`wordsQuoted`, tracked by the parser) -
    * `echo '$HOME'` must print the literal text, not the expanded path.
    */
   private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[] }> {
@@ -1187,7 +1186,7 @@ export class Shell implements IShell {
 
   /**
    * `set -u`: throws if `original` referenced a plain `$VAR`/`${VAR}` whose name resolves to
-   * `undefined`. Only plain references count -- `${VAR:-default}`/`${VAR:+alt}` are explicitly
+   * `undefined`. Only plain references count - `${VAR:-default}`/`${VAR:+alt}` are explicitly
    * about tolerating an unset variable, so they're exempt, matching bash's own `set -u` semantics.
    */
   private assertNoUnsetReferences(original: string): void {
@@ -1203,11 +1202,11 @@ export class Shell implements IShell {
 
   /**
    * Runs one pipeline (`a | b | c`), wiring each stage's stdout to the next's stdin, and returns
-   * each stage's exit code in order -- `${PIPESTATUS[@]}`, not "last non-zero wins".
+   * each stage's exit code in order - `${PIPESTATUS[@]}`, not "last non-zero wins".
    *
    * @param job - When given, every stage that produces a real `@zenfs/linux` Process (only the
    * `js`/`node` binfmt path today) registers its handle on `job.processes` as soon as it exists,
-   * via `onProcess` -- this is how a backgrounded or foregrounded pipeline becomes signalable by
+   * via `onProcess` - this is how a backgrounded or foregrounded pipeline becomes signalable by
    * `^C`/`^Z`/`fg`/`bg` before it has finished running.
    */
   private async runPipeline(pipeline: Pipeline, job?: JobImpl): Promise<number[]> {
@@ -1242,7 +1241,7 @@ export class Shell implements IShell {
       targetParts: [{ text: path, quoting: 'single' }]
     }
     // `>(cmd)` needs the file as *cmd's* stdin. A redirection held over a statement tree reaches only
-    // builtins (a real command gets a closed stdin; see the Phase 6 note on a shared fd 0), so the
+    // builtins (a real command gets a closed stdin), so the
     // redirection is written into the line instead, on the command that reads first: `< file a | b`.
     // A compound command or a list cannot take one there, and falls back to the held redirection.
     const firstWord = command.trim().split(/\s+/)[0] ?? ''
@@ -1299,7 +1298,7 @@ export class Shell implements IShell {
    * `$x` by the new IFS, and expanded left to right so `A=1 B=$A cmd` sees `A`.
    *
    * Written through `env` rather than `setVariable` so the values reach a spawned process, which
-   * takes its environment from `envObject` -- the same thing the `env` builtin already does.
+   * takes its environment from `envObject` - the same thing the `env` builtin already does.
    *
    * Known limit: every stage's prefixes are applied around the whole pipeline rather than per stage,
    * because the stages start concurrently and share one `env`. `IFS=: a | IFS=, b` is therefore
@@ -1326,7 +1325,7 @@ export class Shell implements IShell {
     /**
      * A stage is either a real command to hand `Kernel.execute`, or a true builtin to run in this
      * shell's own tick. Both get an identically-wired set of fds, which is what lets `jobs > f` and
-     * `jobs | grep x` work at all -- a builtin used to bypass this whole method.
+     * `jobs | grep x` work at all - a builtin used to bypass this whole method.
      */
     type Stage = {
       args: string[]
@@ -1344,7 +1343,7 @@ export class Shell implements IShell {
       /**
        * Whether this stage's stdout has a final destination (a file, or the terminal) rather than a
        * downstream reader, so the kernel should drain it fully before reporting the exit code. Only
-       * the last stage qualifies -- see `KernelExecuteOptions.drainStdout`.
+       * the last stage qualifies - see `KernelExecuteOptions.drainStdout`.
        */
       drainStdout: boolean
       stderr: WritableStream<Uint8Array>
@@ -1372,7 +1371,7 @@ export class Shell implements IShell {
 
       // Builtins keep their own quote-aware/array-aware expansion (`expandCommandArgs`) and must
       // not go through `prepareCommand`, which resolves a `$PATH` file that will never exist for
-      // them -- there is no `/bin/cd`, deliberately.
+      // them - there is no `/bin/cd`, deliberately.
       const builtinName = command.compound ? undefined : trueBuiltinNameFor(command.words[0])
       // A shell function as one stage of a pipeline (`f | cat`) is run in this shell, in a subshell.
       const functionName = !command.compound && !builtinName && commands.length > 1 && this._functions.has(command.words[0] ?? '') ? command.words[0] : undefined
@@ -1388,7 +1387,7 @@ export class Shell implements IShell {
       } catch (error) {
         // A command that does not exist fails *this command*, exit 127, and the script carries on.
         // It used to throw all the way out of the statement tree, so one typo in a script silently
-        // dropped every line after it -- the same unwinding problem readonly and noclobber had, and
+        // dropped every line after it - the same unwinding problem readonly and noclobber had, and
         // the reason a typo in a startup file cost you the rest of the file.
         if (!(error instanceof CommandNotFoundError)) throw error
         // From a startup file bash names the file and line: `/etc/ecmashrc: line 2: foo: command not found`.
@@ -1402,7 +1401,7 @@ export class Shell implements IShell {
       let stdinSource: StdinSource | undefined
       let stdinLeftover: ((bytes: Uint8Array) => void) | undefined
       let stdinIsTTY = false
-      // Applies to *any* stage, not only the first -- `a | b < f` redirects b's stdin, discarding
+      // Applies to *any* stage, not only the first - `a | b < f` redirects b's stdin, discarding
       // whatever a's stdout would have fed it, exactly like a real shell.
       const inputRedirect = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
       if (inputRedirect) {
@@ -1444,7 +1443,7 @@ export class Shell implements IShell {
         prevPipe = pipe
       }
 
-      // An enclosing aggregate command's redirections come first, so this command's own still win --
+      // An enclosing aggregate command's redirections come first, so this command's own still win -
       // the same "later wins" rule applied across nesting levels. Resolved once per command, since
       // `inheritedOutputRedirections` also records which fds have already been truncated.
       const redirections = this._statementOutputs.length > 0 || this._execOutputs
@@ -1599,7 +1598,7 @@ export class Shell implements IShell {
   }
 
   /**
-   * The most recently started job still worth targeting by a bare job spec -- background or
+   * The most recently started job still worth targeting by a bare job spec - background or
    * stopped, never a plain foreground command that already ran to completion (`jobs`/`fg`/`bg`
    * themselves included, since they always run in the foreground). This is what bash calls the
    * "current job" (`%%`/`%+`), and what bare `fg`/`bg` (no argument) target.
@@ -1648,7 +1647,7 @@ export class Shell implements IShell {
 
   /**
    * Resumes a stopped job's real processes with `SIGCONT`, or promotes an already-running
-   * background job to the foreground -- either way, waits for it to finish. A job with no real
+   * background job to the foreground - either way, waits for it to finish. A job with no real
    * process handles (a pure-coreutil pipeline) has nothing to send `SIGCONT` to, but is still
    * waited on and reported the same way.
    */
@@ -1663,7 +1662,7 @@ export class Shell implements IShell {
       job.status = 'running'
     }
 
-    // Reclaim the controlling terminal for this job's real process(es) -- it gave it up (or never
+    // Reclaim the controlling terminal for this job's real process(es) - it gave it up (or never
     // had it) while backgrounded/stopped; see `JobProcessHandle.setForeground`'s doc comment.
     for (const process of job.processes) process.setForeground?.(true)
 
@@ -1734,7 +1733,7 @@ export class Shell implements IShell {
 
   /**
    * A pipeline whose sole command names a registered function is dispatched to `callFunction`
-   * instead of `runPipeline`/`_execute` -- functions are shell-local, not real executables, and
+   * instead of `runPipeline`/`_execute` - functions are shell-local, not real executables, and
    * have no `finalCommand` a binfmt could resolve. Piping into/out of a function, or calling one
    * as a non-final pipeline stage, is out of scope here (real shells restrict this too without a
    * subshell), so only a single-command pipeline qualifies.
@@ -1749,7 +1748,7 @@ export class Shell implements IShell {
 
   /**
    * A builtin eligible for the cheap in-place path: the pipeline's sole command names a true shell
-   * builtin (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) *and* nothing is redirected, so it
+   * builtin (`cd`, `export`, ... - see `lib/shell-builtins.ts`) *and* nothing is redirected, so it
    * can write straight to the terminal without any stream being allocated. `cd` inside a `while`
    * loop takes this path, and it costs what it always did.
    *
@@ -1779,7 +1778,7 @@ export class Shell implements IShell {
     return await expandWordFieldsBraced(parts, ctx)
   }
 
-  /** Expands a command's argument words (index 1..) with the quote-aware expander -- true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
+  /** Expands a command's argument words (index 1..) with the quote-aware expander - true builtins and functions bypass `prepareCommand`, so they need their own array/word-splitting-aware path. */
   private async expandCommandArgs(command: ParsedCommand): Promise<string[]> {
     const ctx = this.expansionContext()
     const fields: string[] = []
@@ -1812,7 +1811,7 @@ export class Shell implements IShell {
   /**
    * Calls a registered function: its own `local` scope, positional parameters set to `argv`.
    *
-   * `return` unwinds to here as a `ReturnSignal`, which is the only way it can work -- the function
+   * `return` unwinds to here as a `ReturnSignal`, which is the only way it can work - the function
    * body is an ordinary statement tree, so `return` has to leave it from arbitrary depth.
    *
    * `break`/`continue` deliberately stop here too. In bash a loop is only breakable from within the
@@ -1865,7 +1864,7 @@ export class Shell implements IShell {
   /**
    * Executes a line typed at the prompt (or handed in by any other single-line caller). Most lines
    * are a plain pipeline and go straight to `executeSimple`; a line that itself contains control
-   * flow (`if`/`while`/`for`/`case`/a function definition -- whether spread across real `\n`s or
+   * flow (`if`/`while`/`for`/`case`/a function definition - whether spread across real `\n`s or
    * typed compact-and-`;`-joined at the prompt) is instead handed to the same
    * `parseStatements`/`executeStatements` machinery `executeScriptText` uses for script files, so
    * `if ...; then ...; fi` typed directly at the terminal behaves identically to running it from a
@@ -1879,7 +1878,7 @@ export class Shell implements IShell {
     if (!trimmed) return 0
 
     // A fresh line is never pre-interrupted: `^C` aborts the line it happened during, not the next.
-    // Only at depth 0 -- see `_executeDepth`.
+    // Only at depth 0 - see `_executeDepth`.
     if (this._executeDepth === 0) { this._interrupted = false; this._interruptClaimed = false }
     this._executeDepth++
     try {
@@ -1892,7 +1891,7 @@ export class Shell implements IShell {
       // otherwise ignores.
       //
       // `$?` has to be set here too. Every other exit code is recorded by `executeSimple` as it
-      // finishes a stage, and a signal unwound straight past that -- so `exit 8` at the prompt
+      // finishes a stage, and a signal unwound straight past that - so `exit 8` at the prompt
       // returned 8 to the caller while `echo $?` on the next line still printed the code from
       // whatever ran before it. (Found in a browser, not by a unit test: the tests read `execute`'s
       // return value, which was correct all along.)
@@ -1916,7 +1915,7 @@ export class Shell implements IShell {
 
   /**
    * Records `code` as `$?` and hands it back, for the paths that bypass `executeSimple`'s own
-   * per-stage bookkeeping -- i.e. a control-flow signal unwinding all the way out of `execute`.
+   * per-stage bookkeeping - i.e. a control-flow signal unwinding all the way out of `execute`.
    */
   private reportExit(code: number): number {
     this.env.set('?', String(code))
@@ -1941,7 +1940,7 @@ export class Shell implements IShell {
     // self-contained token on its command's own line (`foldHeredocs`), which is the form
     // `executeSimple`/`parseScript` expect. Passing `trimmed` here instead handed `executeSimple`
     // raw text with embedded newlines, so a multi-line heredoc typed at the prompt reached `cat`
-    // with an empty body -- while the same text through `executeScriptText` (which goes via
+    // with an empty body - while the same text through `executeScriptText` (which goes via
     // `executeStatements`, and so uses `statement.line`) worked correctly.
     await this.traceVerbose(statements[0].line)
     return this.executeSimple(this.expandAliases(statements[0].line))
@@ -1950,7 +1949,7 @@ export class Shell implements IShell {
   /**
    * Executes a single already-simple command line: comment-stripped, parsed into a `Script`, and
    * walked stage by stage honoring `;`, `&&`, `||`, and `&`. A stage whose trailing operator is `&`
-   * is registered as a background `Job` (see `@ecmaos/types`' `Job`) and *not* awaited here -- this
+   * is registered as a background `Job` (see `@ecmaos/types`' `Job`) and *not* awaited here - this
    * returns to the caller (the prompt) immediately after printing `[<job-id>] <pid>`, the same way
    * bash reports a backgrounded pipeline. Every other stage runs in the foreground: tracked as
    * `foregroundJob` for the duration (so `^C`/`^Z` in `Terminal.keyHandler` have something to
@@ -1958,7 +1957,7 @@ export class Shell implements IShell {
    * the first foreground stage that fails without being consumed by `&&`/`||`/negation; `set -o
    * pipefail` changes a pipeline's reported exit code to its last *non-zero* stage rather than
    * strictly its last stage. A backgrounded stage's exit code never affects `$?`/`errexit`/`&&`/`||`
-   * on this line -- exactly like bash, which reports it only later via `wait`/the "Done" line in
+   * on this line - exactly like bash, which reports it only later via `wait`/the "Done" line in
    * `jobs`.
    */
   private async executeSimple(line: string): Promise<number> {
@@ -2085,7 +2084,7 @@ export class Shell implements IShell {
     if (builtinName) {
       // True builtins (see `lib/shell-builtins.ts`'s own doc comment) always win over a
       // same-named function or real file, the same way bash's POSIX "special builtins"
-      // (cd/export/set/...) can never be shadowed -- checked before `functionNameFor` so a
+      // (cd/export/set/...) can never be shadowed - checked before `functionNameFor` so a
       // script that happens to define e.g. `function cd { ... }` can't silently break `cd`.
       const command = pipeline.commands[0] as ParsedCommand
       const args = await this.expandCommandArgs(command)
@@ -2129,7 +2128,7 @@ export class Shell implements IShell {
 
   /**
    * Launches a pipeline in the background (`&`): registers a `Job`, prints bash's `[<id>] <pid>`
-   * line, and does *not* await it here -- `job.done` is what `wait`/`jobs` observe later.
+   * line, and does *not* await it here - `job.done` is what `wait`/`jobs` observe later.
    *
    * It does wait for the first stage's process to exist, so the pid it reports and sets `$!` to is
    * real before the next command on the line runs: `sleep 9 & kill -0 $!` reads `$!` straight away.
@@ -2202,15 +2201,15 @@ export class Shell implements IShell {
   }
 
   /**
-   * `exec [redirection...]` -- installs redirections on the shell itself.
+   * `exec [redirection...]` - installs redirections on the shell itself.
    *
    * The command form (`exec prog args`) replaces the shell's process image, which ecmaOS has nothing
    * to do yet: the shell is a main-thread object, not a program a worker is running. It is reported
    * rather than approximated, because "run it and carry on" is a different thing with the same
    * spelling. `/bin/ecmash` is where that becomes possible.
    *
-   * The redirection-only form is the one scripts actually use -- `exec > run.log 2>&1` at the top of
-   * a script sends everything after it to a file -- and that works, because the shell already
+   * The redirection-only form is the one scripts actually use - `exec > run.log 2>&1` at the top of
+   * a script sends everything after it to a file - and that works, because the shell already
    * carries inherited redirections for compound statements.
    */
   private async runExec(command: ParsedCommand): Promise<number> {
@@ -2361,9 +2360,8 @@ export class Shell implements IShell {
         // A character device that reads as end-of-file has to be recognized here, because no driver
         // can say so: `DeviceFS.read` throws the driver's byte count away, and `@zenfs/core`'s
         // `vfs/file.js` deliberately skips the size clamp for a device and returns the full length
-        // requested. So reading `/dev/null` reports a full buffer forever, and `cmd < /dev/null` used
-        // to wedge the shell. Devices that really do produce endless data still stream, which is
-        // correct now that this is lazy.
+        // requested. So reading `/dev/null` reports a full buffer forever, and `cmd < /dev/null` would
+        // wedge the shell. Devices that really do produce endless data still stream, since the read is lazy.
         const stats = await filesystem.fs.stat(sourcePath)
         if (stats.isCharacterDevice() && readsAsEof(stats.rdev)) {
           done = true
@@ -2728,11 +2726,11 @@ export class Shell implements IShell {
    * Substitutes aliases at every command position in `line`.
    *
    * A command position is the start of the line and whatever follows a top-level `;`, `&`, `|`,
-   * `&&` or `||` -- the same boundaries `findTopLevelOperatorIndex` already finds, so an alias name
+   * `&&` or `||` - the same boundaries `findTopLevelOperatorIndex` already finds, so an alias name
    * appearing as an *argument* (`echo ll`) is never touched.
    *
    * Applied once per *statement*, at the two places a statement reaches `executeSimple`, rather than
-   * inside `executeSimple` itself -- which is also reached recursively (by `executeAroundAssignment`)
+   * inside `executeSimple` itself - which is also reached recursively (by `executeAroundAssignment`)
    * and would expand an already-expanded line a second time, turning `alias echo='echo [x]'` into a
    * doubled prefix.
    *

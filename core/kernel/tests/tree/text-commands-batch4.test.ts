@@ -10,7 +10,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * opportunistically" plan. mktemp uses crypto.getRandomValues (available in a Web Worker by spec,
  * unlike window/document); shuf uses plain Math.random(); sleep is a plain setTimeout wait, no
  * in-band interrupt polling (a real execve'd process is killed like any other on ^C). factor's
- * original interactive-TTY readline branch was dropped -- see factor.mjs's doc comment.
+ * original interactive-TTY readline branch was dropped - see factor.mjs's doc comment.
  */
 describe('text command batch 4: seq/factor/rmdir/join/paste/sleep/mktemp/shuf, real execve', () => {
   let kernel: Kernel

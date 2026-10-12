@@ -2,7 +2,7 @@
  * Brace expansion: `{a,b}`, `{1..10}`, `{a..e}`, nested, and any number of them in one word.
  *
  * It is the first expansion a shell performs, before parameter, command, arithmetic and pathname
- * expansion, and it is purely textual -- `{a,b}` becomes two words whether or not anything by those
+ * expansion, and it is purely textual - `{a,b}` becomes two words whether or not anything by those
  * names exists, which is what separates it from globbing. `mkdir -p src/{lib,bin}` is the everyday
  * case, and it produced a single directory literally named `src/{lib,bin}` before this existed.
  *

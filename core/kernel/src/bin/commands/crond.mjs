@@ -180,11 +180,11 @@ async function main() {
 
   // A syslog-style entry, not stdout: `crond` is started backgrounded from `/boot/init`, so a plain
   // `write(1, ...)` here would otherwise resurface in whatever interactive terminal happens to share
-  // its session (the actual bug report this replaced) -- `klog` (`main-thread-syscalls.ts`) routes it
+  // its session (the actual bug report this replaced) - `klog` (`main-thread-syscalls.ts`) routes it
   // to `kernel.log`/`/var/log/kernel.log` instead, same as real cron logging to syslog, not its tty.
   await custom('klog', 'info', runAsUsers ? 'crond: watching for scheduled jobs' : 'crond: watching for scheduled jobs (root only: programs cannot run as another user here)')
 
-  // Align the first tick to the next minute boundary, then fall back to a plain fixed interval --
+  // Align the first tick to the next minute boundary, then fall back to a plain fixed interval -
   // matching real cron's once-a-minute wake, not millisecond-precise `cron-schedule`-scheduler timing.
   const msToNextMinute = tickIntervalMs - (Date.now() % tickIntervalMs)
   await new Promise(resolve => setTimeout(resolve, msToNextMinute))

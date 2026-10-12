@@ -2,5 +2,5 @@
   "budget": 0,
   "recorded": "2026-09-11",
   "measuredAfter": "pnpm build",
-  "note": "feat/1.0.0-dep-hygiene removed the dual @zenfs/core copies (single workspace lockfile, aligned core/utils) and excluded third-party vim-wasm sources from the typecheck program, driving the pre-existing 108-error baseline to 0. Ratchet: this number may fall, never rise. See CONTRIBUTING.md."
+  "note": "The typecheck budget is 0: the dual @zenfs/core copies are gone (single workspace lockfile, aligned core/utils) and third-party vim-wasm sources are excluded from the typecheck program. Ratchet: this number may fall, never rise. See CONTRIBUTING.md."
 }

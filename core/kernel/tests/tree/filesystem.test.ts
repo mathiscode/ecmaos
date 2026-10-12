@@ -138,7 +138,7 @@ describe('Filesystem', async () => {
     })
 
     it('works across different mounted backends, the same as it would for a migration', async () => {
-      // /tmp is InMemory and / is IndexedDB in DefaultFilesystemOptions -- copying between them
+      // /tmp is InMemory and / is IndexedDB in DefaultFilesystemOptions - copying between them
       // exercises the same cross-backend path an IndexedDB-to-opfs migration would take.
       await kernel.filesystem.fs.mkdir('/tmp/copytree-cross-backend', { recursive: true })
       await kernel.filesystem.fs.writeFile('/tmp/copytree-cross-backend/file.txt', 'cross-backend')

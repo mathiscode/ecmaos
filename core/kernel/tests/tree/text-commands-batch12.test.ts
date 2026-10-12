@@ -9,7 +9,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * tar migrated onto real execve, using modern-tar's buffered packTar/unpackTar API (whole-archive-
  * in-memory) rather than its streaming createTarPacker/createTarDecoder API, per the confirmed
- * decision in tar.mjs's doc comment -- the library bundles to only ~13KB either way (no bundle-size
+ * decision in tar.mjs's doc comment - the library bundles to only ~13KB either way (no bundle-size
  * risk like zip.js had), but the buffered path avoids this migration's first untested reliance on
  * WritableStream.getWriter()/TransformStream inside a worker program.
  */
@@ -40,7 +40,7 @@ describe('text command batch 12: tar, real execve', () => {
     await kernel.filesystem.fs.writeFile('/tmp/tar-src/a.txt', 'hello')
     await kernel.filesystem.fs.writeFile('/tmp/tar-src/b.txt', 'world')
 
-    // -C only applies to extraction in this port (matching the original -- it never referenced
+    // -C only applies to extraction in this port (matching the original - it never referenced
     // options.directory during create either), so creating from cwd instead of passing -C here.
     const createCode = await kernel.shell.execute('cd /tmp && tar -cf /tmp/tar-archive.tar tar-src')
     expect(createCode).toBe(0)
@@ -86,7 +86,7 @@ describe('text command batch 12: tar, real execve', () => {
   it('extracts a multi-level nested path with no intermediate directory entries, matching real npm tarballs', async () => {
     // Reproduces a real regression: extraction's mkdir was a raw single-level mkdir(2) with no
     // recursive-creation of its own. tar.mjs's own `-c` always emits a directory entry for every
-    // level, so a plain create/extract round trip through this same tar never exposed the bug --
+    // level, so a plain create/extract round trip through this same tar never exposed the bug -
     // but a real npm package tarball (built by npm's own packer, not this one) commonly emits ONLY
     // file entries, no directory entries at all, for nested paths like dist/assets/foo.js. This
     // built the archive by hand via modern-tar's packTar directly, with file-only entries, to match

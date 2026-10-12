@@ -176,7 +176,7 @@ export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: st
   }
 }
 
-// -- cd ---------------------------------------------------------------------------------------------
+// - cd ---------------------------------------------------------------------------------------------
 
 async function cd(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
@@ -212,7 +212,7 @@ async function cd(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<num
   return 0
 }
 
-// -- set --------------------------------------------------------------------------------------------
+// - set --------------------------------------------------------------------------------------------
 
 /** The `set` flags by the letter and the `-o` name that select them: `set -x` is `set -o xtrace`. */
 const OPTION_LETTERS: ReadonlyMap<string, ShellOptionName> = new Map([
@@ -294,7 +294,7 @@ async function set(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<nu
   return 0
 }
 
-// -- variables --------------------------------------------------------------------------------------
+// - variables --------------------------------------------------------------------------------------
 
 async function local(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   const usage = 'Usage: local NAME[=VALUE]...\nDeclare one or more variables local to the current function call.'
@@ -582,7 +582,7 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
   return status
 }
 
-// -- read -------------------------------------------------------------------------------------------
+// - read -------------------------------------------------------------------------------------------
 
 /**
  * Splits one input line into the fields `read` assigns, honoring `$IFS`. When there are fewer names
@@ -752,7 +752,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   return delimiter !== undefined && !result.terminated ? 1 : 0
 }
 
-// -- control flow -----------------------------------------------------------------------------------
+// - control flow -----------------------------------------------------------------------------------
 
 async function breakOrContinue(argv: string[], io: BuiltinIO, keyword: 'break' | 'continue'): Promise<number> {
   if (argv[0] === '--help') {
@@ -1004,7 +1004,7 @@ async function shift(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
   return 0
 }
 
-// -- eval and source --------------------------------------------------------------------------------
+// - eval and source --------------------------------------------------------------------------------
 
 /** `eval ARG...` runs its arguments, joined, in the calling shell, so `eval 'x=1'` really sets `x`. */
 async function evalBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
@@ -1073,7 +1073,7 @@ async function resolveSource(host: BuiltinHost, name: string): Promise<string | 
   return await isFile(local) ? local : undefined
 }
 
-// -- aliases, type, command -------------------------------------------------------------------------
+// - aliases, type, command -------------------------------------------------------------------------
 
 async function alias(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
@@ -1204,7 +1204,7 @@ async function commandBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO):
   }
 }
 
-// -- trap -------------------------------------------------------------------------------------------
+// - trap -------------------------------------------------------------------------------------------
 
 async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -1242,7 +1242,7 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
   return 0
 }
 
-// -- getopts ----------------------------------------------------------------------------------------
+// - getopts ----------------------------------------------------------------------------------------
 
 /**
  * `getopts OPTSTRING NAME [ARG...]`: one option per call, the loop condition of every script that
@@ -1356,7 +1356,7 @@ async function getopts(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
   return 0
 }
 
-// -- test and [ -------------------------------------------------------------------------------------
+// - test and [ -------------------------------------------------------------------------------------
 
 async function bracket(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[argv.length - 1] !== ']') { await io.writelnErr('[: missing `]\''); return 2 }

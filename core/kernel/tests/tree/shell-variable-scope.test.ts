@@ -12,7 +12,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  *
  * - `export` and `unset` called `shell.env` directly, bypassing `local` frames entirely. So
  *   `local X=1; export X=2` left the local shadowing `X` at 1 and destroyed the *caller's* `X`, and
- *   `unset X` on a local could not remove it at all -- the frame kept shadowing the name while the
+ *   `unset X` on a local could not remove it at all - the frame kept shadowing the name while the
  *   global went away.
  * - `env` and `export -p` read `shell.env` too, so inside a function they listed the caller's values
  *   rather than what was actually visible.
@@ -150,7 +150,7 @@ describe('variable scoping and the environment boundary', () => {
   describe('an assignment that is not the first thing on the line', () => {
     it('assigns after a `;` following an ordinary command', async () => {
       // Found in a browser. `tryExecuteAssignment` only ever looked at the head of a line and handled
-      // a trailing assignment by recursing into the remainder -- which never happened when the head
+      // a trailing assignment by recursing into the remainder - which never happened when the head
       // was a command, so `zz=5` reached the pipeline path and failed as a command not found.
       const { output } = await runScript([
         `echo one >> ${OUT}`,

@@ -7,7 +7,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * Real, booted-kernel proof of control flow, functions, `local`, `set -e/-u/-o pipefail`, variable
- * expansion, and arithmetic -- none of which existed before this branch (`Kernel.executeScript`
+ * expansion, and arithmetic - none of which existed before this branch (`Kernel.executeScript`
  * used to be a flat `line.split('\n')` with no way for `then`/`do`/`fi` to span lines at all).
  */
 describe('Shell control flow, functions, and variable/arithmetic expansion', () => {

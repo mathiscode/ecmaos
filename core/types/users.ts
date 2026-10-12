@@ -23,7 +23,7 @@ export interface UsersOptions {
   /**
    * A thunk for the currently active shell's credentials, used only by `password()`. A thunk
    * rather than a direct reference because `Shell` may not exist yet when `Users` is constructed
-   * -- resolved lazily, at call time, well after boot.
+   * - resolved lazily, at call time, well after boot.
    */
   getShellCredentials: () => Credentials
 }

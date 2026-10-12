@@ -14,9 +14,9 @@ Installs an npm package from a registry into `/usr/lib` and links its bin(s) int
 
 ## Options
 
-- `--registry URL` -- registry to use (default: `$REGISTRY`, else `https://registry.npmjs.org`)
-- `--reinstall` -- remove an already-installed copy first
-- `--help` -- display usage and exit
+- `--registry URL` - registry to use (default: `$REGISTRY`, else `https://registry.npmjs.org`)
+- `--reinstall` - remove an already-installed copy first
+- `--help` - display usage and exit
 
 ## Examples
 

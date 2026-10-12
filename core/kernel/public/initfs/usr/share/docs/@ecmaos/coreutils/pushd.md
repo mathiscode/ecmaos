@@ -16,10 +16,10 @@ Without arguments it exchanges the top two entries, which is how `pushd` flips b
 
 ## Options
 
-- `-n` -- do not change directory; only add DIR to the stack, just below the working directory
-- `+N` -- rotate the stack so the Nth entry from the left (counting from zero) is the working directory
-- `-N` -- the same, counting from the right
-- `DIR` -- make DIR the working directory and push the old one
+- `-n` - do not change directory; only add DIR to the stack, just below the working directory
+- `+N` - rotate the stack so the Nth entry from the left (counting from zero) is the working directory
+- `-N` - the same, counting from the right
+- `DIR` - make DIR the working directory and push the old one
 
 ## Examples
 

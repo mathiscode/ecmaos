@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * `mount -t opfs` mounts the browser's Origin Private File System (`navigator.storage.getDirectory()`)
  * through the same `WebAccess` backend `mount -t webaccess` already uses for its interactive
- * File System Access API picker -- the only difference is `opfs` never prompts, since OPFS is
+ * File System Access API picker - the only difference is `opfs` never prompts, since OPFS is
  * sandboxed per-origin rather than user-selected.
  *
  * jsdom (this test environment) has no `navigator.storage` at all, so what's exercised here is the

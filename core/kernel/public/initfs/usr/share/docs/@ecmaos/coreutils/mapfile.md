@@ -14,11 +14,11 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-t` -- remove the trailing delimiter from each line
-- `-n COUNT` -- copy at most COUNT lines (0: all)
-- `-s COUNT` -- skip the first COUNT lines
-- `-d DELIM` -- end lines at the first character of DELIM
-- `-O ORIGIN` -- assign from index ORIGIN instead of clearing the array
+- `-t` - remove the trailing delimiter from each line
+- `-n COUNT` - copy at most COUNT lines (0: all)
+- `-s COUNT` - skip the first COUNT lines
+- `-d DELIM` - end lines at the first character of DELIM
+- `-O ORIGIN` - assign from index ORIGIN instead of clearing the array
 
 ## Examples
 

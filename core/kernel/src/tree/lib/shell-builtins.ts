@@ -28,8 +28,8 @@ export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNa
  *
  * `Shell.runPipelineStages` holds their redirections as aggregate ones for the duration of the call,
  * the same way it does for a redirected function call or a redirected compound statement. Without
- * that, `source setup.sh > log` would build fds for `source` itself -- which writes nothing but
- * diagnostics -- and let every command in `setup.sh` print to the terminal.
+ * that, `source setup.sh > log` would build fds for `source` itself - which writes nothing but
+ * diagnostics - and let every command in `setup.sh` print to the terminal.
  *
  * `env` and `command` belong here for the same reason: `env FOO=bar cmd > log` and
  * `command ls > log` both run their real work through `shell.execute`, which builds its own streams.
@@ -287,7 +287,7 @@ export function trueBuiltinNameFor(commandName: string | undefined): string | un
 }
 
 /**
- * Runs a true shell builtin in-process against the calling `shell` -- never `execve`'d. `io` carries
+ * Runs a true shell builtin in-process against the calling `shell` - never `execve`'d. `io` carries
  * fds 0/1/2, so a builtin honors redirections and works inside a pipeline like any other command.
  */
 export async function runTrueBuiltin(shell: Shell, name: string, argv: string[], io: Io): Promise<number> {

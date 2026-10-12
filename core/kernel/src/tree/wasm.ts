@@ -14,7 +14,7 @@ export interface WasiComponentResult {
   exitCode: Promise<number>
 }
 
-/** The `env.__syscall_*` names `wasi-preview1.mjs`'s own `envSyscalls` object answers -- see its doc
+/** The `env.__syscall_*` names `wasi-preview1.mjs`'s own `envSyscalls` object answers - see its doc
  * comment for how the signatures, the varargs-pointer convention and the `struct stat` layout were
  * confirmed against a real `emcc` 6.0.9 build rather than guessed, and `tests/tree/wasi/fixtures/`
  * for the real compiled fixture (`emcc-hello.c`/`.wasm`) that proves it end to end: stdout, a real
@@ -48,7 +48,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
  * Known limitation of what still runs through this class (real (non-loopback) internet sockets, an
  * unimplemented `__syscall_*`, preview2 components): `_start` is called directly on the main thread
  * with no yield point unless the module was compiled with asyncify, so a genuine infinite loop
- * freezes the tab and `^C` cannot reach it. `epoll` moved to the worker path -- see
+ * freezes the tab and `^C` cannot reach it. `epoll` moved to the worker path - see
  * `wasi-preview1.mjs`'s own doc comment for why it never needed sockets in the first place.
  */
 export class Wasm implements IWasm {
@@ -144,7 +144,7 @@ export class Wasm implements IWasm {
       const hasImportedMemory = WebAssembly.Module.imports(module).some(entry => entry.kind === 'memory')
       if (!hasExportedMemory && !hasImportedMemory) return false
       // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
-      // explicitly triggers that protocol -- this adapter never does (every wasi_snapshot_preview1
+      // explicitly triggers that protocol - this adapter never does (every wasi_snapshot_preview1
       // call here answers synchronously), so asyncify's own state machine never activates and the
       // module runs exactly as if it had never been instrumented. Confirmed by hand: `wasm-opt
       // --asyncify` on a real preview1 module adds only the asyncify_* exports, no new imports.

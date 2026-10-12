@@ -14,11 +14,11 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-r` -- forget all remembered locations (nothing to do)
-- `-d` -- forget NAME; always `not found`, since nothing was remembered
-- `-l` -- list in a form that can be read back (an empty list)
-- `-t` -- print the path of each NAME (a file on `$PATH`)
-- `-p PATHNAME` -- refused
+- `-r` - forget all remembered locations (nothing to do)
+- `-d` - forget NAME; always `not found`, since nothing was remembered
+- `-l` - list in a form that can be read back (an empty list)
+- `-t` - print the path of each NAME (a file on `$PATH`)
+- `-p PATHNAME` - refused
 
 ## Exit status
 

@@ -10,7 +10,7 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * `web`: a contained browser window -- an iframe with back/forward/refresh and a URL bar (or no bar
+ * `web`: a contained browser window - an iframe with back/forward/refresh and a URL bar (or no bar
  * with `hideNavbar`). Ported unchanged from the original in-process command; only where it reaches
  * the terminal (`kernel.terminal`) and how it gets its inputs (`params`) differ.
  */

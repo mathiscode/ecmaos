@@ -10,7 +10,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  *
  * Builtins used to write straight to `shell.terminal`, which meant two divergences from every real
  * shell: their output ignored redirections entirely (`jobs > f` printed to the screen and left `f`
- * empty), and they could not appear in a pipeline at all -- `trueBuiltinNameFor` bailed on any
+ * empty), and they could not appear in a pipeline at all - `trueBuiltinNameFor` bailed on any
  * pipeline longer than one command, so `export -p | grep X` fell through to a `/bin/export` lookup
  * that deliberately does not exist and failed as command-not-found.
  *
@@ -20,7 +20,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  *
  * The `no redirections` fast path (`Shell.fastPathBuiltinFor`) still writes directly to the
  * terminal and allocates no streams, so `cd` in a tight loop costs what it always did; the tests
- * for cwd and `$?` below are what keep that path honest.
+ * for cwd and `$?` below are what keep that path correct.
  */
 describe('true builtin fds', () => {
   let kernel: Kernel

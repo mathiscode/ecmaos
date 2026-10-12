@@ -11,8 +11,8 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * parameters.
  *
  * `runSet` previously accepted exactly `-e`, `+e`, `-u`, `+u` and `-o pipefail` and reported
- * everything else as unsupported, so a script opening with `set -euo pipefail` -- the single most
- * common first line in shell scripts -- failed on the cluster.
+ * everything else as unsupported, so a script opening with `set -euo pipefail` - the single most
+ * common first line in shell scripts - failed on the cluster.
  */
 describe('set options', () => {
   let kernel: Kernel
@@ -56,7 +56,7 @@ describe('set options', () => {
    * Everything the terminal was told to write while `script` ran.
    *
    * `-x` and `-v` write to the *shell's* stderr, not the running command's, so `cmd 2>f` does not
-   * capture them -- exactly as in bash, where the trace still reaches the screen. The terminal is
+   * capture them - exactly as in bash, where the trace still reaches the screen. The terminal is
    * therefore the only place to observe them.
    */
   async function captureTerminal(script: string): Promise<string> {

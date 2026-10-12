@@ -1,6 +1,6 @@
 /**
  * Read from stdin and write to both stdout and one or more files. `-i`/`--ignore-interrupts` is
- * accepted for compatibility but has no effect -- `^C` always kills the process.
+ * accepted for compatibility but has no effect - `^C` always kills the process.
  */
 
 import { resolve } from './lib/path-utils.mjs'
@@ -56,7 +56,7 @@ function main() {
 
   try {
     for (const fileInfo of filePaths) {
-      // No `O_APPEND` in this interpreter's exposed flag set -- append mode is done explicitly:
+      // No `O_APPEND` in this interpreter's exposed flag set - append mode is done explicitly:
       // open without `O_TRUNC` (so existing content survives), start the write position at the
       // file's current size (0 for a brand-new file), and track/advance that position ourselves as
       // each chunk is written, the same way a real `O_APPEND` fd's position advances on every write.

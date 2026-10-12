@@ -1,7 +1,7 @@
 /**
  * Minimal POSIX path helpers for worker-hosted coreutil programs.
  *
- * Deliberately hand-written rather than `import path from 'path'` -- not because a real import
+ * Deliberately hand-written rather than `import path from 'path'` - not because a real import
  * would break the way `@zenfs/linux/uapi/*` does (this carries no shared runtime state to diverge
  * across bundles), but because every coreutil bundles independently (see
  * `vite-plugin-bin-node.ts`) and this is small enough that hand-writing it avoids pulling in
@@ -22,7 +22,7 @@ function normalize(path) {
   return absolute ? `/${joined}` : (joined || '.')
 }
 
-/** `path.resolve(cwd, target)` -- `target` relative to `cwd` if it isn't already absolute. */
+/** `path.resolve(cwd, target)` - `target` relative to `cwd` if it isn't already absolute. */
 export function resolve(cwd, target) {
   if (target.startsWith('/')) return normalize(target)
   return normalize(`${cwd}/${target}`)

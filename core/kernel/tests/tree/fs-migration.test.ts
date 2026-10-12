@@ -150,7 +150,7 @@ describe('boot over a persisted 0.x filesystem', () => {
     const fs = kernel.filesystem.fs
     await fs.unlink(FS_VERSION_FILE)
     // A user in primary group 100 with a supplementary group 200, plus a second user sharing the
-    // same primary group -- exercises both "primary group names itself" and "member list grows".
+    // same primary group - exercises both "primary group names itself" and "member list grows".
     await fs.writeFile('/etc/passwd', 'alice:1000:100:200:/home/alice:ecmaos\nbob:1001:100:200,300:/home/bob:ecmaos\n')
 
     expect(await runFsMigrations({ fs, log: quietLog, legacyCommandNames: liveStubs() })).toEqual([1, 2, 3, 4, 5, 6])

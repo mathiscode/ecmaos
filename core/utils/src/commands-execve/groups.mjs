@@ -2,7 +2,7 @@
  * Print the groups a user belongs to.
  *
  * Note: `groups <username>` always prints the *calling* user's own group membership, not the named
- * user's -- the given username is only used to label the output line.
+ * user's - the given username is only used to label the output line.
  */
 
 const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
@@ -76,7 +76,7 @@ async function main() {
       continue
     }
 
-    // Primary group first, then supplementary -- `self.groups` holds only the latter, so listing it
+    // Primary group first, then supplementary - `self.groups` holds only the latter, so listing it
     // alone printed an empty list for any user with no supplementary memberships.
     const gids = [user.gid, ...(user.groups || []).filter(gid => gid !== user.gid)]
     const groupNames = []

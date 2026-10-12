@@ -1,8 +1,8 @@
 /**
  * The line editor: what a shell prompt does with keys, kept apart from what draws it.
  *
- * `Terminal` used to carry four editors -- `keyHandler`, `readline`, and one each for the mobile text
- * field and the mobile password field -- sharing a `_cmd`/`_cursorPosition` pair that five other
+ * `Terminal` used to carry four editors - `keyHandler`, `readline`, and one each for the mobile text
+ * field and the mobile password field - sharing a `_cmd`/`_cursorPosition` pair that five other
  * methods also mutated, and repeating the same wrap-aware cursor math at about a dozen sites. This is
  * the one editor: a model (`text`, `cursor`, a kill ring) plus the repaint it implies, talking to the
  * screen only through a three-member host so it has no idea whether xterm.js or a raw tty is behind it.
@@ -83,7 +83,7 @@ export class LineEditor {
     this.set('')
   }
 
-  // -- geometry -----------------------------------------------------------------------------------
+  // - geometry -----------------------------------------------------------------------------------
 
   private cell(offset: number) {
     const cols = Math.max(1, this.host.cols)
@@ -116,7 +116,7 @@ export class LineEditor {
     this.move(this._text.length, this._cursor)
   }
 
-  // -- editing ------------------------------------------------------------------------------------
+  // - editing ------------------------------------------------------------------------------------
 
   /** Inserts text at the cursor. */
   insert(text: string) {
@@ -156,7 +156,7 @@ export class LineEditor {
     return true
   }
 
-  // -- motion -------------------------------------------------------------------------------------
+  // - motion -------------------------------------------------------------------------------------
 
   private goto(target: number) {
     this._lastWasKill = false
@@ -189,7 +189,7 @@ export class LineEditor {
     return target
   }
 
-  // -- the kill ring ------------------------------------------------------------------------------
+  // - the kill ring ------------------------------------------------------------------------------
 
   /**
    * Removes `[start, end)` and files it on the kill ring. Consecutive kills accumulate into one entry,
@@ -236,7 +236,7 @@ export class LineEditor {
     this._lastWasKill = false
   }
 
-  // -- whole-line operations ----------------------------------------------------------------------
+  // - whole-line operations ----------------------------------------------------------------------
 
   /**
    * Erases the line and the prompt in front of it from the screen, leaving the cursor at the start of

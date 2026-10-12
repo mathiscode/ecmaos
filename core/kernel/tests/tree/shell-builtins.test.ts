@@ -6,19 +6,19 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The two-tier command dispatch redesign: real Linux has no in-kernel command registry at all --
+ * The two-tier command dispatch redesign: real Linux has no in-kernel command registry at all -
  * `execve`+`$PATH` resolve a name purely off real files on disk. This session's audit found
  * exactly 9 ecmaOS commands (`cd`, `set`, `bg`, `fg`, `jobs`, `wait`, `local`, `env`,
  * `export`) that mutate the *calling shell's own* live state (cwd/options/job-table/scope/env/
  * credentials) and so can never become a real `execve`'d file, the same reason bash keeps its own
- * "special builtins" permanent, in-process exceptions -- see `core/kernel/src/tree/lib/
+ * "special builtins" permanent, in-process exceptions - see `core/kernel/src/tree/lib/
  * shell-builtins.ts`'s own doc comment. Everything else (98 `@ecmaos/coreutils` commands + 12
  * kernel-native ones) is transitional: real files already exist for all of them via
  * `Kernel.registerCommands`, resolved either by real `execve` (10 migrated so far) or a lazy,
  * per-`Terminal`-cached legacy shim (`resolveLegacyCommand`) for whatever hasn't migrated yet.
  *
  * This replaces the old eager `TerminalCommands`, which rebuilt all 108+14 command objects on
- * every new `Terminal` (once at boot, again on every not-yet-created TTY) -- confirmed gone: no
+ * every new `Terminal` (once at boot, again on every not-yet-created TTY) - confirmed gone: no
  * command object exists until the one actually invoked is looked up.
  */
 describe('two-tier command dispatch: true shell builtins + real execve/$PATH resolution', () => {
@@ -93,7 +93,7 @@ describe('two-tier command dispatch: true shell builtins + real execve/$PATH res
     document.body.appendChild(secondContainer)
     second.terminal.mount(secondContainer)
 
-    // Both kernels can run the same still-legacy command independently -- if the shim's cache were
+    // Both kernels can run the same still-legacy command independently - if the shim's cache were
     // keyed wrong (a shared/global cache instead of one keyed by the live Terminal instance), a
     // stale terminal/shell reference from one kernel could leak into the other's execution.
     const code1 = await kernel.shell.execute('true')

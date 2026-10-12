@@ -14,13 +14,13 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-r` -- do not treat backslash as an escape
-- `-s` -- do not echo input from a terminal
-- `-a ARRAY` -- assign the fields to an indexed array
-- `-d DELIM` -- stop at the first character of DELIM instead of a newline (empty: NUL)
-- `-n COUNT` -- stop after COUNT characters
-- `-t SECONDS` -- give up after SECONDS (may be fractional), with status 142; the kernel shell only
-- `-p PROMPT` -- write PROMPT first, without a newline
+- `-r` - do not treat backslash as an escape
+- `-s` - do not echo input from a terminal
+- `-a ARRAY` - assign the fields to an indexed array
+- `-d DELIM` - stop at the first character of DELIM instead of a newline (empty: NUL)
+- `-n COUNT` - stop after COUNT characters
+- `-t SECONDS` - give up after SECONDS (may be fractional), with status 142; the kernel shell only
+- `-p PROMPT` - write PROMPT first, without a newline
 
 ## Examples
 

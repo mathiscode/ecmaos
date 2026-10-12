@@ -6,14 +6,14 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * id/groups migrated onto real execve -- the first commands to use the `custom`/`syscall_async`
+ * id/groups migrated onto real execve - the first commands to use the `custom`/`syscall_async`
  * mechanism (window_create/storage_usage/ps_list's precedent) for a worker program, via a new
  * `users_lookup` custom syscall added to core/kernel/src/tree/lib/main-thread-syscalls.ts. Both
  * commands need live kernel.users registry lookups (groups even supports looking up a DIFFERENT
- * user by name) that have no execve-compatible equivalent otherwise -- this was the reason both were
+ * user by name) that have no execve-compatible equivalent otherwise - this was the reason both were
  * deferred in earlier batches. `registerProcessKernel` now also stashes the spawning `Shell`
  * (`shellOfProcess`), needed only by `users_lookup`'s `mode: 'self'` case to read the calling
- * process's own live `Credentials` (uid/gid/euid/egid/groups) -- there's no real `getgroups` syscall
+ * process's own live `Credentials` (uid/gid/euid/egid/groups) - there's no real `getgroups` syscall
  * in `@zenfs/linux`, so this is the only way a worker program can see its own supplementary groups.
  */
 describe('text command batch 15: id/groups, real execve', () => {
@@ -64,7 +64,7 @@ describe('text command batch 15: id/groups, real execve', () => {
   })
 
   // GNU `groups` with no argument prints the bare list; the `username : ` prefix appears only when
-  // usernames were named explicitly. The list starts with the user's primary group -- reporting
+  // usernames were named explicitly. The list starts with the user's primary group - reporting
   // only the supplementary groups (which is what `/etc/group` holds) printed nothing for root.
   it('groups prints the current user\'s own group membership, unprefixed', async () => {
     const code = await kernel.shell.execute('groups > /tmp/groups-out.txt')

@@ -14,9 +14,9 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-n` -- do not change directory; with no argument, remove the entry just below the working directory
-- `+N` -- remove the Nth entry from the left, counting from zero
-- `-N` -- remove the Nth entry from the right
+- `-n` - do not change directory; with no argument, remove the entry just below the working directory
+- `+N` - remove the Nth entry from the left, counting from zero
+- `-N` - remove the Nth entry from the right
 
 ## Exit status
 

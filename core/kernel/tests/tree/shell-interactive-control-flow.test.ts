@@ -7,7 +7,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * Covers `Shell.execute()` itself (the interactive-prompt path a real terminal calls per line),
- * not just `executeScriptText` (script files) -- `shell-control-flow.test.ts` only proves the
+ * not just `executeScriptText` (script files) - `shell-control-flow.test.ts` only proves the
  * parser/executor works when driven through the script path. Regression coverage for:
  * - `x=5; echo $((x+1))` swallowing everything after the assignment into its own value
  * - `if`/`for` typed compact-and-`;`-joined on one physical line ("Command not found: if")

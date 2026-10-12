@@ -3,7 +3,7 @@
  * `time cmd | grep x` redirect as expected.
  *
  * A shell builtin or function, or a name that isn't on PATH, is run through the shell instead of
- * spawned directly -- timing still works, but such a command writes to the terminal rather than
+ * spawned directly - timing still works, but such a command writes to the terminal rather than
  * through this command's own redirected stdout.
  */
 

@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * fmt/crypto/curl/fetch migrated onto real execve. fmt is pure text reformatting over real file
  * reads. crypto/curl/fetch use only standard Worker globals (crypto.subtle/crypto.getRandomValues,
- * fetch) plus real fs syscalls -- chalk (ANSI coloring) is dropped from all three, matching
+ * fetch) plus real fs syscalls - chalk (ANSI coloring) is dropped from all three, matching
  * ls.mjs's precedent.
  */
 describe('text command batch 14: fmt/crypto/curl/fetch, real execve', () => {

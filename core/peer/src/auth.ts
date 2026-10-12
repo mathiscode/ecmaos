@@ -41,7 +41,7 @@ const bytesOf = (value: Value | undefined, length: number) => {
   return value
 }
 
-// -- server ---------------------------------------------------------------------------------------
+// - server ---------------------------------------------------------------------------------------
 
 export interface ServerAuthOptions {
   hostKey: KeyPair
@@ -105,7 +105,7 @@ export async function serverAuth(channel: Channel, options: ServerAuthOptions): 
   }
 }
 
-// -- client ---------------------------------------------------------------------------------------
+// - client ---------------------------------------------------------------------------------------
 
 export interface ClientAuthOptions {
   user: string

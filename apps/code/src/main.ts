@@ -234,7 +234,7 @@ const main = async (params: ProcessEntryParams) => {
   })
 
   // If the process is killed from outside (`^C`, `kill`) rather than the window being closed by
-  // the user, nothing else can reach into this main-thread window to close it -- register it here.
+  // the user, nothing else can reach into this main-thread window to close it - register it here.
   instance.onDispose?.(() => win.close())
 
   const editor = monaco.editor.create(editorContainer, {

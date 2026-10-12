@@ -23,7 +23,7 @@ export interface TerminalOptions extends ITerminalOptions {
   /** The DOM service, for the topbar and mobile controls */
   dom: Dom
   /**
-   * Used for a couple of narrow, direct reads (e.g. `kernel.state` while booting) -- most of
+   * Used for a couple of narrow, direct reads (e.g. `kernel.state` while booting) - most of
    * `Terminal`'s own `Kernel` needs go through `context`/`dom`/`users`/`wire()` instead. No longer
    * used to construct a command set at all: command dispatch is real `execve`/`$PATH` resolution
    * plus a lazily-constructed legacy shim (see `@ecmaos/coreutils`'s `legacy-command-shim.ts`),
@@ -43,8 +43,8 @@ export interface TerminalOptions extends ITerminalOptions {
 }
 
 /**
- * What `Terminal` needs from `Kernel` itself that isn't a subsystem -- `switchTty` and `reboot`
- * are `Kernel` methods, and `getState` reads its boot-lifecycle state -- delivered via `wire()`
+ * What `Terminal` needs from `Kernel` itself that isn't a subsystem - `switchTty` and `reboot`
+ * are `Kernel` methods, and `getState` reads its boot-lifecycle state - delivered via `wire()`
  * once the `Kernel` instance exists (it does from the first line of its own constructor, but
  * `Terminal` is constructed before `Kernel`'s constructor body finishes, so this is still lazy).
  */
@@ -378,7 +378,7 @@ export interface CommandContext {
  * Minimal per-invocation I/O handed to a coreutils command, replacing the old pattern of manually
  * resolving `process` and threading it plus `terminal` through `writelnStdout`/`writelnStderr` on
  * every call. `stdout`/`stderr`/`stdin` stay available as raw streams for commands that need
- * byte-level control (e.g. `cat`'s `getWriter()`/`getReader()` usage) -- this is deliberately a
+ * byte-level control (e.g. `cat`'s `getWriter()`/`getReader()` usage) - this is deliberately a
  * thin wrapper, not a replacement for direct stream access.
  */
 export interface CommandIO {

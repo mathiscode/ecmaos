@@ -17,14 +17,14 @@ The login honours two of them. An account is closed on its `expire` day and afte
 
 ## Options
 
-- `-l, --list` -- show the aging information
-- `-d, --lastday LAST_DAY` -- the day the password was last changed
-- `-m, --mindays MIN_DAYS` -- fewest days between password changes
-- `-M, --maxdays MAX_DAYS` -- most days a password stays valid (99999 is never)
-- `-W, --warndays WARN_DAYS` -- days of warning before it expires
-- `-I, --inactive INACTIVE` -- days after it expires before the account is disabled
-- `-E, --expiredate EXPIRE` -- the day the account expires
-- `--help` -- display usage and exit
+- `-l, --list` - show the aging information
+- `-d, --lastday LAST_DAY` - the day the password was last changed
+- `-m, --mindays MIN_DAYS` - fewest days between password changes
+- `-M, --maxdays MAX_DAYS` - most days a password stays valid (99999 is never)
+- `-W, --warndays WARN_DAYS` - days of warning before it expires
+- `-I, --inactive INACTIVE` - days after it expires before the account is disabled
+- `-E, --expiredate EXPIRE` - the day the account expires
+- `--help` - display usage and exit
 
 ## Notes
 

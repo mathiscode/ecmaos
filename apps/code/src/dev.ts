@@ -23,7 +23,7 @@ kernel.terminal.mount(document.getElementById('terminal')!)
 await kernel.boot({ silent: true })
 
 // A plain stand-in for `ProcessEntryParams.instance`, same shape `Kernel.executeCommand`'s own
-// legacy in-process coreutil shim uses (`as unknown as Process`) -- this dev harness calls `main()`
+// legacy in-process coreutil shim uses (`as unknown as Process`) - this dev harness calls `main()`
 // directly, with no real process behind it at all, so there is nothing here for a real
 // `@zenfs/linux` Process to actually manage.
 const instance = {

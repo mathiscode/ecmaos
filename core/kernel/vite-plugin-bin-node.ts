@@ -1,6 +1,6 @@
 /**
- * Bundles `src/bin/node.mjs` -- ecmaOS's real `/bin/node` interpreter, see that file's own doc
- * comment for why it must ship with zero import statements -- into a virtual module exporting its
+ * Bundles `src/bin/node.mjs` - ecmaOS's real `/bin/node` interpreter, see that file's own doc
+ * comment for why it must ship with zero import statements - into a virtual module exporting its
  * bundled source as a string, importable as `virtual:bin-node`.
  *
  * Runs at dev, build, and test time alike (all three load this same `vite.config.ts`), so
@@ -51,16 +51,16 @@ export function binNode(): Plugin {
 }
 
 /**
- * Bundles `src/bin/wali.mjs` -- ecmaOS's `/bin/wali` interpreter for WALI-format WebAssembly
- * modules -- into `virtual:bin-wali`, the same way `binNode` does for `/bin/node`.
+ * Bundles `src/bin/wali.mjs` - ecmaOS's `/bin/wali` interpreter for WALI-format WebAssembly
+ * modules - into `virtual:bin-wali`, the same way `binNode` does for `/bin/node`.
  */
 export function binWali(): Plugin {
   return binWorkerPlugin('wali', 'src/bin/wali.mjs')
 }
 
 /**
- * Bundles `src/bin/pilot-pwd.mjs` -- a syscall-only program proving `execve` plus
- * `Kernel.bridgeStdio` work together -- into `virtual:bin-pilot-pwd`, the same way `binNode` does.
+ * Bundles `src/bin/pilot-pwd.mjs` - a syscall-only program proving `execve` plus
+ * `Kernel.bridgeStdio` work together - into `virtual:bin-pilot-pwd`, the same way `binNode` does.
  * A test fixture only: tests install it into `/bin` themselves; it never ships in the OS.
  */
 export function binPilotPwd(): Plugin {
@@ -68,8 +68,8 @@ export function binPilotPwd(): Plugin {
 }
 
 /**
- * Bundles `src/bin/pilot-window.mjs` -- a program proving the `window_create`/`window_write`/
- * `window_close` main-thread-syscall bridge works end to end -- into `virtual:bin-pilot-window`.
+ * Bundles `src/bin/pilot-window.mjs` - a program proving the `window_create`/`window_write`/
+ * `window_close` main-thread-syscall bridge works end to end - into `virtual:bin-pilot-window`.
  * A test fixture only, like `binPilotPwd`.
  */
 export function binPilotWindow(): Plugin {
@@ -77,7 +77,7 @@ export function binPilotWindow(): Plugin {
 }
 
 /**
- * The coreutils that ship as real `execve` programs -- each a worker-hosted, syscall-only program
+ * The coreutils that ship as real `execve` programs - each a worker-hosted, syscall-only program
  * living in `@ecmaos/coreutils` (`core/utils/src/commands-execve/<name>.mjs`).
  * Keyed by the real command name (`/bin/<name>`), since that's the path `Kernel.registerCommands`/
  * `readFileHeader` resolve.
@@ -107,9 +107,9 @@ export const migratedCommands = [
 ] as const
 
 /**
- * The kernel-native commands that ship as real `execve` programs -- unlike `migratedCommands` above,
+ * The kernel-native commands that ship as real `execve` programs - unlike `migratedCommands` above,
  * these live in `@ecmaos/kernel` itself (`src/bin/commands/<name>.mjs`), not `@ecmaos/coreutils`,
- * because their real logic needs a kernel-only custom syscall (`storage_usage`/`reboot` --
+ * because their real logic needs a kernel-only custom syscall (`storage_usage`/`reboot` -
  * see `#lib/main-thread-syscalls.ts`) rather than the plain filesystem/stdio syscalls every
  * `@ecmaos/coreutils` execve program uses. Everything else about them is identical: a real,
  * worker-hosted, syscall-only program.
@@ -119,7 +119,7 @@ export const migratedKernelCommands = ['clear', 'df', 'ps', 'reboot', 'halt', 'p
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {
   const require = createRequire(import.meta.url)
-  // `@ecmaos/coreutils`'s package.json is the one stable resolution anchor -- resolving straight to
+  // `@ecmaos/coreutils`'s package.json is the one stable resolution anchor - resolving straight to
   // a source file would need every consumer to know its exports map shape; resolving the package
   // root and joining the known subdirectory works the same whether this is a workspace symlink (as
   // in this monorepo, via pnpm) or a real installed dependency.
@@ -170,7 +170,7 @@ export function binCommands(): Plugin {
 
 /**
  * Bundles every migrated kernel-native command's real program (`src/bin/commands/<name>.mjs`) into
- * one virtual module, `virtual:bin-kernel-commands`, exporting `{ [name]: string }` -- the same shape
+ * one virtual module, `virtual:bin-kernel-commands`, exporting `{ [name]: string }` - the same shape
  * `binCommands()` produces for `@ecmaos/coreutils`'s migrated commands, so `Kernel.registerCommands`
  * can look either up the same way.
  */

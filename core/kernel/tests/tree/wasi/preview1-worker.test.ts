@@ -84,8 +84,8 @@ const SPIN = `(module ${HEADER}
 
 // epoll_create1 -> epoll_ctl(ADD, fd 0, events=EPOLLIN, data=42) -> epoll_pwait(timeout=5000).
 // Exit code encodes both the real readiness answer and that the registered epoll_data_t round
-// tripped: n*100 + the ready event's data (expect 1*100 + 42 = 142 once stdin -- a pipe fed by the
-// shell pipeline the test runs this under -- already has data buffered, so it is real, not stubbed).
+// tripped: n*100 + the ready event's data (expect 1*100 + 42 = 142 once stdin - a pipe fed by the
+// shell pipeline the test runs this under - already has data buffered, so it is real, not stubbed).
 const EPOLL_STDIN = `(module
   (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
   (import "env" "__syscall_epoll_create1" (func $epoll_create1 (param i32) (result i32)))
@@ -100,7 +100,7 @@ const EPOLL_STDIN = `(module
     (local.set $n (call $epoll_pwait (local.get $epfd) (i32.const 300) (i32.const 1) (i32.const 5000) (i32.const 0) (i32.const 0)))
     (call $proc_exit (i32.add (i32.mul (local.get $n) (i32.const 100)) (i32.wrap_i64 (i64.load (i32.const 308)))))))`
 
-// same as HELLO, but the memory is imported rather than exported -- proves `runPreview1`'s own
+// same as HELLO, but the memory is imported rather than exported - proves `runPreview1`'s own
 // `detectMemoryImport` (reading the import's declared size straight out of the binary, since the
 // JS reflection API doesn't expose memory limits) actually creates and wires it in.
 const HELLO_IMPORTED_MEMORY = `(module
@@ -182,7 +182,7 @@ describe('wasi preview1 as a worker Process', () => {
   // read back correctly via __syscall_stat64, a real directory via __syscall_mkdirat, and the
   // program's own exit code. This is also the regression test for a real bug caught building it:
   // the '.' preopen used to reserve a fixed wasi-fd number that a real env.__syscall_openat call
-  // could (and here did) collide with, silently corrupting the write -- see wasi-preview1.mjs's own
+  // could (and here did) collide with, silently corrupting the write - see wasi-preview1.mjs's own
   // doc comment.
   it('runs a real emcc build: writes to stdout, creates a file and a directory through env.__syscall_*, exits its own code', async () => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
@@ -273,7 +273,7 @@ describe('wasi preview1 as a worker Process', () => {
 
   it('runs an asyncify-instrumented module the same as the plain one, unwind/rewind never triggered', async () => {
     const instrumented = asyncify(await compile(HELLO))
-    // The transform adds only the asyncify_* exports, no new imports -- confirms the adapter's claim
+    // The transform adds only the asyncify_* exports, no new imports - confirms the adapter's claim
     // that it stays routable (no env.* import shows up asyncify needs answering).
     const module = await WebAssembly.compile(instrumented.buffer.slice(instrumented.byteOffset, instrumented.byteOffset + instrumented.byteLength) as ArrayBuffer)
     expect(WebAssembly.Module.imports(module).every(entry => entry.module === 'wasi_snapshot_preview1')).toBe(true)

@@ -1,6 +1,6 @@
 /**
  * The legacy-command shim: the three coreutils that still run as in-process JS closures
- * (`TerminalCommand`) instead of real `execve`'d files -- `true`, `false` and `test`.
+ * (`TerminalCommand`) instead of real `execve`'d files - `true`, `false` and `test`.
  *
  * Every other command is a real program: a file under `/bin` that `readFileHeader`/`execve`
  * resolve the same way bash resolves `/bin/ls`, with no table entry anywhere. These three stay
@@ -12,7 +12,7 @@
  * `core/kernel/src/tree/lib/shell-builtins.ts`, a dispatch table on `Shell` checked before any
  * file resolution.
  *
- * `resolveLegacyCommand` is what `Kernel.executeCommand` calls -- lazily constructing the ONE
+ * `resolveLegacyCommand` is what `Kernel.executeCommand` calls - lazily constructing the ONE
  * `TerminalCommand` actually invoked, cached per-`Terminal` (one per TTY) via a `WeakMap` keyed
  * by the live `Terminal` object itself, so it's impossible for one TTY's cached command to leak
  * into another's, and the cache self-cleans once that `Terminal` is garbage-collected.
@@ -48,7 +48,7 @@ function buildLegacyCommands(): LegacyCommands {
 
 let cached: LegacyCommands | undefined
 
-/** The full legacy-shim source list, built once and memoized -- never rebuilt per-`Terminal`/per-TTY. */
+/** The full legacy-shim source list, built once and memoized - never rebuilt per-`Terminal`/per-TTY. */
 export function getLegacyCommands(): LegacyCommands {
   cached ??= buildLegacyCommands()
   return cached
@@ -56,11 +56,11 @@ export function getLegacyCommands(): LegacyCommands {
 
 /**
  * A legacy command's `TerminalCommand` object, constructed lazily on first invocation and cached
- * thereafter -- keyed by the live `Terminal` instance itself (one per TTY), not a derived string,
+ * thereafter - keyed by the live `Terminal` instance itself (one per TTY), not a derived string,
  * so it is impossible for one TTY's cached command to leak into another's.
  *
  * Returns `undefined` for a name this list does not know (an execve'd command, a true builtin, or
- * simply unknown) -- `Kernel.executeCommand` should only ever call this as a last resort, after
+ * simply unknown) - `Kernel.executeCommand` should only ever call this as a last resort, after
  * real file resolution and the true-builtin check have both already missed.
  */
 const legacyCommandCache = new WeakMap<Terminal, Map<string, TerminalCommand>>()

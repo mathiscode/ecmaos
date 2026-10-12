@@ -222,15 +222,14 @@ export class Kernel implements IKernel {
   public readonly devices: Map<string, { device: KernelDevice, drivers?: KernelCharDevice[] }> = new Map()
   /**
    * A dedicated, kernel-lifetime, never-`execve`'d `@zenfs/linux` `Process` the real pipes
-   * `bridgeStdio` creates live in -- deliberately not a bare `bindContext()` `FSContext` (tried
+   * `bridgeStdio` creates live in - deliberately not a bare `bindContext()` `FSContext` (tried
    * first; doesn't work) and not any given `Process`'s own context (`Process.exit()` tears that
    * down on its own timing, which would race the pump loop reading the other end).
    *
    * It has to be a real, registered `Process` specifically because `fs/pipe.ts`'s own `write`
    * throws `EPIPE` unless its `open_ends()` check finds the *other* end of the pipe referenced by
-   * some `Process` in `@zenfs/linux`'s module-level `processes` map -- a bare `FSContext` (even one
-   * whose descriptors genuinely hold the fd) is invisible to that check, confirmed by hand against
-   * the published package before settling on this. This process is never `execve`'d and never
+   * some `Process` in `@zenfs/linux`'s module-level `processes` map - a bare `FSContext` (even one
+   * whose descriptors hold the fd) is invisible to that check. This process is never `execve`'d and never
    * exits; it exists purely as a real fd-table anchor.
    *
    * Created lazily since most execution never redirects `execve`'d stdio at all.
@@ -381,7 +380,7 @@ export class Kernel implements IKernel {
     })
 
     // Tier 3: the Shell/Terminal cycle. `Shell` tolerates a not-yet-real `terminal` (as it always
-    // has -- `attach()` below fixes it up), and `execute` is Kernel's own method, bound so Shell
+    // has - `attach()` below fixes it up), and `execute` is Kernel's own method, bound so Shell
     // never needs a `Kernel` reference of its own.
     this.shell = new Shell({
       context: this.context,
@@ -392,7 +391,7 @@ export class Kernel implements IKernel {
       users: this.users,
       tty: 0,
       // KERNEL_NAME/KERNEL_VERSION/HOSTNAME: build-time constants a real execve'd worker process
-      // has no other way to see (no `kernel` reference, no `window`) -- threaded through env the same
+      // has no other way to see (no `kernel` reference, no `window`) - threaded through env the same
       // way HOME/PATH/etc already are, for uname.mjs/hostname.mjs to read via `env` in ecmaosSyscalls.
       env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
     })
@@ -400,7 +399,7 @@ export class Kernel implements IKernel {
     this.terminal = new Terminal({
       context: this.context,
       dom: this.dom,
-      kernel: this, // only for TerminalCommands -- see TerminalOptions.kernel's doc comment
+      kernel: this, // only for TerminalCommands - see TerminalOptions.kernel's doc comment
       shell: this.shell,
       users: this.users,
       tty: 0
@@ -432,7 +431,7 @@ export class Kernel implements IKernel {
       env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost', HOME: '/root', USER: 'root', LOGNAME: 'root' }
     })
     // TTY 0 is the console that boots active, so its shell is the one `globalThis.process.env`
-    // mirrors until `switchTty` hands ownership to another -- see `Shell.claimProcessEnv`.
+    // mirrors until `switchTty` hands ownership to another - see `Shell.claimProcessEnv`.
     this.shell.claimProcessEnv()
 
     // Tier 4: subsystems whose real dependencies (terminal, shell) only exist now. Constructed
@@ -823,7 +822,7 @@ export class Kernel implements IKernel {
         if (notifications?.permission() === 'denied') this.log.warn(t('kernel.permissionNotificationDenied', 'Notification permission denied'))
 
         this.intervals.set('title-blink', () => {
-          // Guards against firing after a test environment has torn down `document` -- this
+          // Guards against firing after a test environment has torn down `document` - this
           // interval otherwise outlives the Kernel instance that created it (nothing disposes it).
           if (!globalThis.document) return
           globalThis.document.title = globalThis.document.title.includes('_') ? 'ecmaos# ' : 'ecmaos# _'
@@ -882,7 +881,7 @@ export class Kernel implements IKernel {
 
       // Load core kernel features
       await this.registerEvents()
-      // The standard /dev/{null,zero,full,random,urandom} memory devices -- @zenfs/linux ships
+      // The standard /dev/{null,zero,full,random,urandom} memory devices - @zenfs/linux ships
       // these ready-made (mem.js's own char_dev_init()), but nothing mounts them unless a caller
       // does so explicitly; ecmaOS's own web-capability devices (registerDevices, below) are a
       // separate, unrelated set. Real coreutils (dd, and anything reading /dev/urandom) depend on
@@ -949,7 +948,7 @@ export class Kernel implements IKernel {
 
             // Real @zenfs/linux Module: gets us /sys/module/<name>, refcounting, and dependency
             // tracking for free, replacing the bespoke enable/disable/cleanup contract this used
-            // to call directly. A loaded package's own init/cleanup, if it has them, still run --
+            // to call directly. A loaded package's own init/cleanup, if it has them, still run -
             // they're just driven by the Module's real init()/dispose() lifecycle now.
             const zenfsModule = new ZenFSModule({
               name: modname,
@@ -1107,7 +1106,7 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * Leaves the UI in an honest state after `boot()` fails: the spinner stops, the topbar and its
+   * Leaves the UI in a usable state after `boot()` fails: the spinner stops, the topbar and its
    * progress clear, and a toast names the error. Each step is guarded on its own, because the
    * failure may have come from the very subsystem (dom, i18n, terminal) the step would use.
    */
@@ -1328,7 +1327,7 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * Runs a plain JS/ESM file as a real, isolated process via `@zenfs/linux`'s `execve` -- the
+   * Runs a plain JS/ESM file as a real, isolated process via `@zenfs/linux`'s `execve` - the
    * genuine replacement for both the old main-thread `new Function(code)` eval (`executeJavaScript`)
    * and the old `executeNode`'s blob-import shim (which patched `globalThis.process` and had no
    * isolation at all). `@zenfs/linux` already registers a default `binfmt_js` matching any
@@ -1340,9 +1339,9 @@ export class Kernel implements IKernel {
    *
    * Not yet supported, and why: a program that itself imports something. The interpreter has no
    * import-rewriting (the SWAPI mechanism `replaceImports` uses for main-thread apps would need its
-   * own worker-side port -- real scope of its own).
+   * own worker-side port - real scope of its own).
    *
-   * Redirected stdio (`>`, `|`) IS wired, via `bridgeStdio` below -- `@zenfs/linux@0.5.0`'s real
+   * Redirected stdio (`>`, `|`) IS wired, via `bridgeStdio` below - `@zenfs/linux@0.5.0`'s real
    * `create_pipe` (`fs/pipe.ts`) is the fd-backed primitive this needed, and it landed after this
    * doc comment first recorded the gap.
    *
@@ -1356,15 +1355,15 @@ export class Kernel implements IKernel {
     const isForeground = options.foreground ?? true
 
     // `tty->pgrp`: the process a `TIOCGPGRP`/`TIOCSPGRP` ioctl against this terminal answers with.
-    // Only a foreground stage takes it over, and only for as long as it runs -- a backgrounded (`&`)
+    // Only a foreground stage takes it over, and only for as long as it runs - a backgrounded (`&`)
     // pipeline's process must never appear to own the terminal it isn't attached to. Restored to
     // whatever it was before (not unconditionally cleared) so a foreground process launched from
-    // inside another foreground process's stage -- there is no nesting today, but this is the
-    // correct rule regardless -- hands control back up rather than to nobody.
+    // inside another foreground process's stage (`su`, `sudo`) hands control back up rather than
+    // to nobody.
     const previousForeground = tty?.foreground
     const stopBridges: Array<() => void> = []
     // Only for the `finally` block below to check `tty.foreground === liveProc` after the process
-    // exits -- everything else in this method still uses the `const proc` declared inside `try`.
+    // exits - everything else in this method still uses the `const proc` declared inside `try`.
     let liveProc: InstanceType<typeof ZenFSProcess> | undefined
 
     try {
@@ -1374,7 +1373,7 @@ export class Kernel implements IKernel {
         cwd: options.shell.cwd,
         context: this.processContext(options.shell, options.shell.cwd, options.command),
         tty,
-        // Process opens stdio against this path, not `tty` directly -- `tty` only sets the
+        // Process opens stdio against this path, not `tty` directly - `tty` only sets the
         // foreground-process/signal-delivery side of things.
         console: tty ? `/dev/${tty.name}` : undefined
       })
@@ -1382,14 +1381,14 @@ export class Kernel implements IKernel {
       this.init.adopt(proc)
 
       // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
-      // calling `Process` -- `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
+      // calling `Process` - `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
       // syscall table is module-global, shared across every `Kernel` instance in the page/process.
       registerProcessKernel(proc, this, options.shell)
 
       if (tty && isForeground) tty.foreground = proc
 
       // A foreground stage owns the keyboard through the real line discipline (`^C`/`^Z` via ISIG,
-      // canonical or raw reads, echo) for as long as it is the terminal's foreground process --
+      // canonical or raw reads, echo) for as long as it is the terminal's foreground process -
       // `Terminal.attachInput` explains why. `fg`/`bg`/`^Z` move that ownership through
       // `setForeground` below, the same way they move `tty.foreground`.
       let releaseInput: (() => void) | undefined
@@ -1399,7 +1398,7 @@ export class Kernel implements IKernel {
       stopBridges.push(dropInput)
 
       // The line discipline raises `^Z` as `SIGTSTP` straight on the process, and `@zenfs/linux`
-      // only flips `proc.stopped` -- it emits nothing -- so observe the transition here, where the
+      // only flips `proc.stopped` - it emits nothing - so observe the transition here, where the
       // signal lands, to hand the terminal back to the shell.
       const deliver = proc.kill.bind(proc)
       proc.kill = (signal) => {
@@ -1415,7 +1414,7 @@ export class Kernel implements IKernel {
       }
 
       // Redirected/piped stdio: only bridge a standard descriptor the caller actually gave a real
-      // stream for and that isn't just the plain console -- the overwhelmingly common case (a
+      // stream for and that isn't just the plain console - the overwhelmingly common case (a
       // foreground command with no `>`/`|`) needs no bridge at all.
       // Bridges whose output has a final destination rather than a downstream reader, so their drain
       // is what decides whether the next statement sees every byte. See `drainBeforeExit` below.
@@ -1445,17 +1444,17 @@ export class Kernel implements IKernel {
           const shared = proc.context.descriptors.get(1)
           if (shared) proc.context.descriptors.set(2, shared)
         } else {
-          // fd 2 is never a pipe to another stage -- `Shell.buildOutputStreams` only ever gives it the
-          // terminal or a file -- so its drain is always safe to await and always worth awaiting.
+          // fd 2 is never a pipe to another stage - `Shell.buildOutputStreams` only ever gives it the
+          // terminal or a file - so its drain is always safe to await and always worth awaiting.
           bridge(2, options.stderr, true)
         }
       }
 
       // Hand the real Process to the shell's job table (if it's tracking one for this stage)
-      // before awaiting completion -- this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
+      // before awaiting completion - this is the only handle job control (`^C`/`^Z`/`fg`/`bg`)
       // ever gets to signal a real process; see `KernelExecuteOptions.onProcess`'s doc comment.
       // `setForeground` closes over `tty` so `Shell.fg`/`bg` can move terminal ownership later,
-      // after this stage has already started -- see `JobProcessHandle.setForeground`'s doc comment.
+      // after this stage has already started - see `JobProcessHandle.setForeground`'s doc comment.
       options.onProcess?.(tty
         ? Object.assign(proc, {
           setForeground: (want: boolean) => {
@@ -1470,7 +1469,7 @@ export class Kernel implements IKernel {
 
       // `@zenfs/linux`'s own `execve()` unconditionally does `proc.tty.foreground = proc` once the
       // program actually loads (`fs/exec.ts`), on the assumption that exec-ing is itself a
-      // foreground act -- true for a real shell's fork+exec, not true for ecmaOS's backgrounded (`&`)
+      // foreground act - true for a real shell's fork+exec, not true for ecmaOS's backgrounded (`&`)
       // stage, which calls this same codepath directly with no fork in between. Put it right back
       // for a backgrounded stage; a foreground one was already correct (redundant, but harmless).
       if (tty && !isForeground && tty.foreground === proc) tty.foreground = previousForeground
@@ -1484,7 +1483,7 @@ export class Kernel implements IKernel {
       // key handler stands down while the line discipline owns the keyboard, so the keystroke
       // becomes a real `SIGINT` via `ISIG` and never reaches `Terminal.keyHandler`'s `runTrap`
       // call. Reporting it here is what makes `trap ... INT` fire and what stops the rest of a
-      // `;`-separated list from running -- see `Shell.notifyInterrupted`.
+      // `;`-separated list from running - see `Shell.notifyInterrupted`.
       // Once per interrupt, not once per stage: a pipeline's stages all die of the same `^C`.
       if (isForeground && proc.killed_by === ZenFSSignal.INT && options.shell.claimInterrupt()) {
         // The echo is a tty concern (only a line discipline wrote a bare `^C` needing a newline);
@@ -1518,11 +1517,11 @@ export class Kernel implements IKernel {
     } finally {
       for (const stop of stopBridges) stop()
       // `isForeground` reflects how this process was *spawned* (`false` for a `&` background job),
-      // not its foreground status right now -- `Shell.fg()` can promote it later via
+      // not its foreground status right now - `Shell.fg()` can promote it later via
       // `setForeground(true)` above, which repoints `tty.foreground` live without updating this
       // captured local. Checking `tty.foreground === proc` (as the `^C`-echo branch above already
       // does) reflects the real state instead, so a backgrounded-then-`fg`'d process still gets the
-      // tty properly released on exit -- otherwise `tty.foreground` stays pinned to this now-dead
+      // tty properly released on exit - otherwise `tty.foreground` stays pinned to this now-dead
       // process and `^C`/`^Z` on the next foreground job are silently swallowed.
       if (tty && tty.foreground === liveProc) tty.foreground = previousForeground
     }
@@ -1533,35 +1532,34 @@ export class Kernel implements IKernel {
    * `create_pipe`), and pumps the other end against `stream` on the main thread.
    *
    * The pipe is created on `this.pipeProcess`'s context (a dedicated, kernel-lifetime, never-
-   * `execve`'d `Process` -- not any given `Process`'s own context, deliberately: `Process.exit()`
+   * `execve`'d `Process` - not any given `Process`'s own context, deliberately: `Process.exit()`
    * (`fs/process.ts`) closes every descriptor still open in its own context when it exits, which
    * would otherwise race this pump loop's own close/drain the instant the program exits. It has to
-   * be a real, *registered* `Process` (not a bare `bindContext()` `FSContext`, tried first) because
+   * be a real, *registered* `Process` (not a bare `bindContext()` `FSContext`) because
    * `fs/pipe.ts`'s own `write` throws `EPIPE` unless `open_ends()` finds the other end referenced
-   * by some `Process` in `@zenfs/linux`'s module-level `processes` map -- confirmed by hand against
-   * the published package. A `Handle` carries its own context reference internally and works
+   * by some `Process` in `@zenfs/linux`'s module-level `processes` map. A `Handle` carries its own context reference internally and works
    * correctly against whichever map holds it, so the program's end is still handed to it by
-   * copying the `Handle` object into `proc.context.descriptors` at the standard slot -- only the
+   * copying the `Handle` object into `proc.context.descriptors` at the standard slot - only the
    * *bridge* end stays on `pipeProcess`'s context, safe from the running program's own exit, and is
    * this method's own job to close.
    *
    * `create_pipe` always hands back the lowest free fd on whichever context it's given (never a
-   * specific one), so the swap onto `stdFd` is done by hand on the descriptor map -- a plain
-   * `Map<number, Handle>` -- rather than through a `dup2` syscall, which only exists worker-side
+   * specific one), so the swap onto `stdFd` is done by hand on the descriptor map - a plain
+   * `Map<number, Handle>` - rather than through a `dup2` syscall, which only exists worker-side
    * for a running program to call on itself.
    *
    * Reading/writing goes through `pipefs`'s own `read_device`/`write_device`/`_device` (exported
    * from `fs/pipe.ts` alongside `create_pipe`, despite being marked `@internal`) rather than
-   * `@zenfs/core`'s generic `fs.readSync`/`writeSync` -- confirmed by hand that the generic path
+   * `@zenfs/core`'s generic `fs.readSync`/`writeSync`, because the generic path
    * does not special-case a pipe at all (`written` succeeds silently but a same-pipe `read` always
    * comes back empty); only the syscall table's own `read`/`write` handlers know to route through
    * `device_of()` to these, and they aren't reachable from outside a real worker's syscall dispatch.
    *
-   * The pump itself polls: `read_device` is genuinely non-blocking (an empty read returns 0
+   * The pump itself polls: `read_device` is non-blocking (an empty read returns 0
    * immediately, confirmed by reading `fs/pipe.ts`'s `pipe_ops.read`/`take`), so there is no risk
-   * of stalling the main thread here -- just of checking more often than necessary, which a short
+   * of stalling the main thread here - just of checking more often than necessary, which a short
    * interval keeps cheap. Reaching the pipe's own `WaitQueue` to await instead of poll would need
-   * `Pipe` internals `@zenfs/linux` does not export; polling is the honest, available option today.
+   * `Pipe` internals `@zenfs/linux` does not export; polling is the only option today.
    */
   private bridgeStdio(
     proc: InstanceType<typeof ZenFSProcess>,
@@ -1592,7 +1590,7 @@ export class Kernel implements IKernel {
 
   /**
    * A real, directed `create_pipe` between two real `Process`es, no main-thread pump involved on
-   * either side -- unlike {@link attachStream}, both ends are real worker-hosted programs doing
+   * either side - unlike {@link attachStream}, both ends are real worker-hosted programs doing
    * real reads/writes against real fds, not one end bridged against a JS `Stream`. This is the
    * primitive a loopback `AF_UNIX`/`AF_INET` socket connection is built from (`net_connect`/
    * `net_accept` in `main-thread-syscalls.ts`): a full-duplex "socket" is two of these, one per
@@ -1629,7 +1627,7 @@ export class Kernel implements IKernel {
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>,
     // `closeOnEof`: end a `'write'` stream as soon as the program closes its end and what it wrote
     // has drained (shutdown of the write side), instead of only when the program exits. Stdio
-    // leaves this off -- it has always ended with the process -- but a socket needs it to half-close.
+    // leaves this off - it has always ended with the process - but a socket needs it to half-close.
     { closeOnEof = false }: { closeOnEof?: boolean } = {}
   ): { stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
     const pipeProcCtx = this.pipeProcess.context
@@ -1639,7 +1637,7 @@ export class Kernel implements IKernel {
     const bridgeFd = direction === 'read' ? pipeWriteFd : pipeReadFd
 
     // Copy the program-facing end's Handle onto proc's standard slot, then drop it from
-    // `pipeProcCtx` (not close -- the fd number itself was never meaningful to the program, only
+    // `pipeProcCtx` (not close - the fd number itself was never meaningful to the program, only
     // its Handle was worth keeping). The console's original handle at that slot is simply
     // discarded, uninvolved: the other one or two standard descriptors sharing its dup are
     // untouched, matching how a real process' fd 0/1/2 dups all point at one open regardless.
@@ -1732,7 +1730,7 @@ export class Kernel implements IKernel {
         } finally {
           try { pipeProcCtx.descriptors.delete(bridgeFd) } catch { /* already gone */ }
           // Dropping the last write end is what tells a reader the stream is over (EOF), but
-          // `@zenfs/linux` only wakes a pipe's sleepers when data moves, not when an end closes -- a
+          // `@zenfs/linux` only wakes a pipe's sleepers when data moves, not when an end closes - a
           // program blocked in `poll`/`read` on this fd would sleep forever. Wake it ourselves.
           pipefs._end(bridgeFile.path)?.pipe.wait.wake_up()
         }
@@ -1776,8 +1774,8 @@ export class Kernel implements IKernel {
    * sees the returned `readable`/`writable` web streams).
    *
    * Reads/writes go through `pipefs`'s own `read_device`/`write_device`, not `@zenfs/core`'s
-   * generic `fs.readSync`/`writeSync` -- confirmed by hand (see `bridgeStdio`'s own doc comment)
-   * that the generic path silently doesn't work on a pipe at all.
+   * generic `fs.readSync`/`writeSync`, which silently do not work on a pipe (see `bridgeStdio`'s doc
+   * comment).
    */
   private createPipeStream(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array>, abandon?: () => void } {
     const pipeProcCtx = this.pipeProcess.context
@@ -1803,13 +1801,13 @@ export class Kernel implements IKernel {
       pipeProcCtx.descriptors.delete(readFd)
     }
     const writable = new WritableStream<Uint8Array>({
-      // `write_device` never blocks -- it's a short write (`Pipe.put`, `fs/pipe.ts`), returning 0
+      // `write_device` never blocks - it's a short write (`Pipe.put`, `fs/pipe.ts`), returning 0
       // once the pipe's fixed 65536-byte capacity is full, on the assumption that a real blocking
       // `write(2)` syscall would suspend the calling thread until the reader drains it. There is no
       // thread to suspend here (this callback runs on the main thread, same as the `pull` below
       // that would do the draining), so a synchronous retry loop with no `await` would spin forever
-      // without ever giving `pull` a turn -- confirmed by hand: a payload bigger than one pipe's
-      // capacity written in a single chunk hung the test suite before this `await` was added.
+      // without ever giving `pull` a turn: a payload bigger than one pipe's capacity written in a
+      // single chunk would hang.
       write: async chunk => {
         let offset = 0
         while (offset < chunk.byteLength) {
@@ -1908,12 +1906,12 @@ export class Kernel implements IKernel {
           if (domEvent.ctrlKey && domEvent.key === 'c') {
             domEvent.preventDefault()
             domEvent.stopPropagation()
-            // `proc` here is a real `ZenFSProcess`, so it can actually be signaled -- `ps`/`kill` see
+            // `proc` here is a real `ZenFSProcess`, so it can actually be signaled - `ps`/`kill` see
             // a consistent state for it, same as any worker-hosted process. This does NOT make WASM
             // interruptible on its own: `_start`/`_initialize` below run synchronously with no yield
             // point unless the module itself was
             // compiled with asyncify, so a real blocking/looping module still can't be preempted by
-            // this signal -- only non-asyncify code that happens to check for pending signals (or
+            // this signal - only non-asyncify code that happens to check for pending signals (or
             // the WASI adapters watching `TerminalEvents.INTERRUPT`, dispatched alongside this same
             // as before) can actually react to it.
             proc.kill(ZenFSSignal.INT)
@@ -2014,7 +2012,7 @@ export class Kernel implements IKernel {
       const terminalCmdBefore = options.terminal?.cmd || ''
 
       // Multi-line control flow (if/while/for/case), functions, and `set -e/-u/-o pipefail` all
-      // live in the statement tree `executeScriptText` walks -- the old per-line `execute()` loop
+      // live in the statement tree `executeScriptText` walks - the old per-line `execute()` loop
       // here had no way to let a `then`/`do`/`fi` span lines at all.
       const exitCode = await options.shell.executeScriptText(script, options.command)
 
@@ -2077,14 +2075,14 @@ export class Kernel implements IKernel {
       if (header.startsWith('#!/usr/bin/env node')) return { type: 'bin', namespace: 'node', name: 'node' }
 
       // Any other `#!` is an ordinary POSIX shebang naming a real interpreter. ecmaOS does not
-      // parse it here: `@zenfs/linux`'s own `binfmt_script` already implements the real rule --
+      // parse it here: `@zenfs/linux`'s own `binfmt_script` already implements the real rule -
       // split `#!name [arg]`, rewrite argv to `[name, arg?, filename, ...rest]`, re-search the
       // binfmt table, with a chain-depth limit and `ENOEXEC` on a truncated line. Classifying it
       // as `interpreter` routes it to `executeViaExecve`, which hands the untouched path to
       // upstream `execve` and lets that handler do the work.
       //
       // Before this, such a file fell through to `checkExtensionType` and came back as
-      // `application/octet-stream`, which `execute`'s switch has no case for -- so a `#!/bin/sh`
+      // `application/octet-stream`, which `execute`'s switch has no case for - so a `#!/bin/sh`
       // script exited -1 with no diagnostic at all. An interpreter that does not exist now fails
       // as a real `ENOENT` from `execve` instead of silently.
       const interpreter = header.slice(2).trim().split(/[ \t]+/)[0]
@@ -2172,11 +2170,11 @@ export class Kernel implements IKernel {
         else if (filePath.endsWith('.md')) return 'view'
         else if (filePath.endsWith('.json')) return 'view'
         else if (filePath.endsWith('.txt')) return 'view'
-        // A file under /bin with no shebang and no magic bytes at all is a real coreutil -- bundled
+        // A file under /bin with no shebang and no magic bytes at all is a real coreutil - bundled
         // JS, same content shape as any `.js` fixture, just installed without the extension since
         // it's meant to be run bare (`/bin/<name>`, not `/bin/<name>.js`). `@zenfs/linux`'s own
         // `binfmt_js` (fs/exec.ts) already accepts this content unconditionally by matching "not
-        // WASM, no null byte" -- this only teaches ecmaOS's own pre-execve classification
+        // WASM, no null byte" - this only teaches ecmaOS's own pre-execve classification
         // (`readFileHeader`) the same rule for this one directory.
         else if (filePath.startsWith('/bin/') || filePath.startsWith('/sbin/')) return 'js'
         else return 'application/octet-stream'
@@ -2315,18 +2313,18 @@ export class Kernel implements IKernel {
   async registerCommands() {
     if (!await this.filesystem.fs.exists('/bin')) await this.filesystem.fs.mkdir('/bin')
 
-    // Real Linux has no equivalent of this method at all -- `execve`+`$PATH` resolve a command
+    // Real Linux has no equivalent of this method at all - `execve`+`$PATH` resolve a command
     // purely off real files on disk. This writes each command's actual file into `/bin` up front:
     // a name that runs via real `execve` gets its actual bundled program written here (no
     // registry/manifest lookup needed to run it, only to know it needs a file at all); a name still
     // on the in-process path gets the `#!ecmaos:bin:command:` stub `readFileHeader` recognizes to
     // route it through `executeCommand`'s shim. Building only names + this cheap check (not full
     // `TerminalCommand` construction) is what makes this cheap regardless of how many in-process
-    // commands remain -- `getLegacyCommands()` hands back `{ description, createCommand }` pairs,
+    // commands remain - `getLegacyCommands()` hands back `{ description, createCommand }` pairs,
     // but only `Object.keys(...)` is used here.
     //
-    // True shell builtins (`cd`, `export`, ... -- see `lib/shell-builtins.ts`) get NO `/bin/<name>`
-    // file at all, matching real bash having no `/bin/cd` -- `Shell.execute` dispatches them before
+    // True shell builtins (`cd`, `export`, ... - see `lib/shell-builtins.ts`) get NO `/bin/<name>`
+    // file at all, matching real bash having no `/bin/cd` - `Shell.execute` dispatches them before
     // any file-based resolution is even attempted.
     const names = [
       ...Object.keys(migratedCommandSources),
@@ -2400,11 +2398,11 @@ export class Kernel implements IKernel {
    * @returns {Promise<void>} A promise that resolves when the devices are registered.
    */
   async registerDevices() {
-    // `char_dev.register(major, ...)` reserves an entire major (all 256 minors) for one caller --
+    // `char_dev.register(major, ...)` reserves an entire major (all 256 minors) for one caller -
     // it is keyed by major alone, not major+name. Linux's real convention is exactly this: many
     // unrelated drivers share major 10 ("misc") and differentiate only by minor (battery=100,
     // geo=101, sensors=102, presentation=156, ...). So the grouping-by-major below MUST happen
-    // across every device package's drivers together, not per-package -- grouping per-package (as
+    // across every device package's drivers together, not per-package - grouping per-package (as
     // an earlier version of this method did) calls char_dev.register(10, ...) once per package
     // that wants major 10, and every call after the first fails with EBUSY, silently dropping that
     // package's device node. Collect every driver from every package first, then group globally.
@@ -2441,7 +2439,7 @@ export class Kernel implements IKernel {
 
         // Manifest `devices` enforcement (see `lib/syscall-policy.ts`'s doc comment for why this
         // reads the cache synchronously instead of awaiting `loadManifest` itself). `current` is
-        // whichever process this worker is running right now, i.e. the caller -- by the time it
+        // whichever process this worker is running right now, i.e. the caller - by the time it
         // reaches a device's `read`/`write`, it has already made the syscall that opened the
         // device node, which `installSyscallPolicy` already intercepted and cached a manifest
         // for. No manifest, or no `devices` list on it, is unrestricted, same as `syscalls`.
@@ -2470,7 +2468,7 @@ export class Kernel implements IKernel {
       // char_dev majors and device names are process-global in @zenfs/linux, not scoped per
       // Kernel instance, so a second Kernel booted in the same JS realm (as tests do across
       // describe blocks) re-requests majors and names the first instance already claimed.
-      // That is not a real conflict -- it is the same set of drivers, offered twice -- so
+      // That is not a real conflict - it is the same set of drivers, offered twice - so
       // EBUSY/EEXIST here are swallowed rather than treated as a boot failure.
       let major: number
       try {
@@ -2481,7 +2479,7 @@ export class Kernel implements IKernel {
       }
 
       // `Device.register()` links a device into `bus.devices_kobj` (`/sys/bus/<name>/devices`)
-      // purely off the `bus` field -- no `DeviceDriver` is required for that part, only for
+      // purely off the `bus` field - no `DeviceDriver` is required for that part, only for
       // auto-binding. ecmaOS's own web-capability devices (webcam, gamepad, ...) are registered
       // with `bus` set here, so each gets a real `/sys/devices/.../<name>` and
       // `/sys/class/<class>/...` entry and is visible under `/sys/bus/*`, the same as the core
@@ -2498,12 +2496,12 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * `/sys/bus/webcapability` -- the bus ecmaOS's own {@link KernelCharDevice}s register on, so
+   * `/sys/bus/webcapability` - the bus ecmaOS's own {@link KernelCharDevice}s register on, so
    * they show up under `/sys/bus/*` the same way the core subsystems `boot()` wires through
    * `@zenfs/linux`'s real driver core do. Lazily constructed once per `Kernel` instance; a second
    * `Kernel` booted in the same JS realm (as tests do) constructing another `BusType('webcapability')`
    * is tolerated the same way duplicate major/device registration already is elsewhere in this
-   * method -- `KObject`'s constructor has no EEXIST check, it just replaces the prior entry under
+   * method - `KObject`'s constructor has no EEXIST check, it just replaces the prior entry under
    * `/sys/bus`, which is fine since only the most-recently-booted kernel's devices matter here.
    */
   private get _webCapabilityBus(): BusType {
@@ -3109,7 +3107,7 @@ export class Kernel implements IKernel {
     shell.cwd = shell.env.get('HOME') || '/'
 
     // After `HOME` is set, not before. `loadEnvFile` reads `~/.env` from `$HOME`, so running it
-    // ahead of these assignments read the *previous* user's home -- on a fresh boot the default
+    // ahead of these assignments read the *previous* user's home - on a fresh boot the default
     // `/root`, and after a `su`-style relogin the last user's. `~/.ecmashrc` has the same
     // dependency, so both hooks belong here.
     await shell.loadEnvFile()

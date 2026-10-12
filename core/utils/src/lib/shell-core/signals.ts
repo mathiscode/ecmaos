@@ -58,7 +58,7 @@ export class ExitSignal extends Error {
 /**
  * bash's own numeric-argument handling for these four builtins: a missing argument means "use the
  * default" (the caller's, since it differs per builtin), a non-numeric one is an error, and the
- * value is taken modulo 256 because a real wait status carries only one byte -- so `exit -1` reports
+ * value is taken modulo 256 because a real wait status carries only one byte - so `exit -1` reports
  * 255 exactly as in bash.
  */
 export function parseSignalArgument(argv: string[], builtin: string): { value?: number, error?: string } {

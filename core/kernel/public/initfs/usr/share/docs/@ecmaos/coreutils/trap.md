@@ -15,8 +15,8 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-l` -- list the signal names
-- `-p` -- print the traps as commands
+- `-l` - list the signal names
+- `-p` - print the traps as commands
 
 ## Examples
 

@@ -6,7 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Covers `Terminal`'s Enter handler across *several* Enter presses -- the one layer of the shell
+ * Covers `Terminal`'s Enter handler across *several* Enter presses - the one layer of the shell
  * that had no test at all, and where a live browser smoke test found three shipped-and-claimed
  * features broken at once.
  *

@@ -326,12 +326,12 @@ export interface KernelExecuteOptions {
   /**
    * Whether this stage's `stdout` must be fully drained before its exit code is reported.
    *
-   * True for a final destination -- a file, or the terminal -- where `cmd > f` has to leave every
+   * True for a final destination - a file, or the terminal - where `cmd > f` has to leave every
    * byte in `f` before the next statement reads it. False mid-pipeline, where the next stage's own
    * reads already order the data and waiting would deadlock: a downstream program that exits early
    * (`producer | head -1`) stops reading, the pipe fills, and the upstream drain would never finish.
    *
-   * Before this existed the kernel slept a fixed 15ms instead, which is not long enough under load --
+   * Before this existed the kernel slept a fixed 15ms instead, which is not long enough under load -
    * `cat <<EOF > f` followed by reading `f` failed intermittently in a loaded parallel test run and
    * passed every time in isolation.
    */
@@ -341,13 +341,13 @@ export interface KernelExecuteOptions {
    * Called synchronously once a real `@zenfs/linux` `Process` has been constructed for this stage
    * (currently only `Kernel.executeViaExecve`'s `js`/`node` binfmt path), before the caller awaits
    * its completion. This is the only way `Shell`'s job table gets a signalable handle for `^C`/`^Z`/
-   * `fg`/`bg` -- `ShellExecute` otherwise only returns the eventual exit code, too late to attach a
+   * `fg`/`bg` - `ShellExecute` otherwise only returns the eventual exit code, too late to attach a
    * live handle to a `Job` while the stage is still running. A stage that never goes through a real
    * `Process` (any coreutil, which runs synchronously in the shell's own tick) never calls this.
    */
   onProcess?: (process: JobProcessHandle) => void
   /**
-   * Whether this stage belongs to the shell's current foreground job (default `true`) -- a
+   * Whether this stage belongs to the shell's current foreground job (default `true`) - a
    * backgrounded (`&`) pipeline passes `false` so its process never takes over the controlling
    * terminal. Only `Kernel.executeViaExecve`'s real-`Process` path acts on this: it sets the
    * attached TTY's `foreground` (`tty->pgrp`, answering `TIOCGPGRP`/`TIOCSPGRP`) to the new process
@@ -370,7 +370,7 @@ export interface JobProcessHandle {
   kill(signal: number | string): boolean
   /**
    * Give this process the controlling terminal (`tty->pgrp`, what `TIOCGPGRP`/`TIOCSPGRP` answer)
-   * or take it back, without touching whichever process held it before -- `fg`/`bg` call this to
+   * or take it back, without touching whichever process held it before - `fg`/`bg` call this to
    * keep the TTY's notion of the foreground process in step with the shell's own job table once a
    * job moves between them after it has already started (as opposed to `KernelExecuteOptions.foreground`,
    * which only covers a stage's initial launch). A stage with no real `Process` behind it (any

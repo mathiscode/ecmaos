@@ -13,7 +13,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  *
  * `~/.ecmashrc` could not have worked even once it was read, because the interactive login path
  * called `loadEnvFile()` *before* setting `HOME` for the user who had just authenticated. Every
- * `~/`-rooted startup file was therefore resolved against the previous user's home -- on a fresh
+ * `~/`-rooted startup file was therefore resolved against the previous user's home - on a fresh
  * boot the default `/root`, and after a relogin the last user's.
  */
 describe('startup files', () => {

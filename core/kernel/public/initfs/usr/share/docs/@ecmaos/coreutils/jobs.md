@@ -16,7 +16,7 @@ A job is named `%N` (job number N), `%%` or `%+` (the current job), `%-` (the pr
 
 ## Options
 
-- `-l` -- also show process ids
+- `-l` - also show process ids
 
 ## Exit status
 

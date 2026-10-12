@@ -57,8 +57,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 The budget is **0** - `tsc --noEmit` must report zero diagnostics. The dual
 `@zenfs/core` copies and stray `vim-wasm` sources that used to produce a
-pre-existing error baseline are gone (removed during the `feat/1.0.0`
-overhaul); there is no longer a tolerated error count to work within.
+pre-existing error baseline are gone; there is no longer a tolerated error count to work within.
 
 CI enforces this with `scripts/typecheck-ratchet.mjs`, which runs
 `tsc --noEmit` in `core/kernel` **after `pnpm build`**, counts diagnostics, and

@@ -6,14 +6,14 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The four builtins that unwind the interpreter -- `break`, `continue`, `return`, `exit` -- plus the
+ * The four builtins that unwind the interpreter - `break`, `continue`, `return`, `exit` - plus the
  * three that rewrite the calling shell's own statement stream or arguments: `source`/`.`, `eval` and
  * `shift`. And `:`, which does nothing, on purpose.
  *
  * None of them can be an `execve`'d program. A child process cannot break its parent's loop, return
  * from its parent's function, or leave a variable behind in its parent, which is exactly why every
  * real shell keeps this set in-process. They are thrown as signals rather than reported as exit
- * codes because an exit code cannot distinguish "exited 1" from "stop the loop" -- see
+ * codes because an exit code cannot distinguish "exited 1" from "stop the loop" - see
  * `@ecmaos/coreutils/lib/shell-core/signals`.
  *
  * `break`/`continue` existed before this, but only as a comparison of the statement's whole trimmed
@@ -37,7 +37,7 @@ describe('control-flow builtins: break/continue/return/exit/shift/source/eval/:'
   const OUT = '/tmp/cf-builtins.out'
 
   // Scripts run in the kernel's own long-lived shell, so anything a test leaves behind is visible to
-  // every test after it -- an `EXIT` trap in particular appends to `$OUT` on every later script.
+  // every test after it - an `EXIT` trap in particular appends to `$OUT` on every later script.
   beforeEach(async () => {
     if (await kernel.filesystem.fs.exists(OUT)) await kernel.filesystem.fs.unlink(OUT)
     for (const [signal] of kernel.shell.listTraps()) kernel.shell.setTrap(undefined, signal)
@@ -556,7 +556,7 @@ describe('control-flow builtins: break/continue/return/exit/shift/source/eval/:'
     it('records that code as $? for the next line', async () => {
       // Found in a browser, not here: these tests read `execute`'s return value, which was right all
       // along. `$?` is normally set by `executeSimple` as it finishes a stage, and a control-flow
-      // signal unwinds straight past that -- so `exit 8` at the prompt was followed by an `echo $?`
+      // signal unwinds straight past that - so `exit 8` at the prompt was followed by an `echo $?`
       // still printing whatever the command before it had returned.
       await kernel.shell.execute('true')
       await kernel.shell.execute('exit 8')

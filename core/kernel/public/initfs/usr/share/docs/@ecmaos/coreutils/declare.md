@@ -14,15 +14,15 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-a` -- indexed array
-- `-A` -- associative array (`m[key]=v`, `${!m[@]}`)
-- `-i` -- assignments are evaluated as arithmetic
-- `-n` -- NAME is a reference to the variable named by its value
-- `-r` -- readonly
-- `-x` -- export to child processes
-- `-p` -- print NAMEs with their attributes
-- `-f` -- print function definitions
-- `-F` -- print function names only
+- `-a` - indexed array
+- `-A` - associative array (`m[key]=v`, `${!m[@]}`)
+- `-i` - assignments are evaluated as arithmetic
+- `-n` - NAME is a reference to the variable named by its value
+- `-r` - readonly
+- `-x` - export to child processes
+- `-p` - print NAMEs with their attributes
+- `-f` - print function definitions
+- `-F` - print function names only
 
 ## Examples
 

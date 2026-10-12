@@ -42,7 +42,7 @@ export function validatePassword(password: unknown): asserts password is string 
 
 /**
  * Serializes a `User` to a real 7-field `/etc/passwd` line: `name:x:uid:gid:gecos:home:shell`.
- * The password field is always `x` -- real hashes live in `/etc/shadow`, exactly like a real
+ * The password field is always `x` - real hashes live in `/etc/shadow`, exactly like a real
  * Linux system, and always did here too; only the *shape* of this line was non-standard before.
  */
 function passwdLine(user: User): string {
@@ -164,7 +164,7 @@ export class Users {
     return Array.from(this._users.values()).find(user => user.username === username)
   }
 
-  // -- groups -------------------------------------------------------------------------------------
+  // - groups -------------------------------------------------------------------------------------
 
   /** Every group, by gid: the registry, plus the primary group of any user it does not yet name. */
   get groupList(): Array<Group & { members: string[] }> {
@@ -479,7 +479,7 @@ export class Users {
     }
   }
 
-  // -- /etc/shadow ----------------------------------------------------------------------------------
+  // - /etc/shadow ----------------------------------------------------------------------------------
 
   /** The line `/etc/shadow` holds for `user`: what it knows, and whatever the file had past the ninth field */
   private shadowEntry(user: User, existing?: ShadowEntry): ShadowEntry {
@@ -568,7 +568,7 @@ export class Users {
     }
   }
 
-  // -- the user's key pair (~/.ssh) -----------------------------------------------------------------
+  // - the user's key pair (~/.ssh) -----------------------------------------------------------------
 
   private keyPaths(user: User) {
     return { directory: `${user.home}/.ssh`, privateKey: `${user.home}/${PRIVATE_KEY_FILE}`, publicKey: `${user.home}/${PUBLIC_KEY_FILE}` }

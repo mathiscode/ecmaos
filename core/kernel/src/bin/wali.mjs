@@ -1,7 +1,7 @@
 /**
- * ecmaOS's `/bin/wali` interpreter -- the real worker-hosted body `@zenfs/linux`'s own default
+ * ecmaOS's `/bin/wali` interpreter - the real worker-hosted body `@zenfs/linux`'s own default
  * `binfmt_wasm` already points any `.wasm` file at via `execve` (matched on the `\0asm` magic
- * bytes, unconditionally -- `@zenfs/linux` does not distinguish WALI-format modules from plain
+ * bytes, unconditionally - `@zenfs/linux` does not distinguish WALI-format modules from plain
  * WASI-preview1 ones at the binfmt layer).
  *
  * This is never loaded directly, same as `bin/node.mjs`: bundled with zero import statements
@@ -9,11 +9,11 @@
  * boot.
  *
  * WALI is a different module format from WASI preview1, not an upgrade to it: a WALI module
- * imports directly from a `"wali"` namespace (`SYS_open`, `SYS_read`, `__cl_get_argc`, ...) --
- * musl compiled to target `@zenfs/linux`'s syscalls directly -- while a WASI-preview1 module
+ * imports directly from a `"wali"` namespace (`SYS_open`, `SYS_read`, `__cl_get_argc`, ...) -
+ * musl compiled to target `@zenfs/linux`'s syscalls directly - while a WASI-preview1 module
  * imports from `wasi_snapshot_preview1` (`fd_write`, `proc_exit`, ...), a separate standardized
  * ABI, so `run()` (upstream's own WALI host) would fail on one with unresolved imports
- * (`uapi/wali`'s `link()` reports each one through `missing`) -- this file tells the two apart by
+ * (`uapi/wali`'s `link()` reports each one through `missing`) - this file tells the two apart by
  * hand below and routes a preview1 module to `runPreview1` instead. `Kernel.execute`'s own
  * header-sniffing dispatch (`tree/wasm.ts`'s `canRunInWorker`) reaches this same file for a plain
  * `wasm32-wasip1` module or an ordinary `emcc` build: `@zenfs/linux`'s `binfmt_wasm` points any
@@ -62,7 +62,7 @@ const init = await ready
 
 try {
   const source = await readWholeFile(init.exe)
-  // run() only returns if the module falls out of main() without exiting -- __proc_exit tears
+  // run() only returns if the module falls out of main() without exiting - __proc_exit tears
   // the thread down itself, same as bin/node.mjs's exit() for a program that calls it directly.
   // A `wasi_snapshot_preview1` module is translated onto the same syscalls (`wasi-preview1.mjs`);
   // anything else is a WALI module and goes straight to upstream's host.

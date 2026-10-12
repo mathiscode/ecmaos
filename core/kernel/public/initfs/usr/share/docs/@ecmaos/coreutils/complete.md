@@ -20,12 +20,12 @@ The bash-completion package's helper functions (`_init_completion` and the rest)
 
 ## Options
 
-- `-p` -- print the specifications
-- `-r` -- remove the specification of each NAME, or all of them
-- `-D` -- the specification for a command that has none of its own
-- `-E` -- for an empty line
-- `-I` -- for the first word of a line
-- `-o OPTION` -- `default` (filenames when nothing matches), `dirnames`, `plusdirs`, `filenames` (escape spaces, mark directories), `nospace`, `nosort`, `bashdefault`, `noquote`
+- `-p` - print the specifications
+- `-r` - remove the specification of each NAME, or all of them
+- `-D` - the specification for a command that has none of its own
+- `-E` - for an empty line
+- `-I` - for the first word of a line
+- `-o OPTION` - `default` (filenames when nothing matches), `dirnames`, `plusdirs`, `filenames` (escape spaces, mark directories), `nospace`, `nosort`, `bashdefault`, `noquote`
 
 ## Examples
 

@@ -8,7 +8,7 @@
 
 ## 1.0.0
 
-- ecmaOS 1.0.0 is here! Every command now runs through a real, worker-hosted `execve` -- the old in-process `ProcessManager` is gone for good.
+- ecmaOS 1.0.0 is here! Every command now runs through a real, worker-hosted `execve` - the old in-process `ProcessManager` is gone for good.
 - The shell now supports `<<` heredocs, `<<<` here-strings, `[[ ]]` tests, indexed arrays (`a=(x y)`, `${a[@]}`), `${PIPESTATUS[@]}`, and `trap`.
 - Clicking a command link in terminal output now asks you to confirm before it runs.
 - `/etc/passwd` and `/etc/group` moved to the real Linux format; existing installs are migrated automatically on next boot.

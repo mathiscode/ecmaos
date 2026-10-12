@@ -41,8 +41,7 @@ The shell supports theming via the `theme` configuration block. You can either u
 ### Using the theme command
 
 - `theme` - Lists all available themes
-- `theme <name>` - Sets the theme to the specified name
-- `theme -s <name>` - Sets the theme to the specified name and saves it to the configuration file
+- `theme <name>` - Sets the theme to the specified name and saves it to `~/.config/terminal.toml`
 
 ### Using Presets
 
@@ -113,13 +112,11 @@ name = "Dracula"
 Appearance is TOML; behavior is shell script. At login the shell runs, in order:
 
 1.  `/etc/profile`
-2.  every `*.sh` in `/etc/profile.d`, in name order
+2.  every `*.sh` in `/etc/profile.d`, sorted by name
 3.  the first of `~/.bash_profile`, `~/.ecmash_profile` or `~/.profile` that exists
 4.  `/etc/ecmashrc`
 5.  `~/.bashrc`
 6.  `~/.ecmashrc`
-
-`/bin/ecmash` reads the same files: `ecmash -l` the first three, and an interactive shell the last three.
 
 Each is an ordinary shell script, so aliases, functions, `export`, and `set` options all work:
 

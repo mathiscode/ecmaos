@@ -7,10 +7,10 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * readlink/realpath/ln migrated onto real execve, continuing the "migrate opportunistically" plan.
- * These needed real link/symlink/readlink syscalls this interpreter didn't expose yet -- added to
+ * These needed real link/symlink/readlink syscalls this interpreter didn't expose yet - added to
  * globalThis.ecmaosSyscalls in /bin/node.mjs (plain pass-throughs of @zenfs/linux's own syscalls of
  * the same names). realpath never actually followed symlinks even in the original in-process
- * version (just path.resolve plus an optional existence check for -e) -- carried over unchanged.
+ * version (just path.resolve plus an optional existence check for -e) - carried over unchanged.
  */
 describe('text command batch 6: readlink/realpath/ln, real execve', () => {
   let kernel: Kernel

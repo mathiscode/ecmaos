@@ -7,7 +7,7 @@ import { defaultContext, configure, InMemory, fs } from '@zenfs/core'
 
 /**
  * A real end-to-end proof of the execve pipeline: `@zenfs/linux`'s own default `binfmt_js` (any
- * plain JS/ESM file, no magic bytes required) already points at `/bin/node` as its interpreter --
+ * plain JS/ESM file, no magic bytes required) already points at `/bin/node` as its interpreter -
  * this test is what happens once that file is real. See `src/bin/node.mjs` for what it is and why
  * it must be a single import-free bundle.
  */
@@ -29,7 +29,7 @@ describe('/bin/node via execve', () => {
 
   it('exits 1 when the program throws', async () => {
     // /bin/node has no import-rewriting yet (see its doc comment), so a program cannot itself
-    // import @zenfs/linux/uapi/process to call exit(n) with a custom code -- only self-contained
+    // import @zenfs/linux/uapi/process to call exit(n) with a custom code - only self-contained
     // scripts run. What's provable here is that a program's own failure produces exit code 1.
     // The interpreter's console.error for this runs inside the worker thread, not this process,
     // so it prints real (harmless) noise to this test's stderr rather than something mockable here.

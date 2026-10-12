@@ -10,7 +10,7 @@ Concatenate files and print on the standard output.
   --help  display this help and exit`
 
 /**
- * Loops until a real EOF (`n <= 0`), never on a short read -- a pipe can legitimately return fewer
+ * Loops until a real EOF (`n <= 0`), never on a short read - a pipe can legitimately return fewer
  * bytes than asked for mid-stream, not just at EOF. Breaking early on `n < chunkSize` would silently
  * truncate stdin read from a pipe.
  */

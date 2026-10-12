@@ -10,7 +10,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  *
  * `Kernel.readFileHeader` used to recognize only `#!ecmaos:<type>:<ns>:<name>` and the literal
  * `#!/usr/bin/env node`. Anything else returned `null`, fell through to `checkExtensionType`, came
- * back as `application/octet-stream`, and matched no case in `Kernel.execute`'s switch -- so a file
+ * back as `application/octet-stream`, and matched no case in `Kernel.execute`'s switch - so a file
  * starting `#!/bin/node` exited `-1` with no output and no diagnostic at all.
  *
  * ecmaOS does not parse the shebang itself: `@zenfs/linux`'s `binfmt_script` already implements the
@@ -64,7 +64,7 @@ describe('POSIX #! interpreter dispatch', () => {
    * Note that `#!/bin/node` specifically is *not* usable here and is not meant to be: `/bin/node`
    * takes the program to run from its process's `exe`, which upstream's `binfmt_js` already points
    * at the script. Naming it explicitly makes `exe` `/bin/node` itself, so it would load itself.
-   * Plain JS needs no shebang at all for this reason -- `binfmt_js` matches it unconditionally.
+   * Plain JS needs no shebang at all for this reason - `binfmt_js` matches it unconditionally.
    */
   it('passes the script path to a custom interpreter as argv[1]', async () => {
     await kernel.filesystem.fs.writeFile(

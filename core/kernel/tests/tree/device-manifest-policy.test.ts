@@ -11,7 +11,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * Manifest `devices` enforcement (`Kernel.registerDevices`'s dispatch, `syscall-policy.ts`'s
- * `getCachedManifest`) -- a real `/dev/battery` read, gated by a manifest written to disk and a
+ * `getCachedManifest`) - a real `/dev/battery` read, gated by a manifest written to disk and a
  * fake `current` process, exercising the actual synchronous chokepoint rather than mocking it.
  */
 describe('manifest devices enforcement', () => {
@@ -32,7 +32,7 @@ describe('manifest devices enforcement', () => {
   }
 
   /** `/dev/battery`'s own read writes 18 bytes; readFile's default chunking undersizes the buffer
-   *  it's called with, unrelated to this policy check -- read explicitly instead. */
+   *  it's called with, unrelated to this policy check - read explicitly instead. */
   async function readBattery() {
     const handle = await kernel.filesystem.fs.open('/dev/battery', 'r')
     try {

@@ -141,12 +141,11 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     (async () => {
       // No cache fallback in dev (matches the intent below: localhost always goes straight to the
-      // network) but still guarded -- an unguarded `fetch(request)` here previously left a request
+      // network) but still guarded - an unguarded `fetch(request)` here previously left a request
       // that failed for a reason with nothing to do with this service worker (the dev server
       // restarting mid-request, a request aborted by page navigation, a stale/orphaned service
       // worker instance from before a rebuild still holding requests from an old module graph) with
-      // no path back to the browser's normal per-request network-error handling -- confirmed by hand
-      // to reproduce as a repeated, uncaught "Failed to fetch" logged once per such request on page
+      // no path back to the browser's normal per-request network-error handling. It shows up as a repeated, uncaught "Failed to fetch" logged once per such request on page
       // load, easy to trigger by leaving an old dev-server tab open across a rebuild.
       if (isLocalhost) {
         try {

@@ -5,7 +5,7 @@ import { needsMoreInput } from '../../src/lib/control-flow-parser.ts'
 /**
  * `needsMoreInput` is what the interactive prompt asks before deciding whether Enter runs a line or
  * asks for another one (`> `). Before it existed, `Terminal`'s Enter handler knew exactly one
- * continuation rule -- a trailing backslash -- so typing `cat <<EOF` or `for i in 1 2 3; do` at the
+ * continuation rule - a trailing backslash - so typing `cat <<EOF` or `for i in 1 2 3; do` at the
  * prompt ran that fragment immediately and then executed the following lines as separate commands
  * ("Command not found: for"). `pendingHeredocDelimiter` had been written for this and never called.
  *
@@ -26,7 +26,7 @@ describe('needsMoreInput', () => {
       ['a closed heredoc', 'cat <<EOF\nbody\nEOF'],
       ['a here-string, which needs no terminator', 'tr a-z A-Z <<< hello'],
       // A whole function definition on one line is complete, so the prompt must run it rather than
-      // ask for another line. Before it parsed, it read as a plain command and was also "complete" --
+      // ask for another line. Before it parsed, it read as a plain command and was also "complete" -
       // for the wrong reason, then failed as a command named `greet()`.
       ['a one-line function definition', 'greet() { echo hi; }'],
       ['a one-line function in the keyword form', 'function greet { echo hi; }'],

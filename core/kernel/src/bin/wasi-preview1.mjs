@@ -1,7 +1,7 @@
 /**
  * WASI preview1 for `/bin/wali`: a translation of `wasi_snapshot_preview1`, and of the
  * emscripten-proprietary `env.__syscall_*` ABI an ordinary (non-`STANDALONE_WASM`) `emcc` build
- * uses for file I/O, onto the real `@zenfs/linux` syscalls -- so a `wasm32-wasip1` program or a
+ * uses for file I/O, onto the real `@zenfs/linux` syscalls - so a `wasm32-wasip1` program or a
  * plain `emcc` build runs as a real worker-hosted Process (killable, on a real pid, with real
  * pipes and a real tty) instead of on the main thread inside `Kernel.executeWasm`, where a tight
  * loop freezes the tab and `^C` cannot reach it.
@@ -16,14 +16,14 @@
  * A wasi fd and a real fd share one numbering: 0-2 are the process's own stdio fds, and the `/`
  * and `.` preopens are opened for real right here (not reserved at fixed numbers 3/4), so whatever
  * real fds they land on can never collide with one `env.__syscall_openat` later hands out into the
- * very same real fd space -- unlike `wasi_snapshot_preview1.path_open`, which allocates its own
+ * very same real fd space - unlike `wasi_snapshot_preview1.path_open`, which allocates its own
  * fd numbers starting at `nextFd`, `__syscall_openat` returns a real fd directly. A collision here
  * was a real bug, caught by hand with a real `emcc` build (`tests/tree/wasi/fixtures/emcc-hello.c`):
  * a program's own file happened to open onto the fd the '.' preopen's fixed slot reserved, and
  * every `fd_write` to it silently hit the preopen's directory entry instead, throwing before the
- * write ever reached the real file -- caught with a durable, syscall-level trace (console output
+ * write ever reached the real file - caught with a durable, syscall-level trace (console output
  * from a worker close to its own exit is not reliable in this test environment; the eventual
- * fix -- opening the preopens for real up front -- came from that trace, not from guessing).
+ * fix - opening the preopens for real up front - came from that trace, not from guessing).
  */
 
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
@@ -47,8 +47,8 @@ const ERRNO = {
 // What an `env.__syscall_*` hands back on failure is `-errno`, in emscripten 6's own numbering: its
 // musl headers define ENOENT as 44 and EACCES as 2, which are the WASI values, not Linux's 2 and 13.
 // (Confirmed by compiling `ENOENT` into a program and running it here.) A program that only tests
-// for `< 0` never notices; one that compares `errno` to `ENOENT` -- Vim deciding a missing file is a
-// new file, not a permission error -- does. So these extend `ERRNO` with the names only the socket
+// for `< 0` never notices; one that compares `errno` to `ENOENT` - Vim deciding a missing file is a
+// new file, not a permission error - does. So these extend `ERRNO` with the names only the socket
 // and epoll calls need, rather than a second table of Linux numbers.
 const SYSCALL_ERRNO = {
   ...ERRNO,
@@ -81,7 +81,7 @@ const FILETYPE = { unknown: 0, block: 1, char: 2, dir: 3, file: 4, socket: 6, li
 const POLLIN = 0x1
 const POLLOUT = 0x4
 
-// epoll(7) -- values from musl's <sys/epoll.h>. EPOLLIN/EPOLLOUT are deliberately the same bits as
+// epoll(7) - values from musl's <sys/epoll.h>. EPOLLIN/EPOLLOUT are deliberately the same bits as
 // POLLIN/POLLOUT (true on real Linux too), so `pollFds`'s revents can be used as epoll's outgoing
 // `events` with no translation.
 const EPOLL_CTL_ADD = 1
@@ -90,7 +90,7 @@ const EPOLL_CTL_MOD = 3
 const EPOLL_CLOEXEC = 0x80000
 // struct epoll_event on wasm32 (confirmed by compiling a real offsetof() probe with the installed
 // emcc 6.0.9, the same methodology as struct stat's own layout): { u32 events @0; u64 data @8 },
-// 16 bytes total -- unlike x86_64, wasm32 has no __attribute__((packed)) on it, so `data` is
+// 16 bytes total - unlike x86_64, wasm32 has no __attribute__((packed)) on it, so `data` is
 // 8-aligned, not 4.
 const EPOLL_EVENT_SIZE = 16
 
@@ -149,10 +149,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const decoder = new TextDecoder()
 
   // The preopens are opened *eagerly*, right here, so they get real fd numbers from the same real
-  // allocator env.__syscall_openat (below) hands out into -- not the fixed 3/4 a lazy-open used to
+  // allocator env.__syscall_openat (below) hands out into - not the fixed 3/4 a lazy-open used to
   // reserve. That fixed numbering was a real bug: a program using env.__syscall_openat opens into
   // the very same real fd space (unlike wasi path_open's own wasi-fd numbers starting at `nextFd`),
-  // so a real file that happened to land on fd 4 collided with the '.' preopen's reserved slot --
+  // so a real file that happened to land on fd 4 collided with the '.' preopen's reserved slot -
   // fd_write(4, ...) matched the stale directory entry and threw before ever reaching the real
   // file, a silent, hard-to-trace failure caught by hand with a real emcc build (see
   // tests/tree/wasi/fixtures/emcc-hello.c). Opening for real here, before anything else can, is
@@ -171,11 +171,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   let nextFd = Math.max(preopenRoot, preopenCwd, 255) + 1
 
   // epoll instances: a synthetic fd from the same real allocator (`nextFd`), so it can never
-  // collide with a real fd `env.__syscall_openat` hands out, but is never registered in `fds` --
+  // collide with a real fd `env.__syscall_openat` hands out, but is never registered in `fds` -
   // it isn't a real file, and fd_read/fd_write/fd_close etc. on it correctly see EBADF via
   // `entryOf`'s fallback. `interests` maps a watched real fd to its registered `{ events, dataLo,
   // dataHi }` (the two dataLo/dataHi halves are epoll_data_t's opaque 8 bytes, echoed back
-  // unexamined -- same split trick emscripten's own libepoll.js uses so it works without
+  // unexamined - same split trick emscripten's own libepoll.js uses so it works without
   // WASM_BIGINT too).
   const epollInstances = new Map()
 
@@ -200,7 +200,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   }
 
   // A real fd this instance saw only through `env.__syscall_openat` (below) has never been
-  // registered here -- fd_write/fd_read/fd_close etc. still need to reach it, so an unknown
+  // registered here - fd_write/fd_read/fd_close etc. still need to reach it, so an unknown
   // non-negative fd is treated as a plain, already-open file rather than EBADF. `fds` stays the
   // source of truth for fd 0-4 and anything opened through path_open.
   const entryOf = (fd) => fds.get(fd) ?? (fd >= 0 ? { fd, path: null, dir: false } : undefined)
@@ -417,7 +417,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (offset === 0n && whence === 0) dirPos.delete(fd) // rewinddir
       const entry = entryOf(fd)
       if (!entry) return EBADF
-      // wasi whence: 0 SET, 1 CUR, 2 END -- the same numbers lseek(2) uses
+      // wasi whence: 0 SET, 1 CUR, 2 END - the same numbers lseek(2) uses
       return guard(() => {
         view().setBigUint64(newOffsetPtr, BigInt(lseek(realFd(entry), Number(offset), whence)), true)
       })
@@ -635,7 +635,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         sleepMs(soonest)
       }
       // A regular file or a directory is always ready; an unconnected socket (no real fd to poll
-      // yet) is not -- only these two cases ever fall out of `pollable` now that sockets exist.
+      // yet) is not - only these two cases ever fall out of `pollable` now that sockets exist.
       for (const sub of fdSubs) if (!pollable.includes(sub) && !sockets.has(sub.fd)) ready.push(sub)
 
       const events = ready.length ? ready : clockSubs.filter(sub => sub.ms <= soonest)
@@ -692,13 +692,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   }
 
   // Emscripten's own `env.__syscall_*` ABI, the layer its libc (as opposed to a plain `wasm32-wasip1`
-  // target's) actually calls for file I/O -- present alongside `wasi_snapshot_preview1` in a normal
+  // target's) actually calls for file I/O - present alongside `wasi_snapshot_preview1` in a normal
   // (non-STANDALONE_WASM) `emcc` build. Verified against a real `emcc` 6.0.9 build's own JS runtime
   // (`src/lib/libsyscall.js` in the emscripten install) rather than guessed: signatures, the varargs
   // convention (the last param is a pointer into wasm memory holding packed i32 extras, read one at a
-  // time and advanced -- `syscallGetVarargI`) and the `struct stat` layout (offsets confirmed by
+  // time and advanced - `syscallGetVarargI`) and the `struct stat` layout (offsets confirmed by
   // compiling and running a small `offsetof` probe with the same `emcc`) all come from there. These
-  // calls use real fds directly, the same integer space `open()` returns into -- no wasi-fd remapping
+  // calls use real fds directly, the same integer space `open()` returns into - no wasi-fd remapping
   // needed, unlike the `wasi_snapshot_preview1` side above. Sockets and `fcntl` locking/duplication
   // beyond `F_DUPFD` are not implemented; they answer ENOSYS. `epoll` is implemented for real (see
   // `doEpollWait` above): emscripten's own `libepoll.js` derives every epoll readiness question from
@@ -909,7 +909,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const sockets = new Map() // synthetic fd -> { family, key, bound, listening, connected }
 
   /** Calls a `main-thread-syscalls.ts` custom syscall that answers through a scratch file (JSON),
-   * the same bridge `/bin/node`'s `lib/scratch.mjs` gives coreutils -- reimplemented locally with
+   * the same bridge `/bin/node`'s `lib/scratch.mjs` gives coreutils - reimplemented locally with
    * the real fs syscalls this file already imports, since `/bin/wali` runs raw WASM, not JS, and
    * has no `globalThis.ecmaosSyscalls`. */
   function callMainThread(name, ...args) {
@@ -1139,11 +1139,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
   }
 
-  /** Whether `fd` is a socket, and if so its real backing fd for `direction` -- used by
+  /** Whether `fd` is a socket, and if so its real backing fd for `direction` - used by
    * `fd_read`/`fd_write`/etc (the WASI ABI, which is what a socket's read()/write() actually go
    * through, same as a plain file's) so they redirect transparently instead of trying `entryOf`'s
    * generic real-fd fallback on a purely synthetic number. Returns WASI `EBADF` (this file's own
-   * `EBADF` constant, not `SYSCALL_ERRNO`'s -- `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
+   * `EBADF` constant, not `SYSCALL_ERRNO`'s - `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
    * for a socket that exists but isn't connected yet. */
   function socketRealFd(fd, direction) {
     const sock = sockets.get(fd)
@@ -1152,7 +1152,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined, local: sock.dgram ? undefined : sock }
   }
 
-  // -- name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`) -------------------------------------------------------
+  // - name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`) -------------------------------------------------------
   // An emscripten build does not use musl's resolver: it imports `env.getaddrinfo`, `env.getnameinfo` and `env._emscripten_lookup_name`,
   // which normally invent addresses. Here they ask the main thread (`dns_lookup`: /etc/hosts, then the gateway's resolver, see
   // `remote-gateway.ts`). The structs are wasm32 musl's (`struct addrinfo` is 32 bytes). `gethostbyname` is IPv4 by definition.
@@ -1594,7 +1594,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
     // mkfifo(3) and mknod(2): GNU make's jobserver asks for a fifo, and falls back when it cannot have one.
     __syscall_mknodat: () => -SYSCALL_ERRNO.ENOSYS,
-    // pipe2(2): two real descriptors, written to `int fds[2]`. (`flags` -- O_CLOEXEC, O_NONBLOCK -- are not applied.)
+    // pipe2(2): two real descriptors, written to `int fds[2]`. (`flags` - O_CLOEXEC, O_NONBLOCK - are not applied.)
     __syscall_pipe2: (fdsPtr, flags) => guardLinux(() => {
       const [readEnd, writeEnd] = pipe(flags)
       view().setInt32(fdsPtr, readEnd, true)
@@ -1731,7 +1731,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     // `flags` may carry SOCK_NONBLOCK: an empty accept queue then answers EAGAIN immediately
     // instead of the worker polling (`net_accept`'s own doc comment has the main-thread half).
     // A blocking accept4 polls `net_accept` on a short interval until a connection lands or this
-    // worker is killed -- interruptible the same way every other wait in this file is: `kill`/`^C`
+    // worker is killed - interruptible the same way every other wait in this file is: `kill`/`^C`
     // tears the worker down regardless of what JS statement happens to be running.
     __syscall_accept4: (fd, addrPtr, addrlenPtr, flags) => {
       const sock = sockets.get(fd)
@@ -1867,7 +1867,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       dv.setInt32(msgPtr + 24, took?.ctrunc ? MSG_CTRUNC : 0, true)
       return data.length
     }),
-    // No real socket-level options exist for a loopback pipe pair -- accepted as a harmless no-op
+    // No real socket-level options exist for a loopback pipe pair - accepted as a harmless no-op
     // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.
     // The one that matters is IPV6_V6ONLY: whether an IPv6 socket bound to `::` also takes IPv4 (not by default). It must be set before bind().
     __syscall_setsockopt: (fd, level, optname, optvalPtr, optlen) => {
@@ -1910,7 +1910,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
 /** Runs a preview1 module to completion and returns its exit code. */
 /**
- * Builds a real argc/argv (a char** with each arg NUL-terminated) -- the shape `__main_argc_argv`
+ * Builds a real argc/argv (a char** with each arg NUL-terminated) - the shape `__main_argc_argv`
  * (emscripten's non-STANDALONE_WASM entry point, taken when there is no `_start`) expects, the same
  * as libc's own `main(argc, argv)`. Memory is not grown (a module built with a fixed max, the
  * ordinary case, rejects that): the space comes from the module's own stack allocator, the same one
@@ -2005,7 +2005,7 @@ const SIGWINCH = 28
  * A module that exports `ecmaos_signal(sig)` (see `core/utils-copyleft/wasm/vim/libc-gaps.c`) gets the kernel's signals run
  * through the handlers it set with `signal()`/`sigaction()`. The kernel raises them while the worker is in a
  * blocking syscall (Vim waiting for a key), and upstream runs handlers registered with `on_signal` as that
- * syscall returns -- which is inside the module's own import call, so calling back into it is safe. A
+ * syscall returns - which is inside the module's own import call, so calling back into it is safe. A
  * signal the program set no handler for does what the default does. Registering a handler also tells the
  * kernel to stop taking the default action, so this is done only for modules that can answer.
  */
@@ -2028,7 +2028,7 @@ export async function runPreview1(source) {
   const { imports, ProcExit: Exit, args } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports)
   const memoryImport = detectMemoryImport(bytes)
   if (memoryImport) {
-    // The module wants its memory handed in rather than exported -- create it to the module's own
+    // The module wants its memory handed in rather than exported - create it to the module's own
     // declared limits and answer the import with it, same as any other host would.
     memory = new WebAssembly.Memory(memoryImport.maximum !== undefined
       ? { initial: memoryImport.initial, maximum: memoryImport.maximum }
@@ -2051,7 +2051,7 @@ export async function runPreview1(source) {
       _initialize()
     } else if (typeof __main_argc_argv === 'function') {
       // Ordinary emcc output: no _start, driven the way emscripten's own JS glue (Module.callMain)
-      // would drive it -- run static constructors, call main(argc, argv), then flush stdio and any
+      // would drive it - run static constructors, call main(argc, argv), then flush stdio and any
       // atexit handlers the way EXIT_RUNTIME's own exit path does, since there is no glue to do it.
       if (typeof instance.exports.emscripten_stack_init === 'function') instance.exports.emscripten_stack_init()
       if (typeof __wasm_call_ctors === 'function') __wasm_call_ctors()

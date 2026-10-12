@@ -1,6 +1,6 @@
 /**
  * Limits for the IndexedDB root, which is held whole in memory (every file costs its size in RAM and is one record, so changing it
- * rewrites all of it; measured in `.docs/STORAGE_MEASUREMENTS.md`). Without a limit a large file ends in a crashed or frozen tab;
+ * rewrites all of it). Without a limit a large file ends in a crashed or frozen tab;
  * with one it ends in an ordinary `EFBIG` from the write, and a log line says when the total in memory is getting large.
  */
 

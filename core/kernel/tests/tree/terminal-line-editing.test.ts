@@ -9,7 +9,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * The prompt's line editor, driven the way a keyboard drives it: through `keyHandler`, one key
  * event at a time. The editor's own arithmetic is covered in `lib/line-editor.test.ts`; this is the
- * wiring -- that `Terminal` routes the keys, that `PS1`/`PS2` and the non-printing markers reach the
+ * wiring - that `Terminal` routes the keys, that `PS1`/`PS2` and the non-printing markers reach the
  * width the editor uses, and that history and `^R` sit on the same line.
  */
 describe('Terminal line editing', () => {

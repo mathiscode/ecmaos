@@ -11,7 +11,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * the worker program pushed it past a real, empirically-confirmed size limit on importing a `data:`
  * URL this large (import failed with a bare `SyntaxError`, no useful message). Replaced with a
  * hand-written real ZIP central-directory parser (stat only ever needed each entry's filename and
- * uncompressed size) -- see stat.mjs's own doc comment. tee's `shell.expandTilde(...)` (a live
+ * uncompressed size) - see stat.mjs's own doc comment. tee's `shell.expandTilde(...)` (a live
  * `Shell` method) is replaced by a small worker-local `~` expansion using `env.HOME`.
  */
 describe('text command batch 5: split/pr/tee/stat, real execve', () => {
@@ -40,7 +40,7 @@ describe('text command batch 5: split/pr/tee/stat, real execve', () => {
 
   it('split splits a file into pieces by line count', async () => {
     // The PREFIX argument is joined against the INPUT file's own directory (dirname(fullPath)),
-    // matching the original in-process command's behavior exactly -- a bare prefix name, not a
+    // matching the original in-process command's behavior exactly - a bare prefix name, not a
     // full path of its own, is the real intended usage (same as real `split`'s own convention).
     await kernel.filesystem.fs.mkdir('/tmp/split-test', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/split-test/input.txt', 'a\nb\nc\nd\n')
@@ -84,8 +84,8 @@ describe('text command batch 5: split/pr/tee/stat, real execve', () => {
   })
 
   it('stat lists real ZIP entries via the hand-written central-directory parser', async () => {
-    // A minimal, real, uncompressed (store-method) ZIP built by hand -- one local file header, one
-    // matching central directory record, one end-of-central-directory record -- exercises the same
+    // A minimal, real, uncompressed (store-method) ZIP built by hand - one local file header, one
+    // matching central directory record, one end-of-central-directory record - exercises the same
     // real ZIP binary format stat.mjs's own parser reads, without depending on any zip-writing
     // command (`zip` stays on the legacy shim and isn't what this test is about).
     const name = 'hello.txt'

@@ -14,7 +14,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * They split two ways. `$SHLVL` is a real environment entry, because it only means anything when a
  * child shell inherits it and adds one. The rest are computed at every read: `$RANDOM` must give a
  * new number each time, `$SECONDS` counts up on its own, and `$$` needs a pid that cannot collide
- * with a real process -- so the shell takes one from `@zenfs/linux`'s own table by owning a real
+ * with a real process - so the shell takes one from `@zenfs/linux`'s own table by owning a real
  * registered `Process`, rather than inventing a number.
  */
 describe('special parameters', () => {

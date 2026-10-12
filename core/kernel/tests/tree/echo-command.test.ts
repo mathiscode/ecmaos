@@ -8,8 +8,8 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * Regression coverage for `echo`'s option parsing
  * (`core/utils/src/commands-execve/echo.mjs`). It used to treat every `-`-leading argument as a
- * flag bundle and hard-fail on any letter that wasn't `n` or `e`, so `echo '---'` -- a common
- * separator idiom -- printed `echo: invalid option -- '-'` instead of `---`, and quoting didn't
+ * flag bundle and hard-fail on any letter that wasn't `n` or `e`, so `echo '---'` - a common
+ * separator idiom - printed `echo: invalid option -- '-'` instead of `---`, and quoting didn't
  * help. It also wrote that error to fd 1, putting it in a pipe as data, and never stopped option
  * scanning at the first operand.
  *

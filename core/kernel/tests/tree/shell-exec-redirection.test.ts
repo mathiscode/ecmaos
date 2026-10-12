@@ -6,7 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `exec` with redirections and no command -- `exec > run.log 2>&1` at the top of a script, which is
+ * `exec` with redirections and no command - `exec > run.log 2>&1` at the top of a script, which is
  * how a script sends everything after it to a file.
  *
  * The command form (`exec prog args`) replaces the shell's process image, which ecmaOS has nothing

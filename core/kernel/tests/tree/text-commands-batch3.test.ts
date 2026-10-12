@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 /**
  * strings/xxd/od/hash/cmp/comm/column migrated onto real execve, continuing the "migrate
  * opportunistically" plan. hash uses crypto.subtle.digest (Web Crypto), available inside a Web
- * Worker by spec, unlike window/document -- no bridge needed. column bundles `columnify` (a plain
+ * Worker by spec, unlike window/document - no bridge needed. column bundles `columnify` (a plain
  * npm package) the same way df/install already bundle human-format/semver. Same behavioral notes
  * as prior batches: no in-band interrupt handling, no /dev-path special case.
  */

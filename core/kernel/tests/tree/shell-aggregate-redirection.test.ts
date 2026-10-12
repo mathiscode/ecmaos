@@ -10,7 +10,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * function call (`greet > out`), and `eval`/`source`.
  *
  * None of the three is a command with a set of fds. Each runs a whole statement tree whose commands
- * build their own streams, so the redirection was parsed and then silently discarded -- `done > out`
+ * build their own streams, so the redirection was parsed and then silently discarded - `done > out`
  * left `out` untouched and printed to the screen, exactly the bug `done < f` had on the input side.
  * `Shell` now holds the redirection for the duration of the aggregate command and every command
  * inside it inherits it, with its own redirection still winning.
@@ -97,7 +97,7 @@ describe('redirections on aggregate commands', () => {
         `done > ${OUT}`
       ].join('\n'))
       expect(await read(OUT)).toBe('outer1\nouter2\n')
-      // Each `echo inner` opened the file itself, so only the last one's output remains -- a command's
+      // Each `echo inner` opened the file itself, so only the last one's output remains - a command's
       // own `>` is not covered by the statement's already-truncated bookkeeping, and should not be.
       expect(await read(ERR)).toBe('inner2\n')
     })

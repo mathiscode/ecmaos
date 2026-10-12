@@ -23,7 +23,7 @@ function failAfterSpinner(kernel: Kernel, message: string) {
   return spinner
 }
 
-describe('boot failure leaves an honest UI', () => {
+describe('boot failure leaves a usable UI', () => {
   it('stops the spinner, clears the topbar, and toasts the error message', async () => {
     const kernel = newKernel()
     await kernel.dom.init()

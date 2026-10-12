@@ -147,11 +147,11 @@ async function upgradeBootInit(ctx: FsMigrationContext): Promise<void> {
  * field a comma-separated list of supplementary gids) to the real 7-field format
  * (`name:x:uid:gid:gecos:home:shell`) and writes the supplementary groups out to a new
  * `/etc/group` (`name:x:gid:members`), synthesizing each group's name from whichever user has it
- * as their primary gid, or `group<gid>` if none does -- this filesystem has no group-creation
+ * as their primary gid, or `group<gid>` if none does - this filesystem has no group-creation
  * API, only users with a primary gid, so there is no other name to recover.
  *
  * A passwd file already in the 7-field format (its 2nd field is the literal `x`) is left alone,
- * so this migration is safe to run again -- the boot version marker already prevents that in the
+ * so this migration is safe to run again - the boot version marker already prevents that in the
  * normal case, but a filesystem hand-edited between migrations shouldn't be double-converted.
  */
 async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {

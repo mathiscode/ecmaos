@@ -14,7 +14,7 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 
 ## Options
 
-- `-p` -- list the readonly variables (also with no NAME)
+- `-p` - list the readonly variables (also with no NAME)
 
 ## Exit status
 
