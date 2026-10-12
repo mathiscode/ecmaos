@@ -318,8 +318,14 @@ describe('the browser calls a display does', () => {
     expect(outcome).toEqual({ uploaded: ['ok'], errors: ['Failed to upload bad: EACCES'] })
   })
 
+  it('reads media for a display and names its type', async () => {
+    const params = await remoteKinds['video']!.prepare!(kernel(), undefined as never, { path: '/v/clip.webm', title: 't' })
+    expect(params).toMatchObject({ kind: 'video', name: 'clip.webm', type: 'video/webm', bytes: new Uint8Array([1, 2, 3]) })
+    expect(await remoteKinds['audio']!.prepare!(kernel(), undefined as never, { path: '/a/x.flac' })).toMatchObject({ kind: 'audio', type: 'audio/flac' })
+  })
+
   it('has a way to do every call the owner routes', () => {
-    expect(Object.keys(remoteKinds).sort()).toEqual(['clipboard-read', 'clipboard-write', 'download', 'external', 'notify', 'speak', 'upload'])
+    expect(Object.keys(remoteKinds).sort()).toEqual(['audio', 'clipboard-read', 'clipboard-write', 'download', 'external', 'notify', 'speak', 'upload', 'video'])
   })
 })
 

@@ -19,6 +19,7 @@ import { KernelEvents } from '@ecmaos/types'
 import type { Kernel } from '#kernel.ts'
 
 import { presentClipboardRead, presentClipboardWrite, presentNotify, presentSpeak } from './bridge.ts'
+import { AUDIO_MIME, VIDEO_MIME, mimeType } from './media.ts'
 import type { Presented } from './index.ts'
 
 type Params = Record<string, unknown>
@@ -72,11 +73,75 @@ function runPick(): Presented {
   return { closed, dispose: () => input.remove() }
 }
 
+/** Plays media in a full-page overlay of the display (it has no window manager); Escape or the button closes it */
+async function runMedia(params: Params): Promise<Presented> {
+  const bytes = params['bytes']
+  if (!(bytes instanceof Uint8Array)) throw new Error('missing file')
+  const video = params['kind'] === 'video'
+  const options = (params['options'] ?? {}) as { autoplay?: boolean, loop?: boolean, muted?: boolean, volume?: number, quiet?: boolean }
+  const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: String(params['type'] ?? '') }))
+  const element = document.createElement(video ? 'video' : 'audio')
+  element.src = url
+  element.preload = 'metadata'
+  element.controls = !options.quiet
+  element.autoplay = !!options.autoplay
+  element.loop = !!options.loop
+  element.muted = !!options.muted
+  if (typeof options.volume === 'number') element.volume = options.volume / 100
+
+  let duration = 0
+  let metadataFailed = false
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout')), 10_000)
+      element.onloadedmetadata = () => { clearTimeout(timer); resolve() }
+      element.onerror = () => { clearTimeout(timer); reject(new Error('failed')) }
+    })
+    duration = element.duration
+  } catch { metadataFailed = true }
+
+  if (options.quiet) {
+    element.play().catch(() => {})
+    return { result: { duration, metadataFailed, quiet: true } }
+  }
+
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(0,0,0,.92);color:#e6e6e6;font:14px monospace;padding:16px'
+  const title = document.createElement('div')
+  title.textContent = String(params['name'] ?? '')
+  element.style.cssText = video ? 'max-width:100%;max-height:85vh' : 'width:100%;max-width:600px'
+  const close = document.createElement('button')
+  close.textContent = 'Close (Esc)'
+  const closed = new Promise<unknown>(resolve => {
+    const done = () => { element.pause(); overlay.remove(); URL.revokeObjectURL(url); document.removeEventListener('keydown', onKey, true); resolve({ duration, metadataFailed, quiet: false }) }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') done() }
+    document.addEventListener('keydown', onKey, true)
+    close.onclick = done
+    ;(overlay as HTMLElement & { done?: () => void }).done = done
+  })
+  overlay.append(title, element, close)
+  document.body.append(overlay)
+  // the program ends when the player is closed, as a window's does
+  return { closed, dispose: () => (overlay as HTMLElement & { done?: () => void }).done?.() }
+}
+
+const mediaKind = (kind: 'video' | 'audio'): RemoteKind => ({
+  prepare: async (kernel, _proc, params) => {
+    const path = params['path']
+    if (typeof path !== 'string' || !path) throw new Error('missing path')
+    const table = kind === 'video' ? VIDEO_MIME : AUDIO_MIME
+    return { ...params, kind, name: typeof params['name'] === 'string' ? params['name'] : path.split('/').pop(), type: mimeType(table, kind === 'video' ? 'video/mp4' : 'audio/mpeg', path), bytes: new Uint8Array(await kernel.filesystem.fs.readFile(path)) }
+  },
+  run: runMedia
+})
+
 export const remoteKinds: Record<string, RemoteKind> = {
   notify: { run: params => presentNotify(undefined as never, undefined, params) },
   'clipboard-write': { run: params => presentClipboardWrite(undefined as never, undefined, params) },
   'clipboard-read': { run: () => presentClipboardRead() },
   speak: { run: params => presentSpeak(undefined as never, undefined, params) },
+  video: mediaKind('video'),
+  audio: mediaKind('audio'),
   external: { run: runExternal },
   download: {
     prepare: async (kernel, _proc, params) => {
