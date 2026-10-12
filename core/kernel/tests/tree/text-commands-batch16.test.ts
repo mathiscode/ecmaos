@@ -65,9 +65,8 @@ describe('text command batch 16: chown, real execve', () => {
     // Before the @zenfs/core fix that lets chmod/chown open a directory (the sync call opened it with
     // 'r+', which fails with EISDIR), `chown -R somedir` failed on the directory itself and never
     // reached its contents. The installed @zenfs/core decides which of the two happens here.
-    const { fs: zenfs } = await import('@zenfs/core')
     await kernel.filesystem.fs.mkdir('/tmp/chown-probe')
-    const directoriesWork = (() => { try { zenfs.chownSync('/tmp/chown-probe', 0, 0); return true } catch { return false } })()
+    const directoriesWork = await kernel.shell.execute('chown 9:9 /tmp/chown-probe 2>/dev/null') === 0
 
     await kernel.filesystem.fs.mkdir('/tmp/chown-recursive', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/chown-recursive/a.txt', 'a')

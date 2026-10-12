@@ -6,8 +6,10 @@
  */
 
 import { resolve, join, basename } from './lib/path-utils.mjs'
+import { chmodOwned, chownOwned } from './lib/owner-ops.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, chmod, chown, utimes, copyFile } = globalThis.ecmaosSyscalls
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd, stat, isDirectory, readdir, mkdir, utimes, copyFile } = sys
 
 const usage = `Usage: cp [OPTION]... SOURCE... DEST
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.
@@ -21,29 +23,25 @@ function exists(path) {
   try { stat(path); return true } catch { return false }
 }
 
-/** `chmod`, except that a directory whose mode cannot be changed (an older `@zenfs/core` cannot, nor its times) keeps the one it has. */
-function setMode(path, mode) {
-  try { chmod(path, mode) } catch (error) { if (!isDirectory(path)) throw error }
-}
-
 /** Keeps what `-p` asks for: the whole mode, and the owner when this caller is allowed to give it. */
-function preserve(stats, destPath) {
-  setMode(destPath, stats.mode & 0o7777)
-  try { chown(destPath, stats.uid, stats.gid) } catch { /* only root may give a file away */ }
+async function preserve(stats, destPath) {
+  // the owner first: changing it clears the setuid and setgid bits, which the mode then puts back
+  try { await chownOwned(sys, destPath, stats.uid, stats.gid) } catch { /* only root may give a file away */ }
+  await chmodOwned(sys, destPath, stats.mode & 0o7777)
   // last, since writing into a directory changes its times
   // seconds, as Node's `utimes` takes them (the upstream wrapper's comment says milliseconds; it is not)
   try { utimes(destPath, stats.atimeMs / 1000, stats.mtimeMs / 1000) } catch (error) { if (!isDirectory(destPath)) throw error }
 }
 
-function copyOne(sourcePath, destPath, keep) {
+async function copyOne(sourcePath, destPath, keep) {
   // taken before the source is read, which is what changes its access time
   const stats = stat(sourcePath)
   // the mode only matters for a file that does not exist yet; an older @zenfs/core also checks it as access to one that does
   copyFile(sourcePath, destPath, exists(destPath) ? 0o644 : stats.mode & 0o777)
-  if (keep) preserve(stats, destPath)
+  if (keep) await preserve(stats, destPath)
 }
 
-function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDest, keep) {
+async function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDest, keep) {
   if (isDirectory(sourcePath)) {
     const stats = stat(sourcePath)
     const mode = stats.mode & 0o777
@@ -54,17 +52,17 @@ function copyRecursive(sourcePath, destPath, verbose, relativeSource, relativeDe
       if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
     }
     for (const entry of readdir(sourcePath)) {
-      copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry), keep)
+      await copyRecursive(join(sourcePath, entry), join(destPath, entry), verbose, join(relativeSource, entry), join(relativeDest, entry), keep)
     }
-    if (keep) preserve(stats, destPath)
-    else if (created && (mode | 0o700) !== mode) setMode(destPath, mode)
+    if (keep) await preserve(stats, destPath)
+    else if (created && (mode | 0o700) !== mode) await chmodOwned(sys, destPath, mode)
   } else {
-    copyOne(sourcePath, destPath, keep)
+    await copyOne(sourcePath, destPath, keep)
     if (verbose) writeAll(1, new TextEncoder().encode(`'${relativeSource}' -> '${relativeDest}'\n`))
   }
 }
 
-function main() {
+async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
     writeAll(2, new TextEncoder().encode(usage + '\n'))
@@ -126,9 +124,9 @@ function main() {
             continue
           }
           const relativeDest = isDestDir ? join(destination, basename(source)) : destination
-          copyRecursive(sourcePath, finalDest, verbose, source, relativeDest, keep)
+          await copyRecursive(sourcePath, finalDest, verbose, source, relativeDest, keep)
         } else {
-          copyOne(sourcePath, finalDest, keep)
+          await copyOne(sourcePath, finalDest, keep)
           if (verbose) {
             const relativeDest = isDestDir ? join(destination, basename(source)) : destination
             writeAll(1, new TextEncoder().encode(`'${source}' -> '${relativeDest}'\n`))
@@ -150,7 +148,7 @@ function main() {
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   writeAll(2, new TextEncoder().encode(`cp: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)

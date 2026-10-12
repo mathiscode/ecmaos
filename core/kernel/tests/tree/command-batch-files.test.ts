@@ -85,7 +85,7 @@ describe('text and file commands', () => {
     }, 30000)
 
     it('hash takes md5 too', async () => {
-      expect((await sh('hash -a md5 abc.txt')).out).toBe('900150983cd24fb0d6963f7d28e17f72  abc.txt\n')
+      expect((await sh('/bin/hash -a md5 abc.txt')).out).toBe('900150983cd24fb0d6963f7d28e17f72  abc.txt\n')
     }, 30000)
   })
 

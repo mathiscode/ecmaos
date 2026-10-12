@@ -64,7 +64,7 @@ describe('text command batch 3: strings/xxd/od/hash/cmp/comm/column, real execve
 
   it('hash computes a real SHA-256 digest matching a known value', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/hash-in.txt', 'hello')
-    const code = await kernel.shell.execute('hash /tmp/hash-in.txt > /tmp/hash.out')
+    const code = await kernel.shell.execute('/bin/hash /tmp/hash-in.txt > /tmp/hash.out')
     expect(code).toBe(0)
     const out = (await kernel.filesystem.fs.readFile('/tmp/hash.out', 'utf-8')).trim()
     expect(out.split(/\s+/)[0]).toBe('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824')
