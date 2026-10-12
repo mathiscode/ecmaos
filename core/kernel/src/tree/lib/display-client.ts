@@ -18,6 +18,13 @@ export function displayAddress(href: string, tty: number): string {
 }
 
 /** The tty and store a page address asks to display, or `undefined` for a normal boot */
+/** The tty a Ctrl+Shift+Digit0..7 key press asks for, or `undefined` for any other key */
+export function displayKeyTarget(event: { ctrlKey: boolean, shiftKey: boolean, altKey?: boolean, metaKey?: boolean, code: string }): number | undefined {
+  if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return undefined
+  const match = /^Digit([0-7])$/.exec(event.code)
+  return match ? Number(match[1]) : undefined
+}
+
 export function displayRequest(search: string): { tty: number, store: string } | { error: string } | undefined {
   const params = new URLSearchParams(search)
   const raw = params.get('display')
@@ -83,11 +90,11 @@ export async function runDisplay(request: { tty: number, store: string } | { err
 
   // Ctrl+Shift+0..7 shows another tty of the machine; the machine keeps every tty's state, so this tab only attaches elsewhere
   document.addEventListener('keydown', event => {
-    const match = event.ctrlKey && event.shiftKey ? /^Digit([0-7])$/.exec(event.code) : null
-    if (!match) return
+    const target = displayKeyTarget(event)
+    if (target === undefined) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (Number(match[1]) !== tty) globalThis.location.href = displayAddress(globalThis.location.href, Number(match[1]))
+    if (target !== tty) globalThis.location.href = displayAddress(globalThis.location.href, target)
   }, true)
 
   keepDisplay(store, tty, surface, { locks: globalThis.navigator?.locks, present })

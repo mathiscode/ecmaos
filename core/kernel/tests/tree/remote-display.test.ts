@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DisplayOwner, attachDisplay, keepDisplay, type DisplaySurface, type KeyMods, type MirroredTerminal, type RemoteCall } from '#lib/remote-display.ts'
 import { machineLockName } from '#lib/machine-lock.ts'
-import { displayAddress, displayRequest } from '#lib/display-client.ts'
+import { displayAddress, displayKeyTarget, displayRequest } from '#lib/display-client.ts'
 import { remoteKinds } from '#lib/presenters/remote.ts'
 
 const store = 'zenfs-test'
@@ -339,5 +339,16 @@ describe('display address', () => {
   })
   it('keeps the machine when building the address', () => {
     expect(displayAddress('http://x/?machine=work', 2)).toBe('http://x/?machine=work&display=2')
+  })
+  it('maps Ctrl+Shift+Digit0..7 to a tty and ignores other keys', () => {
+    const key = (code: string, mods: object = {}) => ({ ctrlKey: true, shiftKey: true, code, ...mods })
+    expect(displayKeyTarget(key('Digit0'))).toBe(0)
+    expect(displayKeyTarget(key('Digit7'))).toBe(7)
+    expect(displayKeyTarget(key('Digit8'))).toBeUndefined()
+    expect(displayKeyTarget(key('KeyA'))).toBeUndefined()
+    expect(displayKeyTarget(key('Digit2', { shiftKey: false }))).toBeUndefined()
+    expect(displayKeyTarget(key('Digit2', { ctrlKey: false }))).toBeUndefined()
+    expect(displayKeyTarget(key('Digit2', { altKey: true }))).toBeUndefined()
+    expect(displayKeyTarget(key('Digit2', { metaKey: true }))).toBeUndefined()
   })
 })
