@@ -262,6 +262,21 @@ export interface Terminal extends XTerm {
    */
   clearCommand(): string
 
+  /** The screen as escape sequences, or `null` when it cannot be taken */
+  serialize(): string | null
+
+  /** Calls `sink` with everything written to the terminal from now on (a remote display); returns how to stop */
+  mirror(sink: (data: string | Uint8Array) => void): () => void
+
+  /** Text typed at a remote display, as `onData` carries it */
+  remoteData(data: string): void
+
+  /** A remote display's window size */
+  remoteResize(cols: number, rows: number): void
+
+  /** A key pressed at a remote display, as `onKey` carries it */
+  remoteKey(key: string, mods: { key: string, ctrl: boolean, alt: boolean, shift: boolean, meta: boolean }): void
+
   /**
    * Restore terminal command
    * @param cmd - Command to restore

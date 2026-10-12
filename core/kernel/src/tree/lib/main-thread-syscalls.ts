@@ -51,7 +51,8 @@ import type { TraceOptions } from './syscall-trace.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
-import { presenters } from './presenters/index.ts'
+import { presenters, type Presented } from './presenters/index.ts'
+import { remoteKinds } from './presenters/remote.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) -- the
@@ -164,6 +165,12 @@ async function writeScratch(kernel: Kernel, proc: Process, path: string, text: s
   await kernel.filesystem.fs.writeFile(path, text, { mode: 0o600 })
   const { euid, egid } = proc.context.credentials
   if (euid !== 0) await kernel.filesystem.fs.chown(path, euid, egid)
+}
+
+/** The tty a process is on, or `undefined` when it has none */
+function ttyNumberOf(kernel: Kernel, proc: Process): number | undefined {
+  if (proc.tty) for (const [number, shell] of kernel.shells) if (shell.terminal.zfsTty === proc.tty) return number
+  return undefined
 }
 
 function kernelOf(proc: Process): Kernel {
@@ -359,7 +366,16 @@ export function installMainThreadSyscalls(): void {
     try {
       const presenter = Object.hasOwn(presenters, kind) ? presenters[kind] : undefined
       if (!presenter) throw new Error(`unknown presenter: ${kind}`)
-      const presented = await presenter(kernel, proc, JSON.parse(paramsJson) as Record<string, unknown>, shellOf(proc))
+      const params = JSON.parse(paramsJson) as Record<string, unknown>
+      // A browser call that needs the page the user is at goes to the display attached to the program's tty, if there is one
+      const spec = Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
+      const tty = spec ? ttyNumberOf(kernel, proc) : undefined
+      const remote = spec && tty !== undefined && kernel.hasDisplay(tty)
+        ? kernel.presentOnDisplay(tty, kind, await spec.prepare?.(kernel, proc, params, shellOf(proc)) ?? params)
+        : undefined
+      const presented = remote
+        ? { closed: spec?.finish ? remote.done.then(answer => spec.finish!(kernel, shellOf(proc), answer, params)) : remote.done, dispose: remote.cancel } satisfies Presented
+        : await presenter(kernel, proc, params, shellOf(proc))
       let result: unknown = presented?.result ?? null
 
       if (presented?.closed) {
@@ -474,8 +490,7 @@ export function installMainThreadSyscalls(): void {
   // the one on screen otherwise.
   define_syscall('tty_get', async (proc: Process) => {
     const kernel = kernelOf(proc)
-    if (proc.tty) for (const [number, shell] of kernel.shells) if (shell.terminal.zfsTty === proc.tty) return number
-    return kernel.activeTty
+    return ttyNumberOf(kernel, proc) ?? kernel.activeTty
   })
 
   // `kernel.switchTty` throws on an out-of-range TTY number rather than returning an error code

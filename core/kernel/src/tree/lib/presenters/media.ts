@@ -2,7 +2,7 @@ import type { Kernel } from '#kernel.ts'
 
 import type { Presented } from './index.ts'
 
-const VIDEO_MIME: Record<string, string> = {
+export const VIDEO_MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.ogg': 'video/ogg',
@@ -16,7 +16,7 @@ const VIDEO_MIME: Record<string, string> = {
   '.3gp': 'video/3gpp'
 }
 
-const AUDIO_MIME: Record<string, string> = {
+export const AUDIO_MIME: Record<string, string> = {
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
   '.ogg': 'audio/ogg',
@@ -33,7 +33,7 @@ const AUDIO_MIME: Record<string, string> = {
   '.amr': 'audio/amr'
 }
 
-function mimeType(table: Record<string, string>, fallback: string, path: string): string {
+export function mimeType(table: Record<string, string>, fallback: string, path: string): string {
   const dot = path.lastIndexOf('.')
   return (dot >= 0 && table[path.slice(dot).toLowerCase()]) || fallback
 }

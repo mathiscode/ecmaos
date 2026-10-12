@@ -370,6 +370,17 @@ export class Terminal extends XTerm implements ITerminal {
 
   constructor(options: TerminalOptions & { tty?: number }) {
     super({ ...DefaultTerminalOptions, ...options })
+
+    // xterm's `onKey`, which also hands every listener the keys a remote display sends (see `remoteKey`)
+    const baseOnKey = this.onKey
+    Object.defineProperty(this, 'onKey', {
+      configurable: true,
+      value: ((listener: (event: { key: string, domEvent: KeyboardEvent }) => unknown) => {
+        const subscription = baseOnKey(listener)
+        this._keyListeners.add(listener)
+        return { dispose: () => { subscription.dispose(); this._keyListeners.delete(listener) } }
+      }) as XTerm['onKey']
+    })
     this._ctx = options.context
     this._dom = options.dom
     this._users = options.users
@@ -1667,6 +1678,33 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
+  private readonly _mirrors = new Set<(data: string | Uint8Array) => void>()
+
+  /** Calls `sink` with everything written to this terminal from now on (a remote display, see `lib/remote-display.ts`); returns how to stop */
+  mirror(sink: (data: string | Uint8Array) => void): () => void {
+    this._mirrors.add(sink)
+    return () => { this._mirrors.delete(sink) }
+  }
+
+  /** Text typed at a remote display: what `onData` carries, so the line discipline of a foreground program sees it */
+  remoteData(data: string): void {
+    this.input(data, true)
+  }
+
+  /** A remote display's window size: the terminal takes it, and its tty's window size follows */
+  remoteResize(cols: number, rows: number): void {
+    if (cols > 0 && rows > 0 && (cols !== this.cols || rows !== this.rows)) this.resize(cols, rows)
+  }
+
+  /** A key pressed at a remote display: what `onKey` carries, so the line editor sees it */
+  remoteKey(key: string, mods: { key: string, ctrl: boolean, alt: boolean, shift: boolean, meta: boolean }): void {
+    const domEvent = { key: mods.key, ctrlKey: mods.ctrl, altKey: mods.alt, shiftKey: mods.shift, metaKey: mods.meta, preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent
+    // to every `onKey` listener, as the keyboard does: the line editor, but also a password prompt or a program reading keys, which subscribe themselves
+    for (const listener of [...this._keyListeners]) listener({ key, domEvent })
+  }
+
+  private readonly _keyListeners = new Set<(event: { key: string, domEvent: KeyboardEvent }) => unknown>()
+
   serialize() {
     if (this.addons?.get('serialize')) return (this.addons.get('serialize') as SerializeAddon).serialize()
     else return null
@@ -1693,6 +1731,7 @@ export class Terminal extends XTerm implements ITerminal {
 
   override write(data: string | Uint8Array) {
     this.noteOutput(data, false)
+    for (const sink of this._mirrors) sink(data)
     super.write(data)
     this.events.dispatch<TerminalWriteEvent>(TerminalEvents.WRITE, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
     if (this._isMobile) {
@@ -1702,6 +1741,7 @@ export class Terminal extends XTerm implements ITerminal {
 
   override writeln(data: string | Uint8Array) {
     this.noteOutput(data, true)
+    for (const sink of this._mirrors) { sink(data); sink('\r\n') }
     super.writeln(data)
     this.events.dispatch<TerminalWritelnEvent>(TerminalEvents.WRITELN, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
     if (this._isMobile) {
