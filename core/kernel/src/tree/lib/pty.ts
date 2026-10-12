@@ -1,19 +1,9 @@
 /**
- * Pseudo-terminals: `/dev/ptmx` and `/dev/pts/<n>`.
- *
- * A pair is a master and a slave. The slave is a real `@zenfs/linux` tty (a line discipline, termios,
- * a foreground process, `SIGINT` on `^C`) whose "hardware" is the master: what the slave writes
- * becomes what the master reads, and what is written to the master arrives as if typed on the
- * slave. That is what lets a terminal emulator or a shell in a worker own a terminal of its own.
- *
- * Opening `/dev/ptmx` allocates a pair. `@zenfs/core` calls no `open` or `release` hook on a device,
- * so the allocation is done by wrapping the `open` syscall, the same way `fd-links.ts` does for
- * `/dev/fd`: `/dev/ptmx` is opened as a per-pair master node, and a pair is freed when the last
- * descriptor on its master closes (checked after every `close` and process exit). The master reports
- * `TIOCGPTN` (which slave it is) and `TIOCSPTLCK`; unlocking is a formality here.
- *
- * `/dev/tty` is also resolved here, to the caller's own controlling terminal rather than to the
- * console, which is what it means on Linux.
+ * Pseudo-terminals: `/dev/ptmx` and `/dev/pts/<n>`. The slave is a `@zenfs/linux` tty whose "hardware" is the master:
+ * what the slave writes the master reads, and what is written to the master arrives as typed.
+ * Opening `/dev/ptmx` allocates a pair by wrapping the `open` syscall (as `fd-links.ts` does for `/dev/fd`); a pair
+ * is freed when the last descriptor on its master closes. The master answers `TIOCGPTN` and `TIOCSPTLCK`.
+ * `/dev/tty` resolves to the caller's controlling terminal.
  */
 
 import { CharDevice, Class, Device, Process, Signal, TTYDriver, WaitQueue, processes, syscalls, tty_class } from '@zenfs/linux'

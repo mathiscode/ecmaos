@@ -1,14 +1,8 @@
 /**
- * Which files a shell runs when it starts, and in what order. Both hosts (the kernel `Shell` and the
- * `/bin/ecmash` program) ask this one function, so they cannot disagree about it.
- *
- * Login shells read the system profile, every `*.sh` in `/etc/profile.d`, and then the first of the
- * user's profile files that exists - bash's rule, so a `~/.bash_profile` can suppress `~/.profile`
- * rather than adding to it. An interactive shell then reads the per-shell files, which unlike the
- * profile ones all run: `/etc/ecmashrc`, `~/.bashrc`, `~/.ecmashrc`.
- *
- * The bash names are read by both shells because that is where a Linux user's habits already put
- * things. The `ecmash` names stay supported, so an existing `~/.ecmashrc` keeps working unchanged.
+ * Which files a shell runs at startup, and in what order; shared by the kernel `Shell` and `/bin/ecmash`. Login
+ * shells read the system profile, every `*.sh` in `/etc/profile.d`, then the first of the user's profile files that
+ * exists (bash's rule). An interactive shell then reads all the per-shell files: `/etc/ecmashrc`, `~/.bashrc`,
+ * `~/.ecmashrc`.
  */
 
 export interface StartupHost {

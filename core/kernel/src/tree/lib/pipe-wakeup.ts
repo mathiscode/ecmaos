@@ -1,14 +1,7 @@
 /**
- * Wakes a pipe's sleepers when one of its ends closes.
- *
- * `@zenfs/linux` wakes a pipe's wait queue only when data moves, so a reader already blocked on an
- * empty pipe never learns that the last writer went away and sleeps forever instead of seeing EOF.
- * Whether a pipeline hangs then depends on whether the consumer reached its `read` before the
- * producer exited, which under load it sometimes does. Linux wakes readers when the last writer closes
- * (`pipe_release`); this does the equivalent by waking the pipe on every `close` and on process exit,
- * which is safe because a woken reader just looks again.
- *
- * REMOVAL: delete when upstream wakes the queue itself.
+ * Wakes a pipe's sleepers when one of its ends closes. `@zenfs/linux` wakes a pipe's queue only when data moves, so a
+ * reader blocked on an empty pipe never sees the last writer leave. This wakes the pipe on every `close` and process
+ * exit, as Linux's `pipe_release` does. REMOVAL: delete when upstream wakes the queue itself.
  */
 
 import { Process, syscalls } from '@zenfs/linux'

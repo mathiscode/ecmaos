@@ -10,11 +10,9 @@ import { knownEcmash, knownKernel, type KnownTable } from './shell-parity.known'
 import { TestDomOptions, TestLogOptions } from './kernel.fixtures'
 
 /**
- * The same scripts through the kernel shell and through `/bin/ecmash`, each checked against what real
- * bash printed (`fixtures/shell-parity.golden.json`). A divergence is listed in
- * `fixtures/shell-parity.known.ts` with its actual output; it is pinned there, so a fix has to remove
- * the entry. Set `PARITY_DISCOVER=1` to get every mismatch as one JSON blob in a thrown error, which
- * is how the known tables are first filled in.
+ * Runs the same scripts through the kernel shell and `/bin/ecmash`, each checked against real bash output
+ * (`fixtures/shell-parity.golden.json`). A divergence is pinned in `fixtures/shell-parity.known.ts`.
+ * `PARITY_DISCOVER=1` reports every mismatch as one JSON blob.
  */
 const only = process.env['PARITY_ONLY'] ? new RegExp(process.env['PARITY_ONLY']) : undefined
 const allCases = parseCorpus(corpusText).filter(test => !only || only.test(test.id))
@@ -23,7 +21,8 @@ const expected = golden as Record<string, { stdout: string, status: number }>
 interface Outcome { stdout: string, status: number }
 
 /**
- * One slice of the corpus for one or both shells. The cases are independent (each resets the shell), so the slices run as
+ * One slice of the corpus for one or both shells. The cases are independent (each resets the shell), so the slices
+ * run as
  * separate test files, each with a kernel of its own, and the files run side by side instead of one after another.
  * `PARITY_DISCOVER` runs every case on both shells in the first slice only.
  */

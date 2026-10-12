@@ -6,11 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * chown migrated onto real execve, reusing the users_lookup custom syscall id.mjs/groups.mjs
- * already established for resolving usernames against the live kernel.users registry. The actual
- * ownership change uses a real chown syscall newly exposed on ecmaosSyscalls (@zenfs/linux already
- * had one; it just wasn't wired into node.mjs yet), same pattern as link/symlink/readlink/lstat
- * before it.
+ * `chown` as an `execve` program: user names resolve through `users_lookup`, and the change uses the `chown` syscall
+ * exposed on `ecmaosSyscalls`.
  */
 describe('text command batch 16: chown, real execve', () => {
   let kernel: Kernel

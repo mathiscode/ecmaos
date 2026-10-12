@@ -64,13 +64,13 @@ export interface Wasm {
   canRunInWorker(wasmBytes: Uint8Array): Promise<boolean>
 
   /**
-   * Load a WASI component with stream integration
-   * @param path - Path to the WASM file
-   * @param streams - Stream options for stdin/stdout/stderr
-   * @param args - Command line arguments
-   * @param shell - Optional shell instance to use for environment variables
-   * @param pid - Optional process ID for the WASM execution context
-   * @returns The WASM instance and exit code promise
+   * Loads a WASI component with stream integration.
+   * @param path - path to the WASM file
+   * @param streams - stdin/stdout/stderr stream options
+   * @param args - command line arguments
+   * @param shell - shell for environment variables
+   * @param pid - process ID for the execution context
+   * @returns the WASM instance and exit code promise
    */
   loadWasiComponent(path: string, streams: WasiStreamOptions, args?: string[], shell?: Shell, pid?: number): Promise<WasiComponentResult>
 }

@@ -6,12 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Real, booted-kernel proof of `&` background execution and the job table's state machine
- * (running -> done, running -> stopped -> running -> done). These pipelines are all-coreutil
- * (`sleep`, `echo`, `true`, `false`) - see `execve-js.test.ts`/`bin-node-execve.test.ts` for the
- * real-`@zenfs/linux`-Process-backed side of job control (`^C`/`^Z`/`fg`/`bg` actually signaling
- * something), which is out of scope for a plain coreutil pipeline per `Kernel.executeViaExecve`'s
- * and `Terminal`'s own doc comments on what can be signaled.
+ * `&` background execution and the job table's states (running, done, stopped, running again). The pipelines are all
+ * coreutils (`sleep`, `echo`, `true`, `false`); `execve-js.test.ts` and `bin-node-execve.test.ts` cover job control
+ * on real processes.
  */
 describe('Shell job control - & background execution and the job table', () => {
   let kernel: Kernel
@@ -25,14 +22,8 @@ describe('Shell job control - & background execution and the job table', () => {
     })
     await kernel.boot()
 
-    // A migrated coreutil's stdout (e.g. `echo`) is now a real
-    // device write to `/dev/console`, not a JS method call on a `Terminal` object - and
-    // `@zenfs/linux`'s own console driver (`drivers/tty/console.js`) throws `ENXIO` for
-    // that write until some terminal has attached at least once (`console_tty` starts `null`; the
-    // first attached terminal becomes it, matching real Linux). This suite never displays anything
-    // and never mounted one, which was harmless for the old `executeCommand` path (its unredirected
-    // stdout never touched a real device at all) but is a real, correct failure now that `echo`'s
-    // stdout is real I/O - so a terminal is mounted here purely to give `/dev/console` a target.
+    // A command's stdout is a device write to `/dev/console`, which throws `ENXIO` until some terminal has attached,
+    // so a terminal is mounted here to give it a target.
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)

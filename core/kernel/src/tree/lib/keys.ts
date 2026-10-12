@@ -1,11 +1,7 @@
 /**
- * A user's ECDSA P-384 key pair, kept in their home directory as `ssh` would:
- *
- *   ~/.ssh/id_ecdsa       the private key, encrypted with a key derived from the login password (mode 0600)
- *   ~/.ssh/id_ecdsa.pub   one line, `ecdsa-p384 <public JWK, base64> <name>` (mode 0644)
- *
- * It is made the first time something needs it, not when the account is created, and it has no part in logging in.
- * The private key file is one JSON object, so a copy cannot be cut in the wrong place.
+ * A user's ECDSA P-384 key pair, kept as `ssh` would: `~/.ssh/id_ecdsa` (private key encrypted with a key derived
+ * from the login password, mode 0600) and `~/.ssh/id_ecdsa.pub` (`ecdsa-p384 <public JWK, base64> <name>`, mode
+ * 0644). Made the first time something needs it; not used for logging in.
  */
 
 import { deriveAesKey, fromBase64, generateKeySalt, toBase64 } from './credentials.ts'
@@ -77,7 +73,10 @@ export function parsePublicKeyLine(text: string): JsonWebKey | null {
 
 export const AUTHORIZED_KEYS_FILE = '.ssh/authorized_keys'
 
-/** The keys in an `authorized_keys` file: one per line, the same shape as `id_ecdsa.pub`; blank lines, comments and lines this does not read are skipped */
+/**
+ * The keys in an `authorized_keys` file: one per line, the same shape as `id_ecdsa.pub`; blank lines, comments and
+ * lines this does not read are skipped
+ */
 export function parseAuthorizedKeys(text: string): JsonWebKey[] {
   const keys: JsonWebKey[] = []
   for (const line of text.split('\n')) {

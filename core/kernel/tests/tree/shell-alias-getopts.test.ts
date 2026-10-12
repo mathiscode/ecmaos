@@ -6,12 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `alias`/`unalias`, `type`, `command`, and `getopts`.
- *
- * Aliases are text substitution at command position, not a name lookup, which is what lets
- * `alias ll='ls -la'` contribute two words and `alias sudo='sudo '` make the next word eligible in
- * turn. `getopts` is the loop condition of every script that takes flags, and needs `$OPTIND` and
- * `$OPTARG` plus a second cursor for clustered options that `$OPTIND` cannot express.
+ * `alias`/`unalias`, `type`, `command` and `getopts`. Aliases are text substitution at command position (`alias
+ * ll='ls -la'` adds two words, `alias sudo='sudo '` makes the next word eligible). `getopts` needs `$OPTIND`,
+ * `$OPTARG` and a second cursor for clustered options.
  */
 describe('alias, type, command and getopts', () => {
   let kernel: Kernel

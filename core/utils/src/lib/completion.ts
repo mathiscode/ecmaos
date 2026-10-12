@@ -1,13 +1,6 @@
 /**
- * Tab completion candidates for a command line.
- *
- * This was `Terminal.getCompletionMatches`, which reached into the shell for `env`, `cwd`,
- * `expandTilde`, `execute` and `context.fs.promises` directly, so nothing could complete without a
- * whole `Terminal` and `Shell` attached. It asks a {@link CompletionProvider} instead, which is the
- * seam a worker-hosted shell fills from its own syscalls.
- *
- * Each candidate is the *whole line* with the last word completed, not just the new word: the caller
- * cycles through them by replacing the line, which is how the terminal has always behaved.
+ * Tab completion candidates for a command line, from a {@link CompletionProvider} so a worker shell can supply its
+ * own. Each candidate is the whole line with the last word completed.
  */
 
 /** The three path operations this needs, so the module bundles for a worker (there is no `path` there). */

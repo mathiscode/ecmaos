@@ -1,8 +1,6 @@
 /**
- * A device is a component that provides a specific functionality to the system interacting with hardware or emulated devices.
- * Devices can represent physical hardware or virtual components, offering a standardized interface for system interactions.
- * 
- * Eventually, devices will be able to be registered dynamically at runtime.
+ * A device is a component that provides functionality to the system by interacting with hardware or emulating it,
+ * through a standard interface.
  */
 
 // --- Default Devices ---

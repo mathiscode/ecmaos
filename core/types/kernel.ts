@@ -42,13 +42,8 @@ import type {
 } from './index.ts'
 
 /**
- * The cross-cutting primitives every subsystem may depend on, with no
- * back-reference to the Kernel itself.
- *
- * A subsystem that needs another subsystem declares a narrow `deps` interface
- * alongside this (typically a `Pick<>` of the sibling it actually uses) rather
- * than growing this type. If a field feels like it belongs here, that is the
- * signal it is a real dependency and belongs in `deps` instead.
+ * The primitives every subsystem may depend on, with no back-reference to the Kernel. A subsystem that needs another
+ * declares a narrow `deps` interface (typically a `Pick<>` of that sibling) instead of growing this type.
  */
 export interface KernelContext {
   /** Unique identifier for this kernel instance */
@@ -275,8 +270,10 @@ export interface KernelOptions {
   dom?: DomOptions
   filesystem?: FilesystemOptions<FilesystemConfigMounts>
   /**
-   * Limits for the IndexedDB root, which is held whole in memory: the most one file may hold (`EFBIG` past it) and the total in
-   * memory that logs a warning. Both default from the device's memory (512 MiB and 1 GiB on an 8 GB machine or better); `false`
+   * Limits for the IndexedDB root, which is held whole in memory: the most one file may hold (`EFBIG` past it) and
+   * the total in
+   * memory that logs a warning. Both default from the device's memory (512 MiB and 1 GiB on an 8 GB machine or
+   * better); `false`
    * turns one off.
    */
   limits?: { maxFileBytes?: number | false, warnResidentBytes?: number | false }
@@ -319,62 +316,42 @@ export interface KernelExecuteOptions {
   terminal?: Terminal
   stdin?: ReadableStream<Uint8Array>
   stdinIsTTY?: boolean
-  /** Called with the bytes of `stdin` the program never read, once it has exited; for a stdin the shell shares with later commands */
+  /**
+   * Called with the bytes of `stdin` the program never read, once it has exited; for a stdin the shell shares with
+   * later commands
+   */
   stdinLeftover?: (bytes: Uint8Array) => void
   stdout?: WritableStream<Uint8Array>
   stdoutIsTTY?: boolean
   /**
-   * Whether this stage's `stdout` must be fully drained before its exit code is reported.
-   *
-   * True for a final destination - a file, or the terminal - where `cmd > f` has to leave every
-   * byte in `f` before the next statement reads it. False mid-pipeline, where the next stage's own
-   * reads already order the data and waiting would deadlock: a downstream program that exits early
-   * (`producer | head -1`) stops reading, the pipe fills, and the upstream drain would never finish.
-   *
-   * Before this existed the kernel slept a fixed 15ms instead, which is not long enough under load -
-   * `cat <<EOF > f` followed by reading `f` failed intermittently in a loaded parallel test run and
-   * passed every time in isolation.
+   * Whether this stage's `stdout` must be fully drained before its exit code is reported. True for a final
+   * destination (a file or the terminal) so `cmd > f` leaves every byte in `f`; false mid-pipeline, where an early-
+   * exiting downstream program would leave the drain waiting forever.
    */
   drainStdout?: boolean
   stderr?: WritableStream<Uint8Array>
   /**
-   * Called synchronously once a real `@zenfs/linux` `Process` has been constructed for this stage
-   * (currently only `Kernel.executeViaExecve`'s `js`/`node` binfmt path), before the caller awaits
-   * its completion. This is the only way `Shell`'s job table gets a signalable handle for `^C`/`^Z`/
-   * `fg`/`bg` - `ShellExecute` otherwise only returns the eventual exit code, too late to attach a
-   * live handle to a `Job` while the stage is still running. A stage that never goes through a real
-   * `Process` (any coreutil, which runs synchronously in the shell's own tick) never calls this.
+   * Called synchronously once a `@zenfs/linux` `Process` exists for this stage (`Kernel.executeViaExecve`), before
+   * completion is awaited, so the shell's job table can signal it for `^C`, `^Z`, `fg` and `bg`.
    */
   onProcess?: (process: JobProcessHandle) => void
   /**
-   * Whether this stage belongs to the shell's current foreground job (default `true`) - a
-   * backgrounded (`&`) pipeline passes `false` so its process never takes over the controlling
-   * terminal. Only `Kernel.executeViaExecve`'s real-`Process` path acts on this: it sets the
-   * attached TTY's `foreground` (`tty->pgrp`, answering `TIOCGPGRP`/`TIOCSPGRP`) to the new process
-   * while it runs, and restores whatever it was beforehand once the process exits. A coreutil stage
-   * has no real `Process` to own the terminal with, so this has no effect there.
+   * Whether this stage belongs to the foreground job (default `true`). A backgrounded (`&`) stage passes `false` so
+   * it does not take the terminal. `Kernel.executeViaExecve` sets the TTY's `foreground` to the process while it runs
+   * and restores it afterwards.
    */
   foreground?: boolean
 }
 
-/**
- * The minimal slice of `@zenfs/linux`'s `Process` that job control needs: enough to signal it and
- * to know its status, without `core/types` depending on `@zenfs/linux`'s `Process` class directly
- * everywhere `KernelExecuteOptions` is used. `core/kernel` passes the real thing; it happens to
- * satisfy this shape already.
- */
+/** The slice of `@zenfs/linux`'s `Process` that job control needs: signalling it and reading its status. */
 export interface JobProcessHandle {
   readonly pid: number
   readonly stopped: boolean
   readonly exited: Promise<number>
   kill(signal: number | string): boolean
   /**
-   * Give this process the controlling terminal (`tty->pgrp`, what `TIOCGPGRP`/`TIOCSPGRP` answer)
-   * or take it back, without touching whichever process held it before - `fg`/`bg` call this to
-   * keep the TTY's notion of the foreground process in step with the shell's own job table once a
-   * job moves between them after it has already started (as opposed to `KernelExecuteOptions.foreground`,
-   * which only covers a stage's initial launch). A stage with no real `Process` behind it (any
-   * coreutil pipeline) has no handle carrying this at all, so `fg`/`bg` call it optionally.
+   * Gives this process the controlling terminal (`tty->pgrp`) or takes it back, so `fg` and `bg` keep the TTY's
+   * foreground in step with the job table after a job has started.
    */
   setForeground?: (isForeground: boolean) => void
 }

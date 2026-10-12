@@ -11,13 +11,9 @@ export interface ChannelHost {
 }
 
 /**
- * One multiplexed stream inside a connection: an ordered sequence of byte chunks (flow controlled, so a slow reader
- * slows the writer instead of filling memory) and control messages (small values, not flow controlled).
- *
- * Flow control is a credit window per direction. The receiver advertises how many bytes it will buffer; the sender
- * may have at most that many unconsumed; the receiver returns credit as the data is consumed. Credit is returned when
- * `onData` returns (the default), or when `grant` is called if `manualCredit` is set, which is how a reader that
- * buffers on its own (a device's read queue) keeps the writer paced by what the guest has actually read.
+ * One multiplexed stream inside a connection: ordered byte chunks (flow controlled) and control messages (small
+ * values, not flow controlled). Flow control is a credit window per direction: the receiver advertises how many bytes
+ * it will buffer and returns credit when `onData` returns, or when `grant` is called if `manualCredit` is set.
  */
 export class Channel {
   /** Set once the other side has said how much it will take; writes wait for it */
@@ -38,7 +34,10 @@ export class Channel {
   /** Return credit with `grant` instead of automatically after `onData` */
   manualCredit = false
   onClose: ((error?: PeerError) => void) | undefined
-  /** Called when the other side returns credit, so something that cannot wait (a device write) can learn it may write again */
+  /**
+   * Called when the other side returns credit, so something that cannot wait (a device write) can learn it may write
+   * again
+   */
   onWritable: (() => void) | undefined
 
   constructor(
@@ -88,7 +87,8 @@ export class Channel {
    * link; rejects if the channel closes first.
    */
   write(data: Uint8Array): Promise<void> {
-    // One write at a time, in the order called: a second write must not slip its bytes in while the first waits for credit
+    // One write at a time, in the order called: a second write must not slip its bytes in while the first waits for
+    // credit
     const run = this._writing.then(() => this._write(data))
     this._writing = run.catch(() => {})
     return run

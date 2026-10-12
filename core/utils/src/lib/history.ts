@@ -1,15 +1,7 @@
 /**
- * Command history, per user, backed by a file.
- *
- * The terminal's old history code kept a 100-line cache and went back to the file for anything older,
- * re-reading the *entire* file on every ArrowUp that missed the cache. It also had no size limit on
- * disk, treated only a leading space and an exact repeat of the last line as reasons to skip a
- * command, and tracked one scalar position for every user while the maps beside it were keyed by uid.
- *
- * This holds the whole list in memory (bounded by `HISTSIZE`) after one read, appends new lines
- * without reading the file back, trims the file to `HISTFILESIZE`, and follows `HISTCONTROL`. It
- * knows nothing about the terminal or the shell: the filesystem and the variables it consults come in
- * through {@link HistoryHost}, which is also what lets a worker-hosted shell use it unchanged.
+ * Command history, per user, backed by a file. Holds the list in memory (bounded by `HISTSIZE`) after one read,
+ * appends without reading back, trims the file to `HISTFILESIZE` and follows `HISTCONTROL`. Filesystem and variables
+ * come in through {@link HistoryHost}, so a worker shell can use it.
  */
 
 /** The small slice of the filesystem this needs. */
@@ -42,15 +34,13 @@ interface UserHistory {
   position: number
   loaded: boolean
   /**
-   * Whether the file ends in a newline. Files the old terminal wrote do not: it put the newline
-   * *before* each command, so appending `cmd\n` blind onto one would glue two commands together.
+   * Whether the file ends in a newline. Files from earlier versions do not, so appending without checking would join
+   * two commands.
    */
   terminated: boolean
   /**
-   * The file's content as this holds it. Every save rewrites the file from this rather than using
-   * `appendFile`, which on the root filesystem writes each new chunk at offset 0 of the grown file
-   * and leaves NUL bytes behind (reproduced in the browser and in vitest). One read at load, no
-   * read per command.
+   * The file's content as held in memory. Every save rewrites the file from this, since `appendFile` on the root
+   * filesystem writes each chunk at offset 0.
    */
   text: string
 }
@@ -137,11 +127,8 @@ export class History {
   resetPosition(uid: number) { this.setPosition(uid, this.length(uid)) }
 
   /**
-   * Whether `command` should be recorded, under `HISTCONTROL` (comma- or colon-separated):
-   * `ignorespace` skips a line starting with a space, `ignoredups` one equal to the previous line,
-   * `ignoreboth` is both, and `erasedups` (handled in {@link add}) removes earlier copies. With
-   * `HISTCONTROL` unset, both `ignorespace` and `ignoredups` apply, which is what the terminal always
-   * did.
+   * Whether `command` should be recorded under `HISTCONTROL`: `ignorespace`, `ignoredups`, `ignoreboth`, and
+   * `erasedups` (handled in {@link add}). Unset means `ignorespace` and `ignoredups`.
    */
   private accepts(user: UserHistory, command: string, control: Set<string>): boolean {
     if (command.trim().length === 0) return false
@@ -151,11 +138,8 @@ export class History {
   }
 
   /**
-   * A multi-line command as one history line. The file is one command per line, so a command holding
-   * newlines was stored as several entries after the next reload, and recalled with the cursor
-   * arithmetic wrong before it. bash's `cmdhist` joins them with `;`, which keeps the command
-   * runnable. A heredoc cannot be joined that way (its body lines are not commands), so it is not
-   * recorded; bash keeps those, but a mangled entry is worse than a missing one.
+   * A multi-line command as one history line, joined with `;` as bash's `cmdhist` does. A heredoc cannot be joined
+   * and is not recorded.
    */
   private flatten(command: string): string | undefined {
     if (!command.includes('\n')) return command

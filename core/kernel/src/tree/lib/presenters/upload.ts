@@ -11,10 +11,9 @@ interface UploadOutcome {
 }
 
 /**
- * `upload [DIRECTORY]`: the browser's file picker. Files are written through the calling user's
- * shell filesystem context, as before, and `closed` resolves once the dialog is finished (files
- * chosen and written, or cancelled) so the process lives exactly that long. A `^C` while the dialog
- * is open drops the input; the picker itself cannot be dismissed from script.
+ * `upload [DIRECTORY]`: the browser's file picker. Files are written through the calling user's shell filesystem
+ * context; `closed` resolves when the dialog finishes (files written or cancelled). A `^C` while it is open drops the
+ * input.
  */
 export function presentUpload(kernel: Kernel, _proc: unknown, params: Record<string, unknown>, shell?: Shell): Presented {
   const directory = params['directory']

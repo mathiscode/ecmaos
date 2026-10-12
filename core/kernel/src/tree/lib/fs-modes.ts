@@ -1,16 +1,7 @@
 /**
- * Modes of the system directories.
- *
- * The initfs extraction and the filesystem's own root create `/`, `/etc`, `/bin` and `/tmp` mode 0777,
- * and the boot loop that lays down the rest skips whatever already exists. That never mattered while
- * every program ran as root; once a program runs as its user (see `canRunProgramsAsUser`) a world-writable
- * `/etc` lets any user replace system files, and a `/tmp` without the sticky bit lets one user delete
- * another's files.
- *
- * Applied on every boot, because a fresh boot recreates the 0777 directories each time, and only to a
- * listed directory that is currently world-writable, so a persisted root a user has already tightened
- * is left as they set it. The temporary directories are the opposite case: they are meant to be
- * world-writable, so they only gain the sticky bit.
+ * Modes of the system directories. The initfs extraction creates `/`, `/etc`, `/bin` and `/tmp` as 0777, which
+ * matters once programs run as their user. Applied on every boot, only to a listed directory that is world-writable,
+ * so a mode the user tightened is kept. Temporary directories only gain the sticky bit.
  */
 
 type Fs = {
@@ -88,7 +79,10 @@ export async function tightenDirectoryModes(fs: Fs): Promise<string[]> {
  */
 export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo']
 
-/** Gives the setuid programs their bit, every boot, since a rewritten command file is a fresh one. @returns the programs changed */
+/**
+ * Gives the setuid programs their bit, every boot, since a rewritten command file is a fresh one. @returns the
+ * programs changed
+ */
 export async function ensureSetuidPrograms(fs: Fs): Promise<string[]> {
   const changed: string[] = []
   for (const path of SETUID_PROGRAMS) {

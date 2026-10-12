@@ -1,20 +1,11 @@
 /**
- * The cron daemon: wakes once a minute, like real vixie-cron, and runs any crontab entry whose
- * schedule matches. A job's command line can be a full shell pipeline (`cmd1 | cmd2`): it is run by
- * `/bin/ecmash -c`, as real cron runs `sh -c`.
- *
- * `/etc/crontab` is root's. Every user in `/etc/passwd` may have a `~/.config/crontab`, whose jobs run
- * as that user, in their home directory, with `HOME`, `USER`, `LOGNAME`, `SHELL` and `PATH` set and no
- * terminal. A user's file is ignored unless that user (or root) owns it. Where the installed
- * `@zenfs/core` cannot run programs as a user, only root's jobs run: running someone else's as root
- * would hand out root.
- *
- * Re-reads the crontab files whenever their mtime changes (checked every tick), so `cron add`/
- * `remove`'s file edits take effect within a minute with no explicit reload needed, the same as
- * real cron picking up a `crontab -e` change on its own.
- *
- * `crond --run USER COMMAND` runs one job as USER the way the daemon would, waits for it and exits
- * with its status. It is for trying a job without waiting for its minute, and for tests.
+ * The cron daemon. Wakes once a minute and runs any crontab entry whose schedule matches. A job's command line runs
+ * through `/bin/ecmash -c`.
+ * `/etc/crontab` is root's. A user's `~/.config/crontab` runs as that user, in their home, with `HOME`, `USER`,
+ * `LOGNAME`, `SHELL` and `PATH` set and no terminal; it is ignored unless that user or root owns it. Where the
+ * installed `@zenfs/core` cannot run programs as a user, only root's jobs run.
+ * Crontab files are re-read when their mtime changes (checked every tick).
+ * `crond --run USER COMMAND` runs one job as USER, waits and exits with its status; for trying a job and for tests.
  */
 
 import { parseCrontabFile } from './lib/crontab.mjs'
@@ -22,7 +13,9 @@ import { parseCronExpression } from 'cron-schedule'
 
 const { exit, custom, stat, env, open, read, close, spawn, waitpid, write, argv, O_RDONLY } = globalThis.ecmaosSyscalls
 
-/** A log line nobody waits for; a failure to write it must not become an unhandled rejection that stops the daemon. */
+/**
+ * A log line nobody waits for; a failure to write it must not become an unhandled rejection that stops the daemon.
+ */
 const log = (level, message) => { custom('klog', level, message).catch(() => {}) }
 
 const SYSTEM_CRONTAB = '/etc/crontab'
@@ -178,10 +171,8 @@ async function main() {
   // missed waiting for the first minute boundary.
   for (const source of sources.values()) reloadIfChanged(source)
 
-  // A syslog-style entry, not stdout: `crond` is started backgrounded from `/boot/init`, so a plain
-  // `write(1, ...)` here would otherwise resurface in whatever interactive terminal happens to share
-  // its session (the actual bug report this replaced) - `klog` (`main-thread-syscalls.ts`) routes it
-  // to `kernel.log`/`/var/log/kernel.log` instead, same as real cron logging to syslog, not its tty.
+  // Logged through `klog` to `kernel.log` instead of stdout, so a daemon's messages do not appear in an interactive
+  // terminal.
   await custom('klog', 'info', runAsUsers ? 'crond: watching for scheduled jobs' : 'crond: watching for scheduled jobs (root only: programs cannot run as another user here)')
 
   // Align the first tick to the next minute boundary, then fall back to a plain fixed interval -

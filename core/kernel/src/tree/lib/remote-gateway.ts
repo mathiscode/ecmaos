@@ -1,10 +1,8 @@
 /**
- * The machine's way onto the real network: a link to another ecmaOS machine started with `ecmaos --listen --gateway`, kept
- * up by the kernel, through which a program's `connect()` to an address that is not this machine reaches that address.
- *
- * `gateway up` logs in once (the same login `connect` and `mount -t ecmaos` use) and the connection stays; each outbound
- * socket is then one `net` channel on it. The host decides what is reachable (see the Node host's README); this side only
- * carries the bytes and turns a refusal into the errno a program would have got from a firewall or a dead host.
+ * The machine's way onto the real network: a link, kept up by the kernel, to an ecmaOS machine started with `ecmaos
+ * --listen --gateway`. `gateway up` logs in once and each outbound socket is one `net` channel on it. The host
+ * decides what is reachable; this side carries bytes and maps a refusal to the errno a firewall or dead host would
+ * give.
  */
 
 import { datagram, datagramOf, formatEndpoint, NetChannel, openFlow, openListener, parseNetAccept, peerDatagram, peerDatagramOf, PeerError, resolveName } from '@ecmaos/peer'
@@ -19,7 +17,9 @@ import { DEFAULT_HOSTS, lookupHosts } from './hosts.ts'
 import { canonicalIp, isIPv6 } from './ip.ts'
 import { dialPeer, parseRemoteSource, RemoteMountFailure } from './remote-mount.ts'
 
-/** A port opened on the gateway for this machine: what connects there arrives at `local` on this machine's loopback */
+/**
+ * A port opened on the gateway for this machine: what connects there arrives at `local` on this machine's loopback
+ */
 interface Exposure {
   /** Where the host opened it (`address:port` as it answered) */
   address: string
@@ -51,19 +51,27 @@ export function gatewayLink(kernel: Kernel): (Pick<Link, 'host' | 'user' | 'sinc
 }
 
 /**
- * How an incoming connection is handed to a program listening on this machine's loopback. Registered by the syscall layer
- * (which owns the loopback listeners), so this file does not import it. Returns false when nothing is listening on `port`.
+ * How an incoming connection is handed to a program listening on this machine's loopback. Registered by the syscall
+ * layer
+ * (which owns the loopback listeners), so this file does not import it. Returns false when nothing is listening on
+ * `port`.
  */
 export type InboundSink = (kernel: Kernel, port: number, streams: { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> }, peer: string, ended: () => void) => boolean
 let inboundSink: InboundSink | undefined
 export function setInboundSink(sink: InboundSink) { inboundSink = sink }
 
-/** The same for a datagram from `peer` (`address:port`): `reply` carries one back. Returns false when no program has `port` bound. */
+/**
+ * The same for a datagram from `peer` (`address:port`): `reply` carries one back. Returns false when no program has
+ * `port` bound.
+ */
 export type DatagramSink = (port: number, data: Uint8Array, peer: string, reply: (data: Uint8Array) => void) => boolean
 let datagramSink: DatagramSink | undefined
 export function setDatagramSink(sink: DatagramSink) { datagramSink = sink }
 
-/** Whether a program on this machine is listening on `port` (TCP) or has it bound (UDP). Registered by the syscall layer, which owns both. */
+/**
+ * Whether a program on this machine is listening on `port` (TCP) or has it bound (UDP). Registered by the syscall
+ * layer, which owns both.
+ */
 export type LocalProbe = (port: number, udp: boolean) => boolean
 let localProbe: LocalProbe | undefined
 export function setLocalProbe(probe: LocalProbe) { localProbe = probe }
@@ -81,7 +89,10 @@ export interface GatewayFlow {
   close(): void
 }
 
-/** The errno for why the host did not connect. A policy refusal is what a firewall's "administratively prohibited" gives. */
+/**
+ * The errno for why the host did not connect. A policy refusal is what a firewall's "administratively prohibited"
+ * gives.
+ */
 export function errnoFor(error: unknown): GatewayFailure {
   if (error instanceof PeerError) {
     if (error.code === 'timeout') return new GatewayFailure('ETIMEDOUT', error.message)
@@ -95,7 +106,10 @@ export function errnoFor(error: unknown): GatewayFailure {
   return new GatewayFailure('ECONNREFUSED', error instanceof Error ? error.message : String(error))
 }
 
-/** Streams over a flow's channel. Reading is paced by whoever consumes the stream; closing the writer is the half-close. */
+/**
+ * Streams over a flow's channel. Reading is paced by whoever consumes the stream; closing the writer is the half-
+ * close.
+ */
 export function streamsOf(channel: Channel): { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> } {
   channel.manualCredit = true
   let ended = false
@@ -121,8 +135,10 @@ export function streamsOf(channel: Channel): { rx: ReadableStream<Uint8Array>, t
 }
 
 /**
- * A UDP flow as streams, the shape a program's socket is built from: every datagram is a 2-byte big-endian length then its
- * bytes (the preview1 shim frames and unframes them). Datagrams arriving faster than the program reads are dropped past a
+ * A UDP flow as streams, the shape a program's socket is built from: every datagram is a 2-byte big-endian length
+ * then its
+ * bytes (the preview1 shim frames and unframes them). Datagrams arriving faster than the program reads are dropped
+ * past a
  * small queue, which UDP allows; closing the write side ends the flow.
  */
 export function datagramStreamsOf(channel: Channel): { rx: ReadableStream<Uint8Array>, tx: WritableStream<Uint8Array> } {
@@ -164,7 +180,10 @@ export function datagramStreamsOf(channel: Channel): { rx: ReadableStream<Uint8A
   return { rx, tx }
 }
 
-/** Opens a TCP flow (or, with `proto` udp, a datagram flow) to `host:port` through the gateway, or throws a {@link GatewayFailure} saying which errno to give */
+/**
+ * Opens a TCP flow (or, with `proto` udp, a datagram flow) to `host:port` through the gateway, or throws a {@link
+ * GatewayFailure} saying which errno to give
+ */
 export async function openGatewayFlow(kernel: Kernel, host: string, port: number, proto: 'tcp' | 'udp' = 'tcp'): Promise<GatewayFlow> {
   const link = links.get(kernel)
   if (!link) throw new GatewayFailure('ENETUNREACH', 'no gateway is up (see gateway up)')
@@ -176,14 +195,19 @@ export async function openGatewayFlow(kernel: Kernel, host: string, port: number
   return { ...(proto === 'udp' ? datagramStreamsOf(channel) : streamsOf(channel)), address: opened.address, close: () => channel.close() }
 }
 
-/** Why a name did not resolve, in the terms of `getaddrinfo`: no such name, or no answer to be had (no gateway, or it failed) */
+/**
+ * Why a name did not resolve, in the terms of `getaddrinfo`: no such name, or no answer to be had (no gateway, or it
+ * failed)
+ */
 export class LookupFailure extends Error {
   constructor(readonly kind: 'NONAME' | 'AGAIN', message: string) { super(message) }
 }
 
 /**
- * The addresses for `name`, the way a program's `getaddrinfo` should see them: an address literal is itself, then `/etc/hosts`,
- * then the gateway's resolver. With no gateway up that is a temporary failure ("no nameserver"), as on a machine that cannot
+ * The addresses for `name`, the way a program's `getaddrinfo` should see them: an address literal is itself, then
+ * `/etc/hosts`,
+ * then the gateway's resolver. With no gateway up that is a temporary failure ("no nameserver"), as on a machine that
+ * cannot
  * reach one. A name the gateway cannot or will not give is no such name, with its reason.
  */
 export async function resolveHostname(kernel: Kernel, name: string, family: 4 | 6 = 4): Promise<string[]> {
@@ -206,7 +230,10 @@ export async function resolveHostname(kernel: Kernel, name: string, family: 4 | 
   }
 }
 
-/** Takes the connections the gateway's host forwards for a port this machine exposed, and gives each to the local listener */
+/**
+ * Takes the connections the gateway's host forwards for a port this machine exposed, and gives each to the local
+ * listener
+ */
 function acceptInbound(kernel: Kernel, link: Link, channel: Channel): void {
   const target = parseNetAccept(channel.params)
   const exposure = link.exposures.get(target.id)
@@ -220,7 +247,10 @@ function acceptInbound(kernel: Kernel, link: Link, channel: Channel): void {
   void channel.done.then(() => { exposure.open-- })
 }
 
-/** Opens a port on the gateway's host that forwards to `local` on this machine; throws a {@link GatewayFailure} with the host's reason */
+/**
+ * Opens a port on the gateway's host that forwards to `local` on this machine; throws a {@link GatewayFailure} with
+ * the host's reason
+ */
 export async function exposePort(kernel: Kernel, local: number, as?: number, udp = false): Promise<{ address: string, port: number }> {
   const link = links.get(kernel)
   if (!link) throw new GatewayFailure('ENETUNREACH', 'no gateway is up (see gateway up)')

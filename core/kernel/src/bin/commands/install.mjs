@@ -128,10 +128,8 @@ async function install(packageArg, registryArg, reinstall) {
   const tarballPath = `/tmp/${data.name.replace('@', '').replace('/', '-')}-${version}.tar.gz`
   writeBytes(tarballPath, new Uint8Array(arrayBuffer))
 
-  // npm tarballs wrap their contents in a `package/` directory, and `tar` has no npm knowledge, so
-  // extraction lands in a scratch directory first and whatever is inside becomes the install path.
-  // The scratch directory lives under `/usr/lib` (the mount the install path is on), not `/tmp`:
-  // `rename` across mounts fails with a real `EXDEV`, as `rename(2)` does on Linux.
+  // npm tarballs wrap their contents in `package/`, so extraction lands in a scratch directory under `/usr/lib` (the
+  // install path's mount, since `rename` across mounts fails with `EXDEV`) and its contents become the install path.
   const extractPath = `/usr/lib/${data.name}/${version}`
   const scratchDir = `/usr/lib/.install-${packageName.replace(/[^a-zA-Z0-9._-]/g, '_')}-${version}-${Date.now()}`
   mkdirp(scratchDir)

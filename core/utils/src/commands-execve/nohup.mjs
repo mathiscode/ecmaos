@@ -1,10 +1,7 @@
 /**
- * Run a command that should keep its output when the terminal goes away: `nohup long-job &`.
- *
- * As on Linux, when standard input is a terminal the command reads nothing (it gets end of file), and when
- * standard output is a terminal its output is appended to `nohup.out` (or `~/nohup.out`) instead, with a
- * note on standard error. Standard error follows standard output when it was a terminal too. ecmaOS never
- * sends SIGHUP when a terminal closes, so there is no hangup for the command to ignore; this is what is left.
+ * Runs a command that keeps its output when the terminal goes away: `nohup long-job &`. If stdin is a terminal the
+ * command reads end of file; if stdout is a terminal its output is appended to `nohup.out` (or `~/nohup.out`), and
+ * stderr follows. ecmaOS never sends SIGHUP on terminal close, so nothing is ignored.
  */
 
 import { findProgram, openDevNull, run } from './lib/run.mjs'

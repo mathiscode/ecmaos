@@ -19,14 +19,10 @@ const liveStubs = () => new Set(['true', 'false', 'test'])
 const OLD_0X_BOOT_INIT = PREVIOUS_DEFAULT_BOOT_INITS[1]!
 
 /**
- * Boots a kernel whose persisted root already holds what a 0.x install leaves behind: stubs for
- * in-process commands that no longer exist, the pilot programs, the 0.x (empty) default /boot/init,
- * and no version marker.
- *
- * The fixture is written the moment `filesystem.configure()` has mounted the root, which is exactly
- * the state a page load finds a persisted root in, before `boot()` runs its migrations. (A second
- * full boot in one test process isn't possible: mounts and /dev are module-global, and only a page
- * reload clears them.)
+ * Boots a kernel whose persisted root holds what a 0.x install leaves behind: stubs for removed in-process commands,
+ * the pilot programs, the empty default `/boot/init`, and no version marker. The fixture is written as soon as
+ * `filesystem.configure()` mounts the root, before `boot()` runs migrations. A second full boot in one process is not
+ * possible, since mounts and `/dev` are module-global.
  */
 async function bootOverOldFilesystem(): Promise<Kernel> {
   const kernel = new Kernel({

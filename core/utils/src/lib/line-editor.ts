@@ -1,24 +1,11 @@
 /**
- * The line editor: what a shell prompt does with keys, kept apart from what draws it.
- *
- * `Terminal` used to carry four editors - `keyHandler`, `readline`, and one each for the mobile text
- * field and the mobile password field - sharing a `_cmd`/`_cursorPosition` pair that five other
- * methods also mutated, and repeating the same wrap-aware cursor math at about a dozen sites. This is
- * the one editor: a model (`text`, `cursor`, a kill ring) plus the repaint it implies, talking to the
- * screen only through a three-member host so it has no idea whether xterm.js or a raw tty is behind it.
- *
- * Two things a host must provide that are easy to get subtly wrong:
- *
- * - `promptWidth()` is the *visible* width of the prompt, in columns. Cursor math is done in columns,
- *   so a prompt measured with its color codes counted lands the cursor a few cells right of where
- *   it is. Use {@link visibleWidth}, which also honors the `\x01`...`\x02` non-printing markers.
- * - `write` may be called with any mix of text and escape sequences; nothing here reads the screen.
- *
- * Line-wrap model: a line's cells are numbered from the start of the prompt, so the character at
- * offset `n` sits at row `floor((promptWidth + n) / cols)`, column `(promptWidth + n) % cols`. A
- * terminal defers the wrap when text ends exactly on the last column, leaving the cursor there rather
- * than on the next row; {@link LineEditor} forces the wrap (a space and a carriage return) so that the
- * floor model holds. Without it, a line that filled a row exactly moved the cursor one row too far.
+ * The line editor: what a shell prompt does with keys, separate from what draws it. A model (`text`, `cursor`, a kill
+ * ring) plus the repaint it implies, talking to the screen through a three-member host.
+ * `promptWidth()` must be the visible width in columns (use {@link visibleWidth}, which honors the `\x01`...`\x02`
+ * non-printing markers). `write` takes any mix of text and escapes.
+ * Line-wrap model: the character at offset `n` is at row `floor((promptWidth + n) / cols)`, column `(promptWidth + n)
+ * % cols`. A terminal defers the wrap when text ends on the last column, so {@link LineEditor} forces it (a space and
+ * a carriage return).
  */
 
 /** What the editor needs from whatever is showing the line. */
@@ -239,10 +226,8 @@ export class LineEditor {
   // - whole-line operations ----------------------------------------------------------------------
 
   /**
-   * Erases the line and the prompt in front of it from the screen, leaving the cursor at the start of
-   * the block's first row. The block is `ceil(len / cols)` rows, not `floor`: a terminal defers the
-   * wrap when text ends on the last column, so the floor count moved one row too far up and the erase
-   * wiped what was printed above the prompt.
+   * Erases the line and the prompt in front of it, leaving the cursor at the start of the block's first row. The
+   * block is `ceil(len / cols)` rows, since the wrap is deferred at the last column.
    */
   eraseBlock() {
     const cols = Math.max(1, this.host.cols)
@@ -270,14 +255,7 @@ export class LineEditor {
   }
 }
 
-/**
- * `^R`: incremental search backward through history.
- *
- * A separate small machine from {@link LineEditor} because while it is active the prompt line shows
- * `(reverse-i-search)`query': match` rather than the edit buffer; accepting it hands the match back as
- * the buffer, cancelling restores what was there. Pure state and no I/O, so the caller decides how to
- * draw it.
- */
+/** `^R`: incremental search backward through history. Separate from {@link LineEditor} because the prompt line shows `(reverse-i-search)`query': match`. Accepting returns the match as the buffer; cancelling restores the previous one. State only, no I/O. */
 export class ReverseSearch {
   private _query = ''
   private _from: number

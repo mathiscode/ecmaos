@@ -12,13 +12,7 @@ Print the first 10 lines of each FILE to standard output.
   -c, -cNUMBER        print the first NUMBER bytes instead of lines
   --help             display this help and exit`
 
-/**
- * Reads stdin only until there is enough to answer, the way real `head` does.
- *
- * `limitBytes` stops after that many bytes (`-c`); `limitLines` stops once that many newlines have
- * been seen (`-n`). Reading everything first meant `head -c 4 < /dev/zero` never returned at all, and
- * made every `head` on a pipe wait for the writer to finish before printing a thing.
- */
+/** Reads stdin only until there is enough: `limitBytes` (`-c`) bytes, or `limitLines` (`-n`) newlines. */
 function readStdinUntilEnough(limitBytes, limitLines) {
   const chunkSize = 65536
   const chunks = []

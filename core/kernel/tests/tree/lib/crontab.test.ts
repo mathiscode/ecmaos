@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-// This is the worker-hosted `crond.mjs`/`cron.mjs` shared crontab parser now - `#lib/crontab.ts`
-// (the old main-thread-only copy `kernel.loadCrontab()` used) was retired along with that method
-// once `crond` (a real daemon `Process`) replaced `kernel.intervals`'s whole cron half. Ported
-// verbatim, so this file's own coverage (real parsing-ambiguity bug fixes included) carries over
-// unchanged - see `src/bin/commands/crond.mjs`'s doc comment for why this exists as a real daemon.
+// The crontab parser shared by `crond.mjs` and `cron.mjs`.
 import { parseCrontabFile, parseCrontabLine } from '../../../src/bin/commands/lib/crontab.mjs'
 
 describe('parseCrontabLine', () => {
@@ -13,12 +9,8 @@ describe('parseCrontabLine', () => {
   })
 
   it('parses a 5-field expression whose command is a single non-numeric word', () => {
-    // Real bug: '* * * * * echo hi' has 7 space-separated parts, the same count a genuine 6-field
-    // (with seconds) expression plus a one-word command would have. The old code decided 6-field
-    // vs 5-field from the *first* field's shape alone, which can't tell these apart - both start
-    // with a field that "looks like seconds". The fix only commits to the 6-field interpretation
-    // once parseCronExpression actually accepts the 6-field slice, so 'echo' (not a valid 6th
-    // field) correctly falls back to 5-field instead of being folded into a bogus expression.
+    // `* * * * * echo hi` has 7 parts, the same as a 6-field (with seconds) expression plus a one-word command. The
+    // 6-field reading is used only if `parseCronExpression` accepts that slice, so `echo` falls back to 5-field.
     expect(parseCrontabLine('* * * * * echo hi')).toEqual({ expression: '* * * * *', command: 'echo hi' })
   })
 

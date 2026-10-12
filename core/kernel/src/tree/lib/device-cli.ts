@@ -5,17 +5,10 @@ import type { Shell } from '@ecmaos/types'
 import type { Kernel } from '#kernel.ts'
 
 /**
- * A device's command line (`/dev/battery status`), run under a real process.
- *
- * A device package's `cli` is the userland face of a driver that only exists on the main thread (it
- * calls `navigator.getBattery()`, `navigator.geolocation`, Web Bluetooth...), so its logic stays here
- * while the process that stands for it is `/bin/devcli`: a worker with a pid, signals and an exit code.
- * The `cli` receives the same `kernel`/`shell` it was written against and a `terminal` whose output is
- * carried to the process's own stdout through a real pipe fd (`Kernel.attachStream`), so redirection
- * and pipes work: `/dev/battery status > file`.
- *
- * Output a `cli` produces after it returned (a `geo watch` callback firing later) has no process to
- * go to and lands on the live terminal, as it did before.
+ * A device's command line (`/dev/battery status`), run under a real process. The `cli` stays on the main thread (it
+ * calls `navigator.*`); `/bin/devcli` is the worker process standing for it, with a pid, signals and an exit code.
+ * The `cli` gets the `kernel` and `shell` and a `terminal` whose output goes to the process's stdout through a pipe
+ * fd (`Kernel.attachStream`), so redirection and pipes work. Output after it returned lands on the live terminal.
  */
 
 const running = new WeakMap<Process, Promise<number>>()

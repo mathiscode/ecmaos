@@ -5,11 +5,8 @@ import { tokenize } from '../../src/lib/shell-parser.ts'
 import type { WordPart } from '../../src/lib/shell-parser.ts'
 
 /**
- * Brace expansion, the shell's first expansion and the only purely textual one: `{a,b}` becomes two
- * words whether or not anything by those names exists, which is what separates it from globbing.
- *
- * Unit-level here because the interesting cases are all about what is *not* expanded - quoting,
- * `${...}`, and the several forms that are literal text in every real shell.
+ * Brace expansion is purely textual (`{a,b}` is two words whether or not such files exist). The cases are mostly what
+ * is not expanded: quoting, `${...}`, and forms that are literal in every shell.
  */
 describe('expandBraces', () => {
   /** Expands the first word of `line` and returns the resulting words as plain text. */

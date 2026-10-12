@@ -1,5 +1,5 @@
 /**
- * A recursive-descent shell parser: tokenizer -> AST -> the shapes `Shell.execute` walks.
+ * A recursive-descent shell parser: tokenizer, AST, and the shapes `Shell.execute` walks.
  *
  * Grammar:
  * ```
@@ -10,15 +10,9 @@
  * Redirection := [n] ('>' | '>>' | '<' | '>&' | '<<' | '<<<') Word
  * ```
  *
- * The tokenizer keeps each word as a list of {@link WordPart}s, one per run of text with the same
- * quoting (unquoted, '...', "...", or a backslash escape), because expansion depends on it: `$VAR`
- * expands inside "..." but not '...', and only an unquoted expansion is word-split or globbed.
- * `$(...)`, `$((...))`, `${...}` and backticks are kept whole inside a word, whitespace and all, and
- * left for expansion to resolve (`#lib/word-expansion.ts`).
- *
- * Heredoc bodies span lines, so they are lifted out of the raw text before anything line-based
- * runs (`foldHeredocs`): each `<<DELIM` plus its body becomes one self-contained token on the
- * command's own line.
+ * Each word is a list of {@link WordPart}s, one per run with the same quoting, since expansion depends on it.
+ * `$(...)`, `$((...))`, `${...}` and backticks are kept whole and expanded later (`word-expansion.ts`). Heredoc
+ * bodies are folded onto their command's line first (`foldHeredocs`).
  */
 
 import type { Statement } from './control-flow-parser.js'
@@ -527,12 +521,8 @@ export function parseScript(line: string): Script {
 }
 
 /**
- * Parses a bare run of redirections, e.g. the `< input.txt` that follows a compound statement's
- * closing keyword in `while ...; done < input.txt`.
- *
- * The statement parser (`control-flow-parser.ts`) deliberately knows nothing about redirections, so
- * it keeps that text verbatim and hands it here. Returns an empty array for empty text, and throws
- * `ParseError` for anything that is not purely redirections.
+ * Parses a bare run of redirections, such as the `< input.txt` after a compound statement's closing keyword. Empty
+ * text gives an empty array; anything else throws `ParseError`.
  */
 export function parseRedirections(text: string): Redirection[] {
   const trimmed = text.trim()
@@ -617,10 +607,8 @@ function findHeredocOperators(line: string): HeredocOperator[] {
 }
 
 /**
- * Lifts every heredoc body out of `text` and folds it, encoded, into its `<<` operator on the
- * command's own line, so everything line-based downstream (control-flow grouping, comment
- * stripping) never sees - or mangles - a body's lines. A body with no terminator runs to the end
- * of the text, as in bash.
+ * Folds every heredoc body, encoded, into its `<<` operator on the command's own line, so line-based processing never
+ * sees the body. A body with no terminator runs to the end of the text.
  */
 export function foldHeredocs(text: string): string {
   if (!text.includes('<<')) return text
@@ -729,10 +717,8 @@ export type ConditionalToken =
   | { kind: 'word', parts: WordPart[] }
 
 /**
- * Splits the text between `[[` and `]]` into words and the operators that are special there:
- * `&&`, `||`, `!`, `(`, `)`, `<`, `>`. No word splitting or globbing happens inside `[[ ]]`, so
- * every word is kept whole with its quoting. The right-hand side of `=~` runs to the next
- * whitespace, parentheses included, so a regex like `^(a|b)$` needs no quoting.
+ * Splits the text between `[[` and `]]` into words and the operators special there (`&&`, `||`, `!`, `(`, `)`, `<`,
+ * `>`). Words are kept whole with their quoting; the right-hand side of `=~` runs to the next whitespace.
  */
 export function tokenizeConditional(text: string): ConditionalToken[] {
   const tokens: ConditionalToken[] = []

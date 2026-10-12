@@ -15,14 +15,9 @@ import { currentStorageLimits, formatBytes } from './storage-limits.ts'
 import { DefaultLimits, openRemoteFs, parseRemoteSource, parseSize, RemoteMountFailure } from './remote-mount.ts'
 
 /**
- * Everything `mount` needs that only the main thread has: the live `kernel.filesystem` mount table, the
- * browser storage/File System Access APIs, and Google's OAuth scripts (injected into `document.head`).
- * The `mount` program itself (`bin/commands/mount.mjs`) is a thin argument parser that reaches this
- * through the `fs_mount` syscall; the backend logic below is the original `mount` command body, moved
- * rather than rewritten.
- *
- * Results come back as lines for the program to print (`{ stream, text }`) plus an exit code, since a
- * syscall can only return a number and the messages are the whole user-visible output.
+ * Everything `mount` needs that only the main thread has: the live mount table, browser storage and File System
+ * Access APIs, and Google's OAuth scripts. The `mount` program parses arguments and calls this through `fs_mount`.
+ * Results are lines to print (`{ stream, text }`) plus an exit code.
  */
 
 const MiB = 1024 * 1024
@@ -39,7 +34,10 @@ export interface MountRequest {
 }
 
 
-/** A failure with a message ready to show as `mount: <message>`; anything else is wrapped as "failed to mount filesystem" */
+/**
+ * A failure with a message ready to show as `mount: <message>`; anything else is wrapped as "failed to mount
+ * filesystem"
+ */
 class MountFailure extends Error {}
 
 const NO_SOURCE_TYPES = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
@@ -76,7 +74,8 @@ export async function mountFilesystem(kernel: Kernel, shell: Shell, request: Mou
 
     const mount = async (config: unknown) => {
       await kernel.filesystem.fsSync.mount(target, await resolveMountConfig(config as never))
-      // Some backends (OPFS, a directory handle, a cloud drive) copy what they mount into memory: say so, since it is RAM the machine now holds
+      // Some backends (OPFS, a directory handle, a cloud drive) copy what they mount into memory: say so, since it is
+      // RAM the machine now holds
       const held = heldBy(kernel.filesystem.mounts.get(target))
       if (held && held.bytes >= MiB) {
         out(`${target} holds ${formatBytes(held.bytes)} in memory (${held.kind === 'directory-cache' ? 'the directory is cached whole' : 'a memory file system'}); see df`)

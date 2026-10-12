@@ -1,23 +1,10 @@
 /**
- * A socket: a `WebSocket`-backed `FileOperations` end, in the same shape `lib/pipe.ts` uses for
- * pipes. ecmaOS's `socket()` syscall is loopback-only today (`AF_UNIX` and loopback `AF_INET`, see
- * `main-thread-syscalls.ts`); connections to the outside world go through `kernel.sockets`
- * (`sockets_connect`, which `nc` uses). This is the byte-stream-with-readiness end a
- * WebSocket-backed `socket()` would hand out as an fd; for now only its unit tests use it.
- *
- * Semantics:
- * - `read` never blocks past what has already arrived; it drains the inbound ring buffer and
- *   returns a short read, exactly like `recv()` on a stream socket with no `MSG_WAITALL`.
- * - `read` returns 0 (EOF) once the socket has closed and the buffer is drained.
- * - `write` throws `ECONNRESET` once the socket has closed.
- * - `write` before the connection finishes opening buffers nothing - the caller gets `EAGAIN`,
- *   matching a non-blocking `connect()` in progress; poll for `EPOLLOUT` (or await `opened`) first.
- * - Message framing is `WebSocket`'s own: each `message` event's payload becomes one push into the
- *   inbound buffer, so a reader on this end sees exactly the byte boundaries the sender wrote in
- *   (an ecmaOS socket is a message-stream hybrid, not a raw TCP byte stream - documented here
- *   because there's no lower layer to enforce true TCP-style coalescing over a browser WebSocket).
+ * A `WebSocket`-backed socket end with `FileOperations`, in the shape of `lib/pipe.ts`. Only its unit tests use it;
+ * `socket()` is loopback-only and external connections go through `kernel.sockets`.
+ * - `read` returns what has arrived (a short read), and 0 (EOF) once the socket is closed and the buffer is drained.
+ * - `write` throws `ECONNRESET` once closed, and `EAGAIN` before the connection opens.
+ * - Framing is `WebSocket`'s: each message is one push, so a reader sees the sender's boundaries.
  */
-
 import { withErrno } from 'kerium'
 import { EPOLLIN, EPOLLOUT, WaitQueue } from '@zenfs/linux'
 import type { DeviceFile, FileOperations } from '@zenfs/linux'

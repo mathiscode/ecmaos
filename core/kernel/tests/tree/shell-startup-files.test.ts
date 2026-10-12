@@ -6,15 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Shell startup files, and the two bugs that kept them from being possible.
- *
- * Nothing was ever sourced as a shell script before this: `/etc/env` and `~/.env` are `KEY=VALUE`
- * only, so there was no way to define an alias or a function that survived a login.
- *
- * `~/.ecmashrc` could not have worked even once it was read, because the interactive login path
- * called `loadEnvFile()` *before* setting `HOME` for the user who had just authenticated. Every
- * `~/`-rooted startup file was therefore resolved against the previous user's home - on a fresh
- * boot the default `/root`, and after a relogin the last user's.
+ * Shell startup files: sourced as scripts at login, so aliases and functions survive. `~/.ecmashrc` is resolved
+ * against the logging-in user's home, which requires `HOME` to be set before `loadEnvFile()`.
  */
 describe('startup files', () => {
   let kernel: Kernel

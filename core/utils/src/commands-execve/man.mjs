@@ -1,11 +1,8 @@
 /**
- * Show a manual page. Pages when run interactively; with output piped or redirected, prints the
- * text directly instead, like real `man`. Only English text is shown.
- *
- * A bare name (`man ps`) is looked up as a command: a page under `@ecmaos/kernel/commands/` (the kernel's own
- * commands) or `@ecmaos/coreutils/` and `@ecmaos/coreutils-copyleft/` (the programs those packages ship), then a
- * package of that name, and last the command's own `--help`, so every
- * command has a manual page without anyone writing one and the text cannot drift from the program.
+ * Shows a manual page. Pages when interactive; prints the text directly when output is piped or redirected. English
+ * only.
+ * A bare name (`man ps`) is looked up as a page under `@ecmaos/kernel/commands/`, `@ecmaos/coreutils/` or
+ * `@ecmaos/coreutils-copyleft/`, then a package of that name, and last as the command's own `--help`.
  */
 
 import ansi from 'ansi-escape-sequences'
@@ -155,17 +152,10 @@ function listTopics(packageDir, prefix = '') {
 function convertMarkdownToText(content) {
   let result = content
 
-  // Strip HTML comments: <!-- ... -->
-  // - Safe: Processed first to remove comments before any other processing
-  // - Safe: Uses non-greedy match to handle multiple comments
-  // - Safe: Can span multiple lines
+  // Strips HTML comments.
   result = result.replace(/<!--[\s\S]*?-->/g, '')
 
-  // Process code blocks FIRST to avoid processing markdown inside them
-  // Code blocks: /^```[\s\S]*?^```/gm
-  // - Pattern matches fenced code blocks (```...```)
-  // - Uses non-greedy match to handle multiple code blocks
-  // - Replace with placeholders that won't match any markdown patterns
+  // Code blocks are pulled out first, so markdown inside them is not processed.
   const codeBlockPlaceholders = []
   result = result.replace(/^```[\s\S]*?^```/gm, (match) => {
     const code = match.replace(/^```[^\n]*\n/, '').replace(/\n```$/, '')
@@ -175,10 +165,7 @@ function convertMarkdownToText(content) {
     return placeholder
   })
 
-  // Headings: /^(#{1,6})\s+(.+)$/gm
-  // - Safe: Uses ^ and $ with m flag (line anchors)
-  // - Safe: Requires whitespace after # characters
-  // - Safe: Won't match inside code blocks (already replaced with placeholders)
+  // Headings.
   result = result.replace(/^(#{1,6})\s+(.+)$/gm, (_match, hashes, text) => {
     const level = hashes.length
     if (level === 1) return ansi.format(text, ['bold', 'underline']) + '\n'
@@ -186,11 +173,7 @@ function convertMarkdownToText(content) {
     else return ansi.format(text, ['bold']) + '\n'
   })
 
-  // Inline code: /`([^`]+)`/g
-  // - Safe: Processed after code blocks, so won't match inside code blocks
-  // - Safe: [^`]+ ensures it won't match empty content
-  // - Safe: Won't match across lines (backticks must be on same line)
-  // - Safe: Processed early to protect code snippets from other markdown
+  // Inline code.
   result = result.replace(/`([^`]+)`/g, (_, code) => ansi.format(code, ['cyan']))
 
   // Restore code blocks
@@ -201,29 +184,14 @@ function convertMarkdownToText(content) {
     }
   }
 
-  // Bold text: /\*\*(.+?)\*\*/g
-  // - Safe: Processed after code blocks, so won't match inside code blocks
-  // - Safe: Non-greedy (.+?) ensures it matches the shortest valid bold text
-  // - Safe: Requires at least one character between ** (won't match empty)
-  // - Safe: Processed BEFORE italic to avoid conflicts
-  // - Note: Can match inside headings (e.g., "## **Bold Heading**") which is valid markdown
+  // Bold, before italic.
   result = result.replace(/\*\*(.+?)\*\*/g, (_, text) => ansi.format(text, ['bold']))
 
-  // Italic text: /\*(?![*])(.+?)\*/g
-  // - Safe: Processed after code blocks and bold, so won't match inside code blocks or **bold**
-  // - Safe: Negative lookahead (?![*]) ensures it doesn't match if followed by *
-  // - Safe: Non-greedy (.+?) ensures it matches the shortest valid italic text
-  // - Safe: Requires at least one character between * (won't match empty)
-  // - Safe: Can match inside bold text (e.g., "**bold *italic* bold**") which is valid markdown
-  // - Note: Using 'gray' color since many terminals don't render italic styling visibly
+  // Italic, shown in gray since many terminals do not render italics.
   result = result.replace(/\*(?![*])(.+?)\*/g, (_, text) => ansi.format(text, ['gray']))
 
 
-  // URLs: Color any URLs (http://, https://, mailto:) as blue
-  // - Safe: Processed after code blocks, so won't match inside code blocks
-  // - Safe: Matches common URL patterns, stops at whitespace or common punctuation
-  // - Safe: Won't match URLs that are already inside formatted text (escape sequences)
-  // - Note: Pattern excludes trailing punctuation like ), ], but allows . (periods are valid in URLs)
+  // Colors URLs (http, https, mailto) blue; trailing punctuation is excluded.
   const urlPattern = /(https?:\/\/[^\s<>"',;!)\]\)]+|mailto:[^\s<>"',;!)\]\)]+)/gi
   result = result.replace(urlPattern, (url) => {
     return ansi.format(url, ['blue'])

@@ -1,14 +1,7 @@
 /**
- * Versioned, ordered migrations for a persisted root filesystem.
- *
- * The root filesystem lives in IndexedDB and outlives the kernel that created it, so a new release
- * boots over whatever an older one left behind: command stubs for names that no longer exist, a
- * `/boot/init` written by an older default, files in older formats. Each migration below brings a
- * filesystem from one schema version to the next; `/etc/ecmaos-fs-version` records how far a
- * filesystem has come, so every migration runs exactly once per filesystem.
- *
- * A fresh filesystem has no marker (version 0) and runs them all, which is harmless: each one only
- * touches what it finds.
+ * Versioned, ordered migrations for a persisted root filesystem, which outlives the kernel that created it.
+ * `/etc/ecmaos-fs-version` records how far a filesystem has come, so each migration runs once. A fresh filesystem
+ * (version 0) runs them all; each only touches what it finds.
  */
 
 import type { promises } from '@zenfs/core'
@@ -143,16 +136,9 @@ async function upgradeBootInit(ctx: FsMigrationContext): Promise<void> {
 }
 
 /**
- * Converts a pre-1.0 6-field `/etc/passwd` line (`name:uid:gid:groups:home:shell`, the `groups`
- * field a comma-separated list of supplementary gids) to the real 7-field format
- * (`name:x:uid:gid:gecos:home:shell`) and writes the supplementary groups out to a new
- * `/etc/group` (`name:x:gid:members`), synthesizing each group's name from whichever user has it
- * as their primary gid, or `group<gid>` if none does - this filesystem has no group-creation
- * API, only users with a primary gid, so there is no other name to recover.
- *
- * A passwd file already in the 7-field format (its 2nd field is the literal `x`) is left alone,
- * so this migration is safe to run again - the boot version marker already prevents that in the
- * normal case, but a filesystem hand-edited between migrations shouldn't be double-converted.
+ * Converts a 6-field `/etc/passwd` (`name:uid:gid:groups:home:shell`) to the 7-field format
+ * (`name:x:uid:gid:gecos:home:shell`) and writes supplementary groups to a new `/etc/group`, naming each group after
+ * the user with that primary gid or `group<gid>`. A file already in 7-field form is left alone.
  */
 async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {
   const { fs, log } = ctx
@@ -198,14 +184,10 @@ async function convertPasswdAndGroup(ctx: FsMigrationContext): Promise<void> {
 }
 
 /**
- * Rewrites `/etc/shadow` in the Linux shape (`name:hash:lastchg:min:max:warn:inactive:expire:reserved`).
- *
- * The earlier format was `name:uid:gid:hash:publicKey:wrappedKey`, with the wrapped private key spread over three
- * more colon-separated fields. The hash is kept as it is (the old `pbkdf2$` and unsalted forms still verify, and are
- * upgraded at the next login). A key that survived is moved to `~/.ssh/id_ecdsa` and `id_ecdsa.pub` when the account's
- * home directory exists; one that did not (the old loader truncated it) or whose home is gone is dropped, and a new one
- * is made when something first needs it. Nothing logged in with it. An account in `/etc/passwd` with no line gets a
- * locked one. A file already in the new shape is left alone, so running this twice changes nothing.
+ * Rewrites `/etc/shadow` in the Linux shape (`name:hash:lastchg:min:max:warn:inactive:expire:reserved`) from
+ * `name:uid:gid:hash:publicKey:wrappedKey`. Hashes are kept (old forms still verify and are upgraded at login). A
+ * surviving key moves to `~/.ssh/id_ecdsa` and `id_ecdsa.pub` when the home exists, otherwise it is dropped. An
+ * account with no line gets a locked one. A file already in the new shape is left alone.
  */
 async function convertShadow(ctx: FsMigrationContext): Promise<void> {
   const { fs, log } = ctx
@@ -276,15 +258,8 @@ async function convertShadow(ctx: FsMigrationContext): Promise<void> {
 }
 
 /**
- * Renames a persisted terminal config from `shell.toml` to `terminal.toml`.
- *
- * Every key in that file is an xterm.js terminal property, so `shell.toml` named the wrong layer.
- * No `shell.toml` ships in initfs, but a persisted root holds whatever `theme <name>` wrote there,
- * so an existing filesystem would silently lose its theme on the rename without this.
- *
- * A `terminal.toml` already in place wins: it is the newer file by definition, and the old one is
- * removed rather than merged, since a partial merge of two generations of the same file is a worse
- * outcome than keeping the current one.
+ * Renames a persisted `shell.toml` to `terminal.toml`, since every key in it is a terminal property. An existing
+ * `terminal.toml` wins and the old file is removed.
  */
 async function renameTerminalConfigs(ctx: FsMigrationContext): Promise<void> {
   const { fs, log } = ctx

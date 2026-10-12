@@ -1,8 +1,6 @@
 /**
- * Print the groups a user belongs to.
- *
- * Note: `groups <username>` always prints the *calling* user's own group membership, not the named
- * user's - the given username is only used to label the output line.
+ * Prints the groups a user belongs to. `groups <username>` prints the calling user's groups; the name only labels the
+ * output.
  */
 
 const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls

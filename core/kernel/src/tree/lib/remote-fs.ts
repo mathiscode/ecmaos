@@ -9,7 +9,9 @@ const S_IFREG = 0o100000
 const S_IFDIR = 0o040000
 
 export interface RemoteFsOptions {
-  /** A tree larger than either is refused when the mount is made (it is copied to this machine's memory, see below) */
+  /**
+   * A tree larger than either is refused when the mount is made (it is copied to this machine's memory, see below)
+   */
   limits: { files: number, bytes: number }
   /** Who the files appear to belong to here; the other machine's own owners mean nothing on this one */
   owner: { uid: number, gid: number }
@@ -31,15 +33,10 @@ function failure(error: unknown): never {
 }
 
 /**
- * Another ecmaOS machine's directory, mounted here. Programs reach a mount through the synchronous file API, so this keeps a
- * copy of the remote tree in memory (`Async` does that: it copies everything when the mount is made, then answers
- * synchronous calls from the copy and sends changes on in the background). That has consequences, which is why a tree past
- * `limits` is refused:
- *
- * - the copy is as large as the tree, and is made all at once;
- * - a change made on the other machine afterwards is not seen by programs here until the mount is made again;
- * - a change refused over there (permission, a full disk) was already accepted here, so it is reported through `onError`
- *   and the copy no longer matches. Calls through the asynchronous API (`fs.promises`) do reach the other machine and fail properly.
+ * Another ecmaOS machine's directory, mounted here. The synchronous file API is served from an in-memory copy of the
+ * remote tree (`Async` copies it when the mount is made and sends changes on in the background), so a tree past
+ * `limits` is refused, changes made on the other machine are not seen until remounted, and a change refused over
+ * there is reported through `onError`. The asynchronous API (`fs.promises`) reaches the other machine.
  */
 export class RemoteFS extends Async(FileSystem) {
   /** @hidden */
@@ -72,7 +69,8 @@ export class RemoteFS extends Async(FileSystem) {
   }
 
   /**
-   * A change the synchronous API already applied locally is sent in the background; if it fails, nobody is waiting to be
+   * A change the synchronous API already applied locally is sent in the background; if it fails, nobody is waiting to
+   * be
    * told, so it is reported here instead of becoming an unhandled rejection (which ends a Node process).
    * @internal
    */
@@ -124,7 +122,8 @@ export class RemoteFS extends Async(FileSystem) {
   }
 
   async createFile(path: string, options: CreationOptions) {
-    // The mode may or may not carry the file type; one that names another type (a symbolic link, a device) cannot be made here
+    // The mode may or may not carry the file type; one that names another type (a symbolic link, a device) cannot be
+    // made here
     if ((options.mode & S_IFMT) && (options.mode & S_IFMT) !== S_IFREG) throw withErrno('EPERM', 'only regular files can be created on a remote mount')
     return this.inode(await this.call('create', path, options.mode & 0o7777))
   }
@@ -140,7 +139,8 @@ export class RemoteFS extends Async(FileSystem) {
   async link(from: string, to: string) { await this.call('link', from, to) }
 
   async touch(path: string, metadata: InodeLike | Inode) {
-    // Only what the caller actually set: a change of times alone arrives with no mode, and that is not a request for mode 0
+    // Only what the caller actually set: a change of times alone arrives with no mode, and that is not a request for
+    // mode 0
     const change: { [key: string]: number } = {}
     if (typeof metadata.mode === 'number') change['mode'] = metadata.mode & 0o7777
     if (typeof metadata.atimeMs === 'number') change['atimeMs'] = metadata.atimeMs

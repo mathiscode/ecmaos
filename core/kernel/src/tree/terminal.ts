@@ -115,10 +115,8 @@ const defaultLinkActivationDeps: LinkActivationDeps = {
 }
 
 /**
- * Handles a click on a link in terminal output. `http(s)` links open in a new tab. An
- * `ecmaos://kernel.execute` link runs a command, and any program's output can print one, so it
- * first shows the exact decoded command line and runs it only if the user confirms.
- * Resolves `true` if a command ran.
+ * Handles a click on a terminal link. `http(s)` links open in a new tab; an `ecmaos://kernel.execute` link shows the
+ * decoded command line and runs it only if the user confirms. Resolves `true` if a command ran.
  */
 export async function activateTerminalLink(text: string, deps: LinkActivationDeps = defaultLinkActivationDeps): Promise<boolean> {
   if (/^https?:\/\//.test(text)) {
@@ -170,9 +168,8 @@ export class Terminal extends XTerm implements ITerminal {
   private _addons: TerminalOptions['addons'] = new Map()
   private _ansi: typeof ansi = ansi
   /**
-   * The line being edited. Everything that changes it goes through this, so `_cmd`/`_cursorPosition`
-   * below are only views of it: five other methods used to mutate those two fields directly, which is
-   * how the four editors drifted apart.
+   * The line being edited. Everything that changes it goes through this; `_cmd` and `_cursorPosition` below are views
+   * of it.
    */
   private _editor: LineEditor
   private _history: History
@@ -191,12 +188,7 @@ export class Terminal extends XTerm implements ITerminal {
   // {sigil} is '#' for root, '$' for anyone else - resolved per render, so the first prompt after a
   // non-root login is right without anything having to reset the template.
   private _promptTemplate: string = '{user}:{cwd}{sigil} '
-  /**
-   * Definite-assignment: `Kernel.createShell` constructs `Terminal` before the `Shell` it belongs
-   * to exists (the same order `Kernel`'s own constructor uses), then calls `attachShell()`
-   * synchronously right after - nothing observes `Terminal` in between, so this is never actually
-   * read while unset even though the constructor may leave it unassigned.
-   */
+  /** Assigned by `attachShell()` right after construction. */
   private _shell!: Shell
   private _stdin: ReadableStream<Uint8Array>
   private _stdout: WritableStream<Uint8Array>
@@ -257,26 +249,17 @@ export class Terminal extends XTerm implements ITerminal {
   get zfsTty() { return this._zfsTty }
 
   /**
-   * Feeds this terminal's raw input (`onData`) into its `@zenfs/linux` TTY, so a foreground worker
-   * program reading fd 0 gets real line-discipline input (canonical/raw mode, echo, `ISIG`) - the
-   * `tty.receive()` half `attach_xterm(..., { input: false })` deliberately leaves off. While at
-   * least one holder is attached, `keyHandler` stands down: the line discipline, not the shell's
-   * line editor, owns the keyboard, and turns `^C`/`^Z` into signals itself (`ISIG`).
-   *
-   * Reference-counted, because every stage of a foreground pipeline holds it. Returns an idempotent
-   * release; the last release hands typeahead nobody read (what was typed while a command ran) back to the
-   * line editor, which takes it up once the next prompt is drawn, as a shell reading a tty does.
-   * Mobile keeps the old path: its on-screen keyboard synthesizes `keyHandler` calls, not `onData`.
+   * Feeds raw input (`onData`) into this terminal's `@zenfs/linux` TTY so a foreground program reading fd 0 gets
+   * line-discipline input (canonical/raw mode, echo, `ISIG`). While held, `keyHandler` stands down. Reference-
+   * counted; returns an idempotent release. The last release hands unread typeahead back to the line editor. Mobile
+   * does not use it.
    */
   attachInput(): () => void {
     const tty = this._zfsTty
     if (!tty || this._isMobile) return () => {}
 
     if (this._ttyInputHolders++ === 0) {
-      // The line settings the session starts with, put back when the last holder lets go however
-      // it ended (`^C`, `kill`, a crash): a program that went raw and died must not leave the shell
-      // typing into a raw terminal. Restored once, by the last release, not per stage - in
-      // `cat f | less`, `cat` finishing must not cook the terminal out from under `less`.
+      // The line settings the session started with, restored by the last holder to release.
       this._ttySavedTermios = { ...tty.termios, cc: [...tty.termios.cc] }
       // not while `readline()` is answering a question for the kernel: what is typed then is the answer, and must not
       // also wait in the line discipline to be run as a command when the program ends
@@ -554,10 +537,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * OSC 52: lets a program running in the terminal read/write the system clipboard through an escape
-   * sequence, the same way it would over a real serial line - rather than requiring ecmaOS app code to
-   * reach for `navigator.clipboard` directly. The addon touches `self` at import, so it is loaded only
-   * when a terminal is mounted in a page.
+   * OSC 52: lets a program read and write the system clipboard through an escape sequence. Loaded only when a
+   * terminal is mounted in a page.
    */
   private async _loadClipboardAddon() {
     if (this.addons.has('clipboard')) return
@@ -623,8 +604,10 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * For a terminal nobody looks at in a page (a remote session): output goes to `write` as well as into the emulator, and the
-   * terminal gets its `@zenfs/linux` TTY without a DOM element to mount on. Input is fed by the caller (`input`, `keyHandler`).
+   * For a terminal nobody looks at in a page (a remote session): output goes to `write` as well as into the emulator,
+   * and the
+   * terminal gets its `@zenfs/linux` TTY without a DOM element to mount on. Input is fed by the caller (`input`,
+   * `keyHandler`).
    */
   attachHeadless(write: (data: string | Uint8Array) => void) {
     const emulatorWrite = this.write.bind(this) as (data: string | Uint8Array, callback?: () => void) => void
@@ -667,13 +650,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * Load or unload the WebGL renderer to match `shell.config.renderer`. `webgl` (the default) is
-   * hardware-accelerated; `dom` is the escape hatch documented in `terminal.toml` for a GPU/font
-   * combination that renders incorrectly under WebGL.
-   *
-   * Does nothing once WebGL has already fallen back to `dom` after a context loss this session
-   * (see `onContextLoss` below) - re-requesting a context that was just lost immediately loses it
-   * again on many drivers, so the fallback for a given terminal is one-way until it is remounted.
+   * Loads or unloads the WebGL renderer to match `shell.config.renderer` (`dom` is the fallback). Does nothing after
+   * a WebGL context loss, which falls back to `dom` until remount.
    */
   private _applyRenderer() {
     // this._shell may not exist yet - see the constructor's doc comment on _shell for why.
@@ -709,16 +687,7 @@ export class Terminal extends XTerm implements ITerminal {
    * (`right`), the readline/shell convention for Option+Arrow (macOS) and Ctrl+Arrow (elsewhere).
    * Word boundaries follow whitespace, matching bash's default `word-boundary` behavior.
    */
-  /**
-   * Write a chunk of program output atomically, using DEC private mode 2026 (Synchronized Output,
-   * `CSI ? 2026 h` / `l`). A command that writes many lines in one chunk - `cat` on a large file
-   * is the canonical case - can otherwise visibly tear as the renderer repaints partway through
-   * the chunk; bracketing it defers the repaint until the whole chunk has been parsed.
-   *
-   * This is unrelated to the `matrix`/`toasters` screensavers: they draw straight to a `<canvas>`
-   * overlay and never go through the terminal's own write path, so synchronized output has nothing
-   * to bracket there.
-   */
+  /** Writes a chunk atomically using synchronized output (DEC mode 2026), so large writes do not tear. */
   private _writeSynchronized(text: string) {
     this.write(`\x1b[?2026h${text}\x1b[?2026l`)
   }
@@ -732,9 +701,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   dispose() {
-    // Not in `unlisten()`: this is the handler behind `Ctrl+Shift+F1`, which is how a terminal that
-    // has been unlistened gets listening again, so it has to outlive `unlisten`. It did outlive
-    // `dispose` too, though, which left a live key handler on a terminal that no longer existed.
+    // Not in `unlisten()`: this is the handler behind `Ctrl+Shift+F1`, which re-listens a terminal, so it must
+    // outlive `unlisten`.
     try { this._shortcutListener?.dispose() } catch {}
     this._shortcutListener = undefined
     this._cleanupViewportListeners()
@@ -1029,11 +997,8 @@ export class Terminal extends XTerm implements ITerminal {
     const wasListening = this._keyListener !== undefined
     this.unlisten()
 
-    // `unlisten()` only stops this terminal's own `onKey` handler. When a foreground execve
-    // process holds `attachInput()` (e.g. `user add` reading its own stdin), raw keystrokes still
-    // flow through `onData` into the `@zenfs/linux` line discipline, which echoes them back per
-    // `termios.lflag` regardless of what this `readline()` does with `hide` - leaking the real
-    // password onto the screen on every keypress, not just on backspace/delete.
+    // `unlisten()` does not stop `onData`, so a foreground program holding `attachInput()` would still have its input
+    // echoed by the line discipline; echo is turned off for hidden input.
     const tty = this._zfsTty
     const restoreTtyEcho = hide && tty && this._ttyInput
       ? (() => {
@@ -1088,11 +1053,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * Parses a PS1-like prompt format string
-   * Supports placeholders: \u (user), \h (hostname), \w (full cwd), \W (basename cwd), \$ ($ or #), \s (shell)
-   * Supports colors: \C{colorname} (e.g., \C{green}, \C{cyan}, \C{red})
-   * Supports reset: \C{reset} or \C{default}
-   * Supports non-printing sequences: \[...\] for ANSI codes
+   * Parses a PS1-like format. Placeholders: `\u` user, `\h` host, `\w` cwd, `\W` cwd basename, `\$` `$` or `#`, `\s`
+   * shell; `\C{color}` colors, `\C{reset}` or `\C{default}`; `\[...\]` marks non-printing sequences.
    */
   private parsePromptFormat(format: string): string {
     const user = this._users.get(this._shell.credentials.euid ?? 0)
@@ -1355,10 +1317,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * Bookkeeping for a foreground job whose process just got stopped (`^Z`): it gives up the
-   * controlling terminal (same as `bg`; `fg` reclaims it - see `JobProcessHandle.setForeground`),
-   * is marked stopped, and control returns to the prompt. Idempotent, so both the keyboard path
-   * above and the process-side `SIGTSTP` hook in `Kernel.executeViaExecve` can call it.
+   * Bookkeeping for a foreground job whose process was stopped (`^Z`): it gives up the terminal, is marked stopped
+   * and control returns to the prompt. Idempotent.
    */
   /** Counts jobs stopped with `^Z`; see the prompt drawn after a command finishes. */
   private _stopEpoch = 0
@@ -1379,12 +1339,9 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * The editing keys, shared by the prompt and by `readline()` so the two cannot disagree about what
-   * a key does. Returns whether it handled the key.
-   *
-   * Emacs bindings as in readline: `^A`/`^E` line ends, `^B`/`^F` character, `^D` delete, `^K`/`^U`
-   * kill to the end/start, `^W` kill the word before, `^Y` yank, and `Alt-B`/`Alt-F`/`Alt-D`/
-   * `Alt-Backspace` for words. Killed text goes on a ring, so `^W^W^Y` puts both words back.
+   * The editing keys, shared by the prompt and `readline()`. Emacs bindings: `^A`/`^E`, `^B`/`^F`, `^D`, `^K`/`^U`,
+   * `^W`, `^Y`, and `Alt-B`/`Alt-F`/`Alt-D`/`Alt-Backspace`. Killed text goes on a ring. Returns whether it handled
+   * the key.
    */
   private _editKey(editor: LineEditor, key: string, domEvent: KeyboardEvent): boolean {
     const name = domEvent.key
@@ -1431,8 +1388,7 @@ export class Terminal extends XTerm implements ITerminal {
       case 'End': editor.end(); return true
     }
 
-    // Anything else that is a single printable character. A control character (a `^X` we do not
-    // bind) used to be inserted into the line and drawn as garbage.
+    // Any other single printable character; an unbound control character is ignored.
     if ((!domEvent.ctrlKey || domEvent.altKey) && !domEvent.metaKey) {
       if ([...key].length === 1 && key >= ' ' && key !== '\x7f') {
         editor.insert(key)
@@ -1519,10 +1475,8 @@ export class Terminal extends XTerm implements ITerminal {
           // interrupted; `^C` still resets the line editor below, which frees the prompt.
           const job = this._shell?.foregroundJob
           if (job) for (const process of job.processes) process.kill(Signal.INT)
-          // `notifyInterrupted`, not a bare `runTrap`: it also sets the flag that stops the rest
-          // of a `;`-separated list. This branch only runs when no line discipline is attached
-          // (see the early return above); when one is, `Kernel.executeViaExecve` calls the same
-          // method where the real signal lands.
+          // `notifyInterrupted` also stops the rest of a `;` list. This branch runs only when no line discipline is
+          // attached; otherwise `Kernel.executeViaExecve` calls it.
           void this._shell?.notifyInterrupted()
 
           this._editor.reset()
@@ -1577,12 +1531,8 @@ export class Terminal extends XTerm implements ITerminal {
           break
         }
 
-        // What the line would be if this Enter ended it: the accumulated continuation buffer plus
-        // what was just typed. The shell grammar - not a lexical rule like the trailing backslash
-        // above - decides whether that is a complete statement. An open heredoc (`cat <<EOF` with
-        // no terminator yet) or an open block (`for ...; do` with no `done`) keeps the prompt in
-        // continuation mode; a genuine syntax error does not, so a typo can't trap the user in a
-        // `>` prompt with no way out. See `needsMoreInput` in `lib/control-flow-parser.ts`.
+        // The line as it would be if this Enter ended it. The shell grammar decides whether that is complete; an open
+        // heredoc or block continues, a syntax error does not (`needsMoreInput`).
         const candidate = this._multiLineMode ? this._multiLineBuffer + editor.text : editor.text
         if (candidate.trim().length > 0 && needsMoreInput(candidate)) {
           this._multiLineBuffer = candidate + '\n'
@@ -1655,9 +1605,7 @@ export class Terminal extends XTerm implements ITerminal {
           this._isTabCycling = true
         }
 
-        // A line ending in `/` is completed like any other: with nothing after the slash every entry
-        // matches, and Tab cycles through them. It used to run `ls` instead, which no real shell does
-        // and which printed over the prompt.
+        // A line ending in `/` is completed like any other: every entry matches, and Tab cycles through them.
         const matches = await this.getCompletionMatches(this._lastTabCommand) // Use original command for matches
         if (matches.length > 0) {
           this._tabCompletionIndex = (this._tabCompletionIndex + 1) % matches.length
@@ -1671,7 +1619,10 @@ export class Terminal extends XTerm implements ITerminal {
 
   private readonly _mirrors = new Set<(data: string | Uint8Array) => void>()
 
-  /** Calls `sink` with everything written to this terminal from now on (a remote display, see `lib/remote-display.ts`); returns how to stop */
+  /**
+   * Calls `sink` with everything written to this terminal from now on (a remote display, see `lib/remote-
+   * display.ts`); returns how to stop
+   */
   mirror(sink: (data: string | Uint8Array) => void): () => void {
     this._mirrors.add(sink)
     return () => { this._mirrors.delete(sink) }
@@ -1690,7 +1641,8 @@ export class Terminal extends XTerm implements ITerminal {
   /** A key pressed at a remote display: what `onKey` carries, so the line editor sees it */
   remoteKey(key: string, mods: { key: string, ctrl: boolean, alt: boolean, shift: boolean, meta: boolean }): void {
     const domEvent = { key: mods.key, ctrlKey: mods.ctrl, altKey: mods.alt, shiftKey: mods.shift, metaKey: mods.meta, preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent
-    // to every `onKey` listener, as the keyboard does: the line editor, but also a password prompt or a program reading keys, which subscribe themselves
+    // to every `onKey` listener, as the keyboard does: the line editor, but also a password prompt or a program
+    // reading keys, which subscribe themselves
     for (const listener of [...this._keyListeners]) listener({ key, domEvent })
   }
 
@@ -1929,14 +1881,8 @@ export class Terminal extends XTerm implements ITerminal {
   }
 
   /**
-   * `readline()` on a phone. The on-screen keyboard cannot produce the key events the desktop editor
-   * reads, so a real (invisible) text field is focused instead and the browser does the editing;
-   * what this draws is just the field's value after each change.
-   *
-   * There used to be two copies of this, one for text and one for passwords, identical apart from the
-   * input's `type`, the echo (the value or a row of `*`), and whether the field is registered as
-   * `_passwordInputElement`. That flag matters to the desktop path: it is how a key event aimed at the
-   * field is recognized and left alone.
+   * `readline()` on a phone: a focused invisible text field does the editing and this draws its value. Shared by text
+   * and password input, which differ in the input `type`, the echo, and `_passwordInputElement`.
    */
   private async _readlineWithDomInput(prompt: string, noListen: boolean, secret: boolean): Promise<string> {
     const wasListening = this._keyListener !== undefined

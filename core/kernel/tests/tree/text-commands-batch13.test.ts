@@ -6,17 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * cal/date/printf/which/whoami/pwd/hostname/uname/nproc/uptime/motd migrated onto real execve -
- * all pure computation/syscalls, no live kernel/shell/terminal state. test/true/false were also
- * ported and then deliberately reverted back to the in-process legacy shim after this batch's own
- * testing showed a tight shell while-loop using `test` as its condition became measurably slower
- * (each real execve pays a worker spin-up cost a plain in-process call doesn't) - see
- * legacy-command-shim.ts's doc comment.
- *
- * uname.mjs/hostname.mjs read env.KERNEL_NAME/env.KERNEL_VERSION/env.HOSTNAME, now threaded through
- * Shell's env at construction (kernel.ts) since a worker has no live `kernel` reference to read
- * kernel.name/kernel.version from directly, and `window` (unlike `navigator`) never existed in a
- * Worker context even before migration.
+ * cal, date, printf, which, whoami, pwd, hostname, uname, nproc, uptime and motd as `execve` programs. `uname` and
+ * `hostname` read `KERNEL_NAME`, `KERNEL_VERSION` and `HOSTNAME` from the shell's env, since a worker has no
+ * `kernel`. `test`, `true` and `false` stay in-process (legacy-command-shim.ts).
  */
 describe('text command batch 13: cal/date/printf/which/whoami/pwd/hostname/uname/nproc/uptime/motd, real execve', () => {
   let kernel: Kernel

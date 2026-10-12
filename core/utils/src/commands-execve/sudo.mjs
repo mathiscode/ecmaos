@@ -1,15 +1,10 @@
 /**
- * `/bin/sudo [-u USER] [-i | -s] [-n] [-S] [-k | -K] [-v] [-l] [--] [COMMAND [ARG]...]`: run a command as
- * another user, root by default, if `/etc/sudoers` allows it. The password asked for is the caller's own
- * (not the target's), and is remembered for `timestamp_timeout` minutes (5 by default) so a run of
- * commands asks once. Root is never asked.
- *
- * It has the setuid bit: it runs as root so that it can read `/etc/sudoers` (mode 0440) and start
- * something as someone else, while `getuid()` still says who ran it. See `lib/sudoers.ts` for the part of
- * the file's grammar that is understood.
- *
- * The remembered password is a file per user in `/run/sudo/ts`, which a user cannot touch (that
- * directory is root's, mode 0700) and which does not outlive a reboot.
+ * `/bin/sudo [-u USER] [-i | -s] [-n] [-S] [-k | -K] [-v] [-l] [--] [COMMAND [ARG]...]`: runs a command as another
+ * user (root by default) if `/etc/sudoers` allows it (grammar: `lib/sudoers.ts`). The password asked for is the
+ * caller's own, remembered for `timestamp_timeout` minutes (default 5) in a per-user file in `/run/sudo/ts` (root's,
+ * mode 0700). Root is never asked.
+ * It has the setuid bit so it can read `/etc/sudoers` (0440) and start something as someone else while `getuid()`
+ * still says who ran it.
  */
 
 import { checkSudo, listPrivileges, parseSudoers } from '../lib/sudoers.ts'

@@ -1,18 +1,9 @@
 /**
- * Whether a program may run as the user who started it.
- *
- * Rather than assume which `@zenfs/core` is installed, the kernel asks once at boot, with a throwaway context as an
- * unprivileged user:
- *
- * - it can read a root-owned file mode 0644. A program is `execve`'d by reading its file with a synchronous
- *   `open(path, 'r', mode)`, which once checked the *creation* mode as if it were the access requested, so a
- *   non-root program could not even start;
- * - it cannot read through a directory it has no search permission on, so one user's 0700 home is private
- *   (a release before `resolveFullWalk`, or the kernel not turning that on, fails this).
- *
- * When either fails every program keeps running as root, as before, and one log line says why. Changing the mode
- * or owner of a directory or a read-only file is not asked of it: `chmod` and `chown` do that through the kernel
- * (`fs_chmod`, `fs_chown`) until the filesystem can.
+ * Whether a program may run as the user who started it. Checked once at boot with a throwaway unprivileged context:
+ * it must be able to read a root-owned 0644 file (`execve` opens with `open(path, 'r', mode)`, which once checked the
+ * creation mode as access), and must not read through a directory it has no search permission on (`resolveFullWalk`).
+ * If either fails, every program runs as root and one log line says why. `chmod` and `chown` on directories and read-
+ * only files go through the kernel (`fs_chmod`, `fs_chown`).
  */
 
 import { bindContext, boundContexts } from '@zenfs/core'
@@ -62,11 +53,8 @@ export function credentialsFor(credentials: Credentials): Credentials {
 const S_ISUID = 0o4000
 
 /**
- * What a program with the setuid bit runs as: the caller's real ids, with the effective and saved user id
- * of the file's owner, so `su` is still told who ran it while it acts as root. `undefined` when the file
- * has no bit, is already owned by the caller's effective user, or cannot be examined. With every program
- * running as root (see `canRunProgramsAsUser`) the owner is always the effective user, so this never
- * changes anything there.
+ * What a setuid program runs as: the caller's real ids with the file owner as effective and saved user id.
+ * `undefined` when there is no setuid bit, the owner is already the effective user, or the file cannot be examined.
  */
 export function setuidCredentials(fs: { statSync(path: string): { mode: number | bigint, uid: number | bigint, isFile(): boolean } | undefined }, path: string, caller: Credentials): Credentials | undefined {
   let stats

@@ -1,17 +1,7 @@
 /**
- * `$VAR` / `${VAR}` / `${VAR:-default}` / `${VAR:+alt}` variable expansion, and `$((expr))`
- * arithmetic expansion. Neither existed before this branch: word expansion only ever covered
- * tilde, `$(...)` command substitution, and history-bang (`Shell.prepareCommand`) - a plain `$VAR`
- * in a command word passed through untouched. Control flow needs both (`while [ $i -lt 10 ]`,
- * `for i in $(seq 1 3)`, `x=$((x + 1))`), so this is new shell surface, not a rewire.
- *
- * Expansion order matches a real shell closely enough for scripting purposes: arithmetic first
- * (its `$((...))` syntax would otherwise be mistaken for two nested `${(...)}` expansions), then
- * variables. Single-quoted spans are already stripped of their quote characters by the tokenizer
- * before expansion ever sees them, so this module only has one job left: don't mistake a literal
- * `$` inside what was double-quoted content for something to skip - there is nothing to skip,
- * since quote characters are gone by this point. This mirrors `expandTilde`'s comment: expansion
- * happens on close-to-final text, not on a quote-aware token stream.
+ * `$VAR`, `${VAR}`, `${VAR:-default}`, `${VAR:+alt}` and `$((expr))` expansion. Arithmetic runs first, since
+ * `$((...))` would otherwise read as nested `${(...)}`, then variables. Quote characters are already stripped by the
+ * tokenizer.
  */
 
 /** Look up a shell variable, matching bash's special variables where they matter for scripting. */
@@ -20,11 +10,9 @@ export type VariableLookup = (name: string) => string | undefined
 class ArithmeticError extends Error {}
 
 /**
- * A recursive-descent arithmetic evaluator over bash's `$((...))` operator set, in C precedence:
- * assignment (`= += -= *= /= %= <<= >>= &= ^= |=`), `?:`, `||`, `&&`, `|`, `^`, `&`, equality,
- * comparison, shifts, `+ -`, `* / %`, `**` (right associative), unary `+ - ! ~`, and pre/post `++`
- * `--`. Integers only, in decimal, `0x` hex or leading-`0` octal; bitwise work is done on 64 bits
- * like bash's. `assign` is what lets `x++` and `x+=2` write back; without it they still evaluate.
+ * A recursive-descent evaluator for `$((...))` in C precedence: assignment operators, `?:`, `||`, `&&`, `|`, `^`,
+ * `&`, equality, comparison, shifts, `+ -`, `* / %`, `**` (right associative), unary `+ - ! ~`, and `++`/`--`.
+ * Integers only (decimal, `0x`, leading-`0` octal), bitwise on 64 bits. `assign` lets `x++` and `x+=2` write back.
  */
 function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
   const tokens = expr.match(/0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=,]/g) ?? []
@@ -281,10 +269,8 @@ export function expandArithmetic(input: string, lookup: VariableLookup): string 
 }
 
 /**
- * Expand `$VAR`, `${VAR}`, `${VAR:-default}`, and `${VAR:+alt}` in a word. Applied after tilde,
- * command substitution, and arithmetic expansion, matching the order a real shell resolves these
- * in (arithmetic and command substitution can themselves produce text a variable expansion would
- * otherwise have already skipped past).
+ * Expands `$VAR`, `${VAR}`, `${VAR:-default}` and `${VAR:+alt}` in a word, after tilde, command substitution and
+ * arithmetic.
  */
 export function expandVariables(input: string, lookup: VariableLookup): string {
   let result = ''

@@ -7,11 +7,8 @@ import { isLegacyHash } from '#lib/credentials.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Existing ecmaOS installs have users with an unsalted SHA-256 password hash and a private key
- * wrapped by an AES key derived by zero-padding the raw password - both formats predating
- * PBKDF2 support. Those users must keep working, and be moved onto the new format transparently
- * the next time they successfully log in, since there is no other moment a plaintext password is
- * available to re-derive anything from.
+ * Users with an unsalted SHA-256 hash and a private key wrapped by a zero-padded password key must keep working and
+ * be moved to the PBKDF2 format at their next successful login.
  */
 describe('Legacy credential migration', () => {
   let kernel: Kernel

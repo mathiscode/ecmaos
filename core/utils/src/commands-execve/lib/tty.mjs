@@ -1,8 +1,6 @@
 /**
- * Terminal helpers for real, worker-hosted programs that drive the terminal themselves (`less`,
- * `man`, `nc`): which fd is the terminal, raw mode, and its size. Built on `tcgetattr`/`tcsetattr`/
- * `winsize`, the real `TCGETS`/`TCSETS`/`TIOCGWINSZ` ioctls `/bin/node` exposes, so what a program
- * sees is the `@zenfs/linux` line discipline's own state, not a private convention.
+ * Terminal helpers for programs that drive the terminal (`less`, `man`, `nc`): which fd is the terminal, raw mode and
+ * size, over `tcgetattr`, `tcsetattr` and `winsize` (`TCGETS`, `TCSETS`, `TIOCGWINSZ`).
  */
 
 const { tcgetattr, tcsetattr, winsize, read, onSignal, offSignal } = globalThis.ecmaosSyscalls
@@ -34,10 +32,8 @@ export function pagerTty() {
 }
 
 /**
- * The fd that is this program's terminal, or -1 if it has none. Tries stdin, then stderr, then
- * stdout, the way a libc-less `isatty` walk does: `cat file | less` has a pipe on fd 0 but a terminal
- * on fd 2. (`open('/dev/tty')` now reaches the caller's own controlling terminal, but a program with
- * no controlling terminal still has to be told so, which this walk does.)
+ * The fd that is this program's terminal, or -1: tries stdin, stderr, then stdout (`cat file | less` has a pipe on fd
+ * 0 but a terminal on fd 2).
  */
 export function ttyFd() {
   for (const fd of [0, 2, 1]) {
@@ -52,10 +48,8 @@ export function ttyFd() {
 }
 
 /**
- * Puts the terminal into non-canonical, no-echo mode so each keypress is readable at once, keeping
- * `ISIG` so `^C`/`^Z` still raise signals. Returns a function that restores the previous mode.
- * (`Kernel.executeViaExecve` also restores termios when the process ends, so a program killed
- * mid-session cannot leave the terminal raw; this is for the normal-exit path.)
+ * Puts the terminal into non-canonical, no-echo mode, keeping `ISIG`. Returns a function that restores the previous
+ * mode. `Kernel.executeViaExecve` also restores termios when the process ends.
  */
 export function rawMode(fd) {
   const saved = tcgetattr(fd)

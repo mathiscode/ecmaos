@@ -1,11 +1,7 @@
 /**
- * `chmod`, `chown` and `utimes` for someone who owns a file but has no access bits on it, or whose file is a directory.
- *
- * Changing a mode or an owner depends on owning the file, not on read or write access to it, but the filesystem
- * underneath refuses the call in two cases that Linux allows: a directory (the synchronous `chmod`) and a file
- * its owner has made read-only. When the plain call fails that way the kernel is asked (`fs_chmod`, `fs_chown`),
- * which checks ownership by Linux's rule and makes the change. Anything it refuses is refused for the same reason
- * Linux would, and its message is the one reported.
+ * `chmod`, `chown` and `utimes` for an owner who has no access bits on a file, or on a directory. The filesystem
+ * refuses the plain call in those cases, so the kernel is asked (`fs_chmod`, `fs_chown`, `fs_utimes`); it applies
+ * Linux's rule (the owner or root) and its message is the one reported.
  */
 
 const refusedByTheFilesystem = error => /EISDIR|EACCES/.test(`${error?.code ?? ''} ${error?.message ?? ''}`)

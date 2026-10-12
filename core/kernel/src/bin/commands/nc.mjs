@@ -1,8 +1,7 @@
 /**
- * Connect to a host and port and pipe data between the socket and the terminal (or a pipe), like
- * netcat. The connection shows up in `sockets list` while open. End of input closes the connection
- * after flushing what was written, and a normal close exits 0. `^C` kills the process and closes
- * the socket with it.
+ * Connects to a host and port and pipes data between the socket and the terminal or a pipe, like netcat. The
+ * connection shows in `sockets list`. End of input flushes and closes (exit 0); `^C` kills the process and closes the
+ * socket.
  */
 
 import { openFlow } from '@ecmaos/peer'
@@ -115,11 +114,8 @@ async function ask(name, prefix, ...args) {
 }
 
 /**
- * Copies bytes between the input (terminal or pipe) and the socket until the peer closes. At end of
- * input it closes `tx`, which flushes what was written and then ends the connection (a socket has no
- * half-close, so that is a normal close), and keeps reading until the peer's side ends. Synchronous
- * on purpose: `poll` and `read` block this worker in the kernel, so nothing here may wait on an
- * async syscall.
+ * Copies bytes between the input and the socket until the peer closes. At end of input it closes `tx` (a socket has
+ * no half-close) and keeps reading until the peer ends. Synchronous, since `poll` and `read` block the worker.
  */
 function pump(rx, tx) {
   const buffer = new Uint8Array(65536)
@@ -148,7 +144,10 @@ function pump(rx, tx) {
   }
 }
 
-/** Takes the gateway options out of `args` (what is left is the usual arguments), or returns undefined when there are none */
+/**
+ * Takes the gateway options out of `args` (what is left is the usual arguments), or returns undefined when there are
+ * none
+ */
 function takeGateway(args) {
   const found = {}
   for (let i = 0; i < args.length;) {
@@ -198,7 +197,8 @@ async function throughGateway({ address, host, port, pair, fingerprint, acceptNe
     channel.onMessage = message => { if (message && message.op === 'eof') remoteEnded = true }
     const buffer = new Uint8Array(65536)
     let inputOpen = true
-    // Waiting in `poll` holds up this worker, so it waits a moment at a time: the socket's events need the turns in between.
+    // Waiting in `poll` holds up this worker, so it waits a moment at a time: the socket's events need the turns in
+    // between.
     // Like netcat, it ends when the far end does; end of input only tells the far end that nothing more is coming.
     while (!channel.closed && !remoteEnded) {
       if (inputOpen) {

@@ -146,10 +146,8 @@ function pad(text: string, width: number, left: boolean, zero: boolean): string 
 /** `format` filled in from `values`. */
 export function formatPrintf(format: string, values: string[]): string {
   /**
-   * One pass over the format, consuming arguments from `argIndex` onward.
-   *
-   * A specifier with no argument left formats an empty value (`%s` gives nothing, the numeric ones
-   * give `0`), which is what POSIX requires; printing the specifier text itself was wrong.
+   * One pass over the format, consuming arguments from `argIndex`. A specifier with no argument left formats empty
+   * (`%s` nothing, numeric ones `0`), as POSIX requires.
    */
   const formatOnce = (argIndex: number) => {
     let result = ''

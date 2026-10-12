@@ -1,10 +1,7 @@
 /**
- * Edit `/etc/sudoers` safely: `visudo`, or `visudo -c` to just check it.
- *
- * The file is copied to `/etc/sudoers.tmp` and the copy is edited, with `$SUDO_EDITOR`, `$VISUAL`, `$EDITOR`
- * or `vim`. It is checked with the parser `sudo` itself uses, and only installed (mode 0440) when it is sound,
- * so a typo cannot lock everyone out of `sudo`. A rule `sudo` does not understand is reported as an error; a
- * construct that is valid but not supported here (aliases, `#include`) is noted and does not stop the save.
+ * Edits `/etc/sudoers` safely: `visudo`, or `visudo -c` to check. Edits a copy at `/etc/sudoers.tmp` (with
+ * `$SUDO_EDITOR`, `$VISUAL`, `$EDITOR` or `vim`), checks it with `sudo`'s parser and installs it (mode 0440) only if
+ * sound. A rule `sudo` does not understand is an error; a valid but unsupported construct (`#include`) is noted.
  */
 
 import { parseSudoers } from '../lib/sudoers.ts'

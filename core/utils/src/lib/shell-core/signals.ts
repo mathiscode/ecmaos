@@ -1,26 +1,12 @@
 /**
- * The unwind signals behind `break`, `continue`, `return` and `exit`.
- *
- * These four builtins don't run a command, they alter the interpreter's own control flow, and an
- * exit code cannot express any of them: a return code can't distinguish "this command legitimately
- * exited 1" from "stop the enclosing loop" or "leave this function". That ambiguity is exactly why
- * every real shell implements them as builtins that unwind the interpreter rather than as commands
- * that report a status, and why they are thrown here.
- *
- * They live in their own module because `Shell` catches them and `lib/shell-builtins.ts` throws
- * them, so putting them in either one would make the two modules a value-level import cycle.
- *
- * Who catches what:
- *
+ * The unwind signals behind `break`, `continue`, `return` and `exit`. They alter control flow, which an exit code
+ * cannot express, so they are thrown.
  * | Signal | Caught by |
  * |---|---|
- * | `BreakSignal` / `ContinueSignal` | the nearest enclosing loop in `Shell.executeStatements` (`while`/`for`), which decrements `level` and rethrows while it is still above 1 |
- * | `ReturnSignal` | `Shell.callFunction`, and `source`'s `runInSourcedScript` |
- * | `ExitSignal` | `Shell.executeScriptText` and `Shell.execute` at depth 0 |
- *
- * Each has a last-resort catch at depth 0 in `Shell.execute` as well, so a stray `break` or
- * `return` typed at the prompt reports bash's diagnostic instead of escaping to
- * `Terminal`'s catch-all and printing an internal error in red.
+ * | `BreakSignal` / `ContinueSignal` | the nearest enclosing loop, which decrements `level` and rethrows while it is above 1 |
+ * | `ReturnSignal` | `callFunction`, and `source`'s sourced script |
+ * | `ExitSignal` | `executeScriptText` and `execute` at depth 0 |
+ * A stray `break` or `return` at the prompt gets bash's diagnostic from the depth-0 catch.
  */
 
 /** `break [N]`: leave the Nth enclosing loop (default the innermost). */
@@ -56,10 +42,8 @@ export class ExitSignal extends Error {
 }
 
 /**
- * bash's own numeric-argument handling for these four builtins: a missing argument means "use the
- * default" (the caller's, since it differs per builtin), a non-numeric one is an error, and the
- * value is taken modulo 256 because a real wait status carries only one byte - so `exit -1` reports
- * 255 exactly as in bash.
+ * bash's numeric-argument handling for these builtins: missing means the caller's default, non-numeric is an error,
+ * and the value is taken modulo 256 (`exit -1` gives 255).
  */
 export function parseSignalArgument(argv: string[], builtin: string): { value?: number, error?: string } {
   const raw = argv[0]

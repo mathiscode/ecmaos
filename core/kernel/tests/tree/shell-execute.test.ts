@@ -58,11 +58,8 @@ describe('Shell.execute - real execution over the new parser', () => {
   })
 
   /**
-   * Pipeline stage-to-stage joins now go through a real `@zenfs/linux` `create_pipe`-backed stream
-   * (`Kernel.createPipeStream`), not a plain web `TransformStream` - see that method's own doc
-   * comment for why. This payload is deliberately larger than the pipe bridge's own 65536-byte
-   * poll chunk size, so a correct result here also proves the multi-read/multi-write loop (not
-   * just a single-chunk happy path) actually reassembles the stream correctly.
+   * Pipeline stages are joined by a `create_pipe`-backed stream (`Kernel.createPipeStream`). The payload is larger
+   * than the bridge's 65536-byte poll chunk, so it also covers the multi-read/multi-write loop.
    */
   it('carries a payload larger than one pipe read/write chunk through a pipeline stage', async () => {
     const path = '/tmp/shell-execute-large-pipeline.txt'
@@ -137,11 +134,8 @@ describe('Shell.execute - real execution over the new parser', () => {
   })
 
   /**
-   * Regression test: `1>&2` (or any `N>&M` dup onto an fd with no redirect of its own) used to hand
-   * back the *same* `WritableStream` instance for both stdout and stderr
-   * (`Shell.buildOutputStreams`'s `defaultFor` caches per fd), and `Kernel.executeViaExecve` bridged
-   * both fds independently, calling `.getWriter()` on the already-locked stream a second time and
-   * throwing `Cannot create writer when WritableStream is locked`.
+   * Regression: `1>&2` returned the same `WritableStream` for stdout and stderr, and `executeViaExecve` called
+   * `.getWriter()` on the locked stream twice, throwing.
    */
   it('does not crash on a foreground 1>&2 dup redirect', async () => {
     const code = await run('echo err 1>&2')

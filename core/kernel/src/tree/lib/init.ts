@@ -1,23 +1,11 @@
 /**
- * The kernel's half of pid 1: the `Process` itself, and what `/sbin/init` (a worker program, see
- * `@ecmaos/coreutils`' `commands-execve/init.mjs`) cannot do from a worker.
- *
- * pid 1 is `@zenfs/core`'s reserved default context id, and upstream already treats it as init:
- * `Process.exit()` reparents orphans to `processes.get(1)`, and `kill()` ignores any signal pid 1 has
- * not asked to catch. Nothing created a `Process` for it until now.
- *
- * It gets its own context rather than running on `defaultContext`. The default context's descriptor
- * table is the one the kernel's own fs calls open files in, so init's stdio would land on whichever
- * numbers happened to be free (a stray kernel descriptor at fd 1 is enough), and init exiting would
- * close the kernel's files. But the context must still *be* pid 1: `/proc/<pid>/status` takes `PPid`
- * from `context.parent.id`, so a child of init reads 1 only if init's context id is 1. The id cannot be
- * assigned after the fact, so the context is a thin object over a freshly bound one that overrides
- * `id`; every other field (descriptors, credentials, children) is the bound context's own. That
- * context's own registry entry is dropped so `ps` shows no ghost row for it.
- *
- * Three custom syscalls serve the program (`init_wait`, `init_booted`, `init_script`, registered in
- * `main-thread-syscalls.ts`). `init_wait` is not `waitpid`: that takes a snapshot of the children when
- * called, fails with `ECHILD` when there are none, and a signal does not wake it.
+ * The kernel's half of pid 1: the `Process` itself, and what `/sbin/init` (`commands-execve/init.mjs`) cannot do from
+ * a worker. pid 1 is `@zenfs/core`'s reserved context id; upstream already reparents orphans to it on
+ * `Process.exit()` and ignores uncaught signals sent to it.
+ * It gets its own context, not `defaultContext`, whose descriptor table is the kernel's own. `/proc/<pid>/status`
+ * takes `PPid` from `context.parent.id`, so the context must have id 1: it is a thin object over a freshly bound
+ * context that overrides `id`, and the bound context's registry entry is dropped so `ps` shows no extra row.
+ * Custom syscalls serving the program: `init_wait`, `init_booted`, `init_script` (`main-thread-syscalls.ts`).
  */
 
 import { bindContext, boundContexts } from '@zenfs/core'

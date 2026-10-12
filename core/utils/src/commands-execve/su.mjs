@@ -1,12 +1,8 @@
 /**
- * `/bin/su [-] [-c COMMAND] [-s SHELL] [-m] [USER]`: run a shell as another user, root by default. Root
- * is never asked for a password; anyone else is asked for the password of the user they want to become.
- *
- * The shell is a child process that runs as the target (`exit` returns to the shell that ran `su`), not
- * a change of identity in place. The program has the setuid bit: it runs as root so that it may start
- * something as someone else, and `getuid()` still says who ran it. The target's shell comes from their
- * passwd entry when that is a program, and is `/bin/ecmash` when it is the kernel's built-in shell,
- * which has no file to run.
+ * `/bin/su [-] [-c COMMAND] [-s SHELL] [-m] [USER]`: runs a shell as another user, root by default. Root is never
+ * asked for a password; anyone else is asked for the target's. The shell is a child process running as the target, so
+ * `exit` returns to the previous shell. Setuid, so it can start something as someone else while `getuid()` says who
+ * ran it. The target's shell comes from their passwd entry, or `/bin/ecmash` for the kernel's built-in shell.
  */
 
 import { makePriv } from './lib/priv.mjs'

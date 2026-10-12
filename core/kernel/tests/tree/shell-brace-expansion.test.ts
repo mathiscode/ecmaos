@@ -6,12 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Brace expansion through a real shell, where what matters is that it reaches every path that turns
- * a word into fields: a command's arguments, a `for` list, and an array literal.
- *
- * Unlike globbing, it does not consult the filesystem: `mkdir -p src/{lib,bin}` has to make two
- * directories that do not exist yet. Before this, it made one directory literally named
- * `src/{lib,bin}`.
+ * Brace expansion reaches every path that turns a word into fields: command arguments, a `for` list and an array
+ * literal. It does not consult the filesystem (`mkdir -p src/{lib,bin}` makes two directories).
  */
 describe('brace expansion in the shell', () => {
   let kernel: Kernel

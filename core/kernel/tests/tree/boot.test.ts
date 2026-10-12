@@ -7,15 +7,9 @@ import { KernelState } from '@ecmaos/types'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The boot smoke test: boot headlessly and assert the kernel actually reaches a usable state, not
- * just that `boot()` resolves without throwing. Two real bugs shipped and were only caught by hand, later, because no test asserted
- * this: the boot-output race (`/boot/init`'s own output interleaving with the recommended-apps
- * prompt, because its process wasn't actually awaited) and the console-device-registration bug
- * (`/dev/xterm<n>`/`/dev/console` existed and `stat`'d correctly but threw `ENXIO` on every real
- * read/write, because `attach_xterm`'s per-TTY registration is not the same as the driver-level
- * `xterm_driver.register()`/`console_driver.register()` that actually publishes a `CharDevice`).
- * This test's console write-through assertion is the exact shape of check whose absence let the
- * second bug hide - the existing terminal test only checked `exists()` before this.
+ * Boot smoke test: boot headlessly and assert the kernel reaches a usable state, including that `/dev/xterm<n>` and
+ * `/dev/console` accept writes (not just `exists()`), and that `/boot/init`'s output is awaited before the
+ * recommended-apps prompt.
  */
 describe('boot smoke test', () => {
   let kernel: Kernel

@@ -1,20 +1,24 @@
 /**
- * One tab per machine. The root filesystem is an IndexedDB store that each tab loads whole into its own memory, and new files
- * take their ids from that copy, so two tabs on one store hand out the same ids and overwrite each other. A Web Lock named for
- * the store, held for as long as the kernel runs, keeps a second tab from loading it: the browser releases the lock when the
- * tab closes, crashes or is discarded, so a dead tab never leaves the machine locked.
+ * One tab per machine. Each tab loads the IndexedDB root whole and takes file ids from its copy, so two tabs would
+ * overwrite each other. A Web Lock named for the store, held while the kernel runs, keeps a second tab out; the
+ * browser releases it when the tab closes or crashes.
  */
 
 export interface MachineLock {
   /** Gives the machine up (shutdown, halt): another tab may take it */
   release(): void
-  /** Resolves if another tab took the machine from this one (see {@link stealMachineLock}); this tab must stop writing at once */
+  /**
+   * Resolves if another tab took the machine from this one (see {@link stealMachineLock}); this tab must stop writing
+   * at once
+   */
   readonly evicted: Promise<void>
 }
 
 export const machineLockName = (store: string) => `ecmaos:machine:${store}`
 
-/** Holds `name` until released, resolving to the lock once granted (or `undefined` when `ifAvailable` found it taken) */
+/**
+ * Holds `name` until released, resolving to the lock once granted (or `undefined` when `ifAvailable` found it taken)
+ */
 function hold(locks: LockManager, name: string, options: LockOptions): Promise<MachineLock | undefined> {
   return new Promise((resolve, reject) => {
     let release!: () => void
@@ -39,7 +43,10 @@ function hold(locks: LockManager, name: string, options: LockOptions): Promise<M
   })
 }
 
-/** The lock for `store` if nobody has it, else `undefined`. Rejects when the platform refuses locks (an insecure context). */
+/**
+ * The lock for `store` if nobody has it, else `undefined`. Rejects when the platform refuses locks (an insecure
+ * context).
+ */
 export function acquireMachineLock(locks: LockManager, store: string): Promise<MachineLock | undefined> {
   return hold(locks, machineLockName(store), { ifAvailable: true })
 }
@@ -56,17 +63,17 @@ export async function stealMachineLock(locks: LockManager, store: string): Promi
 
 export interface MachineBusyUi {
   /**
-   * Tells the user another tab has the machine; `takeOver` is what the "use it here" button calls, and `guest` runs a scratch
+   * Tells the user another tab has the machine; `takeOver` is what the "use it here" button calls, and `guest` runs a
+   * scratch
    * machine in this tab instead (nothing saved, the other tab untouched). Returns how to take the message down.
    */
   busy(takeOver: () => void, guest: () => void): { close(): void }
 }
 
 /**
- * Gets the machine for this tab. If another tab has it, `ui.busy` is shown and one of two things happens: that tab lets go (it
- * closed, crashed or halted), and this one starts by itself, or the user asks to take over, and this one takes the machine and
- * the other tab is told it lost it, or the user asks for a guest session and this resolves to `'guest'` without the machine. Rejects
- * only when the platform refuses locks.
+ * Gets the machine for this tab. If another tab has it, `ui.busy` is shown and: that tab lets go and this one starts,
+ * or the user takes over (the other tab is told), or the user asks for a guest session and this resolves to
+ * `'guest'`. Rejects only when the platform refuses locks.
  */
 export async function claimMachine(locks: LockManager, store: string, ui: MachineBusyUi): Promise<MachineLock | 'guest'> {
   const free = await acquireMachineLock(locks, store)

@@ -1,11 +1,8 @@
 /**
- * Check the root filesystem for the damage two tabs sharing one store leave behind (`fsck`, `fsck --read`).
- *
- * It only reports; it never changes anything. The checks are the ones a store that handed out the same inode number twice
- * fails: a directory entry that cannot be examined, one inode number shared by entries that are not hard links of each other
- * (links record how many names they have, so a shared number on files that say they have one name is a collision), a directory
- * reached twice, and with `--read` a file whose data cannot be read or is not as long as its inode says. Other mounts (/proc,
- * /sys, /dev, /tmp, /media, /mnt) are not the root's and are skipped.
+ * Checks the root filesystem for the damage two tabs sharing one store leave behind (`fsck`, `fsck --read`). Reports
+ * only. Checks: a directory entry that cannot be examined, one inode number shared by entries that are not hard
+ * links, a directory reached twice, and with `--read` a file whose data cannot be read or is shorter than its inode
+ * says. Other mounts (/proc, /sys, /dev, /tmp, /media, /mnt) are skipped.
  */
 
 import { join, resolve } from './lib/path-utils.mjs'

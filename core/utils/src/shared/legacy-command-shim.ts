@@ -1,21 +1,9 @@
 /**
- * The legacy-command shim: the three coreutils that still run as in-process JS closures
- * (`TerminalCommand`) instead of real `execve`'d files - `true`, `false` and `test`.
- *
- * Every other command is a real program: a file under `/bin` that `readFileHeader`/`execve`
- * resolve the same way bash resolves `/bin/ls`, with no table entry anywhere. These three stay
- * in-process on purpose: they are the usual condition of a tight shell loop
- * (`while test ...; do ...; done`), and a real `execve` costs a worker start-up per iteration, a
- * measurable slowdown for exactly the pattern they are used in most.
- *
- * True shell builtins (cd, set, bg, fg, jobs, wait, local, env) are not here either: they live in
- * `core/kernel/src/tree/lib/shell-builtins.ts`, a dispatch table on `Shell` checked before any
- * file resolution.
- *
- * `resolveLegacyCommand` is what `Kernel.executeCommand` calls - lazily constructing the ONE
- * `TerminalCommand` actually invoked, cached per-`Terminal` (one per TTY) via a `WeakMap` keyed
- * by the live `Terminal` object itself, so it's impossible for one TTY's cached command to leak
- * into another's, and the cache self-cleans once that `Terminal` is garbage-collected.
+ * The three coreutils that still run as in-process closures (`TerminalCommand`): `true`, `false` and `test`. They
+ * stay in-process because they are the condition of tight shell loops, where a worker start-up per iteration is slow.
+ * Every other command is a program under `/bin`; shell builtins are in `core/kernel/src/tree/lib/shell-builtins.ts`.
+ * `resolveLegacyCommand` (called by `Kernel.executeCommand`) constructs the one command invoked, cached per
+ * `Terminal` in a `WeakMap`.
  */
 
 import type { Kernel, Shell, Terminal } from '@ecmaos/types'
@@ -55,13 +43,8 @@ export function getLegacyCommands(): LegacyCommands {
 }
 
 /**
- * A legacy command's `TerminalCommand` object, constructed lazily on first invocation and cached
- * thereafter - keyed by the live `Terminal` instance itself (one per TTY), not a derived string,
- * so it is impossible for one TTY's cached command to leak into another's.
- *
- * Returns `undefined` for a name this list does not know (an execve'd command, a true builtin, or
- * simply unknown) - `Kernel.executeCommand` should only ever call this as a last resort, after
- * real file resolution and the true-builtin check have both already missed.
+ * A legacy command's `TerminalCommand`, constructed on first use and cached per `Terminal`. `undefined` for any other
+ * name; `Kernel.executeCommand` calls it only after file resolution and the builtin check miss.
  */
 const legacyCommandCache = new WeakMap<Terminal, Map<string, TerminalCommand>>()
 

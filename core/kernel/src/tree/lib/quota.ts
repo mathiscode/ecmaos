@@ -1,12 +1,8 @@
 /**
- * Per-user storage quotas on the IndexedDB root. `/etc/quota` lists them, one per line (`alice 100M`, `1001 2G`; `#` starts a
- * comment); a user with no line has none, and root cannot have one. What counts is the size of the files a user owns on the root
- * (hard links once; `/tmp` and the other mounts are not the root's). A write or truncate that would grow a file past its owner's
- * quota fails with `EDQUOT`, as a quota on Linux does.
- *
- * Measuring every owner's files on each write would cost a walk, so usage is kept as an estimate that only grows with each write and is
- * measured exactly (a walk of the root) the first time a user is checked and whenever the estimate says a write would go over: space
- * freed by deleting files is found then, and the write is refused only if the exact figure still does not fit.
+ * Per-user storage quotas on the IndexedDB root. `/etc/quota` lists them one per line (`alice 100M`, `1001 2G`; `#`
+ * starts a comment); root cannot have one. What counts is the size of the files a user owns on the root (hard links
+ * once). A write or truncate past the quota fails with `EDQUOT`. Usage is an estimate that grows with each write and
+ * is measured exactly (a walk of the root) the first time a user is checked and whenever a write would go over.
  */
 
 import { withErrno } from 'kerium'
@@ -45,7 +41,10 @@ let limits = new Map<number, number>()
 const estimate = new Map<number, number>()
 let measure: ((uid: number) => number) | undefined
 
-/** Installs the quotas and how to measure what a user owns; usage is measured afresh the next time each user is checked */
+/**
+ * Installs the quotas and how to measure what a user owns; usage is measured afresh the next time each user is
+ * checked
+ */
 export function configureQuotas(next: Map<number, number>, measurer?: (uid: number) => number): void {
   limits = next
   estimate.clear()
@@ -62,7 +61,10 @@ export function quotaUsage(uid: number): number {
   return used
 }
 
-/** Call before a file owned by `inode.uid` grows to `end` bytes; throws `EDQUOT` when that would put its owner over the quota */
+/**
+ * Call before a file owned by `inode.uid` grows to `end` bytes; throws `EDQUOT` when that would put its owner over
+ * the quota
+ */
 export function chargeQuota(inode: { uid: number, size: number }, end: number, path: string): void {
   const limit = limits.get(inode.uid)
   if (limit === undefined || !measure) return

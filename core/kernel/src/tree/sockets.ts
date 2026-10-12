@@ -9,10 +9,9 @@ export class Sockets {
   }
 
   /**
-   * Create a WebSocket connection
-   * @param url - The URL to connect to
-   * @param options - The options for the WebSocket connection
-   * @returns The WebSocket connection
+   * Creates a WebSocket connection.
+   * @param url - the URL
+   * @param options - WebSocket options
    */
   async createWebSocket(url: string, options?: { protocols?: string | string[] }): Promise<WebSocketConnection> {
     return new Promise((resolve, reject) => {
@@ -76,10 +75,9 @@ export class Sockets {
   }
 
   /**
-   * Create a WebTransport connection
-   * @param url - The URL to connect to
-   * @param options - The options for the WebTransport connection
-   * @returns The WebTransport connection
+   * Creates a WebTransport connection.
+   * @param url - the URL
+   * @param options - WebTransport options
    */
   async createWebTransport(url: string, options?: { allowPooling?: boolean }): Promise<WebTransportConnection> {
     if (!('WebTransport' in globalThis)) {

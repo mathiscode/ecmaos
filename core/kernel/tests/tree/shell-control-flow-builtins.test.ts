@@ -6,20 +6,10 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The four builtins that unwind the interpreter - `break`, `continue`, `return`, `exit` - plus the
- * three that rewrite the calling shell's own statement stream or arguments: `source`/`.`, `eval` and
- * `shift`. And `:`, which does nothing, on purpose.
- *
- * None of them can be an `execve`'d program. A child process cannot break its parent's loop, return
- * from its parent's function, or leave a variable behind in its parent, which is exactly why every
- * real shell keeps this set in-process. They are thrown as signals rather than reported as exit
- * codes because an exit code cannot distinguish "exited 1" from "stop the loop" - see
- * `@ecmaos/coreutils/lib/shell-core/signals`.
- *
- * `break`/`continue` existed before this, but only as a comparison of the statement's whole trimmed
- * text against `'break'` in `executeStatements`, so `break 2`, `break;` and `cond && break` all fell
- * through to a `$PATH` search for a `/bin/break` that does not exist. Those three cases are tested
- * here as regressions.
+ * `break`, `continue`, `return` and `exit` (which unwind the interpreter), `source`/`.`, `eval` and `shift` (which
+ * rewrite the calling shell's statement stream or arguments), and `:`. None can be an `execve`'d program. They are
+ * thrown as signals (see `@ecmaos/coreutils/lib/shell-core/signals`). Includes `break 2`, `break;` and `cond &&
+ * break`.
  */
 describe('control-flow builtins: break/continue/return/exit/shift/source/eval/:', () => {
   let kernel: Kernel

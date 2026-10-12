@@ -6,13 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `exec` with redirections and no command - `exec > run.log 2>&1` at the top of a script, which is
- * how a script sends everything after it to a file.
- *
- * The command form (`exec prog args`) replaces the shell's process image, which ecmaOS has nothing
- * to do yet: the shell is a main-thread object, not a program a worker is running. It is reported
- * rather than approximated, because "run it and carry on" is a different thing with the same
- * spelling.
+ * `exec` with redirections and no command (`exec > run.log 2>&1`). The command form (`exec prog args`) is reported as
+ * unsupported, since the shell is not a worker program.
  */
 describe('exec redirections', () => {
   let kernel: Kernel

@@ -20,14 +20,9 @@ async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 /**
- * Real, execve-backed proof that a backgrounded/foregrounded `js` pipeline stage's `Job` actually
- * acquires a real `@zenfs/linux` Process handle (via `KernelExecuteOptions.onProcess`, wired from
- * `Kernel.executeViaExecve`), and that signaling it through that handle does something real - not
- * just a mocked assertion. `@zenfs/linux`'s own `Process.kill` (see `process.js`'s `default_action`
- * dispatch) synchronously exits an unhandled `SIGINT`/`SIGTERM` recipient with code `128 + signal`,
- * which is what this test observes through `proc.exited`/`job.done`. This is the real-process
- * counterpart to `shell-jobs.test.ts`'s pure-coreutil job-table tests, and to `execve-js.test.ts`'s
- * proof that `.js` files run through real `execve`.
+ * A backgrounded or foregrounded `js` pipeline stage's `Job` gets a real `@zenfs/linux` Process handle (via
+ * `KernelExecuteOptions.onProcess`), and signalling through it works: an unhandled `SIGINT`/`SIGTERM` exits the
+ * process with `128 + signal`, observed through `proc.exited` and `job.done`.
  */
 describe('Shell job control - real @zenfs/linux Process handles', () => {
   let kernel: Kernel
@@ -100,12 +95,8 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
   })
 
   /**
-   * `@zenfs/linux@0.5.0`'s TTY layer answers `TIOCGPGRP`/`TIOCSPGRP` from `tty.foreground` (`struct
-   * tty_struct`'s `pgrp`), but never sets it itself -- `Kernel.executeViaExecve` has to, or the
-   * ioctl just answers with whatever was there before (nothing, on a fresh terminal). These are the
-   * real-process proof that a foreground execve-backed stage actually takes over the terminal, that
-   * a backgrounded one never does, and that `fg`/`bg` move that ownership as a job crosses between
-   * them - exactly what a real process would see through `ioctl(fd, TIOCGPGRP)` on its tty.
+   * `TIOCGPGRP`/`TIOCSPGRP` answer from `tty.foreground`, which `Kernel.executeViaExecve` must set. A foreground
+   * stage takes over the terminal, a backgrounded one never does, and `fg`/`bg` move that ownership.
    */
   it('a foreground .js process becomes the tty\'s foreground process, and gives it back on exit', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/job-tty-fg.js', 'await new Promise(r => setTimeout(r, 300))', { mode: 0o755 })
@@ -171,13 +162,9 @@ describe('Shell job control - real @zenfs/linux Process handles', () => {
   })
 
   /**
-   * Regression test: `Kernel.executeViaExecve` used to restore `tty.foreground` in its `finally`
-   * block based on `isForeground`, captured once at spawn time (`false` for a `&`-backgrounded
-   * job). `fg()` promotes a job's process to the real foreground live (`setForeground(true)`
-   * above), but never touched that stale captured flag, so a job started backgrounded and later
-   * `fg`'d never released `tty.foreground` on exit - it stayed pinned to the now-dead process,
-   * silently swallowing the next foreground job's `^C`/`^Z`. The fix checks `tty.foreground ===
-   * proc` live in `finally` instead of the stale flag.
+   * Regression: `executeViaExecve` once restored `tty.foreground` using `isForeground` captured at spawn, so a job
+   * started in the background and later `fg`'d never released the tty on exit and swallowed the next job's `^C`/`^Z`.
+   * It now checks `tty.foreground === proc` live.
    */
   it('a job started backgrounded and later fg\'d still releases the tty on exit', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/job-bg-then-fg.js', 'await new Promise(r => setTimeout(r, 200))', { mode: 0o755 })

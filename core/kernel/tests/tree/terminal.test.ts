@@ -36,16 +36,9 @@ describe('Terminal', () => {
     })
 
     /**
-     * `attach_xterm` (called above, in `mount()`) only registers this one TTY's own sysfs entry
-     * and DevTmpFS node via `TTY.register()` - it does NOT call the *driver*-level
-     * `xterm_driver.register()` that reserves the major and publishes a real `CharDevice` for it
-     * (`char_dev.register_region` + `CharDevice.add`, done together inside `TTYDriver.register()`).
-     * Without that (missing until `Kernel.boot()` was fixed to call it once), the node above exists
-     * and stats correctly, but every open/read/write on it throws ENXIO - `DevTmpFS._device()`
-     * resolves the right major/minor from the node's `rdev`, finds no `CharDevice` published there,
-     * and throws. Caught live: a real `execve`'d process writing to its console fd unredirected hit
-     * this every time; `Kernel.executeViaExecve`'s own tests never noticed because they always
-     * redirect stdout/stderr through `Kernel.bridgeStdio`'s real pipe, never touching this node.
+     * `attach_xterm` registers one TTY's sysfs entry and DevTmpFS node, but opening it throws ENXIO unless
+     * `Kernel.boot()` also registered the driver (`xterm_driver.register()`). An `execve`'d process writing to an
+     * unredirected console fd hits this.
      */
     it('the attached TTY node is actually writable, not just present', async () => {
       const path = `/dev/xterm${kernel.terminal.tty}`

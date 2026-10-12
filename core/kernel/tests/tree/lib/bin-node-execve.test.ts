@@ -28,11 +28,8 @@ describe('/bin/node via execve', () => {
   })
 
   it('exits 1 when the program throws', async () => {
-    // /bin/node has no import-rewriting yet (see its doc comment), so a program cannot itself
-    // import @zenfs/linux/uapi/process to call exit(n) with a custom code - only self-contained
-    // scripts run. What's provable here is that a program's own failure produces exit code 1.
-    // The interpreter's console.error for this runs inside the worker thread, not this process,
-    // so it prints real (harmless) noise to this test's stderr rather than something mockable here.
+    // A program cannot import `@zenfs/linux/uapi/process` itself, so only a program's own failure producing exit code
+    // 1 is provable. The interpreter's `console.error` runs in the worker and prints harmless noise to stderr.
     await fs.promises.writeFile('/throws.js', 'throw new RangeError("out of range")', { mode: 0o755 })
 
     const proc = new Process({ context: defaultContext })

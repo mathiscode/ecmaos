@@ -3,11 +3,9 @@ import type { promises } from '@zenfs/core'
 type Fs = Pick<typeof promises, 'stat' | 'lstat' | 'writeFile' | 'unlink'>
 
 /**
- * Prebuilt WebAssembly programs (`vim`, `jq`, `make`, ...). They are not part of the kernel bundle: each package that
- * ships some (`@ecmaos/coreutils`, `@ecmaos/coreutils-copyleft`) publishes its own `.wasm` files, and the site serves
- * a catalog of them at `/programs/index.json`. Boot reads the catalog and writes `/bin/<name>` for any program whose
- * installed copy is not the one the catalog describes, so a page load fetches binaries only on a first boot or an
- * upgrade, and a deployment that leaves a package out simply has no catalog entries for its programs.
+ * Prebuilt WebAssembly programs (`vim`, `jq`, `make`, ...), published by `@ecmaos/coreutils` and `@ecmaos/coreutils-
+ * copyleft` and served as a catalog at `/programs/index.json`. Boot writes `/bin/<name>` for any program whose
+ * installed copy differs from the catalog.
  */
 export interface ProgramEntry {
   file: string
@@ -16,7 +14,10 @@ export interface ProgramEntry {
   version: string
   license: string
   description: string
-  /** Files the program needs beside it (`vim`'s runtime): a tarball rooted at `/`, in the same directory as the program */
+  /**
+   * Files the program needs beside it (`vim`'s runtime): a tarball rooted at `/`, in the same directory as the
+   * program
+   */
   runtime?: { file: string, size: number, sha256: string }
 }
 
@@ -35,7 +36,10 @@ export interface InstallProgramsOptions {
   catalogUrl: string
   /** Programs not to install (the kernel's command blacklist). */
   skip?: (name: string) => boolean
-  /** The hash each installed program had when it was written, so a boot compares sizes instead of reading every binary. */
+  /**
+   * The hash each installed program had when it was written, so a boot compares sizes instead of reading every
+   * binary.
+   */
   stamps: { read(): Record<string, string>, write(stamps: Record<string, string>): void }
   fetcher?: (url: string, init?: RequestInit) => Promise<Response>
   /** Unpacks a runtime tarball into the filesystem; without it, runtimes are not installed */
@@ -51,10 +55,8 @@ export interface InstallProgramsResult {
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
 
 /**
- * Writes `/bin/<name>` for each program in the catalog that is missing or differs from it. A catalog that cannot be
- * fetched is not an error: programs installed earlier stay where they are, and nothing new arrives until it can be.
- * A program that fails (a missing file, a hash that does not match what the catalog promised) is reported and the
- * rest are still installed.
+ * Writes `/bin/<name>` for each catalog program that is missing or differs. An unreachable catalog is not an error; a
+ * program that fails (missing file, hash mismatch) is reported and the rest still install.
  */
 export async function installPrograms(fs: Fs, options: InstallProgramsOptions): Promise<InstallProgramsResult> {
   const fetcher = options.fetcher ?? ((url, init) => fetch(url, init))

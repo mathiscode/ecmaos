@@ -180,10 +180,9 @@ function generateRandomClass(prefix: string): string {
 
 
 /**
- * `view`'s display half, moved here unchanged from the original in-process command: shows one file
- * in its own window by type (PDF, markdown, JSON, image, audio, video) and returns the status lines
- * the command used to print itself (`Viewing: ...`, `Playing: ...`, warnings) as `messages`, for the
- * program to print in order. `params`: `{ path, file, windowTitle, options }`.
+ * Shows one file in its own window by type (PDF, markdown, JSON, image, audio, video) and returns the status lines
+ * (`Viewing: ...`, `Playing: ...`, warnings) as `messages` for the program to print. `params`: `{ path, file,
+ * windowTitle, options }`.
  */
 export async function presentDocument(kernel: Kernel, _proc: unknown, params: Record<string, unknown>): Promise<Presented> {
   const fullPath = String(params['path'] ?? '')

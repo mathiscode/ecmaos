@@ -1,21 +1,10 @@
 /**
- * Brace expansion: `{a,b}`, `{1..10}`, `{a..e}`, nested, and any number of them in one word.
- *
- * It is the first expansion a shell performs, before parameter, command, arithmetic and pathname
- * expansion, and it is purely textual - `{a,b}` becomes two words whether or not anything by those
- * names exists, which is what separates it from globbing. `mkdir -p src/{lib,bin}` is the everyday
- * case, and it produced a single directory literally named `src/{lib,bin}` before this existed.
- *
- * Three rules make it behave rather than eat ordinary text:
- *
- * - Quoting suppresses it. `"{a,b}"` and `'{a,b}'` are one word, so the pass works on the word's
- *   {@link WordPart}s rather than on flat text: only characters that came from unquoted runs can
- *   open, close or separate a brace expression.
- * - `${` is never an opener. A parameter expansion can legitimately contain braces and commas
- *   (`${x:-a,b}`), so expansion spans are skipped whole, using the same `scanExpansionEnd` the
- *   tokenizer uses.
- * - A brace expression with no top-level comma and no valid `..` sequence is left exactly as it
- *   was typed, because `echo {}` and `echo {foo}` print themselves in every real shell.
+ * Brace expansion: `{a,b}`, `{1..10}`, `{a..e}`, nested, several per word. Purely textual and done before every other
+ * expansion.
+ * Rules: quoting suppresses it (the pass works on {@link WordPart}s, so only unquoted characters can open, close or
+ * separate a brace expression); `${` is never an opener (expansion spans are skipped with the tokenizer's
+ * `scanExpansionEnd`); a brace expression with no top-level comma and no valid `..` sequence is left as typed (`echo
+ * {}`).
  */
 
 import { scanExpansionEnd } from './shell-parser.js'
@@ -30,12 +19,7 @@ interface Char {
 /** bash refuses to generate an unbounded sequence; this is the same guard, not a tuned number. */
 const MAX_SEQUENCE_LENGTH = 10000
 
-/**
- * Expands one word's braces into one or more words.
- *
- * Returns `[parts]` unchanged when there is nothing to expand, so the overwhelmingly common case
- * allocates nothing beyond the wrapper array.
- */
+/** Expands one word's braces into one or more words; returns `[parts]` unchanged when there is nothing to expand. */
 export function expandBraces(parts: WordPart[]): WordPart[][] {
   if (!parts.some(part => part.quoting === 'unquoted' && part.text.includes('{'))) return [parts]
 
@@ -73,10 +57,8 @@ function expandChars(chars: Char[]): Char[][] {
 }
 
 /**
- * The leftmost expandable brace expression, with its alternatives already split out.
- *
- * `undefined` when the word has no expandable brace: an unmatched `{`, an empty `{}`, a `{foo}` with
- * no comma, or a `{1..x}` whose endpoints do not form a sequence. All of those are literal text.
+ * The leftmost expandable brace expression with its alternatives split out, or `undefined` for an unmatched `{`,
+ * `{}`, `{foo}` with no comma, or a `..` that is not a sequence.
  */
 function findBraceExpression(chars: Char[]): { open: number, close: number, items: Char[][] } | undefined {
   for (let i = 0; i < chars.length; i++) {
@@ -96,12 +78,8 @@ function findBraceExpression(chars: Char[]): { open: number, close: number, item
 }
 
 /**
- * If an expansion span (`$(...)`, `${...}`, `$((...))`, a backtick pair) starts at `index`, the
- * index just past it; otherwise `undefined`.
- *
- * Reconstructing the text from `index` on and handing it to the tokenizer's own scanner keeps this
- * pass and the tokenizer agreeing on where an expansion ends, rather than reimplementing the
- * nesting-and-quotes walk a second time.
+ * If an expansion span (`$(...)`, `${...}`, `$((...))`, a backtick pair) starts at `index`, the index just past it,
+ * else `undefined`. Uses the tokenizer's own scanner.
  */
 function skipExpansion(chars: Char[], index: number): number | undefined {
   const ch = (chars[index] as Char).ch
@@ -159,10 +137,8 @@ function splitAt(body: Char[], indices: number[]): Char[][] {
 }
 
 /**
- * `{1..10}`, `{1..10..2}`, `{a..e}`, `{e..a}`, `{-3..3}`, `{01..10}`.
- *
- * Zero padding is preserved when either endpoint is written with a leading zero, matching bash:
- * `{01..10}` gives `01 02 ... 10`, which is the whole reason anyone writes it that way.
+ * `{1..10}`, `{1..10..2}`, `{a..e}`, `{e..a}`, `{-3..3}`, `{01..10}`. Zero padding is kept when either endpoint has a
+ * leading zero, as in bash.
  */
 function parseSequence(body: Char[]): Char[][] | undefined {
   // Only an all-unquoted body can be a sequence; `{'1'..3}` is literal text in bash too.

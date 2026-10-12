@@ -39,17 +39,10 @@ const IMPLEMENTED_SYSCALLS = new Set([
 ])
 
 /**
- * Plain `wasm32-wasip1` modules and ordinary (non-`STANDALONE_WASM`) `emcc` builds, asyncified or
- * not, do not run here (see `canRunInWorker`): `Kernel.execute` sends them through `execve` to
- * `/bin/wali`, where `src/bin/wasi-preview1.mjs` translates preview1 and emscripten's own
- * `env.__syscall_*` ABI onto the real syscalls, so they are killable worker Processes with real
- * pids, pipes and `^C`.
- *
- * Known limitation of what still runs through this class (real (non-loopback) internet sockets, an
- * unimplemented `__syscall_*`, preview2 components): `_start` is called directly on the main thread
- * with no yield point unless the module was compiled with asyncify, so a genuine infinite loop
- * freezes the tab and `^C` cannot reach it. `epoll` moved to the worker path - see
- * `wasi-preview1.mjs`'s own doc comment for why it never needed sockets in the first place.
+ * Plain `wasm32-wasip1` modules and ordinary `emcc` builds run as worker processes under `/bin/wali` (see
+ * `canRunInWorker`). What still runs here (real internet sockets, an unimplemented `__syscall_*`, preview2
+ * components) calls `_start` on the main thread with no yield point unless built with asyncify, so an infinite loop
+ * freezes the tab and `^C` cannot reach it.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -118,23 +111,16 @@ export class Wasm implements IWasm {
   }
 
   /**
-   * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
-   * translation (`src/bin/wasi-preview1.mjs`): a plain `wasm32-wasip1` core module (imports nothing
-   * but `wasi_snapshot_preview1`) or an ordinary `emcc` build (also imports only names
-   * `IMPLEMENTED_SYSCALLS` lists), either way exporting or importing its own memory (an imported
-   * memory is created by `runPreview1` itself, to the module's own declared size). Asyncify is
-   * fine (see below).
+   * Whether a module can run as a worker process under `/bin/wali`: a core module importing only
+   * `wasi_snapshot_preview1`, or an `emcc` build importing only names in `IMPLEMENTED_SYSCALLS`, with exported or
+   * imported memory. Asyncify is fine.
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
     try {
       const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
       const module = await WebAssembly.compile(buffer)
-      // A plain wasip1 module imports nothing but wasi_snapshot_preview1 (and, rarely, its own
-      // memory); an ordinary (non-STANDALONE_WASM) emcc build also imports a fixed set of
-      // env.__syscall_* names, translated for real in wasi-preview1.mjs's own env object. Anything
-      // else in `env` (real internet sockets, an unimplemented syscall) is not answered, so such a module
-      // stays on the main-thread path rather than crash on a missing import.
+      // Any other `env` import stays on the main-thread path rather than fail on a missing import.
       if (!WebAssembly.Module.imports(module).every(entry =>
         entry.module === 'wasi_snapshot_preview1' ||
         (entry.module === 'env' && IMPLEMENTED_SYSCALLS.has(entry.name)) ||
@@ -143,11 +129,8 @@ export class Wasm implements IWasm {
       const hasExportedMemory = WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')
       const hasImportedMemory = WebAssembly.Module.imports(module).some(entry => entry.kind === 'memory')
       if (!hasExportedMemory && !hasImportedMemory) return false
-      // An asyncify-instrumented module only unwinds/rewinds when an imported function it calls
-      // explicitly triggers that protocol - this adapter never does (every wasi_snapshot_preview1
-      // call here answers synchronously), so asyncify's own state machine never activates and the
-      // module runs exactly as if it had never been instrumented. Confirmed by hand: `wasm-opt
-      // --asyncify` on a real preview1 module adds only the asyncify_* exports, no new imports.
+      // An asyncify-instrumented module only unwinds when an import it calls triggers it, which this adapter never
+      // does, so it runs as if uninstrumented.
       return true
     } catch {
       return false

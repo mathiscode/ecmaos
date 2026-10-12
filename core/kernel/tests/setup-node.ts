@@ -8,7 +8,8 @@ import 'fake-indexeddb/auto'
 // belong in this project and is listed in the config's exclusions.
 ;(globalThis as { Buffer?: typeof Buffer }).Buffer = Buffer
 
-// The browser host reads `localStorage` and `sessionStorage`; a Node process has neither, so tests that boot the default
+// The browser host reads `localStorage` and `sessionStorage`; a Node process has neither, so tests that boot the
+// default
 // kernel get memory ones, as a fresh browser profile would.
 class MemoryStorage implements Storage {
   private _map = new Map<string, string>()
@@ -23,12 +24,10 @@ for (const name of ['localStorage', 'sessionStorage'] as const) {
   Object.defineProperty(globalThis, name, { value: new MemoryStorage(), configurable: true, writable: true })
 }
 
-// Many tests mount the terminal into a page element (`document.createElement('div')`, `terminal.mount(container)`).
-// There is no page here, and a Node host does not have one either: it gives the terminal its tty with `attach_xterm`,
-// which is all `mount` does that the kernel and the shell need. So the config rewrites those two `document` calls in
-// the tests to `globalThis.__page`, a stand-in that makes elements nobody looks inside (a global `document` would make
-// the kernel take its browser paths: topbar, windows, telemetry), and `mount` is that one step. Tests that need a real
-// page (a rendered terminal, windows, the DOM helpers) are the ones the config excludes.
+// Tests mount the terminal into a page element, and a Node host has no page: it gives the terminal its tty with
+// `attach_xterm`, which is all `mount` does that the kernel needs. The config rewrites those `document` calls to
+// `globalThis.__page`, a stand-in (a global `document` would send the kernel down its browser paths). Tests that need
+// a real page are excluded by the config.
 {
   const element = (): Record<string, unknown> => {
     const node: Record<string, unknown> = {

@@ -1,17 +1,9 @@
 /**
- * What `/sbin/init` does, apart from how it reaches the system: reads `/etc/inittab`, runs its
- * entries in BusyBox's order, restarts `respawn` entries when they exit, reaps everything else, and
- * re-reads the file on `SIGHUP`.
- *
- * Order: every `sysinit` entry (one at a time, each waited for), every `wait` entry the same way,
- * then {@link InitHost.booted}, then every `once` entry and every `respawn` entry started.
- *
- * `SIGTERM` reboots, `SIGUSR1` halts and `SIGUSR2` powers off, as in BusyBox. Going down runs the
- * `shutdown` entries, sends every other process `SIGTERM`, gives them a moment, sends `SIGKILL` to
- * what is left, then hands over to the kernel with {@link InitHost.finish}.
- *
- * The program supplies a {@link InitHost} over real syscalls; the tests supply one over a fake
- * clock. No Node built-ins.
+ * What `/sbin/init` does, apart from how it reaches the system: reads `/etc/inittab`, runs `sysinit` entries (one at
+ * a time), then `wait` entries, then {@link InitHost.booted}, then starts `once` and `respawn` entries, restarts
+ * `respawn` entries when they exit, reaps everything else and re-reads the file on `SIGHUP`.
+ * `SIGTERM` reboots, `SIGUSR1` halts, `SIGUSR2` powers off. Going down runs `shutdown` entries, sends `SIGTERM` to
+ * every other process, then `SIGKILL` to what is left, then calls {@link InitHost.finish}. No Node built-ins.
  */
 
 import { DEFAULT_BACKOFF, DEFAULT_INITTAB, RespawnTracker, entryKey, parseInittab } from './inittab.js'

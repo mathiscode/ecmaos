@@ -6,11 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * seq/factor/rmdir/join/paste/sleep/mktemp/shuf migrated onto real execve, continuing the "migrate
- * opportunistically" plan. mktemp uses crypto.getRandomValues (available in a Web Worker by spec,
- * unlike window/document); shuf uses plain Math.random(); sleep is a plain setTimeout wait, no
- * in-band interrupt polling (a real execve'd process is killed like any other on ^C). factor's
- * original interactive-TTY readline branch was dropped - see factor.mjs's doc comment.
+ * seq, factor, rmdir, join, paste, sleep, mktemp and shuf as `execve` programs. `mktemp` uses
+ * `crypto.getRandomValues`; `sleep` is a plain timeout, since a killed process needs no interrupt polling.
  */
 describe('text command batch 4: seq/factor/rmdir/join/paste/sleep/mktemp/shuf, real execve', () => {
   let kernel: Kernel

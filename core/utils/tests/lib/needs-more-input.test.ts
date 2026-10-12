@@ -3,15 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { needsMoreInput } from '../../src/lib/control-flow-parser.ts'
 
 /**
- * `needsMoreInput` is what the interactive prompt asks before deciding whether Enter runs a line or
- * asks for another one (`> `). Before it existed, `Terminal`'s Enter handler knew exactly one
- * continuation rule - a trailing backslash - so typing `cat <<EOF` or `for i in 1 2 3; do` at the
- * prompt ran that fragment immediately and then executed the following lines as separate commands
- * ("Command not found: for"). `pendingHeredocDelimiter` had been written for this and never called.
- *
- * The distinction these cover is prefix-vs-error: an unterminated construct is incomplete (more
- * input helps), while a genuine syntax error is not (no amount of typing fixes `fi` with no `if`,
- * so the prompt must report it rather than trapping the user in a continuation).
+ * `needsMoreInput` decides whether Enter runs a line or asks for another (`> `). An unterminated construct is
+ * incomplete; a genuine syntax error (`fi` with no `if`) is not.
  */
 describe('needsMoreInput', () => {
   describe('complete input runs immediately', () => {

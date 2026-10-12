@@ -6,22 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Real `$IFS` and the `read` builtin, plus the command-prefix assignments that make them usable
- * together.
- *
- * Three things were missing and they only pay off as a set:
- *
- * - Word splitting was the hardcoded regex `/[ \t\n]+/` (`word-expansion.ts`), so `$IFS` was
- *   decorative. POSIX splits on two classes of character with different rules: a run of IFS
- *   whitespace delimits one field and is ignored at the edges, while *each* IFS non-whitespace
- *   character delimits a field, which is why `IFS=:` makes `a::b` three fields.
- * - There was no `read` at all, so no script could consume input line by line.
- * - `IFS= read -r line` did not even parse as a command. `tryExecuteAssignment` matched `IFS=` and,
- *   finding no `;`/`&&`/`|` after it, stored the literal text `read -r line` as IFS's value and ran
- *   nothing. Command-prefix assignments now belong to `runPipeline`, scoped to that pipeline.
- *
- * Together they make `while IFS= read -r line` work, which is the single most common loop in real
- * shell scripts and the reason this went first.
+ * `$IFS`, the `read` builtin and command-prefix assignments. IFS whitespace runs delimit one field and are ignored at
+ * the edges; each IFS non-whitespace character delimits a field (`IFS=:` makes `a::b` three fields). `IFS= read -r
+ * line` is a prefix assignment scoped to that pipeline; `while IFS= read -r line` is the common loop.
  */
 describe('$IFS, read, and command-prefix assignments', () => {
   let kernel: Kernel
@@ -56,13 +43,8 @@ describe('$IFS, read, and command-prefix assignments', () => {
   }
 
   /**
-   * The exact fields `$x` splits into, via an array literal.
-   *
-   * `arr=($x)` is the one construct here that runs unquoted text through the real field expander and
-   * then lets the count and each element be read back, so an empty field is observable rather than
-   * being flattened into an output string. (`for f in $x` splits correctly too, now that
-   * `executeFor` runs its list through the real expander, but a `for` body cannot report an empty
-   * field distinctly from no field at all.)
+   * The exact fields `$x` splits into, via `arr=($x)`, which makes the count and each element (including empty ones)
+   * observable.
    */
   const showFields = (assign: string): string => [
     assign,

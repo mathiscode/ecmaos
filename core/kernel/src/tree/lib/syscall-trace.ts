@@ -1,14 +1,8 @@
 /**
- * `strace` support: a record of the system calls a process makes.
- *
- * Every call a program makes crosses to the main thread through `dispatch`, which runs the handler registered in
- * `@zenfs/linux`'s `syscalls` table. This wraps those handlers, the way `installSyscallPolicy` does, so a process with
- * a {@link Tracer} gets one line per call and any other process pays one `Map` lookup. The wrapper goes outside the
- * policy one, so a call a manifest refuses (`EPERM`) still shows up.
- *
- * It logs the stream; it is not `ptrace`. The traced program is never stopped, stepped or have its memory read, and the
- * arguments are what the kernel received, already decoded by the worker's syscall layer (strings and byte arrays rather
- * than pointers).
+ * `strace` support: a record of the system calls a process makes. Wraps the handlers in `@zenfs/linux`'s `syscalls`
+ * table (outside the policy wrapper, so refused calls still show) so a process with a {@link Tracer} gets one line
+ * per call. It logs the stream; it is not `ptrace`, and arguments are as the kernel received them (strings and byte
+ * arrays, not pointers).
  */
 
 import { syscalls, thread_of } from '@zenfs/linux'
@@ -18,11 +12,17 @@ import { Errno, strerror } from 'kerium'
 export interface TraceOptions {
   /** How much of a string or buffer is shown (`strace -s`) */
   strsize?: number
-  /** Only these syscalls (`-e trace=`): names, or the sets `file`, `desc`, `process`, `network`, `signal`, `memory`, `ipc` */
+  /**
+   * Only these syscalls (`-e trace=`): names, or the sets `file`, `desc`, `process`, `network`, `signal`, `memory`,
+   * `ipc`
+   */
   include?: string[]
   /** Not these (`-e trace=!`) */
   exclude?: string[]
-  /** A time on each line: `time` is `HH:MM:SS`, `micro` adds microseconds (`-tt`), `relative` is since the last call (`-r`) */
+  /**
+   * A time on each line: `time` is `HH:MM:SS`, `micro` adds microseconds (`-tt`), `relative` is since the last call
+   * (`-r`)
+   */
   clock?: 'time' | 'micro' | 'relative'
   /** Follow the processes the traced one starts (`-f`) */
   follow?: boolean
@@ -34,7 +34,9 @@ export interface TraceOptions {
 
 export interface Tracer {
   readonly options: TraceOptions
-  /** Appends text to wherever the trace goes; resolves when it has been taken, which is what paces the traced program */
+  /**
+   * Appends text to wherever the trace goes; resolves when it has been taken, which is what paces the traced program
+   */
   write(text: string): Promise<void>
   /** Per syscall name: calls, errors, milliseconds */
   readonly counts: Map<string, { calls: number, errors: number, ms: number }>
@@ -225,7 +227,10 @@ function emit(tracer: Tracer, text: string): Promise<void> {
   return next
 }
 
-/** The line a call prints. `read` shows what came back, taken from the thread's shared region before the worker sees it. */
+/**
+ * The line a call prints. `read` shows what came back, taken from the thread's shared region before the worker sees
+ * it.
+ */
 async function record(tracer: Tracer, proc: Process, name: string, args: unknown[], result: number | bigint | void, error: unknown, start: number, fixed?: string): Promise<void> {
   const end = performance.now()
   const formatted = formatResult(result, error)

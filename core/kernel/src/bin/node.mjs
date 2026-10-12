@@ -1,30 +1,10 @@
 /**
- * ecmaOS's `/bin/node` interpreter - the real worker-hosted body `binfmt_js` (registered by
- * `@zenfs/linux` itself) points at for any plain JS/ESM program that goes through `execve`.
- *
- * This file is never loaded directly. It is bundled (see `vite-plugin-bin-node.ts`) into one
- * self-contained module with zero import statements, then written to `/bin/node` in the real
- * filesystem at boot. That bundling is not an optimization - it is required: the kernel loads an
- * interpreter as a `blob:`/`data:` URL module (there is no real file URL to give a Worker), and
- * neither URL scheme gives a module resolver a base to resolve a bare specifier like
- * `@zenfs/linux/uapi/process` against. A bundle with no imports left has nothing to resolve.
- *
- * The program it loads is under the same constraint. This interpreter does not run programs that
- * import anything themselves - there is no import-rewriting here (the SWAPI mechanism
- * `Kernel.replaceImports` uses for main-thread apps would need its own worker-side port, real
- * scope of its own, not a detail of getting a first program running). A self-contained script,
- * i.e. one with no import/require statements, is what `/bin/node` can run today.
- *
- * A loaded program that DOES want real syscalls (`open`/`read`/`write`/`getcwd`/...) has a second,
- * separate obstacle even once it stops importing anything: it would still need its own bundled
- * copy of `@zenfs/linux/uapi/*` if it tried to `import` those directly, and that copy's module-
- * level state (`uapi/base.ts`'s `ready`, the shared-memory syscall channel `@zenfs/linux` sets up
- * by resolving it when the real `init` message arrives) is private to *this* module instance -
- * the one that actually received that message, being the real Worker entrypoint. A separately
- * bundled copy's own `ready` never resolves. So this
- * interpreter exposes its own already-initialized syscall wrappers on `globalThis.ecmaosSyscalls`
- * before loading the program below - the one way a loaded program can make a real syscall today
- * without a second, unresolvable copy of `uapi`'s init handshake.
+ * ecmaOS's `/bin/node` interpreter: the worker-hosted body `binfmt_js` points plain JS/ESM programs at.
+ * It is bundled (`vite-plugin-bin-node.ts`) into one module with no imports and written to `/bin/node` at boot,
+ * because the kernel loads an interpreter from a `blob:`/`data:` URL, which cannot resolve bare specifiers. The
+ * program it loads cannot import anything either.
+ * The syscall channel (`ready`) is private to this module instance, so a loaded program cannot import
+ * `@zenfs/linux/uapi/*` itself; this interpreter exposes its wrappers on `globalThis.ecmaosSyscalls`.
  */
 
 import { ready, exit, getpid, getppid, getuid, geteuid, getgid, getegid } from '@zenfs/linux/uapi/process'
@@ -37,10 +17,9 @@ import { parseArgs, installConsole, runSource, readStdin, isTty, startRepl, Usag
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
 
 /**
- * `poll(2)`: waits until one of `fds` (`[{ fd, events }]`) is ready or `timeout` ms pass (negative:
- * forever, 0: just look), and returns each one's `revents` in order. The kernel answers through the
- * syscall's return region, one little-endian `uint16` per fd, which `copyOut` hands over as a view.
- * A pipe whose other end closed reports readable (`POLLIN`), so a read then returns 0 - EOF.
+ * `poll(2)`: waits until one of `fds` (`[{ fd, events }]`) is ready or `timeout` ms pass (negative waits forever, 0
+ * only looks) and returns each `revents` in order. A pipe whose other end closed reports `POLLIN`, so a read returns
+ * 0.
  */
 function poll(fds, timeout = -1) {
   syscall('poll', fds, timeout)
@@ -62,22 +41,11 @@ const S_IFMT = 0xf000
 const S_IFDIR = 0x4000
 const S_IFLNK = 0xa000
 
-/**
- * `readdir`/`copyFile`/recursive `rm` are userspace conveniences over raw syscalls in every real
- * libc too - there is no kernel primitive for any of them. Built once here, alongside the syscall
- * wrappers, rather than duplicated in every coreutil program that needs one (mirrors how `ls`/`cp`/
- * `rm` all link against the same libc instead of reimplementing `readdir(3)` each time).
- */
+/** `readdir`, `copyFile` and recursive `rm`, built once over raw syscalls for the coreutils. */
 
 /**
- * Real directory listing: `open(O_DIRECTORY)` + one `getdents` + `close`.
- *
- * Just one call, not a loop - confirmed by reading `@zenfs/linux`'s own handler (`syscall/fs.js`):
- * `getdents` re-reads the *entire* directory via `vfs.readdir` on every call and writes as much as
- * fits in the return region, with no cursor/file-position tracking of its own. A repeat call would
- * hand back the exact same entries again (not "the rest"), so looping "until empty" never
- * terminates (`rm -r` hung that way). Call it once. A directory whose real listing doesn't fit in one region write is a known limit of
- * this syscall as `@zenfs/linux` implements it today, not something more looping here can fix.
+ * Directory listing: `open(O_DIRECTORY)`, one `getdents`, `close`. `getdents` has no cursor and returns the whole
+ * directory on every call, so it is called once; a listing that does not fit in one region write is truncated.
  */
 function readdir(path) {
   const fd = open(path, O_RDONLY | O_DIRECTORY, 0)
@@ -105,21 +73,9 @@ function isSymbolicLink(path) {
 }
 
 /**
- * Writes `buffer` in full, looping on a short write instead of assuming one `write()` call always
- * sends everything. The real `write` syscall (`@zenfs/linux`'s `syscall/fs.js`) is a thin wrapper
- * over `write_device`/`handle.writeSync` with no retry of its own - a regular file happens to
- * always accept a full write, but a pipe (fixed 65536-byte capacity, `fs/pipe.ts`'s `Pipe.put`) can
- * legitimately accept less than asked and expects the caller to loop, the same way `read` can
- * legitimately return less than asked. Calling the raw syscall and discarding its return value is harmless against the console or
- * a small buffer, but silently truncates through a real pipe (`Kernel.createPipeStream`), which is
- * what joins pipeline stages.
- *
- * `position` (default -1, "wherever the descriptor is") is threaded through and advanced by each
- * partial write, not just passed once - `dd.mjs`/`tee.mjs -a` write at an explicit, manually
- * tracked offset (there is no `O_APPEND` in this interpreter's exposed flag set, so both track the
- * file position themselves rather than relying on the fd's own cursor). Dropping it makes
- * `tee -a` overwrite instead of append, since every write lands at position 0 (or the fd's current
- * cursor) instead of the file's end.
+ * Writes `data` in full, looping on short writes (a pipe holds 65536 bytes and may accept less). `position` (-1 for
+ * the descriptor's own) is advanced after each partial write; `dd` and `tee -a` write at an explicit offset since
+ * there is no `O_APPEND`.
  */
 function writeAll(fd, data, position = -1) {
   let offset = 0
@@ -214,22 +170,9 @@ const init = cli?.action === 'file' ? (() => {
   return { ...ready_, exe, argv: [exe, ...cli.rest] }
 })() : hosted ? { ...ready_, argv: ['/bin/node', ...(cli.rest ?? [])] } : ready_
 
-// Expose this module's own already-initialized syscall wrappers for the loaded program to use -
-// see the doc comment above for why a program can't get working ones of its own by importing
-// `@zenfs/linux/uapi/*` directly. Deliberately just what's been needed so far, not all of `uapi/*`
-// up front.
-//
-// `readdir`/`isDirectory`/`copyFile`/`rmRecursive` are this interpreter's own userspace helpers
-// (built above from raw syscalls), not `@zenfs/linux` exports - there is no kernel primitive for
-// any of them in real Linux either; every libc builds them the same way over `getdents`/`open`+
-// `read`+`write`/recursive `unlink`+`rmdir`. Provided once here so coreutils (`cp`, `rm`, `mv`,
-// ...) don't each reimplement directory walking.
-//
-// `custom` is `syscall_async` itself, not `syscall`/`syscall_raw` - a main-thread-only capability
-// like `window_create` can take arbitrarily long (a real window is created synchronously today, but
-// a future capability like `bt_request_device` waits on a user gesture with no bound at all), and
-// the sync path blocks this whole worker thread via `Atomics.wait` with no timeout. `syscall_async`
-// resolves a plain Promise on the kernel's `'return'` postMessage instead, so the worker stays free.
+// The wrappers exposed to the loaded program. `readdir`, `isDirectory`, `copyFile` and `rmRecursive` are this
+// interpreter's own helpers. `custom` is `syscall_async`, because a main-thread capability can take unboundedly long
+// and the sync path would block the worker with `Atomics.wait`.
 globalThis.ecmaosSyscalls = {
   open, read, write, writeAll, close, getcwd, exit, custom: syscall_async,
   mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes,
@@ -244,10 +187,9 @@ globalThis.ecmaosSyscalls = {
   pipe, dup, dup2,
   // Process identity, and the fd/cwd calls a shell needs.
   getpid, getppid, getuid, geteuid, getgid, getegid, chdir, lseek,
-  // The job-control shim (`job-control.ts`), named for the POSIX call each stands in for. A wait
-  // status is Linux-shaped; `waitpid` returns `{ pid, code, signal }`, or `null` for `WNOHANG` with
-  // nothing ready. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`.
-  // `untraced` is `WUNTRACED`: also return when a child stops, as `{ pid, stopped: true, signal }`.
+  // The job-control shim (`job-control.ts`), each op named for the POSIX call it stands in for. `waitpid` returns `{
+  // pid, code, signal }`, or `null` for `WNOHANG` with nothing ready; `untraced` (`WUNTRACED`) also returns for a
+  // stopped child as `{ pid, stopped: true, signal }`. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`.
   waitpid: async (pid, nohang = false, untraced = false) => {
     const packed = await syscall_async('proc_waitpid', pid, (nohang ? 1 : 0) | (untraced ? 2 : 0))
     if (!packed) return null
@@ -272,11 +214,8 @@ globalThis.ecmaosSyscalls = {
   // `poll(fds, timeout)` and its event bits: wait on several fds at once (a terminal and a socket).
   poll, POLLIN, POLLOUT, POLLERR, POLLHUP,
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
-  // `argv`/`env` come straight from the real `init` message (`Thread.start`'s `host.post`,
-  // `thread.js`) - `argv[0]` is the program's own path (real `execve` convention), so a program's
-  // real arguments are `argv.slice(1)`. `cwd` is a syscall (`getcwd()`), not `init.cwd`, since the
-  // process may `chdir()` after starting and `getcwd()` always reflects that; `init.cwd` is only
-  // what the shell's cwd was at the moment this program was launched.
+  // `argv` and `env` come from the `init` message; `argv[0]` is the program's path. `cwd` is read with `getcwd()`
+  // since the process may `chdir()`.
   argv: init.argv, env: init.env
 }
 
@@ -300,7 +239,9 @@ const { inspect } = installConsole(sys)
 // `process.argv` is the guest's: the program and its arguments
 if (globalThis.process) globalThis.process.argv = init.argv
 
-/** `node` with an option or no file: help, version, `-e`/`-p`, a script on stdin, the REPL. Returns the exit status. */
+/**
+ * `node` with an option or no file: help, version, `-e`/`-p`, a script on stdin, the REPL. Returns the exit status.
+ */
 async function runCommandLine() {
   if (cli.error) { say(`node: ${cli.error}\n`); return 9 }
   if (cli.action === 'help') { writeAll(1, new TextEncoder().encode(Usage)); return 0 }

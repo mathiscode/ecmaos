@@ -6,21 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * What a true shell builtin's fds are connected to.
- *
- * Builtins used to write straight to `shell.terminal`, which meant two divergences from every real
- * shell: their output ignored redirections entirely (`jobs > f` printed to the screen and left `f`
- * empty), and they could not appear in a pipeline at all - `trueBuiltinNameFor` bailed on any
- * pipeline longer than one command, so `export -p | grep X` fell through to a `/bin/export` lookup
- * that deliberately does not exist and failed as command-not-found.
- *
- * Everything a builtin emits or reads now goes through `ShellBuiltinIO`, so a builtin stage is
- * wired up by `runPipeline` exactly like any other stage. Diagnostics moved to fd 2 at the same
- * time, which is what makes `cd /nope 2>/dev/null` silent.
- *
- * The `no redirections` fast path (`Shell.fastPathBuiltinFor`) still writes directly to the
- * terminal and allocates no streams, so `cd` in a tight loop costs what it always did; the tests
- * for cwd and `$?` below are what keep that path correct.
+ * What a builtin's fds are connected to: its output honors redirections (`jobs > f`) and it can appear in a pipeline
+ * (`export -p | grep X`). Diagnostics go to fd 2. The no-redirection fast path (`Shell.fastPathBuiltinFor`) writes
+ * straight to the terminal; the cwd and `$?` tests cover it.
  */
 describe('true builtin fds', () => {
   let kernel: Kernel

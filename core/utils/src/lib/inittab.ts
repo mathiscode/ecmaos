@@ -1,17 +1,12 @@
 /**
- * `/etc/inittab`, in BusyBox's format: one entry per line, `id:runlevels:action:command`.
- *
- * - `id` is a label (BusyBox uses it for the tty to open); it may be empty, and need not be unique.
- * - `runlevels` is accepted and ignored: ecmaOS has a single mode of operation.
+ * `/etc/inittab`, BusyBox format: one entry per line, `id:runlevels:action:command`.
+ * - `id` is a label (BusyBox uses it for the tty); it may be empty and need not be unique.
+ * - `runlevels` is accepted and ignored.
  * - `action` is one of {@link INIT_ACTIONS}.
- * - `command` is everything after the third colon, so it may itself contain colons. It is split into
- *   words with `splitCommand`: quotes group, and there is no shell syntax. Anything that needs pipes or
- *   redirections belongs in a script that the entry runs.
- *
- * A line that cannot be used is reported in `errors` and skipped; it never stops the rest of the
- * file from being read.
- *
- * No Node built-ins, so the same file runs in the `/sbin/init` worker and in the kernel's tests.
+ * - `command` is everything after the third colon, split into words by `splitCommand` (quotes group; no shell
+ *   syntax).
+ * A line that cannot be used is reported in `errors` and skipped. No Node built-ins, so it runs in the init worker
+ * and the kernel's tests.
  */
 
 export const INIT_ACTIONS = ['sysinit', 'wait', 'once', 'respawn', 'shutdown'] as const
@@ -39,7 +34,10 @@ export interface Inittab {
 }
 
 /** What a filesystem without an `/etc/inittab` gets. */
-/** A login prompt on each of the first `count` terminals (all eight by default), added to the default file when the kernel does not log a user in itself. */
+/**
+ * A login prompt on each of the first `count` terminals (all eight by default), added to the default file when the
+ * kernel does not log a user in itself.
+ */
 export const gettyEntries = (count = 8): string => Array.from({ length: count }, (_, n) => `tty${n}::respawn:/sbin/getty tty${n}\n`).join('')
 
 export const DEFAULT_GETTY_ENTRIES = gettyEntries()
@@ -197,11 +195,8 @@ export interface BackoffOptions {
 export const DEFAULT_BACKOFF: BackoffOptions = { initialMs: 1000, maxMs: 60_000, resetAfterMs: 30_000 }
 
 /**
- * How long to wait before restarting a respawn entry, so one that dies at once cannot spin.
- *
- * A run that lasted `resetAfterMs` or more restarts immediately and starts the history over. A shorter
- * one waits `initialMs`, then twice that for the next short run, and so on up to `maxMs`.
- * Pure over the times it is given, so it is tested with no clock.
+ * How long to wait before restarting a respawn entry. A run of `resetAfterMs` or more restarts at once and clears the
+ * history; shorter runs wait `initialMs`, doubling up to `maxMs`. Pure over the times given.
  */
 export class RespawnTracker {
   private readonly started = new Map<string, number>()

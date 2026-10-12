@@ -6,11 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Covers `Shell.execute()` itself (the interactive-prompt path a real terminal calls per line),
- * not just `executeScriptText` (script files) - `shell-control-flow.test.ts` only proves the
- * parser/executor works when driven through the script path. Regression coverage for:
- * - `x=5; echo $((x+1))` swallowing everything after the assignment into its own value
- * - `if`/`for` typed compact-and-`;`-joined on one physical line ("Command not found: if")
+ * `Shell.execute()` (the interactive path), not just `executeScriptText`. Regressions: `x=5; echo $((x+1))`
+ * swallowing the rest into the assignment's value, and `if`/`for` typed on one `;`-joined line.
  */
 describe('Shell.execute interactive control flow and assignment', () => {
   let kernel: Kernel

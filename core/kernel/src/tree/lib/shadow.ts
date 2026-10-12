@@ -1,11 +1,8 @@
 /**
- * `/etc/shadow`: one module owns the file's format, as `shadow(5)` describes it.
- *
- *   name:hash:lastchg:min:max:warn:inactive:expire:reserved
- *
- * `hash` is `$id$params$salt$hash`; a `!` in front of it locks the account, `*` means no password can log in, and
- * an empty field means no password at all. `lastchg` and `expire` are days since 1970-01-01. Every other field is
- * optional and empty when unset. Fields past the ninth, and `#` comments, are kept when a file is rewritten.
+ * `/etc/shadow`: `name:hash:lastchg:min:max:warn:inactive:expire:reserved`, as in `shadow(5)`. `hash` is
+ * `$id$params$salt$hash`; a leading `!` locks the account, `*` means no password can log in, empty means no password.
+ * `lastchg` and `expire` are days since 1970-01-01. Other fields are optional; fields past the ninth and `#` comments
+ * are kept on rewrite.
  */
 
 export interface ShadowEntry {

@@ -1,11 +1,6 @@
 /**
- * Minimal POSIX path helpers for worker-hosted coreutil programs.
- *
- * Deliberately hand-written rather than `import path from 'path'` - not because a real import
- * would break the way `@zenfs/linux/uapi/*` does (this carries no shared runtime state to diverge
- * across bundles), but because every coreutil bundles independently (see
- * `vite-plugin-bin-node.ts`) and this is small enough that hand-writing it avoids pulling in
- * `vite-plugin-node-polyfills`'s full `path` shim N times over for four functions.
+ * Minimal POSIX path helpers for worker programs. Hand-written because each program bundles independently and this
+ * avoids pulling a full `path` shim into every bundle.
  */
 
 /** Collapse `.`/`..`/empty segments and join with `/`, the way `path.resolve` does for one path. */

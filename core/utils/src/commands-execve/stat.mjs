@@ -38,11 +38,9 @@ function extname(p) {
 }
 
 /**
- * Real ZIP central-directory parsing: find the End-Of-Central-Directory record (signature
- * `PK\x05\x06`, scanned back from the end since a ZIP comment of unknown length may follow it),
- * read the central directory's byte offset and entry count from it, then walk each 46-byte central
- * directory file header (signature `PK\x01\x02`) there, reading the uncompressed size (a 4-byte LE
- * field at header offset 24) and the variable-length filename that immediately follows each header.
+ * Lists a ZIP's entries: finds the End-Of-Central-Directory record (`PK\x05\x06`, scanned back from the end since a
+ * comment may follow), then walks each central directory header (`PK\x01\x02`) for the uncompressed size (4-byte LE
+ * at offset 24) and the filename.
  */
 function listZipEntries(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)

@@ -5,10 +5,8 @@ import type { Kernel } from '#kernel.ts'
 import type { Outcome, OutcomeLine } from './outcome.ts'
 
 /**
- * `passkey`'s work: WebAuthn (`navigator.credentials`) only exists in the page's top-level browsing
- * context, so it cannot run inside the worker that hosts the program. The program parses arguments
- * and reaches this through the `auth_passkey` syscall; this is the original command body, moved.
- * Runs as the *calling* shell's user, same as before.
+ * `passkey`'s work. WebAuthn only exists in the top-level browsing context, so the program parses arguments and
+ * reaches this through the `auth_passkey` syscall. Runs as the calling shell's user.
  */
 export async function managePasskey(kernel: Kernel, shell: Shell, subcommand: string, { name, id }: { name?: string, id?: string }): Promise<Outcome> {
   const lines: OutcomeLine[] = []

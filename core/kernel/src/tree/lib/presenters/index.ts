@@ -1,18 +1,8 @@
 /**
- * Presenters: the main-thread half of a DOM-bound command.
- *
- * A worker-hosted program cannot touch the DOM, but most "GUI" commands (`open`, `video`, `web`,
- * ...) only do three things: parse arguments, read some bytes, and put something on screen. The
- * first two are ordinary program work; the third is what a presenter is. The program asks for one
- * through the `window_present` syscall (`#lib/main-thread-syscalls.ts`) with a *kind* and a JSON
- * parameter object, and the kernel runs the presenter registered for that kind on the main thread,
- * where the DOM lives. The surface is therefore an explicit list of kinds, not a general DOM proxy:
- * adding a capability means adding a presenter here and nothing else.
- *
- * A presenter gets the owning `Kernel` and the calling `Process`, and may return a `result` for
- * the program to report. Every presenter so far is fire-and-forget, like the commands they replace:
- * the program exits and the window (or download, or tab) carries on. `closed` exists for one that
- * must tie the process's lifetime to its window.
+ * Presenters: the main-thread half of a DOM-bound command. A worker program asks for one through the `window_present`
+ * syscall (`#lib/main-thread-syscalls.ts`) with a kind and JSON parameters; the kernel runs the presenter registered
+ * for that kind on the main thread. A presenter gets the `Kernel` and the calling `Process` and may return a
+ * `result`. Most are fire-and-forget; `closed` ties the process's lifetime to its window.
  */
 
 import type { Process } from '@zenfs/linux'

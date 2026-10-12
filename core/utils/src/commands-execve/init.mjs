@@ -1,27 +1,15 @@
 /**
- * `/sbin/init`: the first process, pid 1.
- *
- * Reads `/etc/inittab` (see `lib/inittab.ts`), runs its entries, restarts the `respawn` ones when they
- * exit, and reaps every child that exits, including the orphans the kernel hands it when their parent
- * dies. `SIGHUP` makes it read the file again. The logic is `lib/init-engine.ts`; this file is only
- * how it reaches the system.
- *
- * Signals are queued by hand. One that arrives while the worker sits in an async call (any `custom()`
- * or `spawn`) is visible only through `pendingSignals()`, and the next synchronous syscall clears it,
- * so every call goes through `call()`, which reads it as soon as the call returns, and the synchronous
- * file reads look first. Without that a `SIGTERM` that landed while init was starting a daemon was lost.
- *
- * It waits with the kernel's `init_wait` call rather than `waitpid`: `waitpid` takes a snapshot of the
- * children when it is called, fails with `ECHILD` when there are none (init often has none), and a
- * signal does not wake it. `init_wait(timeoutMs)` resolves to the pid it reaped, or 0 when the timeout
- * passed or a signal arrived. A signal that arrives while a worker sits in an async call is only
- * visible through `pendingSignals()`, and the next synchronous syscall clears it, so it is read before
- * anything else.
- *
- * pid 1 ignores every signal it has not asked to catch, so `kill -9 1` does nothing and `^C` cannot
- * reach it. It catches `SIGHUP` (read inittab again) and the three that take the system down, as
- * BusyBox's init does: `SIGTERM` reboots, `SIGUSR1` halts, `SIGUSR2` powers off. `reboot`, `halt`
- * and `poweroff` send them.
+ * `/sbin/init`: pid 1. Reads `/etc/inittab` (`lib/inittab.ts`), runs its entries, restarts `respawn` entries when
+ * they exit and reaps every child, including orphans. `SIGHUP` re-reads the file. The logic is `lib/init-engine.ts`;
+ * this file connects it to the system.
+ * A signal that arrives while the worker is in an async call (`custom()`, `spawn`) is visible only through
+ * `pendingSignals()` and is cleared by the next synchronous syscall, so every call goes through `call()`, which reads
+ * it on return, and synchronous file reads look first.
+ * It waits with the kernel's `init_wait(timeoutMs)`, not `waitpid` (which snapshots the children, fails with `ECHILD`
+ * when there are none and is not woken by signals); it resolves to the reaped pid, or 0 on timeout or signal.
+ * pid 1 ignores signals it has not caught, so `kill -9 1` does nothing. It catches `SIGHUP` (re-read inittab) and, as
+ * BusyBox does, `SIGTERM` (reboot), `SIGUSR1` (halt) and `SIGUSR2` (poweroff), which `reboot`, `halt` and `poweroff`
+ * send.
  */
 
 import { InitEngine } from '../lib/init-engine.ts'

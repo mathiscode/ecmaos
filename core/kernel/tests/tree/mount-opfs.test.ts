@@ -6,15 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `mount -t opfs` mounts the browser's Origin Private File System (`navigator.storage.getDirectory()`)
- * through the same `WebAccess` backend `mount -t webaccess` already uses for its interactive
- * File System Access API picker - the only difference is `opfs` never prompts, since OPFS is
- * sandboxed per-origin rather than user-selected.
- *
- * jsdom (this test environment) has no `navigator.storage` at all, so what's exercised here is the
- * "unavailable" guard path in both the interactive command and fstab processing. The real mount
- * (a Chromium-family browser with OPFS support) is a manual check: `mount -t opfs /mnt/opfs`, then
- * write/read a file at `/mnt/opfs/...` and confirm it survives a reload.
+ * `mount -t opfs` mounts the Origin Private File System through the `WebAccess` backend, without a picker. jsdom has
+ * no `navigator.storage`, so this covers the "unavailable" guard in the command and in fstab processing; the real
+ * mount is a manual check in a Chromium browser.
  */
 describe('mount -t opfs', () => {
   let kernel: Kernel

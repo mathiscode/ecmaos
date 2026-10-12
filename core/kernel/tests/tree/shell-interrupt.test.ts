@@ -15,19 +15,9 @@ async function waitFor(check: () => boolean, timeoutMs = 3000): Promise<void> {
 }
 
 /**
- * What `^C` does to the *shell*, as opposed to what it does to the process it kills.
- *
- * Two behaviors were missing, both found by a live browser smoke test rather than by any unit test:
- *
- * - `trap 'cmd' INT` never fired. While a foreground `execve`'d process holds the terminal,
- *   `Terminal.keyHandler` returns early (`if (this._ttyInput) return`) because the `@zenfs/linux`
- *   line discipline owns the keyboard and raises `SIGINT` itself via `ISIG` - so the
- *   `runTrap('INT')` call in that key handler never ran for exactly the case a trap is written for.
- * - the rest of the command list kept going: `echo a; sleep 25; echo b` still printed `b` after the
- *   `^C` that killed the sleep, where bash aborts the whole list.
- *
- * Both now route through `Shell.notifyInterrupted`, which `Kernel.executeViaExecve` calls where the
- * signal actually lands (`proc.killed_by === Signal.INT`).
+ * What `^C` does to the shell: `trap 'cmd' INT` fires, and the rest of a `;` list stops (`echo a; sleep 25; echo b`
+ * does not print `b`). Both go through `Shell.notifyInterrupted`, which `Kernel.executeViaExecve` calls when the
+ * process was killed by `SIGINT`.
  */
 describe('Shell ^C handling', () => {
   let kernel: Kernel
@@ -101,14 +91,8 @@ describe('Shell ^C handling', () => {
 })
 
 /**
- * Regression coverage for a bug the unit tests above missed and a live browser run caught.
- *
- * `Shell.execute` cleared `_interrupted` on entry, and `runTrap` dispatches its handler *through*
- * `execute` - so setting the flag and then running the handler wiped the flag immediately, and the
- * rest of an interrupted `;` list ran anyway. The tests above passed regardless because they kill
- * the process directly with no `INT` trap registered, so `runTrap` returned without doing anything.
- *
- * The same nesting applies to command substitution and function bodies, which also reach `execute`.
+ * `^C` with a trap registered: `runTrap` runs its handler through `execute`, which must not clear the interrupt flag,
+ * or the rest of the `;` list runs. The tests above kill the process directly with no trap registered.
  */
 describe('Shell ^C with a trap registered', () => {
   let kernel: Kernel

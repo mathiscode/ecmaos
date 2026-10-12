@@ -70,12 +70,8 @@ export class Service implements IService {
         event.source?.postMessage({
           type: 'fs',
           file: data.file,
-          // A real Uint8Array, not whatever object readFile returned - zenfs's return value has
-          // been observed to fail `instanceof Uint8Array`/structured-clone across a module-instance
-          // or realm boundary (see filesystem.ts's copyTree, same guard for the vitest/jsdom case;
-          // the service worker is exactly this kind of boundary from the page). Cloning into a
-          // fresh Uint8Array here guarantees postMessage's structured clone - and the service
-          // worker's later `new Response(fileData, ...)` - see a normal, unambiguous binary buffer.
+          // A fresh Uint8Array, so structured clone and the service worker's `new Response` see a plain buffer (see
+          // `copyTree`).
           data: new Uint8Array(contents)
         })
       } catch (error) {
@@ -121,12 +117,11 @@ export class Service implements IService {
   }
 
   /**
-   * Fetch a list of URLs and save them to the kernel's filesystem using the Background Fetch API.
-   * 
-   * @param id - The id of the fetch (used as directory name for the downloaded files).
-   * @param urls - The URLs to fetch.
-   * @param options - The options to pass to the fetch.
-   * @returns The fetch registration.
+   * Fetches a list of URLs into the kernel's filesystem with the Background Fetch API.
+   * @param id - the fetch id (the directory name for the files)
+   * @param urls - the URLs to fetch
+   * @param options - fetch options
+   * @returns the fetch registration
    */
   async fetch(id: string, urls: string[], options: object) {
     if (this._fetches[id]) throw new Error(`Fetch with id ${id} already exists.`)
@@ -177,7 +172,8 @@ export class Service implements IService {
         this._terminal?.write(this._terminal.prompt())
       }
 
-      // if (e.data.type === 'backgroundfetchfailure' || e.data.type === 'backgroundfetchabort') delete this._fetches[e.data.id]
+      // if (e.data.type === 'backgroundfetchfailure' || e.data.type === 'backgroundfetchabort') delete
+      // this._fetches[e.data.id]
       if (e.data.type === 'backgroundfetchfailure') {
         this._terminal?.writeln(`\nYour download of ${urls.length} ${urls.length === 1 ? 'file' : 'files'} failed!`)
         this._terminal?.write(this._terminal.prompt())

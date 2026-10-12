@@ -1,27 +1,10 @@
 /**
- * ecmaOS's `/bin/wali` interpreter - the real worker-hosted body `@zenfs/linux`'s own default
- * `binfmt_wasm` already points any `.wasm` file at via `execve` (matched on the `\0asm` magic
- * bytes, unconditionally - `@zenfs/linux` does not distinguish WALI-format modules from plain
- * WASI-preview1 ones at the binfmt layer).
- *
- * This is never loaded directly, same as `bin/node.mjs`: bundled with zero import statements
- * (see that file's doc comment for why), then written to `/bin/wali` in the real filesystem at
- * boot.
- *
- * WALI is a different module format from WASI preview1, not an upgrade to it: a WALI module
- * imports directly from a `"wali"` namespace (`SYS_open`, `SYS_read`, `__cl_get_argc`, ...) -
- * musl compiled to target `@zenfs/linux`'s syscalls directly - while a WASI-preview1 module
- * imports from `wasi_snapshot_preview1` (`fd_write`, `proc_exit`, ...), a separate standardized
- * ABI, so `run()` (upstream's own WALI host) would fail on one with unresolved imports
- * (`uapi/wali`'s `link()` reports each one through `missing`) - this file tells the two apart by
- * hand below and routes a preview1 module to `runPreview1` instead. `Kernel.execute`'s own
- * header-sniffing dispatch (`tree/wasm.ts`'s `canRunInWorker`) reaches this same file for a plain
- * `wasm32-wasip1` module or an ordinary `emcc` build: `@zenfs/linux`'s `binfmt_wasm` points any
- * `.wasm` file at `/bin/wali` unconditionally, on the real `execve` that path takes. A module
- * `canRunInWorker` rejects (real non-loopback internet sockets, an unimplemented `__syscall_*`,
- * preview2) never reaches here; `Kernel.executeWasm` (`tree/wasm.ts`) runs those on the main
- * thread instead. `epoll` and loopback `AF_UNIX`/`AF_INET` sockets are both answered for real
- * here (`wasi-preview1.mjs`'s own doc comment has why neither needed a worker-side exception).
+ * ecmaOS's `/bin/wali` interpreter: the worker-hosted body `binfmt_wasm` points every `.wasm` file at. Bundled with
+ * no imports and written to `/bin/wali` at boot, like `bin/node.mjs`.
+ * A WALI module imports from a `"wali"` namespace (`SYS_open`, `SYS_read`, ...) and runs on upstream's host; a
+ * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes preview1 modules to `runPreview1`
+ * (`wasi-preview1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest run on the main
+ * thread in `Kernel.executeWasm`.
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
@@ -62,10 +45,8 @@ const init = await ready
 
 try {
   const source = await readWholeFile(init.exe)
-  // run() only returns if the module falls out of main() without exiting - __proc_exit tears
-  // the thread down itself, same as bin/node.mjs's exit() for a program that calls it directly.
-  // A `wasi_snapshot_preview1` module is translated onto the same syscalls (`wasi-preview1.mjs`);
-  // anything else is a WALI module and goes straight to upstream's host.
+  // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
+  // `wasi-preview1.mjs`; anything else is WALI.
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
   const code = isPreview1 ? await runPreview1(source) : await run(source)

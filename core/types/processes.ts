@@ -1,9 +1,6 @@
 /**
- * Types for programs started by the kernel.
- *
- * Processes themselves are `@zenfs/linux` `Process`es created by `execve`; ecmaOS no longer has a
- * process class of its own. What remains here is the entry-point contract a DOM app (`/bin/app`)
- * receives.
+ * Types for programs started by the kernel. Processes are `@zenfs/linux` `Process`es created by `execve`; what is
+ * here is the entry-point contract a DOM app (`/bin/app`) receives.
  */
 
 import type { Kernel } from './kernel.ts'

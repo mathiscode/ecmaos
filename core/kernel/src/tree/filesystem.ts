@@ -34,19 +34,10 @@ import type {
 } from '@ecmaos/types'
 
 /**
- * Works around a `@zenfs/dom` 1.2.14 / `@zenfs/core` 2.7.6 mismatch that made every positional read on an IndexedDB-backed
- * filesystem (the root, so `/bin`) return zeros for any offset above 0.
- *
- * `StoreFS.read`/`readSync` slice what the transaction hands back with `subarray(offset, end)` unless the store declares the
- * `partial` flag, meaning "the transaction already sliced". The IndexedDB backend's `getSync(id, offset, end)` slices anyway, so
- * the sync path sliced twice (a 64-byte read at offset 1000 became an empty second slice). The fix is for the transaction to
- * return the whole record and leave the slicing to `StoreFS`.
- *
- * Declaring `partial` instead (which an earlier version of this patch did) is wrong: it also tells `StoreFS` that the store
- * honours `set(id, chunk, offset)`, and this backend's `set(id, data)` ignores the offset, so every write that was not a whole
- * replacement (an append, a handle write into an existing file, a database page) replaced the file's whole record with the chunk,
- * on disk and in the cache. Without the flag `StoreFS` merges the chunk into the whole record itself.
- * Remove this once `@zenfs/dom` is consistent about it.
+ * Works around a `@zenfs/dom` 1.2.14 / `@zenfs/core` 2.7.6 mismatch: `getSync(id, offset, end)` slices, and `StoreFS`
+ * slices again, so positional reads above offset 0 returned zeros. The transaction returns the whole record and
+ * leaves slicing to `StoreFS`. Declaring `partial` instead would make `StoreFS` pass offsets to a `set` that ignores
+ * them. Remove when `@zenfs/dom` is consistent.
  */
 IndexedDBTransaction.prototype.getSync = function (this: IndexedDBTransaction, id: number) {
   const record = this.store.cache.get(id)
@@ -54,17 +45,18 @@ IndexedDBTransaction.prototype.getSync = function (this: IndexedDBTransaction, i
 } as typeof IndexedDBTransaction.prototype.getSync
 
 /**
- * Two guards on writes to the IndexedDB root, for one machine per tab (see `lib/machine-lock.ts`).
- *
- * `fenceRootStore` makes every later write to any IndexedDB store a no-op: a tab whose machine was taken by another tab must not
- * put its stale copy back. Reads still answer from the cache. `rootWritesSettled` resolves once the writes already started have
- * reached IndexedDB (they are issued in the background, one transaction each), so a reboot does not cut the last ones off.
+ * Two guards on writes to the IndexedDB root, for one machine per tab (`lib/machine-lock.ts`). `fenceRootStore` makes
+ * later writes to any IndexedDB store a no-op, so a tab that lost its machine cannot write its stale copy back; reads
+ * still use the cache. `rootWritesSettled` resolves once writes already started have reached IndexedDB.
  */
 let fenced = false
 let pendingWrites = 0
 const settleWaiters: Array<() => void> = []
 
-/** The IndexedDB store the root filesystem lives in, or `undefined` when the root is something else (memory, OPFS, ...) */
+/**
+ * The IndexedDB store the root filesystem lives in, or `undefined` when the root is something else (memory, OPFS,
+ * ...)
+ */
 export function rootStoreName(options: { mounts?: Record<string, unknown> }): string | undefined {
   const root = options.mounts?.['/'] as { backend?: unknown, storeName?: string } | undefined
   if (!root || root.backend !== IndexedDB) return undefined
@@ -86,12 +78,9 @@ export function fenceRootStore(): void { fenced = true }
 export function rootStoreFenced(): boolean { return fenced }
 
 /**
- * Writes of large records are put off briefly and merged. A file is one record, so every change to it clones and rewrites all of it
- * (about 7 ms of main-thread stall per MB), and a program that appends in small pieces to a big file (a log, a database) paid that
- * for each piece. A record of `DeferBytes` or more is now updated in memory at once, as before, and written to IndexedDB once after
- * `DeferMs`, whatever number of changes it took; reads see the in-memory copy, so nothing observable changes except that a crash in
- * that window loses the last changes to a large file (a crash during the old write lost the same). Small records are written at once.
- * `rootWritesSettled` (reboot, halt, a takeover) flushes them first.
+ * Records of `DeferBytes` or more are updated in memory at once and written to IndexedDB once, `DeferMs` later,
+ * however many changes occurred; reads see the in-memory copy. A crash in that window loses the last changes to the
+ * file. `rootWritesSettled` flushes them first.
  */
 export const DeferBytes = 256 * 1024
 export const DeferMs = 100
@@ -188,12 +177,9 @@ IndexedDBTransaction.prototype.get = async function (this: IndexedDBTransaction,
 } as typeof IndexedDBTransaction.prototype.get
 
 /**
- * A file bigger than the limit (`lib/storage-limits.ts`) is refused with `EFBIG` before anything is written, on the IndexedDB root
- * and any other IndexedDB mount: every write into a file, and a truncate that would make one bigger. Other stores are untouched.
- *
- * It has to be refused where the write enters the file's in-memory copy (`VNode`): by the time it reaches the store, at `close`, the
- * copy has already grown and stays dirty, so the same refusal would come back from every later `close`, even of a read. The check on
- * the store itself is only the backstop for writes that do not go through a file.
+ * Refuses with `EFBIG` a write or truncate that would make a file bigger than the limit (`lib/storage-limits.ts`), on
+ * the IndexedDB root and other IndexedDB mounts. The check is where the write enters the file's in-memory copy
+ * (`VNode`); the store check is a backstop.
  */
 type StoreFSLike = { store: unknown }
 const limited = <Fn extends (this: StoreFSLike, ...args: never[]) => unknown>(original: Fn, size: (...args: Parameters<Fn>) => number | undefined) =>
@@ -213,7 +199,8 @@ for (const name of ['touch', 'touchSync']) {
 }
 
 /**
- * What `uid` owns on the root: the sizes of its regular files (hard links once), walking the root's own tree and not the other
+ * What `uid` owns on the root: the sizes of its regular files (hard links once), walking the root's own tree and not
+ * the other
  * mounts. Synchronous, because it runs inside a write that is about to cross a quota.
  */
 export function measureOwnedBytes(uid: number): number {
@@ -245,15 +232,18 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
   disableAccessChecks: false,
   disableAsyncCache: false,
   onlySyncOnClose: false,
-  // Without it a path is resolved without asking each directory along it for search permission, so a user could read a
-  // world-readable file inside another user's 0700 home. It makes each path resolution slower, which is the price of the rule.
+  // Without it a path is resolved without asking each directory along it for search permission, so a user could read
+  // a
+  // world-readable file inside another user's 0700 home. It makes each path resolution slower, which is the price of
+  // the rule.
   resolveFullWalk: true,
   log: {
     level: 'debug',
     enabled: false
   },
   mounts: {
-    // Options go beside `backend`, not under `options`: zenfs hands the whole object to the backend. The name is the database
+    // Options go beside `backend`, not under `options`: zenfs hands the whole object to the backend. The name is the
+    // database
     // every existing machine already has (it is what the backend defaults to), so it must not change.
     '/': { backend: IndexedDB, storeName: 'zenfs' } as unknown as ConfigMounts[string],
     '/dev': new DevTmpFS(),
@@ -393,10 +383,8 @@ export class Filesystem {
   }
 
   /**
-   * Writes the real `/bin/node` interpreter - the worker-hosted body `@zenfs/linux`'s own default
-   * `binfmt_js` already points every plain JS/ESM program at via `execve`. Rewritten on every boot
-   * so it always matches this build; see `src/bin/node.mjs` for what it actually does and why it
-   * ships as one bundle with no import statements.
+   * Writes the `/bin/node` interpreter (`src/bin/node.mjs`), which `binfmt_js` runs plain JS programs with. Rewritten
+   * on every boot.
    */
   private async installBinNode() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
@@ -404,10 +392,8 @@ export class Filesystem {
   }
 
   /**
-   * Writes the real `/bin/wali` interpreter - the worker-hosted body `@zenfs/linux`'s own default
-   * `binfmt_wasm` already points every `.wasm` file at via `execve` (matched on magic bytes alone,
-   * with no way to tell WALI-format modules from plain WASI-preview1 ones at that layer - see
-   * `src/bin/wali.mjs`'s doc comment). Rewritten on every boot so it always matches this build.
+   * Writes the `/bin/wali` interpreter (`src/bin/wali.mjs`), which `binfmt_wasm` runs `.wasm` files with. Rewritten
+   * on every boot.
    */
   private async installBinWali() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
@@ -415,17 +401,9 @@ export class Filesystem {
   }
 
   /**
-   * Adds ecmaOS's browser-backed entries to ProcFS's `/proc` root.
-   *
-   * `/proc/version` exists upstream too, but reports `@zenfs/linux`'s own package version as if it
-   * were the kernel - accurate for a real Linux build (`uname -r` is the kernel's own
-   * version), but misleading here, since `@zenfs/linux` is the POSIX layer ecmaOS runs on top of, not
-   * ecmaOS itself. Overridden below so ecmaOS's own version is the headline "kernel" version (matching
-   * `Kernel.version`, `import.meta.env['VERSION']`), with `@zenfs/linux` (`init_uts.release`) and
-   * `@zenfs/core` (its own exported `_version`) kept separately in the parenthetical, same place a
-   * real `/proc/version` keeps its compiler/build info. `cpuinfo`
-   * and `meminfo` are new here, generated on read from `navigator.*` and `performance.memory`. A field
-   * that cannot be populated accurately is omitted rather than zero-filled or fabricated.
+   * Adds ecmaOS's browser-backed entries to `/proc`. `/proc/version` reports ecmaOS's version as the kernel, with
+   * `@zenfs/linux` and `@zenfs/core` in the parenthetical. `cpuinfo` and `meminfo` are generated on read from
+   * `navigator.*` and `performance.memory`; a field that cannot be populated is omitted.
    */
   private registerProcEntries() {
     proc_root.children.set('version', {
@@ -504,27 +482,16 @@ export class Filesystem {
   }
 
   /**
-   * Recursively copy every file and directory under `source` to `destination`, both already
-   * mounted paths within this filesystem (they may be on different backends - this is plain
-   * `@zenfs/core` file I/O, so it works across mount boundaries the same way `cp -r` does).
-   *
-   * This is the migration primitive for moving a filesystem's contents onto another backend, e.g.
-   * an IndexedDB-backed root's contents onto an `opfs`-mounted directory: mount the destination
-   * somewhere temporary, `copyTree('/', '/mnt/opfs-migration')`, then repoint `/etc/fstab` at it.
-   * There is no automatic root-swap here - that needs `root=` cmdline parsing, which
-   * ecmaOS does not parse.
-   *
+   * Recursively copies every file and directory under `source` to `destination`, both mounted paths (possibly on
+   * different backends). The primitive for moving a filesystem's contents onto another backend; there is no automatic
+   * root swap, since `root=` is not parsed.
    * @returns the number of files copied (directories are not counted)
    */
   async copyTree(source: string, destination: string): Promise<number> {
     const stats = await this.fs.stat(source)
     if (!stats.isDirectory()) {
-      // Not `this.fs.copyFile()`: it throws "the 'data' argument must be of type string or an
-      // instance of Buffer..." against a mounted (non-root-InMemory) backend in @zenfs/core@2.7.4
-      // - readFile+writeFile is the same work `copyFile` does internally, without the bug.
-      // The extra `new Uint8Array(...)` guards against `writeFile`'s `instanceof Uint8Array` check
-      // failing across a module-instance boundary (observed under vitest/jsdom) even though the
-      // buffer `readFile` returns is structurally a real Buffer.
+      // Not `copyFile()`, which throws against a mounted backend in `@zenfs/core` 2.7.4. The `new Uint8Array` copy
+      // avoids an `instanceof` failure across module instances.
       const contents = await this.fs.readFile(source)
       await this.fs.writeFile(destination, new Uint8Array(contents))
       return 1

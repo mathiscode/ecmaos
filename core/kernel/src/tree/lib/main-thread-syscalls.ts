@@ -1,28 +1,10 @@
 /**
- * Custom syscalls that cross from a real, worker-isolated `@zenfs/linux` `Process` back onto the
- * main thread, for the handful of capabilities that only exist there (DOM window creation today;
- * Web Bluetooth and the Battery Status API are the reason this module exists at all - neither is
- * exposed inside a Web Worker by spec, in any browser, ever, so no amount of worker-side code can
- * reach them directly).
- *
- * There is no separate "bridge" to build: `@zenfs/linux`'s own `Thread.syscall` (`thread.js`) already
- * runs `dispatch(this.proc, name, args)` on the main thread for every syscall, sync or async alike,
- * and unconditionally `await`s whatever the handler returns - confirmed against the installed
- * package, and confirmed as real, working precedent by `read`/`write`/`poll`'s own handlers, which
- * already `await` an indefinite external event (`wait_event`/`wait_event_any` in `wait.js`), not just
- * a fast in-memory operation. `define_syscall` (`syscall/table.js`) is the whole registration surface;
- * this module's only real job is (a) registering a small, typed handler per capability, the same way
- * a Linux syscall is added one at a time, and (b) resolving which `Kernel` instance a given `Process`
- * belongs to, since `@zenfs/linux`'s `Process` has no notion of "kernel" at all and the `syscalls` map
- * is module-global - shared across every `Kernel` instance in the same page (or test file: several
- * of this repo's own tests construct more than one `Kernel`).
- *
- * A syscall's numeric return (`dispatch`'s contract: a `number`, or a negative `-errno`) is the reason
- * every handler here returns a small integer *handle*, never the real object (`WinBox`, a `Bluetooth-
- * Device`, ...) -- those aren't structured-clone-safe across the syscall boundary in general, and the
- * return path is `i64`-shaped, not "any JS value." A handle is looked up again against `Windows`'s own
- * (or a future device driver's own) manager on each subsequent call, exactly the way a real fd is an
- * integer a program passes back to the kernel rather than the open file itself.
+ * Custom syscalls that cross from a worker-hosted `@zenfs/linux` `Process` to the main thread, for capabilities that
+ * only exist there (DOM windows, Web Bluetooth, the Battery API, kernel singletons).
+ * `define_syscall` registers a typed handler per capability; `kernelOf(proc)` resolves which `Kernel` a process
+ * belongs to, since the syscall table is module-global.
+ * A syscall returns a number or negative errno, so handlers return small integer handles rather than objects, and
+ * larger results are written to a scratch file.
  */
 
 import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
@@ -55,10 +37,7 @@ import { presenters, type Presented } from './presenters/index.ts'
 import { remoteKinds } from './presenters/remote.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
-// Declaration merging into `@zenfs/linux`'s own `Syscalls` interface (`uapi/abi.d.ts`) - the
-// intended extension point for a custom syscall's argument/return shape, matching how `define_syscall`
-// itself is generic over `keyof Syscalls`. Without this, `define_syscall('window_create', ...)` doesn't
-// typecheck: `name` is constrained to the closed set `@zenfs/linux` ships.
+// Declaration merging into `@zenfs/linux`'s `Syscalls` interface, so `define_syscall` accepts these names.
 declare module '@zenfs/linux/uapi/abi' {
   interface Syscalls {
     window_create(title: string): number
@@ -156,11 +135,8 @@ export function registerProcessKernel(proc: Process, kernel: Kernel, shell?: She
 }
 
 /**
- * Hands a handler's result to the program that asked for it, through the scratch file it named.
- *
- * The kernel writes as root, and `/tmp` is sticky, so a root-owned file there is one the calling user
- * could read but never delete. The file is therefore given to the caller (mode 0600, since it is
- * theirs alone), which is what lets `readBackAndDelete` clean up after itself.
+ * Hands a handler's result to the caller through the scratch file it named. The file is given to the caller (mode
+ * 0600) so it can delete it from the sticky `/tmp`.
  */
 async function writeScratch(kernel: Kernel, proc: Process, path: string, text: string): Promise<void> {
   await kernel.filesystem.fs.writeFile(path, text, { mode: 0o600 })
@@ -184,14 +160,20 @@ function shellOf(proc: Process): Shell | undefined {
   return shellOfProcess.get(proc)
 }
 
-/** The credentials a program acts with: its own when programs run as the user, else its shell's (everything runs as root then). */
+/**
+ * The credentials a program acts with: its own when programs run as the user, else its shell's (everything runs as
+ * root then).
+ */
 function identityOf(proc: Process): Credentials {
   const shell = shellOf(proc)
   if (kernelOf(proc).programsRunAsUser || !shell) return proc.context.credentials
   return shell.credentials
 }
 
-/** Whether the calling process itself is privileged: what init, getty, login and crond are, and a user's program is not. */
+/**
+ * Whether the calling process itself is privileged: what init, getty, login and crond are, and a user's program is
+ * not.
+ */
 function processIsRoot(proc: Process): boolean {
   return proc.context.credentials.euid === 0
 }
@@ -201,7 +183,10 @@ function requireRoot(proc: Process, what: string): void {
   if (!processIsRoot(proc)) throw Object.assign(new Error(`${what}: Operation not permitted`), { errno: Errno.EPERM })
 }
 
-/** What a file's metadata says, looked up as the caller, so a directory it may not search is refused as it would be for the caller. */
+/**
+ * What a file's metadata says, looked up as the caller, so a directory it may not search is refused as it would be
+ * for the caller.
+ */
 async function statAsCaller(proc: Process, path: string): Promise<{ uid: number, gid: number }> {
   const bound = boundContexts.get(proc.context.id)
   if (!bound) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
@@ -224,37 +209,26 @@ interface SocketResult { opened: boolean, messages: number, code?: number, reaso
 const socketResults = new Map<string, SocketResult>()
 
 /**
- * A loopback POSIX socket listener (`net_bind`/`net_listen`/`net_connect`/`net_accept`, the
- * `env.__syscall_socket`/`bind`/`listen`/`connect`/`accept4` translation's main-thread half). No
- * real internet socket exists in a browser at all - there is no raw TCP/UDP API, and
- * every "socket support" claim from a browser-based Unix turns out to
- * mean exactly this: loopback/inter-process sockets, not real external connectivity. Real network
- * I/O for an ecmaOS program is `kernel.sockets` (`sockets_connect` et al., above), unchanged; this
- * is what an unmodified POSIX binary's `socket()`/`bind()`/`connect()` calls actually get when the
- * target is loopback, so it runs for real instead of not running at all.
- *
- * `key` is the canonical address this listener is reachable at (`unix:<path>` or
- * `inet:<host>:<port>`, host always normalized to `127.0.0.1` - see `net_bind`). `queue` holds an
- * already-connected pair for each pending, not-yet-`accept4`ed connection, in the order
- * `net_connect` created them: real fds already linked into `serverProc`'s own context via
- * `Kernel.linkProcesses` (not bridged/pumped - the client and the eventual accepting program talk
- * directly to each other's real pipe), just not yet handed to the program's own `fds` table.
+ * A loopback POSIX socket listener (`net_bind`, `net_listen`, `net_connect`, `net_accept`). `key` is the address
+ * (`unix:<path>` or `inet:<host>:<port>`, host normalized to `127.0.0.1`). `queue` holds a connected pair for each
+ * pending connection, linked through `Kernel.linkProcesses`, not yet handed to the accepting program's fd table.
  */
 interface LoopbackListener {
   key: string
   serverProc: Process
   listening: boolean
-  /** `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client) */
+  /**
+   * `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client)
+   */
   queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string, conn?: number }>
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
 
 /**
- * Ancillary data on a local stream connection (`sendmsg`/`recvmsg` with `SCM_RIGHTS`). Each connection between programs on this
- * machine has a number and two ends (`c` the client, `s` the one that accepted). A descriptor sent is held here as an
- * extra reference to the sender's open file (so it survives the sender closing it, as in Linux), tied to the byte offset of the data it
- * travels with, and is put into the receiver's table when that data is received. What nobody receives is released when the receiving
- * program exits.
+ * Ancillary data on a local stream connection (`SCM_RIGHTS`). Each connection has a number and two ends (`c` client,
+ * `s` accepting). A sent descriptor is held as an extra reference to the sender's open file, tied to the byte offset
+ * of its data, and put in the receiver's table when that data is received. Anything not received is released when the
+ * receiver exits.
  */
 type Held = { ref(): unknown, closeSync(): void }
 type ScmItem = { t: 'fd', handle: Held } | { t: 'sock', read?: Held, write?: Held, meta: Record<string, unknown> }
@@ -294,14 +268,7 @@ function isLoopbackHost(host: string): boolean {
 let nextWindowHandle = 1
 const windowHandles = new Map<number, string>() // handle -> Windows' own WindowId
 
-/**
- * Unlike `Windows`, `kernel.sockets`' own connections are already keyed by a real, structured-
- * clone-safe string (`crypto.randomUUID()`) - so the `sockets_*` syscalls below pass that id
- * straight through as a syscall argument instead of minting a second, handle-based indirection
- * layer the way `window_*` needs to. This mirrors `sockets.ts`'s own `findConnectionById` (the
- * legacy in-process command's fuzzy 8-char-prefix match), ported here since only the main thread
- * can see `kernel.sockets.all()` at all.
- */
+/** Finds a `kernel.sockets` connection by id or 8-character prefix. */
 function findSocketConnection(kernel: Kernel, id: string) {
   const fullMatch = kernel.sockets.get(id)
   if (fullMatch) return fullMatch
@@ -313,16 +280,14 @@ function findSocketConnection(kernel: Kernel, id: string) {
 }
 
 /**
- * Registers this module's syscalls in `@zenfs/linux`'s module-global `syscalls` table.
- *
- * Idempotent: `define_syscall` throws `EEXIST` on a second registration of the same name, and this
- * module's own registrations must survive more than one `Kernel` being constructed in the same page
- * or test process (confirmed: `kernel.test.ts` and `protocol.test.ts` each construct several) - so
- * this only ever registers once per process lifetime, tracked here rather than relying on the second
- * `Kernel`'s call silently failing in some more surprising way.
+ * Registers this module's syscalls in `@zenfs/linux`'s table, once per process (a second registration throws
+ * `EEXIST`).
  */
 let installed = false
-/** Where a trace goes: one of the tracing process's own descriptors, written as a program would, waiting out a full pipe */
+/**
+ * Where a trace goes: one of the tracing process's own descriptors, written as a program would, waiting out a full
+ * pipe
+ */
 function traceSink(proc: Process, fd: number): (text: string) => Promise<void> {
   if (!proc.context.descriptors.has(fd)) throw Object.assign(new Error('Bad file descriptor'), { errno: Errno.EBADF })
   const encoder = new TextEncoder()
@@ -355,10 +320,8 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * Runs the presenter registered for `kind` (`#lib/presenters/index.ts`) on the main thread and
-   * reports the outcome as `{ result }` or `{ error }` in the scratch file at `path` - the same convention
-   * as the `sockets_*` handlers, because a thrown `Error` collapses to a bare `-EIO` and loses the
-   * message. `kind` is looked up in a fixed table, never evaluated.
+   * Runs the presenter registered for `kind` (`#lib/presenters/index.ts`) on the main thread and writes `{ result }`
+   * or `{ error }` to the scratch file at `path`.
    */
   define_syscall('window_present', async (proc: Process, kind: string, paramsJson: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -368,7 +331,8 @@ export function installMainThreadSyscalls(): void {
       const presenter = Object.hasOwn(presenters, kind) ? presenters[kind] : undefined
       if (!presenter) throw new Error(`unknown presenter: ${kind}`)
       const params = JSON.parse(paramsJson) as Record<string, unknown>
-      // A browser call that needs the page the user is at goes to the display attached to the program's tty, if there is one
+      // A browser call that needs the page the user is at goes to the display attached to the program's tty, if there
+      // is one
       const spec = Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
       const tty = spec ? ttyNumberOf(kernel, proc) : undefined
       const remote = spec && tty !== undefined && kernel.hasDisplay(tty)
@@ -415,17 +379,12 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // A syscall's return must be `number | bigint | void` (`dispatch`'s contract, enforced by
-  // `SyscallHandler`'s own type) - there's no string-returning custom syscall shape available, so
-  // `storage_usage` writes its JSON into a real file under `/tmp` instead (real `/proc` is
-  // `@zenfs/linux`'s synthetic, read-only `ProcFS` - not a place this can write into): a worker-
-  // hosted `df` just `open`+`read`s the file back with the plain filesystem syscalls it already
-  // has, no custom syscall needed on the read side at all. The write-then-signal-length return keeps
-  // the caller from racing a read against an unfinished write.
+  // `storage_usage`: writes JSON to a file under `/tmp` because a syscall can only return a number.
   define_syscall('storage_usage', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const usage = await kernel.storage.usage()
-    // what the file systems hold in RAM (the IndexedDB root, /tmp and the other memory mounts, and browser directories)
+    // what the file systems hold in RAM (the IndexedDB root, /tmp and the other memory mounts, and browser
+    // directories)
     const held = heldInMemory(mounts)
     const limits = currentStorageLimits()
     const memory = { held: totalHeld(held), warnAt: limits.warnResidentBytes === false ? 'never' : limits.warnResidentBytes, maxFile: limits.maxFileBytes === false ? 'unlimited' : limits.maxFileBytes, mounts: held }
@@ -434,7 +393,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `quota`: what a user's files on the root come to against the limit in /etc/quota. A user sees their own; root names anyone, or gets
+  // `quota`: what a user's files on the root come to against the limit in /etc/quota. A user sees their own; root
+  // names anyone, or gets
   // every quota that is set. `reload` (root) reads /etc/quota again first.
   define_syscall('quota_report', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -462,14 +422,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // A worker process's syslog-style escape hatch: writes to `kernel.log` (tslog, already piped to
-  // `/var/log/kernel.log` via `Kernel.boot`'s own transport) instead of the program's own stdout/
-  // stderr, so a daemon's routine bookkeeping (`crond` starting up, a job failing on some future
-  // tick) never lands in an interactive terminal it happens to share a session with - the same
-  // distinction real syslog draws between a daemon's controlling tty and `/var/log/*`. `level` is
-  // whatever `kernel.log` itself exposes (`info`/`warn`/`error`/`debug`/`fatal`); an unrecognized one
-  // falls back to `info` rather than throwing, since a bad level string is never worth crashing the
-  // caller over.
+  // `klog`: writes to `kernel.log` instead of the program's stdout, for daemon messages. An unrecognized level
+  // becomes `info`.
   define_syscall('klog', async (proc: Process, level: string, message: string) => {
     const kernel = kernelOf(proc)
     const fn = (kernel.log as unknown as Record<string, (msg: string) => void>)[level]
@@ -485,10 +439,7 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `kernel.activeTty` is a plain number already, so unlike `storage_usage` this needs no
-  // scratch-file round trip at all - it fits `dispatch`'s `number` return directly.
-  // The caller's own terminal when it has one (a program on TTY 3 sees 3 while TTY 0 is on screen),
-  // the one on screen otherwise.
+  // `tty_get`: the caller's own terminal number when it has one, else the one on screen.
   define_syscall('tty_get', async (proc: Process) => {
     const kernel = kernelOf(proc)
     return ttyNumberOf(kernel, proc) ?? kernel.activeTty
@@ -507,21 +458,9 @@ export function installMainThreadSyscalls(): void {
     }
   })
 
-  // `kernel.sockets` is a live, main-thread-only registry of real `WebSocket`/`WebTransport`
-  // instances - reached the same way `storage_usage` reach other live `Kernel` state,
-  // via the write-JSON-to-a-scratch-file convention (a syscall's return must be `number | bigint |
-  // void`, see that doc comment above).
-  //
-  // `create`/`close`/`show` write `{ error: message }` to the scratch file on failure instead of
-  // throwing: the installed package's `dispatch()` (`syscall/table.js`)
-  // catches every thrown error, and only preserves it as a real `-errno` when the error carries a
-  // numeric `.errno` property (as `kernelOf`'s own `ENOSYS` throw does); a plain `throw new
-  // Error(message)`, exactly what "connection not found"/"WebTransport is not supported"/etc. are,
-  // gets logged as a "kernel bug" and collapsed into a bare `-EIO` with the real message discarded
-  // entirely (`sockets show` against an unknown ID would surface as `EIO: i/o error`, not
-  // "connection not found"). The
-  // scratch file is the one channel that reliably carries a string across this boundary either way,
-  // so failure uses it too, rather than trying to keep two different error-reporting paths working.
+  // `sockets_*`: operate on the live `kernel.sockets` registry and write JSON to a scratch file. Failures are written
+  // as `{ error: message }` because `dispatch()` turns a thrown plain `Error` into a bare `-EIO` and loses the
+  // message.
   define_syscall('sockets_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const list = Array.from(kernel.sockets.all().values()).map(conn => ({
@@ -573,12 +512,9 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * Connects a socket and hands it to the calling program as two real file descriptors (`rx`, which
-   * yields what the peer sends, and `tx`, which sends what is written) that it can `read`, `write` and
-   * `poll` like any other - `Kernel.attachStream`. The connection is still an ordinary
-   * `kernel.sockets` entry, so `sockets list` sees it for as long as it is open, and it is closed if
-   * the process dies with it still open (a `^C`ed `nc`). How it ended is left for `sockets_result`.
-   * Writes `{ id, rx, tx }` (or `{ error }`) to `path`, the same convention as `sockets_create`.
+   * Connects a socket and gives the caller two descriptors (`rx`, `tx`) through `Kernel.attachStream`. The connection
+   * stays a `kernel.sockets` entry and is closed if the process dies with it open. Writes `{ id, rx, tx }` or `{
+   * error }` to `path`; how it ended is left for `sockets_result`.
    */
   define_syscall('sockets_connect', async (proc: Process, url: string, type: string, protocols: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -694,10 +630,14 @@ export function installMainThreadSyscalls(): void {
   })
 
   /** `family`: `'unix'`, `'inet'` (IPv4), `'inet6'` (IPv6 only) or `'inet46'` (an IPv6 socket that also takes IPv4, which is what
-   * `bind(::)` is unless `IPV6_V6ONLY` is set). An IPv4 port and an IPv6-only port are separate names (`inet:` and `inet6:`); a dual-stack
-   * one holds both, so a connection of either family reaches it and neither family can bind the same port again. `addr`/`port` are
-   * `''`/`0` for `unix` (the socket's own path is `addr`, unused). `port: 0` picks the next ephemeral port, same meaning as real
-   * Linux. Writes `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall above already uses. */
+   * `bind(::)` is unless `IPV6_V6ONLY` is set). An IPv4 port and an IPv6-only port are separate names (`inet:` and
+   * `inet6:`); a dual-stack
+   * one holds both, so a connection of either family reaches it and neither family can bind the same port again.
+   * `addr`/`port` are
+   * `''`/`0` for `unix` (the socket's own path is `addr`, unused). `port: 0` picks the next ephemeral port, same
+   * meaning as real
+   * Linux. Writes `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall above
+   * already uses. */
   define_syscall('net_bind', async (proc: Process, family: string, addr: string, port: number, path: string) => {
     const kernel = kernelOf(proc)
     let text: string
@@ -742,8 +682,10 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // A connection the gateway's host forwarded (`gateway expose`) joins the loopback listener's queue like one from another program,
-  // except both its ends are streams bridged to the link instead of pipes to a process. Nothing listening there: refused.
+  // A connection the gateway's host forwarded (`gateway expose`) joins the loopback listener's queue like one from
+  // another program,
+  // except both its ends are streams bridged to the link instead of pipes to a process. Nothing listening there:
+  // refused.
   setInboundSink((kernel, port, streams, peer, ended) => {
     const listener = loopbackListeners.get(isIPv6(parseEndpoint(peer)?.address ?? '') ? `inet6:${port}` : `inet:127.0.0.1:${port}`)
     if (!listener?.listening) return false
@@ -751,14 +693,16 @@ export function installMainThreadSyscalls(): void {
     const rxEnd = kernel.attachStream(serverProc, 'read', streams.rx)
     const txEnd = kernel.attachStream(serverProc, 'write', streams.tx)
     listener.queue.push({ fd: rxEnd.fd, writeFd: txEnd.fd, peerKey: `remote:${peer}` })
-    // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain, then end the flow
+    // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain,
+    // then end the flow
     void serverProc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(ended) })
     return true
   })
 
   setLocalProbe((port, udp) => udp ? udpPortAt(port) !== undefined : loopbackListeners.get(`inet:127.0.0.1:${port}`)?.listening === true || loopbackListeners.get(`inet6:${port}`)?.listening === true)
 
-  // A datagram from a peer that reached an exposed UDP port: handed to the program that bound it, with the way to answer
+  // A datagram from a peer that reached an exposed UDP port: handed to the program that bound it, with the way to
+  // answer
   setDatagramSink((port, data, peer, reply) => {
     const bound = udpPortAt(port)
     const from = parseEndpoint(peer)
@@ -770,7 +714,8 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * `bind()` on a datagram socket: claims the loopback port (`0` for an ephemeral one) and attaches the socket's two streams as
+   * `bind()` on a datagram socket: claims the loopback port (`0` for an ephemeral one) and attaches the socket's two
+   * streams as
    * descriptors, carrying addressed datagrams (see `udp-ports.ts`). Writes `{ fd, writeFd, port }` or `{ error }`.
    */
   define_syscall('net_udp_bind', async (proc: Process, addr: string, port: number, path: string) => {
@@ -785,7 +730,8 @@ export function installMainThreadSyscalls(): void {
         const txEnd = kernel.attachStream(proc, 'write', bound.tx)
         // the program closing the socket ends the writing side; its exit does the same for one it left open
         void txEnd.done.then(() => bound.close())
-        // what the program sent just before exiting is still on its way: let the writing side drain, then release the port
+        // what the program sent just before exiting is still on its way: let the writing side drain, then release the
+        // port
         void proc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(() => bound.close()) })
         text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, port: bound.port })
       }
@@ -820,10 +766,8 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * Creates the real, full-duplex link (two directed `Kernel.linkProcesses` pipes, one per
-   * direction) between the calling process and `key`'s listener, and hands the accepting side's
-   * fds to the listener's `queue` for `net_accept` to hand out later. Writes `{ fd, writeFd }` (the
-   * connecting side's own real fds - `fd` to read, `writeFd` to write) or `{ error }`.
+   * Links the caller and `key`'s listener with two directed `Kernel.linkProcesses` pipes and queues the accepting
+   * side's fds for `net_accept`. Writes `{ fd, writeFd }` or `{ error }`.
    */
   define_syscall('net_connect', async (proc: Process, key: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -845,8 +789,10 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * `sendmsg()` with `SCM_RIGHTS`: holds the named descriptors (an `{ t: 'fd', fd }` for a plain one, `{ t: 'sock', readFd, writeFd, meta }`
-   * for a socket, which is a pair of them) for the other end of connection `conn`, tied to the stream `offset` of the data they go with.
+   * `sendmsg()` with `SCM_RIGHTS`: holds the named descriptors (an `{ t: 'fd', fd }` for a plain one, `{ t: 'sock',
+   * readFd, writeFd, meta }`
+   * for a socket, which is a pair of them) for the other end of connection `conn`, tied to the stream `offset` of the
+   * data they go with.
    */
   define_syscall('scm_send', async (proc: Process, conn: number, dir: string, offset: number, length: number, specs: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -878,10 +824,10 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * `recvmsg()`: what the other end sent that goes with the data at stream offset `rx`. Anything held for earlier bytes was read past by
-   * an ordinary read and is dropped (as Linux drops it). `max` is how much data the program asked for; `limit` says where to stop, since
-   * data from before and after a descriptor are never returned together. Up to `room` descriptors are put into the caller's table from
-   * `hint` upwards; the rest are dropped and `ctrunc` is set. Writes `{ limit, items, ctrunc, peer }`.
+   * `recvmsg()`: the descriptors that go with the data at stream offset `rx`. Anything held for earlier bytes is
+   * dropped. `max` is how much data was asked for and `limit` where to stop, since data from before and after a
+   * descriptor is never returned together. Up to `room` descriptors go into the caller's table from `hint` upwards,
+   * the rest are dropped and `ctrunc` is set. Writes `{ limit, items, ctrunc, peer }`.
    */
   define_syscall('scm_take', async (proc: Process, conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string) => {
     const kernel = kernelOf(proc)
@@ -912,7 +858,10 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  /** `SO_PEERCRED`: the process, user and group at the other end of connection `conn` (the caller is `dir`). Writes `{ pid, uid, gid }` or `{ error }`. */
+  /**
+   * `SO_PEERCRED`: the process, user and group at the other end of connection `conn` (the caller is `dir`). Writes `{
+   * pid, uid, gid }` or `{ error }`.
+   */
   define_syscall('scm_cred', async (proc: Process, conn: number, dir: string, path: string) => {
     const kernel = kernelOf(proc)
     const peer = localConnections.get(conn)?.ends[otherEnd(dir)]
@@ -923,9 +872,12 @@ export function installMainThreadSyscalls(): void {
   })
 
   /**
-   * A TCP connection (or, with `proto` `udp`, a datagram flow framed as the shim expects) to an address that is not this machine, through the gateway (`remote-gateway.ts`). Hands back the same
-   * `{ fd, writeFd }` shape `net_connect` does, so the program reads, writes, polls and closes it like any other socket; the
-   * pair is a bridge to the gateway's flow, ended when the program exits. `{ error }` is the errno `connect()` should return.
+   * A TCP connection (or, with `proto` `udp`, a datagram flow framed as the shim expects) to an address that is not
+   * this machine, through the gateway (`remote-gateway.ts`). Hands back the same
+   * `{ fd, writeFd }` shape `net_connect` does, so the program reads, writes, polls and closes it like any other
+   * socket; the
+   * pair is a bridge to the gateway's flow, ended when the program exits. `{ error }` is the errno `connect()` should
+   * return.
    */
   define_syscall('net_connect_out', async (proc: Process, host: string, port: number, proto: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -934,7 +886,8 @@ export function installMainThreadSyscalls(): void {
       const flow = await openGatewayFlow(kernel, host, port, proto === 'udp' ? 'udp' : 'tcp')
       const rxEnd = kernel.attachStream(proc, 'read', flow.rx)
       const txEnd = kernel.attachStream(proc, 'write', flow.tx)
-      // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain, then end the flow
+      // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain,
+      // then end the flow
       void proc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(() => flow.close()) })
       text = JSON.stringify({ fd: rxEnd.fd, writeFd: txEnd.fd, address: flow.address })
     } catch (error) {
@@ -944,7 +897,10 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  /** A name's addresses for `getaddrinfo`: `/etc/hosts`, then the gateway. Writes `{ addresses }` or `{ error: 'NONAME' | 'AGAIN', message }`. */
+  /**
+   * A name's addresses for `getaddrinfo`: `/etc/hosts`, then the gateway. Writes `{ addresses }` or `{ error:
+   * 'NONAME' | 'AGAIN', message }`.
+   */
   define_syscall('dns_lookup', async (proc: Process, name: string, family: number, path: string) => {
     const kernel = kernelOf(proc)
     let text: string
@@ -977,20 +933,9 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `id`/`groups` need to resolve arbitrary usernames/uids against the live user registry
-  // (`kernel.users`) - no execve-compatible equivalent exists for that, and `groups` even supports
-  // looking up a user other than the caller's own (`groups someoneelse`), so this can't be
-  // pre-snapshotted into env at spawn time the way `id`/`groups`' *own*-process values could be.
-  // `query` is a small JSON request object; the response (also JSON, written to `path` the same way
-  // `storage_usage` do, per this module's own doc comment on why a custom syscall can't
-  // just return a string) is a plain array of `{ uid, gid, groups, username }` entries - password
-  // hashes and keypairs are never included, this is a read-only identity lookup, not a full user
-  // record dump.
-  //
-  // `mode: 'self'` additionally resolves the *calling* process's own uid/gid/groups from
-  // `shellOf(proc)`'s live `Credentials` - there's no real syscall for "my supplementary groups"
-  // (`getuid`/`geteuid`/`getgid`/`getegid` exist in `@zenfs/linux`, `getgroups` does not), so this one
-  // mode is the only way a worker program can see its own `groups` list at all.
+  // `users_lookup`: resolves usernames and uids against `kernel.users` and writes `{ uid, gid, groups, username }`
+  // entries to `path`; no hashes or keys. `mode: 'self'` resolves the caller's own uid, gid and groups, since there
+  // is no `getgroups` syscall.
   define_syscall('users_lookup', async (proc: Process, query: string, path: string) => {
     const kernel = kernelOf(proc)
     const request = JSON.parse(query) as
@@ -1031,23 +976,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `list`/`add`/`del`/`mod` all gate on the *calling* process's own credentials (`suid !== 0`,
-  // matching the legacy command's own permission check exactly - note this covers `list` too, not
-  // just the three mutating actions, since the original command gated every subcommand the same
-  // way), and `add`/`mod -p` may need to prompt for a password interactively via
-  // `shell.terminal.readline()` when one isn't supplied on the command line - all of this is
-  // reachable only through `shellOf(proc)`, so unlike every other syscall in this module,
-  // `users_manage` needs the calling `Shell`, not just the `Kernel`. `list` could have reused
-  // `users_lookup` (its read-only shape is identical), but that syscall's other modes are
-  // deliberately permission-free (`id`/`groups` on oneself, or looking up one other user by name)
-  // and giving `list` its own permission check there would have meant carrying `shellOf(proc)`'s
-  // credentials into a syscall that otherwise never needs a permission gate at all - simpler to
-  // keep `list` here, next to the other three actions that already need the same gate.
-  //
-  // Every failure (permission denied, bad arguments, a user that doesn't/already does exist, a
-  // password mismatch) is written to the scratch file as `{ error: message }` rather than thrown -
-  // see `sockets_create`'s doc comment above for why a thrown `Error` doesn't reliably survive the
-  // trip back to the worker at all.
+  // `users_manage`: `list`, `add`, `del` and `mod`, all requiring root. May prompt for a password through
+  // `shell.terminal.readline()`, so it needs `shellOf(proc)`. Failures are written as `{ error: message }`.
   define_syscall('users_manage', async (proc: Process, action: string, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
@@ -1292,18 +1222,7 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // Real Linux `umount(2)` is itself a syscall, not filesystem I/O - this is the one command in the
-  // "portable" bucket that's arguably closer to "the Linux way" as a custom syscall than any plain
-  // fs operation would be. `kernel.filesystem.mounts` (the live mount-point registry) and
-  // `kernel.filesystem.fsSync.umount()` (the actual unmount) are both main-thread-only `Kernel`
-  // state, reached the same way `sockets_*`/`users_manage` reach theirs.
-  //
-  // `target === ''` means "unmount everything except `/`" (`umount -a`), matching the legacy
-  // command's own loop - done here, in one syscall round trip, rather than making the worker call
-  // this syscall once per mount point after a separate list syscall. Every result (success or
-  // per-target failure) goes into one JSON array written to the scratch file, following the
-  // `{ error: message }` convention (see `sockets_create`'s doc comment) for why nothing here throws
-  // a plain `Error` across the syscall boundary.
+  // `umount`: `target === ''` unmounts everything except `/`. Results go to the scratch file as a JSON array.
   define_syscall('fs_umount', async (proc: Process, target: string, path: string) => {
     requireRoot(proc, 'umount')
     const kernel = kernelOf(proc)
@@ -1337,10 +1256,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `mount`: the backends need the live mount table, browser storage/File System Access APIs and (for
-  // Google Drive) `document.head` script injection plus an OAuth popup - all main-thread only. The
-  // program parses arguments; `mountFilesystem` (`mount-backends.ts`) is the original command body,
-  // and reports the lines to print plus an exit code, like every "whole command" syscall here.
+  // `mount`: the backends need the live mount table and main-thread browser APIs. The program parses arguments;
+  // `mountFilesystem` (`mount-backends.ts`) returns the lines to print and an exit code.
   define_syscall('fs_mount', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
@@ -1361,7 +1278,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `share`: offers a directory of this machine to another one, over a connection the kernel keeps open (so it has to live
+  // `share`: offers a directory of this machine to another one, over a connection the kernel keeps open (so it has to
+  // live
   // here and not in the worker that ran the command, which ends). Root only, like `mount`.
   define_syscall('peer_share', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -1375,7 +1293,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `attach`: makes a device of another machine appear as /dev/NAME, over a connection the kernel keeps open. Root only: it
+  // `attach`: makes a device of another machine appear as /dev/NAME, over a connection the kernel keeps open. Root
+  // only: it
   // creates a device node.
   define_syscall('peer_attach', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -1389,7 +1308,8 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `gateway`: the route to the real network through another machine, kept up by the kernel. Root only: it changes where every
+  // `gateway`: the route to the real network through another machine, kept up by the kernel. Root only: it changes
+  // where every
   // program's outbound connections go.
   define_syscall('gateway_ctl', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
@@ -1450,10 +1370,9 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `passwd`: changes the password of the user the kernel is running as. The program does the
-  // prompting (with echo off) and passes both passwords here; the result is `{}` or `{ error }`.
-  // `chsh`: a user may change their own login shell, root anyone's. The shell must be listed in
-  // `/etc/shells`; the change takes effect at the next login, as on Linux.
+  // `passwd`: changes the password of the user the kernel is running as; the program prompts and passes both
+  // passwords. `chsh`: a user may change their own login shell, root anyone's; the shell must be in `/etc/shells` and
+  // applies at the next login. The result is `{}` or `{ error }`.
   define_syscall('users_chsh', async (proc: Process, username: string, shellValue: string, path: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
@@ -1524,8 +1443,10 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  // `connect`: signs a login challenge with the calling user's key (`~/.ssh/id_ecdsa`, made on first use). The program asks for
-  // the password and passes it here; the private key is decrypted in the kernel and only the signature and public key go back.
+  // `connect`: signs a login challenge with the calling user's key (`~/.ssh/id_ecdsa`, made on first use). The
+  // program asks for
+  // the password and passes it here; the private key is decrypted in the kernel and only the signature and public key
+  // go back.
   define_syscall('users_sign', async (proc: Process, password: string, dataBase64: string, path: string) => {
     const kernel = kernelOf(proc)
     let text: string
@@ -1579,13 +1500,8 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `shell.config.setTheme()` mutates the calling `Shell`'s own live `TerminalConfig` and immediately
-  // calls `terminal.updateConfig()` - both are main-thread-only `Shell`/`Terminal` state, unlike
-  // every syscall above this needs `shellOf(proc)`, not just `kernelOf(proc)`. `setTheme()` itself
-  // silently no-ops on an unrecognized preset name rather than throwing (`shell.ts`), so the calling
-  // worker program validates the name against `ThemePresets` itself before ever reaching this
-  // syscall - there's nothing for this handler to fail on, so unlike `fs_umount`/`users_manage` it
-  // needs no scratch-file round trip, just a plain `0`/`-errno` return.
+  // `shell_set_theme`: sets the calling shell's theme and updates the terminal. The program validates the name
+  // against `ThemePresets` first.
   define_syscall('shell_set_theme', async (proc: Process, theme: string) => {
     const shell = shellOf(proc)
     if (!shell) return -Errno.ENOSYS
@@ -1593,29 +1509,12 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `spawn()`/`Process.wait()`/`kill()` (`@zenfs/linux`'s `process.js`/`fs/exec.js`) are real process
-  // creation (a new process running `execve` - there is no copy-on-write `fork()`), `waitpid()` and
-  // `kill()` - not main-thread-only capabilities like everything above, they're plain functions any
-  // `Process` object can call. The only reason these need to be
-  // custom syscalls at all is that they're free functions taking a `Process` object as an argument,
-  // and a worker-hosted program only ever sees itself as an opaque id inside `@zenfs/linux`'s own
-  // syscall machinery - it has no direct JS reference to its own `Process` object to call
-  // `parent.wait()` on. `kernelOf(proc)`/`shellOf(proc)` resolve nothing these three need beyond
-  // `proc` itself (the calling process, i.e. `spawn()`'s `parent`) - registered here purely so the
-  // *child* `proc_spawn` creates can itself later make `custom()` calls of its own (`registerProcess-
-  // Kernel`, the exact same call `executeViaExecve` makes for a shell-launched process).
-  //
-  // Errors here are deliberately left to throw and propagate as real `-errno` returns, unlike every
-  // scratch-file-using syscall above: `spawn`/`wait`/`kill` all throw `@zenfs/linux`'s own `Exception`
-  // (via kerium's `withErrno`/`UV`), which already carries a real numeric `.errno` - exactly the
-  // shape `dispatch()` (`syscall/table.js`) needs to preserve a thrown error as a real `-errno`
-  // instead of collapsing it to `-EIO` (see `sockets_create`'s doc comment on that). And the worker's
-  // own `syscall_async` (`uapi/base.js`) reconstructs a real, correctly-named error (`ENOENT`,
-  // `ECHILD`, `ESRCH`, ...) from that `-errno` automatically - so a program calling `custom('proc_wait',
-  // ...)` on a pid that was never its child gets a real `ECHILD` back, not a generic failure.
-  // `optionsJson` is `{ env?, fds? }`: `env` replaces the shell's snapshot (so `FOO=bar cmd` and a
-  // per-command environment work from a worker) and `fds` maps child fd -> caller fd (`posix_spawn`
-  // file actions, how a pipeline is wired). See `job-control.ts` for the removal path.
+  // `proc_spawn`, `proc_wait`, `proc_kill`: `spawn()`, `Process.wait()` and `kill()` are plain functions of a
+  // `Process`, but a worker program has no reference to its own `Process`, so they are syscalls. The child is
+  // registered with `registerProcessKernel` so it can make `custom()` calls too. Errors throw `Exception`s carrying a
+  // real errno, which `dispatch()` preserves.
+  // `optionsJson` is `{ env?, fds? }`: `env` replaces the shell's snapshot and `fds` maps child fd to caller fd (how
+  // a pipeline is wired). See `job-control.ts`.
   define_syscall('proc_spawn', async (proc: Process, command: string, argvJson: string, cwd: string, optionsJson?: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
@@ -1688,11 +1587,9 @@ export function installMainThreadSyscalls(): void {
   })
   define_syscall('proc_killpg', (proc: Process, pgid: number, signal: number) => { killpg(pgid, signal, proc); return 0 })
 
-  // Changing a file's mode or owner is a matter of owning it, not of having read or write access to it, and the
-  // installed @zenfs/core does not know that for a directory (its synchronous `chmod` refuses one outright) or for a
-  // file the owner has made read-only. So `chmod`, `chown` and `chgrp` ask here when their own call is refused: the
-  // caller's own context looks the file up (so every directory on the way still has to let it through), the rule is
-  // Linux's, and the change itself is made with the kernel's filesystem. Delete both when @zenfs/core does this itself.
+  // `fs_chmod`, `fs_chown`, `fs_utimes`: changing a mode, owner or time needs ownership, not access, and the
+  // installed `@zenfs/core` refuses directories and files the owner made read-only. The commands call these when
+  // their own call is refused; the rule is Linux's (owner or root). Delete when `@zenfs/core` does this itself.
   define_syscall('fs_chmod', async (proc: Process, path: string, mode: number) => {
     const info = await statAsCaller(proc, path)
     const caller = proc.context.credentials
@@ -1711,8 +1608,10 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // Setting a file's times to chosen values is a matter of owning it (any caller with write access may set them to the
-  // present, which the plain call already allows). Asked when the plain `utimes` is refused: a directory, or a file the
+  // Setting a file's times to chosen values is a matter of owning it (any caller with write access may set them to
+  // the
+  // present, which the plain call already allows). Asked when the plain `utimes` is refused: a directory, or a file
+  // the
   // owner has made read-only. Times are seconds; a negative one means now.
   define_syscall('fs_utimes', async (proc: Process, path: string, atime: number, mtime: number) => {
     const info = await statAsCaller(proc, path)
@@ -1740,17 +1639,8 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `kernel.system.execute()` is the one thing in this module that runs a *full shell command line*
-  // (pipes, redirects, the works) rather than a single program - main-thread-only since `Shell` is a
-  // persistent object tied to a `Terminal`, not something `proc_spawn` can hand a worker a real
-  // `execve`-shaped binary for (there is no `/bin/sh -c` interpreter in ecmaOS to `proc_spawn` in the
-  // first place). This exists for `crond` (`src/bin/commands/crond.mjs`) to fire a crontab entry's
-  // command line exactly the way the old `kernel.intervals`-based scheduler did (`kernel.system.execute
-  // (entry.command)`), preserving pipe/redirect support in a cron job with zero behavior change --
-  // individual pipeline stages `kernel.system.execute()` itself launches via `executeViaExecve` still
-  // get real pids visible in `ps` (visible in `ps`, which reads `/proc`), even though the job as a
-  // whole has no single pid of its own, the same limitation real `crond`'s `sh -c` child has for a
-  // multi-stage pipeline.
+  // `shell_exec`: runs a full command line through `kernel.system.execute()`; used by `crond` for crontab entries.
+  // Pipeline stages still get pids.
   define_syscall('shell_exec', async (proc: Process, command: string) => {
     // it runs in the system shell, with root's authority, which no user's program may borrow
     requireRoot(proc, 'shell_exec')
@@ -1785,10 +1675,9 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `/sbin/getty`'s half of a login. The prompts and the password are the program's; authenticating (and
-  // a passkey, which needs the page rather than a worker) and starting the session are the kernel's.
-  // `login_begin` is 1 when a passkey already settled it; `login_session` writes `{ ok, ... }` to `path`,
-  // a failure carrying the message to show, since an errno would lose it.
+  // `/sbin/getty`'s half of a login: the program prompts; the kernel authenticates (including a passkey, which needs
+  // the page) and starts the session. `login_begin` is 1 when a passkey already settled it; `login_session` writes `{
+  // ok, ... }` to `path`, with the message on failure.
   define_syscall('login_begin', async (proc: Process, tty: number, username: string) => {
     requireRoot(proc, 'login_begin')
     return await kernelOf(proc).beginLogin(tty, username) ? 1 : 0
@@ -1849,14 +1738,7 @@ export function installMainThreadSyscalls(): void {
     return init.script(kernel, path, args, () => kernel.runInitScript(path, args))
   })
 
-  // `shell.terminal.clearHistory()`/`reloadHistory()` mutate/re-read the live, in-memory history
-  // buffer a real `Terminal` keeps for its own up-arrow recall - `history`'s own file-backed
-  // list/`-d` work stays plain fs syscalls (no kernel state involved), only `-c`/`-r` need this,
-  // exactly the two flags `history.ts` (the legacy command) already routed through `terminal.
-  // clearHistory`/`reloadHistory` rather than touching the file behind the terminal's back. Zero
-  // arguments: the uid is always the calling process's own (`shellOf(proc)`'s live credentials), the
-  // same "self" scoping `users_lookup`'s own `mode: 'self'` uses - there's no legitimate case for
-  // clearing or reloading another user's history from here.
+  // `terminal_clear_history` and `terminal_reload_history`: act on the calling user's in-memory history buffer.
   define_syscall('terminal_clear_history', async (proc: Process) => {
     const shell = shellOf(proc)
     if (!shell) return -Errno.ENOSYS
@@ -1871,26 +1753,9 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `format` needs three things no worker can reach on its own: the permission gate (`suid !== 0`,
-  // same convention as `users_manage`), an interactive `shell.terminal.readline()` confirmation
-  // prompt (there is no yes/no confirmation primitive on the worker side, same reasoning as
-  // `users_manage`'s password prompts), and real `indexedDB`/`localStorage` access - `indexedDB` is
-  // spec'd to exist in a Worker, but `kernel.storage.local` (`globalThis.localStorage`) is main-thread
-  // only, so both live here together rather than splitting the two stores across two different
-  // execution contexts for no benefit.
-  //
-  // The old in-process `format.ts` only ever computed
-  // which IndexedDB databases *would* be emptied and printed a "Will empty on reboot" message -
-  // nothing anywhere actually called `indexedDB.deleteDatabase()`, so a real reboot never followed
-  // through on that promise. This
-  // syscall actually deletes them, synchronously, before it returns so `format` really formats.
-  //
-  // Cancellation and per-step failures are written to the scratch file as `{ cancelled: true }` /
-  // `{ error: message }`, matching `sockets_create`'s convention; on success `{ messages: [...] }`
-  // carries the human-readable summary lines the worker prints. Rebooting is deliberately left to the
-  // caller (a plain `custom('reboot')` after this returns, reusing the existing `reboot` syscall)
-  // rather than folded in here - keeps this syscall's own job to "do the destructive thing safely",
-  // not "and also shut down every subsystem", which `reboot`'s handler already owns end to end.
+  // `system_format`: root only; asks for confirmation through `shell.terminal.readline()` and deletes the IndexedDB
+  // databases and `localStorage` before returning. Cancellation and failures are written as `{ cancelled: true }` or
+  // `{ error }`; success as `{ messages }`. Rebooting is left to the caller.
   define_syscall('system_format', async (proc: Process, argsJson: string, path: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
@@ -1927,7 +1792,8 @@ export function installMainThreadSyscalls(): void {
           messages.push('IndexedDB is not available')
         } else if (typeof indexedDB.databases === 'function') {
           const databases = await indexedDB.databases()
-          // Other machines of this origin (`?machine=`) are not this one's to wipe: only this machine's own store goes
+          // Other machines of this origin (`?machine=`) are not this one's to wipe: only this machine's own store
+          // goes
           const own = machineStore(kernel.machine)
           const toDelete = databases.filter((db): db is { name: string, version: number } => typeof db.name === 'string' && !args.keep.includes(db.name) && (!isMachineStore(db.name) || db.name === own))
 
@@ -1952,7 +1818,8 @@ export function installMainThreadSyscalls(): void {
       }
 
       if (args.localStorage) {
-        // Keys that describe another machine's store stay: clearing them would make that machine install itself over its own files
+        // Keys that describe another machine's store stay: clearing them would make that machine install itself over
+        // its own files
         const local = kernel.storage.local
         const prefix = kernel.machine ? `${MachineKeyPrefix}${kernel.machine}:` : undefined
         const doomed: string[] = []

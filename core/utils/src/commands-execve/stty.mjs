@@ -1,11 +1,7 @@
 /**
- * Show or change the terminal's line settings: `stty -a`, `stty size`, `stty -echo`, `stty sane`.
- *
- * These are the real termios flags of the terminal's line discipline, so `stty -echo` stops the terminal
- * echoing what is typed until it is changed back, and `stty -isig` stops `^C` raising a signal. The settings
- * of the terminal are put back when the program that changed them ends (the kernel does that), so what
- * `stty` sets lasts for the command that follows it only if one is started under it; at the prompt a change
- * is undone as soon as `stty` exits, which is what this system does with every program's terminal changes.
+ * Shows or changes the terminal's line settings: `stty -a`, `stty size`, `stty -echo`, `stty sane`. These are the
+ * line discipline's termios flags. The kernel restores the terminal's settings when the program that changed them
+ * ends, so a change lasts only for a command started under it.
  */
 
 import { isTty, ttyFd, terminalSize } from './lib/tty.mjs'

@@ -6,19 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Covers `Terminal`'s Enter handler across *several* Enter presses - the one layer of the shell
- * that had no test at all, and where a live browser smoke test found three shipped-and-claimed
- * features broken at once.
- *
- * Every other shell test drives `Shell.execute(oneLine)` or `executeScriptText(wholeScript)`
- * directly, so they all passed while typing the same constructs at a real prompt did not work:
- * `cat <<EOF` ran immediately and the heredoc body was then executed as commands, and
- * `for i in 1 2 3; do` reported "Command not found: for". The Enter handler knew exactly one
- * continuation rule (a trailing backslash) and never consulted the parser, even though
- * `pendingHeredocDelimiter` had been written for precisely this and left uncalled.
- *
- * These drive the keyboard, not the shell, on purpose. A test that calls `Shell.execute` cannot
- * observe this class of bug.
+ * `Terminal`'s Enter handler across several Enter presses: `cat <<EOF` waits for its terminator, `for i in 1 2 3; do`
+ * waits for `done`, and a trailing backslash continues. These drive the keyboard, since calling `Shell.execute`
+ * cannot observe this class of bug.
  */
 describe('Terminal multi-line input', () => {
   let kernel: Kernel

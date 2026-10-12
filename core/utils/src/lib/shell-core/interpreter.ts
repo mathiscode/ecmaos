@@ -1,11 +1,7 @@
 /**
- * The shell language's control flow, independent of how a command is run.
- *
- * The kernel shell and `/bin/ecmash` each used to walk a statement tree of their own. This walks it
- * once: `if`/`while`/`for`/`case`, `{ }` and `( )`, function calls, `&&`/`||`/`;`/`&` lists, `set -e`
- * with bash's rule for what counts as tested, the `ERR` trap, and the `break`/`continue`/`return`/
- * `exit` unwinding. What it does not do is run a pipeline: that is wiring (streams against file
- * descriptors) and stays with each host, reached through {@link InterpreterHost}.
+ * The shell language's control flow, independent of how a command runs: `if`, `while`, `for`, `case`, `{ }`, `( )`,
+ * function calls, `&&`/`||`/`;`/`&` lists, `set -e` with bash's tested-context rule, the `ERR` trap, and
+ * `break`/`continue`/`return`/`exit` unwinding. Running a pipeline stays with each host ({@link InterpreterHost}).
  */
 
 import { parseStatements, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
@@ -53,7 +49,10 @@ export interface InterpreterHost {
    * that puts them back. `zero` is `$0` where the call changes it.
    */
   enterParameters(args: string[], zero?: string): () => void
-  /** True when the shell is running a script or `-c` text rather than reading a prompt, so an error `set -u` raises ends it. */
+  /**
+   * True when the shell is running a script or `-c` text rather than reading a prompt, so an error `set -u` raises
+   * ends it.
+   */
   nonInteractive?(): boolean
   /** Captures what a subshell must not leak (variables, cwd, ...). Returns the restore function. */
   snapshot(): () => void
@@ -263,10 +262,9 @@ export class Interpreter {
   }
 
   /**
-   * `select NAME in WORDS; do ...; done`. The menu and the prompt go to standard error, the reply is read
-   * from standard input into `REPLY`, and the body runs with NAME set to the chosen word (or empty when the
-   * reply is not a number in range). An empty reply draws the menu again; end of input ends the loop with 1.
-   * The menu and the read are ordinary commands, so a redirection on the `select` reaches them as it does the body.
+   * `select NAME in WORDS; do ...; done`. The menu and prompt go to stderr, the reply is read from stdin into
+   * `REPLY`, and the body runs with NAME set to the chosen word (empty for an invalid reply). An empty reply redraws
+   * the menu; end of input ends the loop with 1.
    */
   private async runSelect(statement: SelectStatement): Promise<number> {
     const host = this.host
@@ -326,10 +324,8 @@ export class Interpreter {
   }
 
   /**
-   * A pipeline with compound stages in it (`cmd | while read x; do ...; done`, `(a; b) &`). The plain
-   * stages are parsed as ordinary command lines and the compound ones become stages the host runs
-   * through {@link runStage}; the result goes through {@link runScript}, so the status, `PIPESTATUS`,
-   * `set -e` and the `ERR` trap treat it like any other pipeline.
+   * A pipeline with compound stages (`cmd | while read x; do ...; done`, `(a; b) &`). Plain stages are command lines,
+   * compound ones become stages the host runs through {@link runStage}; the result goes through {@link runScript}.
    */
   private async runPipelineStatement(statement: PipelineStatement): Promise<number> {
     const host = this.host
@@ -450,11 +446,8 @@ export class Interpreter {
   }
 
   /**
-   * Calls a registered function: a `local` frame of its own, positional parameters set to `args`.
-   *
-   * `return` unwinds to here. `break`/`continue` stop here too, deliberately: a loop is only
-   * breakable from the function it is written in, so a stray `break` in a function called from a loop
-   * must not end the caller's loop.
+   * Calls a registered function with its own `local` frame and positional parameters `args`. `return` unwinds to
+   * here; `break` and `continue` stop here, so a function cannot end its caller's loop.
    */
   async callFunction(name: string, args: string[]): Promise<number> {
     const body = this.state.functions.get(name)

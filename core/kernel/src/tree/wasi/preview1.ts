@@ -2319,21 +2319,12 @@ export default function createWasiPreview1Bindings({
       return 0
     },
 
-    // WASI `subscription_t` is 48 bytes: an 8-byte userdata tag, then a `subscription_u` union
-    // discriminated by a 1-byte eventtype at offset 8 (0 = clock, 1 = fd_read, 2 = fd_write),
-    // followed by padding to the union's payload at offset 16.
-    //   clock:         8-byte clock_id, 8-byte timeout (ns), 8-byte precision (ns), 2-byte flags
-    //   fd_read/write: 4-byte fd
-    // `event_t` is 32 bytes: 8-byte userdata, 2-byte error (errno), 1-byte eventtype, 5 bytes
-    // padding, then an 8-byte union payload (fd_readwrite: 8-byte nbytes, 2-byte flags).
-    //
-    // This resolves every subscription immediately rather than truly blocking: fd_read/fd_write
-    // report ready right away (this file's fds are regular files or already-buffered stdio, never
-    // genuinely not-yet-ready outside of stdin - see fd_read's own asyncify-only blocking path),
-    // and a clock subscription with a nonzero timeout is reported ready immediately too, since
-    // nothing here can suspend a non-asyncify module to actually wait out a duration. A module
-    // built with asyncify that wants a real sleep should still get correct behavior from the
-    // unwind/rewind machinery around fd_read, not from this call blocking.
+    // `subscription_t` is 48 bytes: an 8-byte userdata, then a union tagged by a 1-byte eventtype at offset 8 (0
+    // clock, 1 fd_read, 2 fd_write) with its payload at offset 16. `event_t` is 32 bytes: userdata, a 2-byte errno, a
+    // 1-byte eventtype, and an 8-byte payload.
+    // Every subscription resolves at once: fds are files or buffered stdio, and a clock with a nonzero timeout is
+    // reported ready since a non-asyncify module cannot be suspended. Asyncify modules wait through the unwind/rewind
+    // around `fd_read`.
     poll_oneoff: (subscriptionsPtr: number, eventsPtr: number, nsubscriptions: number, neventsPtr: number): number => {
       const view = new DataView(activeMemory.buffer)
       const SUBSCRIPTION_SIZE = 48

@@ -6,13 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
-/**
- * tar migrated onto real execve, using modern-tar's buffered packTar/unpackTar API (whole-archive-
- * in-memory) rather than its streaming createTarPacker/createTarDecoder API, per the confirmed
- * decision in tar.mjs's doc comment - the library bundles to only ~13KB either way (no bundle-size
- * risk like zip.js had), but the buffered path avoids this migration's first untested reliance on
- * WritableStream.getWriter()/TransformStream inside a worker program.
- */
+/** `tar` as a real `execve` program, using modern-tar's buffered `packTar`/`unpackTar`. */
 describe('text command batch 12: tar, real execve', () => {
   let kernel: Kernel
 
@@ -84,13 +78,8 @@ describe('text command batch 12: tar, real execve', () => {
   })
 
   it('extracts a multi-level nested path with no intermediate directory entries, matching real npm tarballs', async () => {
-    // Reproduces a real regression: extraction's mkdir was a raw single-level mkdir(2) with no
-    // recursive-creation of its own. tar.mjs's own `-c` always emits a directory entry for every
-    // level, so a plain create/extract round trip through this same tar never exposed the bug -
-    // but a real npm package tarball (built by npm's own packer, not this one) commonly emits ONLY
-    // file entries, no directory entries at all, for nested paths like dist/assets/foo.js. This
-    // built the archive by hand via modern-tar's packTar directly, with file-only entries, to match
-    // that real-world layout and actually exercise the ENOENT this fix addresses.
+    // Regression: extraction's `mkdir` was single-level. An npm tarball often has only file entries for nested paths
+    // such as `dist/assets/foo.js`, so the archive is built by hand with `packTar` and no directory entries.
     const fileBody = new TextEncoder().encode('nested content')
     const archiveBytes = await packTar([
       { header: { name: 'pkg/dist/assets/foo.js', type: 'file', size: fileBody.length }, body: fileBody }

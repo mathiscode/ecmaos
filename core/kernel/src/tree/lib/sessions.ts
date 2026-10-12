@@ -1,21 +1,10 @@
 /**
- * Who is logged in, and who has been: `/run/utmp` and `/var/log/wtmp`.
- *
- * ecmaOS has up to eight virtual consoles, each with its own login, so "who is on which tty" is a
- * real question with a real answer; until now nothing recorded it. The formats are text, one record
- * per line and tab-separated, where Linux's are binary `struct utmp` records. Nothing outside
- * `who` and `last` reads them, and a script can `cut` a text file.
- *
- * - `/run/utmp`: `user<TAB>ttyN<TAB>epoch-ms`, one line per console with a login *now*. Emptied at
- *   boot, since `/run` is meant to be volatile and a persisted root would otherwise show the
- *   previous boot's sessions as current.
- * - `/var/log/wtmp`: `login<TAB>user<TAB>ttyN<TAB>epoch-ms` for every login, and
- *   `boot<TAB>~<TAB>system boot<TAB>epoch-ms` for every boot. There is no logout record: a console
- *   session ends when the page does, and nothing runs then. `last` ends a session at the next boot
- *   line instead, and says so.
- *
- * Written with the kernel's own filesystem handle (root), not the logging-in user's: a user cannot
- * write `/run` and must not be able to edit `wtmp`.
+ * Who is logged in and who has been: `/run/utmp` and `/var/log/wtmp`, text with tab-separated records, read by `who`
+ * and `last`.
+ * - `/run/utmp`: `user<TAB>ttyN<TAB>epoch-ms`, one line per console with a login now. Emptied at boot.
+ * - `/var/log/wtmp`: `login<TAB>user<TAB>ttyN<TAB>epoch-ms` per login and `boot<TAB>~<TAB>system boot<TAB>epoch-ms`
+ *   per boot. There is no logout record; `last` ends a session at the next boot line.
+ * Written as root, since users must not edit `wtmp`.
  */
 
 export interface SessionFs {

@@ -1,22 +1,7 @@
 /**
- * Pilot (test fixture): a minimal worker-hosted coreutil-shaped program, exercising the real
- * `execve` infrastructure end to end with only real syscalls, no access to live `kernel`/`shell`/
- * `terminal` objects. See `Kernel.executeViaExecve`'s doc comment.
- *
- * This is deliberately as close to real `pwd` as a syscall-only program can get: it calls
- * `getcwd()` (a real syscall, not a value read off a JS object) and writes the result to fd 1 with
- * `write()` (a real syscall too), so redirected/piped stdout is exercised for real, not simulated.
- *
- * Deliberately has NO import of `@zenfs/linux/uapi/*` itself - a second, separately bundled copy
- * of those modules would have its own private, never-resolved `ready` (it hangs
- * forever), since only the module instance that actually received the real `init` message -
- * `/bin/node.mjs` itself, the real Worker entrypoint - has a working syscall channel. `/bin/node`
- * exposes its own already-initialized wrappers on `globalThis.ecmaosSyscalls` for exactly this
- * reason; see its own doc comment.
- *
- * Bundled the same way `/bin/node`/`/bin/wali` are (see `vite-plugin-bin-node.ts`) even though it
- * has no imports left to inline - kept consistent with how every other worker-hosted program in
- * this codebase ships, not because bundling does anything for this particular file.
+ * Pilot (test fixture): a minimal worker-hosted program that calls `getcwd()` and writes the result to fd 1,
+ * exercising `execve` and redirected stdout with real syscalls only. It imports nothing from `@zenfs/linux/uapi/*`;
+ * `/bin/node` exposes the initialized wrappers on `globalThis.ecmaosSyscalls`.
  */
 
 const { getcwd, write, exit } = globalThis.ecmaosSyscalls

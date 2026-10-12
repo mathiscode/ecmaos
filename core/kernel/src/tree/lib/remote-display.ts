@@ -1,20 +1,12 @@
 /**
- * Remote displays: a second tab as a terminal of the machine the first tab runs.
- *
- * One tab owns the machine (see `machine-lock.ts`). Another tab does not run a kernel; it shows one of the owner's ttys. The owner
- * mirrors that terminal's output to it, and the display sends back what is typed, which the owner feeds in the way its own keyboard
- * is: login, shells and programs on the tty are the same as at the owner's own screen.
- *
- * Wire: a display announces itself on a discovery channel (`hello`) and the owner answers (`welcome`, with the screen as it is now).
- * The session then runs on a channel named for a random token. Presence is a Web Lock the display holds for as long as it is open, so
- * the owner learns of a closed or crashed display without a heartbeat; the display learns the owner is gone from the machine lock
- * (`keepDisplay`), and attaches again when a machine is back.
- *
- * Some browser calls only work in a page the user is looking at (the clipboard, notifications, speech). A program on a tty with a
- * display attached has them done by that display (`DisplayOwner.present`), not by the owner's tab, which may be in the background.
- *
- * The token travels on the discovery channel, which any same-origin page can read. That is not a boundary worth defending: a
- * same-origin script can read the machine's whole IndexedDB root, `/etc/shadow` included. The origin is the trust boundary.
+ * Remote displays: a second tab as a terminal of the machine the first tab runs. The owner tab (see
+ * `machine-lock.ts`) mirrors a tty's output to the display and feeds back what is typed.
+ * Wire: a display announces itself on a discovery channel (`hello`) and the owner answers (`welcome`, with the
+ * current screen); the session then runs on a channel named for a random token. Presence is a Web Lock the display
+ * holds; the display learns the owner is gone from the machine lock (`keepDisplay`) and reattaches.
+ * Browser calls that need the visible page (clipboard, notifications, speech) are done by the attached display
+ * (`DisplayOwner.present`).
+ * The token is readable by any same-origin page; the origin is the trust boundary.
  */
 
 import { machineLockName } from '#lib/machine-lock.ts'
@@ -144,8 +136,10 @@ export class DisplayOwner {
   }
 
   /**
-   * Has a browser call done by the display the user is at on `tty`, or `undefined` when no display is attached to it (the owner's
-   * tab does it then). The call ends with the display's answer, with an error if the display goes away first, or on `cancel()`.
+   * Has a browser call done by the display the user is at on `tty`, or `undefined` when no display is attached to it
+   * (the owner's
+   * tab does it then). The call ends with the display's answer, with an error if the display goes away first, or on
+   * `cancel()`.
    */
   present(tty: number, kind: string, params: Record<string, unknown>): RemoteCall | undefined {
     let target: Session | undefined
@@ -188,9 +182,15 @@ export interface DisplaySurface {
   /** Called with the owner's screen size and what is on it; again, from scratch, after a reconnect */
   open(cols: number, rows: number, screen: string): void
   write(data: string | Uint8Array): void
-  /** Subscribes to typed text and to key presses. Called again after a reconnect: replace the senders, do not subscribe twice. */
+  /**
+   * Subscribes to typed text and to key presses. Called again after a reconnect: replace the senders, do not
+   * subscribe twice.
+   */
   onInput(data: (text: string) => void, key: (key: string, mods: KeyMods) => void): void
-  /** Subscribes to the display's own size changing and reports the size it has now. Called again after a reconnect, as `onInput` is. */
+  /**
+   * Subscribes to the display's own size changing and reports the size it has now. Called again after a reconnect, as
+   * `onInput` is.
+   */
   onResize(size: (cols: number, rows: number) => void): void
   /** No machine is there (the first try was refused) or it went away; the display keeps trying */
   lost?(reason: string): void
@@ -210,7 +210,10 @@ export interface AttachOptions {
   present?: (kind: string, params: Record<string, unknown>) => RemoteCall
 }
 
-/** Runs in a tab that shows the owner's tty. Resolves to `close` once attached; rejects when the owner refuses or is not there. */
+/**
+ * Runs in a tab that shows the owner's tty. Resolves to `close` once attached; rejects when the owner refuses or is
+ * not there.
+ */
 export async function attachDisplay(store: string, tty: number, surface: DisplaySurface, options: AttachOptions = {}): Promise<() => void> {
   const channelFor = options.channel ?? (name => new BroadcastChannel(name))
   const token = newToken()
@@ -224,7 +227,8 @@ export async function attachDisplay(store: string, tty: number, surface: Display
     })
   }
 
-  // Opened before announcing, so what the owner writes after taking the snapshot is held here until the screen is drawn
+  // Opened before announcing, so what the owner writes after taking the snapshot is held here until the screen is
+  // drawn
   const held: Array<string | Uint8Array> = []
   let drawn = false
   const calls = new Map<number, RemoteCall>()
@@ -289,7 +293,8 @@ export interface KeepOptions extends AttachOptions {
 }
 
 /**
- * A display that stays: attaches, notices when the machine goes away (the owner's tab reloaded, closed or halted: it lets go of the
+ * A display that stays: attaches, notices when the machine goes away (the owner's tab reloaded, closed or halted: it
+ * lets go of the
  * machine lock) and attaches again when a machine answers, from a fresh screen. `close()` ends it for good.
  */
 export function keepDisplay(store: string, tty: number, surface: DisplaySurface, options: KeepOptions = {}): { close(): void } {

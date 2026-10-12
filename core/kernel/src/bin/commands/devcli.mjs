@@ -1,8 +1,7 @@
 /**
- * `/bin/devcli <device> [args...]`: the real process behind a device's command line (`/dev/battery
- * status`). The device's `cli` runs main-thread side (`#lib/device-cli.ts`) because the hardware APIs
- * it drives only exist there; its output arrives here through a pipe fd and is copied to stdout, so
- * pipes and redirects work, and this process's exit code is the `cli`'s return value.
+ * `/bin/devcli <device> [args...]`: the process behind a device's command line (`/dev/battery status`). The device's
+ * `cli` runs on the main thread (`#lib/device-cli.ts`); its output arrives through a pipe fd and is copied to stdout,
+ * and this process exits with the `cli`'s return value.
  */
 
 import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'

@@ -1,12 +1,7 @@
 /**
- * Append to a file without `appendFile`.
- *
- * On the root filesystem (@zenfs/core 2.7.6) `appendFile` writes each new chunk at offset 0 of the
- * file it has just grown, so a second append leaves the file's tail as NUL bytes and the first
- * record overwritten. Every caller here hit it: `>>`, `~/.history`, `/etc/shadow` and `kernel.log`.
- * This reads the file and writes it back whole, with appends to one path queued so that two callers
- * cannot both read the old content. The cost is a read and a write per append; nothing that uses it
- * appends in a hot loop. Delete it, and put `appendFile` back, when upstream fixes the offset.
+ * Appends to a file without `appendFile`, which on the root filesystem (`@zenfs/core` 2.7.6) writes each chunk at
+ * offset 0 of the grown file. Reads the file and writes it back whole, with appends to one path queued. Costs a read
+ * and a write per append, so not for hot loops. Delete it, and restore `appendFile`, when upstream fixes the offset.
  */
 
 interface AppendFs {

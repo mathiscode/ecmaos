@@ -56,10 +56,8 @@ function main() {
 
   try {
     for (const fileInfo of filePaths) {
-      // No `O_APPEND` in this interpreter's exposed flag set - append mode is done explicitly:
-      // open without `O_TRUNC` (so existing content survives), start the write position at the
-      // file's current size (0 for a brand-new file), and track/advance that position ourselves as
-      // each chunk is written, the same way a real `O_APPEND` fd's position advances on every write.
+      // There is no `O_APPEND`, so append mode opens without `O_TRUNC`, starts at the file's size and advances the
+      // position itself.
       const flags = O_WRONLY | O_CREAT | (append ? 0 : O_TRUNC)
       try {
         const fd = open(fileInfo.fullPath, flags, 0o644)

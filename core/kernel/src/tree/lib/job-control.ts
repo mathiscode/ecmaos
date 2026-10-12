@@ -1,15 +1,11 @@
 /**
- * The job-control shim: the process half of POSIX job control that `@zenfs/linux` does not have yet.
- *
- * Each op is named for the call it stands in for. Upstream has the terminal half (`tty.pgrp`,
- * `TIOCSPGRP`, `SIGTTIN`/`SIGTTOU`) but `SYS_setpgid` is a stub, `wait()` always blocks, and nothing
- * raises `SIGCHLD`. REMOVAL: when upstream lands `setpgid`, `waitpid(WNOHANG)` and `SIGCHLD`, delete
- * this file, drop the `proc_*` registrations in `main-thread-syscalls.ts`, and point the worker
- * wrappers in `node.mjs` at the real syscalls.
- *
- * A wait status is Linux-shaped: `(code & 0xff) << 8` for a normal exit, or the signal number in the
- * low 7 bits for a death by signal. `waitpid` returns `pid * 65536 + status` so a plain number crosses
- * the syscall boundary, and 0 when `WNOHANG` finds nothing ready.
+ * The job-control shim: the process half of POSIX job control that `@zenfs/linux` lacks. Each op is named for the
+ * call it stands in for. Upstream has `tty.pgrp`, `TIOCSPGRP` and `SIGTTIN`/`SIGTTOU`, but `SYS_setpgid` is a stub,
+ * `wait()` always blocks and nothing raises `SIGCHLD`. REMOVAL: when upstream lands `setpgid`, `waitpid(WNOHANG)` and
+ * `SIGCHLD`, delete this file, the `proc_*` registrations in `main-thread-syscalls.ts`, and point `node.mjs` at the
+ * real syscalls.
+ * A wait status is Linux-shaped: `(code & 0xff) << 8` for an exit, the signal number in the low 7 bits for a death by
+ * signal. `waitpid` returns `pid * 65536 + status`, or 0 when `WNOHANG` finds nothing.
  */
 
 import { Process, execve, kill as zenfsKill, processes } from '@zenfs/linux'
@@ -85,11 +81,9 @@ function terminalPeers(proc: Process): Process[] {
 const TERMINAL_SIGNALS: ReadonlySet<number> = new Set([2, 3, 20])
 
 /**
- * `^C`, `^\` and `^Z` are signals to the terminal's foreground process *group*, but the line discipline
- * names a single process. This makes such a signal, when it reaches a process that is its terminal's
- * foreground, go to the rest of the process's group, and to what it started, too: the other stages of a
- * pipeline, or what a forked subshell has run (without it the subshell dies and its `sleep` is left running). A signal
- * sent to the process by pid is not from the terminal, and stays with that one process.
+ * A signal that reaches a terminal's foreground process (`^C`, `^\`, `^Z`) is passed to the rest of its process group
+ * and to what it started (other pipeline stages, a subshell's children). A signal sent by pid stays with that
+ * process.
  */
 export function shareGroupSignals(proc: Process): void {
   const deliver = proc.kill.bind(proc)
@@ -122,10 +116,8 @@ export function setpgid(caller: Process, pid: number, pgid: number): number {
 }
 
 /**
- * `killpg(3)`: every live process in the group. Returns how many took the signal.
- *
- * With a `caller`, only the members it may signal (`mayKill`) get it, and if there are members but none
- * of them is the caller's to signal, that is `EPERM` rather than a group that does not exist.
+ * `killpg(3)`: signals every live process in the group and returns how many took it. With a `caller`, only members it
+ * may signal (`mayKill`) get it; members but none signalable is `EPERM`.
  */
 export function killpg(pgid: number, signal: number, caller?: Process): number {
   let count = 0
@@ -193,9 +185,15 @@ export interface SpawnOptions {
   /** child fd -> caller fd: the `dup2` file actions of `posix_spawn` */
   fds?: Record<string, number>
   pgid?: number
-  /** Run the child as this user instead of as the caller: what `login` does for the shell it starts (callers must be root) */
+  /**
+   * Run the child as this user instead of as the caller: what `login` does for the shell it starts (callers must be
+   * root)
+   */
   credentials?: Credentials
-  /** A terminal to make the child's controlling terminal and foreground, with the keyboard routed to it for as long as it runs. */
+  /**
+   * A terminal to make the child's controlling terminal and foreground, with the keyboard routed to it for as long as
+   * it runs.
+   */
   terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
   /** Record the child's system calls (`strace`) */
   trace?: Tracer

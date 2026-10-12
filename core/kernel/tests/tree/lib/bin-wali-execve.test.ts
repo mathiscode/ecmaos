@@ -7,15 +7,9 @@ import { Process, execve, DevTmpFS } from '@zenfs/linux'
 import { defaultContext, configure, InMemory, fs } from '@zenfs/core'
 
 /**
- * A real end-to-end proof of the execve pipeline for `/bin/wali`, mirroring
- * `bin-node-execve.test.ts` for `/bin/node`. `@zenfs/linux`'s own default `binfmt_wasm` already
- * points any `.wasm` file's magic bytes at `/bin/wali` as its interpreter - this is what happens
- * once that file is real. See `src/bin/wali.mjs` for what it is and why a WALI module is a
- * different format from the WASI-preview1 `.wasm` files ecmaOS's own `executeWasm` path runs.
- *
- * There is no WALI-targeting toolchain available to compile a real program with here, so these
- * tests hand-assemble minimal WALI modules via `wabt` - just enough to prove the interpreter
- * really does load a `.wasm` file, link it against `uapi/wali`'s real syscalls, and run `_start`.
+ * End-to-end `execve` of `/bin/wali`, mirroring `bin-node-execve.test.ts`: `@zenfs/linux`'s `binfmt_wasm` points a
+ * `.wasm` file's magic bytes at it. There is no WALI toolchain here, so minimal WALI modules are hand-assembled with
+ * `wabt` to show the interpreter loads, links against `uapi/wali` and runs `_start`.
  */
 describe('/bin/wali via execve', () => {
   let wat2wasm: (wat: string) => Uint8Array

@@ -1,13 +1,8 @@
 /**
- * `/sbin/getty`: the login prompt on one terminal, run by init as a `respawn` entry whose id names the
- * terminal (`tty1::respawn:/sbin/getty tty1`). init gives it that terminal as its controlling terminal.
- *
- * It prints `/etc/issue`, asks for a user name, and runs `/bin/login` with it on the terminal, then
- * waits. `login` asks for the password, starts the session and runs the shell; when it returns, however
- * it ended, getty asks for a user name again. It does not exit between logins, so init's respawn
- * backoff never counts a logout as a crash.
- *
- * `^C` and `^\` at the prompt are ignored, as on Linux: they must not take the login down.
+ * `/sbin/getty`: the login prompt on one terminal, run by init as a `respawn` entry whose id names the terminal
+ * (`tty1::respawn:/sbin/getty tty1`). Prints `/etc/issue`, asks for a user name, runs `/bin/login` with it and waits;
+ * when `login` returns, asks again. It does not exit between logins, so init's backoff never counts a logout as a
+ * crash. `^C` and `^\` at the prompt are ignored.
  */
 
 import { makeLoginIO } from './lib/login-io.mjs'

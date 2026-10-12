@@ -1,11 +1,7 @@
 /**
- * The state of a shell, independent of how it runs commands: variables and which of them children
- * inherit, indexed arrays, `local` frames, `readonly`, functions, aliases, traps, `set` options, and
- * the special parameters that are computed on each read. Both the kernel shell and `/bin/ecmash` hold
- * one of these, so a scoping or export rule is written once.
- *
- * Positional parameters and `$?` stay with each shell for now: the kernel keeps them in `vars` as
- * `1`, `2`, `?`, and `ecmash` keeps them as fields.
+ * The state of a shell, independent of how it runs commands: variables and which are exported, arrays, `local`
+ * frames, `readonly`, functions, aliases, traps, `set` options and computed special parameters. Held by the kernel
+ * shell and `/bin/ecmash`. Positional parameters and `$?` stay with each shell.
  */
 
 import { CompletionRegistry } from './completion-spec.js'
@@ -129,7 +125,10 @@ export class ShellState {
   shopts = new Set<string>()
   /** What `complete` registered, and the completion being run. */
   readonly completions = new CompletionRegistry()
-  /** The directory stack below the working directory (`DIRSTACK[1..]`): the top first. `pushd`, `popd` and `dirs` own it. */
+  /**
+   * The directory stack below the working directory (`DIRSTACK[1..]`): the top first. `pushd`, `popd` and `dirs` own
+   * it.
+   */
   dirStack: string[] = []
   options: ShellOptions = { errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false }
 
@@ -225,7 +224,9 @@ export class ShellState {
 
   isNameref(name: string): boolean { return this.namerefNames.has(name) }
 
-  /** `declare -n NAME[=TARGET]`: NAME stands for TARGET from now on. Assigning to the reference itself re-points it. */
+  /**
+   * `declare -n NAME[=TARGET]`: NAME stands for TARGET from now on. Assigning to the reference itself re-points it.
+   */
   declareNameref(name: string, target?: string): void {
     this.namerefNames.delete(name)
     if (target !== undefined) this.set(name, target)
@@ -316,7 +317,10 @@ export class ShellState {
     this.vars.set(name, value)
   }
 
-  /** What an assignment to a `-i` name stores: the right side evaluated as arithmetic, added to the old value for `+=`. */
+  /**
+   * What an assignment to a `-i` name stores: the right side evaluated as arithmetic, added to the old value for
+   * `+=`.
+   */
   private integerValue(name: string, value: string, append: boolean): string {
     const result = value.trim() === '' ? 0 : evaluateArithmeticExpression(value, n => this.lookup(n))
     return String(append ? (Number(this.lookup(name)) || 0) + result : result)

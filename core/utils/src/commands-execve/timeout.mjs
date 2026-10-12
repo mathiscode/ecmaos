@@ -1,11 +1,8 @@
 /**
- * Run a command and stop it if it is still running after a time: `timeout 5 curl ...`.
- *
- * DURATION is a number with an optional suffix, `s` (the default), `m`, `h` or `d`, and may be fractional;
- * 0 means no limit. When the time is up the command gets SIGTERM (or `-s`), and with `-k` a SIGKILL after a
- * further delay if it is still there. The status is 124 when the time ran out (the command's own with
- * `--preserve-status`), 125 when `timeout` itself failed, 126 when the command cannot run, 127 when it is
- * not found, and otherwise the command's.
+ * Runs a command and stops it if still running after a time: `timeout 5 curl ...`. DURATION takes `s` (default), `m`,
+ * `h` or `d` and may be fractional; 0 is no limit. On expiry the command gets SIGTERM (or `-s`), and with `-k`
+ * SIGKILL after a further delay. Status: 124 on timeout (the command's own with `--preserve-status`), 125 if
+ * `timeout` failed, 126 if the command cannot run, 127 if not found, else the command's.
  */
 
 import { findProgram, statusOf, waitFor } from './lib/run.mjs'

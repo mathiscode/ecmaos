@@ -1,15 +1,8 @@
 /**
- * `open`/`stat` of `/dev/fd/N`, `/dev/std{in,out,err}` and `/proc/self/fd/N` as a `dup` of the caller's own
- * descriptor, which is what those names are on Linux.
- *
- * Procfs already serves `/proc/<pid>/fd/N` as a symlink, but to `handle.path`, and a path cannot name
- * everything a descriptor can: a pipe's is `/3.w` on a pipefs that is never mounted, so following the
- * link ended in `EACCES`. Linux does not follow these, it reopens the same object ("magic links");
- * here the equivalent is to resolve the name to a descriptor number before the path is walked.
- *
- * Deliberately a `dup`, not a reopen: the two share a file offset and status flags. For the things
- * these names are used with (a pipe, a terminal, a redirected file being appended to) that is
- * indistinguishable, and `O_TRUNC` on a redirected file is not honored.
+ * `open` and `stat` of `/dev/fd/N`, `/dev/std{in,out,err}` and `/proc/self/fd/N` as a `dup` of the caller's own
+ * descriptor. Procfs serves `/proc/<pid>/fd/N` as a symlink to `handle.path`, which cannot name a pipe, so the name
+ * is resolved to a descriptor number before the path is walked. A `dup`, not a reopen, so `O_TRUNC` on a redirected
+ * file is not honored.
  */
 
 import { syscalls } from '@zenfs/linux'

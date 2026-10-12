@@ -1,15 +1,8 @@
 /**
- * The kernel shell's builtins. Most of them live in `@ecmaos/coreutils/lib/shell-core/builtins` and
- * run here through {@link kernelBuiltinHost}; what stays is what touches the kernel's own machinery:
- * the job table (`jobs`, `fg`, `bg`, `wait`) and `env`, which runs a command.
- *
- * These are the commands (per real Unix precedent: bash's own POSIX "special builtins") that mutate
- * the *calling shell's own* live state and so can never become a separate `execve`'d program: a forked
- * child changing its own cwd or variables has no effect on its parent. Every other ecmaOS command is a
- * real program under `/bin`.
- *
- * Dispatched from `Shell.execute` before any `$PATH` lookup, as bash checks its builtin table first.
- * `Kernel.registerCommands` writes no `/bin/<name>` file for any of these names.
+ * The kernel shell's builtins. Most live in `@ecmaos/coreutils/lib/shell-core/builtins` and run through {@link
+ * kernelBuiltinHost}; what stays touches kernel machinery: the job table (`jobs`, `fg`, `bg`, `wait`) and `env`.
+ * These mutate the calling shell's own state, so they cannot be separate programs. Dispatched from `Shell.execute`
+ * before any `$PATH` lookup; no `/bin/<name>` file exists for them.
  */
 
 import type { Shell } from '#shell.ts'
@@ -23,16 +16,9 @@ const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown', 'env']
 export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNames, ...kernelOnlyNames])
 
 /**
- * The builtins that run a statement tree in the calling shell rather than acting themselves, so a
- * redirection on them has to apply to everything that tree runs.
- *
- * `Shell.runPipelineStages` holds their redirections as aggregate ones for the duration of the call,
- * the same way it does for a redirected function call or a redirected compound statement. Without
- * that, `source setup.sh > log` would build fds for `source` itself - which writes nothing but
- * diagnostics - and let every command in `setup.sh` print to the terminal.
- *
- * `env` and `command` belong here for the same reason: `env FOO=bar cmd > log` and
- * `command ls > log` both run their real work through `shell.execute`, which builds its own streams.
+ * The builtins that run a statement tree in the calling shell, so a redirection on them applies to everything the
+ * tree runs. `Shell.runPipelineStages` holds their redirections as aggregate ones. `env` and `command` are here
+ * because they run their work through `shell.execute`.
  */
 export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.', 'env', 'command'])
 

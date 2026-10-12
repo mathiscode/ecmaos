@@ -1,10 +1,7 @@
 /**
- * `/etc/skel`: the files a new home directory starts with, as on Debian. The defaults are code, not initfs
- * files, because the initfs is unpacked in full only once (an existing system would never see a new one) and
- * a kernel booted without it, as the tests are, still has to make a usable home.
- *
- * Boot fills in what is missing and never overwrites, so an administrator's edit to `/etc/skel` stands. A home
- * directory is filled once, when `useradd -m` creates it; nothing here touches one that already exists.
+ * `/etc/skel`: the files a new home directory starts with, as on Debian. The defaults are code, not initfs files,
+ * because the initfs is unpacked in full only once. Boot fills in what is missing and never overwrites; a home is
+ * filled once, when `useradd -m` creates it.
  */
 
 interface SkelFile { content: string, mode: number }

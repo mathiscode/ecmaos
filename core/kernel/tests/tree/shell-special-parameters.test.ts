@@ -6,16 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The special parameters: `$$`, `$PPID`, `$!`, `$-`, `$RANDOM`, `$SECONDS`, `$SHLVL`.
- *
- * None of them existed. `$$` in particular is what every script reaches for to name a temp file
- * (`/tmp/work.$$`), and it expanded to nothing.
- *
- * They split two ways. `$SHLVL` is a real environment entry, because it only means anything when a
- * child shell inherits it and adds one. The rest are computed at every read: `$RANDOM` must give a
- * new number each time, `$SECONDS` counts up on its own, and `$$` needs a pid that cannot collide
- * with a real process - so the shell takes one from `@zenfs/linux`'s own table by owning a real
- * registered `Process`, rather than inventing a number.
+ * The special parameters `$$`, `$PPID`, `$!`, `$-`, `$RANDOM`, `$SECONDS`, `$SHLVL`. `$SHLVL` is an environment entry
+ * a child shell inherits; the rest are computed on each read. `$$` is the pid of a `Process` the shell owns, so it
+ * cannot collide with a real one.
  */
 describe('special parameters', () => {
   let kernel: Kernel

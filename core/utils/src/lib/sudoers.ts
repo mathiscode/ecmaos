@@ -1,7 +1,5 @@
 /**
- * `/etc/sudoers`: who may run what as whom, read by `/bin/sudo`.
- *
- * A deliberately small subset of the real grammar, enough for the files people actually write:
+ * `/etc/sudoers`: who may run what as whom, read by `/bin/sudo`. A subset of the real grammar:
  *
  *     # comment
  *     Defaults timestamp_timeout=5
@@ -11,20 +9,14 @@
  *     alice   ALL=(root) NOPASSWD: /bin/ls, /bin/cat /etc/hosts
  *     bob     ALL=(root) /bin/ls, !/bin/rm, (alice) PASSWD: ALL
  *
- * Users are `ALL`, a name, `%group` or `#uid`, comma separated. The host must be `ALL` or this host's
- * name. After `=`, a comma-separated command list: `(runas)` and the `PASSWD:`/`NOPASSWD:` tags apply to
- * everything after them until changed, as in sudo. A command is `ALL`, an absolute path (a trailing `/`
- * means every file in that directory; `*` matches anything), optionally followed by the exact arguments
- * allowed, and `!` in front forbids it. The last rule that matches decides.
- *
- * Aliases name a list: `User_Alias ADMINS = alice, %ops`, `Runas_Alias OPERATORS = root, alice`,
- * `Host_Alias SERVERS = ecmaos, build`, `Cmnd_Alias READ = /bin/ls, /bin/cat /etc/hosts`, with several
- * definitions on one line separated by `:`. An alias may use others and may be defined after the rule that uses
- * it; `!READ` forbids every command in it. Names are upper case.
- *
- * Not supported, and reported as a warning rather than guessed at: `#include`/`#includedir`,
- * `SETENV:`/`NOEXEC:` tags, `Defaults` other than the two above.
- * A line that does not parse is skipped, never fatal, so one typo cannot lock everyone out.
+ * Users are `ALL`, a name, `%group` or `#uid`. The host is `ALL` or this host's name. After `=` is a comma-separated
+ * command list; `(runas)` and the `PASSWD:`/`NOPASSWD:` tags apply to everything after them until changed. A command
+ * is `ALL` or an absolute path (a trailing `/` means every file in the directory, `*` matches anything), optionally
+ * with the exact arguments allowed; `!` forbids it. The last matching rule decides.
+ * Aliases: `User_Alias`, `Runas_Alias`, `Host_Alias`, `Cmnd_Alias`, several per line separated by `:`; they may nest,
+ * be defined after use, and `!READ` forbids every command in an alias. Names are upper case.
+ * Not supported (reported as a warning): `#include`, `#includedir`, `SETENV:`/`NOEXEC:`, and `Defaults` other than
+ * the two above. A line that does not parse is skipped.
  */
 
 export interface SudoCommandSpec {
@@ -86,7 +78,10 @@ const ALIAS_DEPTH = 16
 type AliasKind = (typeof ALIAS_KINDS)[keyof typeof ALIAS_KINDS]
 type Aliases = Record<AliasKind, Map<string, string[]>>
 
-/** Replaces each alias in `items` with what it stands for (an unknown name stays as it is, a user or host of that name). */
+/**
+ * Replaces each alias in `items` with what it stands for (an unknown name stays as it is, a user or host of that
+ * name).
+ */
 function expandAliases(items: string[], maps: Map<string, string[]>[], depth = 0): string[] {
   if (depth > ALIAS_DEPTH) throw new Error('aliases are nested too deeply (a loop?)')
   return items.flatMap(item => {

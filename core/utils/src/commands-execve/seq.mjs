@@ -75,9 +75,7 @@ function main() {
   if (numbers.length === 0) return 0
 
   const output = numbers.map(n => Number.isInteger(n) ? n.toString() : n.toFixed(10).replace(/\.?0+$/, '')).join(separator)
-  // Always newline-terminated, whatever `-s` is: `seq -s : 1 3` prints `1:2:3` and *then* a newline.
-  // The trailing newline used to be added only for a non-default separator, so `seq 1 200 > f` left
-  // `f` without a final newline and `wc -l < f` reported 199.
+  // Always newline-terminated, whatever `-s` is: `seq -s : 1 3` prints `1:2:3` and then a newline.
   writeAll(1, new TextEncoder().encode(output + '\n'))
 
   return 0

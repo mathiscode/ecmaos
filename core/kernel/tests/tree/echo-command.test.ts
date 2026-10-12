@@ -6,16 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Regression coverage for `echo`'s option parsing
- * (`core/utils/src/commands-execve/echo.mjs`). It used to treat every `-`-leading argument as a
- * flag bundle and hard-fail on any letter that wasn't `n` or `e`, so `echo '---'` - a common
- * separator idiom - printed `echo: invalid option -- '-'` instead of `---`, and quoting didn't
- * help. It also wrote that error to fd 1, putting it in a pipe as data, and never stopped option
- * scanning at the first operand.
- *
- * The rule these assert is bash's and POSIX's: an argument is an option only if it is `-` followed
- * by one or more characters that are all `n`, `e`, or `E`. Everything else prints literally,
- * because `echo` has no way to report a usage error without corrupting its own output.
+ * `echo` option parsing (`core/utils/src/commands-execve/echo.mjs`): an argument is an option only if it is `-`
+ * followed by characters that are all `n`, `e` or `E`; everything else prints literally (`echo '---'`).
  */
 describe('echo option parsing', () => {
   let kernel: Kernel

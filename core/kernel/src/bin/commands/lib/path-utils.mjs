@@ -1,9 +1,6 @@
 /**
- * Minimal POSIX path helpers for worker-hosted kernel-native command programs - a copy of
- * `@ecmaos/coreutils/src/commands-execve/lib/path-utils.mjs`, not a shared import: every migrated
- * command bundles independently (see `vite-plugin-bin-node.ts`), and `src/bin/commands/*.mjs`
- * (kernel-native, no @ecmaos/coreutils dependency) needs its own copy for the same reason that file's
- * own doc comment gives for not just `import path from 'path'`.
+ * Minimal POSIX path helpers for the kernel commands; a copy of `@ecmaos/coreutils`' `path-utils.mjs`, since each
+ * command bundles independently.
  */
 
 function normalize(path) {

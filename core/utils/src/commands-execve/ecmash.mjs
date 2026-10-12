@@ -1,26 +1,16 @@
 /**
- * `ecmash`: the ecmaOS shell as a real program. It runs in a worker like every other command, on the
- * same shell language the kernel-integrated shell uses (`../lib/*`: parsers, expander, and the shared
- * `shell-core` state, interpreter and builtins), and reaches the system
- * only through syscalls: `spawn`/`waitpid`/`killpg` for processes, `pipe` for pipelines, `open` for
- * redirections, and the terminal ioctls for its line editor.
+ * `ecmash`: the ecmaOS shell as a worker program, on the same shell language as the kernel shell (`../lib/*` and
+ * `shell-core`). It reaches the system through syscalls: `spawn`, `waitpid` and `killpg` for processes, `pipe` for
+ * pipelines, `open` for redirections, terminal ioctls for the line editor.
  *
  *   ecmash [-l] [-c COMMAND [NAME [ARG...]]] [FILE [ARG...]]
  *
- * With no command and no file it reads commands from stdin; when that is a terminal it is
- * interactive: a prompt, line editing, history in `~/.ecmash_history`, and a SIGINT that cancels the
- * line instead of ending the shell.
- *
- * Covered: simple commands, pipelines, `&&`/`||`/`;`/`&`, redirections (`<`, `>`, `>>`, `2>`, `2>&1`,
- * heredocs, here-strings), `$var`/`${...}`/`$(...)`/`$((...))`, globbing, `if`/`while`/`for`/`case`,
- * `{ }` groups, `( )` subshells (a snapshot, see `runSubshell`), indexed arrays, `<(cmd)`/`>(cmd)`,
- * aliases, `trap`, `set -e` and friends, job control (`^Z`, `fg`, `bg`), functions, and the builtins
- * in BUILTINS: the shared ones from `shell-core/builtins`, plus the few that need a process or a job
- * table (`echo`, `pwd`, `env`, `wait`, `jobs`, `fg`, `bg`, `disown`, `exec`).
- *
- * Output redirected to a file goes through a scratch file and is copied over when the command ends.
- * The root filesystem corrupts a file written in several chunks through a plain descriptor (see
- * `lib/append-file.ts` in the kernel), and only a whole-file write is safe there.
+ * With no command or file it reads stdin; on a terminal it is interactive (prompt, line editing, history in
+ * `~/.ecmash_history`, SIGINT cancels the line).
+ * Builtins are the shared ones from `shell-core/builtins` plus those that need a process or job table (`echo`, `pwd`,
+ * `env`, `wait`, `jobs`, `fg`, `bg`, `disown`, `exec`).
+ * Output redirected to a file goes through a scratch file copied over when the command ends, since the root
+ * filesystem corrupts a file written in several chunks through a plain descriptor.
  */
 
 import { parseStatements, needsMoreInput } from '../lib/control-flow-parser.ts'
@@ -151,7 +141,8 @@ class Shell {
     this.procsubCount = 0
     this.pending = []
     this.interpreter = new Interpreter(this.hostInterface(), this.state, { maxFunctionDepth: 200 })
-    // Written straight into the store, so they count as inherited: a child shell nests one deeper, and PWD is exported.
+    // Written straight into the store, so they count as inherited: a child shell nests one deeper, and PWD is
+    // exported.
     this.vars.set('SHLVL', String((Number(this.vars.get('SHLVL')) || 0) + 1))
     if (!this.vars.has('PWD')) this.vars.set('PWD', getcwd())
     if (!this.vars.has('IFS')) this.state.set('IFS', ' \t\n')
@@ -248,10 +239,8 @@ class Shell {
   scratchPath() { return `/tmp/.ecmash-${getpid()}-${this.scratch++}` }
 
   /**
-   * `<(cmd)` and `>(cmd)` as a temporary file standing in for the far end of a pipe: a child gets
-   * only descriptors 0 to 2, so `/dev/fd/N` would name nothing in it. `<(cmd)` runs to completion
-   * into the file first; `>(cmd)` runs afterwards with the file as its stdin. Removed by
-   * `finishProcSubs` once the pipeline that used it is done. It does not stream.
+   * `<(cmd)` and `>(cmd)` as a temporary file standing in for the far end of a pipe. `<(cmd)` runs first; `>(cmd)`
+   * runs afterwards with the file as stdin. Removed by `finishProcSubs`. Does not stream.
    */
   async processSubstitute(direction, command) {
     const path = `/tmp/.ecmash-procsub-${getpid()}-${this.procsubCount++}`
@@ -328,7 +317,9 @@ class Shell {
   async runLine(line) { return await this.interpreter.runLine(line) }
   async callFunction(name, args) { return await this.interpreter.callFunction(name, args) }
 
-  /** What the shared interpreter needs from this shell: how to run a pipeline, and the per-process pieces of state. */
+  /**
+   * What the shared interpreter needs from this shell: how to run a pipeline, and the per-process pieces of state.
+   */
   hostInterface() {
     const shell = this
     return {
@@ -499,7 +490,8 @@ class Shell {
 
   async runBackground(pipeline) {
     const compound = pipeline.commands.length === 1 ? pipeline.commands[0].compound : undefined
-    // a compound stage inside a longer pipeline runs in this process, which cannot also carry on with the prompt: the whole pipeline goes to a forked shell
+    // a compound stage inside a longer pipeline runs in this process, which cannot also carry on with the prompt: the
+    // whole pipeline goes to a forked shell
     const mixed = !compound && pipeline.commands.some(command => command.compound)
     const mark = this.procsubs.length
     let job
@@ -560,7 +552,8 @@ class Shell {
     // every program in the pipeline has been spawned, so a producer's output has a reader by the time
     // it is written, and their ends of the pipes stay open until they have run.
     const deferred = []
-    // What each stage ended with, in pipeline order, for `PIPESTATUS`: a spawned program's pid to wait for, or a status already known.
+    // What each stage ended with, in pipeline order, for `PIPESTATUS`: a spawned program's pid to wait for, or a
+    // status already known.
     const stages = []
 
     for (const [index, command] of commands.entries()) {
@@ -1013,7 +1006,8 @@ class Shell {
         if (!args.length) return 0
         const program = this.findProgram(args[0])
         if (!program) { this.out(`ecmash: exec: ${args[0]}: not found\n`, 2); return 127 }
-        // No `execve` from a worker yet: run it, then leave with its status, which is what `exec` looks like from outside.
+        // No `execve` from a worker yet: run it, then leave with its status, which is what `exec` looks like from
+        // outside.
         const pid = await spawn(program, args, { env: this.environment(), fds: { 0: this.stdio[0], 1: this.stdio[1], 2: this.stdio[2] }, cwd: getcwd() })
         const done = await waitpid(pid, false)
         exit(done.signal ? 128 + done.signal : done.code)

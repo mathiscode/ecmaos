@@ -6,17 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Redirections on an *aggregate* command: a compound statement's closing keyword (`done > out`), a
- * function call (`greet > out`), and `eval`/`source`.
- *
- * None of the three is a command with a set of fds. Each runs a whole statement tree whose commands
- * build their own streams, so the redirection was parsed and then silently discarded - `done > out`
- * left `out` untouched and printed to the screen, exactly the bug `done < f` had on the input side.
- * `Shell` now holds the redirection for the duration of the aggregate command and every command
- * inside it inherits it, with its own redirection still winning.
- *
- * The subtle half is truncation. `> out` must truncate once for the whole statement, not once per
- * command in the body, or `for f in a b; do echo $f; done > out` would leave only `b` behind.
+ * Redirections on aggregate commands: a compound statement's closing keyword (`done > out`), a function call (`greet
+ * > out`), `eval` and `source`. `Shell` holds the redirection for the duration and every command inside inherits it,
+ * its own redirection winning. `> out` truncates once for the statement, not once per command.
  */
 describe('redirections on aggregate commands', () => {
   let kernel: Kernel

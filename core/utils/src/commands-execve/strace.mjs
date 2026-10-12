@@ -1,10 +1,7 @@
 /**
- * Run a command and print the system calls it makes: `strace ls /`. The kernel records the calls of the process it
- * starts and writes them, one per line, to this program's standard error (or the file `-o` names); the command's own
- * output goes where it always did.
- *
- * It logs the stream of calls. It is not `ptrace`: the command is never stopped or stepped, and the arguments are what
- * the kernel received, not raw pointers.
+ * Runs a command and prints its system calls: `strace ls /`. The kernel writes one line per call to this program's
+ * stderr (or the file `-o` names). Not `ptrace`: the command is never stopped, and arguments are as the kernel
+ * received them.
  */
 
 import { findProgram, statusOf, waitFor } from './lib/run.mjs'

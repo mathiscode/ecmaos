@@ -40,12 +40,9 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
 
   const owner = shell ?? kernel.shell
 
-  // Apps written against the `executeApp`-era ABI (e.g. `apps/code/src/main.ts`) destructure
-  // `instance` and call `instance.open/exit/keepAlive` directly. `exit`/`keepAlive` decide whether
-  // the process ends when `main` returns (a fire-and-forget window) or stays alive until the app
-  // calls `exit` itself (e.g. a Monaco editor window that outlives `main` returning once its UI
-  // is set up). This shim implements both against the current API, tying `keepAlive`/`exit` into
-  // the `closed` promise `window_present` actually awaits.
+  // Apps written for the `executeApp` ABI call `instance.open/exit/keepAlive` directly. `exit` and `keepAlive` decide
+  // whether the process ends when `main` returns or stays alive until the app calls `exit`; this shim ties them to
+  // the `closed` promise `window_present` awaits.
   let resolveClosed!: (code: number) => void
   let rejectClosed!: (error: unknown) => void
   const closed = new Promise<number>((resolve, reject) => { resolveClosed = resolve; rejectClosed = reject })

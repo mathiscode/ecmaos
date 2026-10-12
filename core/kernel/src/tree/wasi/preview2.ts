@@ -231,14 +231,8 @@ function __resolveWasiSpec(specifier) {
 }
 `
 
-  // Convert static imports to dynamic imports
-  // Pattern: import { x } from 'wasi:...' -> const __wasiMod_X = await __resolveWasiSpec('wasi:...'); const { x } = __wasiMod_X;
-  // Handle imports with 'as' clauses by converting them to proper JavaScript destructuring syntax
-  // Match various import patterns:
-  // - import { x, y } from '...'
-  // - import * as x from '...'
-  // - import x from '...'
-  // - import { x as y } from '...'
+  // Converts static imports (`import { x } from 'wasi:...'`, `* as x`, default, and `as` clauses) to dynamic imports
+  // resolved through `__resolveWasiSpec`.
   const staticImportPattern = /import\s+(\{[^}]*\}|\*\s+as\s+\w+|\w+(?:\s*,\s*\{[^}]*\})?)\s+from\s+['"](wasi:[^'"]+)['"]/g
   
   jsCode = jsCode.replace(staticImportPattern, (_match, imports, specifier) => {

@@ -114,11 +114,8 @@ const HELLO_IMPORTED_MEMORY = `(module
     (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 100)))
     (call $proc_exit (i32.const 5))))`
 
-// Binds/listens/accepts a loopback AF_INET socket on 127.0.0.1:9000, reads what the client sends,
-// writes "pong\n" back, exits with the byte count it read (expect 5, "hello"'s length). Signals
-// "past listen(), ready to accept" by creating tmp/socket-ready through the same env.__syscall_openat
-// the real emcc fixture already proved, since there is no other way for the test to know listen()
-// has actually happened before the client tries to connect.
+// Binds and listens on loopback `127.0.0.1:9000`, reads what the client sends, writes `pong\n`, and exits with the
+// byte count (5). Signals readiness by creating `tmp/socket-ready` through `env.__syscall_openat`.
 const SOCKET_SERVER = `(module
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $fd_read (param i32 i32 i32 i32) (result i32)))
@@ -177,13 +174,10 @@ const SOCKET_CLIENT = `(module
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
-  // A real, ordinary (non-STANDALONE_WASM) emcc 6.0.9 build, run end to end through the worker:
-  // stdout, a real file created/written/closed via env.__syscall_openat/fd_write/fd_close, its size
-  // read back correctly via __syscall_stat64, a real directory via __syscall_mkdirat, and the
-  // program's own exit code. This is also the regression test for a real bug caught building it:
-  // the '.' preopen used to reserve a fixed wasi-fd number that a real env.__syscall_openat call
-  // could (and here did) collide with, silently corrupting the write - see wasi-preview1.mjs's own
-  // doc comment.
+  // An ordinary `emcc` 6.0.9 build run through the worker: stdout, a file created through
+  // `env.__syscall_openat`/`fd_write`/`fd_close`, its size via `__syscall_stat64`, a directory via
+  // `__syscall_mkdirat`, and the exit code. Regression: the `.` preopen once reserved a fixed fd that
+  // `__syscall_openat` could collide with.
   it('runs a real emcc build: writes to stdout, creates a file and a directory through env.__syscall_*, exits its own code', async () => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
     const { join } = process.getBuiltinModule('node:path')

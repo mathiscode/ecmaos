@@ -1,15 +1,8 @@
 /**
- * Password hashing and key-derivation helpers.
- *
- * Passwords are hashed with PBKDF2-SHA256 using a random per-user salt and stored as passlib's
- * `$pbkdf2-sha256$<rounds>$<salt>$<hash>`: the `$id$` shape crypt(3) uses in `/etc/shadow`, which Python's passlib
- * also reads. Salt and hash use its "adapted base64" (`./A-Za-z0-9`, no padding), so neither can hold a `:` or a `$`.
- * Two older forms are still accepted and are upgraded in place on the next successful login: the first PBKDF2 format,
- * `pbkdf2$<rounds>$<saltB64>$<hashB64>`, and an unsalted SHA-256 hex digest. WebCrypto offers PBKDF2 and nothing like
- * yescrypt, so that stays the algorithm; the `$id$` tag leaves room for another one later.
- *
- * The AES-GCM key that wraps a user's ECDSA private key is derived from the password with the same KDF (a distinct
- * derivation, so a hash leak alone does not hand over the wrapping key).
+ * Password hashing and key derivation. Passwords are hashed with PBKDF2-SHA256 and a random per-user salt, stored as
+ * passlib's `$pbkdf2-sha256$<rounds>$<salt>$<hash>` (adapted base64, so no `:` or `$`). Two older forms still verify
+ * and are upgraded at the next login: `pbkdf2$<rounds>$<saltB64>$<hashB64>` and an unsalted SHA-256 hex digest. The
+ * AES-GCM key that wraps a user's ECDSA private key is derived from the password with a distinct derivation.
  */
 
 const PBKDF2_ITERATIONS = 210_000
@@ -35,7 +28,10 @@ export function isOldPbkdf2Hash(stored: string): boolean {
   return stored.startsWith('pbkdf2$')
 }
 
-/** Whether a stored hash is a real password hash in an older form (or with fewer rounds), to be upgraded at the next login */
+/**
+ * Whether a stored hash is a real password hash in an older form (or with fewer rounds), to be upgraded at the next
+ * login
+ */
 export function needsRehash(stored: string): boolean {
   if (isLegacyHash(stored) || isOldPbkdf2Hash(stored)) return true
   if (!stored.startsWith(HASH_TAG)) return false // locked, disabled, empty: nothing to upgrade
@@ -65,7 +61,10 @@ async function hashPasswordLegacy(password: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Verify a password against a stored hash: the current format, the first PBKDF2 format, or unsalted hex. A locked, disabled or empty hash never verifies. */
+/**
+ * Verify a password against a stored hash: the current format, the first PBKDF2 format, or unsalted hex. A locked,
+ * disabled or empty hash never verifies.
+ */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   if (isLegacyHash(stored)) return (await hashPasswordLegacy(password)) === stored
 

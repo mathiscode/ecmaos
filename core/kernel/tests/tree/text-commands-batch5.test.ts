@@ -6,13 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * split/pr/tee/stat migrated onto real execve, continuing the "migrate opportunistically" plan.
- * stat's original `.zip`-entries listing used `@zip.js/zip.js`; bundling that ~345KB library into
- * the worker program pushed it past a real, empirically-confirmed size limit on importing a `data:`
- * URL this large (import failed with a bare `SyntaxError`, no useful message). Replaced with a
- * hand-written real ZIP central-directory parser (stat only ever needed each entry's filename and
- * uncompressed size) - see stat.mjs's own doc comment. tee's `shell.expandTilde(...)` (a live
- * `Shell` method) is replaced by a small worker-local `~` expansion using `env.HOME`.
+ * split, pr, tee and stat as `execve` programs. `stat` lists zip entries with a hand-written central-directory
+ * parser, since bundling `@zip.js/zip.js` pushed the program past the size limit for importing a `data:` URL. `tee`
+ * expands `~` from `env.HOME`.
  */
 describe('text command batch 5: split/pr/tee/stat, real execve', () => {
   let kernel: Kernel

@@ -48,12 +48,8 @@ function writeWholeFile(fullPath, bytes) {
 }
 
 /**
- * `mkdir` (from `globalThis.ecmaosSyscalls`) is the raw single-level `mkdir(2)` syscall - it has
- * no `{ recursive: true }` of its own and fails if the parent doesn't already exist. Most npm
- * tarballs don't emit an explicit directory entry for every intermediate level (e.g. a file at
- * `dist/assets/foo.js` with no separate entry for `dist/` or `dist/assets/`), so extraction must
- * create every path segment from the root down itself, exactly like the pre-migration
- * `fs.promises.mkdir(dirPath, { recursive: true })` this replaced.
+ * `mkdir` here is the single-level syscall, and many tarballs omit entries for intermediate directories, so every
+ * path segment is created from the root down.
  */
 function mkdirRecursive(targetPath) {
   const segments = targetPath.split('/').filter(Boolean)
@@ -94,7 +90,8 @@ async function gzipDecompress(bytes) {
 }
 
 function parseArgs(args) {
-  // The old form, `tar czf out.tgz dir`: a first word of option letters with no dash, whose arguments follow in order.
+  // The old form, `tar czf out.tgz dir`: a first word of option letters with no dash, whose arguments follow in
+  // order.
   if (/^[a-zA-Z]+$/.test(args[0] ?? '') && /[cxt]/.test(args[0])) args = [`-${args[0]}`, ...args.slice(1)]
   const options = { create: false, extract: false, list: false, file: null, gzip: false, verbose: false, directory: null }
   const files = []

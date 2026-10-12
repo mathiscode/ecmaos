@@ -1,11 +1,8 @@
 /**
- * The builtins that change the calling shell's own state, written once for both shells.
- *
- * A builtin here reads and writes a {@link ShellState}, runs text through the shared
- * {@link Interpreter}, and talks to the outside only through a {@link BuiltinHost}: the working
- * directory, the file system, the positional parameters (each host keeps its own), and the three
- * descriptors. What stays with the hosts is what touches their own machinery: the job table
- * (`jobs`, `fg`, `bg`, `wait`, `disown`) and `env`, which runs a command.
+ * The builtins that change the calling shell's state, shared by both shells. They read and write a {@link
+ * ShellState}, run text through the {@link Interpreter}, and reach the outside only through a {@link BuiltinHost}
+ * (working directory, file system, positional parameters, the three descriptors). Job-table builtins and `env` stay
+ * with the hosts.
  */
 
 import { formatPrintf } from '../printf-format.js'
@@ -90,7 +87,10 @@ export interface BuiltinHost {
   trapSignal?(signal: string, handler: string | undefined): string | undefined
   /** Called after the environment changed, so a host can republish it. */
   changed?(): void
-  /** The most one file on this machine's storage may hold, in bytes, or undefined when there is no limit (`ulimit -f`). */
+  /**
+   * The most one file on this machine's storage may hold, in bytes, or undefined when there is no limit (`ulimit
+   * -f`).
+   */
   fileSizeLimit?(): number | undefined | Promise<number | undefined>
   /** Whether this is a login shell, which is what `logout` requires. */
   isLoginShell?(): boolean
@@ -585,10 +585,8 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
 // - read -------------------------------------------------------------------------------------------
 
 /**
- * Splits one input line into the fields `read` assigns, honoring `$IFS`. When there are fewer names
- * than fields the last name receives the rest of the line, delimiters intact and only leading IFS
- * whitespace trimmed. `IFS=` disables splitting, which is why `while IFS= read -r line` preserves a
- * line's own leading and trailing whitespace.
+ * Splits an input line into the fields `read` assigns, honoring `$IFS`. The last name gets the rest of the line;
+ * `IFS=` disables splitting.
  */
 function readFields(line: string, ifs: string, count: number): string[] {
   if (ifs === '') return [line]
@@ -811,10 +809,9 @@ async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
 
 
 /**
- * `shopt [-pqsu] [NAME...]`: shell options beyond `set -o`. The ones that change behavior are `nullglob`,
- * `failglob`, `dotglob`, `nocaseglob`, `nocasematch`, `extglob` and `globstar`; a few that only matter to an
- * interactive session (`checkwinsize`, `histappend`, ...) are accepted and remembered. Any other name is an
- * error, so a script that depends on one finds out.
+ * `shopt [-pqsu] [NAME...]`: options beyond `set -o`. `nullglob`, `failglob`, `dotglob`, `nocaseglob`, `nocasematch`,
+ * `extglob` and `globstar` change behavior; interactive-only names (`checkwinsize`, `histappend`, ...) are accepted
+ * and remembered; any other name is an error.
  */
 async function shoptBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help') {
@@ -940,7 +937,9 @@ async function mapfileBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO):
   return 0
 }
 
-/** `let EXPRESSION...`: each argument is arithmetic, assignments in it taking effect; true when the last is not zero. */
+/**
+ * `let EXPRESSION...`: each argument is arithmetic, assignments in it taking effect; true when the last is not zero.
+ */
 async function letBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help') {
     await io.writeln('Usage: let EXPRESSION [EXPRESSION...]\nEvaluate arithmetic expressions. The status is 0 when the last one is not zero, 1 when it is.')
@@ -1245,10 +1244,8 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
 // - getopts ----------------------------------------------------------------------------------------
 
 /**
- * `getopts OPTSTRING NAME [ARG...]`: one option per call, the loop condition of every script that
- * takes flags. `$OPTIND` counts arguments and `$OPTARG` carries a value, as in POSIX; a cluster
- * (`-abc`) needs a second cursor, which the state keeps. A leading `:` in OPTSTRING selects silent
- * mode.
+ * `getopts OPTSTRING NAME [ARG...]`: one option per call. `$OPTIND` counts arguments and `$OPTARG` carries a value; a
+ * cluster (`-abc`) uses a second cursor kept in the state. A leading `:` selects silent mode.
  */
 async function getopts(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {

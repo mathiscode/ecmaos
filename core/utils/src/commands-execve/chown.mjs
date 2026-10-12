@@ -1,9 +1,6 @@
 /**
- * Change file ownership (user and group).
- *
- * Note: `-R` on a directory always fails with `EISDIR`, and because of that, `chown -R somedir`
- * never gets to change ownership of `somedir`'s contents either - a pre-existing limitation in the
- * underlying filesystem's `chown` implementation, not specific to any one file or flag combination.
+ * Changes file ownership (user and group). `-R` on a directory fails with `EISDIR` in the underlying filesystem, so
+ * `chown -R somedir` does not change its contents either.
  */
 
 import { resolve, join } from './lib/path-utils.mjs'

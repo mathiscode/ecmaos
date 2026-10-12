@@ -1,29 +1,12 @@
 /**
- * WASI preview1 for `/bin/wali`: a translation of `wasi_snapshot_preview1`, and of the
- * emscripten-proprietary `env.__syscall_*` ABI an ordinary (non-`STANDALONE_WASM`) `emcc` build
- * uses for file I/O, onto the real `@zenfs/linux` syscalls - so a `wasm32-wasip1` program or a
- * plain `emcc` build runs as a real worker-hosted Process (killable, on a real pid, with real
- * pipes and a real tty) instead of on the main thread inside `Kernel.executeWasm`, where a tight
- * loop freezes the tab and `^C` cannot reach it.
- *
- * Scope is the portable core of preview1 (args/environ, clocks, random, the fd and path calls,
- * `poll_oneoff`, `proc_exit`) plus the `env.__syscall_*` names `IMPLEMENTED_SYSCALLS` lists in
- * `tree/wasm.ts`. Loopback sockets and `epoll` are answered for real (see below); the WASI `sock_*` calls answer ENOSYS, since a module reaches sockets through `env.__syscall_*`. Both an exported and an imported
- * memory are supported (`runPreview1`'s own `detectMemoryImport` reads the import's declared size
- * straight out of the binary and creates it, since the JS reflection API doesn't expose memory
- * limits). Preview2 components are not routed here; see `canRunInWorker` in `tree/wasm.ts`.
- *
- * A wasi fd and a real fd share one numbering: 0-2 are the process's own stdio fds, and the `/`
- * and `.` preopens are opened for real right here (not reserved at fixed numbers 3/4), so whatever
- * real fds they land on can never collide with one `env.__syscall_openat` later hands out into the
- * very same real fd space - unlike `wasi_snapshot_preview1.path_open`, which allocates its own
- * fd numbers starting at `nextFd`, `__syscall_openat` returns a real fd directly. A collision here
- * was a real bug, caught by hand with a real `emcc` build (`tests/tree/wasi/fixtures/emcc-hello.c`):
- * a program's own file happened to open onto the fd the '.' preopen's fixed slot reserved, and
- * every `fd_write` to it silently hit the preopen's directory entry instead, throwing before the
- * write ever reached the real file - caught with a durable, syscall-level trace (console output
- * from a worker close to its own exit is not reliable in this test environment; the eventual
- * fix - opening the preopens for real up front - came from that trace, not from guessing).
+ * WASI preview1 for `/bin/wali`: translates `wasi_snapshot_preview1` and emscripten's `env.__syscall_*` ABI onto the
+ * real `@zenfs/linux` syscalls, so a `wasm32-wasip1` or `emcc` program runs as a worker-hosted process (killable,
+ * with pipes and a tty).
+ * Covers args/environ, clocks, random, fd and path calls, `poll_oneoff`, `proc_exit`, and the `env.__syscall_*` names
+ * in `IMPLEMENTED_SYSCALLS` (`tree/wasm.ts`). Loopback sockets and `epoll` work; WASI `sock_*` answers ENOSYS.
+ * Exported and imported memory are both supported (`detectMemoryImport`). Preview2 components are not routed here.
+ * A wasi fd and a real fd share one numbering: 0-2 are stdio and the `/` and `.` preopens are opened for real at
+ * startup, so they cannot collide with fds `env.__syscall_openat` returns.
  */
 
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
@@ -44,12 +27,8 @@ const ERRNO = {
   ENOTTY: 59, ENXIO: 60, EPERM: 63, EPIPE: 64, ERANGE: 68, EROFS: 69, ESPIPE: 70, EXDEV: 75,
 }
 
-// What an `env.__syscall_*` hands back on failure is `-errno`, in emscripten 6's own numbering: its
-// musl headers define ENOENT as 44 and EACCES as 2, which are the WASI values, not Linux's 2 and 13.
-// (Confirmed by compiling `ENOENT` into a program and running it here.) A program that only tests
-// for `< 0` never notices; one that compares `errno` to `ENOENT` - Vim deciding a missing file is a
-// new file, not a permission error - does. So these extend `ERRNO` with the names only the socket
-// and epoll calls need, rather than a second table of Linux numbers.
+// `env.__syscall_*` returns `-errno` in emscripten's numbering (ENOENT is 44, EACCES is 2), not Linux's. These extend
+// `ERRNO` with the names only the socket and epoll calls need.
 const SYSCALL_ERRNO = {
   ...ERRNO,
   ENOTSOCK: 57, ENOPROTOOPT: 50, EPROTONOSUPPORT: 66, EAFNOSUPPORT: 5, EISCONN: 30, ENOTCONN: 53,
@@ -88,10 +67,7 @@ const EPOLL_CTL_ADD = 1
 const EPOLL_CTL_DEL = 2
 const EPOLL_CTL_MOD = 3
 const EPOLL_CLOEXEC = 0x80000
-// struct epoll_event on wasm32 (confirmed by compiling a real offsetof() probe with the installed
-// emcc 6.0.9, the same methodology as struct stat's own layout): { u32 events @0; u64 data @8 },
-// 16 bytes total - unlike x86_64, wasm32 has no __attribute__((packed)) on it, so `data` is
-// 8-aligned, not 4.
+// `struct epoll_event` on wasm32: `{ u32 events @0; u64 data @8 }`, 16 bytes, not packed.
 const EPOLL_EVENT_SIZE = 16
 
 class ProcExit {
@@ -148,15 +124,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
-  // The preopens are opened *eagerly*, right here, so they get real fd numbers from the same real
-  // allocator env.__syscall_openat (below) hands out into - not the fixed 3/4 a lazy-open used to
-  // reserve. That fixed numbering was a real bug: a program using env.__syscall_openat opens into
-  // the very same real fd space (unlike wasi path_open's own wasi-fd numbers starting at `nextFd`),
-  // so a real file that happened to land on fd 4 collided with the '.' preopen's reserved slot -
-  // fd_write(4, ...) matched the stale directory entry and threw before ever reaching the real
-  // file, a silent, hard-to-trace failure caught by hand with a real emcc build (see
-  // tests/tree/wasi/fixtures/emcc-hello.c). Opening for real here, before anything else can, is
-  // what guarantees uniqueness: real fd allocation never reuses a number that's still open.
+  // The preopens are opened up front so they get real fd numbers from the same allocator `env.__syscall_openat` uses.
   const preopenRoot = open('/', O_RDONLY | O_DIRECTORY)
   const preopenCwd = open(cwd, O_RDONLY | O_DIRECTORY)
   const fds = new Map([
@@ -166,17 +134,14 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     [preopenRoot, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
     [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
-  // Synthetic descriptors (sockets, epoll instances) count up from here, well clear of the real ones, which the kernel hands out lowest first:
+  // Synthetic descriptors (sockets, epoll instances) count up from here, well clear of the real ones, which the
+  // kernel hands out lowest first:
   // a program using a few hundred descriptors would otherwise be given a real number a socket already has.
   let nextFd = Math.max(preopenRoot, preopenCwd, 255) + 1
 
-  // epoll instances: a synthetic fd from the same real allocator (`nextFd`), so it can never
-  // collide with a real fd `env.__syscall_openat` hands out, but is never registered in `fds` -
-  // it isn't a real file, and fd_read/fd_write/fd_close etc. on it correctly see EBADF via
-  // `entryOf`'s fallback. `interests` maps a watched real fd to its registered `{ events, dataLo,
-  // dataHi }` (the two dataLo/dataHi halves are epoll_data_t's opaque 8 bytes, echoed back
-  // unexamined - same split trick emscripten's own libepoll.js uses so it works without
-  // WASM_BIGINT too).
+  // epoll instances: synthetic fds from `nextFd`, not registered in `fds`, so `fd_read` and the rest see EBADF.
+  // `interests` maps a watched fd to its `{ events, dataLo, dataHi }`; the 8-byte `epoll_data_t` is echoed back as
+  // two halves.
   const epollInstances = new Map()
 
   const view = () => new DataView(getMemory().buffer)
@@ -199,10 +164,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return decoder.decode(bytes().subarray(ptr, end))
   }
 
-  // A real fd this instance saw only through `env.__syscall_openat` (below) has never been
-  // registered here - fd_write/fd_read/fd_close etc. still need to reach it, so an unknown
-  // non-negative fd is treated as a plain, already-open file rather than EBADF. `fds` stays the
-  // source of truth for fd 0-4 and anything opened through path_open.
+  // A real fd not registered here (opened through `env.__syscall_openat`) is treated as an open file rather than
+  // EBADF. `fds` is the source of truth for fds 0-4 and anything opened through `path_open`.
   const entryOf = (fd) => fds.get(fd) ?? (fd >= 0 ? { fd, path: null, dir: false } : undefined)
 
   /** The real fd behind a wasi fd; a directory preopen opens lazily so `fd_readdir` can list it. */
@@ -635,7 +598,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         sleepMs(soonest)
       }
       // A regular file or a directory is always ready; an unconnected socket (no real fd to poll
-      // yet) is not - only these two cases ever fall out of `pollable` now that sockets exist.
+      // yet) is not - only these two cases fall out of `pollable`.
       for (const sub of fdSubs) if (!pollable.includes(sub) && !sockets.has(sub.fd)) ready.push(sub)
 
       const events = ready.length ? ready : clockSubs.filter(sub => sub.ms <= soonest)
@@ -658,12 +621,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   }
 
   /**
-   * The real work behind `epoll_pwait`/`epoll_pwait_nonblocking`: derives readiness for every fd
-   * `inst` watches through the same real `poll(2)` syscall `poll_oneoff` above already uses (so a
-   * pipe/tty's actual readable/writable state answers it, not a guess), waiting up to `timeoutMs`
-   * (`pollFds`'s own timeout argument does the actual blocking wait; -1 blocks until ready, exactly
-   * like `poll_oneoff`'s already-proven-interruptible-by-a-real-kill wait). Writes up to
-   * `maxevents` ready `struct epoll_event`s to `evPtr` and returns how many.
+   * Implements `epoll_pwait`: derives readiness for each watched fd with the real `poll(2)` syscall, waits up to
+   * `timeoutMs` (-1 blocks), writes up to `maxevents` `struct epoll_event`s to `evPtr` and returns how many.
    */
   function doEpollWait(inst, evPtr, maxevents, timeoutMs) {
     const entries = [...inst.interests.entries()]
@@ -691,19 +650,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return n
   }
 
-  // Emscripten's own `env.__syscall_*` ABI, the layer its libc (as opposed to a plain `wasm32-wasip1`
-  // target's) actually calls for file I/O - present alongside `wasi_snapshot_preview1` in a normal
-  // (non-STANDALONE_WASM) `emcc` build. Verified against a real `emcc` 6.0.9 build's own JS runtime
-  // (`src/lib/libsyscall.js` in the emscripten install) rather than guessed: signatures, the varargs
-  // convention (the last param is a pointer into wasm memory holding packed i32 extras, read one at a
-  // time and advanced - `syscallGetVarargI`) and the `struct stat` layout (offsets confirmed by
-  // compiling and running a small `offsetof` probe with the same `emcc`) all come from there. These
-  // calls use real fds directly, the same integer space `open()` returns into - no wasi-fd remapping
-  // needed, unlike the `wasi_snapshot_preview1` side above. Sockets and `fcntl` locking/duplication
-  // beyond `F_DUPFD` are not implemented; they answer ENOSYS. `epoll` is implemented for real (see
-  // `doEpollWait` above): emscripten's own `libepoll.js` derives every epoll readiness question from
-  // the virtual filesystem's generic per-fd poll handler, not from sockets specifically, so it works
-  // here against the same real `poll(2)` syscall `poll_oneoff` already uses for pipes/tty.
+  // Emscripten's `env.__syscall_*` ABI, used by its libc for file I/O. Signatures, the varargs convention
+  // (`syscallGetVarargI`) and the `struct stat` layout follow emscripten 6.0.9's `libsyscall.js`. Calls use real fds
+  // directly. `fcntl` locking and duplication beyond `F_DUPFD` answer ENOSYS; `epoll` is implemented (`doEpollWait`).
   const AT_FDCWD = -100
   const dirPaths = new Map() // real fd -> path, populated by openat so a later ...at(dirfd, ...) resolves
   // `getdents` answers with a whole listing every time, so each directory fd needs its own read position
@@ -876,16 +825,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
   const wasiOflagsFromLinux = (flags) => flags // both sides already use Linux's O_* numbering
 
-  // POSIX sockets (`__syscall_socket` and friends, below). A browser has no raw TCP/UDP API, so
-  // `env.__syscall_connect` reaches three kinds of target: `127.0.0.1`/`0.0.0.0`/a `AF_UNIX` path,
-  // answered by a listener in another ecmaOS program (`main-thread-syscalls.ts`'s `net_bind`/
-  // `net_listen`/`net_connect`/`net_accept`, whose doc comment has the shared-address-namespace
-  // half of this); any other IPv4 address, answered by the gateway if `gateway up` has made one
-  // (`net_connect_out`, a flow through another ecmaOS machine started with `--listen --gateway`);
-  // and with no gateway a real `ENETUNREACH`, exactly what a process with no route would see,
-  // not a crash or a silent lie. Either way the connection is a pair of real fds, so everything
-  // after connect (reads, writes, close, getsockname/getpeername, setsockopt/getsockopt, shutdown)
-  // is answered locally here, with no further main-thread round trip.
+  // POSIX sockets. `env.__syscall_connect` reaches: `127.0.0.1`, `0.0.0.0` or a `AF_UNIX` path (a listener in another
+  // program, via `net_bind`, `net_listen`, `net_connect`, `net_accept`); any other IPv4 address through the gateway
+  // when `gateway up` made one (`net_connect_out`); otherwise `ENETUNREACH`. The connection is a pair of real fds, so
+  // everything after connect is answered locally.
   const AF_UNIX = 1
   const AF_INET = 2
   const AF_INET6 = 10
@@ -949,13 +892,17 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const b = bytes()
       return { family, port, addr: `${b[ptr + 4]}.${b[ptr + 5]}.${b[ptr + 6]}.${b[ptr + 7]}` }
     }
-    // `struct sockaddr_in6`: family 0, port 2 (big-endian), flow info 4, the 16 address bytes at 8, scope id 24 (28 bytes). An address
+    // `struct sockaddr_in6`: family 0, port 2 (big-endian), flow info 4, the 16 address bytes at 8, scope id 24 (28
+    // bytes). An address
     // that is IPv4-mapped reads back as the IPv4 address, so one address has one spelling everywhere below.
     if (family === AF_INET6) return { family, port: dv.getUint16(ptr + 2, false), addr: formatIp(bytes().slice(ptr + 8, ptr + 24)) }
     return { family }
   }
 
-  /** The errno for an address of the wrong kind for this socket (or `0`): an IPv4 socket cannot take an IPv6 address, and an IPv6 socket cannot take a `sockaddr_in` */
+  /**
+   * The errno for an address of the wrong kind for this socket (or `0`): an IPv4 socket cannot take an IPv6 address,
+   * and an IPv6 socket cannot take a `sockaddr_in`
+   */
   function checkInet(sock, sa, addrlen) {
     if (sa.family === sock.family) return 0
     if (sock.family === AF_INET6 && sa.family === AF_INET) return addrlen < 24 ? -SYSCALL_ERRNO.EINVAL : -SYSCALL_ERRNO.EAFNOSUPPORT
@@ -975,7 +922,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   }
 
   /** `addrlenPtr` is a real in/out `socklen_t*` (`accept4`/`getsockname`/`getpeername`/`recvfrom`): the address is cut to the room the
-   * caller said it has, and the length written back is the whole size, same as the real syscalls this answers for. `family` is the
+   * caller said it has, and the length written back is the whole size, same as the real syscalls this answers for.
+   * `family` is the
    * socket's own: an IPv6 socket is given a `sockaddr_in6`. */
   function writeSockaddrResult(addrPtr, addrlenPtr, addr, port, family = AF_INET) {
     if (!addrPtr) return
@@ -985,12 +933,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     if (addrlenPtr) view().setUint32(addrlenPtr, full.length, true)
   }
 
-  // UDP sockets (`SOCK_DGRAM`, `AF_INET`): a datagram socket is the same pair of pipes a stream socket is, with every datagram
-  // framed as a 2-byte big-endian length then its bytes, so the main thread (`net_connect_out` with `udp`) can turn the pipe
-  // back into datagrams. It talks to one peer, fixed by `connect()` or by the first `sendto()`; there is no `bind()` to a
-  // port and no datagram from anyone else.
-  // A socket that was bound (or took a port to receive on) is "addressed": the same pipes, but every frame also names the other end
-  // (16 bytes of address, an IPv4 one mapped, and 2 of port after the length), so one socket can hear from and answer many peers.
+  // UDP sockets (`SOCK_DGRAM`, `AF_INET`): the same pair of pipes as a stream socket, each datagram framed as a
+  // 2-byte big-endian length then its bytes, so the main thread (`net_connect_out` with `udp`) can rebuild datagrams.
+  // An unbound socket talks to one peer, fixed by `connect()` or the first `sendto()`. A bound socket is "addressed":
+  // each frame also carries the other end (16 bytes of address, IPv4 mapped, then 2 of port after the length), so one
+  // socket can hear from and answer many peers.
   function dgramSend(sock, data, dst) {
     if (data.length > MAX_DATAGRAM) throw { code: 'EMSGSIZE' }
     let frame
@@ -1043,7 +990,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
   /** connect() on a UDP socket: fixes the peer. Only addresses beyond this machine, through the gateway. */
   function dgramConnect(sock, sa) {
-    // an IPv6 datagram socket also takes an IPv4 address (as Linux does unless IPV6_V6ONLY is set); an IPv4 one cannot name an IPv6 peer
+    // an IPv6 datagram socket also takes an IPv4 address (as Linux does unless IPV6_V6ONLY is set); an IPv4 one
+    // cannot name an IPv6 peer
     if (sa.family !== AF_INET && sa.family !== AF_INET6) return -SYSCALL_ERRNO.EAFNOSUPPORT
     if (sa.family === AF_INET6 && sock.family !== AF_INET6) return -SYSCALL_ERRNO.EAFNOSUPPORT
     if (sock.addressed) { sock.peerAddr = anyToLoopback(sa.addr); sock.peerPort = sa.port; return ESUCCESS } // the default destination, no flow of its own
@@ -1058,8 +1006,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return ESUCCESS
   }
 
-  // A datagram socket that was never bound claims an ephemeral port the first time it sends to an address, as on Linux, and is then
-  // "addressed" like a bound one: it can send to any number of peers and hears from each. A socket that was `connect()`ed keeps to its peer.
+  // A datagram socket that was never bound claims an ephemeral port the first time it sends to an address, as on
+  // Linux, and is then
+  // "addressed" like a bound one: it can send to any number of peers and hears from each. A socket that was
+  // `connect()`ed keeps to its peer.
   function ensureAddressed(sock) {
     if (sock.addressed) return
     const result = callMainThread('net_udp_bind', '', 0)
@@ -1110,7 +1060,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     }
     if (sock.addressed) {
       const target = dst ?? (sock.peerAddr ? { addr: sock.peerAddr, port: sock.peerPort } : undefined)
-      // beyond this machine there has to be a route: without a gateway it is a send error, not a datagram lost on the way
+      // beyond this machine there has to be a route: without a gateway it is a send error, not a datagram lost on the
+      // way
       if (target && !isLoopbackAddress(target.addr) && sock.routed !== true) {
         if (!callMainThread('net_gateway_up').up) throw { code: 'ENETUNREACH' }
         sock.routed = true
@@ -1139,12 +1090,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
   }
 
-  /** Whether `fd` is a socket, and if so its real backing fd for `direction` - used by
-   * `fd_read`/`fd_write`/etc (the WASI ABI, which is what a socket's read()/write() actually go
-   * through, same as a plain file's) so they redirect transparently instead of trying `entryOf`'s
-   * generic real-fd fallback on a purely synthetic number. Returns WASI `EBADF` (this file's own
-   * `EBADF` constant, not `SYSCALL_ERRNO`'s - `fd_read`/`fd_write` are wasi_snapshot_preview1 calls)
-   * for a socket that exists but isn't connected yet. */
+  /**
+   * Whether `fd` is a socket, and its real backing fd for `direction`, so `fd_read` and `fd_write` redirect
+   * transparently. Returns WASI `EBADF` for a socket that is not connected yet.
+   */
   function socketRealFd(fd, direction) {
     const sock = sockets.get(fd)
     if (!sock) return { isSocket: false }
@@ -1152,10 +1101,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return { isSocket: true, fd: direction === 'write' ? sock.writeFd : sock.readFd, sock: sock.dgram ? sock : undefined, local: sock.dgram ? undefined : sock }
   }
 
-  // - name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`) -------------------------------------------------------
-  // An emscripten build does not use musl's resolver: it imports `env.getaddrinfo`, `env.getnameinfo` and `env._emscripten_lookup_name`,
-  // which normally invent addresses. Here they ask the main thread (`dns_lookup`: /etc/hosts, then the gateway's resolver, see
-  // `remote-gateway.ts`). The structs are wasm32 musl's (`struct addrinfo` is 32 bytes). `gethostbyname` is IPv4 by definition.
+  // Name resolution (`getaddrinfo`, `getnameinfo`, `gethostbyname`). An emscripten build imports these instead of
+  // using musl's resolver; here they ask the main thread (`dns_lookup`: `/etc/hosts`, then the gateway's resolver).
+  // Structs are wasm32 musl's (`struct addrinfo` is 32 bytes); `gethostbyname` is IPv4 only.
   const EAI = { BADFLAGS: -1, NONAME: -2, AGAIN: -3, FAMILY: -6, SERVICE: -8, MEMORY: -10, OVERFLOW: -12 }
   const AI_PASSIVE = 0x01
   const AI_CANONNAME = 0x02
@@ -1235,14 +1183,16 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   }
 
   const envSyscalls = {
-    // The first IPv4 address of a name, packed as the four bytes in memory order; `0` for none (emscripten's libc treats that as not found).
+    // The first IPv4 address of a name, packed as the four bytes in memory order; `0` for none (emscripten's libc
+    // treats that as not found).
     _emscripten_lookup_name: (namePtr) => {
       const found = lookupAddresses(readCString(namePtr))
       if (!found.addresses?.length) return 0
       const [a, b, c, d] = found.addresses[0].split('.').map(Number)
       return (a | (b << 8) | (c << 16) | (d << 24)) | 0
     },
-    // getaddrinfo(3): builds the `struct addrinfo` list in the program's heap, one entry per address, stream by default. With no family
+    // getaddrinfo(3): builds the `struct addrinfo` list in the program's heap, one entry per address, stream by
+    // default. With no family
     // asked for, IPv4 addresses come before IPv6 ones (a machine with no IPv6 route of its own sorts them that way).
     getaddrinfo: (nodePtr, servicePtr, hintPtr, outPtr) => {
       let flags = 0, family = 0, socktype = 0, protocol = 0
@@ -1315,7 +1265,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       writeInt32(outPtr, head)
       return 0
     },
-    // getnameinfo(3): the text form of a socket address. The host name comes from /etc/hosts (which is all a reverse lookup consults
+    // getnameinfo(3): the text form of a socket address. The host name comes from /etc/hosts (which is all a reverse
+    // lookup consults
     // here), or is the number itself; the service is the number, or the well-known name for it.
     getnameinfo: (saPtr, salen, hostPtr, hostlen, servPtr, servlen, flags) => {
       if (salen < 2) return EAI.FAMILY
@@ -1513,7 +1464,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     exit: (code) => { throw new ProcExit(code) },
     _abort_js: () => { throw new Error('abort() called') },
     _emscripten_runtime_keepalive_clear: () => {},
-    // `getprogname()` / `program_invocation_name`: the name the program was started under (argv[0]), copied into `ptr`.
+    // `getprogname()` / `program_invocation_name`: the name the program was started under (argv[0]), copied into
+    // `ptr`.
     _emscripten_get_progname: (ptr, len) => {
       const name = encoder.encode(args[0] ?? '')
       const count = Math.min(name.length, Math.max(0, len - 1))
@@ -1655,7 +1607,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
       const sa = readSockaddr(addrPtr)
       if (sock.dgram) {
-        // claims a loopback port: datagrams from the gateway (an exposed UDP port), from other programs and from the peers this
+        // claims a loopback port: datagrams from the gateway (an exposed UDP port), from other programs and from the
+        // peers this
         // socket has sent to arrive on it, each naming its sender
         const wrong = checkInet(sock, sa, addrlen)
         if (wrong) return wrong
@@ -1676,7 +1629,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       else if (sa.family === AF_INET || sa.family === AF_INET6) {
         const wrong = checkInet(sock, sa, addrlen)
         if (wrong) return wrong
-        // `::` takes IPv4 too unless the program asked otherwise; any other IPv6 address is IPv6 only; a mapped address is IPv4
+        // `::` takes IPv4 too unless the program asked otherwise; any other IPv6 address is IPv6 only; a mapped
+        // address is IPv4
         const kind = !isIPv6(sa.addr) ? 'inet' : sa.addr === '::' && !sock.v6only ? 'inet46' : 'inet6'
         result = callMainThread('net_bind', kind, sa.addr, sa.port)
         if (!result.error) sock.boundAddr = sa.addr
@@ -1710,7 +1664,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (wrong) return wrong
         if (isLoopbackAddress(sa.addr)) key = isIPv6(sa.addr) ? `inet6:${sa.port}` : `inet:127.0.0.1:${sa.port}`
         else {
-          // not this machine: through the gateway, if one is up (`gateway up`); otherwise ENETUNREACH, as with no route
+          // not this machine: through the gateway, if one is up (`gateway up`); otherwise ENETUNREACH, as with no
+          // route
           result = callMainThread('net_connect_out', sa.addr, sa.port, 'tcp')
           if (result.error) return socketErrno(result.error)
           sock.peerAddr = sa.addr
@@ -1728,11 +1683,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       sock.writeFd = result.writeFd
       return ESUCCESS
     },
-    // `flags` may carry SOCK_NONBLOCK: an empty accept queue then answers EAGAIN immediately
-    // instead of the worker polling (`net_accept`'s own doc comment has the main-thread half).
-    // A blocking accept4 polls `net_accept` on a short interval until a connection lands or this
-    // worker is killed - interruptible the same way every other wait in this file is: `kill`/`^C`
-    // tears the worker down regardless of what JS statement happens to be running.
+    // `flags` may carry `SOCK_NONBLOCK`: an empty accept queue then answers EAGAIN. A blocking `accept4` polls
+    // `net_accept` until a connection lands or the worker is killed.
     __syscall_accept4: (fd, addrPtr, addrlenPtr, flags) => {
       const sock = sockets.get(fd)
       if (!sock || !sock.listening) return -SYSCALL_ERRNO.ENOTSOCK
@@ -1743,7 +1695,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         if (result.pending) { sleepMs(50); continue }
         const newFd = nextFd++
         sockets.set(newFd, { family: sock.family, key: null, bound: false, listening: false, connected: true, readFd: result.fd, writeFd: result.writeFd, peerKey: result.peerKey, conn: result.conn, dir: result.conn ? 's' : undefined })
-        // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`, `remote:[ADDR]:PORT` for IPv6); one from
+        // a connection that came in through the gateway names its real client (`remote:ADDR:PORT`,
+        // `remote:[ADDR]:PORT` for IPv6); one from
         // a program on this machine is from loopback, in the family it connected with
         const from = /^remote:(?:\[([0-9a-fA-F:.]+)\]|(\d+\.\d+\.\d+\.\d+)):(\d+)$/.exec(result.peerKey ?? '')
         const peer = sockets.get(newFd)
@@ -1787,11 +1740,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (from) writeSockaddrResult(addrPtr, addrlenPtr, from.addr, from.port, sock.family)
       return data.length
     }),
-    // `struct msghdr` on wasm32: name 0, namelen 4, iov 8, iovlen 12, control 16, controllen 20, flags 24 (28 bytes). The iovec array is
-    // gathered into one datagram (or one stream write) and scattered back on receive. Ancillary data: on a local `AF_UNIX` stream connection
-    // (emscripten's libc has no `socketpair`, so a named connection is the only kind) `SCM_RIGHTS` passes open descriptors, files, pipes and connected sockets alike, and `SO_PASSCRED` has the sender's
-    // credentials come with each message. A descriptor travels with the first byte of the data it was sent with; an ordinary read that
-    // passes that byte drops it, and a receive never joins data from before and after one. Other kinds (`IP_PKTINFO` and the rest) are ignored on send and absent on receive.
+    // `struct msghdr` on wasm32: name 0, namelen 4, iov 8, iovlen 12, control 16, controllen 20, flags 24 (28 bytes).
+    // The iovec array is gathered into one datagram or stream write and scattered on receive. On a local `AF_UNIX`
+    // stream connection `SCM_RIGHTS` passes open descriptors (files, pipes, connected sockets) and `SO_PASSCRED`
+    // sends credentials. A descriptor travels with the first byte of its data; an ordinary read past that byte drops
+    // it, and a receive never joins data from before and after one. Other ancillary kinds are ignored.
     __syscall_sendmsg: (fd, msgPtr, _flags) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
@@ -1869,7 +1822,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     }),
     // No real socket-level options exist for a loopback pipe pair - accepted as a harmless no-op
     // rather than failing a program that merely sets e.g. SO_REUSEADDR/TCP_NODELAY defensively.
-    // The one that matters is IPV6_V6ONLY: whether an IPv6 socket bound to `::` also takes IPv4 (not by default). It must be set before bind().
+    // The one that matters is IPV6_V6ONLY: whether an IPv6 socket bound to `::` also takes IPv4 (not by default). It
+    // must be set before bind().
     __syscall_setsockopt: (fd, level, optname, optvalPtr, optlen) => {
       const sock = sockets.get(fd)
       if (!sock) return -SYSCALL_ERRNO.ENOTSOCK
@@ -1910,11 +1864,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
 /** Runs a preview1 module to completion and returns its exit code. */
 /**
- * Builds a real argc/argv (a char** with each arg NUL-terminated) - the shape `__main_argc_argv`
- * (emscripten's non-STANDALONE_WASM entry point, taken when there is no `_start`) expects, the same
- * as libc's own `main(argc, argv)`. Memory is not grown (a module built with a fixed max, the
- * ordinary case, rejects that): the space comes from the module's own stack allocator, the same one
- * its own C code uses for a local buffer, via the `_emscripten_stack_alloc` export.
+ * Builds a real argc/argv (a NUL-terminated `char**`) for `__main_argc_argv`, using the module's own stack allocator
+ * (`_emscripten_stack_alloc`) since memory is not grown.
  */
 function buildArgv(memory, args, stackAlloc) {
   const encoder = new TextEncoder()
@@ -1934,11 +1885,8 @@ function buildArgv(memory, args, stackAlloc) {
 }
 
 /**
- * Reads a memory import's declared limits straight out of the binary (the JS reflection API,
- * `WebAssembly.Module.imports()`, reports only `{ module, name, kind }`, never the limits), so a
- * module built with `-sIMPORTED_MEMORY` (or any other toolchain that imports rather than exports
- * its memory) can still be satisfied here: this adapter creates the `WebAssembly.Memory` itself,
- * to the module's own declared size, instead of requiring an exported one.
+ * Reads a memory import's declared limits from the binary (the reflection API does not report them), so a module that
+ * imports its memory (`-sIMPORTED_MEMORY`) can be given one of the declared size.
  */
 function detectMemoryImport(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -2002,12 +1950,10 @@ const CATCHABLE_SIGNALS = [1, 2, 10, 12, 15, 28]
 const SIGWINCH = 28
 
 /**
- * A module that exports `ecmaos_signal(sig)` (see `core/utils-copyleft/wasm/vim/libc-gaps.c`) gets the kernel's signals run
- * through the handlers it set with `signal()`/`sigaction()`. The kernel raises them while the worker is in a
- * blocking syscall (Vim waiting for a key), and upstream runs handlers registered with `on_signal` as that
- * syscall returns - which is inside the module's own import call, so calling back into it is safe. A
- * signal the program set no handler for does what the default does. Registering a handler also tells the
- * kernel to stop taking the default action, so this is done only for modules that can answer.
+ * For a module exporting `ecmaos_signal(sig)` (see `core/utils-copyleft/wasm/vim/libc-gaps.c`), runs the kernel's
+ * signals through the handlers it set with `signal()` or `sigaction()`. They run as a blocking syscall returns, which
+ * is inside the module's own import call. A signal with no handler does the default; registering a handler stops the
+ * kernel's default action, so this is only done for modules that can answer.
  */
 function deliverSignals(instance, Exit) {
   const deliver = instance.exports.ecmaos_signal

@@ -6,21 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * Variable scoping and the boundary between a shell's own state and a child process's environment.
- *
- * Four confirmed bugs, all in the same area:
- *
- * - `export` and `unset` called `shell.env` directly, bypassing `local` frames entirely. So
- *   `local X=1; export X=2` left the local shadowing `X` at 1 and destroyed the *caller's* `X`, and
- *   `unset X` on a local could not remove it at all - the frame kept shadowing the name while the
- *   global went away.
- * - `env` and `export -p` read `shell.env` too, so inside a function they listed the caller's values
- *   rather than what was actually visible.
- * - `envObject`, which is every child process's `envp`, was the environment map wholesale. Every
- *   command therefore started with `?=0` in its environment, and a script's positional parameters
- *   arrived as `0=/bin/foo`, `1=arg`.
- * - `globalThis.process.env` is one global object and ecmaOS runs a shell per virtual console, so
- *   every shell wrote to it and whichever logged in last decided what `$PATH` the others saw.
+ * Variable scoping and the boundary between a shell's state and a child's environment: `export` and `unset` honor
+ * `local` frames; `env` and `export -p` list what is visible in the current frame; `envObject` (every child's `envp`)
+ * excludes `$?` and the positional parameters; `globalThis.process.env` follows one shell at a time.
  */
 describe('variable scoping and the environment boundary', () => {
   let kernel: Kernel

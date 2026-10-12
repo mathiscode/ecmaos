@@ -6,18 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * A redirected command's output is fully written before its exit code is reported.
- *
- * `Kernel.executeViaExecve` used to `await new Promise(r => setTimeout(r, 15))` and hope, because a
- * program's stdout reaches a file through a main-thread pump (`bridgeFd`) rather than the program
- * writing the file itself. 15ms is a guess, and under load not a good one: a loaded parallel test run
- * intermittently read a half-written redirect target while the identical case passed every time in
- * isolation. Each pump already drained its pipe fully once the program closed its end, so there was a
- * real completion signal to await all along.
- *
- * A mid-pipeline stage is deliberately exempt, and that exemption is load-bearing rather than a
- * shortcut: the next stage's own reads already order the data, and a downstream program that exits
- * early stops reading, fills the pipe, and would leave the upstream drain waiting forever.
+ * A redirected command's output is fully written before its exit code is reported (the kernel awaits the stdout
+ * pump's drain). A mid-pipeline stage is exempt: a downstream program that exits early would leave the upstream drain
+ * waiting forever.
  */
 describe('redirected stdio drains before a command is reported done', () => {
   let kernel: Kernel

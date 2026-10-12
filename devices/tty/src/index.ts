@@ -7,14 +7,8 @@ export const pkg = {
 }
 
 /**
- * No longer registers anything.
- *
- * ecmaOS's TTY nodes are real ones now: `attach_xterm` (from `@zenfs/linux`, wired in
- * `Terminal.mount()`) registers `/dev/xterm<n>` through `@zenfs/linux`'s own `TTYDriver` - with a
- * real line discipline, termios, and `major: 4` (the real Linux tty major) - which is exactly what
- * this package's old `getDrivers()` was approximating by hand with `/dev/tty0`-`/dev/tty9` char
- * devices sharing that same major. Kept as an empty, documented no-op rather than removed outright,
- * since `DefaultDevices` still names this package.
+ * Registers nothing: TTY nodes are `/dev/xterm<n>`, registered by `attach_xterm` through `@zenfs/linux`'s
+ * `TTYDriver`. Kept as a no-op because `DefaultDevices` still names this package.
  */
 /**
  * Pseudo-terminals (`/dev/ptmx`, `/dev/pts/<n>`) are not registered here either: allocating a pair

@@ -9,21 +9,14 @@ import type { Terminal, TerminalConfigManager } from './terminal.ts'
 import type { Users } from './users.ts'
 
 /**
- * A background/foreground job's lifecycle state, mirroring bash's `Running`/`Stopped`/`Done`:
- * - `running`: actively executing (foreground or background)
- * - `stopped`: suspended by `^Z`/`SIGTSTP`, resumable with `fg`/`bg` (`SIGCONT`)
- * - `done`: finished; kept around only long enough for `jobs`/`wait` to observe its exit code
+ * A job's state, as in bash: `running`, `stopped` (by `^Z`/`SIGTSTP`, resumable with `fg`/`bg`) or `done` (kept for
+ * `jobs`/`wait` to read its exit code).
  */
 export type JobStatus = 'running' | 'stopped' | 'done'
 
 /**
- * One pipeline the shell is tracking for job control: `a | b | c &` is a single job with one entry
- * in `processes` per stage that went through a real `@zenfs/linux` Process (`executeViaExecve`'s
- * `js`/`node` binfmt path) - a pipeline of ordinary coreutils has no process handle at all, since
- * those run synchronously in the shell's own tick and can't be signaled independently. This is a
- * deliberately simplified single-foreground-job model, not POSIX process groups: `@zenfs/linux`
- * exposes one thread per `Process` and no pgid concept, so "the foreground job" is tracked as a
- * single `Job` reference on `Shell` rather than real pgid-based terminal control.
+ * One pipeline tracked for job control: `a | b | c &` is one job, with an entry in `processes` for each stage that is
+ * a real `@zenfs/linux` Process. There are no process groups; the foreground job is a single reference on `Shell`.
  */
 export interface Job {
   /** 1-indexed job number, as shown by `jobs`/`fg`/`bg` (`[1]`, `[2]`, ...) */
@@ -50,35 +43,23 @@ export interface Job {
 export type ShellExecute = (options: Omit<KernelExecuteOptions, 'kernel'>) => Promise<number>
 
 /**
- * Joins one pipeline stage's stdout to the next stage's stdin. `Shell` never holds a `Kernel`
- * reference of its own, so whoever constructs it hands over a function already closed over
- * `kernel` - same pattern as {@link ShellExecute}. Backed by a real `@zenfs/linux` pipe
- * (`Kernel.createPipeStream`), not a plain `TransformStream`, so pipeline stage-to-stage joins go
- * through the same real `pipe` syscall `Kernel.bridgeStdio` already proved out for redirected
- * single-process stdio.
+ * Joins one pipeline stage's stdout to the next stage's stdin. `Shell` holds no `Kernel`, so the constructor is
+ * handed a function closed over it ({@link ShellExecute}). Backed by a real pipe (`Kernel.createPipeStream`).
  */
 export type ShellCreatePipeStream = () => {
   readable: ReadableStream<Uint8Array>
   writable: WritableStream<Uint8Array>
-  /** The reading stage has finished: a writer still sending gets `EPIPE` rather than waiting for room that will never come. */
+  /**
+   * The reading stage has finished: a writer still sending gets `EPIPE` rather than waiting for room that will never
+   * come.
+   */
   abandon?: () => void
 }
 
 /**
- * The three standard descriptors as a true shell builtin sees them.
- *
- * Builtins used to write straight to `shell.terminal`, which meant their output ignored
- * redirections entirely (`jobs > f` printed to the screen and left `f` empty) and they could not
- * appear in a pipeline at all. Everything a builtin emits or reads now goes through this, so a
- * builtin stage is wired up exactly like any other pipeline stage.
- *
- * Two implementations back it (both in `Shell`): a direct terminal one for the common case of a
- * lone builtin with no redirections, which costs nothing extra and keeps `cd` in a tight loop as
- * cheap as it was; and a stream-backed one over the same `buildOutputStreams` result every
- * `execve`'d command already gets.
- *
- * Kept deliberately text-shaped rather than byte-shaped: builtins deal in lines, and the encoding
- * boundary belongs in one place instead of in fifteen of them.
+ * The three standard descriptors as a builtin sees them, so a builtin honors redirections and works in pipelines. A
+ * direct terminal implementation serves a lone builtin with nothing redirected; a stream-backed one serves the rest.
+ * Text-shaped: encoding happens in one place.
  */
 export interface ShellBuiltinIO {
   /** Whether fd 1 is a terminal, i.e. `isatty(1)` - `type`/`jobs` colorize only when it is */
@@ -127,17 +108,15 @@ export interface ShellOptions {
   users: Users
   /** Reference to terminal instance */
   terminal?: Terminal
-  /** Called with the shell's own `@zenfs/linux` process when it is created, so the kernel can make it a child of init */
+  /**
+   * Called with the shell's own `@zenfs/linux` process when it is created, so the kernel can make it a child of init
+   */
   adoptProcess?: (process: object) => void
 }
 
 /**
- * The `set` flags a shell tracks, by their long names.
- *
- * `errexit` (`-e`), `nounset` (`-u`) and `pipefail` (`-o pipefail`) govern how failures propagate;
- * `xtrace` (`-x`) prints each command to stderr behind `$PS4`; `noglob` (`-f`) turns pathname
- * expansion off; `noclobber` (`-C`) stops `>` truncating an existing file; `verbose` (`-v`) echoes
- * input as it is read.
+ * The `set` flags by long name: `errexit` (`-e`), `nounset` (`-u`), `pipefail`, `xtrace` (`-x`, prints each command
+ * behind `$PS4`), `noglob` (`-f`), `noclobber` (`-C`) and `verbose` (`-v`).
  */
 export interface ShellOptionState {
   errexit: boolean
@@ -206,13 +185,10 @@ export interface Shell {
   readonly positionalParameters: string[]
 
   /**
-   * Runs `text` in this shell the way `source`/`.` and `eval` do: nothing is forked, so variables,
-   * functions, `cd` and options all persist afterwards.
-   *
-   * Unlike {@link executeScriptText} the `EXIT` trap does not run (a sourced file is not a process
-   * exiting) and `return` returns from the sourced text rather than escaping.
-   * @param text - The text to run
-   * @param positional - Replaces `$1..` for the duration (`source f a b`), restored on the way out
+   * Runs `text` in this shell as `source`/`.` and `eval` do: variables, functions, `cd` and options persist. The
+   * `EXIT` trap does not run and `return` returns from the text.
+   * @param text - the text to run
+   * @param positional - replaces `$1..` for the duration
    */
   executeSourced(text: string, positional?: string[], file?: string): Promise<number>
 
@@ -224,10 +200,8 @@ export interface Shell {
   expandTilde(input: string): string
 
   /**
-   * Runs a full script's text - potentially spanning multiple lines with `if`/`while`/`for`/
-   * `case`/function definitions - to completion. Used by `Kernel.executeScript` in place of the
-   * old flat line-by-line runner.
-   * @param script - The script's full text
+   * Runs a full script's text to completion. Used by `Kernel.executeScript`.
+   * @param script - the script's full text
    */
   executeScriptText(script: string, file?: string): Promise<number>
 
@@ -329,11 +303,8 @@ export interface Shell {
   readonly interrupted: boolean
 
   /**
-   * Records that a foreground process was interrupted, and runs any `trap ... INT` handler.
-   *
-   * Called by the kernel where the signal actually lands, not by the terminal's key handler: while
-   * a foreground `execve`'d process holds the terminal, the `@zenfs/linux` line discipline owns the
-   * keyboard and turns `^C` into a real `SIGINT` itself (`ISIG`), so the key handler never sees it.
+   * Records that a foreground process was interrupted and runs any `INT` trap. Called by the kernel where the signal
+   * lands, since the line discipline turns `^C` into `SIGINT` without the key handler seeing it.
    */
   /** True for the first caller after an interrupt and false for the rest; see `Shell.claimInterrupt` */
   claimInterrupt(): boolean

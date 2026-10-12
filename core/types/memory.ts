@@ -1,9 +1,6 @@
 /**
- * These memory methods may not follow what you're used to when it comes to memory management,
- * and are mainly to be used for niche use-cases and experiments.
- *
- * A heap address holds an arbitrary amount of bytes, and is used to index a Uint8Array.
- * Using ArrayBuffers and DataViews is a more robust method of handling memory.
+ * Memory methods for niche use and experiments. A heap address holds an arbitrary number of bytes and indexes a
+ * Uint8Array.
  *
  * @example
  * # Heap
@@ -13,9 +10,8 @@
  *
  * # Stack
  * kernel.memory.push(value)
- * console.log(kernel.memory.peek())
+ * kernel.memory.peek()
  * kernel.memory.pop()
- *
  */
 
 /** Memory address type */

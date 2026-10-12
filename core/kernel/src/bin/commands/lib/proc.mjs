@@ -1,11 +1,4 @@
-/**
- * The process table, read the way Linux tools read it: from `/proc`.
- *
- * `ps` and `killall` used a `ps_list` custom syscall that wrote JSON into a scratch file. Procfs
- * already synthesizes everything they need (`/proc/<pid>/status`, `comm`, `cmdline`, `exe`), and a
- * program that reads it needs no main thread, so it keeps working when the caller is a worker shell.
- * `free.mjs` is the same idea for `/proc/meminfo`.
- */
+/** The process table, read from `/proc` (`/proc/<pid>/status`, `comm`, `cmdline`, `exe`), as Linux tools do. */
 
 const { open, read, close, readdir, readlink, O_RDONLY } = globalThis.ecmaosSyscalls
 

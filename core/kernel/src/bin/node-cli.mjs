@@ -1,11 +1,7 @@
 /**
- * The command line of `/bin/node` when it is run as `node ...` rather than as the interpreter of a program: option
- * parsing, `-e`/`-p`, a script on stdin, and the REPL.
- *
- * Everything here talks to the guest through the syscalls `node.mjs` hands in (`sys`), never to the host's stdio: a
- * worker's own `console` and `process.stdout` go to the host process, which is not where a guest program's output
- * belongs (redirection and pipes would miss it). The REPL is Node's own `node:repl` over the guest terminal, so it
- * only exists where `node:repl` does (the Node host); elsewhere `node` says so and exits.
+ * The command line of `/bin/node` when run as `node ...`: option parsing, `-e`/`-p`, a script on stdin, and the REPL.
+ * It talks to the guest through the syscalls `node.mjs` passes in (`sys`), not the host's stdio. The REPL is
+ * `node:repl` over the guest terminal, available only on the Node host.
  */
 
 const SIGWINCH = 28
@@ -34,7 +30,8 @@ Options:
 
 /**
  * Splits `node`'s arguments. `args` is everything after the program name. Returns what to do and with what:
- * `{ action: 'help' | 'version' | 'file' | 'eval' | 'stdin' | 'repl', ... }`, or `{ error }` for an option that is not
+ * `{ action: 'help' | 'version' | 'file' | 'eval' | 'stdin' | 'repl', ... }`, or `{ error }` for an option that is
+ * not
  * understood (`node` exits 9 for that, as Node does).
  */
 export function parseArgs(args) {
@@ -120,7 +117,8 @@ export function isTty(sys, fd) {
 }
 
 /**
- * Runs a script. A module is imported (so `await` works at its top level); a script is evaluated as in a global scope,
+ * Runs a script. A module is imported (so `await` works at its top level); a script is evaluated as in a global
+ * scope,
  * and with `print` its value is written. A rejected promise or a thrown error is the caller's to report.
  */
 export async function runSource(source, { module, print, toDataUrl, inspect, sys }) {
@@ -152,7 +150,8 @@ const HistoryLines = 1000
 
 /**
  * Node's REPL on the guest terminal. Returns the exit status. The terminal is put in raw mode (no echo, no line
- * buffering, `^C` as a byte so the REPL can cancel the line instead of the kernel killing the program), and given back
+ * buffering, `^C` as a byte so the REPL can cancel the line instead of the kernel killing the program), and given
+ * back
  * when the REPL ends; the kernel restores it too if the program dies first.
  */
 export async function startRepl(sys, { env }) {

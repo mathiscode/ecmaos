@@ -4,19 +4,19 @@ import { PeerError } from './errors.ts'
 import type { Value } from './codec.ts'
 
 /**
- * The channel kind a network gateway serves: one channel is one outbound flow (TCP, or UDP to one peer) or one lookup. The host does the connecting, so a
- * machine with no sockets of its own (a browser tab) can reach the network through one that has them.
- *
- * Opening it carries the target as params. The host answers with a control message, `{ op: 'connected', address, port }`
- * when the flow is up, or closes the channel with the reason (`refused`, with a message ready to show) when it is not.
- * After that the channel's bytes are the flow's bytes in both directions, with flow control as for any channel. A side
- * that has no more to send says `{ op: 'eof' }` (the flow stays open for the other direction); closing the channel ends
- * the flow.
+ * The channel kind a network gateway serves: one channel is one outbound flow (TCP, or UDP to one peer) or one
+ * lookup, so a machine without sockets (a browser tab) can reach the network through one that has them. Opening
+ * carries the target as params; the host answers `{ op: 'connected', address, port }` or closes with a reason
+ * (`refused`). After that the channel's bytes are the flow's bytes, flow-controlled as for any channel. `{ op: 'eof'
+ * }` means no more to send; closing the channel ends the flow.
  */
 export const NetChannel = 'net'
 
 export interface NetTarget {
-  /** `udp` is a flow of datagrams, one `{ op: 'd', data }` control message each (see {@link Datagram}), not a byte stream */
+  /**
+   * `udp` is a flow of datagrams, one `{ op: 'd', data }` control message each (see {@link Datagram}), not a byte
+   * stream
+   */
   proto: 'tcp' | 'udp'
   host: string
   port: number
@@ -27,7 +27,10 @@ export const MaxHostLength = 253
 /** The most a UDP datagram can carry over IPv4 */
 export const MaxDatagram = 65507
 
-/** A datagram on a `udp` flow, in either direction: it is a control message, so it is not flow controlled and may be dropped */
+/**
+ * A datagram on a `udp` flow, in either direction: it is a control message, so it is not flow controlled and may be
+ * dropped
+ */
 export function datagram(data: Uint8Array): Value { return { op: 'd', data } }
 
 /** The bytes of a datagram message, or `undefined` if the message is something else (or too big to be one) */
@@ -55,7 +58,8 @@ export interface OpenedFlow {
 }
 
 /**
- * Asks the other side to connect to `target` and waits until it has, or says why not. The channel it returns carries the
+ * Asks the other side to connect to `target` and waits until it has, or says why not. The channel it returns carries
+ * the
  * flow's bytes.
  */
 export async function openFlow(connection: Connection, target: NetTarget, options: { timeout?: number } = {}): Promise<OpenedFlow> {
@@ -89,8 +93,10 @@ export function parseNetLookup(value: Value): Required<NetLookup> {
 }
 
 /**
- * Asks the host to resolve `name` with its own resolver and returns the addresses it is willing to give (the policy may hold
- * some back, or refuse the name). The answer is one `{ op: 'resolved', addresses }` message, after which the host closes the
+ * Asks the host to resolve `name` with its own resolver and returns the addresses it is willing to give (the policy
+ * may hold
+ * some back, or refuse the name). The answer is one `{ op: 'resolved', addresses }` message, after which the host
+ * closes the
  * channel; a refusal closes it with the reason.
  */
 export async function resolveName(connection: Connection, name: string, options: { family?: 4 | 6, timeout?: number } = {}): Promise<string[]> {
@@ -111,7 +117,10 @@ export interface NetListen {
   proto: 'listen'
   port: number
   as?: number
-  /** Listen for datagrams instead of connections: each arrives as one `{ op: 'd', data, peer }` message on the listener's channel, and a reply is the same message back */
+  /**
+   * Listen for datagrams instead of connections: each arrives as one `{ op: 'd', data, peer }` message on the
+   * listener's channel, and a reply is the same message back
+   */
   udp?: boolean
 }
 
@@ -138,7 +147,9 @@ export function parseEndpoint(text: string): { address: string, port: number } |
   return port <= 65535 ? { address: match[1]!, port } : undefined
 }
 
-/** A datagram that came from, or goes to, `peer` (`address:port`, `[address]:port` for IPv6) through a `udp` listener */
+/**
+ * A datagram that came from, or goes to, `peer` (`address:port`, `[address]:port` for IPv6) through a `udp` listener
+ */
 export function peerDatagram(data: Uint8Array, peer: string): Value { return { op: 'd', data, peer } }
 
 /** The bytes and peer of such a message, or `undefined` if it is something else (or malformed) */
@@ -177,8 +188,10 @@ export interface OpenedListener {
 }
 
 /**
- * Asks the host to open a port and forward what connects to it. Resolves when it is listening, or rejects with the reason
- * (outside the ports the host allows, in use, too many). Each connection then arrives as a channel the host opens, which the
+ * Asks the host to open a port and forward what connects to it. Resolves when it is listening, or rejects with the
+ * reason
+ * (outside the ports the host allows, in use, too many). Each connection then arrives as a channel the host opens,
+ * which the
  * caller takes with `connection.accept(NetChannel, ...)` and recognises by {@link parseNetAccept}.
  */
 export async function openListener(connection: Connection, request: { port: number, as?: number, udp?: boolean }, options: { timeout?: number } = {}): Promise<OpenedListener> {

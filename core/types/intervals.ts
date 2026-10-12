@@ -7,14 +7,7 @@
  */
 export type IntervalMap = Map<string, ReturnType<typeof setInterval>>
 
-/**
- * Interface for interval management functionality
- *
- * The cron half this used to declare (`setCron`/`getCron`/`clearCron`/`listCrons`, backed by
- * `cron-schedule`'s `TimerBasedCronScheduler`) was retired once `crond` became a real, long-running
- * daemon `Process` owning its own schedule - see `core/kernel/src/bin/commands/crond.mjs`'s own doc
- * comment for why.
- */
+/** Interface for interval management. */
 export interface Intervals {
   /**
    * Get an interval by name

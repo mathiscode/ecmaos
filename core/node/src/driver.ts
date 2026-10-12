@@ -6,7 +6,10 @@ import type { InputToken, KeyInput } from './input.ts'
 // How long a lone ESC waits to see whether it starts an arrow key
 const EscapeDelay = 40
 
-/** What of the kernel's terminal the driver touches. Not on the public interface: the Node host reaches into the xterm-based Terminal on purpose. */
+/**
+ * What of the kernel's terminal the driver touches. Not on the public interface: the Node host reaches into the
+ * xterm-based Terminal on purpose.
+ */
 export interface DrivenTerminal {
   write(data: string | Uint8Array, callback?: () => void): void
   input(data: string, wasUserInput?: boolean): void
@@ -20,10 +23,8 @@ export interface DrivenTerminal {
 
 /**
  * Feeds what a terminal sends (bytes) into the kernel's terminal: the line discipline for running programs, and the
- * line editor as parsed keys (arrows, Home/End, Delete, Alt chords, Tab, bracketed paste).
- *
- * `interactive` is a person at a keyboard (a tty). Without it the input is a pipe, with no framing: each key waits for the
- * last, so a script's lines run in order.
+ * line editor as parsed keys (arrows, Home/End, Delete, Alt chords, Tab, bracketed paste). `interactive` means a
+ * person at a keyboard; otherwise input is a pipe and each key waits for the last, so a script's lines run in order.
  */
 export class TerminalDriver {
   private readonly _parser = new InputParser()
@@ -54,10 +55,9 @@ export class TerminalDriver {
 
   private _dispatch(tokens: InputToken[]) {
     const term = this._term
-    // Decided now, not when a queued key is finally handled: `input()` has already given these keys to the program's
-    // line discipline, and if the program has ended by the time the queue reaches them the line editor would run them
-    // too (a password typed to `gateway up` ran again as a command). `keyHandler` ignores a key while a program owns
-    // the keyboard, and its check runs before its first await, so calling it at once is what makes that check true.
+    // Decided now, not when a queued key is handled: `input()` has already given these keys to the program's line
+    // discipline, and the line editor would run them again if the program ended before the queue reached them.
+    // `keyHandler` ignores keys while a program owns the keyboard, and checks before its first await.
     const owned = term.ttyInputAttached === true
     for (const token of tokens) {
       if (owned) { if (token.type !== 'paste') void term.keyHandler(token.input); continue }

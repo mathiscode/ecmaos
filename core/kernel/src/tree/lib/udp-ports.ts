@@ -1,14 +1,9 @@
 /**
- * Bound UDP sockets. A program that `bind()`s a datagram socket gets a pair of streams (attached as descriptors by the syscall layer)
- * carrying addressed datagrams: each is a 2-byte big-endian length, the address (16 bytes; an IPv4 address is the mapped
- * `::ffff:a.b.c.d`, see `ip.ts`), the port (2 bytes), then the payload. What it receives comes from three places, and what it sends goes to the same three:
- *
- *  - peers that reached a port this machine exposed through the gateway (`gateway expose -u`); a reply goes back the way the
- *    datagram came, and only to a peer that has sent something;
- *  - other programs on this machine, by loopback port;
- *  - anywhere else, through a gateway flow per destination (so the gateway's rules decide, as for any outbound datagram).
- *
- * Datagrams arriving faster than the program reads are dropped past a small queue, which UDP allows.
+ * Bound UDP sockets. A program that `bind()`s a datagram socket gets a pair of streams carrying addressed datagrams:
+ * a 2-byte big-endian length, the address (16 bytes; IPv4 is the mapped `::ffff:a.b.c.d`, see `ip.ts`), the port (2
+ * bytes), then the payload. Datagrams come from, and go to: peers that reached a port exposed through the gateway
+ * (`gateway expose -u`; replies only to peers that sent), other programs by loopback port, and anywhere else through
+ * a gateway flow per destination. Datagrams arriving faster than they are read are dropped past a small queue.
  */
 import { formatEndpoint } from '@ecmaos/peer'
 import { formatIp, isLoopbackIp, loopbackLike, parseIp } from './ip.ts'
@@ -19,7 +14,10 @@ const MaxFlows = 16
 const MaxRoutes = 256
 const QueueLimit = 256
 
-/** Where outbound datagrams from a bound socket go; supplied by the syscall layer so this file knows nothing of the kernel */
+/**
+ * Where outbound datagrams from a bound socket go; supplied by the syscall layer so this file knows nothing of the
+ * kernel
+ */
 export interface UdpDeps {
   /** A datagram flow to `host:port` through the gateway; rejects when none is up or the gateway refuses */
   open(host: string, port: number): Promise<GatewayFlow>

@@ -1,11 +1,8 @@
 /**
- * Shell patterns: `*`, `?`, `[...]` with POSIX classes (`[[:digit:]]`) and `!`/`^` negation, and with `extglob`
- * the `?(a|b)`, `*(a|b)`, `+(a|b)`, `@(a|b)` and `!(a|b)` forms. Used for pathname expansion, `case`,
- * `[[ x == pattern ]]` and `${x#pattern}` alike, in both shells, so a pattern means the same everywhere.
- *
- * The `shopt` options that change what a pattern does are {@link GlobOptions}: `extglob`, `nocasematch` and
- * `nocaseglob` (case-insensitive), `dotglob` (a wildcard may match a leading dot) and `globstar` (`**`).
- * `nullglob` and `failglob` decide what happens when nothing matches, which is the expander's business.
+ * Shell patterns: `*`, `?`, `[...]` with POSIX classes and `!`/`^` negation, and with `extglob` the `?(a|b)`,
+ * `*(a|b)`, `+(a|b)`, `@(a|b)` and `!(a|b)` forms. Used for pathname expansion, `case`, `[[ x == pattern ]]` and
+ * `${x#pattern}` in both shells. {@link GlobOptions} carry the `shopt` options: `extglob`, `nocasematch`,
+ * `nocaseglob`, `dotglob`, `globstar`; `nullglob` and `failglob` are the expander's business.
  */
 
 export interface GlobOptions {
@@ -142,7 +139,9 @@ export function hasGlobCharacters(text: string, options: GlobOptions = {}): bool
   return options.extglob ? /[*?[]|[+@!]\(/.test(text) : /[*?[]/.test(text)
 }
 
-/** What pathname expansion needs from a file system; paths it is given are the pattern's own, relative or absolute. */
+/**
+ * What pathname expansion needs from a file system; paths it is given are the pattern's own, relative or absolute.
+ */
 export interface GlobFs {
   readdir(path: string): string[] | Promise<string[]>
   isDirectory(path: string): boolean | Promise<boolean>

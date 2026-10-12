@@ -5,11 +5,9 @@ import 'vitest-canvas-mock'
 
 (globalThis as any).Buffer = Buffer
 
-// A booted kernel leaves background work running (crond, intervals) that keeps logging after a
-// file's last test. Once the file is done, that output has nowhere useful to go, and if it lands
-// while vitest is closing the worker's RPC channel it surfaces as an EnvironmentTeardownError
-// ("Closing rpc while onUserConsoleLog was pending") that fails an otherwise green run.
-// Unhandled errors don't go through the console, so vitest still reports those.
+// A booted kernel leaves background work (crond, intervals) logging after a file's last test; once the file is done
+// that output can land while vitest closes its RPC channel and fail the run with an `EnvironmentTeardownError`.
+// Unhandled errors are not console output, so vitest still reports those.
 afterAll(() => {
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const) {
     console[method] = () => {}
@@ -255,11 +253,7 @@ class MockWebGLRenderingContext {
 
 globalThis.WebGLRenderingContext = MockWebGLRenderingContext as unknown as typeof WebGLRenderingContext
 
-// JSDom + Vitest don't play well with each other. Long story short - default
-// TextEncoder produces Uint8Array objects that are _different_ from the global
-// Uint8Array objects, so some functions that compare their types explode.
-// https://github.com/vitest-dev/vitest/issues/4043#issuecomment-1905172846
-// https://github.com/vitest-dev/vitest/issues/4043#issuecomment-2383567554
+// jsdom's default `TextEncoder` produces `Uint8Array`s that differ from the global `Uint8Array`, which breaks type comparisons (https://github.com/vitest-dev/vitest/issues/4043).
 class ESBuildAndJSDOMCompatibleTextEncoder extends TextEncoder {
   constructor() {
     super()
@@ -282,13 +276,10 @@ class ESBuildAndJSDOMCompatibleTextEncoder extends TextEncoder {
 
 global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
 
-// The site serves the prebuilt WebAssembly programs at `/programs/` (see `vite-plugin-bin-node.ts`'s `binPrograms`);
-// a test boots without a server, so answer those requests from the program packages on disk. Everything else goes
-// through whatever `fetch` was there, and a test that stubs `fetch` itself still gets its own stub.
-//
-// A booted kernel installs the catalog's programs (about 12 MB hashed and written: over a second of every boot), and
-// most test files never run one, so the default catalog is empty. A test that runs a program boots its kernel with
-// `programs: PROGRAMS_ALL` (`/programs/index.json?all`), which lists them all.
+// The site serves prebuilt WebAssembly programs at `/programs/` (see `binPrograms` in `vite-plugin-bin-node.ts`);
+// tests answer those requests from the program packages on disk and pass everything else to the existing `fetch`. The
+// default catalog is empty, since installing it costs over a second per boot; a test that runs a program boots with
+// `programs: PROGRAMS_ALL`.
 {
   const nodeFs = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:fs') }).getBuiltinModule('node:fs')
   const nodePath = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:path') }).getBuiltinModule('node:path')

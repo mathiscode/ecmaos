@@ -1,13 +1,9 @@
 /**
- * Word expansion over quote-aware words (`WordPart[]`, from `shell-parser.ts`): tilde, parameter
- * and variable expansion (arrays included), command substitution, arithmetic, then word splitting
- * and pathname globbing - in that order, with bash's quoting rules:
- *
- * - '...' and a backslash escape are literal.
- * - "..." expands `$...` and command substitutions, but its result is never split or globbed.
- *   `"$@"` and `"${a[@]}"` are the exception that makes arrays useful: one field per element.
- * - Unquoted text expands the same way, then the *expanded* parts (not the literal text around
- *   them) are split on whitespace, and the result is globbed unless a glob character was quoted.
+ * Word expansion over quote-aware words (`WordPart[]` from `shell-parser.ts`), in order: tilde, parameter and
+ * variable expansion (arrays included), command substitution, arithmetic, word splitting, pathname globbing. '...'
+ * and backslash escapes are literal; "..." expands but is never split or globbed (except `"$@"` and `"${a[@]}"`, one
+ * field per element); only the expanded parts of unquoted text are split, and the result is globbed unless a glob
+ * character was quoted.
  */
 
 import { evaluateArithmeticExpression } from './expand-variables.js'
@@ -73,24 +69,11 @@ export const DEFAULT_IFS = ' \t\n'
 const isIFSWhitespace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n'
 
 /**
- * Splits `text` at `$IFS` delimiters, POSIX rules.
- *
- * `$IFS` holds two kinds of character and they behave differently, which is the whole reason this
- * can't be one regex:
- *
- * - **IFS whitespace** (space, tab, newline, when present in `$IFS`). A run of it delimits one
- *   field, and a run at either end of the input delimits nothing at all - `a  b` is two fields,
- *   and so is `  a  b  `.
- * - **IFS non-whitespace** (anything else in `$IFS`, e.g. `:`). *Each* occurrence delimits a field,
- *   with any adjacent IFS whitespace absorbed into the same delimiter. So `IFS=:` on `a::b` is
- *   three fields, the middle one empty, and `IFS=' :'` on `a : : b` is the same three.
- *
- * Returned as pieces plus one flag per boundary rather than a finished field list, because the
- * caller splits each expansion result separately and has to know whether an empty piece is a real
- * empty field (a non-whitespace delimiter produced it) or just an edge effect of whitespace.
- *
- * `hard.length` is always `pieces.length - 1`; `hard[k]` describes the boundary between
- * `pieces[k]` and `pieces[k + 1]`.
+ * Splits `text` at `$IFS` delimiters by POSIX rules. IFS whitespace: a run delimits one field and a run at either end
+ * delimits nothing (`a  b` and `  a  b  ` are two fields). IFS non-whitespace: each occurrence delimits a field,
+ * absorbing adjacent IFS whitespace (`IFS=:` on `a::b` is three fields).
+ * Returns the pieces and one flag per boundary (`hard[k]` is the boundary between `pieces[k]` and `pieces[k + 1]`),
+ * so the caller can tell a real empty field from a whitespace edge.
  */
 export function splitOnIFS(text: string, ifs: string): { pieces: string[], hard: boolean[] } {
   const pieces: string[] = []
@@ -166,7 +149,10 @@ class Expander {
     return undefined
   }
 
-  /** `$*` and `${a[*]}` in one field: joined with the first character of IFS (a space when it is unset, nothing when it is empty). */
+  /**
+   * `$*` and `${a[*]}` in one field: joined with the first character of IFS (a space when it is unset, nothing when
+   * it is empty).
+   */
   private starJoin(values: string[]): string {
     const ifs = this.ctx.lookup('IFS')
     return values.join(ifs === undefined ? ' ' : ifs.slice(0, 1))

@@ -1,14 +1,10 @@
 /**
- * The presenters a display can run for a program on its tty.
- *
- * Browser calls that need the page the user is looking at (the clipboard, notifications, speech, a new tab, a download, the file
- * picker) are done by the display attached to the program's tty when there is one, since the owner's tab may be in the background
- * (see `lib/remote-display.ts`). Each kind has up to three parts: `prepare` runs in the owner and turns the program's parameters into
- * what the display needs (bytes it cannot read for itself), `run` runs in the display, and `finish` runs in the owner on what the
- * display answered (writing the files it picked). The display imports only `run`, so nothing here may reach for the kernel at run time.
- *
- * Presenters that put a window on the owner's page (`document`, `app`, `browser`, `video`, `audio`) are not here: they read the
- * machine's files and use its window manager, which a display does not have.
+ * The presenters a display can run for a program on its tty. Browser calls that need the visible page (clipboard,
+ * notifications, speech, a new tab, a download, the file picker) are done by the attached display when there is one
+ * (`lib/remote-display.ts`). A kind has up to three parts: `prepare` (in the owner) turns the parameters into what
+ * the display needs, `run` (in the display) does it, `finish` (in the owner) handles the answer. The display imports
+ * only `run`, so nothing here may reach for the kernel at run time. Presenters that put a window on the owner's page
+ * are not here.
  */
 
 import type { Process } from '@zenfs/linux'

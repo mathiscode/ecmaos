@@ -76,18 +76,16 @@ export type SocketConnection = WebSocketConnection | WebTransportConnection
  */
 export interface Sockets {
   /**
-   * Create a new WebSocket connection
+   * Creates a WebSocket connection.
    * @param url - WebSocket URL (ws:// or wss://)
-   * @param options - Optional WebSocket configuration
-   * @returns Promise that resolves to the WebSocket connection
+   * @param options - WebSocket options
    */
   createWebSocket(url: string, options?: { protocols?: string | string[] }): Promise<WebSocketConnection>
 
   /**
-   * Create a new WebTransport connection
+   * Creates a WebTransport connection.
    * @param url - WebTransport URL (https://)
-   * @param options - Optional WebTransport configuration
-   * @returns Promise that resolves to the WebTransport connection
+   * @param options - WebTransport options
    */
   createWebTransport(url: string, options?: { allowPooling?: boolean }): Promise<WebTransportConnection>
 

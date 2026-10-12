@@ -9,17 +9,9 @@ export type { CommandArgs } from './shared/command-args.js'
 export { getLegacyCommands, resolveLegacyCommand } from './shared/legacy-command-shim.js'
 export type { LegacyCommands, LegacyCommandEntry, CreateCommandFn } from './shared/legacy-command-shim.js'
 
-// Export individual command factories - excludes the names that run via real execve (echo, basename,
-// dirname, tr, mkdir, rm, cp, mv, touch, chmod, cat, head, tail, wc, nl, rev, tac, uniq, cut, fold,
-// expand, unexpand, cksum, strings, xxd, od, hash, cmp, comm, column, seq, factor, rmdir, join,
-// paste, sleep, mktemp, shuf, split, pr, tee, stat, readlink, realpath, ln, dd, sort, find, diff,
-// grep, sed, awk, ls, tar, cal, date, printf, which, whoami, pwd, hostname,
-// uname, nproc, uptime, motd, fmt, crypto, curl, fetch, id, groups, chown, zip, unzip, git, less, man, and the kernel-native mount, passkey, screensaver-daemon) and the 8 true shell builtins living in
-// core/kernel/src/tree/lib/shell-builtins.ts (cd, set, bg, fg, jobs, wait, local, env) - neither
-// has a createCommand, only meta (see their files). test/true/false stay on the in-process shim
-// deliberately - running them via real execve made a tight shell while-loop using `test` as its
-// condition measurably slower (each iteration then pays a real worker spin-up instead of an
-// in-process call), a real perf regression for the pattern these three are most used in.
+// Exports the command factories that still run in-process: `true`, `false` and `test`, which stay in-process because
+// a worker start-up per loop iteration is slow. Every other command is an `execve` program, and the shell builtins
+// live in `core/kernel/src/tree/lib/shell-builtins.ts`.
 export { createCommand as createFalse } from './commands/false.js'
 export { createCommand as createTest } from './commands/test.js'
 export { createCommand as createTrue } from './commands/true.js'

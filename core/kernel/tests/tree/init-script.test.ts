@@ -6,16 +6,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * boot()'s post-login setup used to run unconditionally: MOTD display, user-crontab loading, and
- * the screensaver idle-timeout daemon were inline code, not something a user could see or change.
- * They now live in /boot/init's own script (real, editable, on disk), run as a tracked ecmaOS
- * `Process` the same way any other script runs - these are real, booted-kernel proofs that they
- * still happen, just from there instead of from boot() directly.
- *
- * One shared, booted kernel for the whole file: several kernels booted in one file/process leaks
- * char_dev/Device registrations across them (a pre-existing, documented artifact of those
- * registries being module-level globals - see the `devices` branch), which showed up here as
- * flaky failures once this file grew past a couple of `beforeAll` kernels.
+ * `/boot/init` and its script commands: MOTD display, user-crontab loading and the screensaver idle-timeout daemon
+ * run from the script, as a tracked process. One shared booted kernel for the file, since several kernels in one
+ * process leak `char_dev`/`Device` registrations (module-level globals).
  */
 describe('/boot/init and its script commands', () => {
   let kernel: Kernel

@@ -23,11 +23,8 @@ export interface TerminalOptions extends ITerminalOptions {
   /** The DOM service, for the topbar and mobile controls */
   dom: Dom
   /**
-   * Used for a couple of narrow, direct reads (e.g. `kernel.state` while booting) - most of
-   * `Terminal`'s own `Kernel` needs go through `context`/`dom`/`users`/`wire()` instead. No longer
-   * used to construct a command set at all: command dispatch is real `execve`/`$PATH` resolution
-   * plus a lazily-constructed legacy shim (see `@ecmaos/coreutils`'s `legacy-command-shim.ts`),
-   * neither of which needs a `Kernel` reference cached on `Terminal` itself.
+   * Used for narrow direct reads such as `kernel.state` while booting; most needs go through `context`, `dom`,
+   * `users` and `wire()`.
    */
   kernel: Kernel
   /** The user registry, for resolving the current user's display name/prompt */
@@ -43,10 +40,8 @@ export interface TerminalOptions extends ITerminalOptions {
 }
 
 /**
- * What `Terminal` needs from `Kernel` itself that isn't a subsystem - `switchTty` and `reboot`
- * are `Kernel` methods, and `getState` reads its boot-lifecycle state - delivered via `wire()`
- * once the `Kernel` instance exists (it does from the first line of its own constructor, but
- * `Terminal` is constructed before `Kernel`'s constructor body finishes, so this is still lazy).
+ * What `Terminal` needs from `Kernel` that is not a subsystem (`switchTty`, `reboot`, `getState`), delivered by
+ * `wire()` once the `Kernel` exists.
  */
 export interface TerminalWiring {
   switchTty: (tty: number) => Promise<void>
@@ -230,18 +225,18 @@ export interface Terminal extends XTerm {
   unlisten(): void
 
   /**
-   * Read a line of input
-   * @param prompt - Input prompt
-   * @param hide - Hide input
-   * @param noListen - Don't auto-listen
+   * Reads a line of input.
+   * @param prompt - the prompt
+   * @param hide - hide the input
+   * @param noListen - do not re-listen afterwards
    */
   readline(prompt?: string, hide?: boolean, noListen?: boolean): Promise<string>
 
   /**
-   * Create a spinner
-   * @param spinner - Spinner type
-   * @param prefix - Prefix text
-   * @param suffix - Suffix text
+   * Creates a spinner.
+   * @param spinner - spinner type
+   * @param prefix - prefix text
+   * @param suffix - suffix text
    */
   spinner(spinner: string, prefix?: string, suffix?: string): any
 
@@ -352,7 +347,9 @@ export interface TerminalCommand {
   stdout?: WritableStream<Uint8Array>
   stderr?: WritableStream<Uint8Array>
 
-  /** Get formatted usage string including command description and options (only available when using unified parser) */
+  /**
+   * Get formatted usage string including command description and options (only available when using unified parser)
+   */
   readonly usage?: string
   /** Get formatted usage content string (only available when using unified parser) */
   readonly usageContent?: string
@@ -375,11 +372,8 @@ export interface CommandContext {
 }
 
 /**
- * Minimal per-invocation I/O handed to a coreutils command, replacing the old pattern of manually
- * resolving `process` and threading it plus `terminal` through `writelnStdout`/`writelnStderr` on
- * every call. `stdout`/`stderr`/`stdin` stay available as raw streams for commands that need
- * byte-level control (e.g. `cat`'s `getWriter()`/`getReader()` usage) - this is deliberately a
- * thin wrapper, not a replacement for direct stream access.
+ * Per-invocation I/O handed to a coreutils command. `stdout`, `stderr` and `stdin` stay available as raw streams for
+ * byte-level control.
  */
 export interface CommandIO {
   /** Write raw text to stdout (the process's stdout if attached, else the terminal). */
@@ -401,10 +395,7 @@ export interface CommandIO {
 }
 
 /**
- * Terminal configuration, from `/etc/terminal.toml` and `~/.config/terminal.toml`.
- *
- * Every key here is an xterm.js property. It was called `ShellConfig` and read from `shell.toml`,
- * which named the wrong layer: nothing in it is a shell setting.
+ * Terminal configuration from `/etc/terminal.toml` and `~/.config/terminal.toml`. Every key is an xterm.js property.
  */
 export interface TerminalConfig {
   /** Disable the terminal bell */
@@ -431,9 +422,8 @@ export interface TerminalConfig {
   /** Whether Option key on Mac should act as Meta */
   macOptionIsMeta?: boolean
   /**
-   * Which xterm.js renderer to use. `webgl` is hardware-accelerated and falls back to `dom`
-   * automatically if the WebGL context is lost. `dom` is the escape hatch if WebGL misbehaves
-   * with a particular font/GPU combination.
+   * Which xterm.js renderer to use: `webgl` (hardware-accelerated, falls back to `dom` if the context is lost) or
+   * `dom`.
    * @default 'webgl'
    */
   renderer?: 'dom' | 'webgl'

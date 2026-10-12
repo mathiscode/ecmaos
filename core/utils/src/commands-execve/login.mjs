@@ -1,11 +1,8 @@
 /**
- * `/bin/login -t N USER`: the second half of a login, run by `getty` once it has a user name. It asks for
- * the password (unless a passkey already settled it), hands both to the kernel (`login_begin`,
- * `login_session`, which also try a passkey, since WebAuthn needs the page and not a worker), prints
- * `/etc/motd`, runs the user's shell on the terminal and waits for it, then ends the session.
- *
- * Exit status: 0 after a session that ended normally, 1 for a refused login (the reason is printed).
- * `^C` and `^\` at the password prompt are ignored, as in getty.
+ * `/bin/login -t N USER`: the second half of a login, run by `getty`. Asks for the password (unless a passkey settled
+ * it), hands both to the kernel (`login_begin`, `login_session`, which also try a passkey since WebAuthn needs the
+ * page), prints `/etc/motd`, runs the user's shell on the terminal and ends the session when it returns. Exit status
+ * 0 after a session, 1 for a refused login. `^C` and `^\` at the password prompt are ignored.
  */
 
 import { makeLoginIO } from './lib/login-io.mjs'

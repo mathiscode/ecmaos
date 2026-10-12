@@ -1,15 +1,10 @@
 /**
- * `ulimit`, as far as it can be true. Nothing in a browser enforces a per-process resource limit, and the
- * upstream `getrlimit`/`setrlimit` are stubs that return 0 and keep nothing. So this reports what holds and
- * does not pretend to change what cannot:
- *
- * - `-f` is the one real limit: the most a file on the machine's storage may hold (`EFBIG` beyond it), which
- *   depends on the device's memory and is the same for every process.
- * - `-c` is 0: no core file is ever written.
- * - the rest are unlimited, because nothing limits them; `-p` and the priorities are fixed.
- *
- * Setting a limit to the value it already has succeeds (`ulimit -c 0`, `ulimit -n unlimited`). Raising one
- * fails as it does for an unprivileged user, and lowering one fails because nothing would enforce it.
+ * `ulimit`, as far as it can be true: nothing in a browser enforces per-process limits and upstream
+ * `getrlimit`/`setrlimit` are stubs.
+ * - `-f` is the one real limit: the most a file may hold (`EFBIG` beyond it), depending on device memory.
+ * - `-c` is 0; the rest are unlimited; `-p` and the priorities are fixed.
+ * Setting a limit to its current value succeeds; raising fails as for an unprivileged user, and lowering fails
+ * because nothing would enforce it.
  */
 
 import type { BuiltinHost, BuiltinIO } from './builtins.js'

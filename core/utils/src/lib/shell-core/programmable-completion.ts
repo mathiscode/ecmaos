@@ -1,11 +1,8 @@
 /**
- * What Tab does when `complete` has registered a spec for the command being typed: bash's programmable
- * completion, minus readline. The spec's actions, glob and word list are static; `-F` runs a shell function
- * that fills `COMPREPLY` from `COMP_WORDS` and `COMP_CWORD`, and `-C` runs a command whose output lines are the
- * candidates. Both run in the shell that is completing, as in bash, so a function can read the shell's variables.
- *
- * Returns whole-line replacements, which is the form the terminal and `ecmash` already cycle through, or
- * `undefined` when no spec applies and the ordinary completion should answer.
+ * What Tab does when `complete` registered a spec for the command: the spec's actions, glob and word list; `-F` runs
+ * a shell function that fills `COMPREPLY` from `COMP_WORDS` and `COMP_CWORD`; `-C` runs a command whose output lines
+ * are the candidates. Both run in the completing shell. Returns whole-line replacements, or `undefined` when no spec
+ * applies.
  */
 
 import { applyAffixes, applyFilter, staticCandidates } from './builtin-complete.js'
@@ -37,7 +34,10 @@ export function splitLine(line: string): string[] {
   return words
 }
 
-/** Runs the spec's function or command, returning what it produced; `undefined` asks for the spec to be looked up again (status 124). */
+/**
+ * Runs the spec's function or command, returning what it produced; `undefined` asks for the spec to be looked up
+ * again (status 124).
+ */
 async function dynamicCandidates(host: BuiltinHost, spec: CompletionSpec, words: string[], line: string): Promise<{ words: string[], retry: boolean }> {
   const state = host.state
   const interpreter = host.interpreter

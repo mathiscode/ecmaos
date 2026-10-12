@@ -1,9 +1,7 @@
 /**
- * Shared plumbing for the real `execve`'d `zip` and `unzip` programs: whole-file I/O over the raw
- * syscalls, recursive `mkdir`, stdout/stderr writers, and the `-l` listing both
- * commands print. Imports `@zip.js/zip.js` once so both bundles configure it identically:
- * `useWebWorkers: false`, because these programs already run inside a worker and zip.js's own
- * nested worker pool would only add a spawn per archive for no parallelism gain.
+ * Shared by `zip` and `unzip`: whole-file I/O over raw syscalls, recursive `mkdir`, stdout/stderr writers and the
+ * `-l` listing. Configures `@zip.js/zip.js` with `useWebWorkers: false`, since these programs already run in a
+ * worker.
  */
 
 import * as zip from '@zip.js/zip.js'

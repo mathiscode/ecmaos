@@ -1,9 +1,6 @@
 /**
- * Where a shell is known to differ from bash on a corpus case, with what it actually does and why.
- *
- * `shell-parity.test.ts` pins the actual output, so fixing a divergence makes the test fail until the
- * entry is deleted here: this table can only shrink. Every entry needs a reason; "not implemented"
- * is a reason, "unknown" is not.
+ * Where a shell differs from bash on a corpus case, with its actual output and a reason. The actual output is pinned,
+ * so fixing a divergence fails the test until the entry is deleted.
  */
 export interface KnownDivergence {
   stdout: string

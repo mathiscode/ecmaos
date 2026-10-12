@@ -8,17 +8,10 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * The worker-syscall-bridge pilot: `/bin/pilot-window.js` (`src/bin/pilot-window.mjs`) is a real,
- * worker-hosted program calling `window_create`/`window_write`/`window_close` - custom syscalls
- * (`main-thread-syscalls.ts`) that cross back onto the main thread for a capability no worker can
- * reach directly (creating a real `WinBox`). This is the design for porting DOM-bound apps/devices (`apps/webamp`, `apps/code`, `devices/bluetooth`, `devices/battery`)
- * onto real `execve`: purpose-built syscalls via `define_syscall`, not a generic RPC device or a
- * permanent non-worker fallback.
- *
- * Also proves the `Process -> Kernel` resolution `main-thread-syscalls.ts` needs: this test file (and
- * `kernel.test.ts`/`protocol.test.ts` elsewhere) constructs more than one `Kernel`, all sharing
- * `@zenfs/linux`'s module-global `syscalls` map - a handler that closed over one `Kernel` instead of
- * resolving it per-`Process` would silently operate on the wrong kernel's `Windows` manager.
+ * `/bin/pilot-window.js` (`src/bin/pilot-window.mjs`) is a worker program calling `window_create`, `window_write` and
+ * `window_close` (`main-thread-syscalls.ts`). Also covers resolving the `Kernel` per `Process`: this file constructs
+ * several kernels sharing the module-global `syscalls` map, so a handler closed over one kernel would act on the
+ * wrong `Windows` manager.
  */
 describe('worker-syscall bridge: a real execve program reaching a main-thread-only DOM capability', () => {
   let kernel: Kernel

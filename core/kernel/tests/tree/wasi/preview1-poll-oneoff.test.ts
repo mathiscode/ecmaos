@@ -7,12 +7,8 @@ import createWasiPreview1Bindings from '#wasi/preview1.ts'
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
- * `poll_oneoff` used to be a bare stub returning ENOSYS (52) unconditionally, which fails any
- * preview1 program that calls it at all - including ones that only use it for a trivial "is my
- * fd ready" check rather than a real blocking wait. This proves the real implementation: it
- * parses the WASI `subscription_t`/`event_t` binary layout correctly and reports every
- * subscription as resolved immediately (this file's fds are never genuinely not-yet-ready outside
- * of stdin, which has its own asyncify-driven blocking path elsewhere in preview1.ts).
+ * `poll_oneoff` parses the WASI `subscription_t`/`event_t` layout and reports every subscription resolved at once
+ * (fds here are never not-yet-ready outside stdin).
  */
 describe('wasi preview1 poll_oneoff', () => {
   let kernel: Kernel

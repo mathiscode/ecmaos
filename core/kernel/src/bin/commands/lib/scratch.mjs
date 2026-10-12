@@ -1,13 +1,6 @@
 /**
- * The read-back half of the scratch-file bridge every kernel-native custom syscall that needs to
- * return more than a plain `number | bigint | void` uses (`storage_usage`/`sockets_*`,
- * see `#lib/main-thread-syscalls.ts`'s own doc comment on why a custom syscall can't just return a
- * string): the main-thread handler writes its JSON result into a real file under `/tmp`, and this
- * reads it back with the plain filesystem syscalls a worker-hosted program already has, then
- * deletes it - no custom syscall needed on the read side at all.
- *
- * Extracted here once three call sites (`df.mjs`, `ps.mjs`, `sockets.mjs`) needed the identical
- * function; was duplicated verbatim in the first two before that.
+ * Reads back and deletes the scratch file a main-thread custom syscall wrote its JSON result to (a syscall can only
+ * return a number); see `#lib/main-thread-syscalls.ts`.
  */
 export async function readBackAndDelete({ open, read, close, unlink }, path) {
   const fd = open(path, 0)

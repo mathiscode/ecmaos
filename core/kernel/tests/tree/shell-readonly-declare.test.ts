@@ -6,11 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * `readonly` and `declare`/`typeset`.
- *
- * The readonly attribute is shell-wide rather than per-scope, matching bash: it lives on the
- * variable, so a later assignment fails wherever it happens, and there is no way to take it back -
- * which is the entire point, since a script marks a name readonly precisely to rely on it.
+ * `readonly` and `declare`/`typeset`. The readonly attribute is shell-wide, as in bash: a later assignment fails
+ * wherever it happens and cannot be undone.
  */
 describe('readonly and declare', () => {
   let kernel: Kernel

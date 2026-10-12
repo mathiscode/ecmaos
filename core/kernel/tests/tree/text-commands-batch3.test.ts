@@ -6,11 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * strings/xxd/od/hash/cmp/comm/column migrated onto real execve, continuing the "migrate
- * opportunistically" plan. hash uses crypto.subtle.digest (Web Crypto), available inside a Web
- * Worker by spec, unlike window/document - no bridge needed. column bundles `columnify` (a plain
- * npm package) the same way df/install already bundle human-format/semver. Same behavioral notes
- * as prior batches: no in-band interrupt handling, no /dev-path special case.
+ * strings, xxd, od, hash, cmp, comm and column as `execve` programs. `hash` uses `crypto.subtle.digest`; `column`
+ * bundles `columnify`.
  */
 describe('text command batch 3: strings/xxd/od/hash/cmp/comm/column, real execve', () => {
   let kernel: Kernel

@@ -10,12 +10,7 @@ describe('Kernel', () => {
     await kernel.boot({ silent: true })
   })
 
-  // TODO: This benchmark runs into an error in zenfs:
-  // Size mismatch in buffer
-  // bench('Boot kernel', async () => {
-    // await kernel.boot({ silent: true })
-    // kernel.shutdown()
-  // })
+  // TODO: the boot benchmark fails with "Size mismatch in buffer" in zenfs.
 
   bench('Execute command', async () => {
     await kernel.execute({ command: '/bin/echo', shell: kernel.shell })

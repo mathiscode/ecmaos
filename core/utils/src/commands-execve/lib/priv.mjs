@@ -85,11 +85,9 @@ export function makePriv(sys, name) {
   }
 
   /**
-   * One password, hidden. It is read from standard input when that is a terminal and from the controlling
-   * terminal (`/dev/tty`) when it is not, and always prompted on the terminal, so `su user -c cmd > file`
-   * still asks where the person can see it. With `fromStdin` (`sudo -S`) it is the next line of standard
-   * input and the prompt goes to standard error. Returns null at end of input or when the line was
-   * interrupted.
+   * Reads one hidden password: from stdin when it is a terminal, else from `/dev/tty`, always prompting on the
+   * terminal. With `fromStdin` (`sudo -S`) it is the next line of stdin and the prompt goes to stderr. Returns null
+   * at end of input or when interrupted.
    */
   function askPassword(prompt, fromStdin = false) {
     try {
@@ -157,7 +155,9 @@ export function makePriv(sys, name) {
     }
   }
 
-  /** The kernel must be able to tell who is asking; otherwise these programs refuse, rather than give root to anyone. */
+  /**
+   * The kernel must be able to tell who is asking; otherwise these programs refuse, rather than give root to anyone.
+   */
   async function supported() {
     if (await custom('credentials_supported') === 1) return true
     err('cannot run programs as another user: the installed @zenfs/core does not support it')
