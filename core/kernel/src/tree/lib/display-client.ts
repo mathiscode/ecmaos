@@ -81,6 +81,15 @@ export async function runDisplay(request: { tty: number, store: string } | { err
     return { done, cancel: () => dispose?.() }
   }
 
+  // Ctrl+Shift+0..7 shows another tty of the machine; the machine keeps every tty's state, so this tab only attaches elsewhere
+  document.addEventListener('keydown', event => {
+    const match = event.ctrlKey && event.shiftKey ? /^Digit([0-7])$/.exec(event.code) : null
+    if (!match) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    if (Number(match[1]) !== tty) globalThis.location.href = displayAddress(globalThis.location.href, Number(match[1]))
+  }, true)
+
   keepDisplay(store, tty, surface, { locks: globalThis.navigator?.locks, present })
   document.title = `ecmaOS tty${tty}`
 }
