@@ -952,6 +952,9 @@ importers:
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
+      smol-toml:
+        specifier: ^1.6.0
+        version: 1.8.0
     devDependencies:
       '@ecmaos/config-typescript':
         specifier: workspace:^

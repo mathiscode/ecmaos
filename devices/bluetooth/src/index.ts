@@ -1,15 +1,46 @@
 /// <reference types="@types/web-bluetooth" />
 
 import { Class } from '@zenfs/linux'
+import { fs } from '@zenfs/core'
+import { sessionOperations } from '@ecmaos-devices/session'
+import type { DeviceSession } from '@ecmaos-devices/session'
+import type { FileOperations } from '@zenfs/linux'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { bluetoothOptionsFor, CONFIG_PATH } from './config.js'
+import { openBluetoothSession } from './session.js'
 
 export { openBluetoothSession } from './session.js'
 export type { BluetoothSessionOptions } from './session.js'
+export { bluetoothOptionsFor, NORDIC_UART, CONFIG_PATH } from './config.js'
 
 export const pkg = {
   name: 'bluetooth',
   version: '0.1.0',
   description: 'Web Bluetooth API device driver'
+}
+
+/** Sessions the `connect` command opened, by device id, so later commands reuse the connection */
+const connected = new Map<string, DeviceSession>()
+
+const hex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join(' ')
+const printable = (bytes: Uint8Array) => bytes.every(byte => byte === 10 || (byte >= 32 && byte < 127))
+
+async function pairedDevice(id: string): Promise<BluetoothDevice | undefined> {
+  return (await navigator.bluetooth.getDevices()).find(device => device.id === id)
+}
+
+async function sessionFor(id: string, terminal: { writeln(text: string): void }): Promise<DeviceSession | undefined> {
+  const existing = connected.get(id)
+  if (existing) return existing
+  const device = await pairedDevice(id)
+  if (!device) {
+    terminal.writeln('Device not found. Pair it first with the scan command')
+    return undefined
+  }
+  const session = await openBluetoothSession(device)
+  connected.set(id, session)
+  return session
 }
 
 export async function cli(options: KernelDeviceCLIOptions) {
@@ -83,15 +114,17 @@ export async function cli(options: KernelDeviceCLIOptions) {
 Usage: /dev/bluetooth <command>
 
 Commands:
-  scan [service]           Scan for Bluetooth devices, optionally filtering by service UUID
-  connect <id>             Connect to a specific Bluetooth device by ID
+  scan [service]           Pair a device, optionally filtering by service UUID
+  connect <id>             Connect to a paired device by ID
   disconnect <id>          Disconnect from a specific Bluetooth device
   services <id>            List services available on connected device
   characteristics <id>     List characteristics for a service
   read <id> <char>         Read value from characteristic
   write <id> <char> <val>  Write value to characteristic
   notify <id> <char>       Subscribe to notifications from characteristic
-  list                     List connected devices
+  list                     List paired devices
+
+Paired devices appear as /dev/ble0, /dev/ble1 ... after a reload. Their stream\nsettings come from /etc/bluetooth.toml (default: Nordic UART).
   --help                   Show this help message
 `
 
@@ -100,183 +133,122 @@ Commands:
     return 0
   }
 
+
   try {
-    switch (args[0]) {
+    const command = args[0]!
+    const need = (count: number, what: string) => {
+      if (args.length <= count) { terminal.writeln(`${what} required`); return false }
+      return true
+    }
+
+    switch (command) {
       case 'scan': {
-        const filters = []
-        if (args[1]) {
-          filters.push({ services: [args[1]] })
-        }
-        
+        terminal.writeln('Requesting Bluetooth device...')
+        let device: BluetoothDevice
         try {
-          terminal.writeln('Requesting Bluetooth device...')
-          const device = await navigator.bluetooth.requestDevice({ 
-            filters: filters.length ? filters : undefined,
-            acceptAllDevices: !filters.length,
+          device = await navigator.bluetooth.requestDevice({
+            ...(args[1] ? { filters: [{ services: [args[1]] }] } : { acceptAllDevices: true }),
             optionalServices: ['generic_access']
           })
-          
-          if (!device) {
-            terminal.writeln('No device selected')
-            return 1
-          }
-          
-          terminal.writeln(`Found device: ${device.name || 'Unnamed'} (${device.id})`)
         } catch (error) {
           if (error instanceof DOMException && error.name === 'NotFoundError') {
-            terminal.writeln('No Bluetooth devices found or user cancelled')
+            terminal.writeln('No device selected')
             return 1
           }
           throw error
         }
+        terminal.writeln(`Paired: ${device.name || 'Unnamed'} (${device.id})`)
         break
       }
 
       case 'connect': {
-        if (!args[1]) {
-          terminal.writeln('Device ID required')
-          return 1
-        }
-        const device = await navigator.bluetooth.requestDevice({ 
-          filters: [{ services: [args[1]] }]
-        })
-        await device.gatt?.connect()
-        terminal.writeln(`Connected to ${device.name || 'Unnamed'}`)
+        if (!need(1, 'Device ID')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
+        terminal.writeln(`Connected to ${session.info.name || 'Unnamed'}`)
         break
       }
 
       case 'disconnect': {
-        if (!args[1]) {
-          terminal.writeln('Device ID required') 
+        if (!need(1, 'Device ID')) return 1
+        const session = connected.get(args[1]!)
+        if (!session) {
+          terminal.writeln('Not connected')
           return 1
         }
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [args[1]] }]
-        })
-        await device.gatt?.disconnect()
-        terminal.writeln(`Disconnected from ${device.name || 'Unnamed'}`)
+        connected.delete(args[1]!)
+        await session.close()
+        terminal.writeln('Disconnected')
         break
       }
 
       case 'services': {
-        if (!args[1]) {
-          terminal.writeln('Device ID required')
-          return 1
-        }
-        
-        try {
-          // First try to get the device from already paired devices
-          const devices = await navigator.bluetooth.getDevices()
-          const device = devices.find(d => d.id === args[1])
-          
-          if (!device) {
-            terminal.writeln('Device not found. Make sure it was previously paired using the scan command')
-            return 1
-          }
-          
-          const server = await device.gatt?.connect()
-          if (!server) {
-            terminal.writeln('Could not connect to device')
-            return 1
-          }
-          
-          const services = await server.getPrimaryServices()
-          terminal.writeln('Available services:')
-          services?.forEach(service => {
-            terminal.writeln(`  ${service.uuid}`)
-          })
-        } catch (error) {
-          terminal.writeln(`Error getting services: ${error instanceof Error ? error.message : String(error)}`)
-          return 1
-        }
+        if (!need(1, 'Device ID')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
+        terminal.writeln('Available services:')
+        for (const uuid of await session.control!('services', []) as string[]) terminal.writeln(`  ${uuid}`)
         break
       }
 
       case 'characteristics': {
-        if (!args[1] || !args[2]) {
-          terminal.writeln('Device ID and service UUID required')
-          return 1
-        }
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [args[1]] }]
-        })
-        const server = await device.gatt?.connect()
-        const service = await server?.getPrimaryService(args[2])
-        const characteristics = await service?.getCharacteristics()
+        if (!need(2, 'Device ID and service UUID')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
         terminal.writeln('Available characteristics:')
-        characteristics?.forEach(char => {
-          terminal.writeln(`  ${char.uuid}`)
-        })
+        const found = await session.control!('characteristics', [args[2]!]) as Array<Record<string, string | boolean>>
+        for (const characteristic of found) {
+          const flags = ['read', 'write', 'writeWithoutResponse', 'notify', 'indicate'].filter(flag => characteristic[flag]).join(',')
+          terminal.writeln(`  ${characteristic.uuid} [${flags}]`)
+        }
         break
       }
 
       case 'read': {
-        if (!args[1] || !args[2] || !args[3]) {
-          terminal.writeln('Device ID, service UUID and characteristic UUID required')
-          return 1
-        }
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [args[1]] }]
-        })
-        const server = await device.gatt?.connect()
-        const service = await server?.getPrimaryService(args[2])
-        const characteristic = await service?.getCharacteristic(args[3])
-        const value = await characteristic?.readValue()
-        terminal.writeln(`Value: ${new TextDecoder().decode(value)}`)
+        if (!need(3, 'Device ID, service UUID and characteristic UUID')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
+        const value = await session.control!('read', [args[2]!, args[3]!]) as Uint8Array
+        terminal.writeln(printable(value) ? `Value: ${new TextDecoder().decode(value)}` : `Value: ${hex(value)}`)
         break
       }
 
       case 'write': {
-        if (!args[1] || !args[2] || !args[3] || !args[4]) {
-          terminal.writeln('Device ID, service UUID, characteristic UUID and value required')
-          return 1
-        }
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [args[1]] }]
-        })
-        const server = await device.gatt?.connect()
-        const service = await server?.getPrimaryService(args[2])
-        const characteristic = await service?.getCharacteristic(args[3])
-        await characteristic?.writeValue(new TextEncoder().encode(args[4]))
+        if (!need(4, 'Device ID, service UUID, characteristic UUID and value')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
+        await session.control!('write', [args[2]!, args[3]!, new TextEncoder().encode(args.slice(4).join(' '))])
         terminal.writeln('Value written successfully')
         break
       }
 
       case 'notify': {
-        if (!args[1] || !args[2] || !args[3]) {
-          terminal.writeln('Device ID, service UUID and characteristic UUID required')
-          return 1
+        if (!need(3, 'Device ID, service UUID and characteristic UUID')) return 1
+        const session = await sessionFor(args[1]!, terminal)
+        if (!session) return 1
+        session.emit = (name, data) => {
+          if (name !== 'notify' || !data || typeof data !== 'object' || Array.isArray(data) || data instanceof Uint8Array) return
+          const value = data.value
+          if (value instanceof Uint8Array) terminal.writeln(`Notification: ${printable(value) ? new TextDecoder().decode(value) : hex(value)}`)
         }
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [args[1]] }]
-        })
-        const server = await device.gatt?.connect()
-        const service = await server?.getPrimaryService(args[2])
-        const characteristic = await service?.getCharacteristic(args[3])
-        await characteristic?.startNotifications()
-        characteristic?.addEventListener('characteristicvaluechanged', (event) => {
-          const value = (event.target as BluetoothRemoteGATTCharacteristic).value
-          terminal.writeln(`Notification: ${new TextDecoder().decode(value)}`)
-        })
-        terminal.writeln('Listening for notifications...')
+        await session.control!('subscribe', [args[2]!, args[3]!])
+        terminal.writeln('Listening for notifications (disconnect to stop)...')
         break
       }
 
       case 'list': {
         const devices = await navigator.bluetooth.getDevices()
         if (!devices.length) {
-          terminal.writeln('No connected devices')
+          terminal.writeln('No paired devices')
           return 0
         }
-        terminal.writeln('Connected devices:')
-        devices.forEach(device => {
-          terminal.writeln(`  ${device.name || 'Unnamed'} (${device.id})`)
-        })
+        terminal.writeln('Paired devices:')
+        for (const device of devices) terminal.writeln(`  ${device.name || 'Unnamed'} (${device.id})${connected.has(device.id) ? ' [connected]' : ''}`)
         break
       }
 
       default:
-        terminal.writeln(`Unknown command: ${args[0]}`)
+        terminal.writeln(`Unknown command: ${command}`)
         terminal.writeln(usage)
         return 1
     }
@@ -291,22 +263,24 @@ Commands:
 /** `/sys/class/bluetooth` */
 const bluetooth_class = new Class('bluetooth')
 
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const drivers: KernelCharDevice[] = [{
-    name: 'bluetooth',
-    major: 216,
-    minor: 0,
-    class: bluetooth_class,
-    ops: {
-      read: () => {
-        // Not implemented: reads return no data
-        return 0
-      },
-      write: () => {
-        // Not implemented: writes are discarded
-      }
-    }
-  }]
+/**
+ * A paired device as a file: `sessionOperations` does the buffering and waiting. Node N is the Nth paired device; the
+ * stream settings come from `/etc/bluetooth.toml` (see `bluetoothOptionsFor`), defaulting to the Nordic UART service.
+ */
+const bluetoothOperations = (): FileOperations => sessionOperations({
+  async open(minor) {
+    const device = (await navigator.bluetooth.getDevices())[minor - 1]
+    if (!device) throw new Error('no such device')
+    const text = await fs.promises.readFile(CONFIG_PATH, 'utf8').catch(() => undefined)
+    return await openBluetoothSession(device, bluetoothOptionsFor(text, device))
+  }
+})
 
-  return drivers
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  if (typeof navigator === 'undefined' || !navigator.bluetooth) return []
+  const devices = typeof navigator.bluetooth.getDevices === 'function' ? await navigator.bluetooth.getDevices() : []
+  return [
+    { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } },
+    ...devices.map((_device, index): KernelCharDevice => ({ name: `ble${index}`, major: 216, minor: index + 1, class: bluetooth_class, ops: bluetoothOperations() }))
+  ]
 }

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "ansi-escape-sequences": "^6.2.4",
+    "smol-toml": "^1.6.0",
     "@ecmaos-devices/session": "workspace:^"
   },
   "files": [
