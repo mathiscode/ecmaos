@@ -12,6 +12,8 @@ export interface UsbSessionOptions {
   in?: number
   /** Endpoint number to write bulk or interrupt transfers to (the OUT endpoint, 1 to 15) */
   out?: number
+  /** Use the interface's first bulk or interrupt IN and OUT endpoints for whichever of `in` and `out` is not given */
+  auto?: boolean
 }
 
 const requestTypes = ['standard', 'class', 'vendor']
@@ -38,7 +40,8 @@ function setupOf(value: Plain | undefined): USBControlTransferParameters {
  * Control transfers, which every device has, are the controls `control-in` and `control-out`; `info`, `reset`, `clear-halt`
  * and `select-alt` round it out.
  */
-export async function openUsbSession(device: USBDevice, options: UsbSessionOptions = {}): Promise<DeviceSession> {
+export async function openUsbSession(device: USBDevice, given: UsbSessionOptions = {}): Promise<DeviceSession> {
+  const options = { ...given }
   await device.open()
   try {
     if (options.configuration !== undefined) await device.selectConfiguration(options.configuration)
@@ -51,6 +54,11 @@ export async function openUsbSession(device: USBDevice, options: UsbSessionOptio
   }
   const iface = options.interface ?? 0
   const alternate = device.configuration?.interfaces.find(candidate => candidate.interfaceNumber === iface)?.alternate
+  if (options.auto) {
+    const first = (direction: 'in' | 'out') => alternate?.endpoints.find(endpoint => endpoint.direction === direction && endpoint.type !== 'isochronous')?.endpointNumber
+    options.in ??= first('in')
+    options.out ??= first('out')
+  }
   const packetSize = (direction: 'in' | 'out', number: number) => alternate?.endpoints.find(endpoint => endpoint.endpointNumber === number && endpoint.direction === direction)?.packetSize ?? 64
   const feed = new Feed(256)
   let closed = false
