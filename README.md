@@ -436,6 +436,9 @@ zip /root/tmp.zip /tmp
 /dev/audio test
 /dev/battery status
 /dev/bluetooth scan
+/dev/bluetooth list
+cat /dev/ble0
+echo hello > /dev/ble0
 /dev/gamepad list
 /dev/geo position
 /dev/gpu test
@@ -451,6 +454,19 @@ echo "This will error" > /dev/full
 head -c 32 /dev/random > /tmp/random.txt
 head -c 32 /dev/zero > /dev/null
 ```
+
+Bluetooth LE devices are byte streams once paired: `/dev/bluetooth scan` pairs one (this needs a click, as the browser requires), and after a reload each paired device is `/dev/ble0`, `/dev/ble1` and so on. Reading a node returns what the device sends and writing sends bytes to it. Which GATT service and characteristics carry the stream comes from `/etc/bluetooth.toml`; without it the Nordic UART service is used, which most serial-over-BLE modules speak. The same file can set a different service for one device, by name or id:
+
+```toml
+chunk = 20
+
+[device."HM-10"]
+service = "ffe0"
+notify = "ffe1"
+write = "ffe1"
+```
+
+`/dev/bluetooth` also has `connect`, `disconnect`, `services`, `characteristics`, `read`, `write` and `notify` for working with any characteristic directly. Node numbers follow the order of the paired list, so forgetting a device renumbers the ones after it.
 
 ## Code Execution Example
 
