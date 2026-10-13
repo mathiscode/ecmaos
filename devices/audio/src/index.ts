@@ -2,18 +2,10 @@ import { Class } from '@zenfs/linux'
 import { sessionOperations } from '@ecmaos-devices/session'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions, Shell } from '@ecmaos/types'
 
-import { openMicrophoneSession, openSpeakerSession } from './session.js'
+import { openMicrophoneSession, openPlayerSession, openSpeakerSession } from './session.js'
 
-export { openMicrophoneSession, openSpeakerSession, toPcm16, fromPcm16 } from './session.js'
-export type { AudioEnvironment, AudioSessionOptions } from './session.js'
-
-interface AudioDeviceState {
-  context: AudioContext
-  sourceNode?: AudioBufferSourceNode
-  stream?: MediaStream
-  recorder?: MediaRecorder
-  latestAudioData?: Uint8Array
-}
+export { openMicrophoneSession, openPlayerSession, openSpeakerSession, toPcm16, fromPcm16 } from './session.js'
+export type { AudioEnvironment, AudioSessionOptions, PlayerOptions } from './session.js'
 
 export const pkg = {
   name: 'audio',
@@ -156,92 +148,15 @@ async function test(kernel: Kernel, shell: Shell) {
 /** `/sys/class/audio` */
 const audio_class = new Class('audio')
 
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  // Created on first use so a host without Web Audio can still register the device
-  let context: AudioContext | undefined
-  const state: AudioDeviceState = {
-    get context() { return context ??= new AudioContext() }
-  }
-
-  const drivers: KernelCharDevice[] = [{
-    name: 'audio',
-    major: 14,
-    minor: 4,
-    class: audio_class,
-    ops: {
-      read: (_file, buffer, start, end) => {
-        try {
-          if (!navigator.mediaDevices?.getUserMedia) return 0
-
-          if (!state.stream || !state.recorder) {
-            navigator.mediaDevices.getUserMedia({
-              audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-              }
-            }).then(stream => {
-              state.stream = stream
-              state.recorder = new MediaRecorder(stream)
-
-              state.recorder.ondataavailable = (event) => {
-                event.data.arrayBuffer().then(buffer => {
-                  state.latestAudioData = new Uint8Array(buffer)
-                })
-              }
-
-              state.recorder.start(100)
-            }).catch(err => {
-              console.error('Failed to initialize audio input:', err)
-            })
-            return 0
-          }
-
-          if (!state.latestAudioData) return 0
-
-          const length = end - start
-          const bytesToCopy = Math.min(length, state.latestAudioData.length)
-          buffer.set(state.latestAudioData.subarray(0, bytesToCopy), start)
-
-          return bytesToCopy
-        } catch (error) {
-          console.error('Audio input error:', error)
-          return 0
-        }
-      },
-      write: (_file, buffer, offset) => {
-        try {
-          const tempBuffer = buffer.slice(offset)
-          const audioData = new ArrayBuffer(tempBuffer.length)
-          new Uint8Array(audioData).set(tempBuffer)
-
-          state.context.decodeAudioData(audioData,
-            (audioBuffer) => {
-              const sourceNode = state.context.createBufferSource()
-              sourceNode.buffer = audioBuffer
-              sourceNode.connect(state.context.destination)
-
-              state.sourceNode = sourceNode
-              sourceNode.start()
-            },
-            (error) => {
-              console.error('Audio decoding error:', error)
-            }
-          )
-        } catch (error) {
-          console.error('Audio playback error:', error)
-        }
-      }
-    }
-  }]
-
-  // Raw sound, 16 bit little endian mono at 16000 Hz, for tools that want samples and not a file format: what is written to
-  // /dev/dsp is played, and /dev/dspin reads the microphone (asking for it only when opened, as the browser requires)
-  const raw = sessionOperations({ open: async minor => minor === 3 ? await openSpeakerSession() : await openMicrophoneSession() })
-  drivers.push(
-    { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: raw },
-    { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: raw }
-  )
-
-  return drivers
+// Linux's sound majors: 14 minor 3 is /dev/dsp, 4 is /dev/audio, 5 is /dev/dspin (the microphone, as this system names it).
+// Each node has its own operations, so no minor number decides what a node is.
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const player = sessionOperations({ open: async () => await openPlayerSession({ onError: error => ctx.log.error(`audio: cannot play the file: ${error.message}`) }) })
+  const speakers = sessionOperations({ open: async () => await openSpeakerSession() })
+  const microphone = sessionOperations({ open: async () => await openMicrophoneSession() })
+  return [
+    { name: 'audio', major: 14, minor: 4, class: audio_class, ops: player },
+    { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: speakers },
+    { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: microphone }
+  ]
 }

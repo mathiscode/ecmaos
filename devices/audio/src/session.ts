@@ -3,12 +3,12 @@ import type { DeviceSession } from '@ecmaos-devices/session'
 
 /** Where the audio comes from and goes to; the browser's by default, replaceable so the sessions can be tried without a sound card */
 export interface AudioEnvironment {
-  createContext(sampleRate: number): AudioContext
+  createContext(sampleRate?: number): AudioContext
   getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream>
 }
 
 const browser = (): AudioEnvironment => ({
-  createContext: sampleRate => new AudioContext({ sampleRate }),
+  createContext: sampleRate => new AudioContext(sampleRate === undefined ? {} : { sampleRate }),
   getUserMedia: async constraints => {
     const devices = (globalThis as unknown as { navigator?: { mediaDevices?: MediaDevices } }).navigator?.mediaDevices
     if (!devices?.getUserMedia) throw new SessionError('ENODEV', 'this machine has no microphone access')
@@ -143,6 +143,67 @@ export async function openSpeakerSession(options: AudioSessionOptions = {}): Pro
     async close() {
       closed = true
       await context.close().catch(() => {})
+    }
+  }
+}
+
+/** The most an encoded file may be before the player refuses more, in bytes */
+const MaxFile = 64 * 1024 * 1024
+
+export interface PlayerOptions {
+  environment?: AudioEnvironment
+  /** Called when the file that was written could not be decoded */
+  onError?: (error: Error) => void
+}
+
+/**
+ * An audio player for whole files (WAV, MP3, Ogg, anything the browser decodes), as `/dev/audio` is: what is written is
+ * collected, and when the last writer closes the file it is decoded and played. Write only; control `volume` sets the level
+ * from 0 to 1 and `info` the state.
+ */
+export async function openPlayerSession(options: PlayerOptions = {}): Promise<DeviceSession> {
+  const environment = options.environment ?? browser()
+  const parts: Uint8Array[] = []
+  let size = 0
+  let volume = 1
+  return {
+    info: { kind: 'audio-file', read: false, write: true },
+    async write(data) {
+      if (size + data.length > MaxFile) throw new SessionError('EFBIG', 'the audio file is too large')
+      parts.push(data)
+      size += data.length
+    },
+    async control(op, args) {
+      if (op === 'volume') {
+        const level = args[0]
+        if (typeof level !== 'number' || !(level >= 0 && level <= 1)) throw new SessionError('EINVAL', 'the volume is a number from 0 to 1')
+        volume = level
+        return null
+      }
+      if (op === 'info') return { volume, bytes: size }
+      throw new SessionError('ENOSYS', `no such operation: ${op.slice(0, 32)}`)
+    },
+    async close() {
+      if (!size) return
+      const bytes = new Uint8Array(size)
+      let at = 0
+      for (const part of parts) { bytes.set(part, at); at += part.length }
+      const context = environment.createContext()
+      try {
+        const decoded = await context.decodeAudioData(bytes.buffer as ArrayBuffer)
+        const gain = context.createGain()
+        gain.gain.value = volume
+        gain.connect(context.destination)
+        const node = context.createBufferSource()
+        node.buffer = decoded
+        node.connect(gain)
+        node.onended = () => { void context.close().catch(() => {}) }
+        await context.resume().catch(() => {})
+        node.start()
+      } catch (error) {
+        void context.close().catch(() => {})
+        options.onError?.(error instanceof Error ? error : new Error(String(error)))
+      }
     }
   }
 }
