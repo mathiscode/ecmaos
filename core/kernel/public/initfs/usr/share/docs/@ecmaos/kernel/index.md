@@ -439,6 +439,11 @@ zip /root/tmp.zip /tmp
 /dev/bluetooth list
 cat /dev/ble0
 echo hello > /dev/ble0
+cat /dev/battery | xxd
+cat /dev/geo
+cat /dev/sensor-accelerometer
+cat song.mp3 > /dev/audio
+cat /dev/usb0
 /dev/gamepad list
 /dev/geo position
 /dev/gpu test
@@ -467,6 +472,25 @@ write = "ffe1"
 ```
 
 `/dev/bluetooth` also has `connect`, `disconnect`, `services`, `characteristics`, `read`, `write` and `notify` for working with any characteristic directly. Node numbers follow the order of the paired list, so forgetting a device renumbers the ones after it.
+
+Other devices that have a live source are nodes too, and a node's session is opened when a program opens it and closed with the last descriptor, so nothing runs while nobody reads:
+
+- **`/dev/battery`** and **`/dev/geo`** give one reading and then the end of the file, so `cat` returns. `battery` is 18 bytes (level 0 to 100, charging 0 or 1, then seconds to full and to empty as little-endian float64, Infinity when unknown); `geo` is one JSON line with latitude, longitude, accuracy and the rest, and waits for a fix.
+- **`/dev/sensor-<kind>`** (`accelerometer`, `gyroscope`, `magnetometer`, `linear`, `gravity`, `orientation`, `light`) exists for each Generic Sensor class the browser has, and streams a JSON line per reading until the reader goes away. The permission has to be granted first; a refusal reads as `EACCES`.
+- **`/dev/audio`** plays what is written to it: write a whole audio file (up to 64 MiB, any format the browser decodes) and it is decoded and played when the file is closed. `/dev/dsp` takes raw signed 16-bit mono samples to the speakers, and `/dev/dspin` gives the microphone in the same format.
+- **`/dev/usb0`, `/dev/usb1`** are the USB devices you have granted (`/dev/usb request`), as byte streams: reads return what the device's IN endpoint sends and writes go to its OUT endpoint. By default the first bulk or interrupt endpoints of the interface are used; `/etc/usb.toml` changes that, for every device or for one by `vendor:product` id or product name:
+
+```toml
+interface = 0
+
+[device."2341:0043"]
+in = 1
+out = 2
+```
+
+- **`/dev/hidraw<N>`**, **`/dev/midi<N>`**, **`/dev/js<N>`** and **`/dev/ttyS<N>`** are the HID devices, MIDI ports, gamepads and serial ports the browser has already allowed.
+
+Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. Node numbers follow the browser's list order, so forgetting a device renumbers the ones after it.
 
 ## Code Execution Example
 
