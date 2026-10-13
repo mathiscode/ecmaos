@@ -81,11 +81,37 @@ export class Feed {
   }
 }
 
+/**
+ * A session cut down to its first chunk: what a node reads when the device is a state and not a stream (the battery, a
+ * position). Each open gives the state as it is then, and then the end of the file, so `cat` returns. The device is let go as
+ * soon as that chunk has been taken.
+ */
+export function firstReading(session: DeviceSession): DeviceSession {
+  const { read, ...rest } = session
+  if (!read) return session
+  let taken = false
+  return {
+    ...rest,
+    async read() {
+      if (taken) return undefined
+      taken = true
+      const chunk = await read.call(session)
+      await Promise.resolve(session.close()).catch(() => {})
+      return chunk
+    }
+  }
+}
+
 export interface SessionNodeOptions {
   /** Opens the device behind minor number `minor` when its node is first opened. Rejects if it cannot be opened. */
   open(minor: number): Promise<DeviceSession>
   /** The most that may be waiting to be written to the device before a writer has to wait; default 64 KiB */
   maxPending?: number
+  /**
+   * How long a session that no `open` announced (see below) may go without a read, write or poll before it is closed;
+   * default 3000 ms
+   */
+  idleMs?: number
 }
 
 /** What an open `/dev` node is: the session, opened when the node is, and the bytes it has produced that nobody has read yet */
@@ -99,7 +125,10 @@ interface Link {
   /** The device has ended (unplugged, closed) or could not be opened */
   ended: boolean
   failure?: string
+  /** Opens announced by `open` and not yet by `release`; a link with none is held only by use, and goes when idle */
   references: number
+  touched: number
+  timer?: ReturnType<typeof setTimeout>
 }
 
 /**
@@ -107,15 +136,21 @@ interface Link {
  * nothing to give sleeps until the device has some (or has ended: then it reads as the end of the file); a write is handed to
  * the device, taking only what it has room for. Several opens of one node share one session, which ends with the last close.
  * Dispatch is by `file.devt.minor`, so one set of operations serves every node of a driver.
+ *
+ * The file system does not call `open` and `release` on a device node, so there are two ways a session begins and ends. The
+ * kernel announces opens and closes of descriptors held by programs by calling `open` and `release` itself; the session then
+ * lives from the first to the last. Any other caller (code that reads the file system object directly) just reads or writes: the
+ * first access opens the session, and one that goes `idleMs` without a read, write or poll is closed.
  */
 export function sessionOperations(options: SessionNodeOptions): FileOperations {
   const maxPending = options.maxPending ?? 64 * 1024
+  const idleMs = options.idleMs ?? 3000
   const links = new Map<number, Link>()
 
   const start = async (minor: number, link: Link) => {
     try {
       const session = await options.open(minor)
-      if (link.references === 0) { void Promise.resolve(session.close()).catch(() => {}); return }
+      if (links.get(minor) !== link) { void Promise.resolve(session.close()).catch(() => {}); return }
       link.session = session
       link.queue.wake_up()
       if (!session.read) return
@@ -134,29 +169,56 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     }
   }
 
+  const drop = (minor: number, found: Link) => {
+    if (links.get(minor) === found) links.delete(minor)
+    clearTimeout(found.timer)
+    void Promise.resolve(found.session?.close()).catch(() => {})
+    found.ended = true
+    found.queue.wake_up()
+  }
+
+  /** Closes a link nobody announced an open for once it has been left alone for `idleMs` */
+  const watch = (minor: number, found: Link) => {
+    clearTimeout(found.timer)
+    if (found.references > 0) return
+    found.timer = setTimeout(() => {
+      if (found.references > 0) return
+      if (Date.now() - found.touched < idleMs) watch(minor, found)
+      else drop(minor, found)
+    }, idleMs)
+    ;(found.timer as { unref?: () => void }).unref?.()
+  }
+
+  const create = (minor: number) => {
+    const found: Link = { chunks: [], size: 0, pending: 0, queue: new WaitQueue(), ended: false, references: 0, touched: Date.now() }
+    links.set(minor, found)
+    void start(minor, found)
+    return found
+  }
+
   const link = (file: { devt: { minor: number } }) => {
-    const found = links.get(file.devt.minor)
-    if (!found) throw withErrno('EBADF')
+    const minor = file.devt.minor
+    const found = links.get(minor) ?? create(minor)
+    found.touched = Date.now()
+    watch(minor, found)
     return found
   }
 
   return {
     open: file => {
-      let found = links.get(file.devt.minor)
-      if (!found) {
-        found = { chunks: [], size: 0, pending: 0, queue: new WaitQueue(), ended: false, references: 0 }
-        links.set(file.devt.minor, found)
-        void start(file.devt.minor, found)
-      }
+      const minor = file.devt.minor
+      let found = links.get(minor)
+      // A leftover from a lazy use that has ended is not what an open should get
+      if (found && found.references === 0 && found.ended && found.size === 0) { drop(minor, found); found = undefined }
+      found ??= create(minor)
       found.references++
+      clearTimeout(found.timer)
     },
     release: file => {
-      const found = links.get(file.devt.minor)
+      const minor = file.devt.minor
+      const found = links.get(minor)
       if (!found || --found.references > 0) return
-      links.delete(file.devt.minor)
-      void Promise.resolve(found.session?.close()).catch(() => {})
-      found.ended = true
-      found.queue.wake_up()
+      drop(minor, found)
     },
     read: (file, buffer, start, end) => {
       const found = link(file)
@@ -192,6 +254,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     poll: file => {
       const found = links.get(file.devt.minor)
       if (!found) return EPOLLIN | EPOLLOUT
+      found.touched = Date.now()
       let events = 0
       if (found.size > 0 || found.ended) events |= EPOLLIN
       if (found.ended || (found.session?.write && found.pending < maxPending)) events |= EPOLLOUT

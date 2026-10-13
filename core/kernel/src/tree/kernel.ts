@@ -36,6 +36,7 @@ import { Components } from '#components.ts'
 import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
+import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
@@ -2294,6 +2295,7 @@ export class Kernel implements IKernel {
         this.log.warn(`Device major ${key} already registered: ${error instanceof Error ? error.message : String(error)}`)
         continue
       }
+      registerHeldOperations(major, ops)
 
       // `Device.register()` links a device into `/sys/bus/<name>/devices` from its `bus` field alone, giving each
       // web-capability device a `/sys/devices` and `/sys/class` entry.

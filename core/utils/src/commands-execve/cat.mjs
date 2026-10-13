@@ -35,7 +35,9 @@ function catFile(fullPath) {
   const info = stat(fullPath)
   // A pipe (`/dev/stdin` behind one) reports size 0 and has no length to stop at (its type bits read 0x9000, so test the FIFO bit), so it reads to EOF.
   const isPipe = (info.mode & 0x1000) !== 0
-  const size = isPipe ? Infinity : info.size
+  // A device (a character device such as a session node) has no length either, so it reads to EOF too
+  const isDevice = (info.mode & 0o170000) === 0o020000
+  const size = isPipe || isDevice ? Infinity : info.size
   const fd = open(fullPath, O_RDONLY)
   const chunkSize = 65536
   try {
