@@ -31,13 +31,18 @@ describe('manifest devices enforcement', () => {
     await dispatch(fakeProcess(exe), name as never, [])
   }
 
-  /** `/dev/battery`'s own read writes 18 bytes; readFile's default chunking undersizes the buffer
-   *  it's called with, unrelated to this policy check - read explicitly instead. */
+  /** `/dev/battery` opens its session on first use and has a record a moment later; a device read reports the whole length
+   *  asked for, so what arrived is told by the bytes. Read explicitly, since readFile's chunking undersizes the buffer. */
   async function readBattery() {
+    // A lazily opened session is closed after its idle time; wait it out so each read starts one with a fresh record
+    await new Promise(resolve => setTimeout(resolve, 400))
     const handle = await kernel.filesystem.fs.open('/dev/battery', 'r')
     try {
       const buffer = new Uint8Array(32)
-      await handle.read(buffer, 0, 32, 0)
+      for (let tries = 0; tries < 100 && !buffer.some(byte => byte !== 0); tries++) {
+        await handle.read(buffer, 0, 32, 0)
+        if (!buffer.some(byte => byte !== 0)) await new Promise(resolve => setTimeout(resolve, 20))
+      }
       return buffer
     } finally {
       await handle.close()

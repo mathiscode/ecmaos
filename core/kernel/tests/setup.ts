@@ -58,7 +58,7 @@ Object.defineProperty(window, 'navigator', {
       requestDevice: vi.fn(() => Promise.resolve(null)),
     },
     // Battery API
-    getBattery: vi.fn(() => Promise.resolve({
+    getBattery: vi.fn(() => Promise.resolve(Object.assign(new EventTarget(), {
       charging: true,
       chargingTime: Infinity,
       dischargingTime: Infinity,
@@ -67,7 +67,7 @@ Object.defineProperty(window, 'navigator', {
       onchargingtimechange: null,
       ondischargingtimechange: null,
       onlevelchange: null,
-    })),
+    }))),
     // Bluetooth API
     bluetooth: {
       getDevices: vi.fn(() => Promise.resolve([])),

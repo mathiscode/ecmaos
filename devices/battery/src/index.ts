@@ -18,8 +18,8 @@ declare global {
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
-import { batteryRecord } from './session.js'
-import type { BatteryLike } from './session.js'
+import { sessionOperations, firstReading } from '@ecmaos-devices/session'
+import { openBatterySession } from './session.js'
 
 export { openBatterySession, batteryRecord } from './session.js'
 export type { BatteryLike } from './session.js'
@@ -94,25 +94,14 @@ Commands:
 /** `/sys/class/battery` */
 const battery_class = new Class('battery')
 
+// A read gives the 18-byte record as it is when the node is opened, and then the end of the file
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (!('getBattery' in navigator)) return []
-
-  const battery = await navigator.getBattery()
-
+  if (typeof navigator === 'undefined' || !('getBattery' in navigator)) return []
   return [{
     name: 'battery',
     major: 10,
     minor: 100,
     class: battery_class,
-    ops: {
-      // level as a percentage (0-100), charging as 0/1, then chargingTime and dischargingTime in
-      // seconds as float64s - Infinity (unknown) round-trips correctly, unlike a single byte each
-      read: (_file, buffer, start, end) => {
-        const count = Math.min(18, end - start)
-        buffer.set(batteryRecord(battery as unknown as BatteryLike).subarray(0, count), start)
-        return count
-      },
-      write: () => {}
-    }
+    ops: sessionOperations({ open: async () => firstReading(await openBatterySession()), idleMs: 250 })
   }]
 }

@@ -1,10 +1,9 @@
-interface GeoCoordinates extends GeolocationCoordinates {
-  toJSON: () => string
-}
-
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
+import { sessionOperations, firstReading } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { openGeoSession } from './session.js'
 
 export { openGeoSession } from './session.js'
 
@@ -91,67 +90,15 @@ Commands:
 /** `/sys/class/geo` */
 const geo_class = new Class('geo')
 
+// A read waits for a fix and gives it as one JSON line, and then the end of the file; the position is asked for when the node is
+// opened, so nothing is watched while no one reads
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (!('geolocation' in navigator)) return []
-
-  let lastPosition: GeoCoordinates = {
-    latitude: 0,
-    longitude: 0,
-    accuracy: 0,
-    altitude: null,
-    altitudeAccuracy: null,
-    heading: null,
-    speed: null,
-    toJSON: function() {
-      return JSON.stringify({
-        latitude: this.latitude,
-        longitude: this.longitude,
-        accuracy: this.accuracy,
-        altitude: this.altitude
-      })
-    }
-  }
-
-  // Only start watching if permission is already granted
-  const permission = await navigator.permissions.query({ name: 'geolocation' })
-  if (permission.state === 'granted') {
-    navigator.geolocation.watchPosition(
-      (position) => {
-        lastPosition = {
-          ...position.coords,
-          toJSON: function() {
-            return JSON.stringify({
-              latitude: this.latitude,
-              longitude: this.longitude,
-              accuracy: this.accuracy,
-              altitude: this.altitude
-            })
-          }
-        }
-      },
-      (error) => {
-        console.warn('Geolocation error:', error)
-      }
-    )
-  }
-
+  if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return []
   return [{
     name: 'geo',
     major: 10,
     minor: 101,
     class: geo_class,
-    ops: {
-      read: (_file, buffer, start, end) => {
-        // Four little-endian float64s: latitude, longitude, accuracy, altitude (0 when unknown). A DataView, since the buffer
-        // need not be aligned for a Float64Array.
-        const record = new DataView(new ArrayBuffer(32))
-        const values = [lastPosition.latitude, lastPosition.longitude, lastPosition.accuracy, lastPosition.altitude || 0]
-        values.forEach((value, index) => record.setFloat64(index * 8, value, true))
-        const count = Math.min(32, end - start)
-        buffer.set(new Uint8Array(record.buffer, 0, count), start)
-        return count
-      },
-      write: () => {}
-    }
+    ops: sessionOperations({ open: async () => firstReading(await openGeoSession()) })
   }]
 }

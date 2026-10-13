@@ -2,7 +2,11 @@
 
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
+import type { DeviceSession } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
+
+import { openSensorSession, SensorKinds } from './session.js'
 
 export { openSensorSession, SensorKinds } from './session.js'
 export type { SensorSessionOptions } from './session.js'
@@ -13,8 +17,25 @@ export const pkg = {
   description: 'Device sensors driver'
 }
 
-type SensorType = 'accelerometer' | 'gyroscope' | 'linear' | 'orientation'
-// type SensorEventCallback = (event: Event) => void
+const kinds = Object.keys(SensorKinds)
+const available = (kind: string) => SensorKinds[kind]!.cls in globalThis
+
+const decoder = new TextDecoder()
+const watches = new Map<number, DeviceSession>()
+let watchCounter = 0
+
+/** One reading, from the JSON line a sensor session gives */
+function describe(kind: string, line: string): string {
+  const reading = JSON.parse(line) as Record<string, number | number[] | null>
+  const num = (value: unknown, digits: number) => typeof value === 'number' ? value.toFixed(digits) : 'N/A'
+  const lines = [`${ansi.style.bold}${kind} reading:${ansi.style.reset}`, `  Time: ${ansi.style.cyan}${new Date(Number(reading['t'])).toISOString()}${ansi.style.reset}`]
+  for (const field of SensorKinds[kind]!.fields) {
+    const value = reading[field]
+    if (Array.isArray(value)) value.forEach((part, index) => lines.push(`  ${field}[${index}]: ${ansi.style.cyan}${num(part, 3)}${ansi.style.reset}`))
+    else lines.push(`  ${field}: ${ansi.style.cyan}${num(value, 2)}${ansi.style.reset}`)
+  }
+  return lines.join('\n')
+}
 
 export async function cli(options: KernelDeviceCLIOptions) {
   const { args, terminal } = options
@@ -28,6 +49,8 @@ Commands:
   watch <sensor>     Start watching sensor changes
   unwatch <id>       Stop watching sensor changes
   --help             Show this help message
+
+Each available sensor is also a file, /dev/sensor-<name>, that reads one JSON line per reading.
 `
 
   if (!args.length || args[0] === '--help') {
@@ -35,71 +58,79 @@ Commands:
     return 0
   }
 
+  const sensorArg = () => {
+    const kind = args[1]
+    if (!kind) { terminal.writeln('Please specify a sensor'); return undefined }
+    if (!SensorKinds[kind]) {
+      terminal.writeln(`Invalid sensor type: ${kind}`)
+      terminal.writeln(`Available sensors: ${kinds.join(', ')}`)
+      return undefined
+    }
+    return kind
+  }
+
   try {
-    switch(args[0]) {
+    switch (args[0]) {
       case 'list':
-        const sensors: SensorType[] = []
-        if ('Accelerometer' in globalThis) sensors.push('accelerometer')
-        if ('Gyroscope' in globalThis) sensors.push('gyroscope')
-        if ('LinearAccelerationSensor' in globalThis) sensors.push('linear')
-        if ('AbsoluteOrientationSensor' in globalThis) sensors.push('orientation')
-        
-        terminal.writeln(`${ansi.style.bold}📱 Available Sensors:${ansi.style.reset}`)
-        sensors.forEach(sensor => terminal.writeln(`  - ${sensor}`))
+        terminal.writeln(`${ansi.style.bold}Available Sensors:${ansi.style.reset}`)
+        kinds.filter(available).forEach(kind => terminal.writeln(`  - ${kind}`))
         break
 
-      case 'read':
-        if (!args[1]) {
-          terminal.writeln('Please specify a sensor')
-          return 1
+      case 'read': {
+        const kind = sensorArg()
+        if (!kind) return 1
+        const session = await openSensorSession(kind)
+        try {
+          const timeout = new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 5000))
+          const chunk = await Promise.race([session.read!(), timeout])
+          terminal.writeln(chunk ? describe(kind, decoder.decode(chunk)) : 'Sensor reading timed out')
+        } finally {
+          await session.close()
         }
-        const sensorToRead = args[1] as SensorType
-        if (!isSensorType(sensorToRead)) {
-          terminal.writeln(`Invalid sensor type: ${args[1]}`)
-          terminal.writeln('Available sensors: accelerometer, gyroscope, linear, orientation')
-          return 1
-        }
-        await readSensor(sensorToRead, terminal)
         break
+      }
 
-      case 'watch':
-        if (!args[1]) {
-          terminal.writeln('Please specify a sensor')
-          return 1
-        }
-        const sensorToWatch = args[1] as SensorType
-        if (!isSensorType(sensorToWatch)) {
-          terminal.writeln(`Invalid sensor type: ${args[1]}`)
-          terminal.writeln('Available sensors: accelerometer, gyroscope, linear, orientation')
-          return 1
-        }
-        const newWatchId = await watchSensor(sensorToWatch, terminal)
-        terminal.writeln(`Started watching ${args[1]} (ID: ${newWatchId})`)
+      case 'watch': {
+        const kind = sensorArg()
+        if (!kind) return 1
+        const session = await openSensorSession(kind)
+        const id = ++watchCounter
+        watches.set(id, session)
+        void (async () => {
+          for (;;) {
+            const chunk = await session.read!()
+            if (!chunk) break
+            terminal.writeln(describe(kind, decoder.decode(chunk)))
+          }
+          watches.delete(id)
+        })()
+        terminal.writeln(`Started watching ${kind} (ID: ${id})`)
         break
+      }
 
-      case 'unwatch':
+      case 'unwatch': {
         if (!args[1]) {
           terminal.writeln('Please provide a watch ID')
           return 1
         }
-        const watchIdToRemove = Number(args[1])
-        const sensor = activeSensors.get(watchIdToRemove)
-        if (sensor) {
-          sensor.stop()
-          activeSensors.delete(watchIdToRemove)
-          terminal.writeln(`Stopped watching sensor (ID: ${watchIdToRemove})`)
-        } else {
-          terminal.writeln(`No sensor found with ID: ${watchIdToRemove}`)
+        const id = Number(args[1])
+        const session = watches.get(id)
+        if (!session) {
+          terminal.writeln(`No sensor found with ID: ${id}`)
           return 1
         }
+        watches.delete(id)
+        await session.close()
+        terminal.writeln(`Stopped watching sensor (ID: ${id})`)
         break
+      }
 
       default:
         terminal.writeln(`Unknown command: ${args[0]}`)
         terminal.writeln(usage)
         return 1
     }
-    
+
     return 0
   } catch (error) {
     terminal.writeln(`Error: ${error instanceof Error ? error.message : String(error)}`)
@@ -110,220 +141,14 @@ Commands:
 /** `/sys/class/sensors` */
 const sensors_class = new Class('sensors')
 
+// Major 0 is a major of the package's own. The control node is minor 0; each sensor this browser has is a node of its own, by
+// the sensor's place in the list of all kinds, so a number means the same sensor on every machine. Opening one starts the
+// sensor (after its permission check) and closing the last open stops it.
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  return [{
-    name: 'sensors',
-    major: 10,
-    minor: 102,
-    class: sensors_class,
-    ops: {
-      read: () => 0,
-      write: () => {}
-    }
-  }]
-}
-
-const activeSensors = new Map<number, any>()
-let watchCounter = 0
-
-async function readSensor(sensorType: SensorType, terminal: any) {
-  try {
-    // First create the sensor instance
-    let sensor
-    switch (sensorType) {
-      case 'accelerometer':
-        sensor = new Accelerometer({ frequency: 60 })
-        break
-      case 'gyroscope':
-        sensor = new Gyroscope({ frequency: 60 })
-        break
-      case 'linear':
-        sensor = new LinearAccelerationSensor({ frequency: 60 })
-        break
-      case 'orientation':
-        sensor = new AbsoluteOrientationSensor({ frequency: 60 })
-        break
-      default:
-        terminal.writeln(`Invalid sensor type: ${sensorType}`)
-        return
-    }
-
-    // Then check permissions
-    let permissions: Promise<PermissionStatus>[] = []
-    switch(sensorType) {
-      case 'orientation':
-        permissions = [
-          navigator.permissions.query({ name: 'accelerometer' as PermissionName }),
-          navigator.permissions.query({ name: 'magnetometer' as PermissionName }),
-          navigator.permissions.query({ name: 'gyroscope' as PermissionName })
-        ]
-        break
-      case 'accelerometer':
-      case 'linear':
-        permissions = [navigator.permissions.query({ name: 'accelerometer' as PermissionName })]
-        break
-      case 'gyroscope':
-        permissions = [navigator.permissions.query({ name: 'gyroscope' as PermissionName })]
-        break
-    }
-
-    const results = await Promise.all(permissions)
-    if (!results.every((result) => result.state === 'granted')) {
-      terminal.writeln('Required sensor permissions not granted')
-      return
-    }
-
-    return new Promise<void>((resolve) => {
-      const handleReading = function(this: typeof sensor) {
-        displaySensorData(sensor, sensorType, terminal)
-        sensor.stop()
-        ;(sensor as any).removeEventListener('reading', handleReading)
-        resolve()
-      }
-
-      const handleError = (error: Error) => {
-        terminal.writeln(`Sensor error: ${error.message}`)
-        sensor.stop()
-        ;(sensor as any).removeEventListener('reading', handleReading)
-        ;(sensor as any).removeEventListener('error', handleError)
-        resolve()
-      }
-
-      ;(sensor as any).addEventListener('reading', handleReading)
-      ;(sensor as any).addEventListener('error', handleError)
-      
-      sensor.start()
-      terminal.writeln('Reading sensor...')
-
-      setTimeout(() => {
-        sensor.stop()
-        ;(sensor as any).removeEventListener('reading', handleReading)
-        ;(sensor as any).removeEventListener('error', handleError)
-        terminal.writeln('Sensor reading timed out')
-        resolve()
-      }, 5000)
-    })
-  } catch (error) {
-    terminal.writeln(`Error reading sensor: ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
-async function watchSensor(sensorType: SensorType, terminal: any) {
-  try {
-    const sensor = await createSensor(sensorType)
-    if (!sensor) {
-      terminal.writeln(`Sensor ${sensorType} not available`)
-      return -1
-    }
-
-    const watchId = ++watchCounter
-    activeSensors.set(watchId, sensor)
-
-    const handleReading = function(this: typeof sensor, _: Event) {
-      displaySensorData(sensor, sensorType, terminal)
-    }
-
-    ;(sensor as any).addEventListener('reading', handleReading)
-    sensor.start()
-    return watchId
-  } catch (error) {
-    terminal.writeln(`Error watching sensor: ${error instanceof Error ? error.message : String(error)}`)
-    return -1
-  }
-}
-
-async function requestSensorPermissions(sensorType: SensorType): Promise<boolean> {
-  try {
-    let permissions: Promise<PermissionStatus>[] = []
-    
-    switch(sensorType) {
-      case 'orientation':
-        permissions = [
-          navigator.permissions.query({ name: 'accelerometer' as PermissionName }),
-          navigator.permissions.query({ name: 'magnetometer' as PermissionName }),
-          navigator.permissions.query({ name: 'gyroscope' as PermissionName })
-        ]
-        break
-      case 'accelerometer':
-        permissions = [navigator.permissions.query({ name: 'accelerometer' as PermissionName })]
-        break
-      case 'gyroscope':
-        permissions = [navigator.permissions.query({ name: 'gyroscope' as PermissionName })]
-        break
-      case 'linear':
-        permissions = [navigator.permissions.query({ name: 'accelerometer' as PermissionName })]
-        break
-    }
-
-    const results = await Promise.all(permissions)
-    return results.every((result) => result.state === 'granted')
-  } catch (error) {
-    console.error('Error requesting permissions:', error)
-    return false
-  }
-}
-
-async function createSensor(sensorType: SensorType) {
-  const hasPermission = await requestSensorPermissions(sensorType)
-  if (!hasPermission) {
-    console.log(`No permissions granted for ${sensorType}`)
-    return null
-  }
-
-  let sensor
-  switch (sensorType) {
-    case 'accelerometer':
-      sensor = new Accelerometer({ frequency: 60 })
-      console.log('Created accelerometer:', sensor)
-      return sensor
-    case 'gyroscope':
-      sensor = new Gyroscope({ frequency: 60 })
-      console.log('Created gyroscope:', sensor)
-      return sensor
-    case 'linear':
-      sensor = new LinearAccelerationSensor({ frequency: 60 })
-      console.log('Created linear sensor:', sensor)
-      return sensor
-    case 'orientation':
-      sensor = new AbsoluteOrientationSensor({ frequency: 60 })
-      console.log('Created orientation sensor:', sensor)
-      return sensor
-    default:
-      return null
-  }
-}
-
-function displaySensorData(sensor: any, sensorType: SensorType, terminal: any) {
-  const timestamp = new Date().toISOString()
-
-  switch (sensorType) {
-    case 'accelerometer':
-    case 'linear':
-      terminal.writeln(`${ansi.style.bold}📊 ${sensorType.charAt(0).toUpperCase() + sensorType.slice(1)} Reading:${ansi.style.reset}
-        🕒 Time: ${ansi.style.cyan}${timestamp}${ansi.style.reset}
-        X: ${ansi.style.cyan}${sensor.x.toFixed(2)}${ansi.style.reset} m/s²
-        Y: ${ansi.style.cyan}${sensor.y.toFixed(2)}${ansi.style.reset} m/s²
-        Z: ${ansi.style.cyan}${sensor.z.toFixed(2)}${ansi.style.reset} m/s²`)
-      break
-    case 'gyroscope':
-      terminal.writeln(`${ansi.style.bold}📊 Gyroscope Reading:${ansi.style.reset}
-        🕒 Time: ${ansi.style.cyan}${timestamp}${ansi.style.reset}
-        X: ${ansi.style.cyan}${sensor.x.toFixed(2)}${ansi.style.reset} rad/s
-        Y: ${ansi.style.cyan}${sensor.y.toFixed(2)}${ansi.style.reset} rad/s
-        Z: ${ansi.style.cyan}${sensor.z.toFixed(2)}${ansi.style.reset} rad/s`)
-      break
-    case 'orientation':
-      terminal.writeln(`${ansi.style.bold}📊 Orientation Reading:${ansi.style.reset}
-        🕒 Time: ${ansi.style.cyan}${timestamp}${ansi.style.reset}
-        Quaternion:
-        X: ${ansi.style.cyan}${sensor.quaternion[0].toFixed(3)}${ansi.style.reset}
-        Y: ${ansi.style.cyan}${sensor.quaternion[1].toFixed(3)}${ansi.style.reset}
-        Z: ${ansi.style.cyan}${sensor.quaternion[2].toFixed(3)}${ansi.style.reset}
-        W: ${ansi.style.cyan}${sensor.quaternion[3].toFixed(3)}${ansi.style.reset}`)
-      break
-  }
-}
-
-function isSensorType(value: string): value is SensorType {
-  return ['accelerometer', 'gyroscope', 'linear', 'orientation'].includes(value)
+  const drivers: KernelCharDevice[] = [{ name: 'sensors', major: 0, minor: 0, class: sensors_class, ops: { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } }]
+  const ops = sessionOperations({ open: async minor => await openSensorSession(kinds[minor - 1]!) })
+  kinds.forEach((kind, index) => {
+    if (available(kind)) drivers.push({ name: `sensor-${kind}`, major: 0, minor: index + 1, class: sensors_class, ops })
+  })
+  return drivers
 }
