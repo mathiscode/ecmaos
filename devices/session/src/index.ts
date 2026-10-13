@@ -263,3 +263,12 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     poll_wait: file => links.get(file.devt.minor)?.queue
   }
 }
+
+/**
+ * The operations of a driver's control node (`/dev/usb`, `/dev/serial`): it reads as an empty file and takes whatever is
+ * written, since the node exists to be the name the device's command is run against and to be listed in `/dev`.
+ */
+export const controlOperations: FileOperations = {
+  read: () => 0,
+  write: (_file, buffer, offset) => buffer.length - offset
+}

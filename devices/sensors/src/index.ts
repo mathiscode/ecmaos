@@ -2,7 +2,7 @@
 
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
@@ -145,7 +145,7 @@ const sensors_class = new Class('sensors')
 // the sensor's place in the list of all kinds, so a number means the same sensor on every machine. Opening one starts the
 // sensor (after its permission check) and closing the last open stops it.
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const drivers: KernelCharDevice[] = [{ name: 'sensors', major: 0, minor: 0, class: sensors_class, ops: { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } }]
+  const drivers: KernelCharDevice[] = [{ name: 'sensors', major: 0, minor: 0, class: sensors_class, ops: controlOperations }]
   const ops = sessionOperations({ open: async minor => await openSensorSession(kinds[minor - 1]!) })
   kinds.forEach((kind, index) => {
     if (available(kind)) drivers.push({ name: `sensor-${kind}`, major: 0, minor: index + 1, class: sensors_class, ops })

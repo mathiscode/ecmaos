@@ -2,7 +2,7 @@
 
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { openHidSession } from './session.js'
@@ -147,16 +147,13 @@ Commands:
 /** `/sys/class/hid` */
 const hid_class = new Class('hid')
 
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{
     name: 'hid',
     major: 13,
     minor: 64,
     class: hid_class,
-    ops: {
-      read: () => 0,
-      write: () => {}
-    }
+    ops: controlOperations
   }]
 
   if (typeof navigator === 'undefined' || !('hid' in navigator)) return drivers
@@ -172,7 +169,7 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     })
     devices.forEach((_device, index) => drivers.push({ name: `hidraw${index}`, major: 0, minor: index + 1, class: hid_class, ops }))
   } catch (error) {
-    console.warn('HID error:', error)
+    ctx.log.warn(`hid: cannot list devices: ${error instanceof Error ? error.message : String(error)}`)
   }
   return drivers
 }

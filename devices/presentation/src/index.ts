@@ -20,7 +20,7 @@ declare global {
     getAvailability(): Promise<boolean>
   }
 
-  interface PresentationConnection {
+  interface PresentationConnection extends EventTarget {
     close(): void
     terminate(): void
   }
@@ -32,7 +32,6 @@ export const pkg = {
   description: 'Web Presentation API device driver'
 }
 
-// @ts-ignore - PresentationRequest is not in the DOM lib types
 let activeRequest: PresentationRequest | null = null
 let activeConnection: PresentationConnection | null = null
 
@@ -85,12 +84,15 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
   }]
 }
 
+/** The Presentation API is not in the DOM typings */
+type PresentationRequestConstructor = new (urls: string[]) => PresentationRequest
+
 async function listDisplays(kernel: Kernel, presentationUrl: string) {
   if (!('PresentationRequest' in globalThis)) throw new Error('PresentationRequest API not supported')
 
   try {
     const url = new URL(presentationUrl)
-    const request = new (globalThis as any).PresentationRequest([url.toString()])
+    const request = new (globalThis as unknown as { PresentationRequest: PresentationRequestConstructor }).PresentationRequest([url.toString()])
     
     const availability = await request.getAvailability()
     kernel.terminal.writeln(`Available displays: ${availability ? 'Yes' : 'No'}`)
@@ -115,7 +117,7 @@ async function startPresentation(kernel: Kernel, presentationUrl: string) {
     }
 
     const url = new URL(presentationUrl)
-    const request = new (globalThis as any).PresentationRequest([url.toString()])
+    const request = new (globalThis as unknown as { PresentationRequest: PresentationRequestConstructor }).PresentationRequest([url.toString()])
     activeRequest = request
     
     const available = await request.getAvailability()

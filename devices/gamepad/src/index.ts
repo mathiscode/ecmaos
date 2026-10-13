@@ -1,6 +1,6 @@
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { openGamepadSession } from './session.js'
@@ -108,7 +108,7 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     major: 0,
     minor: 0,
     class: gamepad_class,
-    ops: { read: () => 0, write: () => {} }
+    ops: controlOperations
   }]
   if (typeof navigator === 'undefined' || !('getGamepads' in navigator)) return drivers
   // A pad is only there once a button has been pressed on it, so the nodes are made ahead and open or fail with ENODEV

@@ -25,9 +25,9 @@ describe('bluetooth stream settings', () => {
 })
 
 describe('bluetooth device nodes', () => {
-  it('register nothing where Web Bluetooth does not exist', async () => {
+  it('have only the control node where Web Bluetooth does not exist', async () => {
     vi.stubGlobal('navigator', {})
-    expect(await getDrivers(ctx)).toEqual([])
+    expect((await getDrivers(ctx)).map(driver => driver.name)).toEqual(['bluetooth'])
   })
 
   it('register the control node and one node per paired device', async () => {

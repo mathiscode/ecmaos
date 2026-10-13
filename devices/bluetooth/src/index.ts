@@ -2,7 +2,7 @@
 
 import { Class } from '@zenfs/linux'
 import { fs } from '@zenfs/core'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { FileOperations } from '@zenfs/linux'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
@@ -277,10 +277,11 @@ const bluetoothOperations = (): FileOperations => sessionOperations({
 })
 
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (typeof navigator === 'undefined' || !navigator.bluetooth) return []
+  const control: KernelCharDevice = { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: controlOperations }
+  if (typeof navigator === 'undefined' || !navigator.bluetooth) return [control]
   const devices = typeof navigator.bluetooth.getDevices === 'function' ? await navigator.bluetooth.getDevices() : []
   return [
-    { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } },
+    control,
     ...devices.map((_device, index): KernelCharDevice => ({ name: `ble${index}`, major: 216, minor: index + 1, class: bluetooth_class, ops: bluetoothOperations() }))
   ]
 }

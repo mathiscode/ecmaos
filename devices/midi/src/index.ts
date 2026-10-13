@@ -1,5 +1,5 @@
 import { Class } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { openMidiSession } from './session.js'
@@ -150,16 +150,13 @@ Commands:
 const midi_class = new Class('midi')
 
 /** The ports a `midiN` node stands for: the Nth input and the Nth output */
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{
     name: 'midi',
     major: 35,
     minor: 0,
     class: midi_class,
-    ops: {
-      read: () => 0,
-      write: () => {}
-    }
+    ops: controlOperations
   }]
 
   // Ports are only listed once the user has allowed MIDI (`/dev/midi request`); asking here would raise a prompt at boot
@@ -181,7 +178,7 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
     })
     for (let index = 0; index < count; index++) drivers.push({ name: `midi${index}`, major: 35, minor: index + 1, class: midi_class, ops })
   } catch (error) {
-    console.warn('MIDI error:', error)
+    ctx.log.warn(`midi: cannot list ports: ${error instanceof Error ? error.message : String(error)}`)
   }
   return drivers
 }

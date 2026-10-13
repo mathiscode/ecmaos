@@ -3,7 +3,7 @@
 import { Class } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 import { fs } from '@zenfs/core'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { usbOptionsFor, CONFIG_PATH } from './config.js'
@@ -145,7 +145,7 @@ const usbOperations = (): FileOperations => sessionOperations({
 
 // Major 180 is Linux's USB major. Node N is the Nth device the user has granted, in the order the browser lists them.
 export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const drivers: KernelCharDevice[] = [{ name: 'usb', major: 180, minor: 0, class: usb_class, ops: { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } }]
+  const drivers: KernelCharDevice[] = [{ name: 'usb', major: 180, minor: 0, class: usb_class, ops: controlOperations }]
   if (typeof navigator === 'undefined' || !navigator.usb) return drivers
   const devices = await navigator.usb.getDevices()
   const ops = usbOperations()

@@ -2,7 +2,7 @@
 
 import { Class } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
@@ -61,7 +61,7 @@ export async function cli(options: KernelDeviceCLIOptions) {
     case 'request': {
       const vendorIndex = args.indexOf('--vendor')
       const productIndex = args.indexOf('--product')
-      const filter: any = {}
+      const filter: { usbVendorId?: number, usbProductId?: number } = {}
       
       if (vendorIndex !== -1 && args[vendorIndex + 1]) {
         filter.usbVendorId = parseInt(args[vendorIndex + 1] || '')
@@ -107,18 +107,18 @@ const serialOperations = (): FileOperations => sessionOperations({
 // (TTYDriver) claims for the console TTYs. WebSerial ports are not that line discipline, so they
 // get their own major rather than colliding with it.
 function createDriver(name: string, minor: number): KernelCharDevice {
-  return { name, major: 0, minor, class: serial_class, ops: minor === 0 ? { read: () => 0, write: (_file, buffer, offset) => buffer.length - offset } : serialOperations() }
+  return { name, major: 0, minor, class: serial_class, ops: minor === 0 ? controlOperations : serialOperations() }
 }
 
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (typeof navigator === 'undefined' || !navigator.serial) return []
+  if (typeof navigator === 'undefined' || !navigator.serial) return [createDriver('serial', 0)]
   navigator.serial.addEventListener('connect', async (event) => {
     ctx.events.emit('device:connect', event.target)
     if (event.target && !availablePorts.has(event.target as SerialPort)) {
       availablePorts.add(event.target as SerialPort)
     }
 
-    console.log({ availablePorts })
+    ctx.log.debug(`serial: port connected (${availablePorts.size} known)`)
   })
 
   const drivers: KernelCharDevice[] = [createDriver('serial', 0)]
