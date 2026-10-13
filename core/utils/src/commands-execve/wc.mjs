@@ -1,6 +1,7 @@
 /** Count lines, words, and bytes in a file or stdin. */
 
 import { resolve } from './lib/path-utils.mjs'
+import { readFileBytes } from './lib/bytes.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
@@ -25,34 +26,21 @@ function readAllStdin() {
   const bytes = new Uint8Array(total)
   let offset = 0
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return new TextDecoder().decode(bytes)
+  return bytes
 }
 
 function readWholeFileText(fullPath) {
-  const size = stat(fullPath).size
-  const fd = open(fullPath, O_RDONLY)
-  const bytes = new Uint8Array(size)
-  try {
-    let bytesRead = 0
-    while (bytesRead < size) {
-      const chunk = new Uint8Array(size - bytesRead)
-      const n = read(fd, chunk, -1)
-      if (n <= 0) break
-      bytes.set(chunk.subarray(0, n), bytesRead)
-      bytesRead += n
-    }
-  } finally {
-    close(fd)
-  }
-  return new TextDecoder().decode(bytes)
+  const bytes = readFileBytes(fullPath)
+  return bytes
 }
 
-function countText(content) {
+function countBytes(bytes) {
+  const content = new TextDecoder().decode(bytes)
   // Counts newline characters, as GNU `wc -l` does; a last line without a newline is not counted.
   const lines = (content.match(/\n/g) || []).length
   const words = content.trim().split(/\s+/).filter(w => w.length > 0).length
-  const bytes = new TextEncoder().encode(content).length
-  return { lines, words, bytes }
+  // Bytes are what was read, not the size of the text decoded from it (invalid UTF-8 would grow)
+  return { lines, words, bytes: bytes.length }
 }
 
 function main() {
@@ -99,7 +87,7 @@ function main() {
 
   if (files.length === 0) {
     const content = readAllStdin()
-    writeAll(1, new TextEncoder().encode(formatCounts(countText(content)) + '\n'))
+    writeAll(1, new TextEncoder().encode(formatCounts(countBytes(content)) + '\n'))
     return 0
   }
 
@@ -113,7 +101,7 @@ function main() {
     const fullPath = resolve(cwd, file)
     try {
       const content = readWholeFileText(fullPath)
-      const counts = countText(content)
+      const counts = countBytes(content)
       totalLines += counts.lines
       totalWords += counts.words
       totalBytes += counts.bytes

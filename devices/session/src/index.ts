@@ -44,8 +44,9 @@ export const isPlainMap = (value: unknown): value is { [key: string]: Plain } =>
  */
 export class Feed {
   private readonly _queue: Uint8Array[] = []
-  private _waiting: ((chunk: Uint8Array | undefined) => void) | undefined
+  private _waiting: { resolve: (chunk: Uint8Array | undefined) => void, reject: (error: Error) => void } | undefined
   private _ended = false
+  private _failure: Error | undefined
 
   constructor(readonly limit = 1024) {}
 
@@ -55,9 +56,9 @@ export class Feed {
   push(chunk: Uint8Array) {
     if (this._ended) return
     if (this._waiting) {
-      const resolve = this._waiting
+      const waiting = this._waiting
       this._waiting = undefined
-      resolve(chunk)
+      waiting.resolve(chunk)
       return
     }
     this._queue.push(chunk)
@@ -66,17 +67,27 @@ export class Feed {
 
   end() {
     this._ended = true
-    const resolve = this._waiting
+    const waiting = this._waiting
     this._waiting = undefined
-    resolve?.(undefined)
+    if (waiting) {
+      if (this._failure) waiting.reject(this._failure)
+      else waiting.resolve(undefined)
+    }
+  }
+
+  /** Ends the feed with an error: what is queued is still taken, then `next` rejects with `error` instead of giving the end of the file */
+  fail(error: Error) {
+    if (this._ended) return
+    this._failure = error
+    this.end()
   }
 
   next(): Promise<Uint8Array | undefined> {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       const chunk = this._queue.shift()
       if (chunk) resolve(chunk)
-      else if (this._ended) resolve(undefined)
-      else this._waiting = resolve
+      else if (this._ended) { if (this._failure) reject(this._failure); else resolve(undefined) }
+      else this._waiting = { resolve, reject }
     })
   }
 }

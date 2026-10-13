@@ -1,6 +1,7 @@
 /** Convert runs of spaces in input to tabs. */
 
 import { resolve } from './lib/path-utils.mjs'
+import { readFileBytes } from './lib/bytes.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
@@ -140,21 +141,7 @@ function readAllStdin() {
 }
 
 function readWholeFileText(fullPath) {
-  const size = stat(fullPath).size
-  const fd = open(fullPath, O_RDONLY)
-  const bytes = new Uint8Array(size)
-  try {
-    let bytesRead = 0
-    while (bytesRead < size) {
-      const chunk = new Uint8Array(size - bytesRead)
-      const n = read(fd, chunk, -1)
-      if (n <= 0) break
-      bytes.set(chunk.subarray(0, n), bytesRead)
-      bytesRead += n
-    }
-  } finally {
-    close(fd)
-  }
+  const bytes = readFileBytes(fullPath)
   return new TextDecoder().decode(bytes)
 }
 

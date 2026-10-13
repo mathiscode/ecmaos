@@ -60,7 +60,9 @@ export async function openSensorSession(kind: string, options: SensorSessionOpti
   const onError = (event: Event) => {
     const error = (event as unknown as { error?: { name?: string, message?: string } }).error
     session.emit?.('error', { name: error?.name ?? 'Error', message: error?.message ?? 'sensor error' })
-    if (error?.name === 'NotAllowedError' || error?.name === 'NotReadableError') feed.end()
+    // A sensor that cannot be used says so to the reader, as an error and not as an empty file
+    if (error?.name === 'NotAllowedError') feed.fail(new SessionError('EACCES', error.message ?? 'the sensor is not allowed'))
+    else if (error?.name === 'NotReadableError') feed.fail(new SessionError('EIO', error.message ?? 'the sensor cannot be read'))
   }
   sensor.addEventListener('reading', onReading)
   sensor.addEventListener('error', onError)

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getDrivers as geoDrivers, openGeoSession } from '@ecmaos-devices/geo'
 import { getDrivers as sensorDrivers, openSensorSession, SensorKinds } from '@ecmaos-devices/sensors'
-import { firstReading } from '@ecmaos-devices/session'
+import { Feed, firstReading } from '@ecmaos-devices/session'
 
 const ctx = {} as never
 const text = (chunk: Uint8Array | undefined) => new TextDecoder().decode(chunk)
@@ -23,6 +23,16 @@ function fakeGeolocation() {
   }
 }
 
+describe('a feed that fails', () => {
+  it('gives what was queued, then the error', async () => {
+    const feed = new Feed(8)
+    feed.push(new Uint8Array([1]))
+    feed.fail(new Error('gone'))
+    expect(await feed.next()).toEqual(new Uint8Array([1]))
+    await expect(feed.next()).rejects.toThrow('gone')
+  })
+})
+
 describe('geo device', () => {
   it('has no node where the browser has no geolocation', async () => {
     vi.stubGlobal('navigator', {})
@@ -40,11 +50,11 @@ describe('geo device', () => {
     expect(state.cleared).toEqual([7])
   })
 
-  it('maps a refused permission to EACCES and ends the stream', async () => {
+  it('maps a refused permission to EACCES, which the reader gets as an error', async () => {
     const { state, api } = fakeGeolocation()
     const session = await openGeoSession(api)
     state.fail!({ code: 1, message: 'denied' })
-    expect(await session.read!()).toBeUndefined()
+    await expect(session.read!()).rejects.toMatchObject({ code: 'EACCES', message: 'denied' })
   })
 
   it('answers the position control with one fix', async () => {
@@ -105,6 +115,16 @@ describe('sensors device', () => {
     await session.close()
     expect(FakeSensor.stopped).toBe(1)
     expect(await ended).toBeUndefined()
+  })
+
+  it('gives the reader an error, not an empty file, when the sensor cannot be read', async () => {
+    const session = await openSensorSession('gravity', { scope: { GravitySensor: FakeSensor }, permissions: { query: async () => ({ state: 'granted' }) } })
+    const pending = session.read!()
+    const error = new Event('error') as Event & { error: unknown }
+    error.error = { name: 'NotReadableError', message: 'no hardware' }
+    FakeSensor.last!.dispatchEvent(error)
+    await expect(pending).rejects.toMatchObject({ code: 'EIO', message: 'no hardware' })
+    await session.close()
   })
 
   it('refuses an unknown sensor, a missing class and a permission that is not granted', async () => {

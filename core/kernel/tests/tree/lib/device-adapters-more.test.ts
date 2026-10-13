@@ -105,7 +105,7 @@ describe('the battery as a session', () => {
 })
 
 describe('geolocation as a session', () => {
-  it('sends a JSON line per fix, answers position, and ends when refused', async () => {
+  it('sends a JSON line per fix, answers position, and fails the reader when refused', async () => {
     let watcher: ((position: unknown) => void) | undefined
     let failer: ((error: { code: number, message: string }) => void) | undefined
     let cleared: number | undefined
@@ -124,7 +124,7 @@ describe('geolocation as a session', () => {
     failer!({ code: 2, message: 'no fix' })
     expect(events).toEqual(['error'])
     failer!({ code: 1, message: 'denied' })
-    expect(await session.read!()).toBeUndefined()
+    await expect(session.read!()).rejects.toMatchObject({ code: 'EACCES' })
     session.close()
     expect(cleared).toBe(7)
   })

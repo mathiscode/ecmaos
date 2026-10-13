@@ -21,7 +21,7 @@ export async function openGeoSession(geolocation?: GeolocationLike): Promise<Dev
   const watch = source.watchPosition(position => feed.push(jsonLine(reading(position))), error => {
     failure = refusal(error)
     // A permission refusal ends the stream; a lost fix may come back, so it is only reported
-    if (error.code === 1) feed.end()
+    if (error.code === 1) feed.fail(failure)
     else session.emit?.('error', { code: failure.code, message: failure.message })
   })
   const session: DeviceSession = {

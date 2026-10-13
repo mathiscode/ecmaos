@@ -1,6 +1,7 @@
 /** Cryptographic utilities: hashing, random value generation, and related operations. Plain text output, no ANSI coloring. */
 
 import { resolve } from './lib/path-utils.mjs'
+import { readFileBytes } from './lib/bytes.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
@@ -66,21 +67,7 @@ Examples:
   crypto export --format pkcs8 --input key.pem --output key.json`
 
 function readWholeFile(fullPath) {
-  const size = stat(fullPath).size
-  const fd = open(fullPath, O_RDONLY)
-  const bytes = new Uint8Array(size)
-  try {
-    let bytesRead = 0
-    while (bytesRead < size) {
-      const chunk = new Uint8Array(size - bytesRead)
-      const n = read(fd, chunk, -1)
-      if (n <= 0) break
-      bytes.set(chunk.subarray(0, n), bytesRead)
-      bytesRead += n
-    }
-  } finally {
-    close(fd)
-  }
+  const bytes = readFileBytes(fullPath)
   return bytes
 }
 
