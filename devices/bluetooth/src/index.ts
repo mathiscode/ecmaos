@@ -267,7 +267,8 @@ const bluetooth_class = new Class('bluetooth')
  * A paired device as a file: `sessionOperations` does the buffering and waiting. Node N is the Nth paired device; the
  * stream settings come from `/etc/bluetooth.toml` (see `bluetoothOptionsFor`), defaulting to the Nordic UART service.
  */
-const bluetoothOperations = (): FileOperations => sessionOperations({
+const bluetoothOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
+  onError: error => log.warn(`ble: ${error.message}`),
   async open(minor) {
     const device = (await navigator.bluetooth.getDevices())[minor - 1]
     if (!device) throw new Error('no such device')
@@ -276,12 +277,12 @@ const bluetoothOperations = (): FileOperations => sessionOperations({
   }
 })
 
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const control: KernelCharDevice = { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: controlOperations }
   if (typeof navigator === 'undefined' || !navigator.bluetooth) return [control]
   const devices = typeof navigator.bluetooth.getDevices === 'function' ? await navigator.bluetooth.getDevices() : []
   return [
     control,
-    ...devices.map((_device, index): KernelCharDevice => ({ name: `ble${index}`, major: 216, minor: index + 1, class: bluetooth_class, ops: bluetoothOperations() }))
+    ...devices.map((_device, index): KernelCharDevice => ({ name: `ble${index}`, major: 216, minor: index + 1, class: bluetooth_class, ops: bluetoothOperations(ctx.log) }))
   ]
 }

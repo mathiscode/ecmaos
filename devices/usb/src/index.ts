@@ -134,7 +134,8 @@ Commands:
 /** `/sys/class/usb` */
 const usb_class = new Class('usb')
 
-const usbOperations = (): FileOperations => sessionOperations({
+const usbOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
+  onError: error => log.warn(`usb: ${error.message}`),
   async open(minor) {
     const device = (await navigator.usb.getDevices())[minor - 1]
     if (!device) throw new Error('no such device')
@@ -144,11 +145,11 @@ const usbOperations = (): FileOperations => sessionOperations({
 })
 
 // Major 180 is Linux's USB major. Node N is the Nth device the user has granted, in the order the browser lists them.
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{ name: 'usb', major: 180, minor: 0, class: usb_class, ops: controlOperations }]
   if (typeof navigator === 'undefined' || !navigator.usb) return drivers
   const devices = await navigator.usb.getDevices()
-  const ops = usbOperations()
+  const ops = usbOperations(ctx.log)
   devices.forEach((_device, index) => drivers.push({ name: `usb${index}`, major: 180, minor: index + 1, class: usb_class, ops }))
   return drivers
 }

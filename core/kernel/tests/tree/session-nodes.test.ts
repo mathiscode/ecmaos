@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { Class } from '@zenfs/linux'
-import { sessionOperations } from '@ecmaos-devices/session'
+import { SessionError, sessionOperations } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { KernelDevice } from '@ecmaos/types'
 
@@ -18,6 +18,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 const events: string[] = []
 const written: number[][] = []
 const errors: string[] = []
+const failures: string[] = []
 /** A device that stays up after its bytes (the default ends, as a snapshot does) */
 let endless = false
 
@@ -39,6 +40,12 @@ const fake: KernelDevice = {
   pkg: { name: 'fakesession', version: '0.0.0', description: '' },
   cli: async () => 0,
   getDrivers: async () => [{
+    name: 'fakedeny',
+    major: 0,
+    minor: 3,
+    class: new Class('fakesession'),
+    ops: sessionOperations({ open: async () => { throw new SessionError('EACCES', 'permission for fake is not granted') }, onError: error => failures.push(error.message), idleMs: 150 })
+  }, {
     name: 'fakeout',
     major: 0,
     minor: 2,
@@ -137,5 +144,18 @@ describe('a session node opened through the filesystem object', () => {
   it('fails only the command whose redirect target refuses the write, and carries on', async () => {
     await kernel.shell.execute('echo hi > /dev/full; echo "status=$?" > /tmp/session-full')
     expect(await kernel.filesystem.fs.readFile('/tmp/session-full', 'utf8')).toBe('status=1\n')
+  })
+
+  it('keeps the errno of a session that cannot be opened, and tells the driver what it said', async () => {
+    failures.length = 0
+    const handle = await kernel.filesystem.fs.open('/dev/fakedeny', 'r')
+    let code: string | undefined
+    for (let tries = 0; tries < 50 && code !== 'EACCES'; tries++) {
+      try { await handle.read(new Uint8Array(4), 0, 4, 0) } catch (error) { code = (error as { code?: string }).code }
+      if (code !== 'EACCES') await sleep(20)
+    }
+    await handle.close()
+    expect(code).toBe('EACCES')
+    expect(failures).toEqual(['permission for fake is not granted'])
   })
 })

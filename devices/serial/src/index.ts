@@ -95,7 +95,8 @@ const serial_class = new Class('serial')
  * A serial port as a file: `sessionOperations` does the buffering and waiting (see there). A node opens its port at 9600; a
  * speed is chosen when the port is offered to another machine.
  */
-const serialOperations = (): FileOperations => sessionOperations({
+const serialOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
+  onError: error => log.warn(`serial: ${error.message}`),
   async open(minor) {
     const port = (await navigator.serial.getPorts())[minor - 1]
     if (!port) throw new Error('no such port')
@@ -106,12 +107,12 @@ const serialOperations = (): FileOperations => sessionOperations({
 // Dynamically allocated: real Linux major 4 is tty/ttyS, which @zenfs/linux's own xterm_driver
 // (TTYDriver) claims for the console TTYs. WebSerial ports are not that line discipline, so they
 // get their own major rather than colliding with it.
-function createDriver(name: string, minor: number): KernelCharDevice {
-  return { name, major: 0, minor, class: serial_class, ops: minor === 0 ? controlOperations : serialOperations() }
+function createDriver(ctx: KernelContext, name: string, minor: number): KernelCharDevice {
+  return { name, major: 0, minor, class: serial_class, ops: minor === 0 ? controlOperations : serialOperations(ctx.log) }
 }
 
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (typeof navigator === 'undefined' || !navigator.serial) return [createDriver('serial', 0)]
+  if (typeof navigator === 'undefined' || !navigator.serial) return [createDriver(ctx, 'serial', 0)]
   navigator.serial.addEventListener('connect', async (event) => {
     ctx.events.emit('device:connect', event.target)
     if (event.target && !availablePorts.has(event.target as SerialPort)) {
@@ -121,8 +122,8 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
     ctx.log.debug(`serial: port connected (${availablePorts.size} known)`)
   })
 
-  const drivers: KernelCharDevice[] = [createDriver('serial', 0)]
+  const drivers: KernelCharDevice[] = [createDriver(ctx, 'serial', 0)]
   const ports = await navigator.serial.getPorts()
-  ports.forEach((_port, i) => drivers.push(createDriver(`ttyS${i}`, i + 1)))
+  ports.forEach((_port, i) => drivers.push(createDriver(ctx, `ttyS${i}`, i + 1)))
   return drivers
 }

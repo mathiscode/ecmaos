@@ -95,13 +95,13 @@ Commands:
 const battery_class = new Class('battery')
 
 // A read gives the 18-byte record as it is when the node is opened, and then the end of the file
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   if (typeof navigator === 'undefined' || !('getBattery' in navigator)) return []
   return [{
     name: 'battery',
     major: 10,
     minor: 100,
     class: battery_class,
-    ops: sessionOperations({ open: async () => firstReading(await openBatterySession()), idleMs: 250 })
+    ops: sessionOperations({ open: async () => firstReading(await openBatterySession()), idleMs: 250, onError: error => ctx.log.warn(`battery: ${error.message}`) })
   }]
 }

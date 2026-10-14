@@ -165,7 +165,8 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
         const device = (await navigator.hid.getDevices())[minor - 1]
         if (!device) throw new Error('no such device')
         return await openHidSession(device)
-      }
+      },
+      onError: error => ctx.log.warn(`hid: ${error.message}`)
     })
     devices.forEach((_device, index) => drivers.push({ name: `hidraw${index}`, major: 0, minor: index + 1, class: hid_class, ops }))
   } catch (error) {

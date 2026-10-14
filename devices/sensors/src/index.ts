@@ -144,9 +144,9 @@ const sensors_class = new Class('sensors')
 // Major 0 is a major of the package's own. The control node is minor 0; each sensor this browser has is a node of its own, by
 // the sensor's place in the list of all kinds, so a number means the same sensor on every machine. Opening one starts the
 // sensor (after its permission check) and closing the last open stops it.
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{ name: 'sensors', major: 0, minor: 0, class: sensors_class, ops: controlOperations }]
-  const ops = sessionOperations({ open: async minor => await openSensorSession(kinds[minor - 1]!) })
+  const ops = sessionOperations({ open: async minor => await openSensorSession(kinds[minor - 1]!), onError: error => ctx.log.warn(`sensors: ${error.message}`) })
   kinds.forEach((kind, index) => {
     if (available(kind)) drivers.push({ name: `sensor-${kind}`, major: 0, minor: index + 1, class: sensors_class, ops })
   })

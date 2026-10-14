@@ -100,7 +100,7 @@ const gamepad_class = new Class('gamepad')
 /** How many `js<N>` nodes there are: a browser shows at most four pads at once */
 const PadSlots = 4
 
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   // Dynamically allocated: real Linux major 13 (input) is now hid's alone, since
   // char_dev.register claims an entire major and the two can no longer share it informally.
   const drivers: KernelCharDevice[] = [{
@@ -112,7 +112,7 @@ export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[
   }]
   if (typeof navigator === 'undefined' || !('getGamepads' in navigator)) return drivers
   // A pad is only there once a button has been pressed on it, so the nodes are made ahead and open or fail with ENODEV
-  const ops = sessionOperations({ open: async minor => await openGamepadSession(minor - 1) })
+  const ops = sessionOperations({ open: async minor => await openGamepadSession(minor - 1), onError: error => ctx.log.warn(`gamepad: ${error.message}`) })
   for (let index = 0; index < PadSlots; index++) drivers.push({ name: `js${index}`, major: 0, minor: index + 1, class: gamepad_class, ops })
   return drivers
 }

@@ -152,8 +152,8 @@ const audio_class = new Class('audio')
 // Each node has its own operations, so no minor number decides what a node is.
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const player = sessionOperations({ open: async () => await openPlayerSession({ onError: error => ctx.log.error(`audio: cannot play the file: ${error.message}`) }) })
-  const speakers = sessionOperations({ open: async () => await openSpeakerSession() })
-  const microphone = sessionOperations({ open: async () => await openMicrophoneSession() })
+  const speakers = sessionOperations({ open: async () => await openSpeakerSession(), onError: error => ctx.log.warn(`dsp: ${error.message}`) })
+  const microphone = sessionOperations({ open: async () => await openMicrophoneSession(), onError: error => ctx.log.warn(`dspin: ${error.message}`) })
   return [
     { name: 'audio', major: 14, minor: 4, class: audio_class, ops: player },
     { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: speakers },

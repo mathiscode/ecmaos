@@ -116,6 +116,8 @@ export function firstReading(session: DeviceSession): DeviceSession {
 export interface SessionNodeOptions {
   /** Opens the device behind minor number `minor` when its node is first opened. Rejects if it cannot be opened. */
   open(minor: number): Promise<DeviceSession>
+  /** Told when a session fails to open or ends in an error, so a driver can log what the errno a program sees cannot carry */
+  onError?(error: Error, minor: number): void
   /** The most that may be waiting to be written to the device before a writer has to wait; default 64 KiB */
   maxPending?: number
   /**
@@ -138,6 +140,8 @@ interface Link {
   /** The session has nothing to read (a write-only device), so a read gives the end of the file while writes still go through */
   unreadable?: boolean
   failure?: string
+  /** The errno the failure came with (a `SessionError`'s code), when it names one */
+  failureCode?: string
   /** Opens announced by `open` and not yet by `release`; a link with none is held only by use, and goes when idle */
   references: number
   touched: number
@@ -160,6 +164,13 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
   const idleMs = options.idleMs ?? 3000
   const links = new Map<number, Link>()
 
+  const fail = (minor: number, found: Link, error: unknown) => {
+    found.failure = error instanceof Error ? error.message : String(error)
+    const code = (error as { code?: unknown }).code
+    if (typeof code === 'string' && /^E[A-Z0-9]+$/.test(code)) found.failureCode = code
+    options.onError?.(error instanceof Error ? error : new Error(found.failure), minor)
+  }
+
   const start = async (minor: number, link: Link) => {
     try {
       const session = await options.open(minor)
@@ -175,7 +186,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
         link.queue.wake_up()
       }
     } catch (error) {
-      link.failure = error instanceof Error ? error.message : String(error)
+      fail(minor, link, error)
     } finally {
       // A session that is only written to has not ended because it has nothing to read
       if (!link.unreadable || link.failure) link.ended = true
@@ -236,7 +247,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     },
     read: (file, buffer, start, end) => {
       const found = link(file)
-      if (found.failure && found.size === 0) throw withErrno('EIO', found.failure)
+      if (found.failure && found.size === 0) throw withErrno((found.failureCode ?? 'EIO') as Parameters<typeof withErrno>[0], found.failure)
       let done = 0
       while (done < end - start && found.chunks.length) {
         const chunk = found.chunks[0]!
@@ -251,7 +262,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     },
     write: (file, buffer, offset) => {
       const found = link(file)
-      if (found.ended) throw withErrno('EIO', found.failure ?? 'the device has closed')
+      if (found.ended) throw withErrno((found.failureCode ?? 'EIO') as Parameters<typeof withErrno>[0], found.failure ?? 'the device has closed')
       const session = found.session
       if (!session) throw withErrno('EAGAIN', 'the device is opening')
       if (!session.write) throw withErrno('EBADF', 'this device cannot be written to')
@@ -261,7 +272,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
       const data = buffer.slice(offset, offset + count)
       found.pending += count
       session.write(data)
-        .catch(error => { found.failure = error instanceof Error ? error.message : String(error); found.ended = true })
+        .catch(error => { fail(file.devt.minor, found, error); found.ended = true })
         .finally(() => { found.pending -= count; found.queue.wake_up() })
       return count
     },

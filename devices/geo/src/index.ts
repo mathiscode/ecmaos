@@ -92,13 +92,13 @@ const geo_class = new Class('geo')
 
 // A read waits for a fix and gives it as one JSON line, and then the end of the file; the position is asked for when the node is
 // opened, so nothing is watched while no one reads
-export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return []
   return [{
     name: 'geo',
     major: 10,
     minor: 101,
     class: geo_class,
-    ops: sessionOperations({ open: async () => firstReading(await openGeoSession()) })
+    ops: sessionOperations({ open: async () => firstReading(await openGeoSession()), onError: error => ctx.log.warn(`geo: ${error.message}`) })
   }]
 }

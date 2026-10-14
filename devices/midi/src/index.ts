@@ -174,7 +174,8 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
           ...(index < live.inputs.size ? { input: index } : {}),
           ...(index < live.outputs.size ? { output: index } : {})
         })
-      }
+      },
+      onError: error => ctx.log.warn(`midi: ${error.message}`)
     })
     for (let index = 0; index < count; index++) drivers.push({ name: `midi${index}`, major: 35, minor: index + 1, class: midi_class, ops })
   } catch (error) {
