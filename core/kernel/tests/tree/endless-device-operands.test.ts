@@ -40,6 +40,12 @@ describe('commands given an endless device as a file operand', () => {
     expect((await run('wc -c /dev/null')).trim()).toBe('0 /dev/null')
   }, 15000)
 
+  it('programs can read /dev/random and /dev/urandom (getRandomValues refuses views on shared memory)', async () => {
+    expect((await run('head -c 16 /dev/urandom | wc -c')).trim()).toBe('16')
+    expect((await run('head -c 70000 /dev/random | wc -c')).trim()).toBe('70000')
+    expect(await run('head -c 32 /dev/random | xxd -p | head -c 8 | wc -c')).not.toBe('')
+  }, 20000)
+
   it('cat of a device that ends gives its bytes (/dev/null is empty)', async () => {
     expect(await run('cat /dev/null')).toBe('')
   }, 15000)

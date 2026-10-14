@@ -29,6 +29,7 @@ import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installPtys } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
+import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
@@ -312,6 +313,7 @@ export function installMainThreadSyscalls(): void {
   installPipeWakeup()
   installPtys()
   installDeviceHolds()
+  installSharedRandom()
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)
