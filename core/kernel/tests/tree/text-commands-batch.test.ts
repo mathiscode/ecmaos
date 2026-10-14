@@ -116,7 +116,8 @@ describe('text command batch: head/tail/wc/nl/rev/tac, real execve', () => {
     const code = await kernel.shell.execute('wc /tmp/text-batch.txt > /tmp/wc.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/wc.out', 'utf-8')
-    expect(out.trim()).toBe('5 5 24 /tmp/text-batch.txt')
+    // GNU pads the counts to the width of the file's size: 24 bytes is two digits
+    expect(out).toBe(' 5  5 24 /tmp/text-batch.txt\n')
   })
 
   it('wc -l shows only the line count', async () => {

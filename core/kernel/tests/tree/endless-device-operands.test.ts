@@ -31,6 +31,15 @@ describe('commands given an endless device as a file operand', () => {
     expect(await run('od -An -N 4 -tx1 /dev/zero')).toContain('00 00 00 00')
   }, 15000)
 
+  it('xxd -l stops after its bytes, and -s skips first', async () => {
+    expect(await run('xxd -l 20 /dev/zero')).toBe('00000000: 0000 0000 0000 0000 0000 0000 0000 0000  ................\n00000010: 0000 0000                                ....\n')
+    expect(await run('xxd -s 4 -l 2 /dev/zero')).toBe('00000004: 0000                                     ..\n')
+  }, 15000)
+
+  it('wc counts a device that ends', async () => {
+    expect((await run('wc -c /dev/null')).trim()).toBe('0 /dev/null')
+  }, 15000)
+
   it('cat of a device that ends gives its bytes (/dev/null is empty)', async () => {
     expect(await run('cat /dev/null')).toBe('')
   }, 15000)

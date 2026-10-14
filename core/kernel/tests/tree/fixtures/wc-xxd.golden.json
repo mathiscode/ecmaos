@@ -1,0 +1,284 @@
+[
+ {
+  "cmd": "wc a.txt",
+  "out": " 3  9 46 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -l a.txt",
+  "out": "3 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -w a.txt",
+  "out": "9 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -c a.txt",
+  "out": "46 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -m u.txt",
+  "out": "25 u.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -L a.txt",
+  "out": "20 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -L u.txt",
+  "out": "20 u.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -lw a.txt",
+  "out": " 3  9 a.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -cm u.txt",
+  "out": "25 27 u.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc a.txt u.txt",
+  "out": " 3  9 46 a.txt\n 2  4 27 u.txt\n 5 13 73 total\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -l a.txt u.txt empty.txt",
+  "out": " 3 a.txt\n 2 u.txt\n 0 empty.txt\n 5 total\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc empty.txt",
+  "out": "0 0 0 empty.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -L empty.txt",
+  "out": "0 empty.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc < a.txt",
+  "out": " 3  9 46\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -c < a.txt",
+  "out": "46\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | wc",
+  "out": "      3       9      46\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | wc -l",
+  "out": "3\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | wc -lw",
+  "out": "      3       9\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc a.txt - < u.txt",
+  "out": " 3  9 46 a.txt\n 2  4 27 -\n 5 13 73 total\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "wc: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "wc -l nonexist.txt a.txt",
+  "out": " 3 a.txt\n 3 total\n",
+  "code": 1,
+  "err": "wc: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "wc dir",
+  "out": "      0       0       0 dir\n",
+  "code": 1,
+  "err": "wc: dir: Is a directory\n"
+ },
+ {
+  "cmd": "wc -x a.txt",
+  "out": "",
+  "code": 1,
+  "err": "wc: invalid option -- 'x'\nTry 'wc --help' for more information.\n"
+ },
+ {
+  "cmd": "wc bin.dat",
+  "out": " 1 12 64 bin.dat\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "wc -m bin.dat",
+  "out": "63 bin.dat\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd a.txt",
+  "out": "00000000: 6f6e 6520 7477 6f0a 7468 7265 6520 2066  one two.three  f\n00000010: 6f75 7220 6669 7665 0a0a 6c61 7374 206c  our five..last l\n00000020: 696e 6520 6e6f 206e 6577 6c69 6e65       ine no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd u.txt",
+  "out": "00000000: 68c3 a96c 6c6f 2077 c3b6 726c 640a 0974  h..llo w..rld..t\n00000010: 6162 6265 6409 6c69 6e65 0a              abbed.line.\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd bin.dat",
+  "out": "00000000: 5468 6520 7175 6963 6b20 6272 6f77 6e20  The quick brown \n00000010: 666f 7820 6a75 6d70 7320 6f76 6572 2074  fox jumps over t\n00000020: 6865 206c 617a 7920 646f 672c 2074 7769  he lazy dog, twi\n00000030: 6365 206f 7665 723a 2061 6263 0001 ff0a  ce over: abc....\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -l 5 a.txt",
+  "out": "00000000: 6f6e 6520 74                             one t\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -s 4 a.txt",
+  "out": "00000004: 7477 6f0a 7468 7265 6520 2066 6f75 7220  two.three  four \n00000014: 6669 7665 0a0a 6c61 7374 206c 696e 6520  five..last line \n00000024: 6e6f 206e 6577 6c69 6e65                 no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -s 4 -l 6 a.txt",
+  "out": "00000004: 7477 6f0a 7468                           two.th\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -c 8 a.txt",
+  "out": "00000000: 6f6e 6520 7477 6f0a  one two.\n00000008: 7468 7265 6520 2066  three  f\n00000010: 6f75 7220 6669 7665  our five\n00000018: 0a0a 6c61 7374 206c  ..last l\n00000020: 696e 6520 6e6f 206e  ine no n\n00000028: 6577 6c69 6e65       ewline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -g 1 -c 8 a.txt",
+  "out": "00000000: 6f 6e 65 20 74 77 6f 0a  one two.\n00000008: 74 68 72 65 65 20 20 66  three  f\n00000010: 6f 75 72 20 66 69 76 65  our five\n00000018: 0a 0a 6c 61 73 74 20 6c  ..last l\n00000020: 69 6e 65 20 6e 6f 20 6e  ine no n\n00000028: 65 77 6c 69 6e 65        ewline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -g 4 -c 4 a.txt",
+  "out": "00000000: 6f6e6520  one \n00000004: 74776f0a  two.\n00000008: 74687265  thre\n0000000c: 65202066  e  f\n00000010: 6f757220  our \n00000014: 66697665  five\n00000018: 0a0a6c61  ..la\n0000001c: 7374206c  st l\n00000020: 696e6520  ine \n00000024: 6e6f206e  no n\n00000028: 65776c69  ewli\n0000002c: 6e65      ne\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -g 0 a.txt",
+  "out": "00000000: 6f6e652074776f0a7468726565202066  one two.three  f\n00000010: 6f757220666976650a0a6c617374206c  our five..last l\n00000020: 696e65206e6f206e65776c696e65      ine no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -p a.txt",
+  "out": "6f6e652074776f0a74687265652020666f757220666976650a0a6c617374\n206c696e65206e6f206e65776c696e65\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -p -c 10 a.txt",
+  "out": "6f6e652074776f0a7468\n7265652020666f757220\n666976650a0a6c617374\n206c696e65206e6f206e\n65776c696e65\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -u bin.dat",
+  "out": "00000000: 5468 6520 7175 6963 6B20 6272 6F77 6E20  The quick brown \n00000010: 666F 7820 6A75 6D70 7320 6F76 6572 2074  fox jumps over t\n00000020: 6865 206C 617A 7920 646F 672C 2074 7769  he lazy dog, twi\n00000030: 6365 206F 7665 723A 2061 6263 0001 FF0A  ce over: abc....\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -l 0x10 -s 0x2 bin.dat",
+  "out": "00000002: 6520 7175 6963 6b20 6272 6f77 6e20 666f  e quick brown fo\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -l5 a.txt",
+  "out": "00000000: 6f6e 6520 74                             one t\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd -c1 empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat bin.dat | xxd -l 20",
+  "out": "00000000: 5468 6520 7175 6963 6b20 6272 6f77 6e20  The quick brown \n00000010: 666f 7820                                fox \n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "xxd nonexist.txt",
+  "out": "",
+  "code": 2,
+  "err": "xxd: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "xxd dir",
+  "out": "",
+  "code": 2,
+  "err": "xxd: Is a directory\n"
+ },
+ {
+  "cmd": "xxd -z a.txt",
+  "out": "",
+  "code": 1,
+  "err": "Usage:\n       xxd [options] [infile [outfile]]\n    or\n       xxd -r [-s [-]offset] [-c cols] [-ps] [infile [outfile]]\nOptions:\n    -a          toggle autoskip: A single '*' replaces nul-lines. Default off.\n    -b          binary digit dump (incompatible with -ps). Default hex.\n    -C          capitalize variable names in C include file style (-i).\n    -c cols     format <cols> octets per line. Default 16 (-i: 12, -ps: 30).\n    -E          show characters in EBCDIC. Default ASCII.\n    -e          little-endian dump (incompatible with -ps,-i,-r).\n    -g bytes    number of octets per group in normal output. Default 2 (-e: 4).\n    -h          print this summary.\n    -i          output in C include file style.\n    -t          append terminating zero to C include output (-i).\n    -l len      stop after <len> octets.\n    -n name     set the variable name used in C include output (-i).\n    -o off      add <off> to the displayed file position.\n    -ps         output in postscript plain hexdump style.\n    -r          reverse operation: convert (or patch) hexdump into binary.\n    -r -s off   revert with <off> added to file positions found in hexdump.\n    -d          show offset in decimal instead of hex.\n    -s [+][-]seek  start at <seek> bytes abs. (or +: rel.) infile offset.\n    -u          use upper case hex letters.\n    -R when     colorize the output; <when> can be 'always', 'auto' or 'never'. Default: 'auto'.\n    -v          show version: \"xxd 2026-06-16 by Juergen Weigert et al.\".\n"
+ },
+ {
+  "cmd": "xxd -l abc a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ }
+]
