@@ -71,9 +71,9 @@ describe('text command batch 8: sort, real execve', () => {
     expect(await kernel.filesystem.fs.readFile('/tmp/sort-multi-out.txt', 'utf-8')).toBe('a\nb\nc\nd\n')
   })
 
-  it('reports an error for a missing file but keeps a zero exit code, matching the original', async () => {
+  it('reports an error for a missing file and exits 2, as GNU sort does', async () => {
     const code = await kernel.shell.execute('sort /tmp/sort-does-not-exist.txt 2>/tmp/sort-missing.err')
-    expect(code).toBe(0)
+    expect(code).toBe(2)
     const err = await kernel.filesystem.fs.readFile('/tmp/sort-missing.err', 'utf-8')
     expect(err).toContain('sort:')
   })

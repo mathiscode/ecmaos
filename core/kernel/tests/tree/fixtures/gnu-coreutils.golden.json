@@ -1,0 +1,1022 @@
+[
+ {
+  "cmd": "head a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 2 a.txt",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n2 a.txt",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n -1 a.txt",
+  "out": "one two\nthree  four five\n\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n -20 a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -c 5 a.txt",
+  "out": "one t",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -c -3 a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newl",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 0 a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -2 a.txt",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head a.txt u.txt",
+  "out": "==> a.txt <==\none two\nthree  four five\n\nlast line no newline\n==> u.txt <==\nhÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -q a.txt u.txt",
+  "out": "one two\nthree  four five\n\nlast line no newlinehÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -v a.txt",
+  "out": "==> a.txt <==\none two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 1 nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "head: cannot open 'nonexist.txt' for reading: No such file or directory\n"
+ },
+ {
+  "cmd": "head -n 1 nonexist.txt a.txt",
+  "out": "==> a.txt <==\none two\n",
+  "code": 1,
+  "err": "head: cannot open 'nonexist.txt' for reading: No such file or directory\n"
+ },
+ {
+  "cmd": "cat a.txt | head -n 2",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 100 empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 3 u.txt",
+  "out": "hÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -c 3 u.txt",
+  "out": "hÃ©",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head --lines=2 a.txt",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head --bytes=4 a.txt",
+  "out": "one ",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 1 dir",
+  "out": "",
+  "code": 1,
+  "err": "head: error reading 'dir': Is a directory\n"
+ },
+ {
+  "cmd": "head -c 1K long.txt",
+  "out": "The quick brown fox jumps over the lazy dog and keeps running through the forest until night falls\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "head -n 2 - < a.txt",
+  "out": "one two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail b.txt",
+  "out": "gamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n 2 a.txt",
+  "out": "\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n2 a.txt",
+  "out": "\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n +2 a.txt",
+  "out": "three  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n +1 a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -c 5 a.txt",
+  "out": "wline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -c +5 a.txt",
+  "out": "two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail a.txt u.txt",
+  "out": "==> a.txt <==\none two\nthree  four five\n\nlast line no newline\n==> u.txt <==\nhÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -q a.txt u.txt",
+  "out": "one two\nthree  four five\n\nlast line no newlinehÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -v a.txt",
+  "out": "==> a.txt <==\none two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n 1 empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tail -n 1",
+  "out": "last line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -2 a.txt",
+  "out": "\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n 0 a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n 1 nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "tail: cannot open 'nonexist.txt' for reading: No such file or directory\n"
+ },
+ {
+  "cmd": "tail -n 100 a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail --lines=2 a.txt",
+  "out": "\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tail -n 2 u.txt",
+  "out": "\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -n a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n     3\t\n     4\tlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -b a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n\n     3\tlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -s a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -E a.txt",
+  "out": "one two$\nthree  four five$\n$\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -T tabs.txt",
+  "out": "a^Ib^Ic\n1^I2^I3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -A bin.dat",
+  "out": "The quick brown fox jumps over the lazy dog, twice over: abc^@^AM-^?$\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -v bin.dat",
+  "out": "The quick brown fox jumps over the lazy dog, twice over: abc^@^AM-^?\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt u.txt",
+  "out": "one two\nthree  four five\n\nlast line no newlinehÃ©llo wÃ¶rld\n\ttabbed\tline\ncafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat - < a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat nonexist.txt a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 1,
+  "err": "cat: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "cat dir",
+  "out": "",
+  "code": 1,
+  "err": "cat: dir: Is a directory\n"
+ },
+ {
+  "cmd": "cat -n a.txt u.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n     3\t\n     4\tlast line no newlinehÃ©llo wÃ¶rld\n     5\t\ttabbed\tline\n     6\tcafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -nE crlf.txt",
+  "out": "     1\tone^M$\n     2\ttwo^M$\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -A crlf.txt",
+  "out": "one^M$\ntwo^M$\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat --number a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n     3\t\n     4\tlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -e u.txt",
+  "out": "hM-CM-)llo wM-CM-6rld$\n\ttabbed\tline$\ncafM-CM-)$\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat -t tabs.txt",
+  "out": "a^Ib^Ic\n1^I2^I3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort nums.txt",
+  "out": "-5\n10\n100\n2\n2\n33\n9\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -n nums.txt",
+  "out": "-5\n2\n2\n9\n10\n33\n100\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -r nums.txt",
+  "out": "9\n33\n2\n2\n100\n10\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -nr nums.txt",
+  "out": "100\n33\n10\n9\n2\n2\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -u dup.txt",
+  "out": "B\na\nb\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -f words.txt",
+  "out": "Apple\napple\nBanana\nbanana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort words.txt",
+  "out": "Apple\nBanana\napple\nbanana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -fu words.txt",
+  "out": "Apple\nbanana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -t, -k2 csv.txt",
+  "out": "carl,100,sf\nbob,25,la\nann,30,nyc\nname,age,city\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -t, -k2n csv.txt",
+  "out": "name,age,city\nbob,25,la\nann,30,nyc\ncarl,100,sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -t, -k2,2nr csv.txt",
+  "out": "carl,100,sf\nann,30,nyc\nbob,25,la\nname,age,city\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -c nums.txt",
+  "out": "",
+  "code": 1,
+  "err": "sort: nums.txt:3: disorder: 2\n"
+ },
+ {
+  "cmd": "sort -c b.txt",
+  "out": "",
+  "code": 1,
+  "err": "sort: b.txt:4: disorder: delta\n"
+ },
+ {
+  "cmd": "sort -b a.txt",
+  "out": "\nlast line no newline\none two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort a.txt u.txt",
+  "out": "\n\ttabbed\tline\ncafÃ©\nhÃ©llo wÃ¶rld\nlast line no newline\none two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort b.txt",
+  "out": "alpha\nbeta\ndelta\nepsilon\neta\ngamma\niota\nkappa\nlambda\nmu\ntheta\nzeta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -k1,1 -k2,2 a.txt",
+  "out": "\nlast line no newline\none two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -h nums.txt",
+  "out": "-5\n2\n2\n9\n10\n33\n100\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -V nums.txt",
+  "out": "2\n2\n9\n10\n33\n100\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -s -k1,1 dup.txt",
+  "out": "B\na\na\na\nb\nb\nc\nc\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort nonexist.txt",
+  "out": "",
+  "code": 2,
+  "err": "sort: cannot read: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "sort -n a.txt",
+  "out": "\nlast line no newline\none two\nthree  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -d words.txt",
+  "out": "Apple\nBanana\napple\nbanana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort -M words.txt",
+  "out": "Apple\nBanana\napple\nbanana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq dup.txt",
+  "out": "a\nb\nB\nb\nc\na\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -c dup.txt",
+  "out": "      2 a\n      1 b\n      1 B\n      1 b\n      3 c\n      1 a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -d dup.txt",
+  "out": "a\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -u dup.txt",
+  "out": "b\nB\nb\na\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -i dup.txt",
+  "out": "a\nb\nc\na\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -ic dup.txt",
+  "out": "      2 a\n      3 b\n      3 c\n      1 a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -f 1 csv.txt",
+  "out": "name,age,city\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -s 1 dup.txt",
+  "out": "a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -w 1 words.txt",
+  "out": "banana\nApple\ncherry\napple\nBanana\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "uniq -D dup.txt",
+  "out": "a\na\nc\nc\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sort dup.txt | uniq -c",
+  "out": "      1 B\n      3 a\n      2 b\n      3 c\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f1 csv.txt",
+  "out": "name\nann\nbob\ncarl\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f2,3 csv.txt",
+  "out": "age,city\n30,nyc\n25,la\n100,sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f2- csv.txt",
+  "out": "age,city\n30,nyc\n25,la\n100,sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f-2 csv.txt",
+  "out": "name,age\nann,30\nbob,25\ncarl,100\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -c1-3 a.txt",
+  "out": "one\nthr\n\nlas\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -c2 a.txt",
+  "out": "n\nh\n\na\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -b1-2 u.txt",
+  "out": "hÃ\n\tt\nca\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -c1-2 u.txt",
+  "out": "hÃ©\n\tt\nca\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -f1 a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -f2 tabs.txt",
+  "out": "b\n2\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -s -f2 tabs.txt",
+  "out": "b\n2\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -s -d, -f1 a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut --complement -d, -f1 csv.txt",
+  "out": "age,city\n30,nyc\n25,la\n100,sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f1 --output-delimiter=: csv.txt",
+  "out": "name\nann\nbob\ncarl\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -d, -f1,3 --output-delimiter=: csv.txt",
+  "out": "name:city\nann:nyc\nbob:la\ncarl:sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cut -f1 nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "cut: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "cut a.txt",
+  "out": "",
+  "code": 1,
+  "err": "cut: you must specify a list of bytes, characters, or fields\nTry 'cut --help' for more information.\n"
+ },
+ {
+  "cmd": "cut -d, -f0 csv.txt",
+  "out": "",
+  "code": 1,
+  "err": "cut: fields are numbered from 1\nTry 'cut --help' for more information.\n"
+ },
+ {
+  "cmd": "cut -c1,3,5 a.txt",
+  "out": "oet\ntre\n\nls \n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr a-z A-Z",
+  "out": "ONE TWO\nTHREE  FOUR FIVE\n\nLAST LINE NO NEWLINE",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -d aeiou",
+  "out": "n tw\nthr  fr fv\n\nlst ln n nwln",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -s \" \"",
+  "out": "one two\nthree four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -c a-z X",
+  "out": "oneXtwoXthreeXXfourXfiveXXlastXlineXnoXnewline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr \"[:lower:]\" \"[:upper:]\"",
+  "out": "ONE TWO\nTHREE  FOUR FIVE\n\nLAST LINE NO NEWLINE",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -d \"\\n\"",
+  "out": "one twothree  four fivelast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr a-c x",
+  "out": "one two\nthree  four five\n\nlxst line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -cd \"[:alpha:]\"",
+  "out": "onetwothreefourfivelastlinenonewline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr abc xy",
+  "out": "one two\nthree  four five\n\nlxst line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat u.txt | tr a-z A-Z",
+  "out": "HÃ©LLO WÃ¶RLD\n\tTABBED\tLINE\nCAFÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat tabs.txt | tr \"\\t\" \",\"",
+  "out": "a,b,c\n1,2,3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -s \"[:space:]\"",
+  "out": "one two\nthree four five\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -d \"[:space:]\"",
+  "out": "onetwothreefourfivelastlinenonewline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr",
+  "out": "",
+  "code": 1,
+  "err": "tr: missing operand\nTry 'tr --help' for more information.\n"
+ },
+ {
+  "cmd": "cat crlf.txt | tr -d \"\\r\"",
+  "out": "one\ntwo\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -t abc xy",
+  "out": "one two\nthree  four five\n\nlxst line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat a.txt | tr -cs \"[:alpha:]\" \"\\n\"",
+  "out": "one\ntwo\nthree\nfour\nfive\nlast\nline\nno\nnewline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n       \n     3\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -ba a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n     3\t\n     4\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -bt a.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n       \n     3\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -s: a.txt",
+  "out": "     1:one two\n     2:three  four five\n       \n     3:last line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -w3 a.txt",
+  "out": "  1\tone two\n  2\tthree  four five\n    \n  3\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -n ln a.txt",
+  "out": "1     \tone two\n2     \tthree  four five\n       \n3     \tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -n rz a.txt",
+  "out": "000001\tone two\n000002\tthree  four five\n       \n000003\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -v5 a.txt",
+  "out": "     5\tone two\n     6\tthree  four five\n       \n     7\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl -i2 a.txt",
+  "out": "     1\tone two\n     3\tthree  four five\n       \n     5\tlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "nl a.txt u.txt",
+  "out": "     1\tone two\n     2\tthree  four five\n       \n     3\tlast line no newline\n     4\thÃ©llo wÃ¶rld\n     5\t\ttabbed\tline\n     6\tcafÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac a.txt",
+  "out": "last line no newline\nthree  four five\none two\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac nums.txt",
+  "out": "-5\n100\n2\n33\n2\n9\n10\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac a.txt u.txt",
+  "out": "last line no newline\nthree  four five\none two\ncafÃ©\n\ttabbed\tline\nhÃ©llo wÃ¶rld\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac -s, csv.txt",
+  "out": "sf\n100,la\ncarl,25,nyc\nbob,30,city\nann,age,name,",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "tac nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "tac: failed to open 'nonexist.txt' for reading: No such file or directory\n"
+ },
+ {
+  "cmd": "rev a.txt",
+  "out": "owt eno\nevif ruof  eerht\n\nenilwen on enil tsal",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "rev u.txt",
+  "out": "dlrÃ¶w ollÃ©h\nenil\tdebbat\t\nÃ©fac\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "rev empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat b.txt | rev",
+  "out": "ahpla\nateb\nammag\natled\nnolispe\natez\nate\nateht\natoi\nappak\nadbmal\num\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste a.txt b.txt",
+  "out": "one two\talpha\nthree  four five\tbeta\n\tgamma\nlast line no newline\tdelta\n\tepsilon\n\tzeta\n\teta\n\ttheta\n\tiota\n\tkappa\n\tlambda\n\tmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste -d, nums.txt b.txt",
+  "out": "10,alpha\n9,beta\n2,gamma\n33,delta\n2,epsilon\n100,zeta\n-5,eta\n,theta\n,iota\n,kappa\n,lambda\n,mu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste -s nums.txt",
+  "out": "10\t9\t2\t33\t2\t100\t-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste -s -d, nums.txt",
+  "out": "10,9,2,33,2,100,-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste - - < nums.txt",
+  "out": "10\t9\n2\t33\n2\t100\n-5\t\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste nums.txt",
+  "out": "10\n9\n2\n33\n2\n100\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "paste -d\"|\" a.txt b.txt u.txt",
+  "out": "one two|alpha|hÃ©llo wÃ¶rld\nthree  four five|beta|\ttabbed\tline\n|gamma|cafÃ©\nlast line no newline|delta|\n|epsilon|\n|zeta|\n|eta|\n|theta|\n|iota|\n|kappa|\n|lambda|\n|mu|\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -w 5 a.txt",
+  "out": "one t\nwo\nthree\n  fou\nr fiv\ne\n\nlast \nline \nno ne\nwline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -s -w 8 a.txt",
+  "out": "one two\nthree  \nfour \nfive\n\nlast \nline no \nnewline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -w 20 long.txt",
+  "out": "The quick brown fox \njumps over the lazy \ndog and keeps runnin\ng through the forest\n until night falls\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -sw 30 long.txt",
+  "out": "The quick brown fox jumps \nover the lazy dog and keeps \nrunning through the forest \nuntil night falls\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -b -w 4 u.txt",
+  "out": "hÃ©l\nlo w\nÃ¶rl\nd\n\ttab\nbed\t\nline\ncaf\nÃ©\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold a.txt",
+  "out": "one two\nthree  four five\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "fold -w 3 u.txt",
+  "out": "hÃ©l\nlo \nwÃ¶r\nld\n\t\ntab\nbed\n\t\nlin\ne\ncaf\nÃ©\n",
+  "code": 0,
+  "err": ""
+ }
+]

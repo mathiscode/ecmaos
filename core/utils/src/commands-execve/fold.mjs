@@ -1,189 +1,163 @@
-/** Wrap each line of input to a given width. */
+/**
+ * Wrap input lines to fit in a width, as GNU `fold` does: the text is passed through as it is (a last line with no newline stays
+ * without one), a column is a character (UTF-8) with tabs going to the next multiple of 8, `-b` counts bytes instead, and `-s`
+ * breaks after the last blank that fits.
+ */
 
 import { resolve } from './lib/path-utils.mjs'
-import { readFileBytes } from './lib/bytes.mjs'
 
-const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, isDirectory, O_RDONLY } = globalThis.ecmaosSyscalls
+
+const encoder = new TextEncoder()
+const err = text => writeAll(2, encoder.encode(`fold: ${text}\n`))
 
 const usage = `Usage: fold [OPTION]... [FILE]...
-Wrap each input line to fit in specified width.
+Wrap input lines in each FILE, writing to standard output. With no FILE, or when FILE is -, read standard input.
 
+  -b, --bytes         count bytes rather than columns
+  -s, --spaces        break at spaces
   -w, --width=WIDTH   use WIDTH columns instead of 80
-  -s, --spaces        break at spaces when possible
-  -b, --bytes         count bytes instead of columns
-  --help             display this help and exit`
+  --help              display this help and exit`
 
-function wrapLine(line, width, breakAtSpaces, countBytes) {
-  if (!line) return ['']
+const decode = bytes => { let text = ''; for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode(...bytes.subarray(at, at + 8192)); return text }
+const encode = text => Uint8Array.from(text, ch => ch.charCodeAt(0))
 
-  const result = []
-
-  if (countBytes) {
-    const encoder = new TextEncoder()
-    let current = ''
-    let currentBytes = 0
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i]
-      const charBytes = encoder.encode(char).length
-
-      if (currentBytes + charBytes > width && current.length > 0) {
-        if (breakAtSpaces) {
-          const lastSpace = current.lastIndexOf(' ')
-          if (lastSpace > 0) {
-            result.push(current.slice(0, lastSpace))
-            current = current.slice(lastSpace + 1) + char
-            currentBytes = encoder.encode(current).length
-            continue
-          }
-        }
-        result.push(current)
-        current = char || ''
-        currentBytes = charBytes
-      } else {
-        current += char
-        currentBytes += charBytes
-      }
-    }
-
-    if (current.length > 0) result.push(current)
-  } else {
-    let current = ''
-
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i]
-
-      if (current.length >= width && current.length > 0) {
-        if (breakAtSpaces) {
-          const lastSpace = current.lastIndexOf(' ')
-          if (lastSpace > 0) {
-            result.push(current.slice(0, lastSpace))
-            current = current.slice(lastSpace + 1) + char
-            continue
-          }
-        }
-        result.push(current)
-        current = char || ''
-      } else {
-        current += char
-      }
-    }
-
-    if (current.length > 0) result.push(current)
-  }
-
-  return result.length > 0 ? result : ['']
-}
-
-function readAllStdin() {
-  const chunkSize = 65536
+function readFd(fd) {
   const chunks = []
-  while (true) {
-    const buffer = new Uint8Array(chunkSize)
-    const n = read(0, buffer, -1)
+  let total = 0
+  for (;;) {
+    const buffer = new Uint8Array(65536)
+    const n = read(fd, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
+    total += n
   }
-  const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return new TextDecoder().decode(bytes)
+  let at = 0
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length }
+  return bytes
 }
 
-function readWholeFileText(fullPath) {
-  const bytes = readFileBytes(fullPath)
-  return new TextDecoder().decode(bytes)
-}
-
-function splitLines(text) {
-  const lines = text.split('\n')
-  if (lines[lines.length - 1] === '') lines.pop()
-  return lines
+/** A string of one character per byte as its UTF-8 characters, each still made of bytes */
+function characters(text) {
+  const out = []
+  for (let i = 0; i < text.length;) {
+    const byte = text.charCodeAt(i)
+    const length = byte >= 0xf0 && byte <= 0xf4 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc2 && byte < 0xe0 ? 2 : 1
+    let ok = length > 1 && i + length <= text.length
+    for (let k = 1; ok && k < length; k++) if ((text.charCodeAt(i + k) & 0xc0) !== 0x80) ok = false
+    const size = ok ? length : 1
+    out.push(text.slice(i, i + size))
+    i += size
+  }
+  return out
 }
 
 function main() {
   const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
   let width = 80
-  let breakAtSpaces = false
-  let countBytes = false
+  let bytesMode = false
+  let spaces = false
   const files = []
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
-    if (arg === '-w' || arg === '--width') {
-      if (i + 1 < args.length) {
-        const parsed = parseInt(args[++i], 10)
-        if (!isNaN(parsed) && parsed > 0) width = parsed
-        else { writeAll(2, new TextEncoder().encode(`fold: invalid width: ${args[i]}\n`)); return 1 }
-      }
-    } else if (arg.startsWith('--width=')) {
-      const widthStr = arg.slice(8)
-      const parsed = parseInt(widthStr, 10)
-      if (!isNaN(parsed) && parsed > 0) width = parsed
-      else { writeAll(2, new TextEncoder().encode(`fold: invalid width: ${widthStr}\n`)); return 1 }
-    } else if (arg.startsWith('-w')) {
-      const widthStr = arg.slice(2)
-      if (widthStr) {
-        const parsed = parseInt(widthStr, 10)
-        if (!isNaN(parsed) && parsed > 0) width = parsed
-        else { writeAll(2, new TextEncoder().encode(`fold: invalid width: ${widthStr}\n`)); return 1 }
-      }
-    } else if (arg === '-s' || arg === '--spaces') {
-      breakAtSpaces = true
-    } else if (arg === '-b' || arg === '--bytes') {
-      countBytes = true
-    } else if (arg.startsWith('-')) {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('s')) breakAtSpaces = true
-      if (flags.includes('b')) countBytes = true
-      const invalid = flags.find(f => !['s', 'b'].includes(f))
-      if (invalid) {
-        writeAll(2, new TextEncoder().encode(`fold: invalid option -- '${invalid}'\n`))
-        writeAll(2, new TextEncoder().encode("Try 'fold --help' for more information.\n"))
-        return 1
-      }
-    } else {
-      files.push(arg)
+    if (arg === '--') { files.push(...args.slice(i + 1)); break }
+    if (arg === '--help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
+    if (arg === '-' || !arg.startsWith('-')) { files.push(arg); continue }
+    if (arg === '--bytes') { bytesMode = true; continue }
+    if (arg === '--spaces') { spaces = true; continue }
+    const long = /^--width(?:=(.*))?$/.exec(arg)
+    if (arg.startsWith('--') && !long) { err(`unrecognized option '${arg}'`); err("Try 'fold --help' for more information."); return 1 }
+    // The obsolete `-5` for `-w 5`
+    if (/^-\d+$/.test(arg)) { width = Number(arg.slice(1)); continue }
+    if (long) {
+      const text = long[1] !== undefined ? long[1] : args[++i]
+      if (!/^\d+$/.test(text ?? '') || Number(text) === 0) { err(`invalid number of columns: '${text ?? ''}'`); return 1 }
+      width = Number(text)
+      continue
+    }
+    for (let c = 1; c < arg.length; c++) {
+      const flag = arg[c]
+      if (flag === 'b') bytesMode = true
+      else if (flag === 's') spaces = true
+      else if (flag === 'w') {
+        const text = c + 1 < arg.length ? arg.slice(c + 1) : args[++i]
+        if (!/^\d+$/.test(text ?? '') || Number(text) === 0) { err(`invalid number of columns: '${text ?? ''}'`); return 1 }
+        width = Number(text)
+        break
+      } else { err(`invalid option -- '${flag}'`); err("Try 'fold --help' for more information."); return 1 }
     }
   }
 
-  let lines = []
-  let hasError = false
+  /** The column after `ch` when the line is at `column` */
+  const advance = (column, ch) => {
+    if (bytesMode) return column + ch.length
+    if (ch === '\t') return column + 8 - (column % 8)
+    if (ch === '\b') return column > 0 ? column - 1 : 0
+    if (ch === '\r') return 0
+    return column + 1
+  }
 
-  if (files.length === 0) {
-    lines = splitLines(readAllStdin())
-  } else {
-    const cwd = getcwd()
-    for (const file of files) {
-      const fullPath = resolve(cwd, file)
-      try {
-        lines.push(...splitLines(readWholeFileText(fullPath)))
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        writeAll(2, new TextEncoder().encode(`fold: ${file}: ${message}\n`))
-        hasError = true
+  const foldText = text => {
+    let out = ''
+    let line = []
+    let column = 0
+    // A multi-byte character is never split, even when bytes are counted
+    const items = characters(text)
+
+    const flush = () => { out += line.join(''); line = []; column = 0 }
+    const recompute = () => { column = 0; for (const ch of line) column = advance(column, ch) }
+
+    for (const ch of items) {
+      if (ch === '\n') { flush(); out += '\n'; continue }
+      let next = advance(column, ch)
+      if (next > width && line.length) {
+        if (spaces) {
+          // Break after the last blank on the line, if there is one
+          let at = -1
+          for (let k = line.length - 1; k >= 0; k--) if (line[k] === ' ' || line[k] === '\t') { at = k; break }
+          if (at >= 0) {
+            out += line.slice(0, at + 1).join('') + '\n'
+            line = line.slice(at + 1)
+            recompute()
+            next = advance(column, ch)
+          } else { flush(); out += '\n'; next = advance(0, ch) }
+        } else { flush(); out += '\n'; next = advance(0, ch) }
       }
+      line.push(ch)
+      column = next
+    }
+    out += line.join('')
+    return out
+  }
+
+  const cwd = getcwd()
+  let failed = false
+  if (files.length === 0) files.push('-')
+  for (const file of files) {
+    try {
+      let bytes
+      if (file === '-') bytes = readFd(0)
+      else {
+        const fullPath = resolve(cwd, file)
+        if (isDirectory(fullPath)) { err(`${file}: Is a directory`); failed = true; continue }
+        const fd = open(fullPath, O_RDONLY)
+        try { bytes = readFd(fd) } finally { close(fd) }
+      }
+      writeAll(1, encode(foldText(decode(bytes))))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      err(`${file}: ${/ENOENT/.test(message) ? 'No such file or directory' : /EACCES/.test(message) ? 'Permission denied' : message}`)
+      failed = true
     }
   }
-
-  let output = ''
-  for (const line of lines) {
-    for (const wrappedLine of wrapLine(line, width, breakAtSpaces, countBytes)) output += wrappedLine + '\n'
-  }
-  writeAll(1, new TextEncoder().encode(output))
-
-  return hasError ? 1 : 0
+  return failed ? 1 : 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`fold: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }
