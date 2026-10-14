@@ -1,6 +1,7 @@
 /** Compare two sorted files line by line, printing lines unique to each and lines common to both. */
 
 import { resolve } from './lib/path-utils.mjs'
+import { readFileBytes } from './lib/bytes.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
 
@@ -13,21 +14,7 @@ Compare two sorted files line by line.
   --help display this help and exit`
 
 function readFileLines(fullPath) {
-  const size = stat(fullPath).size
-  const fd = open(fullPath, O_RDONLY)
-  const bytes = new Uint8Array(size)
-  try {
-    let bytesRead = 0
-    while (bytesRead < size) {
-      const chunk = new Uint8Array(size - bytesRead)
-      const n = read(fd, chunk, -1)
-      if (n <= 0) break
-      bytes.set(chunk.subarray(0, n), bytesRead)
-      bytesRead += n
-    }
-  } finally {
-    close(fd)
-  }
+  const bytes = readFileBytes(fullPath)
   const text = new TextDecoder().decode(bytes)
   const lines = text.split('\n')
   if (lines[lines.length - 1] === '') lines.pop()
