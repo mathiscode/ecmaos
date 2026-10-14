@@ -1,221 +1,143 @@
-/** Convert runs of spaces in input to tabs. */
+/**
+ * Convert spaces to tabs, as GNU `unexpand` does: only the blanks at the start of a line by default, every run with `-a`
+ * (which `-t` implies). A run of blanks becomes a tab where it reaches a tab stop (8 columns, or `-t N` / `-t LIST`); a single
+ * space before a stop stays a space, and a tab that was there already stays a tab.
+ */
 
 import { resolve } from './lib/path-utils.mjs'
-import { readFileBytes } from './lib/bytes.mjs'
+import { nextStop, parseTabs, startsCharacter } from './lib/tabs.mjs'
 
-const { argv, exit, writeAll, read, getcwd, open, close, stat, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, open, close, isDirectory, O_RDONLY } = globalThis.ecmaosSyscalls
+
+const encoder = new TextEncoder()
+const err = text => writeAll(2, encoder.encode(`unexpand: ${text}\n`))
 
 const usage = `Usage: unexpand [OPTION]... [FILE]...
-Convert spaces to tabs in each FILE.
+Convert blanks in each FILE to tabs, writing to standard output. With no FILE, or when FILE is -, read standard input.
 
-  -t, --tabs=NUMBER     have tabs NUMBER characters apart, not 8
-  -t, --tabs=LIST      use comma separated list of tab positions
-  -a, --all            convert all spaces, not just leading spaces
-  --help               display this help and exit`
+  -a, --all        convert all blanks, instead of just initial blanks
+      --first-only convert only leading sequences of blanks (overrides -a)
+  -t, --tabs=N     have tabs N characters apart instead of 8 (enables -a)
+  -t, --tabs=LIST  use comma separated LIST of tab positions (enables -a)
+  --help           display this help and exit`
 
-function parseTabStops(tabStr) {
-  if (tabStr.includes(',')) {
-    const stops = tabStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n > 0)
-    return stops.length > 0 ? stops : [8]
-  }
-  const single = parseInt(tabStr, 10)
-  return !isNaN(single) && single > 0 ? [single] : [8]
-}
+const decode = bytes => { let text = ''; for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode(...bytes.subarray(at, at + 8192)); return text }
 
-function getNextTabStop(column, tabStops) {
-  if (tabStops.length === 1) {
-    const interval = tabStops[0] ?? 8
-    return Math.ceil((column + 1) / interval) * interval
-  }
-  for (const stop of tabStops) if (stop > column) return stop
-  const lastStop = tabStops[tabStops.length - 1]
-  let nextStop = lastStop ?? 8
-  while (nextStop <= column) nextStop += lastStop ?? 8
-  return nextStop
-}
-
-function unexpandLeadingSpaces(line, tabStops) {
-  let leadingSpaces = 0
-  let i = 0
-  while (i < line.length && line[i] === ' ') { leadingSpaces++; i++ }
-  if (leadingSpaces === 0) return line
-
-  let result = ''
-  let column = 0
-  let spaceIdx = 0
-
-  while (spaceIdx < leadingSpaces) {
-    const nextStop = getNextTabStop(column, tabStops)
-    const spacesToNextStop = nextStop - column
-    const remainingSpaces = leadingSpaces - spaceIdx
-
-    if (spacesToNextStop <= remainingSpaces) {
-      result += '\t'
-      column = nextStop
-      spaceIdx += spacesToNextStop
-    } else {
-      result += ' '
-      column++
-      spaceIdx++
-    }
-  }
-
-  return result + line.slice(leadingSpaces)
-}
-
-function convertSpacesToTabs(startColumn, spaceCount, tabStops) {
-  let result = ''
-  let column = startColumn
-  let spaceIdx = 0
-
-  while (spaceIdx < spaceCount) {
-    const nextStop = getNextTabStop(column, tabStops)
-    const spacesToNextStop = nextStop - column
-    const remainingSpaces = spaceCount - spaceIdx
-
-    if (spacesToNextStop <= remainingSpaces && spacesToNextStop > 1) {
-      result += '\t'
-      column = nextStop
-      spaceIdx += spacesToNextStop
-    } else if (spacesToNextStop === 1 && remainingSpaces >= 1) {
-      result += '\t'
-      column = nextStop
-      spaceIdx += 1
-    } else {
-      result += ' '
-      column++
-      spaceIdx++
-    }
-  }
-
-  return result
-}
-
-function unexpandAllSpaces(line, tabStops) {
-  let result = ''
-  let column = 0
-  let spaceCount = 0
-  let spaceStartColumn = 0
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i]
-
-    if (char === ' ') {
-      if (spaceCount === 0) spaceStartColumn = column
-      spaceCount++
-      column++
-    } else {
-      if (spaceCount > 0) {
-        result += convertSpacesToTabs(spaceStartColumn, spaceCount, tabStops)
-        spaceCount = 0
-      }
-      result += char
-      if (char === '\n' || char === '\r') column = 0
-      else column++
-    }
-  }
-
-  if (spaceCount > 0) result += ' '.repeat(spaceCount)
-
-  return result
-}
-
-function unexpandTabs(line, tabStops, all) {
-  return all ? unexpandAllSpaces(line, tabStops) : unexpandLeadingSpaces(line, tabStops)
-}
-
-function readAllStdin() {
-  const chunkSize = 65536
+function readFd(fd) {
   const chunks = []
-  while (true) {
-    const buffer = new Uint8Array(chunkSize)
-    const n = read(0, buffer, -1)
+  let total = 0
+  for (;;) {
+    const buffer = new Uint8Array(65536)
+    const n = read(fd, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
+    total += n
   }
-  const total = chunks.reduce((sum, c) => sum + c.byteLength, 0)
   const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return new TextDecoder().decode(bytes)
-}
-
-function readWholeFileText(fullPath) {
-  const bytes = readFileBytes(fullPath)
-  return new TextDecoder().decode(bytes)
-}
-
-function splitLines(text) {
-  const lines = text.split('\n')
-  if (lines[lines.length - 1] === '') lines.pop()
-  return lines
+  let at = 0
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length }
+  return bytes
 }
 
 function main() {
   const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
-  let tabStops = [8]
+  let tabs = { every: 8 }
   let all = false
+  let firstOnly = false
   const files = []
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
-    if (arg === '-t' || arg === '--tabs') {
-      if (i + 1 < args.length) tabStops = parseTabStops(args[++i])
-    } else if (arg.startsWith('--tabs=')) {
-      tabStops = parseTabStops(arg.slice(7))
-    } else if (arg.startsWith('-t')) {
-      const tabStr = arg.slice(2)
-      if (tabStr) tabStops = parseTabStops(tabStr)
-    } else if (arg === '-a' || arg === '--all') {
+    if (arg === '--') { files.push(...args.slice(i + 1)); break }
+    if (arg === '--help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
+    if (arg === '-' || !arg.startsWith('-')) { files.push(arg); continue }
+    if (arg === '--all') { all = true; continue }
+    if (arg === '--first-only') { firstOnly = true; continue }
+    const long = /^--tabs(?:=(.*))?$/.exec(arg)
+    const short = /^-t(.*)$/.exec(arg)
+    if (long || short) {
+      const text = long ? (long[1] !== undefined ? long[1] : args[++i]) : (short[1] !== '' ? short[1] : args[++i])
+      const parsed = parseTabs(text)
+      if (parsed.error) { err(parsed.error); return 1 }
+      tabs = parsed
       all = true
-    } else if (arg.startsWith('-')) {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('a')) all = true
-      const invalid = flags.find(f => f !== 'a')
-      if (invalid) {
-        writeAll(2, new TextEncoder().encode(`unexpand: invalid option -- '${invalid}'\n`))
-        writeAll(2, new TextEncoder().encode("Try 'unexpand --help' for more information.\n"))
-        return 1
-      }
-    } else {
-      files.push(arg)
+      continue
+    }
+    if (arg.startsWith('--')) { err(`unrecognized option '${arg}'`); err("Try 'unexpand --help' for more information."); return 1 }
+    for (const flag of arg.slice(1)) {
+      if (flag === 'a') all = true
+      else { err(`invalid option -- '${flag}'`); err("Try 'unexpand --help' for more information."); return 1 }
     }
   }
+  const convertAll = all && !firstOnly
 
-  let lines = []
-  let hasError = false
-
-  if (files.length === 0) {
-    lines = splitLines(readAllStdin())
-  } else {
-    const cwd = getcwd()
-    for (const file of files) {
-      const fullPath = resolve(cwd, file)
-      try {
-        lines.push(...splitLines(readWholeFileText(fullPath)))
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        writeAll(2, new TextEncoder().encode(`unexpand: ${file}: ${message}\n`))
-        hasError = true
+  const unexpandLine = line => {
+    let out = ''
+    let column = 0
+    let leading = true
+    let k = 0
+    while (k < line.length) {
+      const ch = line[k]
+      if ((ch === ' ' || ch === '\t') && (convertAll || leading)) {
+        // The run of blanks from here, as columns
+        const startColumn = column
+        let endColumn = column
+        let hasTab = false
+        let j = k
+        while (j < line.length && (line[j] === ' ' || line[j] === '\t')) {
+          if (line[j] === '\t') { hasTab = true; endColumn = nextStop(tabs, endColumn) ?? endColumn + 1 } else endColumn++
+          j++
+        }
+        let current = startColumn
+        for (;;) {
+          const stop = nextStop(tabs, current)
+          if (stop === undefined || stop > endColumn) break
+          // One blank column alone is not worth a tab, unless a tab was already there
+          if (stop - current >= 2 || hasTab) { out += '\t'; current = stop } else break
+        }
+        out += ' '.repeat(endColumn - current)
+        column = endColumn
+        k = j
+        continue
       }
+      if (ch !== ' ' && ch !== '\t') leading = false
+      out += ch
+      const code = line.charCodeAt(k)
+      if (ch === '\b') column = column > 0 ? column - 1 : 0
+      else if (ch === '\t') column = nextStop(tabs, column) ?? column + 1
+      else if (startsCharacter(code)) column++
+      k++
     }
+    return out
   }
 
-  let output = ''
-  for (const line of lines) output += unexpandTabs(line, tabStops, all) + '\n'
-  writeAll(1, new TextEncoder().encode(output))
-
-  return hasError ? 1 : 0
+  const cwd = getcwd()
+  let failed = false
+  if (files.length === 0) files.push('-')
+  for (const file of files) {
+    try {
+      let bytes
+      if (file === '-') bytes = readFd(0)
+      else {
+        const fullPath = resolve(cwd, file)
+        if (isDirectory(fullPath)) { err(`${file}: read error: Is a directory`); failed = true; continue }
+        const fd = open(fullPath, O_RDONLY)
+        try { bytes = readFd(fd) } finally { close(fd) }
+      }
+      const out = decode(bytes).split('\n').map(unexpandLine).join('\n')
+      writeAll(1, Uint8Array.from(out, ch => ch.charCodeAt(0)))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      err(`${file}: ${/ENOENT/.test(message) ? 'No such file or directory' : /EACCES/.test(message) ? 'Permission denied' : message}`)
+      failed = true
+    }
+  }
+  return failed ? 1 : 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`unexpand: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

@@ -10,15 +10,16 @@ unexpand [OPTION]... [FILE]...
 
 ## Description
 
-Convert spaces to tabs in each FILE.
+Convert blanks in each FILE to tabs, writing to standard output. With no FILE, or when FILE is -, read standard input.
 
 ## Options
 
 ```
-  -t, --tabs=NUMBER     have tabs NUMBER characters apart, not 8
-  -t, --tabs=LIST      use comma separated list of tab positions
-  -a, --all            convert all spaces, not just leading spaces
-  --help               display this help and exit
+  -a, --all        convert all blanks, instead of just initial blanks
+      --first-only convert only leading sequences of blanks (overrides -a)
+  -t, --tabs=N     have tabs N characters apart instead of 8 (enables -a)
+  -t, --tabs=LIST  use comma separated LIST of tab positions (enables -a)
+  --help           display this help and exit
 ```
 
 ## See also

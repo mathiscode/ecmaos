@@ -33,7 +33,7 @@ describe('coreutils match GNU', () => {
   for (const expected of golden as Golden[]) {
     it(expected.cmd, async () => {
       const fs = kernel.filesystem.fs
-      await kernel.shell.execute(`cd /tmp/gnuc; ${expected.cmd} > /tmp/gnuc-out 2> /tmp/gnuc-err; echo $? > /tmp/gnuc-code`)
+      await kernel.shell.execute(`cd /tmp/gnuc; { ${expected.cmd}; } > /tmp/gnuc-out 2> /tmp/gnuc-err; echo $? > /tmp/gnuc-code`)
       const code = Number((await fs.readFile('/tmp/gnuc-code', 'utf8')).trim())
       const out = latin1(await fs.readFile('/tmp/gnuc-out'))
       const err = latin1(await fs.readFile('/tmp/gnuc-err'))

@@ -64,38 +64,66 @@ export function interpretEscapes(text: string): string {
   return result
 }
 
+
+/** What a numeric argument is: decimal, `0x` hex, leading-0 octal, a float, or `'c` / `"c` for a character's code. `ok` is false when it is not a number. */
+function parseArgument(value: string): { number: number, big: bigint | undefined, ok: boolean } {
+  if (value === '') return { number: 0, big: 0n, ok: true }
+  if ((value[0] === "'" || value[0] === '"') && value.length > 1) return { number: value.codePointAt(1) ?? 0, big: BigInt(value.codePointAt(1) ?? 0), ok: true }
+  const text = value.trim()
+  if (/^[-+]?(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9]\d*)$/.test(text)) {
+    const negative = text.startsWith('-')
+    const digits = text.replace(/^[-+]/, '')
+    const big = BigInt(/^0[0-7]+$/.test(digits) ? '0o' + digits.slice(1) : digits)
+    return { number: Number(negative ? -big : big), big: negative ? -big : big, ok: true }
+  }
+  if (/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(text)) return { number: Number(text), big: undefined, ok: true }
+  if (/^[-+]?(inf(inity)?|nan)$/i.test(text)) return { number: /nan/i.test(text) ? NaN : text.startsWith('-') ? -Infinity : Infinity, big: undefined, ok: true }
+  // A number followed by other text is used up to there, and reported
+  const lead = /^[-+]?\d+/.exec(text)
+  return lead ? { number: Number(lead[0]), big: BigInt(lead[0]), ok: false } : { number: 0, big: 0n, ok: false }
+}
+
+/** C's `%g`: the shorter of `%e` and `%f` for the precision, without trailing zeros (unless `#`) */
+function formatGeneral(n: number, precision: number, alternate: boolean): string {
+  if (!Number.isFinite(n)) return String(n).replace('Infinity', 'inf').replace('NaN', 'nan')
+  const p = precision === 0 ? 1 : precision
+  if (n === 0) return alternate ? (0).toFixed(p - 1) : '0'
+  const exponent = Number(n.toExponential(p - 1).split('e')[1])
+  let text: string
+  if (exponent < -4 || exponent >= p) {
+    text = n.toExponential(p - 1)
+    if (!alternate) text = text.replace(/\.?0+e/, 'e')
+    text = text.replace(/e([+-])(\d)$/, 'e$10$2')
+  } else {
+    text = n.toFixed(Math.max(0, p - 1 - exponent))
+    if (!alternate && text.includes('.')) text = text.replace(/\.?0+$/, '')
+  }
+  return text
+}
+
+let invalidArgument: ((value: string) => void) | undefined
+
 function formatValue(format: string, value: string): string {
   switch (format) {
     case '%b': return interpretEscapes(value)
-    case '%c': {
-      const num = parseInt(value, 10)
-      if (!isNaN(num)) return String.fromCharCode(num)
-      return value[0] || ''
-    }
+    case '%c': return value === '' ? '' : String.fromCodePoint(value.codePointAt(0) ?? 0)
     case '%d':
     case '%i': {
-      const num = parseInt(value, 10)
-      return isNaN(num) ? '0' : num.toString()
+      const parsed = parseArgument(value)
+      if (!parsed.ok) invalidArgument?.(value)
+      return parsed.big !== undefined ? parsed.big.toString() : String(Math.trunc(parsed.number))
     }
-    case '%o': {
-      const num = parseInt(value, 10)
-      return isNaN(num) ? '0' : num.toString(8)
+    case '%o':
+    case '%u':
+    case '%x':
+    case '%X': {
+      const parsed = parseArgument(value)
+      if (!parsed.ok) invalidArgument?.(value)
+      const unsigned = BigInt.asUintN(64, parsed.big ?? BigInt(Math.trunc(parsed.number) || 0))
+      return format === '%o' ? unsigned.toString(8) : format === '%u' ? unsigned.toString() : format === '%X' ? unsigned.toString(16).toUpperCase() : unsigned.toString(16)
     }
     case '%s': return value
     case '%q': return quoteWord(value)
-    case '%u': {
-      const num = parseInt(value, 10)
-      if (isNaN(num)) return '0'
-      return (num >>> 0).toString()
-    }
-    case '%x': {
-      const num = parseInt(value, 10)
-      return isNaN(num) ? '0' : (num >>> 0).toString(16)
-    }
-    case '%X': {
-      const num = parseInt(value, 10)
-      return isNaN(num) ? '0' : (num >>> 0).toString(16).toUpperCase()
-    }
     case '%%': return '%'
     default: return format
   }
@@ -108,12 +136,14 @@ function convert(conversion: string, value: string, flags: string, precision: nu
     return precision === undefined ? text : text.slice(0, precision)
   }
   if ('fFeEgG'.includes(conversion)) {
-    const num = parseFloat(value)
-    const n = isNaN(num) ? 0 : num
+    const parsed = parseArgument(value)
+    if (!parsed.ok) invalidArgument?.(value)
+    const n = parsed.number
     const digits = precision ?? 6
-    const text = conversion === 'f' || conversion === 'F' ? n.toFixed(digits)
+    const text = !Number.isFinite(n) ? String(n).replace('Infinity', 'inf').replace('NaN', 'nan')
+      : conversion === 'f' || conversion === 'F' ? n.toFixed(digits)
       : conversion === 'e' || conversion === 'E' ? n.toExponential(digits).replace(/e([+-])(\d)$/, 'e$10$2')
-      : String(Number(n.toPrecision(digits || 1)))
+      : formatGeneral(n, digits, flags.includes('#'))
     const out = conversion === 'E' || conversion === 'G' ? text.toUpperCase() : text
     return sign(out, n < 0, flags)
   }
@@ -144,7 +174,12 @@ function pad(text: string, width: number, left: boolean, zero: boolean): string 
 
 
 /** `format` filled in from `values`. */
-export function formatPrintf(format: string, values: string[]): string {
+export function formatPrintf(format: string, values: string[], onInvalid?: (value: string) => void): string {
+  invalidArgument = onInvalid
+  try { return formatPrintfWith(format, values) } finally { invalidArgument = undefined }
+}
+
+function formatPrintfWith(format: string, values: string[]): string {
   /**
    * One pass over the format, consuming arguments from `argIndex`. A specifier with no argument left formats empty
    * (`%s` nothing, numeric ones `0`), as POSIX requires.
@@ -185,7 +220,7 @@ export function formatPrintf(format: string, values: string[]): string {
       }
 
       if (format[i] === '\\' && i + 1 < format.length) {
-        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{0,3})/)
+        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{0,3}|[1-7][0-7]{0,2})/)
         if (match) {
           result += interpretEscapes(match[0])
           i += match[0].length

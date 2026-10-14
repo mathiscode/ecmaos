@@ -1018,5 +1018,1265 @@
   "out": "hÃ©l\nlo \nwÃ¶r\nld\n\t\ntab\nbed\n\t\nlin\ne\ncaf\nÃ©\n",
   "code": 0,
   "err": ""
+ },
+ {
+  "cmd": "seq 3",
+  "out": "1\n2\n3\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 2 5",
+  "out": "2\n3\n4\n5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 1 2 9",
+  "out": "1\n3\n5\n7\n9\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 5 -1 1",
+  "out": "5\n4\n3\n2\n1\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq -s, 3",
+  "out": "1,2,3\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq -w 8 11",
+  "out": "08\n09\n10\n11\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 0.5 0.5 2",
+  "out": "0.5\n1.0\n1.5\n2.0\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq -f \"%02g\" 3",
+  "out": "01\n02\n03\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 3 1",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq a",
+  "out": "",
+  "code": 1,
+  "err": "seq: invalid floating point argument: âaâ\nTry 'seq --help' for more information.\n"
+ },
+ {
+  "cmd": "seq 1 0 3",
+  "out": "",
+  "code": 1,
+  "err": "seq: invalid Zero increment value: â0â\nTry 'seq --help' for more information.\n"
+ },
+ {
+  "cmd": "seq -s \" \" 2 4",
+  "out": "2 3 4\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq 10 5 30",
+  "out": "10\n15\n20\n25\n30\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "seq -f \"%.2f\" 1 0.25 2",
+  "out": "1.00\n1.25\n1.50\n1.75\n2.00\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename /a/b/c.txt",
+  "out": "c.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename /a/b/c.txt .txt",
+  "out": "c\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename -s .txt /a/c.txt /b/d.txt",
+  "out": "c\nd\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename /",
+  "out": "/\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename \"\"",
+  "out": "\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename a/b/",
+  "out": "b\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename -a x/y z/w",
+  "out": "y\nw\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename c.txt c.txt",
+  "out": "c.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename -s .txt c.txt",
+  "out": "c\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "basename a//b//",
+  "out": "b\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname /a/b/c",
+  "out": "/a/b\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname a",
+  "out": ".\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname /",
+  "out": "/\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname a/b/",
+  "out": "a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname /a",
+  "out": "/\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname a/b c/d/e",
+  "out": "a\nc/d\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname \"\"",
+  "out": ".\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname a//b",
+  "out": "a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "dirname ///a",
+  "out": "/\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%s\\n\" a b c",
+  "out": "a\nb\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%d %5.2f %x %o %c\\n\" 42 3.14159 255 8 hello",
+  "out": "42  3.14 ff 10 h\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%-5s|%5s|\\n\" ab cd",
+  "out": "ab   |   cd|\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%05d\\n\" 42",
+  "out": "00042\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%s\\n\"",
+  "out": "\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"a\\tb\\n\"",
+  "out": "a\tb\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%b\\n\" \"a\\nb\"",
+  "out": "a\nb\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%%\\n\"",
+  "out": "%\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%d\\n\" abc",
+  "out": "0\n",
+  "code": 1,
+  "err": "bash: line 1: printf: abc: invalid number\n"
+ },
+ {
+  "cmd": "printf \"%.3s\\n\" abcdef",
+  "out": "abc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%e\\n\" 1234.5",
+  "out": "1.234500e+03\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%+d\\n\" 5",
+  "out": "+5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"\\x41\\101\\n\"",
+  "out": "AA\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%s %s\\n\" a",
+  "out": "a \n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%5s|\\n\" abcdefg",
+  "out": "abcdefg|\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%X %#x %#o\\n\" 255 255 8",
+  "out": "FF 0xff 010\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%u\\n\" -1",
+  "out": "18446744073709551615\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%i\\n\" 7",
+  "out": "7\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%g %g\\n\" 0.0001 1000000",
+  "out": "0.0001 1e+06\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%c%c\\n\" ab cd",
+  "out": "ac\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"%s\\n\" \"a b\" c",
+  "out": "a b\nc\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo hi",
+  "out": "hi\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -n hi",
+  "out": "hi",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -e \"a\\tb\"",
+  "out": "a\tb\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -E \"a\\tb\"",
+  "out": "a\\tb\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -ne \"x\\n\"",
+  "out": "x\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo",
+  "out": "\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo a  b",
+  "out": "a b\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -e \"\\x41\\0102\"",
+  "out": "AB\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo -e \"a\\cb\"",
+  "out": "a",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo \"*\"",
+  "out": "*\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm c.txt d.txt",
+  "out": "apple\n\t\tbanana\n\t\tcherry\ndate\n\telder\n\tfig\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm -12 c.txt d.txt",
+  "out": "banana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm -23 c.txt d.txt",
+  "out": "apple\ndate\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm -13 c.txt d.txt",
+  "out": "elder\nfig\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm --output-delimiter=: c.txt d.txt",
+  "out": "apple\n::banana\n::cherry\ndate\n:elder\n:fig\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm -1 c.txt d.txt",
+  "out": "\tbanana\n\tcherry\nelder\nfig\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm -3 c.txt d.txt",
+  "out": "apple\ndate\n\telder\n\tfig\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm c.txt empty.txt",
+  "out": "apple\nbanana\ncherry\ndate\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "comm c.txt nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "comm: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "cmp a.txt a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cmp a.txt b.txt",
+  "out": "a.txt b.txt differ: byte 1, line 1\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "cmp -s a.txt b.txt",
+  "out": "",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "cmp -l a.txt u.txt",
+  "out": " 1 157 150\n 2 156 303\n 3 145 251\n 4  40 154\n 5 164 154\n 6 167 157\n 7 157  40\n 8  12 167\n 9 164 303\n10 150 266\n12 145 154\n13 145 144\n14  40  12\n15  40  11\n16 146 164\n17 157 141\n18 165 142\n19 162 142\n20  40 145\n21 146 144\n22 151  11\n23 166 154\n24 145 151\n25  12 156\n26  12 145\n27 154  12\n28 141 143\n29 163 141\n30 164 146\n31  40 303\n32 154 251\n33 151  12\n",
+  "code": 1,
+  "err": "cmp: EOF on âu.txtâ after byte 33\n"
+ },
+ {
+  "cmd": "cmp a.txt empty.txt",
+  "out": "",
+  "code": 1,
+  "err": "cmp: EOF on âempty.txtâ which is empty\n"
+ },
+ {
+  "cmd": "cmp a.txt nonexist.txt",
+  "out": "",
+  "code": 2,
+  "err": "cmp: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "cmp -n 3 a.txt u.txt",
+  "out": "a.txt u.txt differ: byte 1, line 1\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "cmp c.txt d.txt",
+  "out": "c.txt d.txt differ: byte 1, line 1\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "cmp -b c.txt d.txt",
+  "out": "c.txt d.txt differ: byte 1, line 1 is 141 a 142 b\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "cmp -i 1 c.txt d.txt",
+  "out": "c.txt d.txt differ: byte 1, line 1\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "od a.txt",
+  "out": "0000000 067157 020145 073564 005157 064164 062562 020145 063040\n0000020 072557 020162 064546 062566 005012 060554 072163 066040\n0000040 067151 020145 067556 067040 073545 064554 062556\n0000056\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -An -tx1 a.txt",
+  "out": " 6f 6e 65 20 74 77 6f 0a 74 68 72 65 65 20 20 66\n 6f 75 72 20 66 69 76 65 0a 0a 6c 61 73 74 20 6c\n 69 6e 65 20 6e 6f 20 6e 65 77 6c 69 6e 65\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -c u.txt",
+  "out": "0000000   h 303 251   l   l   o       w 303 266   r   l   d  \\n  \\t   t\n0000020   a   b   b   e   d  \\t   l   i   n   e  \\n   c   a   f 303 251\n0000040  \\n\n0000041\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -An -N4 -tu1 bin.dat",
+  "out": "  84 104 101  32\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -b a.txt",
+  "out": "0000000 157 156 145 040 164 167 157 012 164 150 162 145 145 040 040 146\n0000020 157 165 162 040 146 151 166 145 012 012 154 141 163 164 040 154\n0000040 151 156 145 040 156 157 040 156 145 167 154 151 156 145\n0000056\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -x u.txt",
+  "out": "0000000 c368 6ca9 6f6c 7720 b6c3 6c72 0a64 7409\n0000020 6261 6562 0964 696c 656e 630a 6661 a9c3\n0000040 000a\n0000041\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -A x -t x1 a.txt",
+  "out": "000000 6f 6e 65 20 74 77 6f 0a 74 68 72 65 65 20 20 66\n000010 6f 75 72 20 66 69 76 65 0a 0a 6c 61 73 74 20 6c\n000020 69 6e 65 20 6e 6f 20 6e 65 77 6c 69 6e 65\n00002e\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -j 3 -N 5 -c a.txt",
+  "out": "0000003       t   w   o  \\n\n0000010\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -An -td2 nums.txt",
+  "out": "  12337  14602  12810  13066   2611   2610  12337   2608\n  13613     10\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -An -c tabs.txt",
+  "out": "   a  \\t   b  \\t   c  \\n   1  \\t   2  \\t   3  \\n   n   o       t\n   a   b   s       h   e   r   e  \\n\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -A n -t a bin.dat",
+  "out": "   T   h   e  sp   q   u   i   c   k  sp   b   r   o   w   n  sp\n   f   o   x  sp   j   u   m   p   s  sp   o   v   e   r  sp   t\n   h   e  sp   l   a   z   y  sp   d   o   g   ,  sp   t   w   i\n   c   e  sp   o   v   e   r   :  sp   a   b   c nul soh del  nl\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -t x2 -N 6 a.txt",
+  "out": "0000000 6e6f 2065 7774\n0000006\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od empty.txt",
+  "out": "0000000\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -A d -c a.txt",
+  "out": "0000000   o   n   e       t   w   o  \\n   t   h   r   e   e           f\n0000016   o   u   r       f   i   v   e  \\n  \\n   l   a   s   t       l\n0000032   i   n   e       n   o       n   e   w   l   i   n   e\n0000046\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "od -v -An -tx1 -N 4 a.txt",
+  "out": " 6f 6e 65 20\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand tabs.txt",
+  "out": "a       b       c\n1       2       3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand -t 4 tabs.txt",
+  "out": "a   b   c\n1   2   3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand -i tabs.txt",
+  "out": "a\tb\tc\n1\t2\t3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand -t 2,6 tabs.txt",
+  "out": "a b   c\n1 2   3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand spaces.txt",
+  "out": "        x\n    y    z\n                w\n        v\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand -t 3 spaces.txt",
+  "out": "        x\n    y    z\n      w\n   v\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "expand empty.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "unexpand spaces.txt",
+  "out": "\tx\n    y    z\n\t\tw\n\tv\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "unexpand -a spaces.txt",
+  "out": "\tx\n    y\t z\n\t\tw\n\tv\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "unexpand -t 4 spaces.txt",
+  "out": "\t\tx\n\ty\t z\n\t\tw\n\tv\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "unexpand --first-only spaces.txt",
+  "out": "\tx\n    y    z\n\t\tw\n\tv\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "unexpand tabs.txt",
+  "out": "a\tb\tc\n1\t2\t3\nno tabs here\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo hi | tee t1.tmp; cat t1.tmp",
+  "out": "hi\nhi\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo hi | tee -a t2.tmp t3.tmp; cat t2.tmp t3.tmp",
+  "out": "hi\nhi\nhi\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo x | tee",
+  "out": "x\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "printf \"a\\nb\" | tee t4.tmp; cat t4.tmp",
+  "out": "a\nba\nb",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "echo x | tee dir",
+  "out": "x\n",
+  "code": 1,
+  "err": "tee: dir: Is a directory\n"
+ },
+ {
+  "cmd": "join j1.txt j2.txt",
+  "out": "1 a x\n3 c y\n5 e w\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -a1 j1.txt j2.txt",
+  "out": "1 a x\n2 b\n3 c y\n5 e w\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -a2 j1.txt j2.txt",
+  "out": "1 a x\n3 c y\n4 z\n5 e w\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -v1 j1.txt j2.txt",
+  "out": "2 b\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -v2 j1.txt j2.txt",
+  "out": "4 z\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -o 1.2,2.2 j1.txt j2.txt",
+  "out": "a x\nc y\ne w\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -o 0,1.2 j1.txt j2.txt",
+  "out": "1 a\n3 c\n5 e\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -e X -a1 -o 0,2.2 j1.txt j2.txt",
+  "out": "1 x\n2 X\n3 y\n5 w\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -t, csv.txt csv.txt",
+  "out": "name,age,city,age,city\nann,30,nyc,30,nyc\nbob,25,la,25,la\ncarl,100,sf,100,sf\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "join -1 2 -2 2 j1.txt j2.txt",
+  "out": "",
+  "code": 1,
+  "err": "join: j2.txt:4: is not sorted: 5 w\njoin: input is not in sorted order\n"
+ },
+ {
+  "cmd": "join j1.txt nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "join: nonexist.txt: No such file or directory\n"
+ },
+ {
+  "cmd": "grep one a.txt",
+  "out": "one two\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -n o a.txt",
+  "out": "1:one two\n2:three  four five\n4:last line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -c e a.txt",
+  "out": "3\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -i APPLE words.txt",
+  "out": "Apple\napple\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -v e a.txt",
+  "out": "\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -w line a.txt",
+  "out": "last line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -x \"one two\" a.txt",
+  "out": "one two\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -o \"[a-z]*e\" a.txt",
+  "out": "one\nthree\nfive\nline\nnewline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -E \"a|b\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nzeta\neta\ntheta\niota\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -F \".\" a.txt",
+  "out": "",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "grep -l e a.txt b.txt",
+  "out": "a.txt\nb.txt\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -L zzz a.txt",
+  "out": "a.txt\n",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "grep e a.txt b.txt",
+  "out": "a.txt:one two\na.txt:three  four five\na.txt:last line no newline\nb.txt:beta\nb.txt:delta\nb.txt:epsilon\nb.txt:zeta\nb.txt:eta\nb.txt:theta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -h e a.txt b.txt",
+  "out": "one two\nthree  four five\nlast line no newline\nbeta\ndelta\nepsilon\nzeta\neta\ntheta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -q e a.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -m1 e b.txt",
+  "out": "beta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -A1 beta b.txt",
+  "out": "beta\ngamma\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -B1 beta b.txt",
+  "out": "alpha\nbeta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -C1 gamma b.txt",
+  "out": "beta\ngamma\ndelta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -e alpha -e mu b.txt",
+  "out": "alpha\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -r kappa .",
+  "out": "./b.txt:kappa\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -s x nonexist.txt",
+  "out": "",
+  "code": 2,
+  "err": ""
+ },
+ {
+  "cmd": "grep zzz a.txt",
+  "out": "",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "grep -b alpha b.txt",
+  "out": "0:alpha\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep --color=never e a.txt",
+  "out": "one two\nthree  four five\nlast line no newline\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -c e a.txt b.txt",
+  "out": "a.txt:3\nb.txt:6\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -nv a b.txt",
+  "out": "5:epsilon\n12:mu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep \"^t\" b.txt",
+  "out": "theta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep \"a$\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nzeta\neta\ntheta\niota\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -E \"^(a|b)\" b.txt",
+  "out": "alpha\nbeta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -E \"l{2}\" b.txt",
+  "out": "",
+  "code": 1,
+  "err": ""
+ },
+ {
+  "cmd": "grep \"a\\|z\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nzeta\neta\ntheta\niota\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -o a b.txt",
+  "out": "a\na\na\na\na\na\na\na\na\na\na\na\na\na\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -on \"a\" b.txt",
+  "out": "1:a\n1:a\n2:a\n3:a\n3:a\n4:a\n6:a\n7:a\n8:a\n9:a\n10:a\n10:a\n11:a\n11:a\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -c \"\" a.txt",
+  "out": "4\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -i -e ALPHA -e MU b.txt",
+  "out": "alpha\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "cat b.txt | grep -n eta",
+  "out": "2:beta\n6:zeta\n7:eta\n8:theta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -H eta b.txt",
+  "out": "b.txt:beta\nb.txt:zeta\nb.txt:eta\nb.txt:theta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -n -A1 -B1 gamma b.txt",
+  "out": "2-beta\n3:gamma\n4-delta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -E \"[0-9]+\" nums.txt",
+  "out": "10\n9\n2\n33\n2\n100\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -E -w \"[0-9]+\" nums.txt",
+  "out": "10\n9\n2\n33\n2\n100\n-5\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -f c.txt d.txt",
+  "out": "banana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "grep -x -f c.txt d.txt",
+  "out": "banana\ncherry\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed s/e/E/ a.txt",
+  "out": "onE two\nthrEe  four five\n\nlast linE no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed s/e/E/g a.txt",
+  "out": "onE two\nthrEE  four fivE\n\nlast linE no nEwlinE",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n 2p a.txt",
+  "out": "three  four five\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed 2d a.txt",
+  "out": "one two\n\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"2,3p\" b.txt",
+  "out": "beta\ngamma\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"$p\" b.txt",
+  "out": "",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"/beta/d\" b.txt",
+  "out": "alpha\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"/a/p\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nzeta\neta\ntheta\niota\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/a/&&/\" b.txt",
+  "out": "aalpha\nbetaa\ngaamma\ndeltaa\nepsilon\nzetaa\netaa\nthetaa\niotaa\nkaappa\nlaambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -e \"s/a/A/\" -e \"s/e/E/\" b.txt",
+  "out": "Alpha\nbEtA\ngAmma\ndEltA\nEpsilon\nzEtA\nEtA\nthEtA\niotA\nkAppa\nlAmbda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"y/abc/xyz/\" b.txt",
+  "out": "xlphx\nyetx\ngxmmx\ndeltx\nepsilon\nzetx\netx\nthetx\niotx\nkxppx\nlxmydx\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"1!d\" b.txt",
+  "out": "alpha\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"2q\" b.txt",
+  "out": "alpha\nbeta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -E \"s/(a)(l)/\\2\\1/\" b.txt",
+  "out": "lapha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/a/b/2\" b.txt",
+  "out": "alphb\nbeta\ngammb\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappb\nlambdb\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"/alpha/,/gamma/p\" b.txt",
+  "out": "alpha\nbeta\ngamma\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"1~2d\" b.txt",
+  "out": "beta\ndelta\nzeta\ntheta\nkappa\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"$d\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"=\" a.txt",
+  "out": "1\none two\n2\nthree  four five\n3\n\n4\nlast line no newline",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"2i ins\" b.txt",
+  "out": "alpha\nins\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"2a app\" b.txt",
+  "out": "alpha\nbeta\napp\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"2c chg\" b.txt",
+  "out": "alpha\nchg\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/.*/\\U&/\" b.txt",
+  "out": "ALPHA\nBETA\nGAMMA\nDELTA\nEPSILON\nZETA\nETA\nTHETA\nIOTA\nKAPPA\nLAMBDA\nMU\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"$=\" b.txt",
+  "out": "12\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/a/X/gI\" words.txt",
+  "out": "bXnXnX\nXpple\ncherry\nXpple\nBXnXnX\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -s -n \"1p\" a.txt b.txt",
+  "out": "one two\nalpha\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"2,4d\" b.txt",
+  "out": "alpha\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s|a|/|\" b.txt",
+  "out": "/lpha\nbet/\ng/mma\ndelt/\nepsilon\nzet/\net/\nthet/\niot/\nk/ppa\nl/mbda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/\\(a\\)\\(l\\)/\\2\\1/\" b.txt",
+  "out": "lapha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"2{p;p}\" b.txt",
+  "out": "beta\nbeta\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"/a/!d\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nzeta\neta\ntheta\niota\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"l\" tabs.txt",
+  "out": "a\\tb\\tc$\n1\\t2\\t3$\nno tabs here$\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"N;s/\\n/-/\" b.txt",
+  "out": "alpha-beta\ngamma-delta\nepsilon-zeta\neta-theta\niota-kappa\nlambda-mu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"s/[aeiou]//g\" b.txt",
+  "out": "lph\nbt\ngmm\ndlt\npsln\nzt\nt\ntht\nt\nkpp\nlmbd\nm\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"5,$ s/a/A/\" b.txt",
+  "out": "alpha\nbeta\ngamma\ndelta\nepsilon\nzetA\netA\nthetA\niotA\nkAppa\nlAmbda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -n \"3,5!p\" b.txt",
+  "out": "alpha\nbeta\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed --expression=\"2d\" b.txt",
+  "out": "alpha\ngamma\ndelta\nepsilon\nzeta\neta\ntheta\niota\nkappa\nlambda\nmu\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed -z \"s/\\n/,/g\" b.txt",
+  "out": "alpha,beta,gamma,delta,epsilon,zeta,eta,theta,iota,kappa,lambda,mu,",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed \"0~3d\" b.txt",
+  "out": "alpha\nbeta\ndelta\nepsilon\neta\ntheta\nkappa\nlambda\n",
+  "code": 0,
+  "err": ""
+ },
+ {
+  "cmd": "sed nonexist.txt",
+  "out": "",
+  "code": 1,
+  "err": "sed: -e expression #1, char 2: extra characters after command\n"
+ },
+ {
+  "cmd": "sed \"s/a\" b.txt",
+  "out": "",
+  "code": 1,
+  "err": "sed: -e expression #1, char 3: unterminated 's' command\n"
  }
 ]

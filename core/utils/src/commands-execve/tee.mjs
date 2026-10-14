@@ -53,6 +53,11 @@ function main() {
   const cwd = getcwd()
   const filePaths = files.map(file => ({ path: file, fullPath: resolve(cwd, expandTilde(file)) }))
   const fds = []
+  let failed = false
+  const reason = error => {
+    const message = error instanceof Error ? error.message : String(error)
+    return /EISDIR/.test(message) ? 'Is a directory' : /ENOENT/.test(message) ? 'No such file or directory' : /EACCES/.test(message) ? 'Permission denied' : message
+  }
 
   try {
     for (const fileInfo of filePaths) {
@@ -65,8 +70,9 @@ function main() {
         if (append) { try { position = stat(fileInfo.fullPath).size } catch { position = 0 } }
         fds.push({ path: fileInfo.path, fd, position })
       } catch (error) {
-        writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : String(error)}\n`))
-        return 1
+        // A file that cannot be opened is reported, and the others and standard output carry on, as in GNU tee
+        writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${reason(error)}\n`))
+        failed = true
       }
     }
 
@@ -84,12 +90,13 @@ function main() {
           writeAll(fileInfo.fd, chunk, fileInfo.position)
           fileInfo.position += chunk.length
         } catch (error) {
-          writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${error instanceof Error ? error.message : 'Write error'}\n`))
+          writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${reason(error)}\n`))
+          failed = true
         }
       }
     }
 
-    return 0
+    return failed ? 1 : 0
   } finally {
     for (const { fd } of fds) close(fd)
   }

@@ -1,59 +1,75 @@
-/** Strip directory and (optionally) a suffix from a path, printing just the final component. */
-
-import { basename } from './lib/path-utils.mjs'
+/** Strip directory and suffix from file names, as GNU `basename` does: `basename NAME [SUFFIX]`, `-a` for several names, `-s SUFFIX`, `-z`. */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: basename NAME [SUFFIX]
-       basename OPTION... NAME...
-Strip directory and suffix from filenames.
+const encoder = new TextEncoder()
+const err = text => writeAll(2, encoder.encode(`basename: ${text}\n`))
 
-  -s, --suffix=SUFFIX  remove a trailing SUFFIX
+const usage = `Usage: basename NAME [SUFFIX]
+  or:  basename OPTION... NAME...
+Print NAME with any leading directory components removed. If specified, also remove a trailing SUFFIX.
+
+  -a, --multiple       support multiple arguments and treat each as a NAME
+  -s, --suffix=SUFFIX  remove a trailing SUFFIX; implies -a
+  -z, --zero           end each output line with NUL, not newline
   --help               display this help and exit`
+
+/** The last component of `name`, with the trailing slashes dropped; `/` for a name of only slashes, and empty for an empty name */
+function base(name) {
+  if (name === '') return ''
+  const trimmed = name.replace(/\/+$/, '')
+  if (trimmed === '') return '/'
+  return trimmed.slice(trimmed.lastIndexOf('/') + 1)
+}
 
 function main() {
   const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
+  let multiple = false
   let suffix
-  const paths = []
-  let i = 0
-  while (i < args.length) {
+  let zero = false
+  const names = []
+
+  for (let i = 0; i < args.length; i++) {
     const arg = args[i]
-    if (arg === '-s' || arg === '--suffix') {
-      if (i + 1 < args.length) suffix = args[++i]
-      else { writeAll(2, new TextEncoder().encode("basename: option requires an argument -- 's'\n")); return 1 }
-    } else if (arg.startsWith('--suffix=')) {
-      suffix = arg.slice(9)
-    } else if (arg.startsWith('-s')) {
-      suffix = arg.slice(2)
-    } else if (!arg.startsWith('-')) {
-      paths.push(arg)
+    if (arg === '--') { names.push(...args.slice(i + 1)); break }
+    if (arg === '--help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
+    if (arg === '--multiple') { multiple = true; continue }
+    if (arg === '--zero') { zero = true; continue }
+    const long = /^--suffix(?:=(.*))?$/.exec(arg)
+    if (long) { suffix = long[1] !== undefined ? long[1] : args[++i]; multiple = true; continue }
+    if (arg.startsWith('--')) { err(`unrecognized option '${arg}'`); err("Try 'basename --help' for more information."); return 1 }
+    if (!arg.startsWith('-') || arg === '-') { names.push(arg); continue }
+    for (let c = 1; c < arg.length; c++) {
+      const flag = arg[c]
+      if (flag === 'a') multiple = true
+      else if (flag === 'z') zero = true
+      else if (flag === 's') { suffix = c + 1 < arg.length ? arg.slice(c + 1) : args[++i]; multiple = true; break }
+      else { err(`invalid option -- '${flag}'`); err("Try 'basename --help' for more information."); return 1 }
     }
-    i++
   }
 
-  if (paths.length === 0) {
-    writeAll(2, new TextEncoder().encode('basename: missing operand\n'))
-    return 1
+  if (names.length === 0) { err('missing operand'); err("Try 'basename --help' for more information."); return 1 }
+  // Without -a or -s, a second name is the suffix
+  if (!multiple) {
+    if (names.length > 2) { err(`extra operand '${names[2]}'`); err("Try 'basename --help' for more information."); return 1 }
+    if (names.length === 2) suffix = names.pop()
   }
 
-  let output = ''
-  for (const filePath of paths) {
-    let name = basename(filePath)
-    if (suffix && name.endsWith(suffix)) name = name.slice(0, -suffix.length)
-    output += name + '\n'
+  const end = zero ? '\0' : '\n'
+  let out = ''
+  for (const name of names) {
+    let result = base(name)
+    // A suffix is not removed when it is the whole name
+    if (suffix && result !== suffix && result.endsWith(suffix) && result !== '/') result = result.slice(0, -suffix.length)
+    out += result + end
   }
-  writeAll(1, new TextEncoder().encode(output))
+  writeAll(1, encoder.encode(out))
   return 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`basename: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

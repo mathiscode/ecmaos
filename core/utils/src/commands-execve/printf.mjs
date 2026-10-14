@@ -50,8 +50,13 @@ function main() {
     return 1
   }
 
-  writeAll(1, new TextEncoder().encode(formatPrintf(args[0], args.slice(1))))
-  return 0
+  let status = 0
+  const output = formatPrintf(args[0], args.slice(1), value => {
+    writeAll(2, new TextEncoder().encode(`printf: ${value}: invalid number\n`))
+    status = 1
+  })
+  writeAll(1, new TextEncoder().encode(output))
+  return status
 }
 
 try {

@@ -10,15 +10,15 @@ fold [OPTION]... [FILE]...
 
 ## Description
 
-Wrap each input line to fit in specified width.
+Wrap input lines in each FILE, writing to standard output. With no FILE, or when FILE is -, read standard input.
 
 ## Options
 
 ```
+  -b, --bytes         count bytes rather than columns
+  -s, --spaces        break at spaces
   -w, --width=WIDTH   use WIDTH columns instead of 80
-  -s, --spaces        break at spaces when possible
-  -b, --bytes         count bytes instead of columns
-  --help             display this help and exit
+  --help              display this help and exit
 ```
 
 ## See also

@@ -105,8 +105,8 @@ describe('text command batch 3: strings/xxd/od/hash/cmp/comm/column, real execve
       const code = cmd.includes(' ')
         ? await kernel.shell.execute(`${cmd} 2>/tmp/${cmdName}-missing.err`)
         : await kernel.shell.execute(`${cmd} /tmp/does-not-exist-batch3.txt 2>/tmp/${cmdName}-missing.err`)
-      // xxd exits 2 for a file it cannot read, as GNU xxd does
-      expect(code).toBe(cmdName === 'xxd' ? 2 : 1)
+      // xxd and cmp exit 2 for a file they cannot read, as GNU's do
+      expect(code).toBe(cmdName === 'xxd' || cmdName === 'cmp' ? 2 : 1)
     }
   }, 20000)
 })

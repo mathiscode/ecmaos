@@ -800,11 +800,15 @@ async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   }
   if (args[0] === '--') args.shift()
   if (args.length === 0) { await io.writelnErr('printf: usage: printf [-v var] format [arguments]'); return 2 }
-  const out = formatPrintf(args[0] as string, args.slice(1))
-  if (variable === undefined) { await io.write(out); return 0 }
+  const invalid: string[] = []
+  const out = formatPrintf(args[0] as string, args.slice(1), value => invalid.push(value))
+  // A number that is not one still prints (as the part that is), and the builtin fails
+  for (const value of invalid) await io.writelnErr(`printf: ${value}: invalid number`)
+  const status = invalid.length ? 1 : 0
+  if (variable === undefined) { await io.write(out); return status }
   try { host.state.set(variable, out) } catch (error) { await io.writelnErr(`printf: ${message(error)}`); return 1 }
   host.changed?.()
-  return 0
+  return status
 }
 
 
