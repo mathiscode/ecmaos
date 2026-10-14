@@ -904,7 +904,7 @@ export class Shell implements IShell {
     pipeWritable: WritableStream<Uint8Array> | undefined
   ): Promise<{ stdout: WritableStream<Uint8Array>, stderr: WritableStream<Uint8Array> }> {
     const fdStreams = new Map<number, WritableStream<Uint8Array>>()
-    const fdFiles = new Map<number, { path: string, append: boolean }>()
+    const fdFiles = new Map<number, { path: string, append: boolean, device?: boolean }>()
 
 
     const defaultFor = (fd: number): WritableStream<Uint8Array> => {
@@ -925,7 +925,7 @@ export class Shell implements IShell {
           // Resolve what the source fd points to right now, so `2>&1 > f` and `> f 2>&1` differ
           const sourceFile = fdFiles.get(sourceFd)
           if (sourceFile) {
-            fdStreams.set(redirection.fd, this.createFileWriteStream(sourceFile.path, sourceFile.append))
+            fdStreams.set(redirection.fd, this.createFileWriteStream(sourceFile.path, sourceFile.append, sourceFile.device))
             fdFiles.set(redirection.fd, sourceFile)
           } else {
             fdStreams.set(redirection.fd, defaultFor(sourceFd))
@@ -939,8 +939,11 @@ export class Shell implements IShell {
         // The target is expanded (`> /tmp/work.$$`).
         const targetPath = path.resolve(this.cwd, await this.expandRedirectionTarget(redirection))
         const append = redirection.type === '>>'
-        fdStreams.set(redirection.fd, this.createFileWriteStream(targetPath, append))
-        fdFiles.set(redirection.fd, { path: targetPath, append })
+        // Whether the target is a character device is found out here, not in the stream, so that a regular file is opened and
+        // truncated as soon as its stream is made (two streams on one file, `> f 2>&1`, depend on that order)
+        const device = await this.isCharacterDevice(targetPath)
+        fdStreams.set(redirection.fd, this.createFileWriteStream(targetPath, append, device))
+        fdFiles.set(redirection.fd, { path: targetPath, append, device })
       }
     }
 
@@ -2011,7 +2014,12 @@ export class Shell implements IShell {
   /**
    * Creates a WritableStream that writes to a file
    */
-  private createFileWriteStream(targetPath: string, append: boolean): WritableStream<Uint8Array> {
+  private async isCharacterDevice(targetPath: string): Promise<boolean> {
+    const info = await this.context.fs.promises.stat(targetPath).catch(() => undefined)
+    return Boolean(info && (info.mode & 0o170000) === 0o020000)
+  }
+
+  private createFileWriteStream(targetPath: string, append: boolean, isDevice = false): WritableStream<Uint8Array> {
     const context = this.context
 
     // The target is rewritten whole from what has been collected, never appended: `appendFile` on the root filesystem
@@ -2053,8 +2061,7 @@ export class Shell implements IShell {
       // A real shell opens (creating, and for `>` truncating) the target before the command runs,
       // so `cmd > f` leaves `f` empty even if `cmd` never writes a byte.
       start: async () => {
-        const info = await context.fs.promises.stat(targetPath).catch(() => undefined)
-        if (info && (info.mode & 0o170000) === 0o020000) {
+        if (isDevice) {
           device = await context.fs.promises.open(targetPath, 'w')
           return
         }
