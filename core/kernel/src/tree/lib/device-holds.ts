@@ -77,6 +77,21 @@ export function installDeviceHolds(): void {
     }) as never)
   }
 
+  // `/dev/null` ends at once. Its upstream `read` returns nothing, which the file system layer reports as the whole length asked
+  // for, so a program that reads it to the end would be handed zeros for ever.
+  const read = syscalls.get('read' as never) as Handler | undefined
+  if (read) {
+    const NullDevice = (1n << 20n) | 3n
+    syscalls.set('read' as never, (async (proc: Process, fd: unknown, ...args: unknown[]) => {
+      try {
+        const handle = proc.context.descriptors.get(fd as number) as unknown as Handle | undefined
+        const inode = handle?.inode
+        if (inode && (inode.mode & S_IFMT) === S_IFCHR && BigInt(inode.rdev ?? 0) === NullDevice) return 0
+      } catch { /* not a descriptor that can be told apart; the real read says what is wrong */ }
+      return await read(proc, fd, ...args)
+    }) as never)
+  }
+
   const exit = Process.prototype.exit
   Process.prototype.exit = function (this: Process, ...args: Parameters<typeof exit>) {
     try { return exit.apply(this, args) } finally { sweepDevices() }

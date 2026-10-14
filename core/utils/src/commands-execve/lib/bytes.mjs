@@ -2,12 +2,12 @@
 
 const { open, close, read, write, stat, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
-/** Everything readable from `fd`, to end of file. */
-export function readFdBytes(fd) {
+/** Everything readable from `fd`, to end of file, or just the first `limit` bytes (for an endless device such as `/dev/zero`). */
+export function readFdBytes(fd, limit = Infinity) {
   const chunks = []
   let total = 0
-  for (;;) {
-    const buffer = new Uint8Array(65536)
+  while (total < limit) {
+    const buffer = new Uint8Array(Math.min(65536, limit - total))
     const n = read(fd, buffer, -1)
     if (n <= 0) break
     chunks.push(buffer.subarray(0, n))
@@ -23,10 +23,10 @@ export function joinChunks(chunks, total = chunks.reduce((sum, chunk) => sum + c
   return bytes
 }
 
-/** The whole of a file. */
-export function readFileBytes(path) {
+/** The whole of a file, or its first `limit` bytes. */
+export function readFileBytes(path, limit = Infinity) {
   const fd = open(path, O_RDONLY, 0)
-  try { return readFdBytes(fd) } finally { close(fd) }
+  try { return readFdBytes(fd, limit) } finally { close(fd) }
 }
 
 /** `bytes` written in full to `fd`; a pipe may take less than asked, so this goes on until it has all gone. */

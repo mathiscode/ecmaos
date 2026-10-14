@@ -82,8 +82,8 @@ function readAllStdin() {
   return bytes
 }
 
-function readWholeFile(fullPath) {
-  return readFileBytes(fullPath)
+function readWholeFile(fullPath, limit) {
+  return readFileBytes(fullPath, limit)
 }
 
 function main() {
@@ -171,7 +171,8 @@ function main() {
     const cwd = getcwd()
     const fullPath = resolve(cwd, file)
     try {
-      data = readWholeFile(fullPath)
+      // `-N` bounds the read, so `od -N 4 /dev/urandom` returns
+      data = readWholeFile(fullPath, readBytes ? skipBytes + readBytes : undefined)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       writeAll(2, new TextEncoder().encode(`od: ${file}: ${message}\n`))

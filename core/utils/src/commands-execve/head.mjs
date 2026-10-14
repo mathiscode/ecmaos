@@ -13,8 +13,8 @@ Print the first 10 lines of each FILE to standard output.
   -c, -cNUMBER        print the first NUMBER bytes instead of lines
   --help             display this help and exit`
 
-/** Reads stdin only until there is enough: `limitBytes` (`-c`) bytes, or `limitLines` (`-n`) newlines. */
-function readStdinUntilEnough(limitBytes, limitLines) {
+/** Reads `fd` (stdin, or a file that may never end, such as `/dev/zero`) only until there is enough: `limitBytes` (`-c`) bytes, or `limitLines` (`-n`) newlines. */
+function readUntilEnough(fd, limitBytes, limitLines) {
   const chunkSize = 65536
   const chunks = []
   let total = 0
@@ -25,7 +25,7 @@ function readStdinUntilEnough(limitBytes, limitLines) {
     if (limitBytes === null && newlines >= limitLines) break
 
     const buffer = new Uint8Array(chunkSize)
-    const n = read(0, buffer, -1)
+    const n = read(fd, buffer, -1)
     if (n <= 0) break
 
     const chunk = buffer.subarray(0, n)
@@ -95,7 +95,7 @@ function main() {
   }
 
   if (files.length === 0) {
-    const bytes = readStdinUntilEnough(numBytes, numLines)
+    const bytes = readUntilEnough(0, numBytes, numLines)
     const output = numBytes !== null ? bytes.subarray(0, numBytes) : firstNLines(bytes, numLines)
     writeAll(1, output)
     return 0
@@ -115,7 +115,9 @@ function main() {
     }
 
     try {
-      const bytes = readWholeFile(fullPath)
+      const fd = open(fullPath, O_RDONLY)
+      let bytes
+      try { bytes = readUntilEnough(fd, numBytes, numLines) } finally { close(fd) }
       const output = numBytes !== null ? bytes.subarray(0, Math.min(numBytes, bytes.length)) : firstNLines(bytes, numLines)
       writeAll(1, output)
     } catch (error) {
