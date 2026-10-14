@@ -471,7 +471,7 @@ notify = "ffe1"
 write = "ffe1"
 ```
 
-`/dev/bluetooth` also has `connect`, `disconnect`, `services`, `characteristics`, `read`, `write` and `notify` for working with any characteristic directly. Node numbers follow the order of the paired list, so forgetting a device renumbers the ones after it.
+`/dev/bluetooth` also has `connect`, `disconnect`, `services`, `characteristics`, `read`, `write` and `notify` for working with any characteristic directly. A paired device keeps its `/dev/ble<N>` number when others are forgotten (see below).
 
 Other devices that have a live source are nodes too, and a node's session is opened when a program opens it and closed with the last descriptor, so nothing runs while nobody reads:
 
@@ -490,7 +490,7 @@ out = 2
 
 - **`/dev/hidraw<N>`**, **`/dev/midi<N>`**, **`/dev/js<N>`** and **`/dev/ttyS<N>`** are the HID devices, MIDI ports, gamepads and serial ports the browser has already allowed.
 
-Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. Node numbers follow the browser's list order, so forgetting a device renumbers the ones after it.
+Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. The number in a `usb<N>`, `ble<N>`, `ttyS<N>` or `hidraw<N>` name stays with its device: each is remembered by what identifies it (ids and serial number, or the Bluetooth device id) in `/var/lib/ecmaos/<driver>-minors.json`. Forgetting a device leaves a gap and the others keep their names; a new device gets a number that was never used. Devices that look the same (no serial number) are told apart by the order the browser lists them in. MIDI ports are numbered by position.
 
 ## Code Execution Example
 
