@@ -3,7 +3,7 @@
 import { Class } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 import { fs } from '@zenfs/core'
-import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { usbOptionsFor, CONFIG_PATH } from './config.js'
@@ -134,22 +134,29 @@ Commands:
 /** `/sys/class/usb` */
 const usb_class = new Class('usb')
 
+/** What names a device across boots: its ids and serial number (devices that look alike are told apart by their order) */
+const usbKey = (device: USBDevice) => `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}:${device.serialNumber ?? ''}`
+const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/usb-minors.json'))
+
 const usbOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
   onError: error => log.warn(`usb: ${error.message}`),
   async open(minor) {
-    const device = (await navigator.usb.getDevices())[minor - 1]
+    const devices = await navigator.usb.getDevices()
+    const device = devices[await minors.find(devices.map(usbKey), minor)]
     if (!device) throw new Error('no such device')
     const text = await fs.promises.readFile(CONFIG_PATH, 'utf8').catch(() => undefined)
     return await openUsbSession(device, usbOptionsFor(text, device))
   }
 })
 
-// Major 180 is Linux's USB major. Node N is the Nth device the user has granted, in the order the browser lists them.
+// Major 180 is Linux's USB major. A granted device keeps its node (`usb<N>`) across boots, even when others are forgotten: the number
+// is remembered in /var/lib/ecmaos/usb-minors.json, keyed by the device's ids and serial number.
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{ name: 'usb', major: 180, minor: 0, class: usb_class, ops: controlOperations }]
   if (typeof navigator === 'undefined' || !navigator.usb) return drivers
   const devices = await navigator.usb.getDevices()
   const ops = usbOperations(ctx.log)
-  devices.forEach((_device, index) => drivers.push({ name: `usb${index}`, major: 180, minor: index + 1, class: usb_class, ops }))
+  const numbers = await minors.assign(devices.map(usbKey))
+  numbers.forEach(minor => drivers.push({ name: `usb${minor - 1}`, major: 180, minor, class: usb_class, ops }))
   return drivers
 }

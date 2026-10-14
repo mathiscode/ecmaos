@@ -84,11 +84,11 @@ describe('a serial port as a device session', () => {
 describe('the /dev/ttyS<n> driver', () => {
   it('has only the control node where Web Serial does not exist', async () => {
     vi.stubGlobal('navigator', {})
-    expect((await getDrivers({ events: { emit() {} } } as never)).map(driver => driver.name)).toEqual(['serial'])
+    expect((await getDrivers({ events: { emit() {} }, log: { warn() {}, debug() {} } } as never)).map(driver => driver.name)).toEqual(['serial'])
   })
 
   async function node() {
-    const drivers = await getDrivers({ events: { emit() {} } } as never)
+    const drivers = await getDrivers({ events: { emit() {} }, log: { warn() {}, debug() {} } } as never)
     const driver = drivers.find(candidate => candidate.name === 'ttyS0')!
     const file = { devt: { major: 254, minor: driver.minor } } as never
     return { ops: driver.ops, file }

@@ -297,3 +297,75 @@ export const controlOperations: FileOperations = {
   read: () => 0,
   write: (_file, buffer, offset) => buffer.length - offset
 }
+
+/** Where a driver keeps its table of minors between boots */
+export interface MinorStore {
+  read(): Promise<string | undefined>
+  write(text: string): Promise<void>
+}
+
+/**
+ * Minor numbers that stay with a device. A browser lists the devices it has granted in an order that shifts when one is
+ * forgotten, so numbering by position would hand `usb1` to a different device after a reboot. Each device is named by a key
+ * (what identifies it: ids, serial number), and the first time a key is seen it gets the next number after the highest ever
+ * given; a number is never reused, so removing a device leaves a gap and the ones after it keep their names. Devices that look
+ * the same (same key) are told apart by the order the browser lists them in.
+ */
+export class StableMinors {
+  private table: Record<string, number> | undefined
+
+  constructor(private readonly store: MinorStore) {}
+
+  /** The keys with a `#2`, `#3` added to repeats, so two identical devices get a key each */
+  static unique(keys: string[]): string[] {
+    const seen = new Map<string, number>()
+    return keys.map(key => {
+      const count = (seen.get(key) ?? 0) + 1
+      seen.set(key, count)
+      return count === 1 ? key : `${key}#${count}`
+    })
+  }
+
+  private async load(): Promise<Record<string, number>> {
+    if (this.table) return this.table
+    const table: Record<string, number> = {}
+    try {
+      const parsed = JSON.parse(await this.store.read() ?? '{}') as unknown
+      if (parsed && typeof parsed === 'object') {
+        for (const [key, value] of Object.entries(parsed)) if (Number.isInteger(value) && (value as number) >= 1) table[key] = value as number
+      }
+    } catch { /* an unreadable table starts again */ }
+    return this.table = table
+  }
+
+  /** The minor of each device, in the order of `keys`; devices not seen before are numbered and the table is saved */
+  async assign(keys: string[]): Promise<number[]> {
+    const table = await this.load()
+    const unique = StableMinors.unique(keys)
+    let next = Math.max(0, ...Object.values(table)) + 1
+    let changed = false
+    const minors = unique.map(key => {
+      if (table[key] === undefined) { table[key] = next++; changed = true }
+      return table[key]!
+    })
+    if (changed) await this.store.write(JSON.stringify(table)).catch(() => { /* the numbers hold for this boot */ })
+    return minors
+  }
+
+  /** The position in `keys` of the device that has this minor, or -1 when it is not there now */
+  async find(keys: string[], minor: number): Promise<number> {
+    const table = await this.load()
+    return StableMinors.unique(keys).findIndex(key => table[key] === minor)
+  }
+}
+
+/** A `MinorStore` in a file; `fs` is the file system's `fs` (only `promises.readFile`, `writeFile` and `mkdir` are used) */
+export function fileMinorStore(fs: { promises: { readFile(path: string, encoding: 'utf8'): Promise<string>, writeFile(path: string, data: string): Promise<void>, mkdir(path: string, options: { recursive: true }): Promise<unknown> } }, path: string): MinorStore {
+  return {
+    read: () => fs.promises.readFile(path, 'utf8').catch(() => undefined),
+    async write(text) {
+      await fs.promises.mkdir(path.slice(0, path.lastIndexOf('/')) || '/', { recursive: true })
+      await fs.promises.writeFile(path, text)
+    }
+  }
+}

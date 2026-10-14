@@ -2,7 +2,8 @@
 
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
-import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
+import { fs } from '@zenfs/core'
+import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
 import { openHidSession } from './session.js'
@@ -147,6 +148,10 @@ Commands:
 /** `/sys/class/hid` */
 const hid_class = new Class('hid')
 
+/** What names a device across boots: its ids and product name (devices that look alike are told apart by their order) */
+const hidKey = (device: HIDDevice) => `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}:${device.productName}`
+const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/hid-minors.json'))
+
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{
     name: 'hid',
@@ -162,13 +167,15 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
     const devices = await navigator.hid.getDevices()
     const ops = sessionOperations({
       async open(minor) {
-        const device = (await navigator.hid.getDevices())[minor - 1]
+        const devices = await navigator.hid.getDevices()
+        const device = devices[await minors.find(devices.map(hidKey), minor)]
         if (!device) throw new Error('no such device')
         return await openHidSession(device)
       },
       onError: error => ctx.log.warn(`hid: ${error.message}`)
     })
-    devices.forEach((_device, index) => drivers.push({ name: `hidraw${index}`, major: 0, minor: index + 1, class: hid_class, ops }))
+    const numbers = await minors.assign(devices.map(hidKey))
+    numbers.forEach(minor => drivers.push({ name: `hidraw${minor - 1}`, major: 0, minor, class: hid_class, ops }))
   } catch (error) {
     ctx.log.warn(`hid: cannot list devices: ${error instanceof Error ? error.message : String(error)}`)
   }

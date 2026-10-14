@@ -2,7 +2,7 @@
 
 import { Class } from '@zenfs/linux'
 import { fs } from '@zenfs/core'
-import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { FileOperations } from '@zenfs/linux'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
@@ -267,10 +267,13 @@ const bluetooth_class = new Class('bluetooth')
  * A paired device as a file: `sessionOperations` does the buffering and waiting. Node N is the Nth paired device; the
  * stream settings come from `/etc/bluetooth.toml` (see `bluetoothOptionsFor`), defaulting to the Nordic UART service.
  */
+const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/ble-minors.json'))
+
 const bluetoothOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
   onError: error => log.warn(`ble: ${error.message}`),
   async open(minor) {
-    const device = (await navigator.bluetooth.getDevices())[minor - 1]
+    const devices = await navigator.bluetooth.getDevices()
+    const device = devices[await minors.find(devices.map(device => device.id), minor)]
     if (!device) throw new Error('no such device')
     const text = await fs.promises.readFile(CONFIG_PATH, 'utf8').catch(() => undefined)
     return await openBluetoothSession(device, bluetoothOptionsFor(text, device))
@@ -281,8 +284,10 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
   const control: KernelCharDevice = { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: controlOperations }
   if (typeof navigator === 'undefined' || !navigator.bluetooth) return [control]
   const devices = typeof navigator.bluetooth.getDevices === 'function' ? await navigator.bluetooth.getDevices() : []
+  // A paired device keeps its node (`ble<N>`) when others are forgotten; the numbers are remembered in /var/lib/ecmaos/ble-minors.json
+  const numbers = await minors.assign(devices.map(device => device.id))
   return [
     control,
-    ...devices.map((_device, index): KernelCharDevice => ({ name: `ble${index}`, major: 216, minor: index + 1, class: bluetooth_class, ops: bluetoothOperations(ctx.log) }))
+    ...numbers.map((minor): KernelCharDevice => ({ name: `ble${minor - 1}`, major: 216, minor, class: bluetooth_class, ops: bluetoothOperations(ctx.log) }))
   ]
 }

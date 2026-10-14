@@ -2,7 +2,8 @@
 
 import { Class } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
-import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
+import { fs } from '@zenfs/core'
+import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { DeviceSession } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
@@ -95,10 +96,15 @@ const serial_class = new Class('serial')
  * A serial port as a file: `sessionOperations` does the buffering and waiting (see there). A node opens its port at 9600; a
  * speed is chosen when the port is offered to another machine.
  */
+/** Web Serial tells a port apart only by its USB ids; ports that look alike are told apart by their order */
+const portKey = (port: SerialPort) => { const { usbVendorId, usbProductId } = port.getInfo(); return `${(usbVendorId ?? 0).toString(16).padStart(4, '0')}:${(usbProductId ?? 0).toString(16).padStart(4, '0')}` }
+const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/serial-minors.json'))
+
 const serialOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
   onError: error => log.warn(`serial: ${error.message}`),
   async open(minor) {
-    const port = (await navigator.serial.getPorts())[minor - 1]
+    const ports = await navigator.serial.getPorts()
+    const port = ports[await minors.find(ports.map(portKey), minor)]
     if (!port) throw new Error('no such port')
     return await openSerialSession(port) as unknown as DeviceSession
   }
@@ -124,6 +130,8 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
 
   const drivers: KernelCharDevice[] = [createDriver(ctx, 'serial', 0)]
   const ports = await navigator.serial.getPorts()
-  ports.forEach((_port, i) => drivers.push(createDriver(ctx, `ttyS${i}`, i + 1)))
+  // A port keeps its node (`ttyS<N>`) when others are unplugged for good; the numbers are remembered in /var/lib/ecmaos/serial-minors.json
+  const numbers = await minors.assign(ports.map(portKey))
+  numbers.forEach(minor => drivers.push(createDriver(ctx, `ttyS${minor - 1}`, minor)))
   return drivers
 }
