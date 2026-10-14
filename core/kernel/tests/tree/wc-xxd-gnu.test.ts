@@ -23,13 +23,6 @@ const files: Record<string, Uint8Array> = {
 // xxd's own wording for what it does not recognise is its usage text, which these do not copy
 const statusOnly = new Set(['xxd -z a.txt', 'xxd -l abc a.txt', 'wc -x a.txt'])
 
-// GNU sizes the columns from the file when stdin is redirected from one; the shell here feeds `< file` through a pipe, so the
-// command cannot tell and uses the width 7 it uses for any pipe. Everything else about these two is the same.
-const differs: Record<string, string> = {
-  'wc < a.txt': '      3       9      46\n',
-  'wc a.txt - < u.txt': '      3       9      46 a.txt\n      2       4      27 -\n      5      13      73 total\n'
-}
-
 describe('wc and xxd match GNU', () => {
   let kernel: Kernel
 
@@ -50,7 +43,7 @@ describe('wc and xxd match GNU', () => {
       const code = Number((await fs.readFile('/tmp/gnu-code', 'utf8')).trim())
       const out = latin1(await fs.readFile('/tmp/gnu-out'))
       const err = await fs.readFile('/tmp/gnu-err', 'utf8')
-      expect({ out, code }).toEqual({ out: differs[expected.cmd] ?? expected.out, code: expected.code })
+      expect({ out, code }).toEqual({ out: expected.out, code: expected.code })
       if (!statusOnly.has(expected.cmd)) expect(err).toBe(expected.err)
     }, 20000)
   }

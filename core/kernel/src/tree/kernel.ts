@@ -16,7 +16,7 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
-import { bindContext, boundContexts, Credentials } from '@zenfs/core'
+import { bindContext, boundContexts, Credentials, fs as zenfsFs } from '@zenfs/core'
 import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -1176,6 +1176,12 @@ export class Kernel implements IKernel {
    * @param options - Execution options containing command, args, and shell
    * @returns Exit code of the command
    */
+  /** For a path that cannot take `stdinFile` as a descriptor: the same input as a stream */
+  private withStdinStream(options: KernelExecuteOptions): KernelExecuteOptions {
+    if (!options.stdinFile || options.stdin) return options
+    return { ...options, stdin: options.openStdin?.(), stdinFile: undefined, openStdin: undefined }
+  }
+
   async execute(options: KernelExecuteOptions): Promise<number> {
     try {
       if (!await this.filesystem.exists(options.command)) {
@@ -1194,7 +1200,7 @@ export class Kernel implements IKernel {
           const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
           exitCode = await this.wasm.canRunInWorker(wasmBytes)
             ? await this.executeViaExecve(options)
-            : await this.executeWasm(options)
+            : await this.executeWasm(this.withStdinStream(options))
           break
         }
         case 'js':
@@ -1211,7 +1217,7 @@ export class Kernel implements IKernel {
           switch (header.namespace) {
             case 'command':
               if (!header.name) return -1
-              exitCode = await this.executeCommand({ ...options, command: header.name })
+              exitCode = await this.executeCommand({ ...this.withStdinStream(options), command: header.name })
               break
             case 'program':
             case 'app':
@@ -1223,7 +1229,7 @@ export class Kernel implements IKernel {
               })
               break
             case 'script':
-              exitCode = await this.executeScript(options)
+              exitCode = await this.executeScript(this.withStdinStream(options))
               break
             // `interpreter` is a real `#!/path` shebang: upstream `binfmt_script` resolves the
             // interpreter and rewrites argv once `executeViaExecve` hands it the path untouched.
@@ -1374,7 +1380,17 @@ export class Kernel implements IKernel {
       // A stdin shared with the shell (a redirected block's) is not consumed by the process, only
       // read from: whatever it left in the pipe goes back to the shell once it has exited.
       let unreadStdin: (() => Promise<Uint8Array>) | undefined
-      if (options.stdin && !options.stdinIsTTY) {
+      if (options.stdinFile) {
+        // `cmd < file`: the file is the program's descriptor 0 itself, opened as the program, so it can `fstat` and seek it and
+        // `/proc/<pid>/fd/0` names it. Closing the console's fd 0 first makes the open take that number.
+        zenfsFs.closeSync.call(proc.context, 0)
+        const fd = zenfsFs.openSync.call(proc.context, options.stdinFile, 'r')
+        if (fd !== 0) {
+          const handle = proc.context.descriptors.get(fd)
+          proc.context.descriptors.delete(fd)
+          if (handle) proc.context.descriptors.set(0, handle)
+        }
+      } else if (options.stdin && !options.stdinIsTTY) {
         const bridged = this.bridgeStdio(proc, 0, options.stdin)
         stopBridges.push(bridged.stop)
         if (options.stdinLeftover) unreadStdin = bridged.unread

@@ -1113,6 +1113,9 @@ export class Shell implements IShell {
     type Stage = {
       args: string[]
       stdin: ReadableStream<Uint8Array> | undefined
+      /** A file or device that is the program's real stdin (`cmd < file`); see `KernelExecuteOptions.stdinFile` */
+      stdinFile: string | undefined
+      openStdin: (() => ReadableStream<Uint8Array>) | undefined
       /** Set when the stage's stdin is a compound statement's shared input; a builtin reads it directly. */
       stdinSource: StdinSource | undefined
       stdinLeftover: ((bytes: Uint8Array) => void) | undefined
@@ -1174,6 +1177,8 @@ export class Shell implements IShell {
       const args = resolved.args
 
       let stdin: ReadableStream<Uint8Array> | undefined
+      let stdinFile: string | undefined
+      let openStdin: (() => ReadableStream<Uint8Array>) | undefined
       let stdinSource: StdinSource | undefined
       let stdinLeftover: ((bytes: Uint8Array) => void) | undefined
       let stdinIsTTY = false
@@ -1181,7 +1186,12 @@ export class Shell implements IShell {
       // whatever a's stdout would have fed it, exactly like a real shell.
       const inputRedirect = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
       if (inputRedirect) {
-        stdin = await this.buildInputStream(inputRedirect)
+        // `cmd < file` hands a program the file itself as its stdin, not a pipe that a pump fills
+        const direct = !inProcess && inputRedirect.type === '<' ? await this.directInputPath(inputRedirect) : undefined
+        if (direct) {
+          stdinFile = direct
+          openStdin = () => this.createFileReadStream(direct, this.env, this._filesystem)
+        } else stdin = await this.buildInputStream(inputRedirect)
       } else if (isFirstCommand) {
         // A redirected compound statement's input wins over the keyboard, and is shared rather than
         // reopened, so `while read a; do cat; done < f` hands `cat` what the loop has not read.
@@ -1228,7 +1238,7 @@ export class Shell implements IShell {
       const stdoutIsTTY = isLastCommand && this._heldStdout.length === 0 && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
       // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
       await this.trace([command.words[0] ?? '', ...args])
-      const fds = { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr, inputPipe }
+      const fds = { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr, inputPipe }
       if (command.compound) {
         const statement = command.compound
         stages.push({ kind: 'compound', run: () => this.interpreter.runStage(statement), ...fds })
@@ -1251,7 +1261,7 @@ export class Shell implements IShell {
     }
 
     const runStage = async (stage: typeof stages[number]): Promise<number> => {
-      const { args, stdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
+      const { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
 
       if (stage.kind === 'compound') {
         // What the stage was wired to has to reach the commands inside it: a pipe on its stdout is
@@ -1318,6 +1328,8 @@ export class Shell implements IShell {
         shell: this,
         terminal: this._terminal,
         stdin,
+        stdinFile,
+        openStdin,
         stdinLeftover,
         stdinIsTTY,
         stdout,
@@ -2121,6 +2133,15 @@ export class Shell implements IShell {
   }
 
   /** The stream behind one input redirection: a heredoc, a here-string or a file. */
+  /** The absolute path of a `< file` target when it is a file or a device that can be opened as a descriptor, else `undefined` (a missing file is reported by `buildInputStream`) */
+  private async directInputPath(redirection: Redirection): Promise<string | undefined> {
+    const target = path.resolve(this.cwd, await this.expandRedirectionTarget(redirection))
+    const info = await this.context.fs.promises.stat(target).catch(() => undefined)
+    if (!info) return undefined
+    const type = info.mode & 0o170000
+    return type === 0o100000 || type === 0o020000 ? target : undefined
+  }
+
   private async buildInputStream(redirection: Redirection): Promise<ReadableStream<Uint8Array>> {
     const literal = (text: string): ReadableStream<Uint8Array> => new ReadableStream({
       start: controller => { controller.enqueue(new TextEncoder().encode(text)); controller.close() }

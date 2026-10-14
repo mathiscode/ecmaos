@@ -315,6 +315,14 @@ export interface KernelExecuteOptions {
   shell: Shell
   terminal?: Terminal
   stdin?: ReadableStream<Uint8Array>
+  /**
+   * A file or device to be the program's real standard input (`cmd < file`), as a descriptor the program can `fstat` and
+   * seek, rather than a pipe fed from `stdin`. Only a program run as a process (`executeViaExecve`) takes it; for anything
+   * else the stream comes from `openStdin`.
+   */
+  stdinFile?: string
+  /** Makes the stream for `stdinFile`, for the paths that cannot use a descriptor */
+  openStdin?: () => ReadableStream<Uint8Array>
   stdinIsTTY?: boolean
   /**
    * Called with the bytes of `stdin` the program never read, once it has exited; for a stdin the shell shares with

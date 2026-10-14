@@ -46,6 +46,17 @@ describe('commands given an endless device as a file operand', () => {
     expect(await run('head -c 32 /dev/random | xxd -p | head -c 8 | wc -c')).not.toBe('')
   }, 20000)
 
+  it('a file redirected to stdin is the program\'s own descriptor, which it can size (wc pads like GNU, not like a pipe)', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/stdin-file.txt', 'one two\nthree\n')
+    expect(await run('wc < /tmp/stdin-file.txt')).toBe(' 2  3 14\n')
+    expect(await run('cat /tmp/stdin-file.txt | wc')).toBe('      2       3      14\n')
+  }, 20000)
+
+  it('a device redirected to stdin is opened for the program, so its session starts', async () => {
+    expect((await run('wc -c < /dev/battery')).trim()).toBe('18')
+    expect((await run('head -c 8 < /dev/zero | wc -c')).trim()).toBe('8')
+  }, 20000)
+
   it('cat of a device that ends gives its bytes (/dev/null is empty)', async () => {
     expect(await run('cat /dev/null')).toBe('')
   }, 15000)
