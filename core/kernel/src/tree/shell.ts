@@ -1014,7 +1014,7 @@ export class Shell implements IShell {
       // bash; anything else, control-flow signals included, is not this method's to swallow
       const code = (error as { code?: unknown }).code
       if (!(error instanceof Error) || typeof code !== 'string' || !/^E[A-Z0-9]+$/.test(code)) throw error
-      await this.terminalBuiltinIO().writelnErr(DIAGNOSTIC_PREFIX + error.message)
+      await this.terminalBuiltinIO().writelnErr(error.message)
       return pipeline.commands.map(() => 1)
     } finally {
       await this.finishProcessSubstitutions(mark)
