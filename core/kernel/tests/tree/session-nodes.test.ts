@@ -39,6 +39,12 @@ const fake: KernelDevice = {
   pkg: { name: 'fakesession', version: '0.0.0', description: '' },
   cli: async () => 0,
   getDrivers: async () => [{
+    name: 'fakeout',
+    major: 0,
+    minor: 2,
+    class: new Class('fakesession'),
+    ops: sessionOperations({ open: async () => ({ info: { kind: 'test', read: false, write: true }, async write(data) { written.push([...data]) }, close() {} }), idleMs: 150 })
+  }, {
     name: 'fakenode',
     major: 0,
     minor: 1,
@@ -107,5 +113,29 @@ describe('a session node opened through the filesystem object', () => {
     await kernel.shell.execute('cat /dev/fakenode > /tmp/session-out2')
     expect(await kernel.filesystem.fs.readFile('/tmp/session-out2', 'utf8')).toBe('hello')
     expect(events.filter(event => event === 'open')).toHaveLength(2)
+  })
+
+  it('takes a shell redirect as it comes, waiting for a session that is still opening, and carries on', async () => {
+    await sleep(500)
+    events.length = 0
+    written.length = 0
+    endless = true
+    await kernel.shell.execute('echo hi > /dev/fakenode; echo after > /tmp/session-after')
+    endless = false
+    expect(written.flat()).toEqual([104, 105, 10])
+    expect(await kernel.filesystem.fs.readFile('/tmp/session-after', 'utf8')).toBe('after\n')
+  })
+
+  it('writes to a device that has nothing to read, which does not end and reads as an empty file', async () => {
+    written.length = 0
+    await kernel.shell.execute('echo out > /dev/fakeout; echo after > /tmp/session-after2; cat /dev/fakeout > /tmp/session-empty')
+    expect(written.flat()).toEqual([111, 117, 116, 10])
+    expect(await kernel.filesystem.fs.readFile('/tmp/session-after2', 'utf8')).toBe('after\n')
+    expect(await kernel.filesystem.fs.readFile('/tmp/session-empty', 'utf8')).toBe('')
+  })
+
+  it('fails only the command whose redirect target refuses the write, and carries on', async () => {
+    await kernel.shell.execute('echo hi > /dev/full; echo "status=$?" > /tmp/session-full')
+    expect(await kernel.filesystem.fs.readFile('/tmp/session-full', 'utf8')).toBe('status=1\n')
   })
 })

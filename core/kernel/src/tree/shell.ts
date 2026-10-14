@@ -1009,6 +1009,13 @@ export class Shell implements IShell {
     const mark = this._processSubstitutions.length
     try {
       return await this.runPipelineWithPrefixes(pipeline, job)
+    } catch (error) {
+      // A write that the target refuses (`echo hi > /dev/full`) fails that pipeline with status 1 and the list goes on, as in
+      // bash; anything else, control-flow signals included, is not this method's to swallow
+      const code = (error as { code?: unknown }).code
+      if (!(error instanceof Error) || typeof code !== 'string' || !/^E[A-Z0-9]+$/.test(code)) throw error
+      await this.terminalBuiltinIO().writelnErr(DIAGNOSTIC_PREFIX + error.message)
+      return pipeline.commands.map(() => 1)
     } finally {
       await this.finishProcessSubstitutions(mark)
     }
@@ -2025,10 +2032,32 @@ export class Shell implements IShell {
       await context.fs.promises.writeFile(targetPath, all)
     }
 
+    // A character device is not rewritten whole: it takes the bytes as they come, through a handle, and a node whose session
+    // is still opening answers `EAGAIN` until it has one
+    let device: Awaited<ReturnType<typeof context.fs.promises.open>> | undefined
+    const writeToDevice = async (chunk: Uint8Array) => {
+      let done = 0
+      const give = Date.now() + 10_000
+      while (done < chunk.length) {
+        try {
+          const { bytesWritten } = await device!.write(chunk, done, chunk.length - done)
+          done += bytesWritten
+        } catch (error) {
+          if ((error as { code?: string }).code !== 'EAGAIN' || Date.now() > give) throw error
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+      }
+    }
+
     return new WritableStream({
       // A real shell opens (creating, and for `>` truncating) the target before the command runs,
       // so `cmd > f` leaves `f` empty even if `cmd` never writes a byte.
       start: async () => {
+        const info = await context.fs.promises.stat(targetPath).catch(() => undefined)
+        if (info && (info.mode & 0o170000) === 0o020000) {
+          device = await context.fs.promises.open(targetPath, 'w')
+          return
+        }
         const existed = append && await context.fs.promises.exists(targetPath)
         if (existed) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
         else {
@@ -2041,12 +2070,13 @@ export class Shell implements IShell {
         }
       },
       write: async (chunk) => {
+        if (device) return await writeToDevice(chunk)
         chunks.push(chunk.slice())
         dirty = true
         if (Date.now() - lastFlush >= 250) await flush()
       },
-      close: flush,
-      abort: flush
+      close: async () => { if (device) await device.close(); else await flush() },
+      abort: async () => { if (device) await device.close().catch(() => {}); else await flush() }
     })
   }
 

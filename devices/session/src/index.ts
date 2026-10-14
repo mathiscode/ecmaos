@@ -135,6 +135,8 @@ interface Link {
   queue: WaitQueue
   /** The device has ended (unplugged, closed) or could not be opened */
   ended: boolean
+  /** The session has nothing to read (a write-only device), so a read gives the end of the file while writes still go through */
+  unreadable?: boolean
   failure?: string
   /** Opens announced by `open` and not yet by `release`; a link with none is held only by use, and goes when idle */
   references: number
@@ -164,7 +166,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
       if (links.get(minor) !== link) { void Promise.resolve(session.close()).catch(() => {}); return }
       link.session = session
       link.queue.wake_up()
-      if (!session.read) return
+      if (!session.read) { link.unreadable = true; link.queue.wake_up(); return }
       for (;;) {
         const chunk = await session.read()
         if (!chunk) break
@@ -175,7 +177,8 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     } catch (error) {
       link.failure = error instanceof Error ? error.message : String(error)
     } finally {
-      link.ended = true
+      // A session that is only written to has not ended because it has nothing to read
+      if (!link.unreadable || link.failure) link.ended = true
       link.queue.wake_up()
     }
   }
@@ -267,7 +270,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
       if (!found) return EPOLLIN | EPOLLOUT
       found.touched = Date.now()
       let events = 0
-      if (found.size > 0 || found.ended) events |= EPOLLIN
+      if (found.size > 0 || found.ended || found.unreadable) events |= EPOLLIN
       if (found.ended || (found.session?.write && found.pending < maxPending)) events |= EPOLLOUT
       return events
     },
