@@ -1,6 +1,6 @@
-import type { WindowId, Windows as IWindows } from '@ecmaos/types'
+import type { WindowId, WindowInfo, WindowKind, WindowOptions, WindowRenderer, WindowReports, WindowState } from '@ecmaos/types'
 
-// WinBox touches `document` at import, so it is loaded by `Windows.init()` in a browser rather than at module load.
+// WinBox touches `document` at import, so it is loaded by `WinBoxRenderer.init()` in a browser rather than at module load.
 // Bound under its own name: a `declare const WinBox` alongside a same-named import lets the
 // transform treat the import as type-only and drop it, leaving `new WinBox()` unbound at runtime.
 let WinBoxCtor: WinBox.WinBoxConstructor | undefined
@@ -11,11 +11,28 @@ declare module 'winbox' {
   }
 }
 
-/** `@types/winbox` omits the minimize/restore/maximize hooks the real WinBox calls. */
+/** `@types/winbox` omits the hooks the real WinBox calls for minimize, restore, maximize, focus, move and resize. */
 type WindowParams = WinBox.Params & {
   onminimize?: (this: WinBox, force?: boolean) => void
   onrestore?: (this: WinBox) => void
   onmaximize?: (this: WinBox) => void
+  onfullscreen?: (this: WinBox) => void
+  onfocus?: (this: WinBox) => void
+  onmove?: (this: WinBox, x: number, y: number) => void
+  onresize?: (this: WinBox, width: number, height: number) => void
+}
+
+/** The parts of a WinBox instance that `@types/winbox` leaves out */
+type WinBoxState = WinBox & {
+  min: boolean
+  max: boolean
+  full: boolean
+  x: number
+  y: number
+  width: number
+  height: number
+  restore(): WinBox
+  fullscreen(): WinBox
 }
 
 const DefaultWindowOptions: WindowParams = {
@@ -29,17 +46,17 @@ const DefaultWindowOptions: WindowParams = {
   y: 'center'
 }
 
-const DefaultDialogOptions: WindowParams = {
-  ...DefaultWindowOptions,
-  modal: true,
-  width: 320,
-  height: 200,
-}
+/**
+ * Draws `web` windows with WinBox. The window server owns the state; this renderer loads WinBox when the host has a
+ * DOM, opens a WinBox per window, applies the server's changes to it, and reports what the user does to it.
+ */
+export class WinBoxRenderer implements WindowRenderer {
+  private _boxes: Map<WindowId, WinBoxState> = new Map()
+  private _reports?: WindowReports
+  /** Set while applying the server's change, so the WinBox hooks it triggers are not reported back */
+  private _applying = false
 
-export class Windows implements IWindows {
-  private _manager: Map<WindowId, WinBox> = new Map()
-
-  /** Loads WinBox and its stylesheet. A no-op without a DOM; `create` then throws. */
+  /** Loads WinBox and its stylesheet. A no-op without a DOM; `supports` is then false. */
   async init() {
     if (WinBoxCtor || !globalThis.document) return
     await import('winbox')
@@ -49,77 +66,106 @@ export class Windows implements IWindows {
     WinBoxCtor = module.default as WinBox.WinBoxConstructor
   }
 
-  get stack() { return WinBoxCtor?.stack() ?? [] }
-
-  all() {
-    return this._manager.entries()
+  supports(kind: WindowKind) {
+    return kind === 'web' && !!WinBoxCtor
   }
 
-  close(id: WindowId) {
-    this._manager.get(id)?.close()
+  attach(reports: WindowReports) {
+    this._reports = reports
   }
-  
-  create(_options: WindowParams = DefaultWindowOptions): WinBox {
+
+  create(info: WindowInfo, options: WindowOptions) {
     if (!WinBoxCtor) throw new Error('Windows are unavailable: this host has no DOM')
-    const options: WindowParams = { ...DefaultWindowOptions, ..._options }
-    const id = options.id || Math.random().toString(36).substring(2, 8)
-    options.id = id
-
-    const self = this
-    
-    const originalOnMinimize = options.onminimize
-    options.onminimize = function(this: WinBox, force?: boolean) {
-      setTimeout(() => self._updateBodyClass(), 0)
-      originalOnMinimize?.call(this, force)
+    const id = info.id
+    const { x, y, width, height } = options
+    const params: WindowParams = {
+      ...DefaultWindowOptions,
+      id: String(id),
+      title: info.title,
+      modal: info.modal,
+      max: options.max,
+      ...(options.class !== undefined && { class: options.class }),
+      ...(options.html !== undefined && { html: options.html }),
+      ...(info.icon !== undefined && { icon: info.icon }),
+      ...(x !== undefined && { x }),
+      ...(y !== undefined && { y }),
+      ...(width !== undefined && { width }),
+      ...(height !== undefined && { height })
     }
 
-    const originalOnRestore = options.onrestore
-    options.onrestore = function(this: WinBox) {
-      setTimeout(() => self._updateBodyClass(), 0)
-      originalOnRestore?.call(this)
+    const report = (state: WindowState) => {
+      setTimeout(() => this._updateBodyClass(), 0)
+      if (!this._applying) this._reports?.changed(id, { state })
     }
 
-    const originalOnMaximize = options.onmaximize
-    options.onmaximize = function(this: WinBox) {
-      setTimeout(() => self._updateBodyClass(), 0)
-      originalOnMaximize?.call(this)
+    params.onminimize = () => report('minimized')
+    params.onrestore = () => report('normal')
+    params.onmaximize = () => report('maximized')
+    params.onfullscreen = () => report('fullscreen')
+    params.onfocus = () => { if (!this._applying) this._reports?.focused(id) }
+    params.onmove = (x, y) => {
+      if (this._applying) return
+      const box = this._boxes.get(id)
+      if (box) this._reports?.changed(id, { geometry: { x, y, width: box.width, height: box.height } })
+    }
+    params.onresize = (width, height) => {
+      if (this._applying) return
+      const box = this._boxes.get(id)
+      if (box) this._reports?.changed(id, { geometry: { x: box.x, y: box.y, width, height } })
+    }
+    // WinBox closes the window itself when this returns false; true keeps it
+    params.onclose = () => {
+      const closed = this._reports?.closeRequested(id) ?? true
+      if (closed) {
+        this._boxes.delete(id)
+        setTimeout(() => this._updateBodyClass(), 0)
+      }
+      return !closed
     }
 
-    const originalOnClose = options.onclose
-    options.onclose = function(this: WinBox, force?: boolean) {
-      setTimeout(() => self._updateBodyClass(), 0)
-      self.remove(id)
-      return originalOnClose?.call(this, force) ?? false
-    }
+    const box = new WinBoxCtor(params) as WinBoxState
+    this._boxes.set(id, box)
+    return { body: box.body as HTMLElement, dom: box.dom as HTMLElement }
+  }
 
-    const win = new WinBoxCtor(options)
-    this._manager.set(id, win)
-    return win
+  update(info: WindowInfo) {
+    const box = this._boxes.get(info.id)
+    if (!box) return
+    this._applying = true
+    try {
+      if (box.title !== info.title) box.setTitle(info.title)
+      const { x, y, width, height } = info.geometry
+      if (box.x !== x || box.y !== y) box.move(x, y)
+      if (box.width !== width || box.height !== height) box.resize(width, height)
+
+      const current: WindowState = box.min ? 'minimized' : box.full ? 'fullscreen' : box.max ? 'maximized' : 'normal'
+      if (current !== info.state) {
+        if (info.state === 'minimized') box.minimize()
+        else if (info.state === 'maximized') box.maximize()
+        else if (info.state === 'fullscreen') box.fullscreen()
+        else box.restore()
+      }
+
+      if (info.focused) box.focus()
+    } finally {
+      this._applying = false
+    }
+    this._updateBodyClass()
+  }
+
+  /** Closes the WinBox without asking `onclose` again; the server has already decided */
+  close(id: WindowId) {
+    const box = this._boxes.get(id)
+    if (!box) return
+    this._boxes.delete(id)
+    this._applying = true
+    try { box.close(true) } finally { this._applying = false }
+    this._updateBodyClass()
   }
 
   private _updateBodyClass() {
     let minimizedCount = 0
-    for (const win of this._manager.values()) {
-      // @ts-ignore - WinBox does not type its `min` flag
-      if (win.min) minimizedCount++
-    }
-
-    if (minimizedCount > 0) {
-      document.body.classList.add('has-minimized-windows')
-    } else {
-      document.body.classList.remove('has-minimized-windows')
-    }
-  }
-
-  dialog(options: WinBox.Params = DefaultDialogOptions) {
-    return this.create({ ...DefaultDialogOptions, ...options })
-  }
-
-  get(id: WindowId) {
-    return this._manager.get(id)
-  }
-
-  remove(id: WindowId) {
-    this._manager.delete(id)
+    for (const box of this._boxes.values()) if (box.min) minimizedCount++
+    document.body.classList.toggle('has-minimized-windows', minimizedCount > 0)
   }
 }

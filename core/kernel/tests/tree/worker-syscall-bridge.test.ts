@@ -41,8 +41,8 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     expect(stat.mode & 0o111).toBeGreaterThan(0)
   })
 
-  it('creates a real WinBox via a worker-hosted execve program, writes to it, and closes it', async () => {
-    const before = kernel.windows.stack.length
+  it('creates a real window via a worker-hosted execve program, writes to it, and closes it', async () => {
+    const before = kernel.windows.list().length
     const code = await kernel.shell.execute('/bin/pilot-window.js > /tmp/pilot-window.out')
     expect(code).toBe(0)
 
@@ -53,7 +53,7 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
 
     // window_close already ran inside the pilot program itself - the window should be gone by now,
     // not merely created; asserting count returns to baseline catches a close() that silently no-ops.
-    expect(kernel.windows.stack.length).toBe(before)
+    expect(kernel.windows.list().length).toBe(before)
   })
 
   it('resolves the calling Kernel per-Process, not a closed-over single instance', async () => {
@@ -73,8 +73,8 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     document.body.appendChild(secondContainer)
     second.terminal.mount(secondContainer)
 
-    const firstBefore = kernel.windows.stack.length
-    const secondBefore = second.windows.stack.length
+    const firstBefore = kernel.windows.list().length
+    const secondBefore = second.windows.list().length
 
     const code = await second.shell.execute('/bin/pilot-window.js > /tmp/pilot-window-2.out')
     expect(code).toBe(0)
@@ -82,7 +82,7 @@ describe('worker-syscall bridge: a real execve program reaching a main-thread-on
     // window_close ran inside the pilot, so both kernels' stacks are back at their own baseline -
     // the only way to tell them apart is that neither kernel ever saw the other's window at all,
     // which a shared/closed-over Kernel reference would not guarantee.
-    expect(kernel.windows.stack.length).toBe(firstBefore)
-    expect(second.windows.stack.length).toBe(secondBefore)
+    expect(kernel.windows.list().length).toBe(firstBefore)
+    expect(second.windows.list().length).toBe(secondBefore)
   })
 })

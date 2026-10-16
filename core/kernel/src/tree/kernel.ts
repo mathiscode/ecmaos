@@ -69,7 +69,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Telemetry } from '#telemetry.ts'
 import { SHADOW_GID, SHADOW_GROUP, Users } from '#users.ts'
 import { Wasm } from '#wasm.ts'
-import { Windows } from '#windows.ts'
+import { WindowServer } from '#windowserver.ts'
+import { WinBoxRenderer } from '#windows.ts'
 import { Workers } from '#workers.ts'
 
 import { getLegacyCommands, resolveLegacyCommand } from '@ecmaos/coreutils'
@@ -357,7 +358,7 @@ export class Kernel implements IKernel {
     this.memory = new Memory()
     this.modules = new Map()
     this.screensavers = new Map()
-    this.windows = new Windows()
+    this.windows = new WindowServer()
     this.workers = new Workers()
 
     // Tier 1: context-only.
@@ -454,7 +455,9 @@ export class Kernel implements IKernel {
    * @throws {Error} If boot process fails
    */
   async boot(options: BootOptions = DefaultBootOptions) {
-    await Promise.all([this.telemetry.init(), this.dom.init(), (this.windows as Windows).init()])
+    const windowRenderer = new WinBoxRenderer()
+    await Promise.all([this.telemetry.init(), this.dom.init(), windowRenderer.init()])
+    this.windows.registerRenderer(windowRenderer)
     const tracer = this.telemetry.getTracer('ecmaos.kernel', this.version)
     const bootSpan = tracer.startSpan('kernel.boot', {
       attributes: {

@@ -46,6 +46,11 @@ declare module '@zenfs/linux/uapi/abi' {
     window_create(title: string): number
     window_write(handle: number, text: string): number
     window_close(handle: number): number
+    window_list(path: string): number
+    window_focus(handle: number): number
+    window_move(handle: number, x: number, y: number): number
+    window_resize(handle: number, width: number, height: number): number
+    window_set_title(handle: number, title: string): number
     window_present(kind: string, paramsJson: string, path: string): number
     storage_usage(path: string): number
     quota_report(argsJson: string, path: string): number
@@ -163,6 +168,12 @@ function shellOf(proc: Process): Shell | undefined {
   return shellOfProcess.get(proc)
 }
 
+/** The errno an error carries, else EIO */
+function errnoOf(error: unknown): number {
+  const errno = (error as { errno?: unknown } | undefined)?.errno
+  return typeof errno === 'number' && errno > 0 ? errno : Errno.EIO
+}
+
 /**
  * The credentials a program acts with: its own when programs run as the user, else its shell's (everything runs as
  * root then).
@@ -277,7 +288,8 @@ function isLoopbackHost(host: string): boolean {
 
 /** Handles the running program can reference; not persisted beyond one boot, same as `Windows` itself. */
 let nextWindowHandle = 1
-const windowHandles = new Map<number, string>() // handle -> Windows' own WindowId
+const windowHandles = new Map<number, string>() // handle -> the window server's WindowId
+const hookedWindowOwners = new Set<number>() // pids whose exit closes their windows
 
 /** Finds a `kernel.sockets` connection by id or 8-character prefix. */
 function findSocketConnection(kernel: Kernel, id: string) {
@@ -326,10 +338,20 @@ export function installMainThreadSyscalls(): void {
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)
-    const win = kernel.windows.create({ title: title || 'Untitled' })
-    const handle = nextWindowHandle++
-    windowHandles.set(handle, String(win.id))
-    return handle
+    try {
+      const { uid, gid } = identityOf(proc)
+      const win = kernel.windows.create({ title: title || 'Untitled', owner: { pid: proc.pid, uid, gid } })
+      // A process's windows go with it
+      if (!hookedWindowOwners.has(proc.pid)) {
+        hookedWindowOwners.add(proc.pid)
+        void proc.exited.then(() => { hookedWindowOwners.delete(proc.pid); kernel.windows.closeOwnedBy(proc.pid) })
+      }
+      const handle = nextWindowHandle++
+      windowHandles.set(handle, String(win.id))
+      return handle
+    } catch (error) {
+      return -errnoOf(error)
+    }
   })
 
   /**
@@ -373,22 +395,69 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  define_syscall('window_write', async (proc: Process, handle: number, text: string) => {
-    const kernel = kernelOf(proc)
+  /** The window behind `handle`, if the process owns it (root may use any) */
+  const windowOf = (kernel: Kernel, proc: Process, handle: number) => {
     const id = windowHandles.get(handle)
-    if (!id) return -Errno.EBADF
-    const win = kernel.windows.get(id)
+    const win = id === undefined ? undefined : kernel.windows.get(id)
+    if (!win || (win.info.owner.pid !== proc.pid && !processIsRoot(proc))) return undefined
+    return win
+  }
+
+  define_syscall('window_write', async (proc: Process, handle: number, text: string) => {
+    const win = windowOf(kernelOf(proc), proc, handle)
     if (!win) return -Errno.EBADF
-    win.body.textContent = ((win.body.textContent || '') + text)
+    try {
+      win.body.textContent = ((win.body.textContent || '') + text)
+    } catch (error) {
+      return -errnoOf(error)
+    }
     return text.length
   })
 
   define_syscall('window_close', async (proc: Process, handle: number) => {
-    const kernel = kernelOf(proc)
-    const id = windowHandles.get(handle)
-    if (!id) return -Errno.EBADF
-    kernel.windows.close(id)
+    const win = windowOf(kernelOf(proc), proc, handle)
+    if (!win) return -Errno.EBADF
+    win.close(true)
     windowHandles.delete(handle)
+    return 0
+  })
+
+  // `window_list`: writes the caller's windows as JSON (every window for root). Each entry has the handle when this
+  // process opened it with `window_create`, otherwise `handle: null`.
+  define_syscall('window_list', async (proc: Process, path: string) => {
+    const kernel = kernelOf(proc)
+    const handles = new Map([...windowHandles].map(([handle, id]) => [id, handle]))
+    const windows = kernel.windows.list(processIsRoot(proc) ? {} : { pid: proc.pid }).map(info => ({ ...info, handle: handles.get(String(info.id)) ?? null }))
+    const text = JSON.stringify(windows)
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  define_syscall('window_focus', async (proc: Process, handle: number) => {
+    const win = windowOf(kernelOf(proc), proc, handle)
+    if (!win) return -Errno.EBADF
+    win.focus()
+    return 0
+  })
+
+  define_syscall('window_move', async (proc: Process, handle: number, x: number, y: number) => {
+    const win = windowOf(kernelOf(proc), proc, handle)
+    if (!win) return -Errno.EBADF
+    win.move(x, y)
+    return 0
+  })
+
+  define_syscall('window_resize', async (proc: Process, handle: number, width: number, height: number) => {
+    const win = windowOf(kernelOf(proc), proc, handle)
+    if (!win) return -Errno.EBADF
+    win.resize(width, height)
+    return 0
+  })
+
+  define_syscall('window_set_title', async (proc: Process, handle: number, title: string) => {
+    const win = windowOf(kernelOf(proc), proc, handle)
+    if (!win) return -Errno.EBADF
+    win.setTitle(title)
     return 0
   })
 

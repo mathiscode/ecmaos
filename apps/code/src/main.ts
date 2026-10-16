@@ -1,4 +1,4 @@
-import type { ProcessEntryParams } from '@ecmaos/types'
+import type { ProcessEntryParams, WindowHandle } from '@ecmaos/types'
 import path from 'node:path'
 
 // Monaco workers are bundled with Vite's `?worker` import
@@ -28,7 +28,7 @@ self.MonacoEnvironment = {
 }
 
 const createMenuBar = (
-  win: WinBox,
+  win: WindowHandle,
   editor: monaco.editor.IStandaloneCodeEditor,
   params: ProcessEntryParams,
   fileHandle: { truncate: (len?: number) => Promise<void>, writeFile: (data: string | Uint8Array) => Promise<void> }
