@@ -15,7 +15,7 @@ const until = async (check: () => boolean, ms = 8000) => {
 }
 
 /** A program run on a pty the kernel holds the master of: what a terminal window does. */
-describe('programs on a kernel-held pty', () => {
+describe('programs on a kernel-held pty, and terminal windows', () => {
   let kernel: Kernel
   beforeAll(async () => {
     kernel = new Kernel({
@@ -47,5 +47,40 @@ describe('programs on a kernel-held pty', () => {
     await Promise.race([proc.exited, until(() => false, 5000).catch(() => undefined)])
     pty.close()
     expect(ptyIndices()).not.toContain(pty.index)
+  })
+
+  const screen = (terminal: { buffer: { active: { length: number, getLine(y: number): { translateToString(trim: boolean): string } | undefined } } }) => {
+    const lines: string[] = []
+    for (let y = 0; y < terminal.buffer.active.length; y++) lines.push(terminal.buffer.active.getLine(y)?.translateToString(true) ?? '')
+    return lines.join('\n')
+  }
+
+  it('opens a window whose terminal drives a login shell, and closing the window hangs it up', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root', title: 'term' })
+    expect(kernel.windows.list().some(info => info.id === opened.window.id)).toBe(true)
+    expect(opened.window.dom.querySelector('.xterm')).not.toBeNull()
+
+    opened.terminal.input('echo window-$((6*7))\n')
+    await until(() => screen(opened.terminal).includes('window-42'))
+
+    const index = opened.pty.index
+    opened.window.close(true)
+    expect(ptyIndices()).not.toContain(index)
+    await until(() => opened.process.code !== undefined)
+  })
+
+  it('closes the window when the shell exits', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root' })
+    opened.terminal.input('exit\n')
+    await until(() => kernel.windows.get(opened.window.id) === undefined)
+    expect(ptyIndices()).not.toContain(opened.pty.index)
+  })
+
+  it('passes the emulator\'s size to the program', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root' })
+    opened.terminal.resize(111, 33)
+    opened.terminal.input('stty size\n')
+    await until(() => screen(opened.terminal).includes('33 111'))
+    opened.window.close(true)
   })
 })

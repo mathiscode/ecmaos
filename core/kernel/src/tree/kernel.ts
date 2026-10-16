@@ -84,6 +84,8 @@ import { isolationProblem } from '#lib/isolation.ts'
 import { installSyscallTrace } from '#lib/syscall-trace.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import type { KernelPty } from '#lib/pty.ts'
+import { openTerminalWindow } from '#lib/terminal-window.ts'
+import type { TerminalWindow, TerminalWindowOptions } from '#lib/terminal-window.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { installPrograms } from '#lib/programs.ts'
@@ -3211,6 +3213,11 @@ export class Kernel implements IKernel {
       throw error
     }
     return { tty, shell, terminal, close: end }
+  }
+
+  /** A window with a terminal emulator running a program (a login shell by default) on a pty; see `openTerminalWindow`. */
+  openTerminalWindow(options: TerminalWindowOptions): Promise<TerminalWindow> {
+    return openTerminalWindow(this, options)
   }
 
   /**
