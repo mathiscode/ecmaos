@@ -5,6 +5,7 @@
  * equal the whole line decides, unless `-s` or `-u` is given. Numbers are compared as doubles.
  */
 
+import { getopt } from './lib/getopt.mjs'
 import { resolve } from './lib/path-utils.mjs'
 
 const { argv, exit, writeAll, read, getcwd, open, close, isDirectory, write, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
@@ -81,7 +82,7 @@ function parseKey(text) {
   const start = parsePosition(startText)
   const end = endText === undefined ? undefined : parsePosition(endText)
   if (!start || rest.length || (endText !== undefined && !end)) return undefined
-  if (start.field === 0) return { error: 'field number is zero: invalid field specification' }
+  if (start.field === 0 || (end && end.field === 0)) return { error: 'field number is zero: invalid field specification' }
   return { start, end, flags: new Set([...start.flags, ...(end ? end.flags : [])]) }
 }
 
@@ -150,6 +151,13 @@ function sortValue(text, flags) {
     return { number: match[1] ? -value : value }
   }
   if (flags.has('g')) {
+    const hex = /^[ \t]*([-+]?)0[xX]([0-9a-fA-F]+)(?:\.([0-9a-fA-F]*))?(?:[pP]([-+]?\d+))?/.exec(text)
+    if (hex) {
+      let value = parseInt(hex[2], 16)
+      if (hex[3]) value += parseInt(hex[3], 16) / 16 ** hex[3].length
+      if (hex[4]) value *= 2 ** Number(hex[4])
+      return { number: hex[1] === '-' ? -value : value }
+    }
     const match = /^[ \t]*[-+]?(?:inf(?:inity)?|nan|(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/i.exec(text)
     // Text that is not a number sorts before every number
     return { number: match ? Number(match[0].trim().replace(/^\+/, '').replace(/^(-?)inf(inity)?$/i, '$1Infinity')) : -Infinity, text: match ? undefined : text }
@@ -210,70 +218,67 @@ function compareValues(a, b, flags) {
 }
 
 function main() {
-  const args = argv.slice(1)
   const globalFlags = new Set()
   const keys = []
-  const files = []
   let separator
   let unique = false
   let stable = false
   let check = false
   let quietCheck = false
   let zero = false
+  let merge = false
   let output
+  let files0From
 
-  const needValue = (flag, i, inline) => (inline !== '' ? inline : args[i + 1] === undefined ? (err(`option requires an argument -- '${flag}'`), undefined) : args[i + 1])
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--') { files.push(...args.slice(i + 1)); break }
-    if (arg === '--help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
-    if (arg === '-' || !arg.startsWith('-')) { files.push(arg); continue }
-
-    if (arg.startsWith('--')) {
-      const [name, value] = arg.split(/=(.*)/s)
-      if (longOptions[name]) {
-        const flag = longOptions[name]
-        if (flag === 'u') unique = true
-        else if (flag === 's') stable = true
-        else if (flag === 'c') check = true
-        else if (flag === 'z') zero = true
-        else if (flag === 'm') { /* the same as sorting */ }
-        else globalFlags.add(flag)
-        continue
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'bdfgiMhnrRVcCk:mo:sS:t:T:uzy::',
+    long: {
+      'ignore-leading-blanks': 'b', 'dictionary-order': 'd', 'ignore-case': 'f', 'general-numeric-sort': 'g', 'ignore-nonprinting': 'i',
+      'month-sort': 'M', 'human-numeric-sort': 'h', 'numeric-sort': 'n', 'random-sort': 'R', reverse: 'r', 'version-sort': 'V',
+      check: { key: 'c', arg: 'optional' }, 'check-only': 'C', key: { key: 'k', arg: 'required' }, merge: 'm', output: { key: 'o', arg: 'required' },
+      stable: 's', 'buffer-size': { key: 'S', arg: 'required' }, 'field-separator': { key: 't', arg: 'required' },
+      'temporary-directory': { key: 'T', arg: 'required' }, unique: 'u', 'zero-terminated': 'z', sort: { key: 'sort', arg: 'required' },
+      parallel: { key: 'parallel', arg: 'required' }, 'batch-size': { key: 'batch', arg: 'required' }, 'compress-program': { key: 'compress', arg: 'required' },
+      'random-source': { key: 'source', arg: 'required' }, debug: 'debug', 'files0-from': { key: 'files0', arg: 'required' }, help: 'help', version: 'version'
+    }
+  })
+  if (error) { err(error); err("Try 'sort --help' for more information."); return 2 }
+  const sortNames = { 'general-numeric': 'g', 'human-numeric': 'h', month: 'M', numeric: 'n', random: 'R', version: 'V' }
+  for (const [flag, value] of options) {
+    if (flag === 'help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
+    if (flag === 'version') { writeAll(1, encoder.encode('sort (ecmaOS coreutils)\n')); return 0 }
+    else if (orderingFlags.includes(flag) && flag.length === 1) globalFlags.add(flag)
+    else if (flag === 'u') unique = true
+    else if (flag === 's') stable = true
+    else if (flag === 'c') { check = true; if (value === 'quiet' || value === 'silent') quietCheck = true }
+    else if (flag === 'C') { check = true; quietCheck = true }
+    else if (flag === 'z') zero = true
+    else if (flag === 'm') merge = true
+    else if (flag === 'sort') {
+      const names = Object.keys(sortNames)
+      const match = names.filter(name => name.startsWith(value))
+      if (!match.length || (match.length > 1 && !names.includes(value))) {
+        err(`invalid argument ‘${value}’ for ‘--sort’\nValid arguments are:\n${names.map(name => `  - ‘${name}’`).join('\n')}\nTry 'sort --help' for more information.`)
+        return 1
       }
-      const takes = { '--key': 'k', '--field-separator': 't', '--output': 'o' }[name]
-      if (!takes) { err(`unrecognized option '${arg}'`); err("Try 'sort --help' for more information."); return 2 }
-      const text = value !== undefined ? value : args[++i]
-      if (text === undefined) { err(`option '${name}' requires an argument`); return 2 }
-      if (takes === 'k') { const key = parseKey(text); if (!key || key.error) { err(key?.error ?? `invalid field specification '${text}'`); return 2 } keys.push(key) }
-      else if (takes === 't') separator = text === '\\0' ? '\0' : text
-      else output = text
-      continue
-    }
-
-    for (let c = 1; c < arg.length; c++) {
-      const flag = arg[c]
-      if (orderingFlags.includes(flag)) globalFlags.add(flag)
-      else if (flag === 'u') unique = true
-      else if (flag === 's') stable = true
-      else if (flag === 'c') check = true
-      else if (flag === 'C') { check = true; quietCheck = true }
-      else if (flag === 'z') zero = true
-      else if (flag === 'm') { /* the same as sorting */ }
-      else if ('ktoST'.includes(flag)) {
-        const text = needValue(flag, i, arg.slice(c + 1))
-        if (text === undefined) return 2
-        if (arg.slice(c + 1) === '') i++
-        if (flag === 'k') { const key = parseKey(text); if (!key || key.error) { err(key?.error ?? `invalid field specification '${text}'`); return 2 } keys.push(key) }
-        else if (flag === 't') {
-          if (text.length > 1 && text !== '\\0') { err(`multi-character tab '${text}'`); return 2 }
-          separator = text === '\\0' ? '\0' : text
-        } else if (flag === 'o') output = text
-        // -S and -T only tune memory and temporary files
-        break
-      } else { err(`invalid option -- '${flag}'`); err("Try 'sort --help' for more information."); return 2 }
-    }
+      globalFlags.add(sortNames[names.includes(value) ? value : match[0]])
+    } else if (flag === 'k') {
+      const key = parseKey(value)
+      if (!key || key.error) { err(key?.error ? `${key.error} ‘${value}’` : `invalid number at field start: invalid count at start of ‘${value}’`); return 2 }
+      keys.push(key)
+    } else if (flag === 't') {
+      if (value.length > 1 && value !== '\\0') { err(`multi-character tab ‘${value}’`); return 2 }
+      separator = value === '\\0' ? '\0' : value
+    } else if (flag === 'o') output = value
+    else if (flag === 'files0') files0From = value
+    // -S, -T, -y, --parallel, --batch-size, --compress-program, --random-source and --debug only tune what the real sort does inside
+  }
+  const files = [...operands]
+  if (files0From !== undefined) {
+    try {
+      const bytes = files0From === '-' ? readFd(0) : readFd(open(resolve(getcwd(), files0From), O_RDONLY))
+      for (const name of decode(bytes).split('\0')) if (name !== '') files.push(name)
+    } catch { err(`open failed: ${files0From}: No such file or directory`); return 2 }
   }
 
   const cwd = getcwd()
@@ -281,21 +286,21 @@ function main() {
   const entries = []
   let readFailed = false
 
-  const add = (text, name) => {
+  const add = (text, name, source) => {
     if (text === '') return
     const parts = text.split(delimiter)
     if (parts[parts.length - 1] === '') parts.pop()
-    for (const line of parts) entries.push({ line, name })
+    for (const line of parts) entries.push({ line, name, source })
   }
 
   if (files.length === 0) files.push('-')
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
     try {
-      if (file === '-') { add(decode(readFd(0)), file); continue }
+      if (file === '-') { add(decode(readFd(0)), file, index); continue }
       const fullPath = resolve(cwd, file)
       if (isDirectory(fullPath)) { err(`read failed: ${file}: Is a directory`); readFailed = true; continue }
       const fd = open(fullPath, O_RDONLY)
-      try { add(decode(readFd(fd)), file) } finally { close(fd) }
+      try { add(decode(readFd(fd)), file, index) } finally { close(fd) }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       err(`cannot read: ${file}: ${/ENOENT/.test(message) ? 'No such file or directory' : /EACCES/.test(message) ? 'Permission denied' : message}`)
@@ -341,7 +346,27 @@ function main() {
     return 0
   }
 
-  entries.sort(compare)
+  if (globalFlags.has('R') && !merge) {
+    // a random order: each distinct line gets one random rank, so equal lines stay together
+    const ranks = new Map()
+    for (const entry of entries) { if (!ranks.has(entry.line)) ranks.set(entry.line, Math.random()) }
+    entries.sort((a, b) => ranks.get(a.line) - ranks.get(b.line))
+  } else if (merge) {
+    // each file is taken to be sorted already: the smallest line at the front of any of them goes next
+    const lists = files.map((_, index) => entries.filter(entry => entry.source === index))
+    const merged = []
+    for (;;) {
+      let pick = -1
+      for (let f = 0; f < lists.length; f++) {
+        if (lists[f].length === 0) continue
+        if (pick < 0 || compare(lists[f][0], lists[pick][0]) < 0) pick = f
+      }
+      if (pick < 0) break
+      merged.push(lists[pick].shift())
+    }
+    entries.length = 0
+    entries.push(...merged)
+  } else entries.sort(compare)
   const result = []
   for (let i = 0; i < entries.length; i++) {
     if (unique && i > 0 && compare(entries[i - 1], entries[i]) === 0) continue

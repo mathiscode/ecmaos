@@ -7,6 +7,7 @@ import { resolve } from './path-utils.mjs'
 const { argv, exit, writeAll, getcwd } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
+const HEX_LENGTH = { md5: 32, sha1: 40, sha256: 64, sha384: 96, sha512: 128 }
 
 export async function checksum(name, algorithm) {
   const out = text => writeAll(1, encoder.encode(text))
@@ -50,6 +51,7 @@ Print or check ${algorithm.toUpperCase()} checksums. With no FILE, or when FILE 
     }
   }
   if (files.length === 0) files.push('-')
+  if (o.check && o.tag) { err("the --tag option is meaningless when verifying checksums\nTry '" + name + " --help' for more information."); return 1 }
   const cwd = getcwd()
   const load = file => file === '-' ? readFdBytes(0) : readFileBytes(resolve(cwd, file))
 
@@ -68,13 +70,15 @@ Print or check ${algorithm.toUpperCase()} checksums. With no FILE, or when FILE 
   let unreadable = 0
   let malformed = 0
   let checked = 0
+  let noLines = 0
   for (const list of files) {
     let text
     try { text = new TextDecoder().decode(load(list)) } catch (error) { err(`${list}: ${error?.message ?? error}`); unreadable++; continue }
+    const before = checked
     for (const line of text.split('\n')) {
       if (!line.trim()) continue
-      const bsd = /^[A-Za-z0-9-]+ \((.*)\) = ([0-9a-fA-F]+)$/.exec(line)
-      const gnu = /^([0-9a-fA-F]+) [ *](.*)$/.exec(line)
+      const bsd = new RegExp(`^[A-Za-z0-9-]+ \\((.*)\\) = ([0-9a-fA-F]{${HEX_LENGTH[algorithm]}})$`).exec(line)
+      const gnu = new RegExp(`^([0-9a-fA-F]{${HEX_LENGTH[algorithm]}}) [ *](.*)$`).exec(line)
       const file = bsd ? bsd[1] : gnu?.[2]
       const expected = (bsd ? bsd[2] : gnu?.[1])?.toLowerCase()
       if (!file || !expected) { malformed++; continue }
@@ -84,13 +88,14 @@ Print or check ${algorithm.toUpperCase()} checksums. With no FILE, or when FILE 
       if (result !== 'OK') bad++
       if (!o.status && !(o.quiet && result === 'OK')) out(`${file}: ${result}\n`)
     }
+    if (checked === before) { err(`${list === '-' ? "'standard input'" : list}: no properly formatted checksum lines found`); noLines++ }
   }
   if (!o.status) {
     if (malformed) err(`WARNING: ${malformed} line${malformed === 1 ? ' is' : 's are'} improperly formatted`)
     if (unreadable) err(`WARNING: ${unreadable} listed file${unreadable === 1 ? '' : 's'} could not be read`)
     if (bad) err(`WARNING: ${bad} computed checksum${bad === 1 ? '' : 's'} did NOT match`)
   }
-  return checked === 0 || bad || unreadable ? 1 : 0
+  return noLines || bad || unreadable ? 1 : 0
 }
 
 export async function start(name, algorithm) {

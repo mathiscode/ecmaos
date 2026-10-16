@@ -3,7 +3,7 @@
  *
  * Each operator and operand is a separate argument, so the shell characters need quoting (`\*`, `\(`, `\|`).
  * The result goes to standard output. The status is 0 when it is neither empty nor 0, 1 when it is, 2 for a
- * syntax error and 3 for an error in evaluating it (such as a division by zero).
+ * syntax error or an error in evaluating it (such as a division by zero).
  */
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
@@ -107,11 +107,13 @@ function evaluate(tokens) {
   }
 
   const value = parseOr()
-  if (pos < tokens.length) throw new SyntaxProblem(`syntax error: unexpected argument '${tokens[pos]}'`)
+  if (pos < tokens.length) throw new SyntaxProblem(`syntax error: unexpected argument ‘${tokens[pos]}’`)
   return value
 }
 
 const args = argv.slice(1)
+if (args[0] === '--version') { writeAll(1, encoder.encode('expr (ecmaOS coreutils) 1.0\n')); exit(0) }
+if (args[0] === '--') args.shift()
 if (args[0] === '--help') {
   writeAll(1, encoder.encode(`Usage: expr EXPRESSION
 Print the value of EXPRESSION. Operators, lowest precedence first:
@@ -124,11 +126,11 @@ Print the value of EXPRESSION. Operators, lowest precedence first:
   ( EXPR )  length STRING  substr STRING POS LENGTH  index STRING CHARS  match STRING REGEX
 
 Quote the characters the shell uses. The status is 0 for a result that is not empty or 0, 1 when it is,
-2 for a syntax error and 3 for an error while evaluating.
+2 for a syntax error or an error while evaluating.
 `))
   exit(0)
 }
-if (args.length === 0) { err('missing operand'); exit(2) }
+if (args.length === 0) { err("missing operand\nTry 'expr --help' for more information."); exit(2) }
 
 try {
   const result = evaluate(args)
@@ -136,5 +138,5 @@ try {
   exit(truthy(result) ? 0 : 1)
 } catch (error) {
   err(error?.message ?? String(error))
-  exit(error instanceof EvalProblem ? 3 : 2)
+  exit(2)
 }

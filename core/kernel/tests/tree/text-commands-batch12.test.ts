@@ -96,16 +96,16 @@ describe('text command batch 12: tar, real execve', () => {
 
   it('errors when no operation mode is specified', async () => {
     const code = await kernel.shell.execute('tar -f /tmp/tar-noop.tar 2>/tmp/tar-noop.err')
-    expect(code).toBe(1)
+    expect(code).toBe(2)
   })
 
   it('errors when create is missing a file argument', async () => {
     const code = await kernel.shell.execute('tar -c 2>/tmp/tar-nofile.err')
-    expect(code).toBe(1)
+    expect(code).toBe(2)
   })
 
   it('errors extracting a nonexistent archive', async () => {
     const code = await kernel.shell.execute('tar -xf /tmp/tar-does-not-exist.tar 2>/tmp/tar-missing.err')
-    expect(code).toBe(1)
+    expect(code).toBe(2)
   })
 })

@@ -11,7 +11,7 @@ import { currentStorageLimits } from './storage-limits.ts'
 import { sharedBuiltinNames, runSharedBuiltin, shellQuote, type BuiltinHost } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import path from 'path'
 
-const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown', 'env']
+const kernelOnlyNames = ['bg', 'fg', 'jobs', 'wait', 'disown']
 
 export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNames, ...kernelOnlyNames])
 
@@ -20,7 +20,7 @@ export const trueBuiltinNames: ReadonlySet<string> = new Set([...sharedBuiltinNa
  * tree runs. `Shell.runPipelineStages` holds their redirections as aggregate ones. `env` and `command` are here
  * because they run their work through `shell.execute`.
  */
-export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.', 'env', 'command'])
+export const aggregateBuiltinNames: ReadonlySet<string> = new Set(['eval', 'source', '.', 'command'])
 
 /**
  * Shorthand for the fds every builtin below writes through. Usage text goes to fd 1 and diagnostics
@@ -42,9 +42,12 @@ export function kernelBuiltinHost(shell: Shell): BuiltinHost {
         shell.cwd = target
         return undefined
       } catch (error) {
-        return error instanceof Error ? error.message : String(error)
+        const code = (error as { code?: string }).code
+        const reason: Record<string, string> = { ENOENT: 'No such file or directory', ENOTDIR: 'Not a directory', EACCES: 'Permission denied', ELOOP: 'Too many levels of symbolic links' }
+        return (code && reason[code]) || (error instanceof Error ? error.message : String(error))
       }
     },
+    realpath: target => shell.context.fs.promises.realpath(target) as Promise<string>,
     resolvePath: input => path.resolve(shell.cwd, input),
     expandTilde: input => shell.expandTilde(input),
     stat: async target => {
@@ -53,6 +56,16 @@ export function kernelBuiltinHost(shell: Shell): BuiltinHost {
         return { file: stat.isFile(), directory: stat.isDirectory(), size: Number(stat.size) }
       } catch { return undefined }
     },
+    fileInfo: async (target, follow) => {
+      try {
+        const info = follow ? await shell.context.fs.promises.stat(target) : await shell.context.fs.promises.lstat(target)
+        return {
+          mode: Number(info.mode), uid: Number(info.uid), gid: Number(info.gid), dev: Number(info.dev), ino: Number(info.ino),
+          size: Number(info.size), atimeMs: Number(info.atimeMs), mtimeMs: Number(info.mtimeMs)
+        }
+      } catch { return undefined }
+    },
+    identity: () => ({ uid: shell.credentials.euid, gid: shell.credentials.egid, groups: shell.credentials.groups }),
     readFile: target => shell.context.fs.promises.readFile(target, 'utf-8'),
     listDir: dir => shell.context.fs.promises.readdir(dir),
     builtinNames: () => trueBuiltinNames,
@@ -72,7 +85,7 @@ export function kernelBuiltinHost(shell: Shell): BuiltinHost {
     },
     umask: mask => {
       const old = shell.umask
-      if (old !== undefined && mask !== undefined) shell.umask = mask
+      if (mask !== undefined) shell.umask = mask
       return old
     },
   }
@@ -120,11 +133,18 @@ async function runFg(shell: Shell, argv: string[], io: Io): Promise<number> {
 }
 
 /** bash-style status label: `Running`, `Stopped`, or `Done`. */
+/** What bash calls a job that a signal ended, by signal number */
+const SIGNAL_LABELS: Record<number, string> = { 1: 'Hangup', 2: 'Interrupt', 3: 'Quit', 6: 'Aborted', 9: 'Killed', 10: 'User defined signal 1', 12: 'User defined signal 2', 13: 'Broken pipe', 14: 'Alarm clock', 15: 'Terminated' }
+
 export function jobStatusLabel(job: import('@ecmaos/types').Job): string {
   switch (job.status) {
     case 'running': return 'Running'
     case 'stopped': return 'Stopped'
-    case 'done': return `Done${job.exitCodes && job.exitCodes.some(code => code !== 0) ? `(${job.exitCodes[job.exitCodes.length - 1]})` : ''}`
+    case 'done': {
+      const last = job.exitCodes?.[job.exitCodes.length - 1]
+      if (last !== undefined && SIGNAL_LABELS[last - 128]) return SIGNAL_LABELS[last - 128] as string
+      return `Done${job.exitCodes && job.exitCodes.some(code => code !== 0) ? `(${last})` : ''}`
+    }
   }
 }
 
@@ -145,7 +165,7 @@ async function runJobs(shell: Shell, argv: string[], io: Io): Promise<number> {
     const marker = job.id === mostRecentId ? '+' : job.id === previousId ? '-' : ' '
     const pids = showPids && job.processes.length > 0 ? ` (${job.processes.map(p => p.pid).join(', ')})` : ''
     const suffix = job.background ? ' &' : ''
-    await io.writeln(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(24)}${job.commandLine}${suffix}${pids}`)
+    await io.writeln(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(27)}${job.commandLine}${suffix}${pids}`)
   }
 
   return 0
@@ -159,8 +179,8 @@ async function runWait(shell: Shell, argv: string[], io: Io): Promise<number> {
 
   const spec = argv[0]
   if (spec && !shell.getJob(spec)) {
-    await io.writelnErr(`wait: ${spec}: no such job or process`)
-    return 1
+    await io.writelnErr(spec.startsWith('%') ? `wait: ${spec}: no such job` : `wait: pid ${spec} is not a child of this shell`)
+    return 127
   }
 
   const code = await shell.wait(spec)
@@ -192,81 +212,6 @@ async function runDisown(shell: Shell, argv: string[], io: Io): Promise<number> 
   return status
 }
 
-async function runEnv(shell: Shell, argv: string[], io: Io): Promise<number> {
-  if (argv.length > 0 && (argv[0] === '--help' || argv[0] === '-h')) {
-    await io.writeln('Usage: env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]\nSet each NAME to VALUE in the environment and run COMMAND.')
-    return 0
-  }
-
-  let ignoreEnvironment = false
-  const unsetVars: string[] = []
-  let nullTerminated = false
-  const envVars: Record<string, string> = {}
-  let commandStartIndex = -1
-
-  let i = 0
-  while (i < argv.length) {
-    const arg = argv[i]
-    if (!arg) { i++; continue }
-
-    if (arg === '-i' || arg === '--ignore-environment') ignoreEnvironment = true
-    else if (arg === '-0' || arg === '--null') nullTerminated = true
-    else if (arg === '-u' || arg.startsWith('--unset=')) {
-      let varName: string
-      if (arg.startsWith('--unset=')) varName = arg.slice(8)
-      else {
-        i++
-        varName = argv[i] || ''
-        if (!varName) { await io.writelnErr("env: option requires an argument -- 'u'"); return 1 }
-      }
-      if (varName) unsetVars.push(varName)
-    } else if (arg.includes('=')) {
-      const [name, ...valueParts] = arg.split('=')
-      if (name && valueParts.length > 0) envVars[name] = valueParts.join('=')
-    } else {
-      commandStartIndex = i
-      break
-    }
-    i++
-  }
-
-  // `env` lists, and passes on, only what the shell exports: a plain `X=1` is not part of the environment.
-  const baseEnv = ignoreEnvironment ? {} : Object.fromEntries([...shell.visibleVariables()].filter(([key]) => shell.state.isExported(key)))
-  for (const varName of unsetVars) delete baseEnv[varName]
-  const modifiedEnv = { ...baseEnv, ...envVars }
-
-  if (commandStartIndex === -1) {
-    const entries = Object.entries(modifiedEnv).sort(([a], [b]) => a.localeCompare(b))
-    const separator = nullTerminated ? '\0' : '\n'
-    let output = ''
-    for (const [key, value] of entries) output += `${key}=${value}${separator}`
-    if (!nullTerminated && entries.length > 0) output += '\n'
-    if (output) await io.write(output)
-    return 0
-  }
-
-  const commandArgs = argv.slice(commandStartIndex)
-  const command = commandArgs[0]
-  if (!command) { await io.writelnErr('env: missing command'); return 1 }
-
-  const originalEnv = new Map(shell.env)
-
-  for (const [key, value] of Object.entries(modifiedEnv)) shell.env.set(key, value)
-  for (const varName of unsetVars) shell.env.delete(varName)
-  shell.publishEnv()
-
-  try {
-    const exitCode = await shell.execute(commandArgs.join(' '))
-    return exitCode ?? 1
-  } finally {
-    // `globalThis.process.env` needs no separate save/restore: it is a mirror of the owning shell's
-    // environment, republished from it, not a second copy to keep in step by hand.
-    shell.env.clear()
-    for (const [key, value] of originalEnv.entries()) shell.env.set(key, value)
-    shell.publishEnv()
-  }
-}
-
 /** Returns the true-builtin's name if `commandName` is one, else `undefined`. */
 export function trueBuiltinNameFor(commandName: string | undefined): string | undefined {
   return commandName && trueBuiltinNames.has(commandName) ? commandName : undefined
@@ -283,7 +228,6 @@ export async function runTrueBuiltin(shell: Shell, name: string, argv: string[],
     case 'jobs': return runJobs(shell, argv, io)
     case 'wait': return runWait(shell, argv, io)
     case 'disown': return runDisown(shell, argv, io)
-    case 'env': return runEnv(shell, argv, io)
   }
   if (sharedBuiltinNames.has(name)) return runSharedBuiltin(kernelBuiltinHost(shell), name, argv, io)
   throw new Error(`runTrueBuiltin: '${name}' is not a true builtin`)

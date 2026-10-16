@@ -53,6 +53,15 @@ export function interpretEscapes(text: string): string {
           if (hex) { result += String.fromCharCode(parseInt(hex, 16)); i = j } else { result += text[i]; i++ }
           break
         }
+        case 'u': case 'U': {
+          const max = next === 'u' ? 4 : 8
+          let hex = ''
+          let j = i + 2
+          while (j < text.length && hex.length < max && /[0-9a-fA-F]/.test(text[j] as string)) { hex += text[j]; j++ }
+          const point = parseInt(hex, 16)
+          if (hex && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)) { result += String.fromCodePoint(point); i = j } else { result += text[i]; i++ }
+          break
+        }
         default: result += text[i]; i++
       }
     } else {
@@ -83,25 +92,77 @@ function parseArgument(value: string): { number: number, big: bigint | undefined
   return lead ? { number: Number(lead[0]), big: BigInt(lead[0]), ok: false } : { number: 0, big: 0n, ok: false }
 }
 
+/** A finite double as its sign, an integer mantissa and a binary exponent: |x| = mantissa * 2^exponent */
+function decompose(x: number): { negative: boolean, mantissa: bigint, exponent: number } {
+  const view = new DataView(new ArrayBuffer(8))
+  view.setFloat64(0, x)
+  const high = view.getUint32(0)
+  const low = view.getUint32(4)
+  const biased = (high >>> 20) & 0x7ff
+  let mantissa = (BigInt(high & 0xfffff) << 32n) | BigInt(low)
+  let exponent = -1074
+  if (biased !== 0) { mantissa |= 1n << 52n; exponent = biased - 1075 }
+  return { negative: (high >>> 31) === 1, mantissa, exponent }
+}
+
+/** |x| * 10^k as an integer, rounded to even on an exact tie, which is what C's printf does and `toFixed` does not */
+function scaledRound(mantissa: bigint, exponent: number, k: number): bigint {
+  let numerator = mantissa
+  let denominator = 1n
+  if (exponent >= 0) numerator <<= BigInt(exponent)
+  else denominator <<= BigInt(-exponent)
+  if (k >= 0) numerator *= 10n ** BigInt(k)
+  else denominator *= 10n ** BigInt(-k)
+  let quotient = numerator / denominator
+  const twice = (numerator % denominator) * 2n
+  if (twice > denominator || (twice === denominator && (quotient & 1n) === 1n)) quotient += 1n
+  return quotient
+}
+
+/** C's `%.Nf` of a finite number, exact for any size and rounding ties to even */
+export function toFixedC(x: number, digits: number): string {
+  const { negative, mantissa, exponent } = decompose(x)
+  const text = scaledRound(mantissa, exponent, digits).toString().padStart(digits + 1, '0')
+  const whole = text.slice(0, text.length - digits)
+  const out = digits > 0 ? `${whole}.${text.slice(text.length - digits)}` : whole
+  return negative ? '-' + out : out
+}
+
+/** C's `%.Ne` of a finite number: `d.ddde+XX` with at least two exponent digits */
+export function toExponentialC(x: number, digits: number): string {
+  const { negative, mantissa, exponent } = decompose(x)
+  const sign = negative ? '-' : ''
+  if (mantissa === 0n) return `${sign}${(0).toFixed(digits)}e+00`
+  let e = Math.floor(Math.log10(Math.abs(x)))
+  let q = scaledRound(mantissa, exponent, digits - e)
+  const upper = 10n ** BigInt(digits + 1)
+  const lower = 10n ** BigInt(digits)
+  if (q >= upper) { e++; q = scaledRound(mantissa, exponent, digits - e) }
+  else if (q < lower) { e--; q = scaledRound(mantissa, exponent, digits - e) }
+  const text = q.toString()
+  const body = digits > 0 ? `${text[0]}.${text.slice(1)}` : (text[0] as string)
+  return `${sign}${body}e${e < 0 ? '-' : '+'}${String(Math.abs(e)).padStart(2, '0')}`
+}
+
 /** C's `%g`: the shorter of `%e` and `%f` for the precision, without trailing zeros (unless `#`) */
 function formatGeneral(n: number, precision: number, alternate: boolean): string {
   if (!Number.isFinite(n)) return String(n).replace('Infinity', 'inf').replace('NaN', 'nan')
   const p = precision === 0 ? 1 : precision
-  if (n === 0) return alternate ? (0).toFixed(p - 1) : '0'
-  const exponent = Number(n.toExponential(p - 1).split('e')[1])
+  if (n === 0) return alternate ? toFixedC(0, p - 1) : '0'
+  const exponent = Number(toExponentialC(n, p - 1).split('e')[1])
   let text: string
   if (exponent < -4 || exponent >= p) {
-    text = n.toExponential(p - 1)
+    text = toExponentialC(n, p - 1)
     if (!alternate) text = text.replace(/\.?0+e/, 'e')
-    text = text.replace(/e([+-])(\d)$/, 'e$10$2')
   } else {
-    text = n.toFixed(Math.max(0, p - 1 - exponent))
+    text = toFixedC(n, Math.max(0, p - 1 - exponent))
     if (!alternate && text.includes('.')) text = text.replace(/\.?0+$/, '')
   }
   return text
 }
 
 let invalidArgument: ((value: string) => void) | undefined
+let badFormat: ((character: string) => void) | undefined
 
 function formatValue(format: string, value: string): string {
   switch (format) {
@@ -141,8 +202,8 @@ function convert(conversion: string, value: string, flags: string, precision: nu
     const n = parsed.number
     const digits = precision ?? 6
     const text = !Number.isFinite(n) ? String(n).replace('Infinity', 'inf').replace('NaN', 'nan')
-      : conversion === 'f' || conversion === 'F' ? n.toFixed(digits)
-      : conversion === 'e' || conversion === 'E' ? n.toExponential(digits).replace(/e([+-])(\d)$/, 'e$10$2')
+      : conversion === 'f' || conversion === 'F' ? toFixedC(n, digits)
+      : conversion === 'e' || conversion === 'E' ? toExponentialC(n, digits)
       : formatGeneral(n, digits, flags.includes('#'))
     const out = conversion === 'E' || conversion === 'G' ? text.toUpperCase() : text
     return sign(out, n < 0, flags)
@@ -174,9 +235,10 @@ function pad(text: string, width: number, left: boolean, zero: boolean): string 
 
 
 /** `format` filled in from `values`. */
-export function formatPrintf(format: string, values: string[], onInvalid?: (value: string) => void): string {
+export function formatPrintf(format: string, values: string[], onInvalid?: (value: string) => void, onBadFormat?: (character: string) => void): string {
   invalidArgument = onInvalid
-  try { return formatPrintfWith(format, values) } finally { invalidArgument = undefined }
+  badFormat = onBadFormat
+  try { return formatPrintfWith(format, values) } finally { invalidArgument = undefined; badFormat = undefined }
 }
 
 function formatPrintfWith(format: string, values: string[]): string {
@@ -198,6 +260,19 @@ function formatPrintfWith(format: string, values: string[]): string {
           i += 2
           continue
         }
+        // %(FORMAT)T: a time (seconds since the epoch; empty or -1 is now) through strftime
+        const timeSpec = /^%(-?\d+)?(?:\.(\d+))?\(([^)]*)\)T/.exec(format.slice(i))
+        if (timeSpec) {
+          sawSpecifier = true
+          const raw = (values[consumed++] ?? '').trim()
+          const seconds = raw === '' || raw === '-1' || raw === '-2' ? Date.now() / 1000 : Number(raw)
+          let text = Number.isFinite(seconds) ? formatTime(timeSpec[3] as string, seconds * 1000) : ''
+          if (timeSpec[2] !== undefined) text = text.slice(0, Number(timeSpec[2]))
+          const w = timeSpec[1] ? Number(timeSpec[1]) : 0
+          result += pad(text, Math.abs(w), w < 0, false)
+          i += timeSpec[0].length
+          continue
+        }
         // %[flags][width][.precision]conversion, where width and precision may be `*` (taken from an argument)
         const spec = /^%([-+ 0#]*)(\d+|\*)?(?:\.(\d*|\*))?([bcdioqxXsufFeEgG])/.exec(format.slice(i))
         if (spec) {
@@ -213,6 +288,11 @@ function formatPrintfWith(format: string, values: string[]): string {
           continue
         }
         sawSpecifier = true
+        if (badFormat) {
+          // bash prints what came before, reports the character and stops
+          badFormat(/^%[-+ 0#]*(?:\d+|\*)?(?:\.(?:\d*|\*))?(.)/.exec(format.slice(i))?.[1] ?? (next as string))
+          return { result, consumed, sawSpecifier, stop: true }
+        }
         result += formatValue(`%${next}`, values[consumed] ?? '')
         consumed++
         i += 2
@@ -220,7 +300,7 @@ function formatPrintfWith(format: string, values: string[]): string {
       }
 
       if (format[i] === '\\' && i + 1 < format.length) {
-        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|0[0-7]{0,3}|[1-7][0-7]{0,2})/)
+        const match = format.slice(i).match(/^\\([\\abceEfnrtv]|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{1,4}|U[0-9a-fA-F]{1,8}|0[0-7]{0,3}|[1-7][0-7]{0,2})/)
         if (match) {
           result += interpretEscapes(match[0])
           i += match[0].length
@@ -232,7 +312,7 @@ function formatPrintfWith(format: string, values: string[]): string {
       i++
     }
 
-    return { result, consumed, sawSpecifier }
+    return { result, consumed, sawSpecifier, stop: false }
   }
 
   // POSIX reuses the format until the arguments run out, so `printf '[%s]\n' a b` prints two lines.
@@ -241,8 +321,9 @@ function formatPrintfWith(format: string, values: string[]): string {
   let out = ''
   let argIndex = 0
   for (;;) {
-    const { result, consumed, sawSpecifier } = formatOnce(argIndex)
+    const { result, consumed, sawSpecifier, stop } = formatOnce(argIndex)
     out += result
+    if (stop) break
     if (!sawSpecifier || consumed <= argIndex) break
     argIndex = consumed
     if (argIndex >= values.length) break
@@ -250,4 +331,53 @@ function formatPrintfWith(format: string, values: string[]): string {
 
 
   return out
+}
+
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** The common strftime conversions for `%(FORMAT)T`, in the zone `TZ` names (UTC) or the host's. */
+function formatTime(format: string, ms: number): string {
+  const utc = /^(UTC|GMT|UCT)(0)?$/.test((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.TZ ?? '')
+  const d = new Date(ms)
+  const get = utc
+    ? { y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds(), w: d.getUTCDay() }
+    : { y: d.getFullYear(), mo: d.getMonth(), d: d.getDate(), h: d.getHours(), mi: d.getMinutes(), s: d.getSeconds(), w: d.getDay() }
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const yearDay = Math.floor((Date.UTC(get.y, get.mo, get.d) - Date.UTC(get.y, 0, 1)) / 86400000) + 1
+  const offset = utc ? 0 : -d.getTimezoneOffset()
+  const zone = `${offset < 0 ? '-' : '+'}${p2(Math.floor(Math.abs(offset) / 60))}${p2(Math.abs(offset) % 60)}`
+  return format.replace(/%([a-zA-Z%])/g, (all, c: string) => {
+    switch (c) {
+      case 'Y': return String(get.y)
+      case 'y': return p2(get.y % 100)
+      case 'm': return p2(get.mo + 1)
+      case 'd': return p2(get.d)
+      case 'e': return String(get.d).padStart(2, ' ')
+      case 'H': return p2(get.h)
+      case 'I': return p2(get.h % 12 || 12)
+      case 'M': return p2(get.mi)
+      case 'S': return p2(get.s)
+      case 'p': return get.h < 12 ? 'AM' : 'PM'
+      case 'j': return String(yearDay).padStart(3, '0')
+      case 'a': return (DAYS[get.w] as string).slice(0, 3)
+      case 'A': return DAYS[get.w] as string
+      case 'b': case 'h': return (MONTHS[get.mo] as string).slice(0, 3)
+      case 'B': return MONTHS[get.mo] as string
+      case 'u': return String(get.w || 7)
+      case 'w': return String(get.w)
+      case 's': return String(Math.floor(ms / 1000))
+      case 'F': return `${get.y}-${p2(get.mo + 1)}-${p2(get.d)}`
+      case 'T': return `${p2(get.h)}:${p2(get.mi)}:${p2(get.s)}`
+      case 'R': return `${p2(get.h)}:${p2(get.mi)}`
+      case 'D': return `${p2(get.mo + 1)}/${p2(get.d)}/${p2(get.y % 100)}`
+      case 'z': return zone
+      case 'Z': return utc ? 'UTC' : (new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(d).find(part => part.type === 'timeZoneName')?.value ?? 'UTC')
+      case 'n': return '\n'
+      case 't': return '\t'
+      case '%': return '%'
+      default: return all
+    }
+  })
 }

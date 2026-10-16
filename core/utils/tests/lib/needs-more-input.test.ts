@@ -77,3 +77,19 @@ describe('needsMoreInput: brace groups', () => {
     expect(needsMoreInput('{ echo a; }')).toBe(false)
   })
 })
+
+describe('needsMoreInput: open quotes', () => {
+  it('asks for more inside a quoted string, and not once it closes', () => {
+    expect(needsMoreInput('echo "abc')).toBe(true)
+    expect(needsMoreInput("echo 'abc")).toBe(true)
+    expect(needsMoreInput('echo "abc\ndef"')).toBe(false)
+    expect(needsMoreInput('echo "it\'s"')).toBe(false)
+  })
+  it('a quote in a comment or after a backslash does not open one', () => {
+    expect(needsMoreInput("echo hi # don't")).toBe(false)
+    expect(needsMoreInput('echo \\"')).toBe(false)
+  })
+  it('a lone quote in a completed here-document body is not an open quote', () => {
+    expect(needsMoreInput("cat <<EOF\ndon't\nEOF")).toBe(false)
+  })
+})

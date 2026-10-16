@@ -1,6 +1,6 @@
 /** Print or switch the active terminal (tty). */
 
-const { argv, exit, write, custom } = globalThis.ecmaosSyscalls
+const { argv, exit, write, custom, tcgetattr } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tty [TTY_NUMBER]
 Print the current TTY number or switch to a different TTY.
@@ -19,7 +19,16 @@ async function main() {
     return 0
   }
 
-  if (args.length === 0) {
+  // like POSIX tty: -s is silent, and a standard input that is no terminal is "not a tty"
+  const silent = args[0] === '-s' || args[0] === '--silent' || args[0] === '--quiet'
+  if (silent || args.length === 0) {
+    let terminal = true
+    try { tcgetattr(0) } catch { terminal = false }
+    if (!terminal) {
+      if (!silent) write(1, new TextEncoder().encode('not a tty\n'))
+      return 1
+    }
+    if (silent) return 0
     const activeTty = await custom('tty_get')
     write(1, new TextEncoder().encode(activeTty.toString() + '\n'))
     return 0

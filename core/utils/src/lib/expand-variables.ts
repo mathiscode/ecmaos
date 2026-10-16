@@ -7,7 +7,7 @@
 /** Look up a shell variable, matching bash's special variables where they matter for scripting. */
 export type VariableLookup = (name: string) => string | undefined
 
-class ArithmeticError extends Error {}
+export class ArithmeticError extends Error {}
 
 /**
  * A recursive-descent evaluator for `$((...))` in C precedence: assignment operators, `?:`, `||`, `&&`, `|`, `^`,
@@ -55,7 +55,7 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
       case '-': return left - right
       case '*': return left * right
       case '/': case '%':
-        if (right === 0) throw new ArithmeticError('division by zero')
+        if (right === 0) throw new ArithmeticError('division by 0 (error token is "0")')
         return op === '/' ? Math.trunc(left / right) : left % right
       default: return bitwise(op, left, right)
     }
@@ -224,7 +224,13 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
 
 /** Evaluate a `$((...))` body. Thrown errors are the caller's to decide how to surface. */
 export function evaluateArithmeticExpression(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
-  return evaluateArithmetic(expr, lookup, assign)
+  try {
+    return evaluateArithmetic(expr, lookup, assign)
+  } catch (error) {
+    // bash names the expression: `1/0: division by 0 (error token is "0")`
+    if (error instanceof ArithmeticError) throw new ArithmeticError(`${expr.trim()}: ${error.message}`)
+    throw error
+  }
 }
 
 /**

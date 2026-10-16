@@ -6,6 +6,7 @@
 
 import { parseStatements, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
 import { parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
+import { ArithmeticError } from '../expand-variables.js'
 import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
 import { formatSelectMenu } from './select-menu.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
@@ -109,11 +110,24 @@ export class Interpreter {
     return await this.runStatements(parseStatements(text))
   }
 
+  private statementDepth = 0
+
   async runStatements(statements: Statement[]): Promise<number> {
+    // A refused assignment skips the rest of its line, not of the shell's life: a fresh top-level run starts clean.
+    if (this.statementDepth === 0) this.state.failedLine = undefined
+    this.statementDepth++
+    try { return await this.runStatementList(statements) } finally { this.statementDepth-- }
+  }
+
+  private async runStatementList(statements: Statement[]): Promise<number> {
     let last = 0
     for (const statement of statements) {
       if (await this.host.checkpoint()) return last
-      if (statement.lineNumber !== undefined) this.state.lineNumber = statement.lineNumber
+      if (statement.lineNumber !== undefined) {
+        if (statement.lineNumber === this.state.failedLine) continue
+        this.state.failedLine = undefined
+        this.state.lineNumber = statement.lineNumber
+      }
       await this.host.onStatement?.(statement)
       try {
         last = await this.runStatement(statement)
@@ -121,6 +135,14 @@ export class Interpreter {
         // `failglob`: a pattern with no match fails the command it is in, and nothing else
         if (error instanceof GlobNoMatchError) {
           await this.host.writeErr(error.message)
+          last = 1
+          this.host.setStatus(1)
+          continue
+        }
+        if (error instanceof ArithmeticError) {
+          // Like a refused assignment: the command fails and the rest of its line is skipped.
+          await this.host.writeErr(error.message)
+          this.state.failedLine = this.state.lineNumber
           last = 1
           this.host.setStatus(1)
           continue

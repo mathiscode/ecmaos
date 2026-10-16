@@ -2,10 +2,13 @@
 
 const { argv, exit, writeAll, write } = globalThis.ecmaosSyscalls
 
-const args = argv.slice(1)
-if (args[0] === '--help') {
-  writeAll(1, new TextEncoder().encode('Usage: yes [STRING]...\nRepeatedly output a line with all specified STRING(s), or `y`.\n\n  --help  display this help and exit\n'))
-  exit(0)
+import { getopt, tryHelp } from './lib/getopt.mjs'
+
+const { options, operands: args, error } = getopt(argv.slice(1), { long: { help: 'help', version: 'version' }, permute: false })
+if (error) { writeAll(2, new TextEncoder().encode(`yes: ${error}\n${tryHelp('yes')}\n`)); exit(1) }
+for (const [key] of options) {
+  if (key === 'help') { writeAll(1, new TextEncoder().encode('Usage: yes [STRING]...\n  or:  yes OPTION\nRepeatedly output a line with all specified STRING(s), or `y`.\n\n      --help     display this help and exit\n      --version  output version information and exit\n')); exit(0) }
+  if (key === 'version') { writeAll(1, new TextEncoder().encode('yes (ecmaOS coreutils) 1.0\n')); exit(0) }
 }
 
 const line = (args.length ? args.join(' ') : 'y') + '\n'

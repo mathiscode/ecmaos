@@ -674,13 +674,39 @@ export function pendingHeredocDelimiter(text: string): string | null {
   return pending[0]?.delimiter ?? null
 }
 
+/** Whether `line` ends inside a quoted string (single, double or `$'...'`), ignoring quotes in a trailing comment. */
+export function hasOpenQuote(line: string): boolean {
+  let state: '' | "'" | '"' | '$' = ''
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i] as string
+    if (state === "'") { if (c === "'") state = '' }
+    else if (state === '$') { if (c === '\\') i++; else if (c === "'") state = '' }
+    else if (state === '"') { if (c === '\\') i++; else if (c === '"') state = '' }
+    else if (c === '\\') i++
+    else if (c === "'") state = line[i - 1] === '$' ? '$' : "'"
+    else if (c === '"') state = '"'
+    else if (c === '#' && (i === 0 || /[\s;|&()]/.test(line[i - 1] as string))) break
+  }
+  return state !== ''
+}
+
 /**
  * Removes comments from multi-line shell text: on each line, an unquoted `#` at the start of a word
  * begins a comment. Quotes, escapes and expansions are respected, so `echo "a # b"`, `a#b` and
  * `$(( 1 ))#` keep their `#`.
  */
 export function stripComments(text: string): string {
-  return text.split('\n').map(line => {
+  // a quoted string can run over several lines; they are handled as one so a `#` inside it is not a comment
+  const groups: string[] = []
+  let pending = ''
+  text.split('\n').forEach((physical, index) => {
+    const joined = index === 0 || pending === '' ? physical : pending + '\n' + physical
+    if (hasOpenQuote(joined)) { pending = joined; return }
+    pending = ''
+    groups.push(joined)
+  })
+  if (pending) groups.push(pending)
+  return groups.map(line => {
     let i = 0
     while (i < line.length) {
       const c = line[i] as string

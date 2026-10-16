@@ -7,6 +7,7 @@
  *
  */
 
+import { DEFAULT_UMASK, setUmask } from './lib/umask-store.ts'
 import { installSkel, type SkelFs } from './lib/skel.ts'
 import '#lib/process-shim.ts'
 import ansi from 'ansi-escape-sequences'
@@ -23,7 +24,8 @@ import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { of_platform_populate as populatePlatformBus } from '@zenfs/linux/drivers/of/device_tree'
 import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
-import { create_pipe, pipefs } from '@zenfs/linux/fs/pipe'
+import { pipefs } from '@zenfs/linux/fs/pipe'
+import { createPipe } from '#lib/pipe-reaper.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -241,7 +243,8 @@ export class Kernel implements IKernel {
    */
   processContext(shell: IShell, cwd: string, program?: string) {
     const { credentials } = shell
-    const umask = (shell as { umask?: number }).umask ?? 0
+    // the mask goes to the file system only where it keeps one; the programs apply the shell's own (`umask-store.ts`)
+    const umask = typeof (shell.context as { umask?: number }).umask === 'number' ? (shell as { umask?: number }).umask ?? 0 : 0
     // a program with the setuid bit runs with its owner's privileges, not the shell's
     const elevated = this._programsRunAsUser && program ? setuidCredentials(shell.context.fs, program.startsWith('/') ? program : `${cwd}/${program}`, credentials) : undefined
     const asUser = this._programsRunAsUser && (credentials.euid !== 0 || elevated !== undefined)
@@ -604,7 +607,7 @@ export class Kernel implements IKernel {
       // What every login shell reads first. The file creation mask is policy, not mechanism: a context starts with
       // none, and this is where a system says what it wants (022, as Linux distributions do).
       if (!(await this.filesystem.fs.exists('/etc/profile'))) {
-        await this.filesystem.fs.writeFile('/etc/profile', '# /etc/profile: read by every login shell\n\n# new files are not writable by group or others (a no-op where the file system has no umask)\numask 022 2> /dev/null\n', { mode: 0o644 })
+        await this.filesystem.fs.writeFile('/etc/profile', '# /etc/profile: read by every login shell\n\n# new files are not writable by group or others (the shell applies it to what it and its programs create)\numask 022 2> /dev/null\n', { mode: 0o644 })
       }
 
       // Who may use `sudo`. Only root can read it, as on Linux, and a missing file means nobody may.
@@ -1189,8 +1192,7 @@ export class Kernel implements IKernel {
         return -1
       }
 
-      const header = await this.readFileHeader(options.command, options.shell)
-      if (!header) return -1
+      const header = await this.readFileHeader(options.command, options.shell) ?? { type: 'application/octet-stream' as const }
 
       let exitCode: number | void = -1
       switch (header.type) {
@@ -1249,6 +1251,19 @@ export class Kernel implements IKernel {
               break
             }
           }; break
+        default: {
+          // execve's ENOEXEC: a file that is neither a known format nor a shebang runs as a shell script when it is
+          // text, as bash and /bin/sh do; anything with a NUL byte is a binary this system cannot run.
+          const head = await options.shell.context.fs.promises.readFile(options.command).then(b => new Uint8Array(b).subarray(0, 512))
+          if (head.includes(0)) {
+            const message = `${options.command}: cannot execute binary file: Exec format error\n`
+            if (options.stderr) { const w = options.stderr.getWriter(); await w.write(new TextEncoder().encode(message)); w.releaseLock() }
+            else this.terminal.write(`\x1b[31m${message.replace(/\n/g, '\r\n')}\x1b[0m`)
+            exitCode = 126
+          } else {
+            exitCode = await this.runScriptFile(this.withStdinStream(options))
+          }
+        }
       }
 
       exitCode = exitCode ?? 0
@@ -1336,6 +1351,7 @@ export class Kernel implements IKernel {
       })
       liveProc = proc
       this.init.adopt(proc)
+      setUmask(proc, (options.shell as { umask?: number }).umask ?? DEFAULT_UMASK)
 
       // Custom syscalls whose handler needs a `Kernel` (e.g. `window_create`) resolve it from the
       // calling `Process` - `@zenfs/linux`'s `Process` has no notion of "kernel" itself, and the
@@ -1500,7 +1516,7 @@ export class Kernel implements IKernel {
    */
   linkProcesses(fromProc: InstanceType<typeof ZenFSProcess>, toProc: InstanceType<typeof ZenFSProcess>): { writerFd: number, readerFd: number } {
     const pipeProcCtx = this.pipeProcess.context
-    const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
+    const [pipeReadFd, pipeWriteFd] = createPipe(pipeProcCtx)
 
     const readHandle = pipeProcCtx.descriptors.get(pipeReadFd)
     pipeProcCtx.descriptors.delete(pipeReadFd)
@@ -1529,7 +1545,7 @@ export class Kernel implements IKernel {
   ): { stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
     const pipeProcCtx = this.pipeProcess.context
 
-    const [pipeReadFd, pipeWriteFd] = create_pipe(pipeProcCtx)
+    const [pipeReadFd, pipeWriteFd] = createPipe(pipeProcCtx)
     const programFd = direction === 'read' ? pipeReadFd : pipeWriteFd
     const bridgeFd = direction === 'read' ? pipeWriteFd : pipeReadFd
 
@@ -1654,7 +1670,7 @@ export class Kernel implements IKernel {
    */
   private createPipeStream(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array>, abandon?: () => void } {
     const pipeProcCtx = this.pipeProcess.context
-    const [readFd, writeFd] = create_pipe(pipeProcCtx)
+    const [readFd, writeFd] = createPipe(pipeProcCtx)
     const readHandle = pipeProcCtx.descriptors.get(readFd)
     const writeHandle = pipeProcCtx.descriptors.get(writeFd)
     const readFile = readHandle && pipefs._device(readHandle.internalPath)
@@ -1865,12 +1881,17 @@ export class Kernel implements IKernel {
       return -1
     }
 
+    return await this.runScriptFile(options)
+  }
+
+  /** Runs a text file as a shell script in `options.shell`, with `options.args` as `$1 $2 ...`. */
+  private async runScriptFile(options: KernelExecuteOptions): Promise<number> {
     const script = await options.shell.context.fs.promises.readFile(options.command, 'utf-8')
     if (script) {
       const terminalCmdBefore = options.terminal?.cmd || ''
 
       // Multi-line control flow, functions and `set` options live in the statement tree `executeScriptText` walks.
-      const exitCode = await options.shell.executeScriptText(script, options.command)
+      const exitCode = await options.shell.executeScriptText(script, options.invokedAs ?? options.command, options.args)
 
       if (options.terminal && terminalCmdBefore && options.terminal.cmd === terminalCmdBefore) {
         options.terminal.clearCommand()

@@ -66,7 +66,7 @@ describe('text command batch 6: readlink/realpath/ln, real execve', () => {
   })
 
   it('realpath prints an absolute path for a relative input', async () => {
-    const code = await kernel.shell.execute('realpath tmp/realpath-in.txt > /tmp/realpath.out')
+    const code = await kernel.shell.execute('cd / && realpath tmp/realpath-in.txt > /tmp/realpath.out')
     expect(code).toBe(0)
     const out = (await kernel.filesystem.fs.readFile('/tmp/realpath.out', 'utf-8')).trim()
     expect(out.startsWith('/')).toBe(true)

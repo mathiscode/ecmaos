@@ -1,124 +1,233 @@
 /**
- * Say what kind of file something is, from its first bytes: `file photo.jpg`.
- *
- * It knows the common signatures (archives, images, documents, programs) and tells text from data, which is
- * what most uses need; it is not the full magic database.
+ * `file`: say what kind of file something is, as file(1) does. The analysis of the content is in lib/file-magic.mjs;
+ * this program has the options, the names, the padding and the special files.
  */
 
+import { getopt, tryHelp } from './lib/getopt.mjs'
+import { readFdBytes } from './lib/bytes.mjs'
+import { reasonOf } from './lib/errno.mjs'
 import { resolve } from './lib/path-utils.mjs'
+import { identify } from './lib/file-magic.mjs'
 
-const { argv, exit, writeAll, getcwd, lstat, readlink, open, close, read, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, getcwd, lstat, stat, readlink, open, close, read, lseek, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
-const err = text => writeAll(2, encoder.encode(`file: ${text}\n`))
 const S_IFMT = 0xf000
+const HEAD_LIMIT = 1024 * 1024
 
-const usage = `Usage: file [OPTION]... FILE...
-Determine the type of each FILE.
+const USAGE = `Usage: file [-bcCdEhikLlNnprsSvzZ0] [--apple] [--extension] [--mime-encoding]
+            [--mime-type] [-e <testname>] [-F <separator>]  [-f <namefile>]
+            [-m <magicfiles>] [-P <parameter=value>] [--exclude-quiet]
+            <file> ...
+       file -C [-m <magicfiles>]
+       file [--help]`
 
-  -b, --brief      do not prefix lines with the file name
-  -i, --mime       print the MIME type (and charset for text)
-  --mime-type      print only the MIME type
-  --help           display this help and exit`
+const HELP = `Usage: file [OPTION...] [FILE...]
+Determine type of FILEs.
 
-const startsWith = (bytes, ...codes) => codes.every((code, index) => bytes[index] === code)
-const ascii = (bytes, from, to) => String.fromCharCode(...bytes.subarray(from, to))
+      --help                 display this help and exit
+  -v, --version              output version information and exit
+  -m, --magic-file LIST      use LIST as a colon-separated list of magic
+                               number files
+  -z, --uncompress           try to look inside compressed files
+  -Z, --uncompress-noreport  only print the contents of compressed files
+  -b, --brief                do not prepend filenames to output lines
+  -c, --checking-printout    print the parsed form of the magic file, use in
+                               conjunction with -m to debug a new magic file
+                               before installing it
+  -e, --exclude TEST         exclude TEST from the list of test to be
+                               performed for file. Valid tests are:
+                               apptype, ascii, cdf, compress, csv, elf,
+                               encoding, soft, tar, json, simh,
+                               text, tokens
+      --exclude-quiet TEST   like exclude, but ignore unknown tests
+  -f, --files-from FILE      read the filenames to be examined from FILE
+  -F, --separator STRING     use string as separator instead of \`:'
+  -i, --mime                 output MIME type strings (--mime-type and
+                               --mime-encoding)
+      --apple                output the Apple CREATOR/TYPE
+      --extension            output a slash-separated list of extensions
+      --mime-type            output the MIME type
+      --mime-encoding        output the MIME encoding
+  -k, --keep-going           don't stop at the first match
+  -l, --list                 list magic strength
+  -L, --dereference          follow symlinks (default if POSIXLY_CORRECT is set)
+  -h, --no-dereference       don't follow symlinks (default if POSIXLY_CORRECT is not set) (default)
+  -n, --no-buffer            do not buffer output
+  -N, --no-pad               do not pad output
+  -0, --print0               terminate filenames with ASCII NUL
+  -p, --preserve-date        preserve access times on files
+  -P, --parameter            set file engine parameter limits
+                                   bytes 7340032 max bytes to look inside file
+                               elf_notes     256 max ELF notes processed
+                               elf_phnum    2048 max ELF prog sections processed
+                               elf_shnum   32768 max ELF sections processed
+                               elf_shsize 134217728 max ELF section size
+                                encoding   65536 max bytes to scan for encoding
+                                   indir      50 recursion limit for indirection
+                                    name     150 use limit for name/use magic
+                                   regex    8192 length limit for REGEX searches
+                                 magwarn      64 maximum number of magic warnings
+  -r, --raw                  don't translate unprintable chars to \\ooo
+  -s, --special-files        treat special (block/char devices) files as
+                             ordinary ones
+  -S, --no-sandbox           disable system call sandboxing
+  -C, --compile              compile file specified by -m
+  -d, --debug                print debugging messages
 
-/** `[description, mime]` for the bytes of a file. */
-function identify(bytes) {
-  if (bytes.length === 0) return ['empty', 'inode/x-empty']
-  if (startsWith(bytes, 0x1f, 0x8b)) return ['gzip compressed data', 'application/gzip']
-  if (startsWith(bytes, 0x50, 0x4b, 0x03, 0x04)) return ['Zip archive data', 'application/zip']
-  if (startsWith(bytes, 0x50, 0x4b, 0x05, 0x06)) return ['Zip archive data (empty)', 'application/zip']
-  if (startsWith(bytes, 0x42, 0x5a, 0x68)) return ['bzip2 compressed data', 'application/x-bzip2']
-  if (startsWith(bytes, 0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00)) return ['XZ compressed data', 'application/x-xz']
-  if (startsWith(bytes, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-    return [bytes.length >= 24 ? `PNG image data, ${view.getUint32(16)} x ${view.getUint32(20)}` : 'PNG image data', 'image/png']
+Report bugs to https://bugs.astron.com/`
+
+const out = text => globalThis.ecmaosSyscalls.write(1, encoder.encode(text), -1)
+const writeOut = bytes => {
+  let at = 0
+  while (at < bytes.length) at += globalThis.ecmaosSyscalls.write(1, bytes.subarray(at), -1)
+}
+const writeErr = text => {
+  const bytes = encoder.encode(text)
+  let at = 0
+  while (at < bytes.length) at += globalThis.ecmaosSyscalls.write(2, bytes.subarray(at), -1)
+}
+void out
+
+const special = {
+  0x4000: ['directory', 'inode/directory'],
+  0x1000: ['fifo (named pipe)', 'inode/fifo'],
+  0xc000: ['socket', 'inode/socket']
+}
+
+function deviceNumbers(info) {
+  const rdev = Number(info.rdev ?? 0)
+  return `${Math.floor(rdev / 0x100000)}/${rdev % 0x100000}`
+}
+
+function readHead(path) {
+  const fd = open(path, O_RDONLY, 0)
+  try { return readFdBytes(fd, HEAD_LIMIT) } finally { close(fd) }
+}
+
+function ioFor(path, size) {
+  return {
+    size,
+    readAt(offset, length) {
+      const fd = open(path, O_RDONLY, 0)
+      try {
+        lseek(fd, offset, 0)
+        const buffer = new Uint8Array(length)
+        const n = read(fd, buffer, -1)
+        return buffer.subarray(0, Math.max(0, n))
+      } finally { close(fd) }
+    },
+    readAll() {
+      const fd = open(path, O_RDONLY, 0)
+      try { return readFdBytes(fd, 64 * 1024 * 1024) } finally { close(fd) }
+    }
   }
-  if (startsWith(bytes, 0xff, 0xd8, 0xff)) return ['JPEG image data', 'image/jpeg']
-  if (ascii(bytes, 0, 6) === 'GIF87a' || ascii(bytes, 0, 6) === 'GIF89a') return [`GIF image data, version ${ascii(bytes, 3, 6)}`, 'image/gif']
-  if (ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WEBP') return ['Web/P image', 'image/webp']
-  if (ascii(bytes, 0, 5) === '%PDF-') return [`PDF document, version ${ascii(bytes, 5, 8)}`, 'application/pdf']
-  if (startsWith(bytes, 0x00, 0x61, 0x73, 0x6d)) return ['WebAssembly (wasm) binary module', 'application/wasm']
-  if (startsWith(bytes, 0x7f, 0x45, 0x4c, 0x46)) return ['ELF executable', 'application/x-executable']
-  if (bytes.length > 262 && ascii(bytes, 257, 262) === 'ustar') return ['POSIX tar archive', 'application/x-tar']
-  if (ascii(bytes, 0, 4) === 'OggS') return ['Ogg data', 'application/ogg']
-  if (ascii(bytes, 0, 3) === 'ID3' || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return ['MPEG audio', 'audio/mpeg']
-  if (ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WAVE') return ['RIFF (little-endian) data, WAVE audio', 'audio/x-wav']
-  if (ascii(bytes, 0, 15) === 'SQLite format 3') return ['SQLite 3.x database', 'application/vnd.sqlite3']
+}
 
-  // text: no NUL and no control characters other than the usual whitespace, and valid UTF-8 if not ASCII
-  let isAscii = true
-  for (const byte of bytes.subarray(0, 8192)) {
-    if (byte === 0 || (byte < 32 && ![9, 10, 12, 13, 27].includes(byte))) return ['data', 'application/octet-stream']
-    if (byte > 127) isAscii = false
+/** `{ text, mime, encoding }` for a path, or `{ error }` when it cannot be read */
+function examine(path, name, o) {
+  let info
+  try { info = o.follow ? stat(path) : lstat(path) } catch (error) {
+    if (o.follow) {
+      try {
+        lstat(path)
+        return { text: `cannot open \`${name}' (No such file or directory)`, mime: 'application/octet-stream', encoding: 'binary', error: true }
+      } catch { /* fall through */ }
+    }
+    return { text: `cannot open \`${name}' (${reasonOf(error)})`, mime: 'application/octet-stream', encoding: 'binary', error: true }
   }
-  let text
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, 65536)) } catch { return ['data', 'application/octet-stream'] }
-  const kind = isAscii ? 'ASCII text' : 'Unicode text, UTF-8 text'
-  const crlf = /\r\n/.test(text) ? ', with CRLF line terminators' : ''
-  const noEol = text.length > 0 && !text.endsWith('\n') ? ', with no line terminators' : ''
-  const charset = isAscii ? 'us-ascii' : 'utf-8'
-  if (text.startsWith('#!')) {
-    const line = text.split('\n')[0].slice(2).trim()
-    const interpreter = line.split(/\s+/)[0] === '/usr/bin/env' ? line.split(/\s+/)[1] : line.split(/\s+/)[0].split('/').pop()
-    return [`${interpreter === 'sh' || interpreter === 'bash' || interpreter === 'ecmash' ? 'Bourne-Again shell' : interpreter} script, ${kind} executable${crlf}${noEol}`, 'text/x-shellscript;charset=' + charset]
+  const type = info.mode & S_IFMT
+  const prefix = (info.mode & 0o4000 ? 'setuid ' : '') + (info.mode & 0o2000 ? 'setgid ' : '') + (type !== 0x4000 && info.mode & 0o1000 ? 'sticky ' : '')
+  if (type === 0xa000) {
+    let target = ''
+    try { target = readlink(path) } catch { /* unreadable */ }
+    let broken = false
+    try { stat(path) } catch { broken = true }
+    return { text: `${broken ? 'broken ' : ''}symbolic link to ${target}`, mime: 'inode/symlink', encoding: 'binary' }
   }
-  const trimmed = text.trimStart()
-  if (/^<\?xml/i.test(trimmed)) return [`XML document text${crlf}`, 'text/xml;charset=' + charset]
-  if (/^<!doctype html|^<html/i.test(trimmed)) return [`HTML document, ${kind}${crlf}${noEol}`, 'text/html;charset=' + charset]
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    try { JSON.parse(text); return [`JSON text data`, 'application/json;charset=' + charset] } catch { /* not JSON */ }
+  if (type === 0x4000) return { text: `${info.mode & 0o1000 ? 'sticky ' : ''}directory`, mime: 'inode/directory', encoding: 'binary' }
+  if ((type === 0x2000 || type === 0x6000) && !o.special) {
+    return { text: `${type === 0x2000 ? 'character' : 'block'} special (${deviceNumbers(info)})`, mime: type === 0x2000 ? 'inode/chardevice' : 'inode/blockdevice', encoding: 'binary' }
   }
-  return [`${kind}${crlf}${noEol}`, 'text/plain;charset=' + charset]
+  if (special[type]) return { text: special[type][0], mime: special[type][1], encoding: 'binary' }
+  try {
+    const head = readHead(path)
+    const result = identify(head, ioFor(path, Number(info.size)))
+    return { ...result, text: prefix + result.text }
+  } catch (error) {
+    return { text: `cannot open \`${name}' (${reasonOf(error)})`, mime: 'application/octet-stream', encoding: 'binary', error: true }
+  }
 }
 
 function main() {
-  const args = argv.slice(1)
-  let brief = false
-  let mime = false
-  let mimeOnly = false
-  const files = []
-  for (const arg of args) {
-    if (arg === '--help') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
-    if (arg === '--brief') brief = true
-    else if (arg === '--mime') mime = true
-    else if (arg === '--mime-type') { mime = true; mimeOnly = true }
-    else if (arg.startsWith('--')) { err(`unrecognized option '${arg}'`); return 1 }
-    else if (/^-[bi]+$/.test(arg)) { if (arg.includes('b')) brief = true; if (arg.includes('i')) mime = true }
-    else files.push(arg)
-  }
-  if (files.length === 0) { err('missing file operand'); return 1 }
-  const cwd = getcwd()
-  const width = brief ? 0 : Math.max(...files.map(file => file.length)) + 1
-  let status = 0
-  for (const file of files) {
-    let description
-    let mimeType
-    try {
-      const path = resolve(cwd, file)
-      const info = lstat(path)
-      const type = info.mode & S_IFMT
-      if (type === 0x4000) { description = 'directory'; mimeType = 'inode/directory' }
-      else if (type === 0xa000) { description = `symbolic link to ${readlink(path)}`; mimeType = 'inode/symlink' }
-      else if (type === 0x2000 || type === 0x6000) { description = type === 0x2000 ? 'character special' : 'block special'; mimeType = type === 0x2000 ? 'inode/chardevice' : 'inode/blockdevice' }
-      else if (type === 0x1000) { description = 'fifo (named pipe)'; mimeType = 'inode/fifo' }
-      else {
-        const fd = open(path, O_RDONLY, 0)
-        try {
-          const head = new Uint8Array(65536)
-          const n = read(fd, head, -1)
-          ;[description, mimeType] = identify(head.subarray(0, Math.max(0, n)))
-        } finally { close(fd) }
-      }
-    } catch (error) {
-      description = `cannot open (${error?.message ?? error})`
-      mimeType = 'application/octet-stream'
-      status = 1
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'bcCdEhiklLnNprsSvzZ0e:f:F:m:P:',
+    long: {
+      help: 'help', version: 'v', 'magic-file': { key: 'm', arg: 'required' }, uncompress: 'z', 'uncompress-noreport': 'Z', brief: 'b', 'checking-printout': 'c',
+      exclude: { key: 'e', arg: 'required' }, 'exclude-quiet': { key: 'e', arg: 'required' }, 'files-from': { key: 'f', arg: 'required' }, separator: { key: 'F', arg: 'required' },
+      mime: 'i', apple: 'apple', extension: 'extension', 'mime-type': 'mime-type', 'mime-encoding': 'mime-encoding', 'keep-going': 'k', list: 'l', dereference: 'L',
+      'no-dereference': 'h', 'no-buffer': 'n', 'no-pad': 'N', print0: '0', 'preserve-date': 'p', parameter: { key: 'P', arg: 'required' }, raw: 'r', 'special-files': 's',
+      'no-sandbox': 'S', compile: 'C', debug: 'd'
     }
-    const shown = mime ? (mimeOnly ? mimeType.split(';')[0] : mimeType) : description
-    writeAll(1, encoder.encode(brief ? shown + '\n' : `${(file + ':').padEnd(width + 1)}${shown}\n`))
+  })
+  if (error) { writeErr(`file: ${error}\n${USAGE}\n`); return 1 }
+  const o = { brief: false, mime: false, mimeType: false, mimeEncoding: false, follow: false, special: false, nopad: false, print0: false, separator: ':', filesFrom: undefined, exitOnError: false }
+  for (const [key, value] of options) {
+    switch (key) {
+      case 'help': writeOut(encoder.encode(HELP + '\n')); return 0
+      case 'v': writeOut(encoder.encode('file-5.48\nmagic file from /usr/share/file/misc/magic\n')); return 0
+      case 'b': o.brief = true; break
+      case 'i': o.mime = true; break
+      case 'mime-type': o.mimeType = true; break
+      case 'mime-encoding': o.mimeEncoding = true; break
+      case 'L': o.follow = true; break
+      case 'h': o.follow = false; break
+      case 's': o.special = true; break
+      case 'N': o.nopad = true; break
+      case '0': o.print0 = true; break
+      case 'F': o.separator = value; break
+      case 'f': o.filesFrom = value; break
+      case 'E': o.exitOnError = true; break
+      default: break
+    }
+  }
+  if (o.mime) { o.mimeType = true; o.mimeEncoding = true }
+  let names = operands
+  const cwd = getcwd()
+  if (o.filesFrom !== undefined) {
+    let text
+    try {
+      text = new TextDecoder().decode(o.filesFrom === '-' ? readFdBytes(0) : (() => { const fd = open(resolve(cwd, o.filesFrom), O_RDONLY, 0); try { return readFdBytes(fd) } finally { close(fd) } })())
+    } catch (e) {
+      writeErr(`file: Cannot open \`${o.filesFrom}' (${reasonOf(e)})\n`)
+      return 1
+    }
+    const listed = text.split('\n')
+    if (listed[listed.length - 1] === '') listed.pop()
+    names = [...listed, ...operands]
+  }
+  if (names.length === 0) { writeErr(`${USAGE}\n`); return 1 }
+  const shown = name => (name === '-' ? '/dev/stdin' : name)
+  const width = o.nopad ? 0 : Math.max(...names.map(name => shown(name).length))
+  let status = 0
+  for (const name of names) {
+    let result
+    if (name === '-') {
+      try {
+        const head = readFdBytes(0, HEAD_LIMIT)
+        result = identify(head, { size: head.length, readAt: () => new Uint8Array(0), readAll: () => head })
+      } catch (e) { result = { text: `cannot open \`/dev/stdin' (${reasonOf(e)})`, mime: 'application/octet-stream', encoding: 'binary', error: true } }
+    } else result = examine(resolve(cwd, name), name, o)
+    if (result.error && o.exitOnError) status = 1
+    let description
+    if (result.error || !(o.mimeType || o.mimeEncoding)) description = result.text
+    else if (o.mimeType && o.mimeEncoding) description = `${result.mime}; charset=${result.encoding}`
+    else description = o.mimeType ? result.mime : result.encoding
+    if (o.brief) { writeOut(encoder.encode(`${description}\n`)); continue }
+    const label = shown(name)
+    const head = o.print0 ? `${label}\0${o.separator}` : `${label}${o.separator}`
+    const pad = o.nopad ? ' ' : ' '.repeat(Math.max(1, width - label.length + 1))
+    writeOut(encoder.encode(`${head}${pad}${description}\n`))
   }
   return status
 }
@@ -126,6 +235,7 @@ function main() {
 try {
   exit(main())
 } catch (error) {
-  err(error?.message ?? String(error))
+  writeErr(`file: ${error instanceof Error ? error.message : String(error)}\n`)
   exit(1)
 }
+void tryHelp

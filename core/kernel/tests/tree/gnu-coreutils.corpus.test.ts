@@ -17,7 +17,12 @@ const latin1 = (bytes: Uint8Array) => Array.from(bytes, byte => String.fromCharC
 
 type Golden = { cmd: string, out: string, code: number, err: string }
 
+const corpusFilter = __CORPUS_FILTER__ ? new RegExp(__CORPUS_FILTER__) : undefined
+
+const noMatch = corpusFilter && !(golden as Golden[]).some(expected => corpusFilter.test(expected.cmd))
+
 describe('coreutils match GNU', () => {
+    if (noMatch) { it.skip('no case matches CORPUS_FILTER', () => {}); return }
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -31,6 +36,7 @@ describe('coreutils match GNU', () => {
   afterAll(() => { /* the kernel is left to the process */ })
 
   for (const expected of golden as Golden[]) {
+    if (corpusFilter && !corpusFilter.test(expected.cmd)) continue
     it(expected.cmd, async () => {
       const fs = kernel.filesystem.fs
       await kernel.shell.execute(`cd /tmp/gnuc; { ${expected.cmd}; } > /tmp/gnuc-out 2> /tmp/gnuc-err; echo $? > /tmp/gnuc-code`)

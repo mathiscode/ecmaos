@@ -134,7 +134,7 @@ describe('arithmetic', () => {
   })
 
   it('still reports division by zero and a dangling token', () => {
-    expect(() => run('1/0')).toThrow(/division by zero/)
+    expect(() => run('1/0')).toThrow(/division by 0 \(error token is "0"\)/)
     expect(() => run('1 2')).toThrow(/unexpected token/)
   })
 })

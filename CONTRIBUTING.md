@@ -45,6 +45,20 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 5. Run tests with `pnpm test`
 6. Push to your fork and submit a pull request
 
+### Running the kernel tests
+
+Run these from `core/kernel` (or add `--filter @ecmaos/kernel` from the root).
+
+| Command | What it runs | About |
+|---|---|---|
+| `pnpm test` | Every test except the corpus suites and the Vim tests | 4.5 minutes |
+| `pnpm test:changed [base]` | The tests that import what you changed, plus the corpus cases for any command in `commands-execve/` you changed | depends |
+| `pnpm test:group <name>` | One family: `shell`, `posix`, `gnu-tools`, `gnu-coreutils`, `parity`, `commands`, `wasi`, `accounts`, `boot`, `slow` | 1 to 3 minutes |
+| `pnpm test:corpus` | Only the corpus suites (`*.corpus.test.ts`: commands compared with what the real tools print) | 2 minutes |
+| `pnpm test:full` | Everything | 6 minutes |
+
+CI runs `pnpm test` on every push and the full set once a month and on request (the "Full tests" workflow).
+
 ## Style Guide
 
 * Use TypeScript

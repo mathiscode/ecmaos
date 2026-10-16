@@ -7,13 +7,9 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
-/**
- * The file mode creation mask is a property of a context in @zenfs/core (newer than the published 2.7.7, which
- * has none). Where it is missing `umask` says so instead of pretending; the rest of these need it.
- */
+/** The kernel owns the file mode creation mask, so these hold whatever the installed file system layer does. */
 describe('umask', () => {
   let kernel: Kernel
-  const supported = typeof (bindContext({}) as { umask?: number }).umask === 'number'
   const mode = async (path: string) => (await kernel.filesystem.fs.stat(path)).mode & 0o7777
   const out = async (command: string) => {
     await kernel.shell.execute(`${command} > /tmp/umask-out 2> /tmp/umask-err`)
@@ -38,15 +34,6 @@ describe('umask', () => {
     const profile = await kernel.filesystem.fs.readFile('/etc/profile', 'utf-8')
     expect(profile).toMatch(/^umask 022/m)
   })
-
-  if (!supported) {
-    it('says so where the file system has no creation mask, rather than pretend', async () => {
-      const result = await out('umask 077')
-      expect(result.err).toContain('not supported')
-      expect(await kernel.shell.execute('umask 2> /dev/null')).toBe(1)
-    })
-    return
-  }
 
   it('prints the mask in octal, symbolically, and as a command', async () => {
     await kernel.shell.execute('umask 027')
@@ -78,12 +65,13 @@ describe('umask', () => {
     expect(await mode('/tmp/um/b')).toBe(0o777)
   }, 30000)
 
-  it('a mask can only tighten what programs create: their own 0644 is the most a new file gets', async () => {
+  it('a mask of 0 leaves what touch creates at 0666', async () => {
     await kernel.shell.execute('umask 0; touch /tmp/um/loose')
-    expect(await mode('/tmp/um/loose')).toBe(0o644)
+    expect(await mode('/tmp/um/loose')).toBe(0o666)
   }, 30000)
 
-  it('pid 1 starts with 022, which everything under init inherits', async () => {
+  // The context field exists only in a file system layer that keeps a mask of its own
+  it.skipIf(typeof (bindContext({}) as { umask?: number }).umask !== 'number')('pid 1 starts with 022, which everything under init inherits', async () => {
     const init = kernel.init.process as unknown as { context: { umask?: number } }
     expect(init.context.umask).toBe(0o022)
     const crond = [...processes.values()].find(proc => proc.comm === 'crond' && proc.code === undefined)!

@@ -203,7 +203,7 @@ export interface Shell {
    * Runs a full script's text to completion. Used by `Kernel.executeScript`.
    * @param script - the script's full text
    */
-  executeScriptText(script: string, file?: string): Promise<number>
+  executeScriptText(script: string, file?: string, args?: string[]): Promise<number>
 
   /**
    * Sets a variable, honoring an active `local` scope if one exists (writes to the innermost

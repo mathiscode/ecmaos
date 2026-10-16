@@ -309,6 +309,8 @@ export interface BootOptions {
  */
 export interface KernelExecuteOptions {
   command: string
+  /** The path as typed (`./script`), which a script reports in its messages and has as `$0`; `command` is the resolved one */
+  invokedAs?: string
   file?: string
   args?: string[]
   kernel?: Kernel

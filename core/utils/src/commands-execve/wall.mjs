@@ -20,7 +20,7 @@ function main() {
   let banner = true
   const words = []
   for (const arg of args) {
-    if (arg === '--help' || arg === '-h') { err(usage); return 0 }
+    if (arg === '--help' || arg === '-h') { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
     else if (arg === '-n') banner = false
     else words.push(arg)
   }

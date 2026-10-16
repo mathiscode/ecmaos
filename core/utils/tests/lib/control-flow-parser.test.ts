@@ -467,3 +467,22 @@ describe('parseStatements: lists with a compound operand', () => {
     expect(parseStatements('a && b || c')).toEqual([{ type: 'simple', line: 'a && b || c', lineNumber: 1 }])
   })
 })
+
+describe('parseStatements: quoted strings over several lines', () => {
+  it('keeps a multi-line string in one line, newlines intact', () => {
+    expect(parseStatements("echo 'a\nb'")).toEqual([{ type: 'simple', line: "echo 'a\nb'", lineNumber: 1 }])
+    expect(parseStatements('echo "a\n# b\nc"; echo d')).toEqual([
+      { type: 'simple', line: 'echo "a\n# b\nc"', lineNumber: 1 },
+      { type: 'simple', line: 'echo d', lineNumber: 1 }
+    ])
+  })
+  it('reads a string inside a function, a loop and a brace group', () => {
+    const [fn] = parseStatements('f() { echo "p\nq"; }') as FunctionDef[]
+    expect(fn).toMatchObject({ type: 'function', name: 'f' })
+    const [loop] = parseStatements('for i in 1; do echo "x\ny"; done') as ForStatement[]
+    expect((loop.body[0] as SimpleStatement).line).toBe('echo "x\ny"')
+  })
+  it('does not open a string for a quote inside a comment', () => {
+    expect(parseStatements("echo one # it's\necho two").map(s => (s as SimpleStatement).line)).toEqual(["echo one # it's", 'echo two'])
+  })
+})

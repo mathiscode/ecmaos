@@ -4,15 +4,29 @@
  */
 
 import { resolve } from './lib/path-utils.mjs'
+import { getopt, tryHelp } from './lib/getopt.mjs'
 
 const { argv, exit, writeAll, read, getcwd, env, open, close, stat, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: tee [OPTION]... [FILE]...
 Read from standard input and write to standard output and files.
 
-  -a, --append            append to the given files, do not overwrite
-  -i, --ignore-interrupts ignore interrupt signals
-  --help                  display this help and exit`
+  -a, --append              append to the given FILEs, do not overwrite
+  -i, --ignore-interrupts   ignore interrupt signals
+  -p                        operate in a more appropriate MODE with pipes.
+      --output-error[=MODE]   set behavior on write error.  See MODE below
+      --help        display this help and exit
+      --version     output version information and exit
+
+MODE determines behavior with write errors on the outputs:
+  'warn'         diagnose errors writing to any output
+  'warn-nopipe'  diagnose errors writing to any output not a pipe
+  'exit'         exit on error writing to any output
+  'exit-nopipe'  exit on error writing to any output not a pipe
+The default MODE for the -p option is 'warn-nopipe'.
+The default operation when --output-error is not specified, is to
+exit immediately on error writing to a pipe, and diagnose errors
+writing to non pipe outputs.`
 
 function expandTilde(input) {
   const home = env.HOME
@@ -23,32 +37,29 @@ function expandTilde(input) {
 }
 
 function main() {
-  const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'aip',
+    long: { append: 'a', 'ignore-interrupts': 'i', 'output-error': { key: 'o', arg: 'optional' }, help: 'help', version: 'version' }
+  })
+  if (error) {
+    writeAll(2, new TextEncoder().encode(`tee: ${error}\n${tryHelp('tee')}\n`))
+    return 1
   }
-
-  const files = []
-  let append = false
-
-  for (const arg of args) {
-    if (arg === '-a' || arg === '--append') {
-      append = true
-    } else if (arg === '-i' || arg === '--ignore-interrupts') {
-      // no-op: see module doc comment
-    } else if (arg.startsWith('-')) {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('a')) append = true
-      const invalid = flags.find(f => !['a', 'i'].includes(f))
-      if (invalid) {
-        writeAll(2, new TextEncoder().encode(`tee: invalid option -- '${invalid}'\n`))
+  if (options.some(([key]) => key === 'help')) { writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
+  if (options.some(([key]) => key === 'version')) { writeAll(1, new TextEncoder().encode('tee (ecmaOS coreutils) 1.0\n')); return 0 }
+  let mode
+  for (const [key, value] of options) {
+    if (key === 'p') mode = 'warn-nopipe'
+    else if (key === 'o') {
+      mode = value === true ? 'warn-nopipe' : String(value)
+      if (!['warn', 'warn-nopipe', 'exit', 'exit-nopipe'].includes(mode)) {
+        writeAll(2, new TextEncoder().encode(`tee: invalid argument ‘${value}’ for ‘--output-error’\nValid arguments are:\n  - ‘warn’\n  - ‘warn-nopipe’\n  - ‘exit’\n  - ‘exit-nopipe’\n${tryHelp('tee')}\n`))
         return 1
       }
-    } else {
-      files.push(arg)
     }
   }
+  const append = options.some(([key]) => key === 'a')
+  const files = operands
 
   const cwd = getcwd()
   const filePaths = files.map(file => ({ path: file, fullPath: resolve(cwd, expandTilde(file)) }))
@@ -92,6 +103,7 @@ function main() {
         } catch (error) {
           writeAll(2, new TextEncoder().encode(`tee: ${fileInfo.path}: ${reason(error)}\n`))
           failed = true
+          if (mode === 'exit' || mode === 'exit-nopipe') return 1
         }
       }
     }

@@ -1,114 +1,83 @@
-/** Print system information: kernel name, version, and platform. */
+/**
+ * Print system information, as GNU `uname` does: the kernel name (`Linux`, which is what scripts test), the host name,
+ * the kernel release (the ecmaOS version), a version string, the machine (`x86_64`, `aarch64`...), and the
+ * operating system (`GNU/Linux`). `-a` leaves out a processor or platform that is `unknown`, as GNU does.
+ */
+
+import { getopt, tryHelp } from './lib/getopt.mjs'
 
 const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: uname [OPTION]...
-Print system information.
+const encoder = new TextEncoder()
+const out = text => writeAll(1, encoder.encode(text))
+const err = text => writeAll(2, encoder.encode(`uname: ${text}\n`))
+const hint = () => writeAll(2, encoder.encode(tryHelp('uname') + '\n'))
 
-  -a, --all                print all information
+const usage = `Usage: uname [OPTION]...
+Print certain system information.  With no OPTION, same as -s.
+
+  -a, --all                print all information, in the following order,
+                             except omit -p and -i if unknown:
   -s, --kernel-name        print the kernel name
   -n, --nodename           print the network node hostname
   -r, --kernel-release     print the kernel release
   -v, --kernel-version     print the kernel version
   -m, --machine            print the machine hardware name
-  -p, --processor          print the processor type
-  -i, --hardware-platform  print the hardware platform
+  -p, --processor          print the processor type (non-portable)
+  -i, --hardware-platform  print the hardware platform (non-portable)
   -o, --operating-system   print the operating system
-  --help                   display this help and exit`
+      --help        display this help and exit
+      --version     output version information and exit
+`
+
+async function machineName() {
+  const data = await navigator.userAgentData?.getHighEntropyValues?.(['architecture', 'bitness']).catch(() => undefined)
+  const arch = data?.architecture
+  const bits = data?.bitness
+  if (arch === 'arm') return bits === '32' ? 'armv7l' : 'aarch64'
+  if (arch === 'x86') return bits === '32' ? 'i686' : 'x86_64'
+  const agent = String(navigator.userAgent ?? '')
+  if (/aarch64|arm64/i.test(agent)) return 'aarch64'
+  if (/\barm\b|armv/i.test(agent)) return 'armv7l'
+  if (/i[3-6]86|\bx86(?!_64)\b/i.test(agent) && !/x86_64|Win64|x64/i.test(agent)) return 'i686'
+  return 'x86_64'
+}
 
 async function main() {
-  const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
-  let showAll = false
-  let showKernelName = false
-  let showNodename = false
-  let showKernelRelease = false
-  let showKernelVersion = false
-  let showMachine = false
-  let showProcessor = false
-  let showHardwarePlatform = false
-  let showOperatingSystem = false
-
-  for (const arg of args) {
-    if (!arg) continue
-
-    if (arg === '--help' || arg === '-h') {
-      writeAll(2, new TextEncoder().encode(usage + '\n'))
-      return 0
-    } else if (arg === '-a' || arg === '--all') {
-      showAll = true
-    } else if (arg === '-s' || arg === '--kernel-name') {
-      showKernelName = true
-    } else if (arg === '-n' || arg === '--nodename') {
-      showNodename = true
-    } else if (arg === '-r' || arg === '--kernel-release') {
-      showKernelRelease = true
-    } else if (arg === '-v' || arg === '--kernel-version') {
-      showKernelVersion = true
-    } else if (arg === '-m' || arg === '--machine') {
-      showMachine = true
-    } else if (arg === '-p' || arg === '--processor') {
-      showProcessor = true
-    } else if (arg === '-i' || arg === '--hardware-platform') {
-      showHardwarePlatform = true
-    } else if (arg === '-o' || arg === '--operating-system') {
-      showOperatingSystem = true
-    } else if (arg.startsWith('-')) {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('a')) showAll = true
-      if (flags.includes('s')) showKernelName = true
-      if (flags.includes('n')) showNodename = true
-      if (flags.includes('r')) showKernelRelease = true
-      if (flags.includes('v')) showKernelVersion = true
-      if (flags.includes('m')) showMachine = true
-      if (flags.includes('p')) showProcessor = true
-      if (flags.includes('i')) showHardwarePlatform = true
-      if (flags.includes('o')) showOperatingSystem = true
-      const invalid = flags.find(f => !['a', 's', 'n', 'r', 'v', 'm', 'p', 'i', 'o'].includes(f))
-      if (invalid) {
-        writeAll(2, new TextEncoder().encode(`uname: invalid option -- '${invalid}'\nTry 'uname --help' for more information.\n`))
-        return 1
-      }
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'asnrvmpio',
+    long: {
+      all: 'a', 'kernel-name': 's', nodename: 'n', 'kernel-release': 'r', 'kernel-version': 'v', machine: 'm',
+      processor: 'p', 'hardware-platform': 'i', 'operating-system': 'o', help: 'help', version: 'version'
     }
+  })
+  if (error) { err(error); hint(); return 1 }
+  const keys = new Set(options.map(([key]) => key))
+  if (keys.has('help')) { out(usage); return 0 }
+  if (keys.has('version')) { out('uname (ecmaOS coreutils) 1.0\n'); return 0 }
+  if (operands.length) { err(`extra operand ‘${operands[0]}’`); hint(); return 1 }
+
+  const all = keys.has('a')
+  const fields = {
+    s: 'Linux',
+    n: env.HOSTNAME || 'localhost',
+    r: env.KERNEL_VERSION || '0.0.0',
+    v: `#1 ${env.KERNEL_NAME || 'ecmaOS'} ${env.KERNEL_VERSION || ''}`.trim(),
+    m: await machineName(),
+    p: 'unknown',
+    i: 'unknown',
+    o: 'GNU/Linux'
   }
-
-  const highEntropyValues = (await navigator.userAgentData?.getHighEntropyValues?.([
-    'architecture', 'bitness', 'formFactor', 'fullVersionList', 'model', 'platformVersion', 'wow64'
-  ])) ?? {}
-
-  const kernelName = env.KERNEL_NAME || 'ecmaOS'
-  const kernelVersion = env.KERNEL_VERSION || '?.?.?'
-  const nodename = env.HOSTNAME || 'localhost'
-  const machine = navigator.userAgentData?.platform || navigator.platform || 'unknown'
-  const processor = highEntropyValues.architecture || 'unknown'
-  const hardwarePlatform = highEntropyValues.model || 'unknown'
-  const operatingSystem = kernelName
-
-  if (showAll || (!showKernelName && !showNodename && !showKernelRelease && !showKernelVersion && !showMachine && !showProcessor && !showHardwarePlatform && !showOperatingSystem)) {
-    writeAll(1, new TextEncoder().encode(`${kernelName} ${nodename} ${kernelVersion} ${machine} ${processor} ${hardwarePlatform} ${operatingSystem}\n`))
-  } else {
-    const parts = []
-    if (showAll || showKernelName) parts.push(kernelName)
-    if (showAll || showNodename) parts.push(nodename)
-    if (showAll || showKernelRelease) parts.push(kernelVersion)
-    if (showAll || showKernelVersion) parts.push(kernelVersion)
-    if (showAll || showMachine) parts.push(machine)
-    if (showAll || showProcessor) parts.push(processor)
-    if (showAll || showHardwarePlatform) parts.push(hardwarePlatform)
-    if (showAll || showOperatingSystem) parts.push(operatingSystem)
-    writeAll(1, new TextEncoder().encode(parts.join(' ') + '\n'))
-  }
-
+  const chosen = all ? ['s', 'n', 'r', 'v', 'm', 'p', 'i', 'o'] : ['s', 'n', 'r', 'v', 'm', 'p', 'i', 'o'].filter(key => keys.has(key))
+  if (chosen.length === 0) chosen.push('s')
+  const parts = chosen.filter(key => !(all && (key === 'p' || key === 'i') && fields[key] === 'unknown')).map(key => fields[key])
+  out(parts.join(' ') + '\n')
   return 0
 }
 
 try {
   exit(await main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`uname: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

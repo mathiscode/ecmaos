@@ -33,3 +33,8 @@ export async function utimesOwned(sys, path, atime, mtime) {
     await sys.custom('fs_utimes', path, atime, mtime)
   }
 }
+
+/** `lutimes`: the times of a symlink itself. There is no such call in the program's syscalls, so the kernel does it. */
+export async function lutimesOwned(sys, path, atime, mtime) {
+  await sys.custom('fs_utimes', path, atime < 0 ? Date.now() / 1000 : atime, mtime < 0 ? Date.now() / 1000 : mtime, 1)
+}

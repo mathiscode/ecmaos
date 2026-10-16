@@ -33,6 +33,7 @@ import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
 import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
+import { umaskOf, setUmask } from './umask-store.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { presenters, type Presented } from './presenters/index.ts'
@@ -91,7 +92,7 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_tcsetpgrp(pid: number): number
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
-    fs_utimes(path: string, atime: number, mtime: number): number
+    fs_utimes(path: string, atime: number, mtime: number, noFollow?: number): number
     shell_exec(command: string): number
     init_wait(timeoutMs: number): number
     init_booted(): number
@@ -193,6 +194,14 @@ async function statAsCaller(proc: Process, path: string): Promise<{ uid: number,
   const bound = boundContexts.get(proc.context.id)
   if (!bound) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
   const info = await bound.fs.promises.stat(path)
+  return { uid: Number(info.uid), gid: Number(info.gid) }
+}
+
+/** `statAsCaller` that does not follow a final symlink. */
+async function lstatAsCaller(proc: Process, path: string): Promise<{ uid: number, gid: number }> {
+  const bound = boundContexts.get(proc.context.id)
+  if (!bound) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+  const info = await bound.fs.promises.lstat(path)
   return { uid: Number(info.uid), gid: Number(info.gid) }
 }
 
@@ -1412,15 +1421,13 @@ export function installMainThreadSyscalls(): void {
     }
   })
 
-  // `umask(2)` for a program: sets the file mode creation mask of the caller's own context (a negative mask only
-  // asks) and returns what it was, or -1 where the installed @zenfs/core has no such thing. What the program
-  // starts afterwards inherits it.
+  // `umask(2)` for a program: sets the file mode creation mask of the calling process (a negative mask only asks)
+  // and returns what it was. What the program starts afterwards inherits it, and the interpreter in its worker
+  // takes it off the mode of everything the program creates.
   define_syscall('proc_umask', (proc: Process, mask: number) => {
-    const context = proc.context as { umask?: number }
-    if (typeof context.umask !== 'number') return -1
-    const old = context.umask
-    if (mask >= 0) context.umask = mask & 0o777
-    return old
+    // the mask lives with the process; a negative argument asks without changing
+    if (mask < 0) return umaskOf(proc)
+    return setUmask(proc, mask)
   })
 
   // The most one file on the machine's storage may hold, in bytes (`ulimit -f`), or -1 when there is no limit.
@@ -1617,12 +1624,15 @@ export function installMainThreadSyscalls(): void {
   // present, which the plain call already allows). Asked when the plain `utimes` is refused: a directory, or a file
   // the
   // owner has made read-only. Times are seconds; a negative one means now.
-  define_syscall('fs_utimes', async (proc: Process, path: string, atime: number, mtime: number) => {
-    const info = await statAsCaller(proc, path)
+  define_syscall('fs_utimes', async (proc: Process, path: string, atime: number, mtime: number, noFollow = 0) => {
+    // `noFollow` stamps a symlink itself (`touch -h`, `lutimes(3)`) rather than its target
+    const info = noFollow ? await lstatAsCaller(proc, path) : await statAsCaller(proc, path)
     const caller = proc.context.credentials
     if (caller.euid !== 0 && caller.euid !== info.uid) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
     const now = Date.now() / 1000
-    await kernelOf(proc).filesystem.fs.utimes(path, atime < 0 ? now : atime, mtime < 0 ? now : mtime)
+    const fs = kernelOf(proc).filesystem.fs
+    if (noFollow) await fs.lutimes(path, atime < 0 ? now : atime, mtime < 0 ? now : mtime)
+    else await fs.utimes(path, atime < 0 ? now : atime, mtime < 0 ? now : mtime)
     return 0
   })
 

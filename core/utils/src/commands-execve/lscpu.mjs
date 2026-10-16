@@ -14,7 +14,7 @@ Show the processor information the browser reports.
 A browser does not say the processor's model, speed or caches, so those lines are left out rather than guessed.`
 
 function main() {
-  if (argv.includes('--help') || argv.includes('-h')) { err(usage); return 0 }
+  if (argv.includes('--help') || argv.includes('-h')) { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
   if (argv.length > 1) { err(`lscpu: unknown option '${argv[1]}'`); return 1 }
 
   let stanzas = []

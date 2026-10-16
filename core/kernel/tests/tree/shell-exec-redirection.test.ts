@@ -119,8 +119,7 @@ describe('exec redirections', () => {
     expect(await read(LOG)).toBe('alpha|beta\n')
   })
 
-  it('reports the command form rather than approximating it', async () => {
-    const code = await runScript('exec echo replaced')
-    expect(code).toBe(1)
+  it('runs the command form and leaves with its status', async () => {
+    expect(await runScript('exec sh -c "exit 4"')).toBe(4)
   })
 })

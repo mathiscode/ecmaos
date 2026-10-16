@@ -16,7 +16,7 @@ function main() {
   let terminator = '\n'
   const names = []
   for (const arg of args) {
-    if (arg === '--help' || arg === '-h') { err(usage); return 0 }
+    if (arg === '--help' || arg === '-h') { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
     if (arg === '-0' || arg === '--null') terminator = '\0'
     else if (arg.startsWith('-') && arg.length > 1) { err(`printenv: invalid option -- '${arg.replace(/^-+/, '')}'`); return 2 }
     else names.push(arg)

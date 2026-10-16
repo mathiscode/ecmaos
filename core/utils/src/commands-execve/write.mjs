@@ -14,7 +14,7 @@ Send standard input to USER's terminal, ending at end of input (^D).
 
 function main() {
   const args = argv.slice(1)
-  if (args.includes('--help') || args.includes('-h')) { err(usage); return 0 }
+  if (args.includes('--help') || args.includes('-h')) { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
   if (args.length < 1 || args.length > 2) { err('write: usage: write USER [TTY]'); return 1 }
   const [user, requested] = args
 

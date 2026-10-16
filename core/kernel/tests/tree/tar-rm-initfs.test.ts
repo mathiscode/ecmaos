@@ -51,7 +51,7 @@ describe('tar -C, rm -v and the initfs refresh', () => {
     await kernel.filesystem.fs.mkdir('/tmp/rmv/sub', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/rmv/a.txt', 'x')
     expect(await run('rm -v /tmp/rmv/a.txt')).toEqual({ code: 0, out: "removed '/tmp/rmv/a.txt'\n", err: '' })
-    expect(await run('rm -rv /tmp/rmv')).toEqual({ code: 0, out: "removed directory '/tmp/rmv'\n", err: '' })
+    expect(await run('rm -rv /tmp/rmv')).toEqual({ code: 0, out: "removed directory '/tmp/rmv/sub'\nremoved directory '/tmp/rmv'\n", err: '' })
     expect((await run('rm --verbose /tmp/rmv-missing')).code).toBe(1)
     expect((await run('rm -fv /tmp/rmv-missing')).code).toBe(0)
   }, 60000)

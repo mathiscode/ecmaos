@@ -18,13 +18,13 @@ import { splitAssignments, parseArrayAssignment, applyArrayAssignment } from '..
 import { parseScript, parseRedirections, tokenize, tokenizeConditional } from '../lib/shell-parser.ts'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, GlobNoMatchError, UnboundVariableError } from '../lib/word-expansion.ts'
 import { globPaths, globRegExp, hasGlobCharacters } from '../lib/glob.ts'
-import { evaluateArithmeticExpression } from '../lib/expand-variables.ts'
+import { ArithmeticError, evaluateArithmeticExpression } from '../lib/expand-variables.ts'
 import { evaluateConditional } from '../lib/conditional-eval.ts'
 import { LineEditor, stripMarkers, visibleWidth } from '../lib/line-editor.ts'
 import { History } from '../lib/history.ts'
 import { ShellState, serializeSnapshot, deserializeSnapshot } from '../lib/shell-core/state.ts'
 import { Interpreter } from '../lib/shell-core/interpreter.ts'
-import { runSharedBuiltin, sharedBuiltinNames, shellQuote } from '../lib/shell-core/builtins.ts'
+import { runSharedBuiltin, sharedBuiltinNames, shellQuote, testExpression } from '../lib/shell-core/builtins.ts'
 import { programmableCompletion } from '../lib/shell-core/programmable-completion.ts'
 import { promptCommands } from '../lib/shell-core/prompt-command.ts'
 import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
@@ -33,14 +33,22 @@ import { startupFiles } from '../lib/shell-core/startup-files.ts'
 import { SIGNAL_NUMBERS, UNCATCHABLE_SIGNALS } from '../lib/shell-core/signal-table.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
+import { canonicalize } from './lib/canon.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { poll, POLLIN, POLLHUP, POLLERR, open, close, read, write, pipe, stat, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
+const { poll, POLLIN, POLLHUP, POLLERR, open, close, read, write, pipe, stat, lstat, geteuid, getegid, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
 const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const SIGINT = 2
+
+/** How bash words the end of a background job: a signal by its description, a status as `Exit N`. */
+const SIGNAL_DESCRIPTIONS = { 1: 'Hangup', 2: '', 3: 'Quit', 6: 'Aborted', 9: 'Killed', 11: 'Segmentation fault', 13: '', 14: 'Alarm clock', 15: 'Terminated', 10: 'User defined signal 1', 12: 'User defined signal 2' }
+function jobEnd(job) {
+  if (job.signal && SIGNAL_DESCRIPTIONS[job.signal] !== undefined) return SIGNAL_DESCRIPTIONS[job.signal] || 'Done'
+  return job.code === 0 ? 'Done' : `Exit ${job.code}`
+}
 const SIGTSTP = 20
 const SIGCONT = 18
 // Signals `trap` can catch, and the number `onSignal` wants for each: all of them but KILL and STOP.
@@ -51,6 +59,20 @@ const TRAP_SIGNALS = Object.fromEntries(Object.entries(SIGNAL_NUMBERS).filter(([
 function readFileText(path) {
   const fd = open(path, O_RDONLY, 0)
   try { return readFd(fd) } finally { close(fd) }
+}
+
+/** Whether `path` is text that does not start with `#!`: something `execve` cannot run, which the shell runs itself */
+function isTextWithoutShebang(path) {
+  // Bundled programs under /bin and /sbin and `.js` files are JavaScript, which `execve` runs itself
+  if (/\.[cm]?js$/.test(path) || path.startsWith('/bin/') || path.startsWith('/sbin/')) return false
+  const fd = open(path, O_RDONLY, 0)
+  try {
+    const head = new Uint8Array(512)
+    const n = read(fd, head, -1)
+    if (n <= 0) return false
+    if (head[0] === 0x23 && head[1] === 0x21) return false
+    return !head.subarray(0, n).includes(0)
+  } finally { close(fd) }
 }
 
 function readFd(fd) {
@@ -187,6 +209,11 @@ class Shell {
   }
 
   environment() { return this.state.environment() }
+  /** What the shell's own messages start with: `ecmash: `, or `./script: line N: ` while a script file runs, as bash does. */
+  diagPrefix() {
+    const file = this.state.currentSourceFile()
+    return file ? `${file}: line ${this.state.lineNumber}: ` : 'ecmash: '
+  }
 
   // - expansion ----------------------------------------------------------------------------------
 
@@ -201,6 +228,15 @@ class Shell {
       processSubstitute: (direction, command) => this.processSubstitute(direction, command),
       glob: pattern => this.glob(pattern),
       home: () => this.vars.get('HOME'),
+      userHome: name => {
+        try {
+          for (const line of readFileText('/etc/passwd').split('\n')) {
+            const fields = line.split(':')
+            if (fields[0] === name && fields[5]) return fields[5]
+          }
+        } catch { /* no passwd file: no such user */ }
+        return undefined
+      },
       nounset: this.opts.nounset,
       shopt: name => this.state.shopts.has(name),
     }
@@ -357,7 +393,7 @@ class Shell {
       setStatus: code => { shell.status = code },
       checkpoint: async () => { await shell.runPendingTraps(); return shell.sigint },
       exitShell: code => shell.leave(code),
-      writeErr: message => { writeAllFd(2, `ecmash: ${message}\n`) },
+      writeErr: message => { writeAllFd(2, `${this.diagPrefix()}${message}\n`) },
       nonInteractive: () => !this.interactive,
     }
   }
@@ -433,6 +469,7 @@ class Shell {
       if (record.handle.stopped) { record.stopped = true; return }
       record.finished = true
       record.code = status
+      record.signal = record.handle.endSignal || 0
     })
   }
 
@@ -477,6 +514,7 @@ class Shell {
       try { unlink(file) } catch { /* gone */ }
       const status = done.signal ? 128 + done.signal : done.code
       handle.statuses = [status]
+      handle.endSignal = done.signal || 0
       handle.interrupted = done.signal === SIGINT
       return status
     }
@@ -496,7 +534,7 @@ class Shell {
     const mark = this.procsubs.length
     let job
     if (compound || mixed) {
-      try { job = await this.forkCompound(compound, mixed ? pipeline : undefined) } catch (error) { writeAllFd(2, `ecmash: ${error?.message ?? error}\n`); return 1 }
+      try { job = await this.forkCompound(compound, mixed ? pipeline : undefined) } catch (error) { writeAllFd(2, `${this.diagPrefix()}${error?.message ?? error}\n`); return 1 }
     } else job = await this.startPipeline(pipeline, true)
     if (!job) return 1
     const record = this.addJob(job, pipeline, { background: true })
@@ -590,8 +628,8 @@ class Shell {
         if (result.finish) cleanups.push(result.finish)
       } catch (error) {
         // `set -u` is the interpreter's to report, and to end a script over
-        if (isUnwind(error) || error instanceof UnboundVariableError) throw error
-        writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
+        if (isUnwind(error) || error instanceof UnboundVariableError || error instanceof ArithmeticError) throw error
+        writeAllFd(2, `${this.diagPrefix()}${error?.message ?? error}\n`)
         // `shopt -s failglob`: a pattern that matched nothing fails its command with 1, as in bash
         statusOfBuiltin = error instanceof GlobNoMatchError ? 1 : error?.code === 'ENOENT' ? 127 : 126
         stages.push({ status: statusOfBuiltin })
@@ -612,8 +650,8 @@ class Shell {
         if (statusOfBuiltin) builtinFailure = statusOfBuiltin
       } catch (error) {
         // `set -u` is the interpreter's to report, and to end a script over
-        if (isUnwind(error) || error instanceof UnboundVariableError) throw error
-        writeAllFd(2, `ecmash: ${error?.message ?? error}\n`)
+        if (isUnwind(error) || error instanceof UnboundVariableError || error instanceof ArithmeticError) throw error
+        writeAllFd(2, `${this.diagPrefix()}${error?.message ?? error}\n`)
         statusOfBuiltin = 1
         stage.entry.status = 1
       } finally {
@@ -659,7 +697,7 @@ class Shell {
         const done = reaped.get(pid)
         const code = done.signal ? 128 + done.signal : done.code
         if (code !== 0) failure = code
-        if (pid === pids[pids.length - 1]) statusOfLast = code
+        if (pid === pids[pids.length - 1]) { statusOfLast = code; handle.endSignal = done.signal || 0 }
       }
       const status = this.opts.pipefail && failure !== 0 ? failure : statusOfLast
       handle.statuses = stages.map(stage => {
@@ -685,6 +723,7 @@ class Shell {
         isFile: async p => isFile(resolvePath(p)),
         isDirectory: async p => isDir(resolvePath(p)),
         resolve: p => resolvePath(p),
+        test: words => testExpression(this.builtinHost(), words),
       }, groups => this.state.setArray('BASH_REMATCH', groups))
       return { status: ok ? 0 : 1 }
     }
@@ -705,8 +744,8 @@ class Shell {
     if (!args.length) {
       for (const [name, , append, value] of assign) {
         if (this.set(name, value, append)) continue
-        // A readonly assignment ends a script, as in bash; an interactive shell just reports it.
-        if (!this.interactive) await this.leave(1)
+        // A readonly assignment fails its command and the rest of its line; bash carries on with the next line.
+        this.state.failedLine = this.state.lineNumber
         return { status: 1 }
       }
       return { status: this.substStatus ?? 0 }
@@ -724,7 +763,7 @@ class Shell {
       for (const redirection of command.redirections) {
         if (redirection.type !== '>') continue
         const target = resolvePath(await this.text(redirection.targetParts ?? [{ text: redirection.target, quoting: 'unquoted' }]))
-        if (isFile(target)) { writeAllFd(2, `ecmash: ${target}: cannot overwrite existing file\n`); return { status: 1 } }
+        if (isFile(target)) { writeAllFd(2, `${this.diagPrefix()}${target}: cannot overwrite existing file\n`); return { status: 1 } }
       }
     }
     const applied = await this.openRedirections(command.redirections, fds)
@@ -759,7 +798,7 @@ class Shell {
 
     const program = this.findProgram(name)
     if (!program) {
-      writeAllFd(2, `ecmash: ${name}: command not found\n`)
+      writeAllFd(2, `${this.diagPrefix()}${name}: command not found\n`)
       await finish()
       return { status: 127 }
     }
@@ -769,8 +808,14 @@ class Shell {
     const childFds = {}
     for (const target of [0, 1, 2]) childFds[target] = applied.fds[target] ?? target
     let pid
+    let argv = [name, ...args.slice(1)]
+    // `kill %1`: a job spec names the processes of one of this shell's jobs
+    if (name === 'kill') argv = argv.flatMap((arg, index) => index > 0 && arg.startsWith('%') ? (this.jobForSpec(arg)?.pids.map(String) ?? [arg]) : [arg])
+    let target = program
+    // An executable text file with no `#!` line is a shell script, as in bash (the kernel runs one the same way)
+    if (isTextWithoutShebang(program)) { target = '/bin/ecmash'; argv = ['ecmash', name.includes('/') ? name : program, ...args.slice(1)] }
     try {
-      pid = await spawn(program, [name, ...args.slice(1)], { env, fds: childFds, cwd: getcwd(), pgid: options.pgid })
+      pid = await spawn(target, argv, { env, fds: childFds, cwd: getcwd(), pgid: options.pgid })
     } finally {
       // The child holds its own references now.
       await applied.release()
@@ -892,7 +937,7 @@ class Shell {
       write: text => to(1, text),
       writeln: text => to(1, text + '\n'),
       writeErr: text => to(2, text),
-      writelnErr: text => to(2, `ecmash: ${text}\n`),
+      writelnErr: text => to(2, `${this.diagPrefix()}${text}\n`),
       // `read -t` waits with `poll`, so a pipe or file that never delivers does not hold the shell for good.
       canTimeout: true,
       // One byte at a time: `read` must not take more of the stream than its line.
@@ -908,14 +953,14 @@ class Shell {
           // `-n` counts bytes here, which is characters for ASCII.
           if (options?.count !== undefined && bytes.length >= options.count) { terminated = true; break }
           if (deadline !== undefined) {
-            const [ready] = poll([{ fd: stdio[0] ?? 0, events: POLLIN }], Math.max(0, deadline - Date.now()))
+            const [ready] = poll([{ fd: options?.fd ?? stdio[0] ?? 0, events: POLLIN }], Math.max(0, deadline - Date.now()))
             if (!(ready & (POLLIN | POLLHUP | POLLERR))) {
               // Nothing more arrived in time; what did is still assigned, and the status says so.
               if (options.result) options.result.timedOut = true
               return got ? decoder.decode(new Uint8Array(bytes)) : undefined
             }
           }
-          const n = read(stdio[0] ?? 0, one, -1)
+          const n = read(options?.fd ?? stdio[0] ?? 0, one, -1)
           if (n <= 0) break
           got = true
           if (one[0] === stop) { terminated = true; break }
@@ -940,6 +985,7 @@ class Shell {
         return undefined
       },
       resolvePath: path => resolvePath(path),
+      realpath: async path => canonicalize(path, getcwd(), sys, { mode: 'e' }),
       stat: async path => {
         try {
           const info = stat(path)
@@ -947,6 +993,17 @@ class Shell {
           return { file: kind === 0x8000, directory: kind === 0x4000, size: Number(info.size ?? 0) }
         } catch { return undefined }
       },
+      fileInfo: async (path, follow) => {
+        try {
+          const info = follow ? stat(path) : lstat(path)
+          return {
+            mode: Number(info.mode), uid: Number(info.uid ?? 0), gid: Number(info.gid ?? 0), dev: Number(info.dev ?? 0), ino: Number(info.ino ?? 0),
+            size: Number(info.size ?? 0), atimeMs: Number(info.atimeMs ?? 0), mtimeMs: Number(info.mtimeMs ?? 0)
+          }
+        } catch { return undefined }
+      },
+      identity: () => ({ uid: geteuid(), gid: getegid(), groups: [] }),
+      isTerminal: fd => isTty(fd),
       readFile: async path => readFileText(path),
       listDir: async dir => readdir(resolvePath(dir)),
       builtinNames: () => BUILTINS,
@@ -972,11 +1029,8 @@ class Shell {
         const bytes = Number(await sys.custom('proc_file_limit'))
         return bytes < 0 ? undefined : bytes
       },
-      // a negative mask asks without changing; the kernel answers -1 where the file system has no such thing
-      umask: async mask => {
-        const old = await sys.custom('proc_umask', mask ?? -1)
-        return old < 0 ? undefined : old
-      },
+      // the mask is this process's own (the interpreter in the worker applies it) and what it starts inherits it
+      umask: async mask => sys.umask(mask),
       // INT is reported by the wait that saw the child die; the rest arrive as real signals.
       trapSignal: (signal, handler) => {
         if (signal in TRAP_SIGNALS && signal !== 'INT') {
@@ -996,7 +1050,7 @@ class Shell {
       case 'true': return 0
       case 'false': return 1
       case 'env': {
-        if (args.length) { this.out('ecmash: env: running a command with env is not supported\n', 2); return 2 }
+        if (args.length) { this.out(`${this.diagPrefix()}env: running a command with env is not supported\n`, 2); return 2 }
         const env = this.environment()
         for (const key of Object.keys(env).sort()) this.out(`${key}=${env[key]}\n`)
         return 0
@@ -1005,7 +1059,7 @@ class Shell {
       case 'exec': {
         if (!args.length) return 0
         const program = this.findProgram(args[0])
-        if (!program) { this.out(`ecmash: exec: ${args[0]}: not found\n`, 2); return 127 }
+        if (!program) { this.out(`${this.diagPrefix()}exec: ${args[0]}: not found\n`, 2); return 127 }
         // No `execve` from a worker yet: run it, then leave with its status, which is what `exec` looks like from
         // outside.
         const pid = await spawn(program, args, { env: this.environment(), fds: { 0: this.stdio[0], 1: this.stdio[1], 2: this.stdio[2] }, cwd: getcwd() })
@@ -1018,28 +1072,32 @@ class Shell {
         let status = 0
         for (const arg of args) {
           const job = this.pickJob(arg)
-          if (!job) { this.out(`ecmash: wait: ${arg}: no such job\n`, 2); status = 127; continue }
+          if (!job) { this.out(`${this.diagPrefix()}wait: ${arg.startsWith('%') ? `${arg}: no such job` : `pid ${arg} is not a child of this shell`}\n`, 2); status = 127; continue }
           if (job.done) await job.done
           status = job.code
         }
         return status
       }
       case 'jobs': {
-        for (const job of this.jobs) this.out(`[${job.number}]  ${job.stopped ? 'Stopped' : job.finished ? 'Done' : 'Running'}  ${job.line}${job.background && !job.stopped && !job.finished ? ' &' : ''}\n`)
+        this.jobs.forEach((job, index) => {
+          const marker = index === this.jobs.length - 1 ? '+' : index === this.jobs.length - 2 ? '-' : ' '
+          const label = job.stopped ? 'Stopped' : job.finished ? jobEnd(job) : 'Running'
+          this.out(`[${job.number}]${marker}  ${label.padEnd(27)}${job.line}${job.background && !job.stopped && !job.finished ? ' &' : ''}\n`)
+        })
         return 0
       }
       case 'disown': {
         const job = this.pickJob(args[0], true)
-        if (!job) { this.out('ecmash: disown: no such job\n', 2); return 1 }
+        if (!job) { this.out(`${this.diagPrefix()}disown: no such job\n`, 2); return 1 }
         this.jobs = this.jobs.filter(j => j !== job)
         return 0
       }
       case 'bg': case 'fg': {
         const job = this.pickJob(args[0], name === 'fg')
-        if (!job) { this.out(`ecmash: ${name}: no current job\n`, 2); return 1 }
+        if (!job) { this.out(`${this.diagPrefix()}${name}: no current job\n`, 2); return 1 }
         const last = job.pids[job.pids.length - 1]
         if (name === 'bg') {
-          if (!job.stopped) { this.out(`ecmash: bg: job ${job.number} already in background\n`, 2); return 1 }
+          if (!job.stopped) { this.out(`${this.diagPrefix()}bg: job ${job.number} already in background\n`, 2); return 1 }
           job.stopped = false
           job.background = true
           try { await killpg(job.pgid, SIGCONT) } catch { /* it is gone */ }
@@ -1071,6 +1129,15 @@ class Shell {
   }
 
   /** `%n`, `n`, `%%`/nothing (the newest job; for `fg` and `bg` the newest stopped or background one). */
+  /** `%n`, `%%`, `%+`, `%-` and `%name` (the latest job whose command starts with it) */
+  jobForSpec(spec) {
+    const live = this.jobs.filter(job => !job.finished)
+    if (/^%\d+$/.test(spec)) return live.find(job => job.number === Number(spec.slice(1)))
+    if (spec === '%' || spec === '%%' || spec === '%+') return live[live.length - 1]
+    if (spec === '%-') return live[live.length - 2]
+    return [...live].reverse().find(job => job.line.startsWith(spec.slice(1)))
+  }
+
   pickJob(spec, preferRunning = false) {
     if (spec && /^%?\d+$/.test(spec)) return this.jobs.find(job => job.number === Number(spec.replace('%', '')) || job.pids.includes(Number(spec)))
     const candidates = this.jobs.filter(job => !job.finished)
@@ -1128,7 +1195,7 @@ async function interactive(shell, tty) {
     for (const job of shell.jobs) {
       if (job.finished && !job.reported) {
         job.reported = true
-        writeAllFd(1, `[${job.number}]+  ${job.code === 0 ? 'Done' : `Exit ${job.code}`}    ${job.line} &\r\n`)
+        writeAllFd(1, `[${job.number}]+  ${jobEnd(job)}    ${job.line} &\r\n`)
       }
     }
     shell.jobs = shell.jobs.filter(job => !job.reported)

@@ -6,6 +6,7 @@
   * 
  */
 
+import { DEFAULT_UMASK } from './lib/umask-store.ts'
 import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
@@ -18,11 +19,12 @@ import type {
 import { ThemePresets } from '@ecmaos/types'
 
 import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
-import { parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
+import { ParseError, parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
-import { aggregateBuiltinNames, jobStatusLabel, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { aggregateBuiltinNames, jobStatusLabel, kernelBuiltinHost, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
+import { testExpression, shellQuote } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { SessionLog } from '#lib/sessions.ts'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
@@ -261,6 +263,14 @@ const DefaultShellPath = '$HOME/bin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin
 /** What the shell itself puts before a diagnostic, as `ecmash` does with its own name: `<name>: <message>`. */
 const DIAGNOSTIC_PREFIX = 'ecmaos: '
 
+/** What bash says for a line the parser rejects: an open quote is an unexpected EOF, anything else a syntax error. */
+function syntaxMessage(message: string): string {
+  const open = /^Unterminated (single|double) quote$/.exec(message)
+  if (open) return `unexpected EOF while looking for matching \`${open[1] === 'single' ? "'" : '"'}'`
+  if (message === 'Unterminated backquote') return "unexpected EOF while looking for matching ``'"
+  return `syntax error: ${message}`
+}
+
 class CommandNotFoundError extends Error {
   constructor(message: string) { super(message); this.name = 'CommandNotFoundError' }
 }
@@ -314,12 +324,15 @@ export class Shell implements IShell {
    * Output redirections of enclosing aggregate commands (`done > f`, a redirected function call, `eval`/`source`),
    * outermost first. `truncated` records which fds were already truncated so `> f` truncates once.
    */
+  /** Numbered inputs `exec N<file` opened on this shell, read by `read -u N`. */
+  private _inputFds = new Map<number, StdinSource>()
   private _statementOutputs: Array<{ redirections: Redirection[], truncated: Set<number> }> = []
 
   /** Output redirections installed by `exec > file`; the outermost layer for `inheritedOutputRedirections`. */
-  private _execOutputs?: { redirections: Redirection[], truncated: Set<number> }
+  /** `after` is how many block redirections were in force when `exec` installed these: later ones override, earlier ones are overridden. */
+  private _execOutputs?: { redirections: Redirection[], truncated: Set<number>, after: number }
 
-  /** All jobs this shell has launched, oldest first. Entries are never removed. */
+  /** The jobs this shell still has something to say about, oldest first: one that has finished and been reported is dropped when the next job starts, except the latest. */
   private _jobs: JobImpl[] = []
   /** The job in the foreground, if any. Single-foreground model; there are no process groups. */
   /** The startup file being sourced, so a diagnostic can name it. */
@@ -379,7 +392,7 @@ export class Shell implements IShell {
 
   public credentials: Credentials = { uid: 0, gid: 0, suid: 0, sgid: 0, euid: 0, egid: 0, groups: [] }
   private _context: BoundContext = bindContext({ root: '/', pwd: '/', credentials: this.credentials })
-  private _umask = 0
+  private _umask = DEFAULT_UMASK
 
   get context(): BoundContext { return this._context }
   /**
@@ -392,12 +405,13 @@ export class Shell implements IShell {
     if (typeof umasked.umask === 'number') umasked.umask = this._umask
   }
 
-  /** The file mode creation mask, or undefined where the installed `@zenfs/core` has none. */
-  get umask(): number | undefined {
-    return typeof (this._context as { umask?: number }).umask === 'number' ? this._umask : undefined
-  }
-  set umask(mask: number | undefined) {
-    this._umask = (mask ?? 0) & 0o777
+  /**
+   * The file mode creation mask. The programs this shell starts take it, and so do the files it creates for a
+   * redirection; a file system with a mask of its own is given the same one.
+   */
+  get umask(): number { return this._umask }
+  set umask(mask: number) {
+    this._umask = mask & 0o777
     const umasked = this._context as { umask?: number }
     if (typeof umasked.umask === 'number') umasked.umask = this._umask
   }
@@ -604,6 +618,7 @@ export class Shell implements IShell {
       processSubstitute: (direction, command) => this.processSubstitute(direction, command),
       glob: (pattern) => this.expandGlob(pattern),
       home: () => this._env.get('HOME'),
+      userHome: name => [...this._users.all.values()].find(user => user.username === name)?.home,
       nounset: this._shellOptions.nounset,
       shopt: (name) => this.state.shopts.has(name)
     }
@@ -619,13 +634,13 @@ export class Shell implements IShell {
   private async trace(args: readonly string[]): Promise<void> {
     if (!this._shellOptions.xtrace || args.length === 0) return
     const ps4 = this.lookupVariable('PS4') ?? '+ '
-    await this.terminalBuiltinIO().writelnErr(ps4 + args.join(' '))
+    await this.shellDiagnostic(ps4 + args.join(' '), true)
   }
 
   /** `set -v` - echoes a line of input to stderr before it runs. */
   private async traceVerbose(line: string): Promise<void> {
     if (!this._shellOptions.verbose || !line) return
-    await this.terminalBuiltinIO().writelnErr(line)
+    await this.shellDiagnostic(line, true)
   }
 
   constructor(_options: ShellOptions & { tty?: number }) {
@@ -967,7 +982,7 @@ export class Shell implements IShell {
    * Resolves one stage's words (substitution, history, tilde, variables, arithmetic, glob) into a runnable command.
    * Single-quoted words are not expanded.
    */
-  private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[] }> {
+  private async prepareCommand(command: ParsedCommand): Promise<{ finalCommand: string, args: string[], typed?: string }> {
     const ctx = this.expansionContext()
     const fields: string[] = []
     for (const [index, word] of command.words.entries()) {
@@ -981,12 +996,21 @@ export class Shell implements IShell {
       throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: command.words.join(' ') }))
     }
 
+    // `kill %1`: a job spec names the processes of one of this shell's jobs, which only the shell knows.
+    if (commandName === 'kill') {
+      for (let i = 0; i < args.length; i++) {
+        if (!args[i]?.startsWith('%')) continue
+        const pids = this.getJob(args[i])?.processes.map(process => String(process.pid)) ?? []
+        if (pids.length > 0) args.splice(i, 1, ...pids)
+      }
+    }
+
     const finalCommand = await this.resolveCommand(commandName)
     if (!finalCommand) {
       throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
     }
 
-    return { finalCommand, args }
+    return { finalCommand, args, typed: commandName }
   }
 
   /**
@@ -1017,7 +1041,7 @@ export class Shell implements IShell {
       // bash; anything else, control-flow signals included, is not this method's to swallow
       const code = (error as { code?: unknown }).code
       if (!(error instanceof Error) || typeof code !== 'string' || !/^E[A-Z0-9]+$/.test(code)) throw error
-      await this.terminalBuiltinIO().writelnErr(error.message)
+      await this.shellDiagnostic(error.message)
       return pipeline.commands.map(() => 1)
     } finally {
       await this.finishProcessSubstitutions(mark)
@@ -1133,7 +1157,7 @@ export class Shell implements IShell {
        * waiting
        */
       inputPipe?: { abandon?: () => void }
-    } & ({ kind: 'command', finalCommand: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined } | { kind: 'compound', run: () => Promise<number> })
+    } & ({ kind: 'command', finalCommand: string, typed?: string } | { kind: 'builtin', name: string, aggregate: readonly Redirection[] | undefined } | { kind: 'compound', run: () => Promise<number> })
 
     const stages: Stage[] = []
 
@@ -1159,7 +1183,7 @@ export class Shell implements IShell {
       const functionName = !command.compound && !builtinName && commands.length > 1 && this._functions.has(command.words[0] ?? '') ? command.words[0] : undefined
       // A compound stage (`... | while read x; do ...; done`) runs in this shell like a builtin does.
       const inProcess = Boolean(builtinName) || Boolean(command.compound) || Boolean(functionName)
-      let resolved: { finalCommand: string | undefined, args: string[] }
+      let resolved: { finalCommand: string | undefined, args: string[], typed?: string }
       try {
         resolved = command.compound
           ? { finalCommand: undefined, args: [] }
@@ -1171,7 +1195,7 @@ export class Shell implements IShell {
         if (!(error instanceof CommandNotFoundError)) throw error
         // From a startup file bash names the file and line: `/etc/ecmashrc: line 2: foo: command not found`.
         const where = this._sourceFile ? `${this._sourceFile}: line ${this.state.lineNumber}: ` : ''
-        await this.terminalBuiltinIO().writelnErr(where + error.message)
+        await this.shellDiagnostic(where + error.message)
         return commands.map(() => 127)
       }
       const args = resolved.args
@@ -1184,7 +1208,7 @@ export class Shell implements IShell {
       let stdinIsTTY = false
       // Applies to *any* stage, not only the first - `a | b < f` redirects b's stdin, discarding
       // whatever a's stdout would have fed it, exactly like a real shell.
-      const inputRedirect = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+      const inputRedirect = command.redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
       if (inputRedirect) {
         // `cmd < file` hands a program the file itself as its stdin, not a pipe that a pump fills
         const direct = !inProcess && inputRedirect.type === '<' ? await this.directInputPath(inputRedirect) : undefined
@@ -1230,7 +1254,7 @@ export class Shell implements IShell {
         : command.redirections
       const blocked = await this.noclobberTarget(redirections)
       if (blocked) {
-        await this.terminalBuiltinIO().writelnErr(`${blocked}: cannot overwrite existing file`)
+        await this.shellDiagnostic(`${blocked}: cannot overwrite existing file`)
         return commands.map(() => 1)
       }
 
@@ -1257,7 +1281,7 @@ export class Shell implements IShell {
             aggregate: aggregateBuiltinNames.has(builtinName) ? command.redirections : undefined,
             ...fds
           }
-        : { kind: 'command', finalCommand: resolved.finalCommand as string, ...fds })
+        : { kind: 'command', finalCommand: resolved.finalCommand as string, typed: resolved.typed, ...fds })
     }
 
     const runStage = async (stage: typeof stages[number]): Promise<number> => {
@@ -1324,6 +1348,7 @@ export class Shell implements IShell {
 
       return await this._execute({
         command: stage.finalCommand,
+        invokedAs: stage.typed?.includes('/') ? stage.typed : undefined,
         args,
         shell: this,
         terminal: this._terminal,
@@ -1360,7 +1385,7 @@ export class Shell implements IShell {
       if (job.status !== 'done' || !job.background || job.notified) continue
       job.notified = true
       const marker = job.id === current ? '+' : job.id === previous ? '-' : ' '
-      lines.push(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(24)}${job.commandLine} &`)
+      lines.push(`[${job.id}]${marker}  ${jobStatusLabel(job).padEnd(27)}${job.commandLine} &`)
     }
     return lines
   }
@@ -1535,7 +1560,8 @@ export class Shell implements IShell {
       exists: (p) => this.context.fs.promises.exists(p),
       isFile: async (p) => { try { return (await this.context.fs.promises.stat(p)).isFile() } catch { return false } },
       isDirectory: async (p) => { try { return (await this.context.fs.promises.stat(p)).isDirectory() } catch { return false } },
-      resolve: (p) => path.resolve(this.cwd, p)
+      resolve: (p) => path.resolve(this.cwd, p),
+      test: words => testExpression(kernelBuiltinHost(this), words)
     }
     try {
       const result = await evaluateConditional(tokens, this.expansionContext(), fs, (groups) => this.setArray('BASH_REMATCH', groups))
@@ -1606,6 +1632,10 @@ export class Shell implements IShell {
       if ((signal instanceof BreakSignal || signal instanceof ContinueSignal) && this._signalCatchers.loop === 0) {
         await this.terminalBuiltinIO().writelnErr(`${signal.message}: only meaningful in a \`for', \`while', or \`until' loop`)
         return this.reportExit(0)
+      }
+      if (signal instanceof ParseError) {
+        await this.terminalBuiltinIO().writelnErr(syntaxMessage(signal.message))
+        return this.reportExit(2)
       }
       throw signal
     } finally {
@@ -1688,7 +1718,14 @@ export class Shell implements IShell {
         const functions = new Map(this._functions)
         const cwd = this._cwd
         const dirStack = [...this.state.dirStack]
+        // `exec` redirections made inside the parentheses end with them
+        const execOutputs = this._execOutputs
+        const stdinSources = [...this._stdinSources]
+        const inputFds = new Map(this._inputFds)
         return () => {
+          this._execOutputs = execOutputs
+          this._stdinSources = stdinSources
+          this._inputFds = inputFds
           this.state.dirStack = dirStack
           this._arrays = arrays
           this._functions = functions
@@ -1702,7 +1739,7 @@ export class Shell implements IShell {
       setStatus: code => { this.env.set('?', String(code)) },
       checkpoint: async () => this._interrupted,
       exitShell: async code => { throw new ExitSignal(code) },
-      writeErr: message => this.terminalBuiltinIO().writelnErr(message),
+      writeErr: message => this.shellDiagnostic(message),
     }
   }
 
@@ -1731,9 +1768,8 @@ export class Shell implements IShell {
       try {
         this.setVariable(name, value, append)
       } catch (error) {
-        await this.terminalBuiltinIO().writelnErr(error instanceof Error ? error.message : String(error))
-        // A script ends at a refused assignment, as bash does when not interactive; the prompt carries on.
-        if (this._signalCatchers.exit > 0) throw new ExitSignal(1)
+        await this.shellDiagnostic(error instanceof Error ? error.message : String(error))
+        this.state.failedLine = this.state.lineNumber
         return 1
       }
     }
@@ -1831,6 +1867,10 @@ export class Shell implements IShell {
     // as in bash the numbers start again once nothing is left to refer to: a job that has finished (and, for a
     // background one, been reported) no longer holds its number
     const live = this._jobs.filter(job => job.status !== 'done' || (job.background && !job.notified))
+    // without this every command a script or a test runs stays in the table, and each next one pays for walking it;
+    // the latest job stays so a caller can still look at the one that just ended
+    const latest = this._jobs[this._jobs.length - 1]
+    this._jobs = latest && !live.includes(latest) ? [...live, latest] : live
     const job = new JobImpl(live.reduce((highest, other) => Math.max(highest, other.id), 0) + 1, commandLine, background)
     const settle = (codes: number[]) => {
       job.exitCodes = codes
@@ -1865,14 +1905,25 @@ export class Shell implements IShell {
   private async runExec(command: ParsedCommand): Promise<number> {
     const args = await this.expandCommandArgs(command)
     if (args.length > 0) {
-      await this.terminalBuiltinIO().writelnErr('exec: replacing the shell with a command is not supported yet; only redirections are')
-      return 1
+      // There is no process image to replace, so run the command and leave with its status, which is what `exec`
+      // looks like from outside (a subshell ends the same way). Its redirections apply to it alone.
+      const argv = args[0] === '--' ? args.slice(1) : args
+      const code = await this.withStatementRedirections(command.redirections, () => this.execute(argv.map(shellQuote).join(' ')))
+      throw new ExitSignal(code)
     }
 
     const outputs = command.redirections.filter(r => r.fd !== 0 && (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&'))
-    if (outputs.length > 0) this._execOutputs = { redirections: outputs, truncated: new Set() }
+    if (outputs.length > 0) this._execOutputs = { redirections: outputs, truncated: new Set(), after: this._statementOutputs.length }
 
-    const input = command.redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    // `exec 3<file`: a numbered input stays open on the shell for `read -u 3`.
+    for (const r of command.redirections) {
+      if (r.fd >= 3 && (r.type === '<' || r.type === '<<' || r.type === '<<<')) {
+        await this._inputFds.get(r.fd)?.close()
+        this._inputFds.set(r.fd, new StdinSource(await this.buildInputStream(r)))
+      }
+    }
+
+    const input = command.redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
     if (input) {
       // Installed at the bottom of the stack, so a redirected compound statement still wins while it
       // is running and this is what is left underneath when it finishes.
@@ -1938,9 +1989,20 @@ export class Shell implements IShell {
   }
 
   /** Runs a full script's text to completion; `Kernel.executeScript`'s entry point. */
-  async executeScriptText(script: string, file?: string): Promise<number> {
-    const statements = parseStatements(script)
+  async executeScriptText(script: string, file?: string, args?: string[]): Promise<number> {
+    let statements: Statement[]
+    try {
+      statements = parseStatements(script)
+    } catch (error) {
+      // A script that does not parse is not run at all, as in bash.
+      if (!(error instanceof ParseError)) throw error
+      await this.terminalBuiltinIO().writelnErr(syntaxMessage(error.message))
+      return this.reportExit(2)
+    }
     this._signalCatchers.exit++
+    // `./script a b`: the arguments are `$1 $2` for the run and the caller's own come back afterwards.
+    const callerArgs = args ? this.positionalParameters : undefined
+    if (args) { this.clearPositionalParameters(); args.forEach((arg, index) => this.env.set(String(index + 1), arg)) }
     // Running a file: `$0` names it for the duration, and so does `BASH_SOURCE`.
     const previousName = this._env.get('0')
     if (file !== undefined) { this.state.pushSourceFrame(file, 0); this._env.set('0', file) }
@@ -1950,10 +2012,16 @@ export class Shell implements IShell {
       // `exit N` ends the script with code N. The `EXIT` trap still runs, in the `finally` below,
       // because that is precisely when bash runs it.
       if (signal instanceof ExitSignal) { this.reportExit(signal.code); return signal.code }
+      // Lines before the bad one have run, as bash reads a script a line at a time.
+      if (signal instanceof ParseError) {
+        await this.terminalBuiltinIO().writelnErr(syntaxMessage(signal.message))
+        return this.reportExit(2)
+      }
       throw signal
     } finally {
       this._signalCatchers.exit--
       await this.runTrap('EXIT')
+      if (callerArgs) { this.clearPositionalParameters(); callerArgs.forEach((arg, index) => this.env.set(String(index + 1), arg)) }
       if (file !== undefined) {
         this.state.popSourceFrame()
         if (previousName === undefined) this._env.delete('0')
@@ -2049,7 +2117,7 @@ export class Shell implements IShell {
       all.set(base, 0)
       let at = base.length
       for (const chunk of chunks) { all.set(chunk, at); at += chunk.length }
-      await context.fs.promises.writeFile(targetPath, all)
+      await context.fs.promises.writeFile(targetPath, all, { mode: 0o666 & ~this._umask })
     }
 
     // A character device is not rewritten whole: it takes the bytes as they come, through a handle, and a node whose session
@@ -2082,7 +2150,7 @@ export class Shell implements IShell {
         else {
           // Two streams can open the same new target at once (a command and the aggregate builtin around
           // it, `env echo hi >> new`); the one that loses the race finds the file already there.
-          try { await context.fs.promises.writeFile(targetPath, new Uint8Array()) } catch (error) {
+          try { await context.fs.promises.writeFile(targetPath, new Uint8Array(), { mode: 0o666 & ~this._umask }) } catch (error) {
             if ((error as { code?: string }).code !== 'EEXIST') throw error
             if (append) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
           }
@@ -2167,12 +2235,15 @@ export class Shell implements IShell {
    */
   private inheritedOutputRedirections(notLast = false): Redirection[] {
     const inherited: Redirection[] = []
-    const levels = this._execOutputs ? [this._execOutputs, ...this._statementOutputs] : this._statementOutputs
+    // `exec` redirections apply from the moment it ran, so they sit among the block redirections where it was.
+    const exec = this._execOutputs
+    const blocks = this._statementOutputs
+    const levels: Array<{ level: { redirections: Redirection[], truncated: Set<number> }, block: number }> = blocks.map((level, block) => ({ level, block }))
+    if (exec) levels.splice(Math.min(exec.after, blocks.length), 0, { level: exec, block: -1 })
     const floor = this._heldFloor[this._heldFloor.length - 1]
-    // `levels` starts with the `exec` layer when there is one, which counts as below every floor.
-    const offset = this._execOutputs ? 1 : 0
-    for (const [position, level] of levels.entries()) {
-      const outsideHeldPipe = floor !== undefined && position < floor + offset
+    for (const { level, block } of levels) {
+      // `exec` counts as below every floor.
+      const outsideHeldPipe = floor !== undefined && (block < 0 || block < floor)
       for (const redirection of level.redirections) {
         if (outsideHeldPipe && redirection.fd === 1) continue
         // A stage before the last has its stdout on the pipe, so the block's redirection of fd 1 is
@@ -2205,7 +2276,7 @@ export class Shell implements IShell {
    * closes it, or `undefined` when there is none.
    */
   private async pushStatementStdin(redirections: readonly Redirection[]): Promise<(() => Promise<void>) | undefined> {
-    const input = redirections.find(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    const input = redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
     if (!input) return undefined
 
     const source = new StdinSource(await this.buildInputStream(input))
@@ -2214,6 +2285,33 @@ export class Shell implements IShell {
       this._stdinSources.pop()
       await source.close()
     }
+  }
+
+  /**
+   * The shell's own diagnostics (`set -x` traces, refused assignments, command not found). They follow an enclosing
+   * `2>file` the way a command's stderr does, and go to the terminal otherwise.
+   */
+  private async shellDiagnostic(text: string, raw = false): Promise<void> {
+    const redirects = (level: { redirections: Redirection[] }) => level.redirections.some(r => r.fd === 2)
+    const redirected = (this._execOutputs && redirects(this._execOutputs)) || this._statementOutputs.some(redirects)
+    if (!redirected) {
+      const io = this.terminalBuiltinIO()
+      if (raw) await io.writeErr(text + '\r\n')
+      else await io.writelnErr(text)
+      return
+    }
+    const wanted = this.inheritedOutputRedirections(false).filter(r => r.fd === 2)
+    const { stderr } = await this.buildOutputStreams(wanted, true, undefined)
+    const writer = stderr.getWriter()
+    try { await writer.write(new TextEncoder().encode((raw ? '' : this.diagnosticPrefix()) + text + '\n')) } finally {
+      try { await writer.close() } catch { writer.releaseLock() }
+    }
+  }
+
+  /** What the shell's own messages start with: `ecmaos:`, or `./script: line N:` while a script file runs, as bash does. */
+  diagnosticPrefix(): string {
+    const file = this.state.currentSourceFile()
+    return file ? `${file}: line ${this.state.lineNumber}: ` : DIAGNOSTIC_PREFIX
   }
 
   private terminalBuiltinIO(): ShellBuiltinIO {
@@ -2226,8 +2324,9 @@ export class Shell implements IShell {
       write: async (text: string) => { terminal.write(text) },
       writeln: async (text: string) => { terminal.writeln(text) },
       writeErr: async (text: string) => { terminal.write(`\x1b[31m${text}\x1b[0m`) },
-      writelnErr: async (text: string) => { terminal.write(`\x1b[31m${DIAGNOSTIC_PREFIX}${text}\x1b[0m\r\n`) },
+      writelnErr: async (text: string) => { terminal.write(`\x1b[31m${kernelShell.diagnosticPrefix()}${text}\x1b[0m\r\n`) },
       readLine: async (options?: ReadLineOptions) => {
+        if (options?.fd) return await kernelShell._inputFds.get(options.fd)?.readLine(options)
         const source = this.currentStdin
         if (source) return await source.readLine(options)
         return await terminal.readline(options?.prompt ?? '', options?.silent ?? false, true)
@@ -2286,8 +2385,8 @@ export class Shell implements IShell {
       write: out,
       writeln: async (text: string) => await out(text + '\n'),
       writeErr: err,
-      writelnErr: async (text: string) => await err(`${DIAGNOSTIC_PREFIX}${text}\n`),
-      readLine: async (options?: ReadLineOptions) => await source?.readLine(options),
+      writelnErr: async (text: string) => await err(`${this.diagnosticPrefix()}${text}\n`),
+      readLine: async (options?: ReadLineOptions) => options?.fd ? await this._inputFds.get(options.fd)?.readLine(options) : await source?.readLine(options),
       readAll: async () => await source?.readAll() ?? '',
       close: async () => {
         // Releasing rather than closing on failure: the pipe's far end and the terminal are shared,

@@ -151,7 +151,7 @@ describe('text and file commands', () => {
       expect((await sh('expr 1 +')).code).toBe(2)
       expect((await sh('expr a + 1')).code).toBe(2)
       const zero = await sh('expr 1 / 0')
-      expect(zero.code).toBe(3)
+      expect(zero.code).toBe(2)
       expect(zero.err).toContain('division by zero')
       expect((await sh('expr')).code).toBe(2)
     }, 60000)
@@ -165,20 +165,20 @@ describe('text and file commands', () => {
       await fs().writeFile('/tmp/cf-du/top', 'z'.repeat(10))
     })
 
-    it('lists directories depth first with sizes in KiB', async () => {
-      expect((await sh('du /tmp/cf-du')).out).toBe('2\t/tmp/cf-du/a/b\n4\t/tmp/cf-du/a\n4\t/tmp/cf-du\n')
+    it('lists directories depth first with disk usage in KiB blocks', async () => {
+      expect((await sh('du /tmp/cf-du')).out).toBe('4\t/tmp/cf-du/a/b\n8\t/tmp/cf-du/a\n12\t/tmp/cf-du\n')
     }, 30000)
 
     it('shows files with -a, bytes with -b, and a summary with -s', async () => {
       expect((await sh('du -ab /tmp/cf-du/a')).out).toBe('1500\t/tmp/cf-du/a/b/f2\n1500\t/tmp/cf-du/a/b\n2048\t/tmp/cf-du/a/f1\n3548\t/tmp/cf-du/a\n')
       expect((await sh('du -sb /tmp/cf-du')).out).toBe('3558\t/tmp/cf-du\n')
-      expect((await sh('du -s /tmp/cf-du')).out).toBe('4\t/tmp/cf-du\n')
+      expect((await sh('du -s /tmp/cf-du')).out).toBe('12\t/tmp/cf-du\n')
     }, 30000)
 
     it('limits the depth, totals, and writes sizes people can read', async () => {
       expect((await sh('du -d 1 -b /tmp/cf-du')).out).toBe('1500\t/tmp/cf-du/a/b\n3548\t/tmp/cf-du/a\n3558\t/tmp/cf-du\n'.split('\n').filter(l => !l.includes('/a/b')).join('\n'))
       expect((await sh('du -sbc /tmp/cf-du/a /tmp/cf-du/top')).out).toBe('3548\t/tmp/cf-du/a\n10\t/tmp/cf-du/top\n3558\ttotal\n')
-      expect((await sh('du -sh /tmp/cf-du/a')).out).toBe('3.5K\t/tmp/cf-du/a\n')
+      expect((await sh('du -sh /tmp/cf-du/a')).out).toBe('8.0K\t/tmp/cf-du/a\n')
     }, 30000)
 
     it('uses the current directory by default, and reports a missing path', async () => {
@@ -283,17 +283,17 @@ describe('text and file commands', () => {
     it('knows common signatures', async () => {
       const write = (name: string, bytes: number[]) => fs().writeFile(`/tmp/cf-work/${name}`, new Uint8Array(bytes))
       await write('s.png', [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 5, 0, 0, 0, 7])
-      expect((await sh('file -b s.png')).out).toBe('PNG image data, 5 x 7\n')
+      expect((await sh('file -b s.png')).out).toBe('PNG image data, 5 x 7, 0-bit grayscale, non-interlaced\n')
       await write('s.pdf', [...new TextEncoder().encode('%PDF-1.7\n')])
       expect((await sh('file -b s.pdf')).out).toBe('PDF document, version 1.7\n')
       await write('s.wasm', [0, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
-      expect((await sh('file -b s.wasm')).out).toBe('WebAssembly (wasm) binary module\n')
-      expect((await sh('file -b k.txt.gz')).out).toBe('gzip compressed data\n')
+      expect((await sh('file -b s.wasm')).out).toBe('WebAssembly (wasm) binary version 0x1 (MVP module)\n')
+      expect((await sh('file -b k.txt.gz')).out).toMatch(/^gzip compressed data, was "k.txt", last modified: .*, from Unix, original size modulo 2\^32 8\n$/)
     }, 30000)
 
     it('knows scripts, JSON and HTML, directories and links', async () => {
       await fs().writeFile('/tmp/cf-work/run.sh', '#!/bin/sh\necho hi\n')
-      expect((await sh('file -b run.sh')).out).toBe('Bourne-Again shell script, ASCII text executable\n')
+      expect((await sh('file -b run.sh')).out).toBe('POSIX shell script, ASCII text executable\n')
       await fs().writeFile('/tmp/cf-work/d.json', '{"a": 1}\n')
       expect((await sh('file -b d.json')).out).toBe('JSON text data\n')
       await fs().writeFile('/tmp/cf-work/p.html', '<!DOCTYPE html>\n<html></html>\n')
@@ -307,10 +307,10 @@ describe('text and file commands', () => {
       await fs().writeFile('/tmp/cf-work/nl.txt', 'x\n')
       expect((await sh('file nl.txt hello.txt')).out).toBe('nl.txt:    ASCII text\nhello.txt: ASCII text\n')
       expect((await sh('file -b abc.txt')).out).toBe('ASCII text, with no line terminators\n')
-      expect((await sh('file -i hello.txt')).out).toBe('hello.txt: text/plain;charset=us-ascii\n')
+      expect((await sh('file -i hello.txt')).out).toBe('hello.txt: text/plain; charset=us-ascii\n')
       expect((await sh('file --mime-type -b hello.txt')).out).toBe('text/plain\n')
       const missing = await sh('file nothing-here')
-      expect(missing.code).toBe(1)
+      expect(missing.code).toBe(0)
       expect(missing.out).toContain('cannot open')
     }, 30000)
   })
@@ -322,8 +322,8 @@ describe('text and file commands', () => {
     }, 30000)
 
     it('shows 16-bit words by default', async () => {
-      expect((await sh("printf 'abcd' | hexdump")).out).toBe('0000000 6261 6463\n0000004\n')
-      expect((await sh("printf 'abc' | hexdump")).out).toBe('0000000 6261 0063\n0000003\n')
+      expect((await sh("printf 'abcd' | hexdump")).out).toBe('0000000 6261 6463                              \n0000004\n')
+      expect((await sh("printf 'abc' | hexdump")).out).toBe('0000000 6261 0063                              \n0000003\n')
     }, 30000)
 
     it('limits and skips, and squeezes repeated lines unless told not to', async () => {

@@ -25,7 +25,7 @@ function formatUptime(seconds) {
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(1, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 

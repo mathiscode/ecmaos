@@ -15,6 +15,7 @@ import { SHOPT_EFFECTIVE, SHOPT_NAMES } from './shopt-names.js'
 import { fcBuiltin } from './builtin-fc.js'
 import { compgenBuiltin, completeBuiltin, compoptBuiltin } from './builtin-complete.js'
 import { ulimitBuiltin } from './builtin-ulimit.js'
+import { evaluateTest, type TestFileInfo, type TestHost } from './test-eval.js'
 import { hashBuiltin, helpBuiltin, logoutBuiltin, timesBuiltin } from './builtins-info.js'
 import type { Interpreter } from './interpreter.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
@@ -27,6 +28,8 @@ export interface ReadLineOptions {
   delimiter?: string
   count?: number
   timeoutMs?: number
+  /** Read this descriptor instead of standard input (`read -u N`). */
+  fd?: number
   result?: { terminated: boolean, timedOut?: boolean }
 }
 
@@ -60,8 +63,16 @@ export interface BuiltinHost {
   chdir(path: string): Promise<string | undefined>
   /** Resolves `path` against the working directory. */
   resolvePath(path: string): string
+  /** The physical name of a path with every symlink resolved, for `cd -P`. */
+  realpath?(path: string): Promise<string>
   expandTilde?(path: string): string
   stat(path: string): Promise<{ file: boolean, directory: boolean, size: number } | undefined>
+  /** Full status for `test`'s file operators; without it only the type and size are known. */
+  fileInfo?(path: string, follow: boolean): Promise<TestFileInfo | undefined>
+  /** The shell's effective user, group and supplementary groups, for `test -r/-w/-x/-O/-G`. */
+  identity?(): { uid: number, gid: number, groups: number[] }
+  /** Whether a descriptor of the shell's is a terminal, for `test -t`. */
+  isTerminal?(fd: number): boolean
   readFile(path: string): Promise<string>
   /** The names in a directory, for completion; a host without it completes no filenames or commands from `$PATH`. */
   listDir?(dir: string): Promise<string[]>
@@ -179,26 +190,68 @@ export async function runSharedBuiltin(host: BuiltinHost, name: string, argv: st
 // - cd ---------------------------------------------------------------------------------------------
 
 async function cd(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
-  if (argv[0] === '--help' || argv[0] === '-h') {
-    await io.writeln('Usage: cd [DIRECTORY]\nChange the shell working directory.\n\n  DIRECTORY  the directory to change to (default: $HOME)\n  --help     display this help and exit')
+  if (argv[0] === '--help') {
+    await io.writeln('cd: cd [-L|[-P [-e]] [-@]] [dir]\nChange the shell working directory.\n\n  -L  follow symbolic links (the default)\n  -P  use the physical directory structure without following symbolic links\n\nThe default DIR is the value of the HOME variable. A DIR of - is the previous directory; a relative DIR is\nsearched for along CDPATH.')
     return 0
   }
 
+  // Options: -L (the default) keeps the name as typed, -P resolves every symlink; -e and -@ are accepted
+  let physical = false
+  let i = 0
+  for (; i < argv.length; i++) {
+    const arg = argv[i] as string
+    if (arg === '--') { i++; break }
+    if (arg === '-' || !arg.startsWith('-')) break
+    for (const letter of arg.slice(1)) {
+      if (letter === 'P') physical = true
+      else if (letter === 'L') physical = false
+      else if (letter === 'e' || letter === '@') continue
+      else {
+        await io.writelnErr(`cd: -${letter}: invalid option`)
+        await io.writelnErr('cd: usage: cd [-L|[-P [-e]] [-@]] [dir]')
+        return 2
+      }
+    }
+  }
+  const operands = argv.slice(i)
+  if (operands.length > 1) { await io.writelnErr('cd: too many arguments'); return 2 }
+
   const state = host.state
-  const operand = argv.find(arg => arg !== '--')
+  const operand = operands[0]
   let destination: string | undefined
+  let announce = false
   if (operand === undefined) {
     destination = state.lookup('HOME')
     if (!destination) { await io.writelnErr('cd: HOME not set'); return 1 }
   } else if (operand === '-') {
     destination = state.lookup('OLDPWD')
     if (!destination) { await io.writelnErr('cd: OLDPWD not set'); return 1 }
+    announce = true
+  } else if (operand === '') {
+    await io.writelnErr('cd: null directory')
+    return 1
   } else {
     destination = host.expandTilde ? host.expandTilde(operand) : operand
+    // a plain relative name is looked for in each CDPATH directory first
+    const cdpath = state.lookup('CDPATH')
+    if (cdpath && !destination.startsWith('/') && !/^\.\.?(\/|$)/.test(destination)) {
+      for (const entry of cdpath.split(':')) {
+        const candidate = `${entry === '' ? '.' : entry}/${destination}`
+        const found = await host.stat(host.resolvePath(candidate))
+        if (found?.directory) {
+          destination = candidate
+          announce = entry !== '' && entry !== '.'
+          break
+        }
+      }
+    }
   }
 
-  const target = host.resolvePath(destination)
+  let target = host.resolvePath(destination)
   const before = host.cwd()
+  if (physical && host.realpath) {
+    try { target = await host.realpath(target) } catch { /* chdir reports what is wrong with it */ }
+  }
   const failure = await host.chdir(target)
   if (failure !== undefined) {
     await io.writelnErr(`cd: ${operand ?? destination}: ${failure}`)
@@ -208,7 +261,7 @@ async function cd(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<num
   state.set('OLDPWD', before)
   state.set('PWD', host.cwd())
   host.changed?.()
-  if (operand === '-') await io.writeln(host.cwd())
+  if (announce) await io.writeln(host.cwd())
   return 0
 }
 
@@ -469,7 +522,7 @@ async function readonly(host: BuiltinHost, argv: string[], io: BuiltinIO): Promi
 
 /** The attribute letters `declare -p` prints, or `-` for none. */
 function attributes(state: ShellState, name: string): string {
-  const letters = (state.isInteger(name) ? 'i' : '') + (state.isNameref(name) ? 'n' : '') + (state.isReadonly(name) ? 'r' : '')
+  const letters = (state.isInteger(name) ? 'i' : '') + (state.isNameref(name) ? 'n' : '') + (state.isReadonly(name) ? 'r' : '') + (state.isExported(name) ? 'x' : '')
   return letters || '-'
 }
 
@@ -504,6 +557,7 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
     if (arg === '+n') { off.add('n'); continue }
     for (const letter of arg.slice(1)) {
       if ('lu'.includes(letter)) { await io.writelnErr(`declare: -${letter}: not supported yet`); return 2 }
+      if (letter === 'g') { flags.add('g'); continue }
       if (!'aAfFinprx'.includes(letter)) { await io.writelnErr(`declare: -${letter}: invalid option`); return 2 }
       flags.add(letter)
     }
@@ -536,11 +590,15 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
       const array = state.lookupArray(name)
       if (array) {
         const items = [...array].map(([key, value]) => `[${key}]="${value}"`).join(' ')
-        await io.writeln(`declare -${state.isAssoc(name) ? 'A' : 'a'} ${name}=(${items})`)
+        await io.writeln(`declare -${state.isAssoc(name) ? 'A' : 'a'} ${name}=(${items}${state.isAssoc(name) && items ? ' ' : ''})`)
         continue
       }
       const value = state.lookup(name)
-      if (value === undefined) { await io.writelnErr(`declare: ${name}: not found`); status = 1; continue }
+      if (value === undefined) {
+        // A local declared without a value exists but is unset: bash prints it bare.
+        if (state.isDeclared(name)) { await io.writeln(`declare -${attributes(state, name)} ${name}`); continue }
+        await io.writelnErr(`declare: ${name}: not found`); status = 1; continue
+      }
       await io.writeln(`declare -${attributes(state, name)} ${name}="${value}"`)
       continue
     }
@@ -563,6 +621,7 @@ async function declare(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
       try {
         // `declare -a name=(x y)` is split by the tokenizer long before a builtin sees it.
         if (flags.has('a')) state.setArray(name, raw ? [raw] : [])
+        else if (flags.has('g')) state.setGlobal(name, raw)
         else state.set(name, raw)
       } catch (error) {
         await io.writelnErr(`declare: ${message(error)}`)
@@ -675,6 +734,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   let delimiter: string | undefined
   let count: number | undefined
   let timeoutMs: number | undefined
+  let fd: number | undefined
   const names: string[] = []
 
   for (let i = 0; i < argv.length; i++) {
@@ -687,10 +747,14 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
         const letter = arg[j] as string
         if (letter === 'r') { raw = true; continue }
         if (letter === 's') { silent = true; continue }
-        if ('padnt'.includes(letter)) {
+        if ('padntu'.includes(letter)) {
           const value = j + 1 < arg.length ? arg.slice(j + 1) : argv[++i]
           if (value === undefined) { await io.writelnErr(`read: option requires an argument -- '${letter}'`); return 2 }
           if (letter === 'p') prompt = value
+          else if (letter === 'u') {
+            if (!/^\d+$/.test(value)) { await io.writelnErr(`read: ${value}: invalid file descriptor specification`); return 1 }
+            fd = Number(value)
+          }
           else if (letter === 'a') arrayName = value
           else if (letter === 'd') delimiter = value.slice(0, 1)
           else if (letter === 't') {
@@ -724,9 +788,15 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
     return 1
   }
   const result: { terminated: boolean, timedOut?: boolean } = { terminated: true }
-  let line = await io.readLine(prompt !== undefined || silent || bounded ? { prompt, silent, delimiter, count, timeoutMs, result } : undefined)
+  let line = await io.readLine({ prompt, silent, delimiter, count, timeoutMs, fd, result })
   // Nothing arrived in time: bash reports a status above 128 and assigns nothing.
   if (line === undefined) return result.timedOut ? 142 : 1
+  // Without `-r`, a backslash before the newline joins the next line on.
+  while (!raw && delimiter === undefined && count === undefined && result.terminated && /(?:^|[^\\])(?:\\\\)*\\$/.test(line)) {
+    const next = await io.readLine({ prompt, silent, fd, result })
+    if (next === undefined) { line = line.slice(0, -1); break }
+    line = line.slice(0, -1) + next
+  }
   // Without `-r`, a backslash escapes the next character and disappears.
   if (!raw) line = line.replace(/\\(.)/g, '$1')
 
@@ -747,7 +817,7 @@ async function readBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pr
   host.changed?.()
   // With `-d`, data that ran out before the delimiter is still assigned but reports end of file.
   if (result.timedOut) return 142
-  return delimiter !== undefined && !result.terminated ? 1 : 0
+  return !result.terminated ? 1 : 0
 }
 
 // - control flow -----------------------------------------------------------------------------------
@@ -801,10 +871,12 @@ async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   if (args[0] === '--') args.shift()
   if (args.length === 0) { await io.writelnErr('printf: usage: printf [-v var] format [arguments]'); return 2 }
   const invalid: string[] = []
-  const out = formatPrintf(args[0] as string, args.slice(1), value => invalid.push(value))
+  const badFormat: string[] = []
+  const out = formatPrintf(args[0] as string, args.slice(1), value => invalid.push(value), character => badFormat.push(character))
   // A number that is not one still prints (as the part that is), and the builtin fails
   for (const value of invalid) await io.writelnErr(`printf: ${value}: invalid number`)
-  const status = invalid.length ? 1 : 0
+  for (const character of badFormat) await io.writelnErr(`printf: \`${character}': invalid format character`)
+  const status = invalid.length || badFormat.length ? 1 : 0
   if (variable === undefined) { await io.write(out); return status }
   try { host.state.set(variable, out) } catch (error) { await io.writelnErr(`printf: ${message(error)}`); return 1 }
   host.changed?.()
@@ -953,7 +1025,10 @@ async function letBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Pro
   let last = 0
   for (const expression of argv) {
     try { last = await host.interpreter.arithmetic(expression) } catch (error) {
-      await io.writelnErr(`let: ${expression}: ${message(error)}`)
+      // The evaluator already names the expression
+      const text = message(error)
+      const named = `${expression.trim()}: `
+      await io.writelnErr(`let: ${expression}: ${text.startsWith(named) ? text.slice(named.length) : text}`)
       return 1
     }
   }
@@ -1129,7 +1204,7 @@ async function unalias(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
 async function type(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
     await io.writeln([
-      'Usage: type [-t] [-p] NAME...',
+      'Usage: type [-afptP] NAME...',
       'Describe how each NAME would be interpreted if used as a command.',
       '',
       '  -t  print only the kind: alias, keyword, builtin, function or file',
@@ -1138,9 +1213,18 @@ async function type(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
     return 0
   }
 
-  const typeOnly = argv.includes('-t')
-  const pathOnly = argv.includes('-p')
-  const names = argv.filter(a => a !== '-t' && a !== '-p')
+  // flags may cluster (-ap); -a (every match) and -f (skip functions) are accepted, but only the first match is described
+  let typeOnly = false
+  let pathOnly = false
+  let index = 0
+  for (; index < argv.length; index++) {
+    const arg = argv[index] as string
+    if (arg === '--') { index++; break }
+    if (!/^-[atpPf]+$/.test(arg)) break
+    if (arg.includes('t')) typeOnly = true
+    if (arg.includes('p') || arg.includes('P')) pathOnly = true
+  }
+  const names = argv.slice(index)
   if (names.length === 0) return 0
 
   let status = 0
@@ -1217,7 +1301,7 @@ async function trap(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<n
 
   const state = host.state
   if (argv.length === 0 || argv[0] === '-p') {
-    for (const [signal, handler] of state.listTraps()) await io.writeln(`trap -- '${handler}' ${signal}`)
+    for (const [signal, handler] of state.listTraps()) await io.writeln(`trap -- '${handler}' ${/^(EXIT|ERR|DEBUG|RETURN|SIG)/.test(signal) ? signal : `SIG${signal}`}`)
     return 0
   }
   if (argv[0] === '-l') {
@@ -1323,7 +1407,7 @@ async function getopts(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
 
   if (!known) {
     advance(false)
-    return await fail('?', letter, `getopts: illegal option -- ${letter}`)
+    return await fail('?', letter, `illegal option -- ${letter}`)
   }
 
   if (!takesArgument) {
@@ -1347,7 +1431,7 @@ async function getopts(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
   if (value === undefined) {
     state.set('OPTIND', String(index + 1))
     state.getoptsCharIndex = 1
-    return await fail(silent ? ':' : '?', letter, `getopts: option requires an argument -- ${letter}`)
+    return await fail(silent ? ':' : '?', letter, `option requires an argument -- ${letter}`)
   }
 
   state.set('OPTIND', String(index + 2))
@@ -1364,100 +1448,43 @@ async function bracket(host: BuiltinHost, argv: string[], io: BuiltinIO): Promis
   return await testBuiltin(host, argv.slice(0, -1), io)
 }
 
-/** `test EXPR` and `[ EXPR ]`: the POSIX expression forms, with `-a`, `-o`, `!` and parentheses. */
+/** `test EXPR` and `[ EXPR ]`: bash's argument-count forms, then `!`, `-a`, `-o` and parentheses. */
 async function testBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   try {
-    return await evaluateTest(host, argv) ? 0 : 1
+    return await evaluateTest(testHost(host), argv) ? 0 : 1
   } catch (error) {
     await io.writelnErr(`test: ${message(error)}`)
     return 2
   }
 }
 
-const UNARY_FILE = new Set(['-e', '-f', '-d', '-r', '-w', '-x', '-s', '-L', '-h'])
-const BINARY = new Set(['=', '==', '!=', '-eq', '-ne', '-lt', '-le', '-gt', '-ge'])
-
-async function evaluateTest(host: BuiltinHost, words: string[]): Promise<boolean> {
-  let position = 0
-  const peek = () => words[position]
-
-  const unaryAt = (index: number) => {
-    const word = words[index]
-    return word !== undefined && (word === '-n' || word === '-z' || UNARY_FILE.has(word))
-  }
-
-  const primary = async (): Promise<boolean> => {
-    const word = peek()
-    if (word === undefined) throw new Error('argument expected')
-    if (word === '(') {
-      position++
-      const value = await orExpression()
-      if (peek() !== ')') throw new Error("missing `)'")
-      position++
-      return value
-    }
-    // A binary operator in the second position wins over a unary reading of the first word, as in POSIX.
-    if (words[position + 1] !== undefined && BINARY.has(words[position + 1] as string) && words[position + 2] !== undefined) {
-      const [left, operator, right] = [word, words[position + 1] as string, words[position + 2] as string]
-      position += 3
-      return compare(left, operator, right)
-    }
-    if (word === '!') { position++; return !await primary() }
-    if (unaryAt(position) && words[position + 1] !== undefined) {
-      const operand = words[position + 1] as string
-      position += 2
-      return await unary(host, word, operand)
-    }
-    position++
-    return word !== ''
-  }
-
-  const andExpression = async (): Promise<boolean> => {
-    let value = await primary()
-    while (peek() === '-a') { position++; const next = await primary(); value = value && next }
-    return value
-  }
-
-  const orExpression = async (): Promise<boolean> => {
-    let value = await andExpression()
-    while (peek() === '-o') { position++; const next = await andExpression(); value = value || next }
-    return value
-  }
-
-  if (words.length === 0) return false
-  const value = await orExpression()
-  if (position < words.length) throw new Error(`unexpected argument: ${words[position]}`)
-  return value
+/** The value of a `test` expression over `host`: what `[[ ]]` asks for its file tests and `-nt`, `-ot`, `-ef`. */
+export async function testExpression(host: BuiltinHost, words: string[]): Promise<boolean> {
+  return await evaluateTest(testHost(host), words)
 }
 
-function compare(left: string, operator: string, right: string): boolean {
-  switch (operator) {
-    case '=': case '==': return left === right
-    case '!=': return left !== right
-  }
-  const a = Number(left)
-  const b = Number(right)
-  if (!Number.isInteger(a)) throw new Error(`${left}: integer expression expected`)
-  if (!Number.isInteger(b)) throw new Error(`${right}: integer expression expected`)
-  switch (operator) {
-    case '-eq': return a === b
-    case '-ne': return a !== b
-    case '-lt': return a < b
-    case '-le': return a <= b
-    case '-gt': return a > b
-    default: return a >= b
-  }
-}
-
-async function unary(host: BuiltinHost, operator: string, operand: string): Promise<boolean> {
-  if (operator === '-n') return operand !== ''
-  if (operator === '-z') return operand === ''
-  const stat = await host.stat(host.resolvePath(operand))
-  if (!stat) return false
-  switch (operator) {
-    case '-f': return stat.file
-    case '-d': return stat.directory
-    case '-s': return stat.size > 0
-    default: return true
+/** The file and shell queries `test` makes, answered from the builtin host */
+function testHost(host: BuiltinHost): TestHost {
+  const { state } = host
+  return {
+    resolvePath: path => host.resolvePath(path),
+    fileInfo: async (path, follow) => {
+      if (host.fileInfo) return await host.fileInfo(path, follow)
+      const plain = await host.stat(path)
+      if (!plain) return undefined
+      return { mode: (plain.directory ? 0o040755 : plain.file ? 0o100644 : 0), uid: 0, gid: 0, dev: 0, ino: 0, size: plain.size, atimeMs: 0, mtimeMs: 0 }
+    },
+    identity: host.identity ? () => host.identity!() : undefined,
+    isTerminal: host.isTerminal ? fd => host.isTerminal!(fd) : undefined,
+    optionOn: name => (name in state.options ? Boolean(state.options[name as ShellOptionName]) : undefined),
+    variableSet: name => {
+      const element = /^([A-Za-z_][A-Za-z0-9_]*)\[(.+)\]$/.exec(name)
+      if (element) {
+        const array = state.lookupArray(element[1] as string)
+        if (!array) return false
+        return (element[2] === '@' || element[2] === '*') ? true : (array.get(Number.isNaN(Number(element[2])) ? (element[2] as never) : (Number(element[2]) as never)) !== undefined)
+      }
+      return state.lookup(name) !== undefined || state.lookupArray(name) !== undefined
+    }
   }
 }

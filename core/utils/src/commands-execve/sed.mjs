@@ -5,10 +5,11 @@
  * without one, and `N` on the last line prints the pattern space and stops, as GNU does.
  */
 
+import { findProgram, readAll, waitFor } from './lib/run.mjs'
 import { resolve } from './lib/path-utils.mjs'
-import { toBytes, translate } from './lib/regex-posix.mjs'
+import { translate } from './lib/regex-posix.mjs'
 
-const { argv, exit, writeAll, read, getcwd, open, close, write, isDirectory, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, env, exit, writeAll, read, getcwd, open, close, write, pipe, spawn, isDirectory, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
 const err = text => writeAll(2, encoder.encode(`sed: ${text}\n`))
@@ -28,10 +29,21 @@ const usage = `Usage: sed [OPTION]... {script-only-if-no-other-script} [input-fi
 
 If no -e, --expression, -f, or --file option is given, then the first non-option argument is taken as the sed script to interpret.`
 
-class ScriptError extends Error {}
+class ScriptError extends Error { constructor(message, status = 1) { super(message); this.status = status } }
 
-const decode = bytes => { let text = ''; for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode(...bytes.subarray(at, at + 8192)); return text }
-const encodeBytes = text => Uint8Array.from(text, ch => ch.charCodeAt(0))
+/**
+ * Text is UTF-8: a file that is valid is decoded as such. One that is not (binary data, or another encoding) is read a byte at a
+ * time, and then everything is written the same way, so the bytes come out as they went in.
+ */
+let byteMode = false
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true })
+const decode = bytes => {
+  if (!byteMode) { try { return strictUtf8.decode(bytes) } catch { byteMode = true } }
+  let text = ''
+  for (let at = 0; at < bytes.length; at += 8192) text += String.fromCharCode(...bytes.subarray(at, at + 8192))
+  return text
+}
+const encodeBytes = text => (byteMode ? Uint8Array.from(text, ch => ch.charCodeAt(0) & 0xff) : encoder.encode(text))
 
 function readFd(fd) {
   const chunks = []
@@ -82,16 +94,27 @@ function parseScript(text, extended, options) {
   const compileRegex = (source, flags) => {
     if (source === '') return { empty: true }
     let result
-    try { result = translate(toBytes(patternEscapes(source)), extended, true) } catch (error) { return fail(error.message) }
-    try { return { regex: new RegExp(result.source, (flags.includes('I') ? 'i' : '') + (flags.includes('M') ? 'm' : '')) } } catch { return fail('Invalid regular expression') }
+    try { result = translate(patternEscapes(source), extended, true, !byteMode) } catch (error) { return fail(error.message) }
+    try { return { regex: new RegExp(result.source, (byteMode ? '' : 'u') + (flags.includes('I') ? 'i' : '') + (flags.includes('M') ? 'm' : '')) } } catch { return fail('Invalid regular expression') }
   }
 
   /** Text up to the closing delimiter: `\delim` becomes `delim`, other escapes are kept; a newline must be escaped */
-  const readDelimited = (delimiter, what) => {
+  const readDelimited = (delimiter, what, brackets = false) => {
     let out = ''
     for (;;) {
       if (pos >= text.length) fail(`unterminated ${what}`)
       const ch = text[pos++]
+      if (brackets && ch === '[' && delimiter !== '[') {
+        // a delimiter inside a bracket expression does not end the pattern
+        let j = pos
+        if (text[j] === '^') j++
+        if (text[j] === ']') j++
+        while (j < text.length && text[j] !== ']' && text[j] !== '\n') {
+          if (text[j] === '[' && /[:.=]/.test(text[j + 1] ?? '')) { const close = text.indexOf(text[j + 1] + ']', j + 2); if (close > 0) { j = close + 2; continue } }
+          j++
+        }
+        if (text[j] === ']') { out += text.slice(pos - 1, j + 1); pos = j + 1; continue }
+      }
       if (ch === delimiter) return out
       if (ch === '\\') {
         if (pos >= text.length) fail(`unterminated ${what}`)
@@ -125,7 +148,7 @@ function parseScript(text, extended, options) {
       let delimiter = '/'
       if (ch === '\\') { pos++; delimiter = text[pos] }
       pos++
-      const source = readDelimited(delimiter, 'address regex')
+      const source = readDelimited(delimiter, 'address regex', true)
       let flags = ''
       while (text[pos] === 'I' || text[pos] === 'M') flags += text[pos++]
       return { type: 're', ...compileRegex(source, flags) }
@@ -221,11 +244,19 @@ function parseScript(text, extended, options) {
           const ch = text[pos++]
           if (ch === '\\' && pos < text.length) {
             const next = text[pos++]
-            body += next === 't' ? '\t' : next
+            body += next in simpleEscapes ? simpleEscapes[next] : next
           } else if (ch === '\n') break
           else body += ch
         }
         command.text = body
+        break
+      }
+      case 'v': {
+        lineArgument()
+        continue
+      }
+      case 'e': {
+        command.command = lineArgument()
         break
       }
       case 'r': case 'R': case 'w': case 'W': {
@@ -243,25 +274,28 @@ function parseScript(text, extended, options) {
       case 's': {
         const delimiter = text[pos++]
         if (delimiter === undefined || delimiter === '\n' || delimiter === '\\') fail('unterminated `s\' command')
-        const source = readDelimited(delimiter, "`s' command")
+        const source = readDelimited(delimiter, "`s' command", true)
         const replacement = readDelimited(delimiter, "`s' command")
         command.global = false
         command.print = false
         command.nth = 1
         let flags = ''
+        let numberSeen = false
         for (;;) {
           const ch = text[pos]
-          if (ch === 'g') { command.global = true; pos++ }
-          else if (ch === 'p') { command.print = true; pos++ }
+          if (ch === 'g') { if (command.global) fail("multiple `g' options to `s' command"); command.global = true; pos++ }
+          else if (ch === 'p') { if (command.print) fail("multiple `p' options to `s' command"); command.print = true; pos++ }
           else if (ch === 'i' || ch === 'I') { flags += 'I'; pos++ }
           else if (ch === 'm' || ch === 'M') { flags += 'M'; pos++ }
-          else if (ch === 'e') pos++
+          else if (ch === 'e') { command.evaluate = true; pos++ }
           else if (ch !== undefined && /\d/.test(ch)) {
+            if (numberSeen) fail("multiple number options to `s' command")
+            numberSeen = true
             const number = /^\d+/.exec(text.slice(pos))[0]
             command.nth = Number(number)
             if (command.nth === 0) fail('number option to `s\' command may not be zero')
             pos += number.length
-          } else if (ch === 'w') { pos++; command.file = lineArgument(); break }
+          } else if (ch === 'w') { pos++; command.file = lineArgument(); if (!command.file) fail('missing filename in r/R/w/W commands'); break }
           else break
         }
         Object.assign(command, compileRegex(source, flags))
@@ -304,7 +338,7 @@ function parseScript(text, extended, options) {
   if (blocks.length) fail('unmatched `{\'')
   for (const command of commands) {
     if ((command.name === 'b' || command.name === 't' || command.name === 'T') && command.label) {
-      if (!labels.has(command.label)) throw new ScriptError(`-e expression #1, char ${pos}: can't find label for jump to \`${command.label}'`)
+      if (!labels.has(command.label)) throw new ScriptError(`can't find label for jump to '${command.label}'`, 4)
     }
   }
   return { commands, labels }
@@ -363,10 +397,14 @@ function expandReplacement(parts, match) {
 /** How `l` shows text: escapes for the usual control characters, octal for the rest, `\` at a wrap and `$` at the end */
 function listText(text, width) {
   const names = { 7: '\\a', 8: '\\b', 12: '\\f', 10: '\\n', 13: '\\r', 9: '\\t', 11: '\\v', 92: '\\\\' }
-  const units = Array.from(text, ch => {
-    const code = ch.charCodeAt(0)
-    return code in names ? names[code] : code >= 32 && code < 127 ? ch : '\\' + code.toString(8).padStart(3, '0')
-  })
+  // what is shown is bytes: a character outside ASCII is the octal of each byte of its UTF-8
+  const units = []
+  for (const ch of text) {
+    const code = ch.codePointAt(0)
+    if (code in names) units.push(names[code])
+    else if (code >= 32 && code < 127) units.push(ch)
+    else for (const byte of (byteMode ? [code & 0xff] : encoder.encode(ch))) units.push('\\' + byte.toString(8).padStart(3, '0'))
+  }
   let out = ''
   let line = 0
   for (const unit of units) {
@@ -378,7 +416,7 @@ function listText(text, width) {
 }
 
 /** Runs a script over input files, returning what it writes and how it ended */
-function execute(program, files, options, state) {
+async function execute(program, files, options, state) {
   const { commands, labels } = program
   const delimiter = options.zero ? '\0' : '\n'
   let output = ''
@@ -540,8 +578,14 @@ function execute(program, files, options, state) {
       if (!selected(command)) { pc = command.name === '{' ? command.end + 1 : pc + 1; continue }
       switch (command.name) {
         case '{': case '}': case ':': break
+        case 'e': {
+          if (command.command) emit(await shellOutput(command.command))
+          else { ps = (await shellOutput(ps)).replace(/\n$/, '') }
+          break
+        }
         case 's':
           if (substitute(command)) {
+            if (command.evaluate) ps = (await shellOutput(ps)).replace(/\n$/, '')
             substituted = true
             if (command.print) printPs()
             if (command.file) sideWrite(command.file, ps)
@@ -637,12 +681,24 @@ function execute(program, files, options, state) {
   return { output, missingNewline, exitCode }
 }
 
-function main() {
+/** What a shell command writes, for the `e` command */
+async function shellOutput(commandLine) {
+  const [reader, writer] = pipe()
+  const pid = await spawn(findProgram('sh') ?? '/bin/sh', ['sh', '-c', commandLine], { cwd: getcwd(), env, fds: { 0: 0, 1: writer, 2: 2 } })
+  close(writer)
+  const bytes = readAll(reader)
+  close(reader)
+  await waitFor(pid)
+  return decode(bytes)
+}
+
+async function main() {
   const args = argv.slice(1)
   const options = { quiet: false, extended: false, separate: false, zero: false, inPlace: undefined, lineLength: 70, posix: false }
   const scripts = []
   const operands = []
   let haveScript = false
+  let fileError = false
 
   const addScriptFile = file => {
     try {
@@ -655,6 +711,7 @@ function main() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       err(`couldn't open file ${file}: ${/ENOENT/.test(message) ? 'No such file or directory' : message}`)
+      fileError = true
       return false
     }
   }
@@ -675,8 +732,8 @@ function main() {
       else if (name === '--null-data') options.zero = true
       else if (name === '--posix') options.posix = true
       else if (name === '--in-place') { options.inPlace = inline ?? ''; options.separate = true }
-      else if (name === '--expression') { const text = value(); if (text === undefined) { err('option requires an argument -- \'e\''); return 1 } scripts.push(toBytes(text)); haveScript = true }
-      else if (name === '--file') { if (!addScriptFile(value())) return 1 }
+      else if (name === '--expression') { const text = value(); if (text === undefined) { err('option requires an argument -- \'e\''); return 1 } scripts.push(text); haveScript = true }
+      else if (name === '--file') { if (!addScriptFile(value())) return 4 }
       else if (name === '--line-length') options.lineLength = Number(value())
       else if (['--unbuffered', '--binary', '--debug', '--follow-symlinks', '--sandbox'].includes(name)) { /* no effect here */ }
       else { err(`unrecognized option '${arg}'`); writeAll(2, encoder.encode(usage + '\n')); return 1 }
@@ -694,8 +751,8 @@ function main() {
       else if (flag === 'e' || flag === 'f' || flag === 'l') {
         const value = c + 1 < arg.length ? arg.slice(c + 1) : args[++i]
         if (value === undefined) { err(`option requires an argument -- '${flag}'`); writeAll(2, encoder.encode(usage + '\n')); return 1 }
-        if (flag === 'e') { scripts.push(toBytes(value)); haveScript = true }
-        else if (flag === 'f') { if (!addScriptFile(value)) return 1 }
+        if (flag === 'e') { scripts.push(value); haveScript = true }
+        else if (flag === 'f') { if (!addScriptFile(value)) return 4 }
         else options.lineLength = Number(value)
         break
       } else { err(`invalid option -- '${flag}'`); writeAll(2, encoder.encode(usage + '\n')); return 1 }
@@ -704,7 +761,7 @@ function main() {
 
   if (!haveScript) {
     if (operands.length === 0) { writeAll(2, encoder.encode(usage + '\n')); return 1 }
-    scripts.push(toBytes(operands.shift()))
+    scripts.push(operands.shift())
   }
 
   let scriptText = scripts.join('\n')
@@ -713,7 +770,7 @@ function main() {
 
   let program
   try { program = parseScript(scriptText, options.extended, options) } catch (error) {
-    if (error instanceof ScriptError) { err(error.message); return 1 }
+    if (error instanceof ScriptError) { err(error.message); return error.status }
     throw error
   }
 
@@ -756,7 +813,7 @@ function main() {
       for (const input of inputs) {
         if (input.name === '-') { err("couldn't edit -: not a regular file"); status = 4; continue }
         state.lineNumber = 0
-        const result = execute(program, [input], options, state)
+        const result = await execute(program, [input], options, state)
         const text = result.output
         if (options.inPlace) writeFileText(options.inPlace.includes('*') ? options.inPlace.replace(/\*/g, input.name) : input.name + options.inPlace, input.text)
         writeFileText(input.name, text)
@@ -764,7 +821,7 @@ function main() {
         if (exitCode) break
       }
     } else {
-      const result = execute(program, inputs, options, state)
+      const result = await execute(program, inputs, options, state)
       writeAll(1, encodeBytes(result.output))
       exitCode = result.exitCode
     }
@@ -780,7 +837,7 @@ function main() {
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   err(error instanceof Error ? error.message : String(error))
   exit(4)

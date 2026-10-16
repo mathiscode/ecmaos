@@ -128,7 +128,7 @@ describe('process and job commands', () => {
     }, 30000)
 
     it('sends the signal asked for, and keeps the command\'s own status with --preserve-status', async () => {
-      expect((await sh('timeout -s KILL 0.3 sleep 20')).code).toBe(124)
+      expect((await sh('timeout -s KILL 0.3 sleep 20')).code).toBe(137)
       expect((await sh('timeout --preserve-status 0.3 sleep 20')).code).toBe(143)
     }, 30000)
 

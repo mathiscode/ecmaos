@@ -141,9 +141,9 @@ describe('ls, real execve', () => {
   })
 
   it('rejects an unknown option and answers --help', async () => {
-    const bad = await run('ls -Z')
+    const bad = await run('ls -y')
     expect(bad.code).toBe(2)
-    expect(bad.err).toContain("invalid option -- 'Z'")
+    expect(bad.err).toContain("invalid option -- 'y'")
     const help = await run('ls --help')
     expect(help.code).toBe(0)
     expect(help.out).toContain('Usage: ls')

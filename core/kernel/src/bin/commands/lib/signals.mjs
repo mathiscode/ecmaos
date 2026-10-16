@@ -8,6 +8,27 @@ export const SignalNumbers = {
 
 const SignalNames = Object.fromEntries(Object.entries(SignalNumbers).map(([name, num]) => [num, name]))
 
+/** The real-time signals, 34 to 64, named as bash lists them: `RTMIN`, `RTMIN+1` ... `RTMAX-1`, `RTMAX` */
+export const RealtimeNames = {}
+for (let n = 34; n <= 64; n++) {
+  RealtimeNames[n] = n === 34 ? 'RTMIN' : n === 64 ? 'RTMAX' : n <= 49 ? `RTMIN+${n - 34}` : `RTMAX-${64 - n}`
+}
+
+/** Every name `kill -l` shows, by number */
+export function allSignalNames() {
+  const names = { ...SignalNames, ...RealtimeNames }
+  return Object.entries(names).map(([num, name]) => [Number(num), name]).sort((a, b) => a[0] - b[0])
+}
+
+/** The number for a name such as `TERM`, `SIGTERM` or `RTMIN+3`, or `undefined` */
+export function signalNumberOf(name) {
+  const bare = String(name).toUpperCase().replace(/^SIG/, '')
+  if (bare === 'EXIT') return 0
+  if (bare in SignalNumbers) return SignalNumbers[bare]
+  const found = Object.entries(RealtimeNames).find(([, label]) => label === bare)
+  return found ? Number(found[0]) : undefined
+}
+
 export function signalName(num) {
   return SignalNames[num] ?? String(num)
 }
@@ -20,7 +41,6 @@ export function parseSignalArg(arg) {
   if (!arg.startsWith('-') || arg === '-') return null
   const spec = arg.slice(1)
   // signal 0 is not a signal: it asks whether the process exists and may be signalled
-  if (/^\d+$/.test(spec)) return Number(spec) === 0 || SignalNames[Number(spec)] !== undefined ? Number(spec) : undefined
-  const name = spec.toUpperCase().replace(/^SIG/, '')
-  return SignalNumbers[name]
+  if (/^\d+$/.test(spec)) return Number(spec) === 0 || SignalNames[Number(spec)] !== undefined || RealtimeNames[Number(spec)] !== undefined ? Number(spec) : undefined
+  return signalNumberOf(spec)
 }

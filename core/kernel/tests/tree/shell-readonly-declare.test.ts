@@ -61,13 +61,13 @@ describe('readonly and declare', () => {
       expect(lines(output)).toEqual(['code=1', 'still-running'])
     })
 
-    it('ends a script at a refused assignment, as bash does when not interactive', async () => {
+    it('carries on after a refused assignment, as bash does outside POSIX mode', async () => {
       const output = await runScript([
         'readonly RO_END=1',
         'RO_END=2',
-        `echo "not reached" >> ${OUT}`
+        `echo "reached" >> ${OUT}`
       ].join('\n'))
-      expect(lines(output)).toEqual([])
+      expect(lines(output)).toEqual(['reached'])
     })
 
     it('refuses unset too', async () => {

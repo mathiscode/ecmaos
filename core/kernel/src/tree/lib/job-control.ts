@@ -9,6 +9,7 @@
  */
 
 import { Process, execve, kill as zenfsKill, processes } from '@zenfs/linux'
+import { inheritUmask } from './umask-store.ts'
 import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
@@ -217,6 +218,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     tty: options.terminal ? options.terminal.zfsTty ?? null : parent.tty
   })
   shareGroupSignals(child)
+  inheritUmask(parent, child)
   // A traced process's children are traced too when the tracer follows them
   const inherited = tracerOf(parent.pid)
   const tracer = options.trace ?? (inherited?.options.follow ? inherited : undefined)

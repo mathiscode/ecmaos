@@ -6,8 +6,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * split, pr, tee and stat as `execve` programs. `stat` lists zip entries with a hand-written central-directory
- * parser, since bundling `@zip.js/zip.js` pushed the program past the size limit for importing a `data:` URL. `tee`
+ * split, pr, tee and stat as `execve` programs. `tee`
  * expands `~` from `env.HOME`.
  */
 describe('text command batch 5: split/pr/tee/stat, real execve', () => {
@@ -35,20 +34,18 @@ describe('text command batch 5: split/pr/tee/stat, real execve', () => {
   }
 
   it('split splits a file into pieces by line count', async () => {
-    // The PREFIX argument is joined against the INPUT file's own directory (dirname(fullPath)),
-    // matching the original in-process command's behavior exactly - a bare prefix name, not a
-    // full path of its own, is the real intended usage (same as real `split`'s own convention).
+    // Pieces are written next to the working directory, as GNU `split` does, not next to the input file.
     await kernel.filesystem.fs.mkdir('/tmp/split-test', { recursive: true })
     await kernel.filesystem.fs.writeFile('/tmp/split-test/input.txt', 'a\nb\nc\nd\n')
-    const code = await kernel.shell.execute('split -l2 /tmp/split-test/input.txt out.')
+    const code = await kernel.shell.execute('cd /tmp/split-test; split -l2 input.txt out.')
     expect(code).toBe(0)
-    expect(await kernel.filesystem.fs.readFile('/tmp/split-test/out.aa', 'utf-8')).toBe('a\nb')
-    expect(await kernel.filesystem.fs.readFile('/tmp/split-test/out.ab', 'utf-8')).toBe('c\nd')
+    expect(await kernel.filesystem.fs.readFile('/tmp/split-test/out.aa', 'utf-8')).toBe('a\nb\n')
+    expect(await kernel.filesystem.fs.readFile('/tmp/split-test/out.ab', 'utf-8')).toBe('c\nd\n')
   })
 
-  it('pr paginates a file with a page footer', async () => {
+  it('pr paginates a file with a page header', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/pr-in.txt', 'line1\nline2\n')
-    const code = await kernel.shell.execute('pr -l 10 /tmp/pr-in.txt > /tmp/pr.out')
+    const code = await kernel.shell.execute('pr -l 12 /tmp/pr-in.txt > /tmp/pr.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/pr.out', 'utf-8')
     expect(out).toContain('line1')
@@ -70,65 +67,14 @@ describe('text command batch 5: split/pr/tee/stat, real execve', () => {
     expect(out).toBe('existing\nappended\n')
   })
 
-  it('stat prints real JSON file status', async () => {
+  it('stat prints the GNU report and honours -c', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/stat-in.txt', 'hello')
-    const code = await kernel.shell.execute('stat /tmp/stat-in.txt > /tmp/stat.out')
-    expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/stat.out', 'utf-8')
-    const parsed = JSON.parse(out)
-    expect(parsed.size).toBe(5)
-  })
-
-  it('stat lists real ZIP entries via the hand-written central-directory parser', async () => {
-    // A minimal, real, uncompressed (store-method) ZIP built by hand - one local file header, one
-    // matching central directory record, one end-of-central-directory record - exercises the same
-    // real ZIP binary format stat.mjs's own parser reads, without depending on any zip-writing
-    // command (`zip` stays on the legacy shim and isn't what this test is about).
-    const name = 'hello.txt'
-    const content = new TextEncoder().encode('hello world')
-    const nameBytes = new TextEncoder().encode(name)
-
-    const localHeader = new Uint8Array(30 + nameBytes.length)
-    const lv = new DataView(localHeader.buffer)
-    lv.setUint32(0, 0x04034b50, true) // local file header signature
-    lv.setUint16(8, 0, true) // compression method: stored
-    lv.setUint32(18, content.length, true) // compressed size
-    lv.setUint32(22, content.length, true) // uncompressed size
-    lv.setUint16(26, nameBytes.length, true) // filename length
-    localHeader.set(nameBytes, 30)
-
-    const centralHeader = new Uint8Array(46 + nameBytes.length)
-    const cv = new DataView(centralHeader.buffer)
-    cv.setUint32(0, 0x02014b50, true) // central directory signature
-    cv.setUint16(10, 0, true) // compression method: stored
-    cv.setUint32(20, content.length, true) // compressed size
-    cv.setUint32(24, content.length, true) // uncompressed size
-    cv.setUint16(28, nameBytes.length, true) // filename length
-    cv.setUint32(42, 0, true) // local header offset
-    centralHeader.set(nameBytes, 46)
-
-    const centralDirOffset = localHeader.length + content.length
-    const eocd = new Uint8Array(22)
-    const ev = new DataView(eocd.buffer)
-    ev.setUint32(0, 0x06054b50, true) // end-of-central-directory signature
-    ev.setUint16(10, 1, true) // total entries
-    ev.setUint32(12, centralHeader.length, true) // central directory size
-    ev.setUint32(16, centralDirOffset, true) // central directory offset
-
-    const zipBytes = new Uint8Array(localHeader.length + content.length + centralHeader.length + eocd.length)
-    zipBytes.set(localHeader, 0)
-    zipBytes.set(content, localHeader.length)
-    zipBytes.set(centralHeader, localHeader.length + content.length)
-    zipBytes.set(eocd, centralDirOffset + centralHeader.length)
-
-    await kernel.filesystem.fs.writeFile('/tmp/stat-test.zip', zipBytes)
-
-    const code = await kernel.shell.execute('stat /tmp/stat-test.zip > /tmp/stat-zip.out')
-    expect(code).toBe(0)
-    const out = await kernel.filesystem.fs.readFile('/tmp/stat-zip.out', 'utf-8')
-    expect(out).toContain('ZIP Entries:')
-    expect(out).toContain('hello.txt')
-    expect(out).toContain('11 bytes')
+    expect(await kernel.shell.execute('stat -c "%n %s %F" /tmp/stat-in.txt > /tmp/stat.out')).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/stat.out', 'utf-8')).toBe('/tmp/stat-in.txt 5 regular file\n')
+    expect(await kernel.shell.execute('stat /tmp/stat-in.txt > /tmp/stat.out')).toBe(0)
+    const report = (await kernel.filesystem.fs.readFile('/tmp/stat.out', 'utf-8')) as string
+    expect(report).toContain('  File: /tmp/stat-in.txt\n  Size: 5')
+    expect(report).toMatch(/Access: \(0\d{3}\/-[rwx-]{9}\)/)
   })
 
   it('stat reports an error and nonzero exit for a missing file', async () => {

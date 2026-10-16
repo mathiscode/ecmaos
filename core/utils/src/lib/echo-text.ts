@@ -37,6 +37,16 @@ function interpretEscapes(text: string): { text: string, stop: boolean } {
           if (hex) { result += String.fromCharCode(parseInt(hex, 16)); i = j } else { result += text[i]; i++ }
           break
         }
+        case 'u': case 'U': {
+          // \uHHHH and \UHHHHHHHH: a code point, written as UTF-8
+          const max = next === 'u' ? 4 : 8
+          let hex = ''
+          let j = i + 2
+          while (j < text.length && hex.length < max && /[0-9a-fA-F]/.test(text[j] as string)) { hex += text[j]; j++ }
+          const point = parseInt(hex, 16)
+          if (hex && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)) { result += String.fromCodePoint(point); i = j } else { result += text[i]; i++ }
+          break
+        }
         default: result += text[i]; i++; break
       }
     } else {

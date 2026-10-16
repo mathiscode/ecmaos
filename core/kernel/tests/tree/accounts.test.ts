@@ -124,7 +124,7 @@ describe('account commands', () => {
       await sh('useradd -p secret1 -G idsquad idtest')
       const named = (await sh('id idtest')).out.trim()
       const uid = (await passwd('idtest')).split(':')[2]
-      expect(named).toMatch(new RegExp(`^uid=${uid} gid=\\d+ groups=`))
+      expect(named).toMatch(new RegExp(`^uid=${uid}\\(idtest\\) gid=\\d+\\(\\w+\\) groups=`))
       expect(named).not.toBe((await sh('id')).out.trim())
       expect((await sh('id -Gn idtest')).out.trim().split(' ')).toEqual(expect.arrayContaining(['idtest', 'idsquad']))
       expect((await sh('groups idtest')).out.trim()).toMatch(/^idtest : idtest( \w+)*$/)

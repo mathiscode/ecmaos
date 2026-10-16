@@ -2,6 +2,7 @@ import { afterAll } from 'vitest'
 import { attach_xterm } from '@zenfs/linux'
 import { Buffer } from 'node:buffer'
 import 'fake-indexeddb/auto'
+import './fake-idb-prune'
 
 // The Node project runs the kernel tests on real Node, with no DOM (see `vitest.node.config.ts`): this is the part of
 // `setup.ts` that does not need one. A test that needs a page (`document`, `window`, a mounted terminal) does not

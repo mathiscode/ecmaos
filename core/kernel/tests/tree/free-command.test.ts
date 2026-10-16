@@ -48,8 +48,8 @@ describe('free', () => {
     expect(code).toBe(0)
   })
 
-  it('--help prints usage to stderr and exits 0', async () => {
-    const code = await kernel.shell.execute('free --help 2>/tmp/free-help-out.txt')
+  it('--help prints usage to stdout and exits 0', async () => {
+    const code = await kernel.shell.execute('free --help >/tmp/free-help-out.txt')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/free-help-out.txt', 'utf-8')
     expect(out).toContain('Usage: free')

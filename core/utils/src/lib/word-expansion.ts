@@ -46,6 +46,8 @@ export interface ExpansionContext {
   glob(pattern: string): Promise<string[]>
   /** `$HOME`, for tilde expansion */
   home(): string | undefined
+  /** `~name`: the home directory of the user `name` */
+  userHome?(name: string): string | undefined
   /** `set -u`: throw on a reference to an unset variable */
   nounset?: boolean
   /** Whether a `shopt` option (`nullglob`, `failglob`, `extglob`, `nocasematch`, ...) is on */
@@ -136,7 +138,12 @@ class Expander {
   private patternOptions(): GlobOptions { return patternOptionsOf(this.ctx) }
 
   private scalar(name: string): string | undefined {
-    const value = this.ctx.lookup(name)
+    let value = this.ctx.lookup(name)
+    // An array named without a subscript is its first element.
+    if (value === undefined && /^[A-Za-z_]\w*$/.test(name)) {
+      const array = this.ctx.lookupArray(name)
+      if (array) value = array.get(this.ctx.isAssoc?.(name) ? '0' : 0)
+    }
     if (value === undefined && this.ctx.nounset && !/^[@*#?]$/.test(name)) throw new UnboundVariableError(`${name}: unbound variable`)
     return value
   }
@@ -242,13 +249,15 @@ class Expander {
       const replacement = slash === -1 ? '' : await this.expandText(body.slice(slash + 1), 'double')
       if (patternText === '') return finish(values)
       const pattern = globRegExp(patternText, this.patternOptions())
+      // An unescaped `&` stands for the text that matched; `\&` is a literal one.
+      const withMatch = (matched: string): string => replacement.replace(/\\&|&/g, found => found === '&' ? matched : '&')
       const replace = (text: string): string => {
         if (mode === 'start') {
-          for (let end = text.length; end >= 0; end--) if (pattern.test(text.slice(0, end))) return replacement + text.slice(end)
+          for (let end = text.length; end >= 0; end--) if (pattern.test(text.slice(0, end))) return withMatch(text.slice(0, end)) + text.slice(end)
           return text
         }
         if (mode === 'end') {
-          for (let start = 0; start <= text.length; start++) if (pattern.test(text.slice(start))) return text.slice(0, start) + replacement
+          for (let start = 0; start <= text.length; start++) if (pattern.test(text.slice(start))) return text.slice(0, start) + withMatch(text.slice(start))
           return text
         }
         let out = ''
@@ -257,7 +266,7 @@ class Expander {
           let matched = -1
           for (let end = text.length; end > at; end--) if (pattern.test(text.slice(at, end))) { matched = end; break }
           if (matched === -1) { out += text[at]; at++; continue }
-          out += replacement
+          out += withMatch(text.slice(at, matched))
           at = matched
           if (mode === 'first') { out += text.slice(at); return out }
         }
@@ -367,7 +376,7 @@ class Expander {
       }
       case '?': {
         if (!unset) return result
-        throw new Error(`${name}: ${word ? await expandedWord() : 'parameter null or not set'}`)
+        throw new UnboundVariableError(`${name}: ${word ? await expandedWord() : 'parameter null or not set'}`)
       }
     }
     return result
@@ -443,6 +452,13 @@ class Expander {
         if (home !== undefined) {
           add({ text: home, split: false, glob: false })
           text = text.slice(1)
+        }
+      } else if (!quoted && options.tilde && index === 0 && this.ctx.userHome) {
+        const named = /^~([A-Za-z_][A-Za-z0-9_.-]*)(?=\/|$)/.exec(text)
+        const home = named ? this.ctx.userHome(named[1] as string) : undefined
+        if (named && home !== undefined) {
+          add({ text: home, split: false, glob: false })
+          text = text.slice(named[0].length)
         }
       }
 

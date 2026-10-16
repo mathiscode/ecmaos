@@ -26,9 +26,13 @@ interface Outcome { stdout: string, status: number }
  * separate test files, each with a kernel of its own, and the files run side by side instead of one after another.
  * `PARITY_DISCOVER` runs every case on both shells in the first slice only.
  */
+const corpusFilter = __CORPUS_FILTER__ ? new RegExp(__CORPUS_FILTER__) : undefined
+
 export function defineParity(shells: Array<'kernel' | 'ecmash'>, shard: number, shards: number) {
 const cases = allCases.filter((_, index) => index % shards === shard)
+const noMatch = corpusFilter && !cases.some(test => corpusFilter.test(test.script))
 describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`, () => {
+  if (noMatch) { it.skip('no case matches CORPUS_FILTER', () => {}); return }
   let kernel: Kernel
   let baseline: Map<string, string>
 
@@ -85,6 +89,7 @@ describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`,
     // `exec >` redirects the shell itself, so the whole script is captured, EXIT trap included.
     const status = await kernel.shell.executeScriptText(`exec > ${out} 2> ${out}.err; ${script}`, `${out}.sh`)
     const stdout = await fs().readFile(out, 'utf-8').catch(() => '')
+    await Promise.all([out, `${out}.err`, `${out}.sh`].map(path => fs().rm(path, { force: true }).catch(() => {})))
     return { stdout, status }
   }
 
@@ -93,7 +98,9 @@ describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`,
     const base = `/tmp/pe-${serial++}`
     await fs().writeFile(`${base}-script`, script)
     const status = await kernel.shell.execute(`ecmash ${base}-script > ${base}-out 2> ${base}-err`)
-    return { stdout: await fs().readFile(`${base}-out`, 'utf-8'), status }
+    const stdout = await fs().readFile(`${base}-out`, 'utf-8')
+    await Promise.all(['script', 'out', 'err'].map(part => fs().rm(`${base}-${part}`, { force: true }).catch(() => {})))
+    return { stdout, status }
   }
 
   const run = (shell: 'kernel' | 'ecmash', test: { script: string, fs: boolean }) => {
@@ -125,6 +132,7 @@ describe(`shell parity with bash (${shells.join(', ')} ${shard + 1}/${shards})`,
   for (const [shell, known] of ([['kernel', knownKernel], ['ecmash', knownEcmash]] as Array<['kernel' | 'ecmash', KnownTable]>).filter(([name]) => shells.includes(name))) {
     describe(shell, () => {
       for (const test of cases) {
+        if (corpusFilter && !corpusFilter.test(test.script)) continue
         const divergence = known[test.id]
         it(divergence ? `${test.id} (known: ${divergence.why})` : test.id, async () => {
           const want = expected[test.id] as Outcome

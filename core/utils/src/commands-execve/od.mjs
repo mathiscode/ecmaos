@@ -182,7 +182,7 @@ function main() {
   for (let start = 0; start < all.length; start += perLine) {
     const line = all.subarray(start, Math.min(all.length, start + perLine))
     const full = line.length === perLine
-    if (!duplicates && full && previous && previous.length === line.length && previous.every((b, k) => b === line[k]) && start + perLine < all.length) {
+    if (!duplicates && full && previous && previous.length === line.length && previous.every((b, k) => b === line[k])) {
       if (!suppressing) { out += '*\n'; suppressing = true }
       continue
     }

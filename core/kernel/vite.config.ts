@@ -132,6 +132,8 @@ export default defineConfig({
     dts({ exclude: ['src/ui.ts'] })
   ] as ViteUserConfig['plugins'],
   define: {
+    // a regular expression: the corpus suites run only the commands it matches (see `pnpm test:changed`)
+    __CORPUS_FILTER__: JSON.stringify(process.env['CORPUS_FILTER'] ?? ''),
     'import.meta.env.NAME': JSON.stringify(pkg.name),
     'import.meta.env.VERSION': JSON.stringify(pkg.version),
     'import.meta.env.XTERM_VERSION': JSON.stringify(xtermVersion),
@@ -203,8 +205,14 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
-    // `*.slow.test.ts` (Vim, which each test starts anew) is a run of its own: `pnpm test:slow`
-    exclude: process.env['SLOW'] ? [...configDefaults.exclude] : [...configDefaults.exclude, '**/*.slow.test.ts'],
+    // `*.slow.test.ts` (Vim, which each test starts anew) is a run of its own: `pnpm test:slow`. `*.corpus.test.ts` are the
+    // suites that run hundreds of commands against what the real tools printed; they are left out of a plain `pnpm test`
+    // and run by `pnpm test:full`, `pnpm test:corpus` and `pnpm test:changed`.
+    exclude: [
+      ...configDefaults.exclude,
+      ...(process.env['SLOW'] ? [] : ['**/*.slow.test.ts']),
+      ...(process.env['CORPUS'] ? [] : ['**/*.corpus.test.ts'])
+    ],
     // Each test file boots a kernel and spawns a worker per program, so a run is CPU-bound. One fork per core made
     // full runs fail on timing-sensitive tests; 4 forks is stable and no slower.
     maxWorkers: 4,

@@ -85,7 +85,7 @@ function main() {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--') { files.push(...args.slice(i + 1)); break }
-    if (arg === '--help' || arg === '-h') { writeAll(2, encoder.encode(usage + '\n')); return 0 }
+    if (arg === '--help' || arg === '-h') { writeAll(1, encoder.encode(usage + '\n')); return 0 }
     if (arg === '-q' || arg === '--quiet' || arg === '--silent') { header = false; continue }
     if (arg === '-v' || arg === '--verbose') { header = true; continue }
     const long = /^--(lines|bytes)(?:=(.*))?$/.exec(arg)

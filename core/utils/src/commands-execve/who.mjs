@@ -41,7 +41,7 @@ const stamp = ms => {
 function main() {
   const args = argv.slice(1)
   if (args.includes('--help') || args.includes('-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(1, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 

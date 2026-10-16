@@ -1,105 +1,126 @@
-/** Create directories. `-p`/`--parents` also creates any missing parent directories. */
+/**
+ * Make directories, as GNU `mkdir` does. A new directory gets 0777 less the umask; `-m MODE` sets it exactly (octal
+ * or symbolic, relative to 0777 less the umask). `-p` creates missing parents (each with the owner able to write and
+ * search), accepts a directory that exists already, and `-v` names each directory created.
+ */
 
 import { resolve } from './lib/path-utils.mjs'
+import { getopt, tryHelp } from './lib/getopt.mjs'
+import { reasonOf } from './lib/errno.mjs'
+import { compile } from './lib/mode.mjs'
+import { chmodOwned } from './lib/owner-ops.mjs'
 
-const { argv, exit, writeAll, mkdir, getcwd, stat } = globalThis.ecmaosSyscalls
+const sys = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, mkdir, getcwd, stat } = sys
+
+const encoder = new TextEncoder()
+const out = text => writeAll(1, encoder.encode(text))
+const err = text => writeAll(2, encoder.encode(`mkdir: ${text}\n`))
+const hint = () => writeAll(2, encoder.encode(tryHelp('mkdir') + '\n'))
+
+const S_IFMT = 0xf000
+const S_IFDIR = 0x4000
 
 const usage = `Usage: mkdir [OPTION]... DIRECTORY...
 Create the DIRECTORY(ies), if they do not already exist.
 
-  -p, --parents     no error if existing, make parent directories as needed
+Mandatory arguments to long options are mandatory for short options too.
+  -m, --mode=MODE   set file mode (as in chmod), not a=rwx - umask
+  -p, --parents     no error if existing, make parent directories as needed,
+                      with their file modes unaffected by any -m option.
   -v, --verbose     print a message for each created directory
-      --help        display this help and exit`
+  -Z                   set SELinux security context of each created directory
+                         to the default type
+      --context[=CTX]  like -Z, or if CTX is specified then set the SELinux
+                         or SMACK security context to CTX
+      --help        display this help and exit
+      --version     output version information and exit
+`
 
-function parseNumericMode(mode) {
-  if (/^0?[0-7]{1,4}$/.test(mode)) return parseInt(mode, 8)
-  if (/^0o[0-7]{1,4}$/i.test(mode)) return parseInt(mode.slice(2), 8)
-  return null
+const isDirectory = path => {
+  try { return (stat(path).mode & S_IFMT) === S_IFDIR } catch { return false }
 }
-
-function exists(path) {
+const exists = path => {
   try { stat(path); return true } catch { return false }
 }
 
-/** `mkdir -p`: create every missing segment from the root down, ignoring EEXIST along the way. */
-function mkdirRecursive(path, mode) {
-  const segments = path.split('/').filter(Boolean)
-  let current = ''
-  for (const segment of segments) {
-    current += `/${segment}`
-    if (exists(current)) continue
-    try {
-      mkdir(current, mode ?? 0o777)
-    } catch (error) {
-      if (!/EEXIST/.test(String(error?.message ?? error))) throw error
-    }
-  }
-}
+async function main() {
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'm:pvZ',
+    long: { mode: { key: 'm', arg: 'required' }, parents: 'p', verbose: 'v', context: { key: 'Z', arg: 'optional' }, help: 'h', version: 'V' }
+  })
+  if (error) { err(error); hint(); return 1 }
+  const has = key => options.some(([k]) => k === key)
+  if (has('h')) { out(usage); return 0 }
+  if (has('V')) { out('mkdir (ecmaOS coreutils) 1.0\n'); return 0 }
+  if (operands.length === 0) { err('missing operand'); hint(); return 1 }
 
-function main() {
-  const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
+  let umask = 0o022
+  try { const m = Number(await sys.custom('proc_umask', -1)); if (m >= 0) umask = m } catch { /* default */ }
+  const base = 0o777 & ~umask
 
-  let parents = false
-  let verbose = false
   let mode
-  const directories = []
-
-  let i = 0
-  while (i < args.length) {
-    const arg = args[i]
-    if (arg === '--') { i++; directories.push(...args.slice(i)); break }
-    if (arg === '--parents') parents = true
-    else if (arg === '--verbose') verbose = true
-    else if (arg.startsWith('--mode=')) {
-      const parsed = parseNumericMode(arg.slice(7))
-      if (parsed === null) { writeAll(2, new TextEncoder().encode(`mkdir: invalid mode '${arg.slice(7)}'\n`)); return 1 }
-      mode = parsed
-    } else if (arg.startsWith('-') && arg.length > 1) {
-      for (let j = 1; j < arg.length; j++) {
-        const flag = arg[j]
-        if (flag === 'p') parents = true
-        else if (flag === 'v') verbose = true
-        else { writeAll(2, new TextEncoder().encode(`mkdir: invalid option -- '${flag}'\n`)); return 1 }
-      }
-    } else {
-      directories.push(arg)
-    }
-    i++
+  const modeOption = options.filter(([k]) => k === 'm').pop()
+  if (modeOption) {
+    const compiled = compile(String(modeOption[1]), umask)
+    if (!compiled) { err(`invalid mode ‘${modeOption[1]}’`); return 1 }
+    mode = compiled(0o777 & ~umask, true) & 0o7777
   }
 
-  if (directories.length === 0) {
-    writeAll(2, new TextEncoder().encode('mkdir: missing operand\n'))
-    return 1
-  }
-
+  const parents = has('p')
+  const verbose = has('v')
   const cwd = getcwd()
-  let hasError = false
+  let failed = false
+  const fail = (name, e) => { err(`cannot create directory '${name}': ${reasonOf(e)}`); failed = true }
 
-  for (const target of directories) {
-    const fullPath = resolve(cwd, target)
+  const make = async (display, path, own) => {
     try {
-      const existedBefore = parents && exists(fullPath)
-      if (parents) mkdirRecursive(fullPath, mode)
-      else mkdir(fullPath, mode ?? 0o777)
-      if (verbose && !existedBefore) writeAll(1, new TextEncoder().encode(`mkdir: created directory '${target}'\n`))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (parents && /EEXIST/.test(message)) continue
-      writeAll(2, new TextEncoder().encode(`mkdir: ${target}: ${message}\n`))
-      hasError = true
+      mkdir(path, own)
+    } catch (e) {
+      return e
     }
+    if (verbose) out(`mkdir: created directory '${display}'\n`)
+    return undefined
   }
 
-  return hasError ? 1 : 0
+  for (const operand of operands) {
+    const path = resolve(cwd, operand)
+    if (parents) {
+      // every missing ancestor first, each with write and search for its owner
+      const trimmed = operand.replace(/\/+$/, '') || '/'
+      const pieces = trimmed.split('/')
+      let prefix = ''
+      let stop = false
+      for (let i = 0; i < pieces.length - 1 && !stop; i++) {
+        prefix = i === 0 ? pieces[0] : prefix === '/' ? `/${pieces[i]}` : `${prefix}/${pieces[i]}`
+        if (prefix === '') { prefix = '/'; continue }
+        const shown = prefix === '/' ? '/' : prefix
+        const walked = resolve(cwd, shown)
+        if (exists(walked)) {
+          if (!isDirectory(walked)) { fail(shown, Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })); stop = true }
+          continue
+        }
+        const e = await make(shown, walked, (base | 0o300) & 0o777)
+        if (e) { fail(shown, e); stop = true }
+      }
+      if (stop) continue
+      if (isDirectory(path)) continue
+    }
+    const e = await make(operand, path, base)
+    if (e) { fail(operand, e); continue }
+    if (mode !== undefined && mode !== base) {
+      try { await chmodOwned(sys, path, mode) } catch (c) {
+        err(`cannot set permissions of directory '${operand}': ${reasonOf(c)}`)
+        failed = true
+      }
+    }
+  }
+  return failed ? 1 : 0
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`mkdir: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

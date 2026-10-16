@@ -7,8 +7,10 @@
  */
 
 import { findProgram, openDevNull, readAll, run } from './lib/run.mjs'
+import { readFileBytes } from './lib/bytes.mjs'
+import { resolve } from './lib/path-utils.mjs'
 
-const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, getcwd } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
 const err = text => writeAll(2, encoder.encode(`xargs: ${text}\n`))
@@ -17,6 +19,8 @@ const usage = `Usage: xargs [OPTION]... [COMMAND [INITIAL-ARGS]...]
 Run COMMAND with arguments read from standard input (echo by default).
 
   -0, --null             items end with a NUL, not blanks or newlines
+  -a, --arg-file=FILE    read arguments from FILE, not standard input
+  -E EOF-STR             stop at an input line holding EOF-STR (and -e[EOF-STR] likewise)
   -d, --delimiter=CHAR   items end with CHAR
   -n, --max-args=N       at most N arguments per command line
   -L, --max-lines=N      at most N input lines per command line
@@ -59,13 +63,14 @@ function splitBlanks(text) {
 }
 
 function parse(args) {
-  const o = { command: [], delimiter: undefined, maxArgs: undefined, maxLines: undefined, replace: undefined, noRun: false, maxChars: 131072, procs: 1, verbose: false, exitOnLimit: false }
+  const o = { command: [], delimiter: undefined, maxArgs: undefined, maxLines: undefined, replace: undefined, noRun: false, eof: undefined, maxChars: 131072, procs: 1, verbose: false, exitOnLimit: false }
   let i = 0
   const value = (name, inline) => { if (inline !== undefined) return inline; if (i + 1 >= args.length) throw new Error(`option requires an argument -- '${name}'`); return args[++i] }
   for (; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--') { i++; break }
     if (arg === '--help') { o.help = true; return o }
+    if (arg === '--version') { o.version = true; return o }
     if (!arg.startsWith('-') || arg === '-') break
     let m
     if (arg === '-0' || arg === '--null') o.delimiter = '\0'
@@ -76,6 +81,10 @@ function parse(args) {
     }
     else if ((m = /^--max-args(?:=(.*))?$/.exec(arg)) || arg.startsWith('-n')) o.maxArgs = Number(m ? value('n', m[1]) : (arg.length > 2 ? arg.slice(2) : value('n')))
     else if ((m = /^--max-lines(?:=(.*))?$/.exec(arg)) || arg.startsWith('-L')) o.maxLines = Number(m ? value('L', m[1]) : (arg.length > 2 ? arg.slice(2) : value('L')))
+    else if ((m = /^--arg-file(?:=(.*))?$/.exec(arg)) || arg.startsWith('-a')) o.argFile = m ? value('a', m[1]) : (arg.length > 2 ? arg.slice(2) : value('a'))
+    else if ((m = /^--eof(?:=(.*))?$/.exec(arg)) || arg.startsWith('-E')) o.eof = m ? (m[1] ?? '') : (arg.length > 2 ? arg.slice(2) : value('E'))
+    else if (arg === '-e') o.eof = undefined
+    else if (arg.startsWith('-e')) o.eof = arg.slice(2)
     else if (arg.startsWith('-I')) o.replace = arg.length > 2 ? arg.slice(2) : value('I')
     else if (arg === '-i' || arg.startsWith('--replace')) o.replace = arg.includes('=') ? arg.split('=')[1] : '{}'
     else if ((m = /^--max-chars(?:=(.*))?$/.exec(arg)) || arg.startsWith('-s')) o.maxChars = Number(m ? value('s', m[1]) : (arg.length > 2 ? arg.slice(2) : value('s')))
@@ -96,15 +105,35 @@ async function main() {
   let o
   try { o = parse(argv.slice(1)) } catch (error) { err(error.message); return 1 }
   if (o.help) { writeAll(1, encoder.encode(usage + '\n')); return 0 }
+  if (o.version) { writeAll(1, encoder.encode('xargs (ecmaOS coreutils) 1.0\n')); return 0 }
 
-  const text = new TextDecoder().decode(readAll(0))
+  let bytes
+  if (o.argFile !== undefined) {
+    try { bytes = readFileBytes(resolve(getcwd(), o.argFile)) } catch (error) { err(`${o.argFile}: ${/ENOENT/.test(String(error?.message)) ? 'No such file or directory' : error?.message ?? error}`); return 1 }
+  } else bytes = readAll(0)
+  const text = new TextDecoder().decode(bytes)
   let lines
   try {
     if (o.delimiter !== undefined) {
       const parts = text.split(o.delimiter)
       if (parts[parts.length - 1] === '') parts.pop()
       lines = parts.map(item => [item])
-    } else lines = splitBlanks(text)
+    } else {
+      lines = splitBlanks(text)
+      // an input line holding the EOF string ends the input, and so does the first item that is it
+      if (o.eof !== undefined && o.eof !== '') {
+        const cut = []
+        outer: for (const line of lines) {
+          const kept = []
+          for (const item of line) {
+            if (item === o.eof) { if (kept.length) cut.push(kept); break outer }
+            kept.push(item)
+          }
+          cut.push(kept)
+        }
+        lines = cut
+      }
+    }
   } catch (error) { err(error.message); return 1 }
   const items = lines.flat()
   if (items.length === 0 && o.noRun) return 0
@@ -118,11 +147,13 @@ async function main() {
     for (let i = 0; i < lines.length; i += o.maxLines) batches.push(lines.slice(i, i + o.maxLines).flat())
   } else {
     let batch = []
-    let size = base.join(' ').length
+    // each word counts its terminating NUL, the command's included, as `execve` does
+    const baseSize = base.reduce((sum, word) => sum + word.length + 1, 0)
+    let size = baseSize
     for (const item of items) {
       const cost = item.length + 1
-      if (cost + base.join(' ').length > o.maxChars) { err('argument line too long'); return 1 }
-      if (batch.length && (size + cost > o.maxChars || (o.maxArgs !== undefined && batch.length >= o.maxArgs))) { batches.push(batch); batch = []; size = base.join(' ').length }
+      if (cost + baseSize > o.maxChars) { err('argument line too long'); return 1 }
+      if (batch.length && (size + cost > o.maxChars || (o.maxArgs !== undefined && batch.length >= o.maxArgs))) { batches.push(batch); batch = []; size = baseSize }
       batch.push(item)
       size += cost
     }

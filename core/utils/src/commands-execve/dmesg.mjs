@@ -22,7 +22,7 @@ function main() {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     const value = () => arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : args[++i]
-    if (arg === '--help' || arg === '-h') { err(usage); return 0 }
+    if (arg === '--help' || arg === '-h') { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
     else if (arg === '-l' || arg.startsWith('--level')) levels = new Set(String(value()).toLowerCase().split(','))
     else if (arg === '-n' || arg.startsWith('--last')) last = Number(value())
     else { err(`dmesg: unknown option '${arg}'`); err("Try 'dmesg --help' for more information."); return 1 }

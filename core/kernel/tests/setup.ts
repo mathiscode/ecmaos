@@ -1,6 +1,7 @@
 import { afterAll, vi } from 'vitest'
 import { Buffer } from 'node:buffer'
 import 'fake-indexeddb/auto'
+import './fake-idb-prune'
 import 'vitest-canvas-mock'
 
 (globalThis as any).Buffer = Buffer
@@ -264,13 +265,8 @@ class ESBuildAndJSDOMCompatibleTextEncoder extends TextEncoder {
       throw new TypeError('`input` must be a string')
     }
 
-    const decodedURI = decodeURIComponent(encodeURIComponent(input))
-    const arr = new Uint8Array(decodedURI.length)
-    const chars = decodedURI.split('')
-    for (let i = 0; i < chars.length; i++) {
-      arr[i] = decodedURI[i]!.charCodeAt(0)
-    }
-    return arr
+    // UTF-8, as every real TextEncoder; copied into this realm's Uint8Array
+    return new Uint8Array(super.encode(input))
   }
 }
 

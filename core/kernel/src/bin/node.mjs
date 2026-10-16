@@ -9,9 +9,9 @@
 
 import { ready, exit, getpid, getppid, getuid, geteuid, getgid, getegid } from '@zenfs/linux/uapi/process'
 import {
-  open, read, close, write, getcwd,
-  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink, utimes, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
+  open as openRaw, read, close, write, getcwd,
+  mkdir as mkdirRaw, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
+  link, symlink, readlink, utimes, statfs, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
 } from '@zenfs/linux/uapi/fs'
 import { parseArgs, installConsole, runSource, readStdin, isTty, startRepl, Usage } from './node-cli.mjs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
@@ -31,6 +31,23 @@ const POLLIN = 0x1
 const POLLOUT = 0x4
 const POLLERR = 0x8
 const POLLHUP = 0x10
+
+/**
+ * The file mode creation mask. The kernel holds the real one for the process (`proc_umask`); this copy is read once
+ * when the program starts, and the wrappers below take it off the mode of everything the program creates, which is
+ * where POSIX applies it. `umask(mask)` sets it for this process and for what it starts afterwards.
+ */
+let creationMask = 0o022
+const open = (path, flags, mode = 0) => openRaw(path, flags, flags & 0x40 ? mode & ~creationMask : mode)
+const mkdir = (path, mode = 0o777) => mkdirRaw(path, mode & ~creationMask)
+const umask = mask => {
+  const old = creationMask
+  if (mask !== undefined) {
+    creationMask = mask & 0o777
+    syscall_async('proc_umask', creationMask).catch(() => {})
+  }
+  return old
+}
 
 const O_RDONLY = 0
 const O_WRONLY = 1
@@ -157,6 +174,8 @@ function toDataUrl(bytes) {
 }
 
 const ready_ = await ready
+// the mask this process starts with: its shell's, or its parent's
+try { const mask = Number(await syscall_async('proc_umask', -1)); if (mask >= 0) creationMask = mask & 0o777 } catch { /* the default stands */ }
 
 // Run as `node file [args...]`: the program is the file, and it sees its own path as `argv[0]`, as it would under
 // `execve`. With no file there is nothing to run, and this interpreter is not a REPL.
@@ -175,7 +194,7 @@ const init = cli?.action === 'file' ? (() => {
 // and the sync path would block the worker with `Atomics.wait`.
 globalThis.ecmaosSyscalls = {
   open, read, write, writeAll, close, getcwd, exit, custom: syscall_async,
-  mkdir, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes,
+  mkdir, umask, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes, statfs,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`

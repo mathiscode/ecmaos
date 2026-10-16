@@ -56,11 +56,11 @@ describe('text command batch 13: cal/date/printf/which/whoami/pwd/hostname/uname
     expect(out).toContain('January 2024')
   })
 
-  it('date -I prints an ISO 8601 timestamp', async () => {
+  it('date -I prints the ISO 8601 date, -Iseconds the timestamp', async () => {
     const code = await kernel.shell.execute('date -I > /tmp/date-out.txt')
     expect(code).toBe(0)
     const out = (await kernel.filesystem.fs.readFile('/tmp/date-out.txt', 'utf-8')).trim()
-    expect(out).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(out).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 
   it('printf formats arguments per the format string', async () => {

@@ -20,7 +20,7 @@
  * A block's condition line is kept as raw text and goes through `Shell.execute`.
  */
 
-import { foldHeredocs, pendingHeredocDelimiter } from './shell-parser.js'
+import { foldHeredocs, hasOpenQuote, pendingHeredocDelimiter } from './shell-parser.js'
 
 export interface SimpleStatement extends Positioned {
   type: 'simple'
@@ -200,16 +200,36 @@ interface SourceLine {
  */
 function preprocessLines(script: string, offset = 0): SourceLine[] {
   const out: SourceLine[] = []
-  script.split('\n').forEach((physical, index) => {
+  // A quoted string can run over several physical lines; they are joined (with a stand-in for each newline, so the
+  // per-line splitting below leaves the string alone) and the newlines are put back in the finished line.
+  let pending = ''
+  let pendingAt = 0
+  const handle = (physical: string, index: number) => {
     const segments = physical.trim().startsWith('#') ? [physical] : splitTopLevel(physical)
     for (const segment of segments) {
-      for (const normalized of normalizeOneLineIfNeeded(segment).split('\n')) {
-        const text = normalized.trim()
+      for (const normalized of normalizeOneLineIfNeededLines(segment)) {
+        const text = normalized.trim().replaceAll(QUOTED_NEWLINE, '\n')
         if (text.length > 0 && !text.startsWith('#')) out.push({ text, line: offset || index + 1 })
       }
     }
+  }
+  script.split('\n').forEach((physical, index) => {
+    const joined = pending ? pending + QUOTED_NEWLINE + physical : physical
+    const start = pending ? pendingAt : index
+    if (hasOpenQuote(joined)) { pending = joined; pendingAt = start; return }
+    pending = ''
+    handle(joined, start)
   })
+  if (pending) handle(pending, pendingAt)
   return out
+}
+
+/** Stands in for a newline inside a quoted string while a script is split into lines. */
+const QUOTED_NEWLINE = '\uE000'
+
+/** {@link normalizeOneLineIfNeeded}'s result as separate lines (a normalization can span several). */
+function normalizeOneLineIfNeededLines(segment: string): string[] {
+  return normalizeOneLineIfNeeded(segment).split('\n')
 }
 
 /** {@link normalizeInlineControlFlow}'s per-line rule, shared with {@link preprocessLines}. */
@@ -527,8 +547,9 @@ class LineParser {
    * line the parser cannot read.
    */
   private pushBack(text: string, line: number): void {
-    const pieces = splitTopLevel(text).flatMap(segment => normalizeOneLineIfNeeded(segment).split('\n'))
-      .map(piece => piece.trim()).filter(piece => piece.length > 0)
+    // a newline in the text is inside a quoted string (lines were joined across those), so it must survive the split
+    const pieces = splitTopLevel(text.replaceAll('\n', QUOTED_NEWLINE)).flatMap(segment => normalizeOneLineIfNeeded(segment).split('\n'))
+      .map(piece => piece.trim().replaceAll(QUOTED_NEWLINE, '\n')).filter(piece => piece.length > 0)
     this.lines.splice(this.pos, 0, ...pieces.map(piece => ({ text: piece, line })))
   }
   /** The physical line the next statement starts on, for `$LINENO`. */
@@ -920,16 +941,16 @@ class LineParser {
 /**
  * A whole function definition on one line: `f() { echo hi; }`. The body is greedy, so nested blocks stay inside it.
  */
-const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/
+const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/s
 
 /** `NAME()` with an opening brace whose body is not closed on this line (`greet() {` or `greet() { echo hi`). */
-const OPEN_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(?:\{(.*))?$/
+const OPEN_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(?:\{(.*))?$/s
 
 /**
  * A line that opens a function body with content after the brace. {@link normalizeInlineControlFlow} passes these
  * through untouched.
  */
-const ONE_LINE_FUNCTION_BODY = /^(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:\(\s*\))?\s*\{.*\S/
+const ONE_LINE_FUNCTION_BODY = /^(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:\(\s*\))?\s*\{.*\S/s
 
 /**
  * Parses a one-line function body through the same normalization as an interactively typed compound statement.
@@ -1123,6 +1144,8 @@ export function parseStatements(script: string): Statement[] {
 export function needsMoreInput(text: string): boolean {
   if (!text.trim()) return false
   if (pendingHeredocDelimiter(text) !== null) return true
+  // an open quote runs on to the next line, as at a bash prompt (a here-document body may hold a lone quote)
+  if (!text.includes('<<') && hasOpenQuote(text)) return true
 
   try {
     parseStatements(text)

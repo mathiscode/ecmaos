@@ -40,7 +40,7 @@ describe('text command batch 15: id/groups, real execve', () => {
     const out = await kernel.filesystem.fs.readFile('/tmp/id-out.txt', 'utf-8')
     // `groups=` must never be empty: a user's group list always begins with their primary group,
     // even when they have no supplementary memberships in `/etc/group`.
-    expect(out).toMatch(/^uid=\d+ gid=(\d+) groups=\1/)
+    expect(out).toMatch(/^uid=\d+\([^)]*\) gid=(\d+)\([^)]*\) groups=\1/)
   })
 
   it('id -u prints only the numeric effective uid', async () => {

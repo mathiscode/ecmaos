@@ -1,120 +1,176 @@
-/** Remove files. `-r`/`-R` removes directories recursively. Supports glob patterns. */
+/**
+ * Remove files and directories, as GNU `rm` does. The operands are exactly what the shell expanded (no globbing here,
+ * so a quoted `'*'` is a file named `*`), symlinks are removed and never followed, `.` and `..` are refused, and `/`
+ * is protected unless `--no-preserve-root`. `-r` removes a tree depth first; `-d` removes an empty directory;
+ * `-i` and `-I` ask first; `-f` ignores a missing operand and never asks.
+ */
 
 import { resolve } from './lib/path-utils.mjs'
+import { getopt, tryHelp } from './lib/getopt.mjs'
+import { reasonOf, is } from './lib/errno.mjs'
 
-const { argv, exit, writeAll, getcwd, stat, unlink, rmdir, readdir, isDirectory, rmRecursive } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, read, getcwd, lstat, unlink, rmdir, readdir } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: rm [OPTION]... FILE...
+const encoder = new TextEncoder()
+const out = text => writeAll(1, encoder.encode(text))
+const err = text => writeAll(2, encoder.encode(`rm: ${text}\n`))
+const hint = () => writeAll(2, encoder.encode(tryHelp('rm') + '\n'))
+
+const S_IFMT = 0xf000
+const S_IFDIR = 0x4000
+const S_IFLNK = 0xa000
+
+const usage = `Usage: rm [OPTION]... [FILE]...
 Remove (unlink) the FILE(s).
 
-  -f, --force     ignore nonexistent files and arguments, never prompt
+  -f, --force           ignore nonexistent files and arguments, never prompt
+  -i                    prompt before every removal
+  -I                    prompt once before removing more than three files, or
+                          when removing recursively
+      --one-file-system  accepted; the file system is not crossed here
+      --no-preserve-root  do not treat '/' specially
+      --preserve-root[=all]  do not remove '/' (default)
   -r, -R, --recursive   remove directories and their contents recursively
-  -v, --verbose   explain what is being done
-  --help          display this help and exit`
+  -d, --dir             remove empty directories
+  -v, --verbose         explain what is being done
+      --help            display this help and exit
 
-function expandGlob(cwd, pattern) {
-  if (!pattern.includes('*') && !pattern.includes('?')) return [pattern]
+By default, rm does not remove directories.  Use the --recursive (-r or -R)
+option to remove each listed directory, too, along with all of its contents.`
 
-  const lastSlash = pattern.lastIndexOf('/')
-  const searchDir = lastSlash !== -1 ? resolve(cwd, pattern.slice(0, lastSlash + 1)) : cwd
-  const globPattern = lastSlash !== -1 ? pattern.slice(lastSlash + 1) : pattern
-  const dirPrefix = lastSlash !== -1 ? pattern.slice(0, lastSlash + 1) : ''
-
-  try {
-    const entries = readdir(searchDir)
-    const regex = new RegExp(`^${globPattern.replace(/\./g, '\\.').replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
-    const matches = entries.filter(name => regex.test(name))
-    return matches.length ? matches.map(name => dirPrefix + name) : []
-  } catch {
-    return []
+/** One line from fd 0, for the prompts of -i and -I */
+function answer() {
+  const byte = new Uint8Array(1)
+  let line = ''
+  for (;;) {
+    if (read(0, byte, -1) <= 0) break
+    if (byte[0] === 10) break
+    line += String.fromCharCode(byte[0])
   }
+  return /^y/i.test(line)
 }
 
+const kindOf = mode => ((mode & S_IFMT) === S_IFDIR ? 'directory' : (mode & S_IFMT) === S_IFLNK ? 'symbolic link' : 'regular file')
+
 function main() {
-  const args = argv.slice(1)
-  if (args.length === 0) {
-    writeAll(2, new TextEncoder().encode("rm: missing operand\nTry 'rm --help' for more information.\n"))
-    return 1
-  }
-  if (args[0] === '--help' || args[0] === '-h') {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
-  let recursive = false
-  let force = false
-  let verbose = false
-  const patterns = []
-
-  for (const arg of args) {
-    if (arg.startsWith('-') && arg !== '--') {
-      if (arg === '--recursive' || arg === '-R') recursive = true
-      else if (arg === '--force') force = true
-      else if (arg === '--verbose') verbose = true
-      else if (arg.length > 1) {
-        for (let i = 1; i < arg.length; i++) {
-          const flag = arg[i]
-          if (flag === 'r' || flag === 'R') recursive = true
-          else if (flag === 'f') force = true
-          else if (flag === 'v') verbose = true
-          else { writeAll(2, new TextEncoder().encode(`rm: invalid option -- '${flag}'\n`)); return 1 }
-        }
-      } else {
-        writeAll(2, new TextEncoder().encode(`rm: invalid option -- '${arg.slice(1)}'\n`))
-        return 1
-      }
-    } else {
-      patterns.push(arg)
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'fiIrRdv',
+    long: {
+      force: 'f', interactive: { key: 'i', arg: 'optional' }, recursive: 'r', dir: 'd', verbose: 'v', help: 'help',
+      'one-file-system': 'x', 'no-preserve-root': 'N', 'preserve-root': { key: 'P', arg: 'optional' }
     }
+  })
+  if (error) { err(error); hint(); return 1 }
+  let force = false
+  let prompt = 'never'
+  let recursive = false
+  let dirs = false
+  let verbose = false
+  let preserveRoot = true
+  for (const [key, value] of options) {
+    if (key === 'help') { out(usage + '\n'); return 0 }
+    else if (key === 'f') { force = true; prompt = 'never' }
+    else if (key === 'i') {
+      // --interactive[=WHEN]: never, once, always
+      if (value === true || value === 'always' || value === 'yes') prompt = 'always'
+      else if (value === 'once') prompt = 'once'
+      else if (value === 'never' || value === 'no' || value === 'none') prompt = 'never'
+      else { err(`invalid argument '${value}' for '--interactive'`); hint(); return 1 }
+      force = false
+    } else if (key === 'I') { prompt = 'once'; force = false }
+    else if (key === 'r' || key === 'R') recursive = true
+    else if (key === 'd') dirs = true
+    else if (key === 'v') verbose = true
+    else if (key === 'N') preserveRoot = false
+    else if (key === 'P') preserveRoot = true
   }
 
-  if (patterns.length === 0) {
-    writeAll(2, new TextEncoder().encode('rm: missing operand\n'))
+  if (operands.length === 0) {
+    if (force) return 0
+    err('missing operand')
+    hint()
     return 1
   }
 
   const cwd = getcwd()
-  const expanded = []
-  for (const pattern of patterns) {
-    const matches = expandGlob(cwd, pattern)
-    expanded.push(...(matches.length ? matches : [pattern]))
+  let failed = false
+  const fail = (name, text) => { err(`cannot remove '${name}': ${text}`); failed = true }
+
+  if (prompt === 'once' && (operands.length > 3 || recursive)) {
+    writeAll(2, encoder.encode(`rm: remove ${operands.length} argument${operands.length === 1 ? '' : 's'}${recursive ? ' recursively' : ''}? `))
+    if (!answer()) return 0
   }
 
-  let hasError = false
-  for (const target of expanded) {
-    const fullPath = resolve(cwd, target)
-    try {
-      let isDir = false
-      try { isDir = isDirectory(fullPath) } catch (statError) {
-        if (!force) {
-          writeAll(2, new TextEncoder().encode(`rm: ${target}: No such file or directory\n`))
-          hasError = true
-        }
-        continue
-      }
-      if (isDir && !recursive) {
-        writeAll(2, new TextEncoder().encode(`rm: ${target}: is a directory\n`))
-        hasError = true
-        continue
-      }
-      if (isDir) rmRecursive(fullPath)
-      else unlink(fullPath)
-      if (verbose) writeAll(1, new TextEncoder().encode(`removed ${isDir ? 'directory ' : ''}'${target}'\n`))
-    } catch (error) {
-      if (!force) {
-        const message = error instanceof Error ? error.message : String(error)
-        writeAll(2, new TextEncoder().encode(`rm: ${target}: ${message}\n`))
-        hasError = true
-      }
+  /** Remove `path` (shown as `name`); returns true when it is gone */
+  const remove = (name, path, top) => {
+    let stats
+    try { stats = lstat(path) } catch (error) {
+      if (!(top && force && (is(error, 'ENOENT') || is(error, 'ENOTDIR')))) fail(name, reasonOf(error))
+      return false
     }
+    const isDir = (stats.mode & S_IFMT) === S_IFDIR
+    // a trailing slash names what a symlink points at, never the link itself or a file
+    if (top && !isDir && /\/$/.test(name)) { fail(name, 'Not a directory'); return false }
+    if (isDir && !recursive) {
+      if (!dirs) { fail(name, 'Is a directory'); return false }
+      if (prompt === 'always') {
+        writeAll(2, encoder.encode(`rm: remove directory '${name}'? `))
+        if (!answer()) return false
+      }
+      try { rmdir(path) } catch (error) { fail(name, reasonOf(error)); return false }
+      if (verbose) out(`removed directory '${name}'\n`)
+      return true
+    }
+    if (isDir) {
+      if (prompt === 'always') {
+        writeAll(2, encoder.encode(`rm: descend into directory '${name}'? `))
+        if (!answer()) return false
+      }
+      let names
+      try { names = readdir(path) } catch (error) { fail(name, reasonOf(error)); return false }
+      let clean = true
+      for (const entry of names) if (!remove(`${name.replace(/\/+$/, '')}/${entry}`, `${path}/${entry}`, false)) clean = false
+      if (!clean) return false
+      if (prompt === 'always') {
+        writeAll(2, encoder.encode(`rm: remove directory '${name}'? `))
+        if (!answer()) return false
+      }
+      try { rmdir(path) } catch (error) { fail(name, reasonOf(error)); return false }
+      if (verbose) out(`removed directory '${name}'\n`)
+      return true
+    }
+    if (prompt === 'always') {
+      writeAll(2, encoder.encode(`rm: remove ${kindOf(stats.mode)} '${name}'? `))
+      if (!answer()) return false
+    }
+    try { unlink(path) } catch (error) { fail(name, reasonOf(error)); return false }
+    if (verbose) out(`removed '${name}'\n`)
+    return true
   }
 
-  return hasError ? 1 : 0
+  for (const operand of operands) {
+    const trimmed = operand.replace(/\/+$/, '') || (operand ? '/' : '')
+    const last = trimmed.slice(trimmed.lastIndexOf('/') + 1)
+    if (last === '.' || last === '..') {
+      err(`refusing to remove '.' or '..' directory: skipping '${operand}'`)
+      failed = true
+      continue
+    }
+    const path = resolve(cwd, operand)
+    if (preserveRoot && path === '/' && (recursive || dirs)) {
+      err("it is dangerous to operate recursively on '/'")
+      err('use --no-preserve-root to override this failsafe')
+      failed = true
+      continue
+    }
+    remove(operand, path, true)
+  }
+  return failed ? 1 : 0
 }
 
 try {
   exit(main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`rm: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

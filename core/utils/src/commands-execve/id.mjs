@@ -1,118 +1,129 @@
-/** Print the effective user and group IDs, and group membership, for the current user or a named one. */
+/**
+ * Print user and group information, as GNU `id` does: `uid=1000(name) gid=1000(name) groups=1000(name),10(wheel)` for
+ * the caller or each USER named, or with `-u`, `-g` or `-G` one kind of id alone (`-n` as names, `-r` as the real
+ * ids, `-z` ending with NUL). `euid=` and `egid=` appear when they differ from the real ids.
+ */
 
 import { readFileBytes } from './lib/bytes.mjs'
+import { getopt, tryHelp } from './lib/getopt.mjs'
 
-const { argv, exit, writeAll, open, read, close, stat, unlink, custom, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, exit, writeAll, custom, unlink } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: id [OPTION]... [USER]
-Print user and group IDs.
+const encoder = new TextEncoder()
+const out = text => writeAll(1, encoder.encode(text))
+const err = text => writeAll(2, encoder.encode(`id: ${text}\n`))
+const hint = () => writeAll(2, encoder.encode(tryHelp('id') + '\n'))
+const quote = text => `‘${text}’`
 
-  -u, --user     print only the effective user ID
+const usage = `Usage: id [OPTION]... [USER]...
+Print user and group information for each specified USER,
+or (when USER omitted) for the current process.
+
+  -a             ignore, for compatibility with other versions
+  -Z, --context  print only the security context of the process
   -g, --group    print only the effective group ID
   -G, --groups   print all group IDs
-  -n, --name     print names instead of numeric IDs
-  --help         display this help and exit`
+  -n, --name     print a name instead of a number, for -ugG
+  -r, --real     print the real ID instead of the effective ID, with -ugG
+  -u, --user     print only the effective user ID
+  -z, --zero     delimit entries with NUL characters, not whitespace;
+                   not permitted in default format
+      --help        display this help and exit
+      --version     output version information and exit
 
-function readWholeFile(fullPath) {
-  const bytes = readFileBytes(fullPath)
-  return bytes
-}
+Without any OPTION, print some useful set of identified information.
+`
 
-async function usersLookup(query) {
+async function lookup(query) {
   const path = `/tmp/.users_lookup-${Math.random().toString(36).slice(2)}`
   await custom('users_lookup', JSON.stringify(query), path)
   try {
-    const content = new TextDecoder().decode(readWholeFile(path))
-    return JSON.parse(content)
+    return JSON.parse(new TextDecoder().decode(readFileBytes(path)))
   } finally {
     try { unlink(path) } catch { /* best-effort cleanup */ }
   }
 }
 
 async function main() {
-  const args = argv.slice(1)
+  const { options, operands, error } = getopt(argv.slice(1), {
+    short: 'agGnruzZ',
+    long: { context: 'Z', group: 'g', groups: 'G', name: 'n', real: 'r', user: 'u', zero: 'z', help: 'help', version: 'version' }
+  })
+  if (error) { err(error); hint(); return 1 }
+  const flags = new Set(options.map(([key]) => key))
+  if (flags.has('help')) { out(usage); return 0 }
+  if (flags.has('version')) { out('id (ecmaOS coreutils) 1.0\n'); return 0 }
+  if (flags.has('Z')) { err('--context (-Z) works only on an SELinux-enabled kernel'); return 1 }
 
-  let userOnly = false
-  let groupOnly = false
-  let groupsOnly = false
-  let nameOnly = false
-  let target
+  const chosen = ['u', 'g', 'G'].filter(key => flags.has(key))
+  if (chosen.length > 1) { err('cannot print "only" of more than one choice'); return 1 }
+  if (chosen.length === 0 && (flags.has('n') || flags.has('r'))) { err('printing only names or real IDs requires -u, -g, or -G'); return 1 }
+  if (chosen.length === 0 && flags.has('z')) { err('option --zero not permitted in default format'); return 1 }
+  const only = chosen[0]
+  const names = flags.has('n')
+  const real = flags.has('r')
+  const end = flags.has('z') ? '\0' : '\n'
 
-  for (const arg of args) {
-    if (arg === '--help' || arg === '-h') {
-      writeAll(2, new TextEncoder().encode(usage + '\n'))
-      return 0
-    } else if (arg === '-u' || arg === '--user') {
-      userOnly = true
-    } else if (arg === '-g' || arg === '--group') {
-      groupOnly = true
-    } else if (arg === '-G' || arg === '--groups') {
-      groupsOnly = true
-    } else if (arg === '-n' || arg === '--name') {
-      nameOnly = true
-    } else if (!arg.startsWith('-')) {
-      target = arg
-    } else if (arg.startsWith('-')) {
-      const flags = arg.slice(1).split('')
-      if (flags.includes('u')) userOnly = true
-      if (flags.includes('g')) groupOnly = true
-      if (flags.includes('G')) groupsOnly = true
-      if (flags.includes('n')) nameOnly = true
-      const invalid = flags.find(f => !['u', 'g', 'G', 'n'].includes(f))
-      if (invalid) {
-        writeAll(2, new TextEncoder().encode(`id: invalid option -- '${invalid}'\n`))
-        return 1
+  const groupNames = new Map()
+  const groupName = async gid => {
+    if (!groupNames.has(gid)) groupNames.set(gid, (await lookup({ mode: 'group', gid }))?.name)
+    return groupNames.get(gid)
+  }
+  const userName = async record => record.username
+
+  let failed = false
+  const subjects = operands.length ? operands : [undefined]
+  for (const operand of subjects) {
+    let record
+    if (operand === undefined) record = await lookup({ mode: 'self' })
+    else {
+      record = await lookup({ mode: 'byUsername', username: operand })
+      if (!record && /^\d+$/.test(operand)) record = await lookup({ mode: 'byUid', uid: Number(operand) })
+    }
+    if (!record) { err(`${quote(operand)}: no such user`); failed = true; continue }
+
+    const uid = record.uid
+    const gid = record.gid
+    const euid = operand === undefined ? record.euid ?? uid : uid
+    const egid = operand === undefined ? record.egid ?? gid : gid
+    const supplementary = (record.groups || [])
+    // the effective group first, then the real one, then the rest
+    const groups = [...new Set([egid, gid, ...supplementary])]
+    const name = await userName(record)
+    const label = async (id, kind) => {
+      if (kind === 'user') return id === record.uid ? name : (await lookup({ mode: 'byUid', uid: id }))?.username
+      return await groupName(id)
+    }
+
+    if (only === 'u') {
+      const id = real ? uid : euid
+      out(`${names ? (await label(id, 'user')) ?? id : id}${end}`)
+    } else if (only === 'g') {
+      const id = real ? gid : egid
+      out(`${names ? (await groupName(id)) ?? id : id}${end}`)
+    } else if (only === 'G') {
+      const parts = []
+      for (const id of groups) parts.push(names ? (await groupName(id)) ?? String(id) : String(id))
+      out(parts.join(flags.has('z') ? '\0' : ' ') + end)
+    } else {
+      const paren = async (id, kind) => {
+        const text = kind === 'user' ? await label(id, 'user') : await groupName(id)
+        return text === undefined ? String(id) : `${id}(${text})`
       }
+      let line = `uid=${await paren(uid, 'user')} gid=${await paren(gid, 'group')}`
+      if (euid !== uid) line += ` euid=${await paren(euid, 'user')}`
+      if (egid !== gid) line += ` egid=${await paren(egid, 'group')}`
+      const parts = []
+      for (const id of groups) parts.push(await paren(id, 'group'))
+      out(`${line} groups=${parts.join(',')}\n`)
     }
   }
-
-  const self = target === undefined
-    ? await usersLookup({ mode: 'self' })
-    : await usersLookup({ mode: 'byUsername', username: target })
-  if (!self) {
-    writeAll(2, new TextEncoder().encode(`id: '${target}': no such user\n`))
-    return 1
-  }
-  // Another user has no separate effective ids
-  self.euid ??= self.uid
-  self.egid ??= self.gid
-
-  // A user's group list always begins with their primary group, then the supplementary groups from
-  // `/etc/group`. `self.groups` carries only the supplementary ones, so reporting it alone printed
-  // `groups=` (empty) for any user with no supplementary memberships - root included.
-  const groups = [self.gid, ...(self.groups || []).filter(gid => gid !== self.gid)]
-
-  const resolveGroupName = async (gid) => {
-    const record = await usersLookup({ mode: 'group', gid })
-    return record?.name || String(gid)
-  }
-  const primaryName = await resolveGroupName(self.gid)
-
-  let output
-
-  if (userOnly) {
-    output = nameOnly ? (self.username || String(self.uid)) : String(self.euid)
-  } else if (groupOnly) {
-    output = nameOnly ? primaryName : String(self.egid)
-  } else if (groupsOnly) {
-    const parts = []
-    for (const gid of groups) parts.push(nameOnly ? await resolveGroupName(gid) : String(gid))
-    output = parts.join(' ')
-  } else {
-    const uidStr = nameOnly ? (self.username || String(self.uid)) : String(self.uid)
-    const gidStr = nameOnly ? primaryName : String(self.gid)
-    const groupParts = []
-    for (const gid of groups) groupParts.push(nameOnly ? await resolveGroupName(gid) : String(gid))
-    output = `uid=${uidStr} gid=${gidStr} groups=${groupParts.join(',')}`
-  }
-
-  writeAll(1, new TextEncoder().encode(output + '\n'))
-  return 0
+  return failed ? 1 : 0
 }
 
 try {
   exit(await main())
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`id: ${error instanceof Error ? error.message : String(error)}\n`))
+  err(error instanceof Error ? error.message : String(error))
   exit(1)
 }

@@ -1,93 +1,19 @@
-/** Print a calendar for a month or year. */
+/** `cal`: display a calendar, as util-linux's cal does. The layouts are in lib/cal-render.mjs. */
 
-const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
+import { isTty } from './lib/tty.mjs'
+import { renderCalendar } from './lib/cal-render.mjs'
 
-const usage = `Usage: cal [MONTH] [YEAR]
-Display a calendar.
+const { argv, env, exit, writeAll } = globalThis.ecmaosSyscalls
 
-  MONTH   month (1-12)
-  YEAR    year
-  --help  display this help and exit`
-
-function main() {
-  const args = argv.slice(1)
-  if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
-    return 0
-  }
-
-  const now = new Date()
-  let month
-  let year
-
-  if (args.length === 1) {
-    const arg = parseInt(args[0], 10)
-    if (isNaN(arg)) {
-      writeAll(1, new TextEncoder().encode('cal: invalid argument\n'))
-      return 1
-    }
-    if (arg >= 1 && arg <= 12) {
-      month = arg
-      year = now.getFullYear()
-    } else {
-      year = arg
-      month = now.getMonth() + 1
-    }
-  } else if (args.length === 2) {
-    month = parseInt(args[0], 10)
-    year = parseInt(args[1], 10)
-    if (isNaN(month) || isNaN(year)) {
-      writeAll(1, new TextEncoder().encode('cal: invalid arguments\n'))
-      return 1
-    }
-  } else {
-    month = now.getMonth() + 1
-    year = now.getFullYear()
-  }
-
-  if (month < 1 || month > 12) {
-    writeAll(1, new TextEncoder().encode('cal: invalid month\n'))
-    return 1
-  }
-
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December']
-  const dayNames = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-
-  const firstDay = new Date(year, month - 1, 1)
-  const lastDay = new Date(year, month, 0)
-  const daysInMonth = lastDay.getDate()
-  const startDayOfWeek = firstDay.getDay()
-
-  let output = `     ${monthNames[month - 1]} ${year}\n`
-  output += dayNames.join(' ') + '\n'
-
-  let day = 1
-  let isFirstWeek = true
-
-  while (day <= daysInMonth) {
-    let line = ''
-    for (let i = 0; i < 7; i++) {
-      if (isFirstWeek && i < startDayOfWeek) {
-        line += '   '
-      } else if (day <= daysInMonth) {
-        line += day.toString().padStart(2) + ' '
-        day++
-      } else {
-        line += '   '
-      }
-    }
-    output += line.trimEnd() + '\n'
-    isFirstWeek = false
-  }
-
-  writeAll(1, new TextEncoder().encode(output + '\n'))
-  return 0
-}
+const encoder = new TextEncoder()
 
 try {
-  exit(main())
+  const columns = Number(env.COLUMNS) || 80
+  const result = renderCalendar(argv.slice(1), new Date(), columns, isTty(1) && env.NO_COLOR === undefined)
+  if (result.out) writeAll(1, encoder.encode(result.out))
+  if (result.err) writeAll(2, encoder.encode(result.err))
+  exit(result.status)
 } catch (error) {
-  writeAll(2, new TextEncoder().encode(`cal: ${error instanceof Error ? error.message : String(error)}\n`))
+  writeAll(2, encoder.encode(`cal: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)
 }

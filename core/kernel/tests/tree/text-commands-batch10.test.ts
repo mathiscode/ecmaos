@@ -42,15 +42,13 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     expect(code).toBe(0)
   })
 
-  it('diff reports differences with exit code 1 and unified-style markers', async () => {
+  it('diff reports differences with exit code 1 in the normal format', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/diff-c.txt', 'one\ntwo\nthree\n')
     await kernel.filesystem.fs.writeFile('/tmp/diff-d.txt', 'one\ntwo-changed\nthree\n')
     const code = await kernel.shell.execute('diff /tmp/diff-c.txt /tmp/diff-d.txt > /tmp/diff-out.txt')
     expect(code).toBe(1)
     const out = await kernel.filesystem.fs.readFile('/tmp/diff-out.txt', 'utf-8')
-    expect(out).toContain('@@ -1,3 +1,3 @@')
-    expect(out).toContain('-two')
-    expect(out).toContain('+two-changed')
+    expect(out).toBe('2c2\n< two\n---\n> two-changed\n')
   })
 
   it('diff -u prints real unified hunks: separate hunks, -U context, and a one-line count without a comma', async () => {
@@ -59,7 +57,7 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     await kernel.filesystem.fs.writeFile('/tmp/diff-e.txt', lines.join('\n') + '\n')
     await kernel.filesystem.fs.writeFile('/tmp/diff-f.txt', changed.join('\n') + '\n')
     expect(await kernel.shell.execute('diff -u -U1 /tmp/diff-e.txt /tmp/diff-f.txt > /tmp/diff-out2.txt')).toBe(1)
-    expect(await kernel.filesystem.fs.readFile('/tmp/diff-out2.txt', 'utf-8')).toBe(
+    expect((await kernel.filesystem.fs.readFile('/tmp/diff-out2.txt', 'utf-8')).replace(/^(---|\+\+\+) (\S+)\t.*$/gm, '$1 $2')).toBe(
       ['--- /tmp/diff-e.txt', '+++ /tmp/diff-f.txt', '@@ -1,3 +1,3 @@', ' l1', '-l2', '+l2!', ' l3', '@@ -17,3 +17,3 @@', ' l17', '-l18', '+l18!', ' l19', ''].join('\n')
     )
   })
@@ -145,16 +143,13 @@ describe('text command batch 10: diff/grep/sed/awk, real execve', () => {
     expect(out).toBe('foo\nbaz\n')
   })
 
-  it('awk with a bare /pattern/ program prints every line unfiltered, matching the original parser', async () => {
+  it('awk with a bare /pattern/ program prints the matching lines', async () => {
     // parseAwkProgram's mainMatch regex is non-greedy and matches empty at position 0 for a bare
-    // /pattern/ program (confirmed directly in Node against the original's own regex), so no
-    // pattern is ever captured and every line passes through - a pre-existing bug carried over
-    // faithfully, not something this migration fixes.
     await kernel.filesystem.fs.writeFile('/tmp/awk-pattern-in.txt', 'apple\nbanana\ngrape\n')
     const code = await kernel.shell.execute("awk '/an/' /tmp/awk-pattern-in.txt > /tmp/awk-pattern-out.txt")
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/awk-pattern-out.txt', 'utf-8')
-    expect(out).toBe('apple\nbanana\ngrape\n')
+    expect(out).toBe('banana\n')
   })
 
   it('awk reads from stdin when no file is given', async () => {

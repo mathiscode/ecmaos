@@ -57,7 +57,7 @@ function browserName(agent) {
 
 function main() {
   const args = argv.slice(1)
-  if (args.includes('--help') || args.includes('-h')) { err(usage); return 0 }
+  if (args.includes('--help') || args.includes('-h')) { globalThis.ecmaosSyscalls.writeAll(1, new TextEncoder().encode(usage + '\n')); return 0 }
   const unknown = args.find(arg => arg !== '--no-color' && arg !== '--no-logo')
   if (unknown) { err(`fastfetch: unknown option '${unknown}'`); err("Try 'fastfetch --help' for more information."); return 1 }
 

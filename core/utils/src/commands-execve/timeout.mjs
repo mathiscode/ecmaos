@@ -6,6 +6,8 @@
  */
 
 import { findProgram, statusOf, waitFor } from './lib/run.mjs'
+import { tryHelp } from './lib/getopt.mjs'
+import { reasonOf } from './lib/errno.mjs'
 
 const sys = globalThis.ecmaosSyscalls
 const { argv, exit, writeAll, spawn, getcwd, env, custom } = sys
@@ -20,11 +22,14 @@ Start COMMAND, and kill it if still running after DURATION.
 
   -s, --signal=SIGNAL     the signal to send on timeout, by name or number (default TERM)
   -k, --kill-after=TIME   also send KILL if the command is still running TIME after the first signal
+  -v, --verbose           diagnose to stderr any signal sent upon timeout
+  -f, --foreground        accepted, for compatibility
   --preserve-status       exit with the command's status even when it timed out
-  --foreground            accepted, for compatibility
   --help                  display this help and exit
 
 DURATION and TIME are numbers with an optional suffix: s (seconds, the default), m, h or d.`
+
+const signalLabel = number => Object.entries(SIGNALS).find(([, value]) => value === number)?.[0] ?? String(number)
 
 function duration(text) {
   const match = /^(\d+(?:\.\d+)?|\.\d+)([smhd]?)$/.exec(text ?? '')
@@ -42,6 +47,7 @@ async function main() {
   let signal = SIGNALS.TERM
   let killAfter
   let preserve = false
+  let verbose = false
   let i = 0
   for (; i < args.length; i++) {
     const arg = args[i]
@@ -50,7 +56,8 @@ async function main() {
     if (!arg.startsWith('-') || arg === '-') break
     let m
     if (arg === '--preserve-status') preserve = true
-    else if (arg === '--foreground') continue
+    else if (arg === '--foreground' || arg === '-f') continue
+    else if (arg === '--verbose' || arg === '-v') verbose = true
     else if ((m = /^--signal(?:=(.*))?$/.exec(arg)) || arg === '-s' || arg.startsWith('-s')) {
       const text = m ? (m[1] ?? args[++i]) : (arg.length > 2 ? arg.slice(2) : args[++i])
       signal = signalNumber(text ?? '')
@@ -58,19 +65,20 @@ async function main() {
     } else if ((m = /^--kill-after(?:=(.*))?$/.exec(arg)) || arg === '-k' || arg.startsWith('-k')) {
       const text = m ? (m[1] ?? args[++i]) : (arg.length > 2 ? arg.slice(2) : args[++i])
       killAfter = duration(text)
-      if (killAfter === undefined) { err(`invalid time interval '${text}'`); return 125 }
+      if (killAfter === undefined) { err(`invalid time interval ‘${text}’`); return 125 }
     } else { err(`invalid option -- '${arg.replace(/^-+/, '')}'`); return 125 }
   }
   const limit = duration(args[i])
-  if (args[i] === undefined) { err('missing operand'); return 125 }
-  if (limit === undefined) { err(`invalid time interval '${args[i]}'`); return 125 }
+  const hint = () => writeAll(2, encoder.encode(tryHelp('timeout') + '\n'))
+  if (args[i] === undefined) { hint(); return 125 }
+  if (limit === undefined) { err(`invalid time interval ‘${args[i]}’`); return 125 }
   const command = args.slice(i + 1)
-  if (command.length === 0) { err('missing operand after ' + `'${args[i]}'`); return 125 }
+  if (command.length === 0) { hint(); return 125 }
 
   const program = findProgram(command[0])
-  if (!program) { err(`failed to run command '${command[0]}': No such file or directory`); return 127 }
+  if (!program) { err(`failed to run command ‘${command[0]}’: No such file or directory`); return 127 }
   let pid
-  try { pid = await spawn(program, command, { cwd: getcwd(), env }) } catch (error) { err(`failed to run command '${command[0]}': ${error?.message ?? error}`); return 126 }
+  try { pid = await spawn(program, command, { cwd: getcwd(), env }) } catch (error) { err(`failed to run command ‘${command[0]}’: ${reasonOf(error)}`); return 126 }
 
   let timedOut = false
   let timers = []
@@ -78,6 +86,7 @@ async function main() {
   if (limit > 0) {
     timers.push(setTimeout(async () => {
       timedOut = true
+      if (verbose) err(`sending signal ${signalLabel(signal)} to command ‘${command[0].split('/').pop()}’`)
       try { await custom('proc_kill', pid, signal) } catch { /* it just ended */ }
       if (killAfter !== undefined && killAfter > 0) {
         timers.push(setTimeout(async () => { try { await custom('proc_kill', pid, SIGNALS.KILL) } catch { /* gone */ } }, killAfter))
@@ -85,7 +94,8 @@ async function main() {
     }, limit))
   }
   const done = await exited
-  if (timedOut && !preserve) return 124
+  // KILL cannot be caught, and without --foreground it is sent to the whole group, `timeout` included
+  if (timedOut && !preserve) return signal === SIGNALS.KILL ? 137 : 124
   return statusOf(done)
 }
 

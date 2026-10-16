@@ -53,4 +53,10 @@ describe('ecmash: a job that was sent INT is not an interrupt of the script', ()
     const result = await run('(exit 130)\necho "a=$?"\nsh -c "exit 130"\necho "b=$?"\necho end')
     expect(result.out).toBe('a=130\nb=130\nend\n')
   }, 30000)
+
+  it('jobs says Terminated for a job ended by TERM, and Exit 143 only for a plain exit status', async () => {
+    const result = await run('sleep 3 & p=$!\nkill $p\nsleep 0.4\njobs\nsh -c "exit 143" &\nsleep 0.4\njobs')
+    expect(result.out).toMatch(/\[1\][+-] +Terminated +sleep 3/)
+    expect(result.out).toMatch(/\[2\][+-] +Exit 143 +sh -c/)
+  }, 30000)
 })

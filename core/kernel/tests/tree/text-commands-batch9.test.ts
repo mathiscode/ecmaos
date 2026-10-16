@@ -61,7 +61,7 @@ describe('text command batch 9: find, real execve', () => {
     const code = await kernel.shell.execute('find /tmp/find-root -type d > /tmp/find-type-d.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/find-type-d.out', 'utf-8')
-    expect(out.trim()).toBe('/tmp/find-root/subdir')
+    expect(out.trim()).toBe('/tmp/find-root\n/tmp/find-root/subdir')
   })
 
   it('filters by -type f', async () => {
@@ -81,15 +81,14 @@ describe('text command batch 9: find, real execve', () => {
     expect(out).toContain('a.txt')
   })
 
-  it('errors with no arguments at all, matching the original', async () => {
-    const code = await kernel.shell.execute('find 2>/tmp/find-noargs.err')
-    expect(code).toBe(1)
+  it('searches the current directory with no arguments at all, as GNU find does', async () => {
+    const code = await kernel.shell.execute('cd /tmp/find-root; find 2>/tmp/find-noargs.err')
+    expect(code).toBe(0)
   })
 
-  it('errors when given a non-directory path but still exits 0, matching the original', async () => {
-    const code = await kernel.shell.execute('find /tmp/find-root/a.txt 2>/tmp/find-notdir.err')
+  it('prints a file operand as it is, as GNU find does', async () => {
+    const code = await kernel.shell.execute('find /tmp/find-root/a.txt > /tmp/find-notdir.out')
     expect(code).toBe(0)
-    const err = await kernel.filesystem.fs.readFile('/tmp/find-notdir.err', 'utf-8')
-    expect(err).toContain('not a directory')
+    expect((await kernel.filesystem.fs.readFile('/tmp/find-notdir.out', 'utf-8')).trim()).toBe('/tmp/find-root/a.txt')
   })
 })

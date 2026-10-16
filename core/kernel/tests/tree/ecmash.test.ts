@@ -246,7 +246,7 @@ describe('ecmash background jobs', () => {
     await kernel.filesystem.fs.writeFile('/tmp/bg-script', 'sleep 1 &\njobs\nwait\njobs\necho ok\n')
     await kernel.shell.execute('ecmash /tmp/bg-script > /tmp/bg-out 2>&1')
     const out = await kernel.filesystem.fs.readFile('/tmp/bg-out', 'utf-8')
-    expect(out).toMatch(/\[1\]\s+Running/)
+    expect(out).toMatch(/\[1\][+-]?\s+Running/)
     expect(out.trim().endsWith('ok')).toBe(true)
   }, 20000)
 })

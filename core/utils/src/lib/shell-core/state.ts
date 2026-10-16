@@ -130,6 +130,8 @@ export class ShellState {
    * it.
    */
   dirStack: string[] = []
+  /** The line whose rest is skipped after a refused assignment: bash drops the remainder of that command list. */
+  failedLine?: number
   options: ShellOptions = { errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false }
 
   /** `getopts`' position inside a cluster such as `-abc` */
@@ -362,7 +364,8 @@ export class ShellState {
   /** What a child process inherits: exported variables only, never the shell's internal names. */
   environment(): Record<string, string> {
     const env: Record<string, string> = {}
-    for (const [name, value] of this.vars) if (!isInternalVariable(name) && !this.unexported.has(name)) env[name] = value
+    // a `local` shadows the variable of the same name for the children of a command run inside the function
+    for (const [name, value] of this.visibleVariables()) if (!this.unexported.has(name)) env[name] = value
     return env
   }
 
@@ -402,6 +405,19 @@ export class ShellState {
    * what bash does: `${NAME+set}` is empty and `set -u` still objects. It is declared in the array
    * namespace too, holding nothing, so `local arr` then `arr=(1 2)` does not write the caller's array.
    */
+  /** True when a function frame has declared `name`, even without a value. */
+  isDeclared(name: string): boolean {
+    return this.localScopes.some(frame => frame.has(name))
+  }
+
+  /** Assigns the shell's own variable, past any `local` of the same name: `declare -g`. */
+  setGlobal(name: string, value: string): void {
+    if (this.readonlyNames.has(name)) throw new Error(`${name}: readonly variable`)
+    this.removedDefaults.delete(name)
+    if (!this.vars.has(name)) this.unexported.add(name)
+    this.vars.set(name, value)
+  }
+
   declareLocal(name: string, value?: string): void {
     const frame = this.localScopes[this.localScopes.length - 1]
     const arrayFrame = this.localArrayScopes[this.localArrayScopes.length - 1]

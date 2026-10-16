@@ -16,9 +16,13 @@ export interface ConditionalFs {
   isFile(path: string): Promise<boolean>
   isDirectory(path: string): Promise<boolean>
   resolve(path: string): string
+  /** The full `test` evaluator (file modes, owners, times, `-t`, `-o`); without it only `-f -d -e` are known */
+  test?(words: string[]): Promise<boolean>
 }
 
 const UNARY_FILE_OPS = new Set(['-f', '-d', '-e'])
+// the other unary tests, answered by `fs.test` when the host has one
+const EXTRA_UNARY_OPS = new Set(['-a', '-b', '-c', '-g', '-G', '-h', '-k', '-L', '-N', '-O', '-p', '-r', '-s', '-S', '-t', '-u', '-w', '-x', '-o'])
 const UNARY_STRING_OPS = new Set(['-z', '-n', '-v'])
 
 class ConditionalParser {
@@ -69,10 +73,11 @@ class ConditionalParser {
 
     if (token.kind === 'word') {
       const text = this.wordText(token)
-      if (UNARY_FILE_OPS.has(text) || UNARY_STRING_OPS.has(text)) {
+      if (UNARY_FILE_OPS.has(text) || UNARY_STRING_OPS.has(text) || (this.fs.test && EXTRA_UNARY_OPS.has(text) && this.peek()?.kind === 'word')) {
         const argToken = this.advance()
         if (!argToken) throw new Error(`[[: expected an argument after ${text}`)
         const arg = await expandWordString((argToken as { parts: WordPart[] }).parts, this.ctx)
+        if (this.fs.test && EXTRA_UNARY_OPS.has(text)) return await this.fs.test([text, arg])
         if (text === '-f') return this.fs.isFile(this.fs.resolve(arg))
         if (text === '-d') return this.fs.isDirectory(this.fs.resolve(arg))
         if (text === '-e') return this.fs.exists(this.fs.resolve(arg))
@@ -95,6 +100,12 @@ class ConditionalParser {
 
       if (next?.kind === 'word') {
         const opText = this.wordText(next)
+        if (this.fs.test && ['-nt', '-ot', '-ef'].includes(opText)) {
+          this.advance()
+          const rightToken = this.advance()
+          if (!rightToken) throw new Error(`[[: expected an argument after ${opText}`)
+          return await this.fs.test([left, opText, await expandWordString((rightToken as { parts: WordPart[] }).parts, this.ctx)])
+        }
         if (['==', '=', '!=', '=~', '-eq', '-ne', '-lt', '-le', '-gt', '-ge'].includes(opText)) {
           this.advance()
           const rightToken = this.advance()

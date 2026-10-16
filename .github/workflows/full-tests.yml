@@ -1,0 +1,36 @@
+name: Full tests
+
+# The corpus suites (hundreds of commands compared with what the real tools print) are left out of the regular CI run.
+# This runs everything, once a month and whenever someone starts it by hand.
+on:
+  schedule:
+    - cron: '0 4 1 * *'
+  workflow_dispatch:
+
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Seed kernel .env from template
+        run: cp core/kernel/.env.template core/kernel/.env
+
+      - name: Build
+        run: pnpm build
+
+      - name: Kernel tests, corpus included
+        run: pnpm --filter @ecmaos/kernel test:full

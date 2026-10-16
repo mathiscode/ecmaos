@@ -60,7 +60,7 @@ function column(text, width) {
 function main() {
   const args = argv.slice(1)
   if (args.includes('--help')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(1, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 

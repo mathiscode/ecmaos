@@ -16,7 +16,7 @@ function main() {
   const args = argv.slice(1) // argv[0] is the program path itself
   const { output, help } = echoOutput(args, { stopAtHelp: true })
   if (help) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(1, new TextEncoder().encode(usage + '\n'))
     return 0
   }
   writeAll(1, new TextEncoder().encode(output))

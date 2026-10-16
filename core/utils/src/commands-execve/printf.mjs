@@ -41,7 +41,7 @@ Conversion specifiers:
 function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
-    writeAll(2, new TextEncoder().encode(usage + '\n'))
+    writeAll(1, new TextEncoder().encode(usage + '\n'))
     return 0
   }
 
@@ -53,6 +53,9 @@ function main() {
   let status = 0
   const output = formatPrintf(args[0], args.slice(1), value => {
     writeAll(2, new TextEncoder().encode(`printf: ${value}: invalid number\n`))
+    status = 1
+  }, character => {
+    writeAll(2, new TextEncoder().encode(`printf: \`${character}': invalid format character\n`))
     status = 1
   })
   writeAll(1, new TextEncoder().encode(output))

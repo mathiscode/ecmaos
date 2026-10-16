@@ -91,12 +91,12 @@ describe('text command batch 3: strings/xxd/od/hash/cmp/comm/column, real execve
     expect(out).toContain('date')
   })
 
-  it('column splits whitespace-separated input into words', async () => {
+  it('column leaves a short line as it is', async () => {
     await kernel.filesystem.fs.writeFile('/tmp/column-in.txt', 'a b c\n')
     const code = await kernel.shell.execute('column /tmp/column-in.txt > /tmp/column.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/column.out', 'utf-8')
-    expect(out.trim().split('\n')).toEqual(['a', 'b', 'c'])
+    expect(out.trim().split('\n')).toEqual(['a b c'])
   })
 
   it('all seven report an error and nonzero exit for a missing file', async () => {
