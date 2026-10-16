@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "share"
   ],
   "scripts": {
     "dev": "vite",

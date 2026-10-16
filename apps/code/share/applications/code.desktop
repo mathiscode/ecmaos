@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Code
+Comment=ecmaOS code editor
+Exec=code %F
+Categories=Development;TextEditor;

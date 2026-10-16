@@ -6,7 +6,7 @@ import semver from 'semver'
 
 import { join } from './lib/path-utils.mjs'
 
-const { argv, env, exit, write, custom, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, env, exit, write, custom, readdir, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: install <package-name>[@version] [--registry URL] [--reinstall]
 Install a package from a registry into /usr/lib and link its bins into /usr/bin.
@@ -174,6 +174,24 @@ async function install(packageArg, registryArg, reinstall) {
     }
   } catch (error) {
     line(2, red(`Failed to link bins for ${packageName}@${version}: ${error}`))
+  }
+
+  // `share/applications/*.desktop` in a package is linked where the desktop's launcher looks
+  try {
+    const applications = join('/usr/lib', packageName, version, 'share/applications')
+    if (exists(applications)) {
+      mkdirp('/usr/share/applications')
+      for (const entry of readdir(applications)) {
+        const name = typeof entry === 'string' ? entry : entry.name
+        if (!name.endsWith('.desktop')) continue
+        const target = join('/usr/share/applications', name)
+        try { unlink(target) } catch { /* not there yet */ }
+        symlink(join(applications, name), target)
+        line(1, blue(`Linked ${name} to ${target}`))
+      }
+    }
+  } catch (error) {
+    line(2, red(`Failed to link desktop entries for ${packageName}@${version}: ${error}`))
   }
 
   try {

@@ -118,6 +118,16 @@ function main() {
     }
 
     try {
+      const applications = join(versionPath, 'share/applications')
+      if (exists(applications)) {
+        for (const entry of readdir(applications)) {
+          const name = typeof entry === 'string' ? entry : entry.name
+          if (name.endsWith('.desktop')) { try { unlink(join('/usr/share/applications', name)) } catch { /* not linked */ } }
+        }
+      }
+    } catch { /* nothing to unlink */ }
+
+    try {
       rmRecursive(versionPath)
       write(1, new TextEncoder().encode(`Uninstalled ${packageName}@${versionToUninstall}\n`))
     } catch (error) {

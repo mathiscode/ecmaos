@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Webamp
+Comment=Winamp for the web
+Exec=webamp
+Categories=AudioVideo;Player;
