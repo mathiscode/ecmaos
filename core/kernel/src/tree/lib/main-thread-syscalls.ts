@@ -27,7 +27,7 @@ import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
-import { installPtys } from './pty.ts'
+import { installPtys, ptyIndexOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
@@ -151,6 +151,9 @@ async function writeScratch(kernel: Kernel, proc: Process, path: string, text: s
   const { euid, egid } = proc.context.credentials
   if (euid !== 0) await kernel.filesystem.fs.chown(path, euid, egid)
 }
+
+/** `tty_get` reports a pty as this plus its number, clear of the eight ttys */
+const PtyBase = 1000
 
 /** The tty a process is on, or `undefined` when it has none */
 function ttyNumberOf(kernel: Kernel, proc: Process): number | undefined {
@@ -521,9 +524,12 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `tty_get`: the caller's own terminal number when it has one, else the one on screen.
+  // `tty_get`: the caller's own terminal number when it has one, else the one on screen. A program on a pty gets
+  // `PtyBase + <n>` for `/dev/pts/<n>`.
   define_syscall('tty_get', async (proc: Process) => {
     const kernel = kernelOf(proc)
+    const pts = ptyIndexOf(proc.tty)
+    if (pts !== undefined) return PtyBase + pts
     return ttyNumberOf(kernel, proc) ?? kernel.activeTty
   })
 

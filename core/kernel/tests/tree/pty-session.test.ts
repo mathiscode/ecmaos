@@ -84,6 +84,13 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
+  it('names the pty as the terminal', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root' })
+    opened.terminal.input('tty\n')
+    await until(() => screen(opened.terminal).includes(`/dev/pts/${opened.pty.index}`))
+    opened.window.close(true)
+  })
+
   it('runs a program with no window and reports its exit code', async () => {
     const before = ptyIndices().length
     expect(await kernel.runDetached({ username: 'root', command: 'echo', args: ['detached-ok', '>', '/tmp/detached.out'] })).toBe(0)

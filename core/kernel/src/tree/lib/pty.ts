@@ -143,6 +143,12 @@ function masterRefs(pair: Pair): number {
   return count
 }
 
+/** The `/dev/pts/<n>` number of a slave tty, or `undefined` when it is not a pty's */
+export function ptyIndexOf(tty: TTY | null | undefined): number | undefined {
+  if (!tty) return undefined
+  for (const pair of pairs.values()) if (pair.slave === tty) return pair.index
+}
+
 /** Frees every pair whose master has no descriptor left. */
 export function sweepPtys(): void {
   for (const pair of [...pairs.values()]) {

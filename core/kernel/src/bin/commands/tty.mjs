@@ -30,7 +30,9 @@ async function main() {
     }
     if (silent) return 0
     const activeTty = await custom('tty_get')
-    write(1, new TextEncoder().encode(activeTty.toString() + '\n'))
+    // a pty is reported as 1000 plus its number
+    const name = activeTty >= 1000 ? `/dev/pts/${activeTty - 1000}` : activeTty.toString()
+    write(1, new TextEncoder().encode(name + '\n'))
     return 0
   }
 
