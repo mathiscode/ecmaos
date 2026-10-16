@@ -1,3 +1,4 @@
+import '../../vitest.tmpdir.ts'
 import { defineConfig, mergeConfig } from 'vitest/config'
 import type { Plugin } from 'vite'
 

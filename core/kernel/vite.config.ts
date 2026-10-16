@@ -1,3 +1,4 @@
+import '../../vitest.tmpdir.ts'
 
 import i18nextLoader from 'vite-plugin-i18next-loader'
 import path from 'path'
