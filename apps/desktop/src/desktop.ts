@@ -80,10 +80,12 @@ export class Desktop {
     document.body.appendChild(this._root)
 
     this._kernel.windows.setWorkarea({ bottom: TaskbarHeight })
+    this._kernel.windows.setMinimizeMode('hidden')
 
     const refresh = () => this._renderTasks()
     for (const event of ['create', 'update', 'focus', 'close'] as const) this._disposers.push(this._kernel.windows.on(event, refresh))
     this._disposers.push(() => this._kernel.windows.setWorkarea({ bottom: 0 }))
+    this._disposers.push(() => this._kernel.windows.setMinimizeMode('dock'))
 
     const closeMenu = () => this._closeMenu()
     this._root.addEventListener('click', closeMenu)

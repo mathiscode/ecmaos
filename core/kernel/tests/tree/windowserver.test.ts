@@ -210,4 +210,16 @@ describe('WindowServer', () => {
     expect(seen).toEqual(renderer.areas)
     expect(renderer.reports.workarea()).toEqual({ top: 0, right: 0, bottom: 40, left: 0 })
   })
+
+  it('starts with minimized windows docked and tells renderers when the mode changes', () => {
+    const { server, renderer } = setup()
+    const modes: string[] = []
+    renderer.minimizeModeChanged = mode => { modes.push(mode) }
+    expect(server.minimizeMode).toBe('dock')
+    server.setMinimizeMode('hidden')
+    server.setMinimizeMode('hidden')
+    expect(renderer.reports.minimizeMode()).toBe('hidden')
+    server.setMinimizeMode('dock')
+    expect(modes).toEqual(['hidden', 'dock'])
+  })
 })

@@ -1,4 +1,4 @@
-import type { WindowId, WindowInfo, WindowInsets, WindowKind, WindowOptions, WindowRenderer, WindowReports, WindowState } from '@ecmaos/types'
+import type { MinimizeMode, WindowId, WindowInfo, WindowInsets, WindowKind, WindowOptions, WindowRenderer, WindowReports, WindowState } from '@ecmaos/types'
 
 // WinBox touches `document` at import, so it is loaded by `WinBoxRenderer.init()` in a browser rather than at module load.
 // Bound under its own name: a `declare const WinBox` alongside a same-named import lets the
@@ -53,6 +53,8 @@ const DefaultWindowOptions: WindowParams = {
 export class WinBoxRenderer implements WindowRenderer {
   private _boxes: Map<WindowId, WinBoxState> = new Map()
   private _reports?: WindowReports
+  /** Minimized windows hidden because the minimize mode is `hidden` */
+  private _hidden: Set<WindowId> = new Set()
   /** Set while applying the server's change, so the WinBox hooks it triggers are not reported back */
   private _applying = false
 
@@ -96,6 +98,7 @@ export class WinBoxRenderer implements WindowRenderer {
     }
 
     const report = (state: WindowState) => {
+      if (state === 'minimized') this._hideIfShellShows(id)
       setTimeout(() => this._updateBodyClass(), 0)
       if (!this._applying) this._reports?.changed(id, { state })
     }
@@ -105,21 +108,21 @@ export class WinBoxRenderer implements WindowRenderer {
     params.onmaximize = () => report('maximized')
     params.onfullscreen = () => report('fullscreen')
     params.onfocus = () => { if (!this._applying) this._reports?.focused(id) }
-    params.onmove = (x, y) => {
-      if (this._applying) return
+    // WinBox moves and resizes a window to minimize or maximize it, before it marks it as such. The report waits for the
+    // call to finish, and a window that is then minimized, maximized or fullscreen is not at its own geometry.
+    const reportGeometry = () => queueMicrotask(() => {
       const box = this._boxes.get(id)
-      if (box) this._reports?.changed(id, { geometry: { x, y, width: box.width, height: box.height } })
-    }
-    params.onresize = (width, height) => {
-      if (this._applying) return
-      const box = this._boxes.get(id)
-      if (box) this._reports?.changed(id, { geometry: { x: box.x, y: box.y, width, height } })
-    }
+      if (this._applying || !box || box.min || box.max || box.full) return
+      this._reports?.changed(id, { geometry: { x: box.x, y: box.y, width: box.width, height: box.height } })
+    })
+    params.onmove = () => { if (!this._applying) reportGeometry() }
+    params.onresize = () => { if (!this._applying) reportGeometry() }
     // WinBox closes the window itself when this returns false; true keeps it
     params.onclose = () => {
       const closed = this._reports?.closeRequested(id) ?? true
       if (closed) {
         this._boxes.delete(id)
+        this._hidden.delete(id)
         setTimeout(() => this._updateBodyClass(), 0)
       }
       return !closed
@@ -136,16 +139,20 @@ export class WinBoxRenderer implements WindowRenderer {
     this._applying = true
     try {
       if (box.title !== info.title) box.setTitle(info.title)
-      const { x, y, width, height } = info.geometry
-      if (box.x !== x || box.y !== y) box.move(x, y)
-      if (box.width !== width || box.height !== height) box.resize(width, height)
-
+      if (info.state !== 'minimized') this._unhide(info.id)
       const current: WindowState = box.min ? 'minimized' : box.full ? 'fullscreen' : box.max ? 'maximized' : 'normal'
       if (current !== info.state) {
-        if (info.state === 'minimized') box.minimize()
+        if (info.state === 'minimized') { box.minimize(); this._hideIfShellShows(info.id) }
         else if (info.state === 'maximized') box.maximize()
         else if (info.state === 'fullscreen') box.fullscreen()
         else box.restore()
+      }
+
+      // A minimized, maximized or fullscreen window is not at its own geometry; it is applied once the window is normal
+      if (info.state === 'normal') {
+        const { x, y, width, height } = info.geometry
+        if (box.x !== x || box.y !== y) box.move(x, y)
+        if (box.width !== width || box.height !== height) box.resize(width, height)
       }
 
       if (info.focused) box.focus()
@@ -164,11 +171,35 @@ export class WinBoxRenderer implements WindowRenderer {
     }
   }
 
+  /** Minimized windows leave the dock for hiding, or come back to it */
+  minimizeModeChanged(mode: MinimizeMode) {
+    for (const [id, box] of this._boxes) {
+      if (!box.min) continue
+      if (mode === 'hidden') this._hideIfShellShows(id)
+      else this._unhide(id)
+    }
+    this._updateBodyClass()
+  }
+
+  /** In `hidden` mode a minimized window is not drawn; its state stays `minimized` */
+  private _hideIfShellShows(id: WindowId) {
+    const box = this._boxes.get(id)
+    if (!box || this._reports?.minimizeMode() !== 'hidden') return
+    this._hidden.add(id)
+    box.hide()
+  }
+
+  private _unhide(id: WindowId) {
+    if (!this._hidden.delete(id)) return
+    this._boxes.get(id)?.show()
+  }
+
   /** Closes the WinBox without asking `onclose` again; the server has already decided */
   close(id: WindowId) {
     const box = this._boxes.get(id)
     if (!box) return
     this._boxes.delete(id)
+    this._hidden.delete(id)
     this._applying = true
     try { box.close(true) } finally { this._applying = false }
     this._updateBodyClass()
@@ -176,7 +207,7 @@ export class WinBoxRenderer implements WindowRenderer {
 
   private _updateBodyClass() {
     let minimizedCount = 0
-    for (const box of this._boxes.values()) if (box.min) minimizedCount++
+    for (const [id, box] of this._boxes) if (box.min && !this._hidden.has(id)) minimizedCount++
     document.body.classList.toggle('has-minimized-windows', minimizedCount > 0)
   }
 }

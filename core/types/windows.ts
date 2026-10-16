@@ -31,6 +31,9 @@ export interface WindowInsets {
   left: number
 }
 
+/** Where a minimized window goes: `dock` is the renderer's own strip of minimized windows; `hidden` leaves a shell (a taskbar) to show them */
+export type MinimizeMode = 'dock' | 'hidden'
+
 export interface WindowGeometry {
   x: number
   y: number
@@ -118,6 +121,8 @@ export interface WindowRenderer {
   close(id: WindowId): void
   /** The work area changed; windows opened from now on keep to it, and maximized ones fit it */
   workareaChanged?(insets: WindowInsets): void
+  /** The minimize mode changed; minimized windows move between the dock and hiding */
+  minimizeModeChanged?(mode: MinimizeMode): void
 }
 
 /** Callbacks a renderer uses to report what happened to a window */
@@ -129,6 +134,8 @@ export interface WindowReports {
   focused(id: WindowId): void
   /** The current work area, for a renderer placing a new window */
   workarea(): WindowInsets
+  /** The current minimize mode */
+  minimizeMode(): MinimizeMode
 }
 
 export type WindowEvent = 'create' | 'update' | 'focus' | 'close'
@@ -145,6 +152,12 @@ export interface Windows {
 
   /** Reserves space at the edges of the display (a taskbar); pass zeros to release it */
   setWorkarea(insets: Partial<WindowInsets>): void
+
+  /** Where minimized windows go; `dock` until a shell that shows them itself (a taskbar) sets `hidden` */
+  readonly minimizeMode: MinimizeMode
+
+  /** Sets where minimized windows go. The windows keep the `minimized` state either way; a shell restores one with `focus` */
+  setMinimizeMode(mode: MinimizeMode): void
 
   /** Adds a renderer; the most recently added renderer that supports a kind is used for it */
   registerRenderer(renderer: WindowRenderer): void

@@ -11,7 +11,8 @@ import type {
   WindowOwner,
   WindowRenderer,
   WindowReports,
-  Windows
+  Windows,
+  MinimizeMode
 } from '@ecmaos/types'
 
 const KernelOwner: WindowOwner = { pid: 0, uid: 0, gid: 0 }
@@ -43,6 +44,7 @@ export class WindowServer implements Windows {
   maxPerProcess = 32
 
   private _workarea: WindowInsets = { top: 0, right: 0, bottom: 0, left: 0 }
+  private _minimizeMode: MinimizeMode = 'dock'
   private _workareaListeners: Set<(insets: WindowInsets) => void> = new Set()
   private _renderers: WindowRenderer[] = []
   private _entries: Map<WindowId, Entry> = new Map()
@@ -66,7 +68,8 @@ export class WindowServer implements Windows {
       this._emit('update', entry)
     },
     focused: id => this._raise(id),
-    workarea: () => ({ ...this._workarea })
+    workarea: () => ({ ...this._workarea }),
+    minimizeMode: () => this._minimizeMode
   }
 
   get workarea(): WindowInsets { return { ...this._workarea } }
@@ -78,6 +81,14 @@ export class WindowServer implements Windows {
     this._workarea = next
     for (const renderer of this._renderers) renderer.workareaChanged?.({ ...next })
     for (const listener of this._workareaListeners) listener({ ...next })
+  }
+
+  get minimizeMode(): MinimizeMode { return this._minimizeMode }
+
+  setMinimizeMode(mode: MinimizeMode) {
+    if (mode === this._minimizeMode) return
+    this._minimizeMode = mode
+    for (const renderer of this._renderers) renderer.minimizeModeChanged?.(mode)
   }
 
   onWorkarea(listener: (insets: WindowInsets) => void) {

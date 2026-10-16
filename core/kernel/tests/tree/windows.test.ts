@@ -68,10 +68,38 @@ describe('WinBoxRenderer', () => {
     expect(document.body.classList.contains('has-minimized-windows')).toBe(false)
   })
 
+  it('should hide minimized windows when a shell shows them, and dock them again after', async () => {
+    const windows = await newWindows()
+    const win = windows.create()
+    const box = () => win.dom as HTMLElement
+    const before = { ...win.info.geometry }
+    windows.setMinimizeMode('hidden')
+    ;(win.dom as unknown as { winbox: { minimize(): void } }).winbox.minimize()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(win.info.state).toBe('minimized')
+    expect(box().classList.contains('hide')).toBe(true)
+    expect(document.body.classList.contains('has-minimized-windows')).toBe(false)
+
+    win.focus()
+    expect(win.info.state).toBe('normal')
+    expect(win.info.geometry).toEqual(before)
+    expect(box().classList.contains('hide')).toBe(false)
+    expect(box().classList.contains('min')).toBe(false)
+
+    win.setState('minimized')
+    windows.setMinimizeMode('dock')
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(box().classList.contains('hide')).toBe(false)
+    expect(box().classList.contains('min')).toBe(true)
+    expect(document.body.classList.contains('has-minimized-windows')).toBe(true)
+    win.close(true)
+  })
+
   it('should report a user move back to the server', async () => {
     const windows = await newWindows()
     const win = windows.create({ x: 0, y: 0 })
     ;(win.dom as unknown as { winbox: { move(x: number, y: number): void } }).winbox.move(40, 50)
+    await Promise.resolve()
     expect(win.info.geometry).toMatchObject({ x: 40, y: 50 })
   })
 
