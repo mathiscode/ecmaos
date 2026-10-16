@@ -23,12 +23,14 @@ export interface TerminalWindow extends TerminalWindowHandle {
 export async function openTerminalWindow(kernel: Kernel, options: TerminalWindowOptions): Promise<TerminalWindow> {
   const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit'), import('@xterm/xterm/css/xterm.css')])
 
+  // Owned by the kernel (so it outlives what opened it) but on the user's uid, which is what lets that user's `wmctrl` see it
+  const user = [...kernel.users.all.values()].find(candidate => candidate.username === options.username)
   const window = kernel.windows.create({
     title: options.title ?? `Terminal - ${options.username}`,
     width: options.width ?? 720,
     height: options.height ?? 440,
     class: 'ecmaos-window ecmaos-terminal-window',
-    owner: options.owner
+    owner: options.owner ?? (user ? { pid: 0, uid: user.uid, gid: user.gid } : undefined)
   })
 
   const container = document.createElement('div')

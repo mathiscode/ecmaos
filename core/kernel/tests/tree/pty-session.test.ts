@@ -91,6 +91,24 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
+  it('lists and controls windows with wmctrl', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root', title: 'wm-test' })
+    const run = async (command: string) => {
+      const code = await kernel.runDetached({ username: 'root', command: 'wmctrl', args: [...command.split(' '), '>', '/tmp/wm.out', '2>&1'] })
+      return { code, out: await kernel.filesystem.fs.readFile('/tmp/wm.out', 'utf-8') }
+    }
+    expect((await run('-l')).out).toContain(`${opened.window.id}`)
+    expect((await run(`minimize ${opened.window.id}`)).code).toBe(0)
+    expect(opened.window.info.state).toBe('minimized')
+    expect((await run(`title ${opened.window.id} renamed`)).code).toBe(0)
+    expect(opened.window.info.title).toBe('renamed')
+    const missing = await run('close nope')
+    expect(missing.code).toBe(1)
+    expect(missing.out).toContain('no such window')
+    expect((await run(`close ${opened.window.id}`)).code).toBe(0)
+    expect(kernel.windows.get(opened.window.id)).toBeUndefined()
+  })
+
   it('runs a program with no window and reports its exit code', async () => {
     const before = ptyIndices().length
     expect(await kernel.runDetached({ username: 'root', command: 'echo', args: ['detached-ok', '>', '/tmp/detached.out'] })).toBe(0)

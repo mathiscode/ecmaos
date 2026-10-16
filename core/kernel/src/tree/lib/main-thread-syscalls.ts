@@ -47,6 +47,7 @@ declare module '@zenfs/linux/uapi/abi' {
     window_write(handle: number, text: string): number
     window_close(handle: number): number
     window_list(path: string): number
+    wm_control(id: string, action: string, a: number, b: number, text: string): number
     window_focus(handle: number): number
     window_move(handle: number, x: number, y: number): number
     window_resize(handle: number, width: number, height: number): number
@@ -425,15 +426,38 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
 
-  // `window_list`: writes the caller's windows as JSON (every window for root). Each entry has the handle when this
+  // `window_list`: writes the windows of the caller's user as JSON (every window for root). Each entry has the handle when this
   // process opened it with `window_create`, otherwise `handle: null`.
   define_syscall('window_list', async (proc: Process, path: string) => {
     const kernel = kernelOf(proc)
     const handles = new Map([...windowHandles].map(([handle, id]) => [id, handle]))
-    const windows = kernel.windows.list(processIsRoot(proc) ? {} : { pid: proc.pid }).map(info => ({ ...info, handle: handles.get(String(info.id)) ?? null }))
+    const windows = kernel.windows.list(processIsRoot(proc) ? {} : { uid: proc.context.credentials.euid }).map(info => ({ ...info, handle: handles.get(String(info.id)) ?? null }))
     const text = JSON.stringify(windows)
     await writeScratch(kernel, proc, path, text)
     return text.length
+  })
+
+  // `wm_control`: acts on a window by id, for window-manager tools. Root may act on any window, anyone else on the
+  // windows of their own user. Actions: focus, close, minimize, maximize, restore, fullscreen, move (a, b), resize
+  // (a, b) and title (text).
+  define_syscall('wm_control', async (proc: Process, id: string, action: string, a: number, b: number, text: string) => {
+    const kernel = kernelOf(proc)
+    const win = kernel.windows.get(id) ?? kernel.windows.get(Number(id))
+    if (!win) return -Errno.ENOENT
+    if (!processIsRoot(proc) && win.info.owner.uid !== proc.context.credentials.euid) return -Errno.EPERM
+    switch (action) {
+      case 'focus': win.focus(); break
+      case 'close': win.close(true); break
+      case 'minimize': win.setState('minimized'); break
+      case 'maximize': win.setState('maximized'); break
+      case 'restore': win.setState('normal'); break
+      case 'fullscreen': win.setState('fullscreen'); break
+      case 'move': win.move(a, b); break
+      case 'resize': win.resize(a, b); break
+      case 'title': win.setTitle(text); break
+      default: return -Errno.EINVAL
+    }
+    return 0
   })
 
   define_syscall('window_focus', async (proc: Process, handle: number) => {
