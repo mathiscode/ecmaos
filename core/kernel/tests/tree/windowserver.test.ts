@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { WindowId, WindowInfo, WindowKind, WindowOptions, WindowRenderer, WindowReports } from '@ecmaos/types'
+import type { WindowId, WindowInfo, WindowInsets, WindowKind, WindowOptions, WindowRenderer, WindowReports } from '@ecmaos/types'
 
 import { WindowServer } from '#windowserver.ts'
 
@@ -9,12 +9,14 @@ class FakeRenderer implements WindowRenderer {
   created: WindowId[] = []
   closed: WindowId[] = []
   updates: WindowInfo[] = []
+  areas: WindowInsets[] = []
   constructor(private kinds: WindowKind[] = ['web']) {}
   supports(kind: WindowKind) { return this.kinds.includes(kind) }
   attach(reports: WindowReports) { this.reports = reports }
   create(info: WindowInfo, _options: WindowOptions) { this.created.push(info.id) }
   update(info: WindowInfo) { this.updates.push({ ...info }) }
   close(id: WindowId) { this.closed.push(id) }
+  workareaChanged(insets: WindowInsets) { this.areas.push(insets) }
 }
 
 const owner = (pid: number, uid = 1000) => ({ pid, uid, gid: uid })
@@ -193,5 +195,19 @@ describe('WindowServer', () => {
     const child = {} as HTMLElement
     win.mount(child)
     expect(body.replaceChildren).toHaveBeenCalledWith(child)
+  })
+
+  it('reserves a work area for renderers and listeners, ignoring repeats and negatives', () => {
+    const { server, renderer } = setup()
+    const seen: WindowInsets[] = []
+    server.onWorkarea(insets => seen.push(insets))
+    expect(server.workarea).toEqual({ top: 0, right: 0, bottom: 0, left: 0 })
+    server.setWorkarea({ bottom: 40.4 })
+    server.setWorkarea({ bottom: 40 })
+    server.setWorkarea({ top: -5 })
+    expect(server.workarea).toEqual({ top: 0, right: 0, bottom: 40, left: 0 })
+    expect(renderer.areas).toEqual([{ top: 0, right: 0, bottom: 40, left: 0 }])
+    expect(seen).toEqual(renderer.areas)
+    expect(renderer.reports.workarea()).toEqual({ top: 0, right: 0, bottom: 40, left: 0 })
   })
 })

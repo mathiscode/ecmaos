@@ -6,6 +6,7 @@ import type {
   WindowHandle,
   WindowId,
   WindowInfo,
+  WindowInsets,
   WindowOptions,
   WindowOwner,
   WindowRenderer,
@@ -41,6 +42,8 @@ export class WindowServer implements Windows {
   /** Windows one process may have open at once. The kernel (pid 0) is exempt */
   maxPerProcess = 32
 
+  private _workarea: WindowInsets = { top: 0, right: 0, bottom: 0, left: 0 }
+  private _workareaListeners: Set<(insets: WindowInsets) => void> = new Set()
   private _renderers: WindowRenderer[] = []
   private _entries: Map<WindowId, Entry> = new Map()
   /** Bottom to top; the last id is focused */
@@ -62,7 +65,24 @@ export class WindowServer implements Windows {
       if (patch.geometry) entry.info.geometry = { ...patch.geometry }
       this._emit('update', entry)
     },
-    focused: id => this._raise(id)
+    focused: id => this._raise(id),
+    workarea: () => ({ ...this._workarea })
+  }
+
+  get workarea(): WindowInsets { return { ...this._workarea } }
+
+  setWorkarea(insets: Partial<WindowInsets>) {
+    const next = { ...this._workarea, ...insets }
+    for (const side of ['top', 'right', 'bottom', 'left'] as const) next[side] = Math.max(0, Math.round(next[side]))
+    if (next.top === this._workarea.top && next.right === this._workarea.right && next.bottom === this._workarea.bottom && next.left === this._workarea.left) return
+    this._workarea = next
+    for (const renderer of this._renderers) renderer.workareaChanged?.({ ...next })
+    for (const listener of this._workareaListeners) listener({ ...next })
+  }
+
+  onWorkarea(listener: (insets: WindowInsets) => void) {
+    this._workareaListeners.add(listener)
+    return () => { this._workareaListeners.delete(listener) }
   }
 
   registerRenderer(renderer: WindowRenderer) {

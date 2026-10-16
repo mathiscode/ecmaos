@@ -1,4 +1,4 @@
-import type { WindowId, WindowInfo, WindowKind, WindowOptions, WindowRenderer, WindowReports, WindowState } from '@ecmaos/types'
+import type { WindowId, WindowInfo, WindowInsets, WindowKind, WindowOptions, WindowRenderer, WindowReports, WindowState } from '@ecmaos/types'
 
 // WinBox touches `document` at import, so it is loaded by `WinBoxRenderer.init()` in a browser rather than at module load.
 // Bound under its own name: a `declare const WinBox` alongside a same-named import lets the
@@ -78,8 +78,10 @@ export class WinBoxRenderer implements WindowRenderer {
     if (!WinBoxCtor) throw new Error('Windows are unavailable: this host has no DOM')
     const id = info.id
     const { x, y, width, height } = options
+    const area = this._reports?.workarea()
     const params: WindowParams = {
       ...DefaultWindowOptions,
+      ...(area && { top: area.top, right: area.right, bottom: area.bottom, left: area.left }),
       id: String(id),
       title: info.title,
       modal: info.modal,
@@ -151,6 +153,15 @@ export class WinBoxRenderer implements WindowRenderer {
       this._applying = false
     }
     this._updateBodyClass()
+  }
+
+  /** Windows opened from now on keep to the new work area; open ones are moved back inside it */
+  workareaChanged(insets: WindowInsets) {
+    for (const box of this._boxes.values()) {
+      Object.assign(box, insets)
+      // @ts-ignore - re-applies the margins to a maximized window and clamps the others
+      box.resize?.(box.width, box.height)
+    }
   }
 
   /** Closes the WinBox without asking `onclose` again; the server has already decided */

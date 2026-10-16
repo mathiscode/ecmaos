@@ -23,6 +23,14 @@ export interface WindowOwner {
   gid: number
 }
 
+/** Space at the edges of the display that windows keep out of, for a taskbar or panel */
+export interface WindowInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
 export interface WindowGeometry {
   x: number
   y: number
@@ -108,6 +116,8 @@ export interface WindowRenderer {
   create(info: WindowInfo, options: WindowOptions): { body?: HTMLElement, dom?: HTMLElement } | void
   update(info: WindowInfo): void
   close(id: WindowId): void
+  /** The work area changed; windows opened from now on keep to it, and maximized ones fit it */
+  workareaChanged?(insets: WindowInsets): void
 }
 
 /** Callbacks a renderer uses to report what happened to a window */
@@ -117,6 +127,8 @@ export interface WindowReports {
   /** Reports state, geometry or title changes made by the user */
   changed(id: WindowId, patch: Partial<Pick<WindowInfo, 'state' | 'geometry' | 'title'>>): void
   focused(id: WindowId): void
+  /** The current work area, for a renderer placing a new window */
+  workarea(): WindowInsets
 }
 
 export type WindowEvent = 'create' | 'update' | 'focus' | 'close'
@@ -127,6 +139,12 @@ export type WindowEvent = 'create' | 'update' | 'focus' | 'close'
 export interface Windows {
   /** Per-process window limit */
   maxPerProcess: number
+
+  /** The edges windows keep out of; all zero until a panel sets it */
+  readonly workarea: WindowInsets
+
+  /** Reserves space at the edges of the display (a taskbar); pass zeros to release it */
+  setWorkarea(insets: Partial<WindowInsets>): void
 
   /** Adds a renderer; the most recently added renderer that supports a kind is used for it */
   registerRenderer(renderer: WindowRenderer): void
@@ -160,4 +178,7 @@ export interface Windows {
 
   /** Subscribe to window events; returns an unsubscribe function */
   on(event: WindowEvent, listener: (info: WindowInfo) => void): () => void
+
+  /** Subscribe to work area changes; returns an unsubscribe function */
+  onWorkarea(listener: (insets: WindowInsets) => void): () => void
 }

@@ -74,4 +74,13 @@ describe('WinBoxRenderer', () => {
     ;(win.dom as unknown as { winbox: { move(x: number, y: number): void } }).winbox.move(40, 50)
     expect(win.info.geometry).toMatchObject({ x: 40, y: 50 })
   })
+
+  it('should keep new windows out of the work area', async () => {
+    const windows = await newWindows()
+    windows.setWorkarea({ bottom: 40 })
+    const win = windows.create({ max: true })
+    const box = (win.dom as unknown as { winbox: { bottom: number } }).winbox
+    expect(box.bottom).toBe(40)
+    windows.setWorkarea({ bottom: 0 })
+  })
 })
