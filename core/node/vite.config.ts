@@ -1,4 +1,4 @@
-import '../../vitest.tmpdir.ts'
+import '../../vitest.tmpdir.mts'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import i18nextLoader from 'vite-plugin-i18next-loader'

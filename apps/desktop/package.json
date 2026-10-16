@@ -1,0 +1,37 @@
+{
+  "name": "@ecmaos-apps/desktop",
+  "version": "0.0.0",
+  "description": "A desktop environment for ecmaOS: taskbar, launcher and terminal windows",
+  "type": "module",
+  "bin": {
+    "startx": "dist/index.js",
+    "desktop": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc && esbuild src/index.ts --bundle --sourcemap --platform=neutral --format=esm --outfile=dist/index.js --banner:js=#!ecmaos:bin:app:desktop",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "publish:dev": "npm run build && npm publish --registry=http://localhost:4873",
+    "republish:dev": "npm run unpublish:dev && npm run publish:dev",
+    "unpublish:dev": "npm unpublish @ecmaos-apps/desktop --registry=http://localhost:4873 --force"
+  },
+  "devDependencies": {
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "esbuild": "^0.27.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}

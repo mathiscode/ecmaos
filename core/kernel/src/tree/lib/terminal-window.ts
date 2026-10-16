@@ -24,7 +24,7 @@ export async function openTerminalWindow(kernel: Kernel, options: TerminalWindow
   const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit'), import('@xterm/xterm/css/xterm.css')])
 
   const window = kernel.windows.create({
-    title: options.title ?? `${options.username}@${kernel.name}`,
+    title: options.title ?? `Terminal - ${options.username}`,
     width: options.width ?? 720,
     height: options.height ?? 440,
     class: 'ecmaos-window ecmaos-terminal-window',

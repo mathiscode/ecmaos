@@ -6,6 +6,7 @@
 
 - `@ecmaos-apps/boilerplate`: A simple boilerplate for creating new apps
 - `@ecmaos-apps/code`: A simple code editor
+- `@ecmaos-apps/desktop`: A desktop environment (`startx`): taskbar, launcher for `.desktop` entries and terminal windows
 - `@ecmaos-apps/webamp`: Winamp for the web
 
 ## Community Apps
