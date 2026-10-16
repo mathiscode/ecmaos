@@ -38,6 +38,9 @@ import type {
   Users,
   Wasm,
   Windows,
+  DetachedOptions,
+  TerminalWindowHandle,
+  TerminalWindowOptions,
   Workers,
 } from './index.ts'
 
@@ -219,6 +222,12 @@ export interface Kernel {
 
   /** Switch to a different TTY */
   switchTty(ttyNumber: number): Promise<void>
+
+  /** Opens a window with a terminal emulator running a program (a login shell by default) on a pty */
+  openTerminalWindow(options: TerminalWindowOptions): Promise<TerminalWindowHandle>
+
+  /** Runs a program as a user on a pty nothing watches, returning its exit code; for programs that open their own windows */
+  runDetached(options: DetachedOptions): Promise<number>
 
   /** Get a shell by TTY number */
   getShell(ttyNumber: number): Shell | undefined

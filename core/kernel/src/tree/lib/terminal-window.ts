@@ -1,31 +1,17 @@
 import type { Process as ZenFSProcess } from '@zenfs/linux'
 import type { Terminal as XTerm } from '@xterm/xterm'
-import type { WindowHandle, WindowOwner } from '@ecmaos/types'
+import type { DetachedOptions, TerminalWindowHandle, TerminalWindowOptions, WindowHandle } from '@ecmaos/types'
 
 import type { Kernel } from '#kernel.ts'
 import { createPty } from '#lib/pty.ts'
 import type { KernelPty } from '#lib/pty.ts'
 
-export interface TerminalWindowOptions {
-  /** The user the program runs as */
-  username: string
-  /** Defaults to the user's login shell, `/bin/ecmash -l` */
-  command?: string
-  args?: string[]
-  cwd?: string
-  env?: Record<string, string>
-  title?: string
-  /** The window's owner; defaults to the kernel, so the window outlives whatever opened it */
-  owner?: WindowOwner
-  width?: number
-  height?: number
-}
-
-export interface TerminalWindow {
+export interface TerminalWindow extends TerminalWindowHandle {
   window: WindowHandle
   pty: KernelPty
   process: ZenFSProcess
   terminal: XTerm
+  exited: Promise<number>
 }
 
 /**
@@ -88,10 +74,24 @@ export async function openTerminalWindow(kernel: Kernel, options: TerminalWindow
       env: options.env
     })
     void process.exited.then(() => { window.close(true); teardown() })
-    return { window, pty, process, terminal }
+    return { window, pty, process, terminal, exited: process.exited }
   } catch (error) {
     window.close(true)
     teardown()
     throw error
+  }
+}
+
+/**
+ * Runs a program as a user on a pty that nothing reads, for programs that open their own windows (a DOM app). The pty
+ * lives as long as the program does. Resolves to the exit code.
+ */
+export async function runDetached(kernel: Kernel, options: DetachedOptions): Promise<number> {
+  const pty = createPty()
+  try {
+    const process = await kernel.spawnOnPty({ username: options.username, pty, command: '/bin/ecmash', args: ['-c', [options.command, ...(options.args ?? [])].join(' ')], cwd: options.cwd, env: options.env })
+    return await process.exited
+  } finally {
+    pty.close()
   }
 }

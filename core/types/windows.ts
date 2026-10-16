@@ -182,3 +182,35 @@ export interface Windows {
   /** Subscribe to work area changes; returns an unsubscribe function */
   onWorkarea(listener: (insets: WindowInsets) => void): () => void
 }
+
+/** Options for a window with a terminal emulator running a program on a pty */
+export interface TerminalWindowOptions {
+  /** The user the program runs as */
+  username: string
+  /** Defaults to the user's login shell, `/bin/ecmash -l` */
+  command?: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+  title?: string
+  /** The window's owner; defaults to the kernel, so the window outlives whatever opened it */
+  owner?: WindowOwner
+  width?: number
+  height?: number
+}
+
+/** A terminal window: closing it hangs the program up, and the program exiting closes it */
+export interface TerminalWindowHandle {
+  window: WindowHandle
+  /** Resolves to the program's exit code */
+  exited: Promise<number>
+}
+
+/** Options for running a program with no window */
+export interface DetachedOptions {
+  username: string
+  command: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, string>
+}

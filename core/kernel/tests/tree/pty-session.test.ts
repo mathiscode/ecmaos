@@ -83,4 +83,12 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     await until(() => screen(opened.terminal).includes('33 111'))
     opened.window.close(true)
   })
+
+  it('runs a program with no window and reports its exit code', async () => {
+    const before = ptyIndices().length
+    expect(await kernel.runDetached({ username: 'root', command: 'echo', args: ['detached-ok', '>', '/tmp/detached.out'] })).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/detached.out', 'utf-8')).toBe('detached-ok\n')
+    expect(await kernel.runDetached({ username: 'root', command: 'exit', args: ['3'] })).toBe(3)
+    expect(ptyIndices().length).toBe(before)
+  })
 })

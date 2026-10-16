@@ -84,8 +84,8 @@ import { isolationProblem } from '#lib/isolation.ts'
 import { installSyscallTrace } from '#lib/syscall-trace.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
 import type { KernelPty } from '#lib/pty.ts'
-import { openTerminalWindow } from '#lib/terminal-window.ts'
-import type { TerminalWindow, TerminalWindowOptions } from '#lib/terminal-window.ts'
+import { openTerminalWindow, runDetached } from '#lib/terminal-window.ts'
+import type { TerminalWindow } from '#lib/terminal-window.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { installPrograms } from '#lib/programs.ts'
@@ -113,6 +113,8 @@ import type {
   User,
   Wasm as IWasm,
   Windows as IWindows,
+  DetachedOptions,
+  TerminalWindowOptions,
   Workers as IWorkers,
   EventCallback,
   FileHeader,
@@ -3218,6 +3220,11 @@ export class Kernel implements IKernel {
   /** A window with a terminal emulator running a program (a login shell by default) on a pty; see `openTerminalWindow`. */
   openTerminalWindow(options: TerminalWindowOptions): Promise<TerminalWindow> {
     return openTerminalWindow(this, options)
+  }
+
+  /** Runs a program as a user on a pty nothing watches; see `runDetached`. */
+  runDetached(options: DetachedOptions): Promise<number> {
+    return runDetached(this, options)
   }
 
   /**
