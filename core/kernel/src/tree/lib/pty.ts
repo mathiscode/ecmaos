@@ -34,6 +34,10 @@ interface Pair {
   /** Set once the master descriptor exists, so a pair still being opened is not swept up */
   opened: boolean
   locked: boolean
+  /** Kernel code holds the master (`createPty`) instead of a descriptor, so the sweep leaves the pair alone */
+  held: boolean
+  /** Where the slave's output goes when the kernel holds the master */
+  listeners: Set<(data: Uint8Array) => void>
 }
 
 const pairs = new Map<number, Pair>()
@@ -48,6 +52,7 @@ const pts = new TTYDriver({
     write(tty, data) {
       const pair = pairs.get(tty.index)
       if (!pair) return
+      if (pair.held) { for (const listener of pair.listeners) listener(data.slice()); return }
       pair.output.push(data.slice())
       pair.wait.wake_up()
     },
@@ -110,7 +115,7 @@ function allocate(): Pair {
   slave.open()
   const masterDevice = new Device({ name: `pts/.ptm${index}`, class: master_class, dev_t: { major: MASTER_MAJOR, minor: index } })
   masterDevice.register()
-  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true }
+  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true, held: false, listeners: new Set() }
   pairs.set(index, pair)
   return pair
 }
@@ -141,7 +146,49 @@ function masterRefs(pair: Pair): number {
 /** Frees every pair whose master has no descriptor left. */
 export function sweepPtys(): void {
   for (const pair of [...pairs.values()]) {
-    if (pair.opened && masterRefs(pair) === 0) release(pair)
+    if (pair.opened && !pair.held && masterRefs(pair) === 0) release(pair)
+  }
+}
+
+/** A pty whose master the kernel itself holds, for a terminal emulator running on the main thread */
+export interface KernelPty {
+  index: number
+  /** The slave's device path, `/dev/pts/<index>` */
+  path: string
+  /** The slave tty (the controlling terminal for what runs on it) */
+  slave: TTY
+  /** Types into the terminal, as bytes written to the master */
+  write(data: string | Uint8Array): void
+  /** Receives what the slave writes; returns an unsubscribe */
+  onData(listener: (data: Uint8Array) => void): () => void
+  /** Sets the window size and raises SIGWINCH for the foreground process */
+  resize(cols: number, rows: number): void
+  /** Releases the master: the slave's users see a hangup */
+  close(): void
+}
+
+/** Allocates a pair and returns the master side as an object, with no descriptor involved. Throws `ENOSPC` when none is free. */
+export function createPty(size: { cols: number, rows: number } = { cols: 80, rows: 24 }): KernelPty {
+  installPtys()
+  const pair = allocate()
+  pair.opened = true
+  pair.held = true
+  pair.locked = false
+  pair.slave.winsize = { rows: size.rows, cols: size.cols }
+  const encoder = new TextEncoder()
+  let closed = false
+  return {
+    index: pair.index,
+    path: `/dev/pts/${pair.index}`,
+    slave: pair.slave,
+    write: data => { if (!closed) pair.slave.receive(typeof data === 'string' ? encoder.encode(data) : data.slice()) },
+    onData: listener => { pair.listeners.add(listener); return () => { pair.listeners.delete(listener) } },
+    resize: (cols, rows) => {
+      if (closed) return
+      pair.slave.winsize = { rows, cols }
+      pair.slave.signal(Signal.WINCH)
+    },
+    close: () => { if (closed) return; closed = true; release(pair) }
   }
 }
 

@@ -83,6 +83,7 @@ import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { isolationProblem } from '#lib/isolation.ts'
 import { installSyscallTrace } from '#lib/syscall-trace.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
+import type { KernelPty } from '#lib/pty.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { installPrograms } from '#lib/programs.ts'
@@ -3210,6 +3211,42 @@ export class Kernel implements IKernel {
       throw error
     }
     return { tty, shell, terminal, close: end }
+  }
+
+  /**
+   * Runs `command` as `username` with a pty slave for its terminal: standard input, output and error, the controlling
+   * terminal and the foreground process group all belong to the slave. The caller holds the master (`createPty`) and
+   * feeds an emulator from it. The process is a child of init, and closing the master hangs it up.
+   * Programs started from it find no `Shell`, so they take their identity from their own credentials.
+   */
+  async spawnOnPty(options: { username: string, pty: KernelPty, command: string, args?: string[], env?: Record<string, string>, cwd?: string }): Promise<InstanceType<typeof ZenFSProcess>> {
+    const { user, cred } = await this.users.sessionFor(options.username)
+    const home = user.home || '/root'
+    const cwd = options.cwd ?? home
+    const env: Record<string, string> = {
+      ...this.system.envObject,
+      UID: String(user.uid), GID: String(user.gid), EUID: String(cred.euid), EGID: String(cred.egid),
+      HOME: home, USER: user.username, LOGNAME: user.username, SHELL: user.shell || '/bin/ecmash',
+      TERM: 'xterm-256color', PWD: cwd,
+      ...options.env
+    }
+    const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: cwd, umask: 0 }
+    if (this._programsRunAsUser && cred.euid !== 0) init.credentials = credentialsFor(cred)
+
+    const proc = new ZenFSProcess({
+      argv: [options.command, ...(options.args ?? [])],
+      env,
+      cwd,
+      context: bindContext(init),
+      tty: options.pty.slave,
+      console: options.pty.path
+    })
+    this.init.adopt(proc)
+    setUmask(proc, DEFAULT_UMASK)
+    registerProcessKernel(proc, this)
+    options.pty.slave.foreground = proc
+    await zenfsExecve(proc, options.command, [options.command, ...(options.args ?? [])], env)
+    return proc
   }
 
   /**
