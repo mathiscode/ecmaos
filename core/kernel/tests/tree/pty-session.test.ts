@@ -109,6 +109,14 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     expect(kernel.windows.get(opened.window.id)).toBeUndefined()
   })
 
+  it('runs a #!ecmaos:bin:program file from ecmash through execve', async () => {
+    await kernel.filesystem.fs.writeFile('/bin/hello-program', '#!ecmaos:bin:program:hello\nconsole.log("x")\n', { mode: 0o755 })
+    const code = await kernel.runDetached({ username: 'root', command: 'hello-program', args: ['>', '/tmp/hp.out', '2>&1'] })
+    const out = await kernel.filesystem.fs.readFile('/tmp/hp.out', 'utf-8').catch(() => '')
+    expect(code, out).not.toBe(127)
+    expect(out).not.toContain('ENOENT')
+  })
+
   it('runs a program with no window and reports its exit code', async () => {
     const before = ptyIndices().length
     expect(await kernel.runDetached({ username: 'root', command: 'echo', args: ['detached-ok', '>', '/tmp/detached.out'] })).toBe(0)

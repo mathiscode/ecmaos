@@ -7,7 +7,7 @@
  * larger results are written to a scratch file.
  */
 
-import { define_syscall, kill as zenfsKill, processes, type Process } from '@zenfs/linux'
+import { binfmts, define_syscall, kill as zenfsKill, processes, type BinFmt, type Process } from '@zenfs/linux'
 import { Errno } from 'kerium'
 
 import { boundContexts, fs, mounts } from '@zenfs/core'
@@ -151,6 +151,25 @@ async function writeScratch(kernel: Kernel, proc: Process, path: string, text: s
   await kernel.filesystem.fs.writeFile(path, text, { mode: 0o600 })
   const { euid, egid } = proc.context.credentials
   if (euid !== 0) await kernel.filesystem.fs.chown(path, euid, egid)
+}
+
+/**
+ * `#!ecmaos:bin:app:<name>` and `#!ecmaos:bin:program:<name>` files run under `/bin/app`, as the kernel's own shell runs
+ * them, so a program started with `execve` (from `ecmash`, say) runs them too. It goes ahead of the `#!` format, which
+ * would take the header for an interpreter path.
+ */
+function installEcmaosBinfmt(): void {
+  const format: BinFmt = {
+    name: 'ecmaos-app',
+    matches: ({ buf }) => /^#!ecmaos:bin:(app|program):/.test(new TextDecoder().decode(buf.subarray(0, 64))),
+    load(prm) {
+      prm.argv = ['/bin/app', prm.filename, ...prm.argv.slice(1)]
+      prm.filename = '/bin/app'
+    }
+  }
+  const others = [...binfmts]
+  binfmts.clear()
+  for (const fmt of [format, ...others]) binfmts.add(fmt)
 }
 
 /** `tty_get` reports a pty as this plus its number, clear of the eight ttys */
@@ -337,6 +356,7 @@ export function installMainThreadSyscalls(): void {
   installFdLinks()
   installPipeWakeup()
   installPtys()
+  installEcmaosBinfmt()
   installDeviceHolds()
   installSharedRandom()
 
