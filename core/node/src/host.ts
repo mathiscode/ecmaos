@@ -8,6 +8,7 @@ import * as TTYDevice from '@ecmaos-devices/tty'
 import type { Host } from '@ecmaos/types'
 
 import { resolveDataDir } from './data.ts'
+import { nodeDisplay } from './display/index.ts'
 import { MemoryStorage } from './memory-storage.ts'
 import { initfsFile, initfsUrl, ProgramsUrl, sourceFetch } from './sources.ts'
 import { SqliteStorage } from './sqlite-storage.ts'
@@ -53,6 +54,8 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
 
   const host: NodeHost = {
     kind: 'node',
+    // host windows open on demand; nothing starts until a program asks for one
+    display: nodeDisplay({ env }),
     // the console; the terminals of machines that log in with `--listen` are made when they connect
     terminals: 1,
     dataDir,
@@ -78,6 +81,7 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
       root?.store.commit()
     },
     close() {
+      void host.display?.close()
       root?.store.commit()
       db?.close()
     }

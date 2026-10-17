@@ -4,6 +4,7 @@
  * this interface, so the same kernel can run in a browser or in a Node process.
  */
 
+import type { HostDisplay } from './display.ts'
 import type { KernelOptions } from './kernel.ts'
 
 /** Desktop-style notifications; absent on hosts that have none. */
@@ -48,6 +49,8 @@ export interface Host {
   readonly locks?: LockManager
   /** Which machine to run on this host's storage, by name (a browser page: `?machine=NAME`); absent or `root` is the default machine */
   readonly machine?: string
+  /** Shows windows outside the kernel's own page (a Node host opens host windows on demand); absent when the page draws them */
+  readonly display?: HostDisplay
   /** Fills the kernel options a caller left out (root mount, devices, DOM, service worker); a caller's own options win */
   readonly defaults?: Partial<KernelOptions>
 }

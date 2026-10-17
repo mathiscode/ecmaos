@@ -419,6 +419,9 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
+  /** What `window_write` has written to windows that have no DOM, by handle */
+  const windowText = new Map<number, string>()
+
   /** The window behind `handle`, if the process owns it (root may use any) */
   const windowOf = (kernel: Kernel, proc: Process, handle: number) => {
     const id = windowHandles.get(handle)
@@ -431,7 +434,14 @@ export function installMainThreadSyscalls(): void {
     const win = windowOf(kernelOf(proc), proc, handle)
     if (!win) return -Errno.EBADF
     try {
-      win.body.textContent = ((win.body.textContent || '') + text)
+      // A window drawn without the DOM (a host window) keeps the text here and is sent all of it
+      const element = (() => { try { return win.body } catch { return undefined } })()
+      if (element) element.textContent = ((element.textContent || '') + text)
+      else {
+        const written = (windowText.get(handle) ?? '') + text
+        windowText.set(handle, written)
+        win.setContent({ text: written })
+      }
     } catch (error) {
       return -errnoOf(error)
     }
@@ -443,6 +453,7 @@ export function installMainThreadSyscalls(): void {
     if (!win) return -Errno.EBADF
     win.close(true)
     windowHandles.delete(handle)
+    windowText.delete(handle)
     return 0
   })
 

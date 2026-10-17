@@ -240,3 +240,21 @@ describe('WindowServer', () => {
     expect(win.info.state).toBe('normal')
   })
 })
+
+describe('WindowServer content', () => {
+  it('fails with ENODEV when the renderer draws with the DOM', () => {
+    const windows = new WindowServer()
+    windows.registerRenderer({ supports: () => true, attach() {}, create() {}, update() {}, close() {} })
+    const win = windows.create()
+    expect(() => win.setContent({ text: 'x' })).toThrow(/cannot show content/)
+  })
+
+  it('hands content to a renderer that takes it', () => {
+    const windows = new WindowServer()
+    const seen: unknown[] = []
+    windows.registerRenderer({ supports: () => true, attach() {}, create() {}, update() {}, close() {}, content: (id, content) => { seen.push([id, content]) } })
+    const win = windows.create({ id: 'w' })
+    win.setContent({ html: '<p>hi</p>' })
+    expect(seen).toEqual([['w', { html: '<p>hi</p>' }]])
+  })
+})

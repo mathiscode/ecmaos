@@ -5,6 +5,7 @@
 export * from './auth.js'
 export * from './components.js'
 export * from './device.js'
+export * from './display.js'
 export * from './dom.js'
 export * from './events.js'
 export * from './filesystem.js'

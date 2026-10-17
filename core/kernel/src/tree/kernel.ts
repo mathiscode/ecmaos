@@ -463,6 +463,8 @@ export class Kernel implements IKernel {
     const windowRenderer = new WinBoxRenderer()
     await Promise.all([this.telemetry.init(), this.dom.init(), windowRenderer.init()])
     this.windows.registerRenderer(windowRenderer)
+    // A host that shows windows itself (Node) is registered after the page's renderer, so it wins for the kinds it supports
+    if (this.host.display) this.windows.registerRenderer(this.host.display.renderer)
     const tracer = this.telemetry.getTracer('ecmaos.kernel', this.version)
     const bootSpan = tracer.startSpan('kernel.boot', {
       attributes: {

@@ -288,6 +288,10 @@ export class WindowServer implements Windows {
       get body() { return need(entry.body, 'body') },
       get dom() { return need(entry.dom, 'element') },
       mount: element => need(entry.body, 'body').replaceChildren(element),
+      setContent: content => {
+        if (!entry.renderer.content) throw fail('This window cannot show content: its renderer draws with the DOM', Errno.ENODEV)
+        entry.renderer.content(id, content)
+      },
       setTitle: title => this.update(id, { title }),
       move: (x, y) => this.update(id, { x, y }),
       resize: (width, height) => this.update(id, { width, height }),

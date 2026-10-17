@@ -6,6 +6,8 @@
  * windows of that kind.
  */
 
+import type { WindowContent } from './display.ts'
+
 /** Window identifier type */
 export type WindowId = string | number
 
@@ -99,6 +101,8 @@ export interface WindowHandle {
   readonly dom: HTMLElement
   /** Appends `element` to the window's content, as `body`. */
   mount(element: HTMLElement): void
+  /** Sets what the window shows, for a renderer that has no DOM element to mount into (a host window); throws ENODEV when the renderer cannot */
+  setContent(content: WindowContent): void
   setTitle(title: string): void
   move(x: number, y: number): void
   resize(width: number, height: number): void
@@ -119,6 +123,8 @@ export interface WindowRenderer {
   create(info: WindowInfo, options: WindowOptions): { body?: HTMLElement, dom?: HTMLElement } | void
   update(info: WindowInfo): void
   close(id: WindowId): void
+  /** Shows `content` in a window drawn without the DOM; absent on renderers that mount elements */
+  content?(id: WindowId, content: WindowContent): void
   /** The work area changed; windows opened from now on keep to it, and maximized ones fit it */
   workareaChanged?(insets: WindowInsets): void
   /** The minimize mode changed; minimized windows move between the dock and hiding */
