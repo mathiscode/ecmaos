@@ -50,3 +50,11 @@ emcc emcc-inet6.c -O1 -sSTANDALONE_WASM=0 -o emcc-inet6.js && rm emcc-inet6.js
 emcc emcc-scm.c -O1 -sSTANDALONE_WASM=0 -o emcc-scm.js && rm emcc-scm.js
 emcc emcc-scm-peer.c -O1 -sSTANDALONE_WASM=0 -o emcc-scm-peer.js && rm emcc-scm-peer.js
 ```
+
+`emcc-mmap.wasm` (`emcc-mmap.c`: `mmap`, `msync` and `munmap` on an unlinked temp file and on the framebuffer named by `$FB`, with `FBIOGET_*` ioctls) is built like the others. It needs the kernel's `linux/fb.h`, which emscripten does not ship; the host's is used for the build only:
+
+```sh
+emcc emcc-mmap.c -O1 -sSTANDALONE_WASM=0 -idirafter /usr/include -o emcc-mmap.js && rm emcc-mmap.js
+```
+
+Emscripten has no `memfd_create` (the link fails), so the program uses `mkstemp` and `unlink`, which is also what Wayland's shared-memory helpers fall back to.

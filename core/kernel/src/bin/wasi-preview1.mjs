@@ -9,7 +9,7 @@
  * startup, so they cannot collide with fds `env.__syscall_openat` returns.
  */
 
-import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp, parseIp } from '../tree/lib/ip.ts'
@@ -1551,10 +1551,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     },
     // No timers and no signal delivery: setitimer(2) accepts and never fires.
     _setitimer_js: () => 0,
-    // Memory-mapped files are not provided: `mmap` fails, as it does for a filesystem that cannot map (SQLite, which
-    // only maps when asked to, then reads and writes the file itself).
-    _mmap_js: () => -SYSCALL_ERRNO.ENOSYS,
-    _munmap_js: () => -SYSCALL_ERRNO.ENOSYS,
+    // Memory-mapped files and devices (see `mappings` above): the region is a copy in the program's memory that is kept
+    // in step with the object at syscalls.
+    _mmap_js: (len, prot, flags, fd, offset, allocatedPtr, addrPtr) => guardLinux(() => mapObject(len, prot, flags, fd, Number(offset), allocatedPtr, addrPtr)),
+    _munmap_js: (addr, len) => guardLinux(() => unmapObject(addr, len)),
+    _msync_js: (addr, len) => guardLinux(() => syncRegion(addr, len)),
     strptime: (bufPtr, formatPtr, tmPtr) => strptime(bufPtr, readCString(formatPtr), tmPtr),
     // dup(2) and pipe2(2) are only reached when Vim starts a child process, which cannot happen here.
     __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
@@ -1872,6 +1873,166 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       return ESUCCESS
     },
   }
+
+  // - mmap, by copying at syscalls ---------------------------------------------------------------------------------
+  // Program memory is not shared with the kernel, so a mapping cannot be the object's own pages. It is a region of the
+  // program's memory (from its allocator) filled from the object, with a copy of what was filled (the shadow). At each
+  // syscall where the object could be seen or changed by someone else, the pages the program changed (memory differs
+  // from the shadow) are written to the object, and, after a call that reads, pages another writer changed (the object
+  // differs from the shadow while memory still equals it) are brought in. A program that draws into a mapped
+  // framebuffer and never makes a call is seen when it next sleeps, polls, writes, or exits.
+  const PROT_WRITE = 2
+  const MAP_SHARED = 1
+  const PAGE = 4096
+  const S_IFREG = 0x8000
+  const S_IFCHR = 0x2000
+  /** address -> { ptr, len, prot, shared, fd (own descriptor), offset, shadow, regular } */
+  const mappings = new Map()
+
+  const readBacking = (mapping) => {
+    const into = new Uint8Array(mapping.len)
+    // A hole that `ftruncate` left in a file that is no longer linked does not read (ENOENT); it is zeros, so a chunk that
+    // fails is read again a page at a time and the pages that fail stay zero.
+    const readAt = (target, position) => {
+      try { return read(mapping.fd, target, position) } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        if (target.length <= PAGE) return target.length
+        let got = 0
+        for (let at = 0; at < target.length; at += PAGE) {
+          const part = target.subarray(at, Math.min(at + PAGE, target.length))
+          try { got += read(mapping.fd, part, position + at) } catch (inner) { if (inner?.code !== 'ENOENT') throw inner; part.fill(0); got += part.length }
+        }
+        return got
+      }
+    }
+    let done = 0
+    while (done < mapping.len) {
+      const chunk = new Uint8Array(Math.min(65536, mapping.len - done))
+      const got = readAt(chunk, mapping.offset + done)
+      if (got <= 0) break
+      into.set(chunk.subarray(0, got), done)
+      done += got
+      if (got < chunk.length) break
+    }
+    return into
+  }
+
+  function mapObject(len, prot, flags, fd, offset, allocatedPtr, addrPtr) {
+    const real = entryOf(fd)?.fd ?? fd
+    const mode = fstat(real).mode & S_IFMT
+    if (mode !== S_IFREG && mode !== S_IFCHR) throw { code: 'ENODEV' }
+    const memalign = getExports()?.emscripten_builtin_memalign
+    if (typeof memalign !== 'function') throw { code: 'ENOMEM' }
+    const ptr = memalign(65536, len)
+    if (!ptr) throw { code: 'ENOMEM' }
+    const mapping = { ptr, len, prot, shared: (flags & MAP_SHARED) !== 0, fd: dup(real), offset, shadow: new Uint8Array(len), regular: mode === S_IFREG }
+    bytes().fill(0, ptr, ptr + len)
+    const content = readBacking(mapping)
+    bytes().set(content, ptr)
+    mapping.shadow.set(content)
+    mappings.set(ptr, mapping)
+    view().setInt32(allocatedPtr, 1, true)
+    view().setUint32(addrPtr, ptr, true)
+  }
+
+  /** Writes the pages of `mapping` the program changed to its object */
+  function flushMapping(mapping) {
+    if (!mapping.shared || !(mapping.prot & PROT_WRITE)) return
+    const memory = bytes()
+    // a regular file keeps its size: bytes past the end are not written (the file does not grow by being mapped)
+    const limit = mapping.regular ? Math.max(0, Math.min(mapping.len, Number(fstat(mapping.fd).size) - mapping.offset)) : mapping.len
+    let runStart = -1
+    const flushRun = (end) => {
+      if (runStart < 0) return
+      const stop = Math.min(end, limit)
+      if (stop > runStart) {
+        const data = memory.slice(mapping.ptr + runStart, mapping.ptr + stop)
+        write(mapping.fd, data, mapping.offset + runStart)
+        mapping.shadow.set(data, runStart)
+      }
+      runStart = -1
+    }
+    for (let at = 0; at < mapping.len; at += PAGE) {
+      const end = Math.min(at + PAGE, mapping.len)
+      let same = true
+      for (let i = at; i < end; i++) if (memory[mapping.ptr + i] !== mapping.shadow[i]) { same = false; break }
+      if (same) flushRun(at)
+      else if (runStart < 0) runStart = at
+    }
+    flushRun(mapping.len)
+  }
+
+  /** Brings in the pages another writer changed and the program has not */
+  function refreshMapping(mapping) {
+    if (!mapping.shared) return
+    const memory = bytes()
+    const fresh = readBacking(mapping)
+    for (let at = 0; at < mapping.len; at += PAGE) {
+      const end = Math.min(at + PAGE, mapping.len)
+      let untouched = true
+      let changed = false
+      for (let i = at; i < end; i++) {
+        if (memory[mapping.ptr + i] !== mapping.shadow[i]) { untouched = false; break }
+        if (fresh[i] !== mapping.shadow[i]) changed = true
+      }
+      if (untouched && changed) {
+        memory.set(fresh.subarray(at, end), mapping.ptr + at)
+        mapping.shadow.set(fresh.subarray(at, end), at)
+      }
+    }
+  }
+
+  const overlapping = (addr, len) => [...mappings.values()].filter(m => m.ptr < addr + len && addr < m.ptr + m.len)
+
+  // The libc hands `_msync_js` the flags the region was mapped with, not `msync`'s own, so `MS_INVALIDATE` cannot be told
+  // apart from `MS_SYNC`: an `msync` always writes the program's changes out and then takes other writers' in.
+  function syncRegion(addr, len) {
+    for (const mapping of overlapping(addr, len)) {
+      flushMapping(mapping)
+      refreshMapping(mapping)
+    }
+  }
+
+  function unmapObject(addr, len) {
+    for (const mapping of overlapping(addr, len)) {
+      flushMapping(mapping)
+      // only a mapping unmapped whole is let go; the libc keeps its own list of regions
+      if (addr <= mapping.ptr && addr + len >= mapping.ptr + mapping.len) {
+        mappings.delete(mapping.ptr)
+        try { close(mapping.fd) } catch { /* already closed */ }
+      }
+    }
+  }
+
+  const flushAll = () => { for (const mapping of mappings.values()) flushMapping(mapping) }
+  const refreshAll = () => { for (const mapping of mappings.values()) refreshMapping(mapping) }
+  let lastClockFlush = 0
+
+  /**
+   * Wraps an import so mappings are in step around it: `before` writes the program's changes out, `after` brings other
+   * writers' changes in. The clock is the way a program that never calls anything else paces its frames, so reading it
+   * flushes at most every 16 ms.
+   */
+  const aroundCalls = (table, names, { before = false, after = false, throttled = false } = {}) => {
+    for (const name of names) {
+      const original = table[name]
+      if (typeof original !== 'function') continue
+      table[name] = (...args) => {
+        if (!mappings.size) return original(...args)
+        if (before) {
+          if (!throttled) flushAll()
+          else { const now = Date.now(); if (now - lastClockFlush >= 16) { lastClockFlush = now; flushAll() } }
+        }
+        try { return original(...args) } finally { if (after) refreshAll() }
+      }
+    }
+  }
+  aroundCalls(wasi, ['fd_write', 'fd_pwrite', 'fd_sync', 'fd_datasync', 'fd_close', 'proc_exit'], { before: true })
+  aroundCalls(wasi, ['fd_read', 'fd_pread', 'poll_oneoff'], { before: true, after: true })
+  aroundCalls(wasi, ['clock_time_get'], { before: true, throttled: true })
+  aroundCalls(envSyscalls, ['__syscall_ioctl', '__syscall_ftruncate64', '__syscall_fallocate', '__syscall_sendto', '__syscall_sendmsg', 'exit'], { before: true })
+  aroundCalls(envSyscalls, ['__syscall_poll', '__syscall_poll_nonblocking', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking', '__syscall_recvfrom', '__syscall_recvmsg'], { before: true, after: true })
+  aroundCalls(envSyscalls, ['emscripten_get_now', 'emscripten_date_now'], { before: true, throttled: true })
 
   return { imports: { wasi_snapshot_preview1: wasi, env: envSyscalls }, ProcExit, args }
 }
