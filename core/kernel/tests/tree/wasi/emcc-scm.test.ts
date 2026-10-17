@@ -25,6 +25,11 @@ describe('an emcc program passing descriptors over local sockets', () => {
     expect(out).toContain('file-holds via passed fd')
   })
 
+  it('keeps a pipe from reading as ended while its write end is in flight', () => {
+    expect(out).toContain('inflight-read waits')
+    expect(out).toContain('inflight-data late')
+  })
+
   it('passes a pipe end, and the pipe stays open until every copy is closed', () => {
     expect(out).toContain('pipe-holds piped')
   })

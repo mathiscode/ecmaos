@@ -283,7 +283,7 @@ const loopbackListeners = new Map<string, LoopbackListener>()
  * receiver exits.
  */
 type Held = { ref(): unknown, closeSync(): void }
-type ScmItem = { t: 'fd', handle: Held } | { t: 'sock', read?: Held, write?: Held, meta: Record<string, unknown> }
+type ScmItem = ({ t: 'fd', handle: Held } | { t: 'sock', read?: Held, write?: Held, meta: Record<string, unknown> }) & { unhold?: Array<() => void> }
 interface ScmEntry { offset: number, length: number, items: ScmItem[] }
 interface LocalConnection { ends: Record<string, Process> }
 const localConnections = new Map<number, LocalConnection>()
@@ -292,7 +292,29 @@ let nextConnection = 1
 const MaxInFlight = 253
 const otherEnd = (dir: string) => dir === 'c' ? 's' : 'c'
 
+/**
+ * A descriptor in flight is also kept in a table entry of the sender (an fd number far above any a program is given). A
+ * pipe is at its end when no table anywhere has the other end, so without this the reader of a pipe whose write end was
+ * sent and closed would see the end of the file at once, before the receiver had taken it. Returns what drops the entry.
+ */
+const InFlightBase = 0x40000000
+let nextInFlight = InFlightBase
+function holdInFlight(proc: Process, handle: Held | undefined): () => void {
+  if (!handle) return () => {}
+  const key = nextInFlight++
+  const entry = handle.ref() as Held
+  proc.context.descriptors.set(key, entry as never)
+  return () => {
+    // if the sender exited, its table was closed with the entry in it
+    if (proc.context.descriptors.get(key) !== (entry as never)) return
+    proc.context.descriptors.delete(key)
+    try { entry.closeSync() } catch { /* already closed */ }
+  }
+}
+const unholdItem = (item: ScmItem) => { for (const drop of item.unhold ?? []) drop(); item.unhold = [] }
+
 function releaseItems(items: ScmItem[]): void {
+  for (const item of items) unholdItem(item)
   for (const item of items) for (const handle of item.t === 'fd' ? [item.handle] : [item.read, item.write]) { try { handle?.closeSync() } catch { /* already closed */ } }
 }
 
@@ -1006,9 +1028,15 @@ export function installMainThreadSyscalls(): void {
     else if (list.some(item => item.t === 'fd' ? !lookup(item.fd) : !lookup(item.readFd) || !lookup(item.writeFd))) text = JSON.stringify({ error: 'EBADF' })
     else if (held + list.length > MaxInFlight) text = JSON.stringify({ error: 'ENOBUFS' })
     else {
-      const items: ScmItem[] = list.map(item => item.t === 'fd'
-        ? { t: 'fd' as const, handle: lookup(item.fd)!.ref() as Held }
-        : { t: 'sock' as const, read: lookup(item.readFd)!.ref() as Held, write: lookup(item.writeFd)!.ref() as Held, meta: item.meta })
+      const items: ScmItem[] = list.map(item => {
+        if (item.t === 'fd') {
+          const handle = lookup(item.fd)!.ref() as Held
+          return { t: 'fd' as const, handle, unhold: [holdInFlight(proc, handle)] }
+        }
+        const read = lookup(item.readFd)!.ref() as Held
+        const write = lookup(item.writeFd)!.ref() as Held
+        return { t: 'sock' as const, read, write, meta: item.meta, unhold: [holdInFlight(proc, read), holdInFlight(proc, write)] }
+      })
       if (queue.length === 0) {
         const peer = connection.ends[otherEnd(dir)]
         // what the receiving program never took goes when it does
@@ -1050,6 +1078,7 @@ export function installMainThreadSyscalls(): void {
       return next++
     }
     const items = given.map(item => item.t === 'fd' ? { t: 'fd', fd: place(item.handle) } : { t: 'sock', readFd: place(item.read), writeFd: place(item.write), meta: item.meta })
+    for (const item of given) unholdItem(item)   // the receiver's table has them now
     const sender = localConnections.get(conn)?.ends[dir]
     const identity = sender ? identityOf(sender) : undefined
     const text = JSON.stringify({ limit, items, ctrunc: taken.length > given.length, max, peer: sender ? { pid: sender.pid, uid: identity?.uid ?? 0, gid: identity?.gid ?? 0 } : undefined })

@@ -3,8 +3,8 @@
  * wlcomp: a small Wayland compositor for ecmaOS.
  *
  * It listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY and speaks the wire protocol by hand (no libwayland): wl_compositor,
- * wl_shm, xdg-shell (toplevels), wl_output, wl_seat and cursor-shape-v1 (a named cursor, or none, becomes the window's
- * CSS cursor). Each toplevel gets a window made by `fbwin`, and what the client commits is copied from its shm pool into that window's /dev/fbN. Pools are read with pread(), so a client
+ * wl_shm, xdg-shell (toplevels), wl_output, wl_seat, cursor-shape-v1 (a named cursor, or none, becomes the window's
+ * CSS cursor) and wl_data_device_manager (the clipboard, shared with the browser's, and text dropped on a window). Each toplevel gets a window made by `fbwin`, and what the client commits is copied from its shm pool into that window's /dev/fbN. Pools are read with pread(), so a client
  * that maps its pool shared (a file in the runtime directory, or memfd) is seen at each commit.
  */
 #define _GNU_SOURCE
@@ -28,13 +28,16 @@
 #define MAX_OBJECTS 8192
 #define MAX_FDS 32
 #define INBUF 65536
+#define SERVER_ID 0xff000000u   /* ids the compositor makes (data offers) start here */
+#define MAX_SOBJS 256
 
 enum type {
   T_NONE, T_DISPLAY, T_REGISTRY, T_CALLBACK, T_COMPOSITOR, T_REGION, T_SHM, T_POOL, T_BUFFER, T_SURFACE,
-  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT, T_POINTER, T_KEYBOARD, T_CSMGR, T_CSDEV
+  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT, T_POINTER, T_KEYBOARD, T_CSMGR, T_CSDEV,
+  T_DDMGR, T_DSOURCE, T_DOFFER, T_DDEV
 };
 
-enum global { G_COMPOSITOR = 1, G_SHM, G_WMBASE, G_OUTPUT, G_SEAT, G_CURSORSHAPE };
+enum global { G_COMPOSITOR = 1, G_SHM, G_WMBASE, G_OUTPUT, G_SEAT, G_CURSORSHAPE, G_DATADEVICE };
 
 struct client;
 
@@ -86,8 +89,10 @@ struct client {
   uint8_t in[INBUF];
   size_t inlen;
   struct obj objs[MAX_OBJECTS];
+  struct obj sobjs[MAX_SOBJS];  /* the compositor's own objects, ids SERVER_ID + index */
   int alive;
   uint32_t pointer, keyboard;   /* the wl_pointer and wl_keyboard objects, 0 if none */
+  uint32_t ddev;                /* the wl_data_device, 0 if none */
 };
 
 struct due { struct client *client; uint32_t id; };
@@ -181,6 +186,7 @@ static void ev(struct client *c, uint32_t id, uint32_t opcode, const char *fmt, 
 }
 
 static void fatal(struct client *c, uint32_t object, uint32_t code, const char *text) {
+  LOG("fatal: object %u code %u: %s", object, code, text);
   ev(c, 1, 0, "uus", object, code, text);
   c->alive = 0;
 }
@@ -188,20 +194,33 @@ static void fatal(struct client *c, uint32_t object, uint32_t code, const char *
 /* ---- objects ---- */
 
 static struct obj *obj_get(struct client *c, uint32_t id) {
+  if (id >= SERVER_ID) return id - SERVER_ID < MAX_SOBJS ? &c->sobjs[id - SERVER_ID] : NULL;
   return id > 0 && id < MAX_OBJECTS ? &c->objs[id] : NULL;
 }
 static void obj_set(struct client *c, uint32_t id, enum type type, int version, void *data) {
-  if (id == 0 || id >= MAX_OBJECTS) { fatal(c, 1, 0, "object id out of range"); return; }
-  c->objs[id].type = type;
-  c->objs[id].version = (uint8_t)version;
-  c->objs[id].data = data;
+  struct obj *o = obj_get(c, id);
+  if (id == 0 || !o) { fatal(c, 1, 0, "object id out of range"); return; }
+  o->type = type;
+  o->version = (uint8_t)version;
+  o->data = data;
 }
 static void obj_free(struct client *c, uint32_t id) {
   struct obj *o = obj_get(c, id);
   if (!o) return;
   o->type = T_NONE;
   o->data = NULL;
-  ev(c, 1, 1, "u", id); /* wl_display.delete_id */
+  if (id < SERVER_ID) ev(c, 1, 1, "u", id); /* wl_display.delete_id (the client forgets ids that are the compositor's on its own) */
+}
+/* makes an object of the compositor's own and returns its id, or 0 when there is no room */
+static uint32_t sobj_new(struct client *c, enum type type, int version, void *data) {
+  for (uint32_t i = 0; i < MAX_SOBJS; i++) {
+    if (c->sobjs[i].type != T_NONE) continue;
+    c->sobjs[i].type = type;
+    c->sobjs[i].version = (uint8_t)version;
+    c->sobjs[i].data = data;
+    return SERVER_ID + i;
+  }
+  return 0;
 }
 
 static void pool_unref(struct pool *p) {
@@ -465,6 +484,7 @@ static void on_display(struct client *c, uint32_t opcode, struct rd *r) {
     ev(c, id, 0, "usu", (uint32_t)G_OUTPUT, "wl_output", 2u);
     ev(c, id, 0, "usu", (uint32_t)G_SEAT, "wl_seat", 5u);
     ev(c, id, 0, "usu", (uint32_t)G_CURSORSHAPE, "wp_cursor_shape_manager_v1", 1u);
+    ev(c, id, 0, "usu", (uint32_t)G_DATADEVICE, "wl_data_device_manager", 3u);
   } else fatal(c, 1, 1, "unknown wl_display request");
 }
 
@@ -478,7 +498,7 @@ static void on_registry(struct client *c, uint32_t opcode, struct rd *r) {
   static const struct { enum global g; enum type t; const char *name; uint32_t max; } table[] = {
     { G_COMPOSITOR, T_COMPOSITOR, "wl_compositor", 4 }, { G_SHM, T_SHM, "wl_shm", 1 },
     { G_WMBASE, T_WMBASE, "xdg_wm_base", 2 }, { G_OUTPUT, T_OUTPUT, "wl_output", 2 }, { G_SEAT, T_SEAT, "wl_seat", 5 },
-    { G_CURSORSHAPE, T_CSMGR, "wp_cursor_shape_manager_v1", 1 },
+    { G_CURSORSHAPE, T_CSMGR, "wp_cursor_shape_manager_v1", 1 }, { G_DATADEVICE, T_DDMGR, "wl_data_device_manager", 3 },
   };
   for (size_t i = 0; i < sizeof table / sizeof table[0]; i++) {
     if ((uint32_t)table[i].g != name || strcmp(table[i].name, iface) != 0) continue;
@@ -723,6 +743,11 @@ static void on_pointer(struct client *c, uint32_t self, uint32_t opcode, struct 
   set_cursor(c, surface ? "default" : "none");
 }
 
+static void on_ddmgr(struct client *c, uint32_t self, uint32_t opcode, struct rd *r);
+static void on_dsource(struct client *c, uint32_t self, uint32_t opcode, struct rd *r);
+static void on_doffer(struct client *c, uint32_t self, uint32_t opcode, struct rd *r);
+static void on_ddev(struct client *c, uint32_t self, uint32_t opcode, struct rd *r);
+
 static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *r) {
   struct obj *o = obj_get(c, id);
   if (id == 1) { on_display(c, opcode, r); return; }
@@ -744,6 +769,10 @@ static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *
     case T_POINTER: on_pointer(c, id, opcode, r); break;
     case T_CSMGR: on_csmgr(c, id, opcode, r); break;
     case T_CSDEV: on_csdev(c, id, opcode, r); break;
+    case T_DDMGR: on_ddmgr(c, id, opcode, r); break;
+    case T_DSOURCE: on_dsource(c, id, opcode, r); break;
+    case T_DOFFER: on_doffer(c, id, opcode, r); break;
+    case T_DDEV: on_ddev(c, id, opcode, r); break;
     case T_KEYBOARD: if (opcode == 0) { if (c->keyboard == id) c->keyboard = 0; obj_free(c, id); } break;
     default: break;
   }
@@ -761,6 +790,8 @@ static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *
 #define EV_MSC 4
 #define MSC_POINTER_ENTER 0x100
 #define MSC_KEYBOARD_FOCUS 0x101
+#define MSC_PASTE 0x102
+#define MSC_DROP 0x103
 
 static int live(struct client *c, uint32_t id, enum type t) {
   struct obj *o = id ? obj_get(c, id) : NULL;
@@ -782,6 +813,338 @@ static void send_keymap(struct client *c, uint32_t id) {
   send_fd = -1;
   close(fd);
   if (c->objs[id].version >= 4) ev(c, id, 5, "ii", 25, 600);
+}
+
+
+/* ---- clipboard and drag and drop ---- */
+
+/* The clipboard (the selection) is whatever the last client to set it offers, or text that came from the browser's
+ * clipboard through the window (FBIO 0x46f4). What a client offers as text is read as soon as it is set and sent out
+ * through the window (FBIO 0x46f3) so the browser has it too. A drop on a window (FBIO 0x46f5) is offered to the
+ * client of that window as a drag that ends at once. A drag from a client is refused. */
+struct dsource { char *mimes[16]; int nmimes; };
+
+static const char *const text_mimes[] = { "text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING" };
+#define TEXT_MIMES (sizeof text_mimes / sizeof text_mimes[0])
+
+static struct { struct client *client; uint32_t source; char *text; size_t len; char *cache; size_t cache_len; } sel;   /* cache: the text of the client's source, as the browser got it */
+static char *last_text;   /* the text last sent to or taken from the browser: the same text again is not news */
+static int drag_marker;   /* the data of an offer that is part of a drop */
+static struct { struct client *client; uint32_t offer, ddev; char *text; size_t len; int uris; uint32_t due; } dnd;
+static struct pull { struct client *client; int fd; uint8_t *buf; size_t n; uint32_t started; uint32_t source; } pulls[4];
+
+static int is_text_mime(const char *mime) {
+  for (size_t m = 0; m < TEXT_MIMES; m++) if (strcmp(mime, text_mimes[m]) == 0) return 1;
+  return 0;
+}
+
+static int has_focus(struct client *c) {
+  for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->client == c && wins[i]->keyboard_in) return 1;
+  return 0;
+}
+
+static struct surface *window_of(struct client *c) {
+  struct surface *any = NULL;
+  for (int i = 0; i < 64; i++) {
+    if (!wins[i] || wins[i]->client != c || wins[i]->win.fd < 0) continue;
+    if (wins[i]->keyboard_in) return wins[i];
+    if (!any) any = wins[i];
+  }
+  return any;
+}
+
+/* text for the browser, in chunks (FBIO_SETCLIPBOARD) */
+static void clipboard_send(int fd, const uint8_t *text, size_t n) {
+  uint8_t chunk[4096];
+  size_t off = 0;
+  do {
+    size_t k = n - off < 4092 ? n - off : 4092;
+    uint32_t header = (uint32_t)k | (off == 0 ? 0x10000u : 0) | (off + k >= n ? 0x20000u : 0);
+    memset(chunk, 0, sizeof chunk);
+    memcpy(chunk, &header, 4);
+    if (k) memcpy(chunk + 4, text + off, k);
+    if (ioctl(fd, 0x46f3, chunk) != 0) { LOG("clipboard: set failed: %s", strerror(errno)); return; }
+    off += k;
+  } while (off < n);
+}
+
+/* what the browser has for the window, as one NUL-terminated string (the caller frees it); request is FBIO_GETPASTE or FBIO_GETDROP */
+static char *clipboard_fetch(int fd, unsigned long request, size_t *len, int *uris) {
+  uint8_t chunk[4096];
+  char *out = NULL;
+  size_t n = 0;
+  *uris = 0;
+  for (int guard = 0; guard < 300; guard++) {
+    memset(chunk, 0, sizeof chunk);
+    if (ioctl(fd, request, chunk) != 0) break;
+    uint32_t header;
+    memcpy(&header, chunk, 4);
+    size_t k = header & 0xffff;
+    if (header & 0x100000) *uris = 1;
+    if (k > 4092) break;
+    char *bigger = realloc(out, n + k + 1);
+    if (!bigger) break;
+    out = bigger;
+    memcpy(out + n, chunk + 4, k);
+    n += k;
+    out[n] = 0;
+    if (header & 0x20000) { *len = n; return out; }
+  }
+  free(out);
+  *len = 0;
+  return NULL;
+}
+
+static void write_text(int fd, const char *text, size_t n) {
+  size_t at = 0;
+  int waited = 0;
+  fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+  while (at < n && waited < 1000) {
+    ssize_t w = write(fd, text + at, n - at);
+    LOG("write_text: wrote %zd of %zu (errno %d)", w, n - at, w < 0 ? errno : 0);
+    if (w > 0) { at += (size_t)w; continue; }
+    if (w < 0 && errno == EAGAIN) { usleep(1000); waited++; continue; }
+    break;
+  }
+  close(fd);
+}
+
+static void send_selection(struct client *c) {
+  if (!live(c, c->ddev, T_DDEV)) return;
+  struct obj *src = sel.client ? obj_get(sel.client, sel.source) : NULL;
+  if (!sel.text && !(src && src->type == T_DSOURCE)) { ev(c, c->ddev, 5, "u", 0u); return; }
+  uint32_t offer = sobj_new(c, T_DOFFER, 3, NULL);
+  if (!offer) return;
+  ev(c, c->ddev, 0, "u", offer);
+  if (sel.text) { ev(c, offer, 0, "s", text_mimes[0]); ev(c, offer, 0, "s", text_mimes[1]); }
+  else { struct dsource *d = src->data; for (int i = 0; i < d->nmimes; i++) ev(c, offer, 0, "s", d->mimes[i]); }
+  ev(c, c->ddev, 5, "u", offer);
+}
+
+static void send_selection_to_focused(void) {
+  for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] && has_focus(clients[i])) send_selection(clients[i]);
+}
+
+/* the selection is gone or changed hands: a client source that is replaced is told so */
+static void selection_clear(int cancel) {
+  if (cancel && sel.client && live(sel.client, sel.source, T_DSOURCE)) ev(sel.client, sel.source, 2, "");
+  sel.client = NULL;
+  sel.source = 0;
+  free(sel.text);
+  sel.text = NULL;
+  sel.len = 0;
+  free(sel.cache);
+  sel.cache = NULL;
+  sel.cache_len = 0;
+}
+
+/* asks the client's source for text, to hand it to the browser when it arrives */
+static void pull_start(struct client *c, uint32_t source) {
+  struct obj *o = obj_get(c, source);
+  struct surface *w = window_of(c);
+  if (!o || o->type != T_DSOURCE || !w) return;
+  struct dsource *d = o->data;
+  const char *mime = NULL;
+  for (size_t m = 0; m < TEXT_MIMES && !mime; m++) for (int i = 0; i < d->nmimes; i++) if (strcmp(d->mimes[i], text_mimes[m]) == 0) { mime = d->mimes[i]; break; }
+  if (!mime) return;
+  int slot = -1;
+  for (int i = 0; i < 4; i++) { if (pulls[i].fd > 0 && pulls[i].client == c) { close(pulls[i].fd); free(pulls[i].buf); pulls[i].fd = 0; } if (slot < 0 && pulls[i].fd <= 0) slot = i; }
+  if (slot < 0) return;
+  int p[2];
+  if (pipe(p) != 0) return;
+  fcntl(p[0], F_SETFL, fcntl(p[0], F_GETFL) | O_NONBLOCK);
+  send_fd = p[1];
+  ev(c, source, 1, "s", mime);
+  send_fd = -1;
+  close(p[1]);
+  LOG("clipboard: asking for %s", mime);
+  pulls[slot] = (struct pull){ c, p[0], NULL, 0, now_ms(), source };
+}
+
+static void pull_finish(struct pull *p) {
+  LOG("clipboard: %zu bytes from the client", p->n);
+  if (p->n > 0 && p->buf) {
+    p->buf = realloc(p->buf, p->n + 1);
+    p->buf[p->n] = 0;
+    if (sel.client == p->client && sel.source == p->source) {
+      free(sel.cache);
+      sel.cache = malloc(p->n + 1);
+      if (sel.cache) { memcpy(sel.cache, p->buf, p->n + 1); sel.cache_len = p->n; }
+    }
+    struct surface *w = window_of(p->client);
+    if (w && (!last_text || strcmp(last_text, (char *)p->buf) != 0)) {
+      free(last_text);
+      last_text = strdup((char *)p->buf);
+      clipboard_send(w->win.fd, p->buf, p->n);
+    }
+  }
+  close(p->fd);
+  free(p->buf);
+  memset(p, 0, sizeof *p);
+}
+
+static void pulls_run(void) {
+  for (int i = 0; i < 4; i++) {
+    struct pull *p = &pulls[i];
+    if (p->fd <= 0) continue;
+    for (;;) {
+      struct pollfd pf = { p->fd, POLLIN, 0 };
+      poll(&pf, 1, 0);
+      if (!(pf.revents & (POLLIN | POLLHUP | POLLERR))) {
+        if (now_ms() - p->started > 2000) pull_finish(p);
+        break;
+      }
+      uint8_t tmp[4096];
+      ssize_t n = read(p->fd, tmp, sizeof tmp);
+      LOG("clipboard: read %zd (revents %x)", n, pf.revents);
+      if (n > 0 && p->n + (size_t)n <= (1u << 20)) {
+        uint8_t *bigger = realloc(p->buf, p->n + (size_t)n + 1);
+        if (!bigger) { pull_finish(p); break; }
+        p->buf = bigger;
+        memcpy(p->buf + p->n, tmp, (size_t)n);
+        p->n += (size_t)n;
+        continue;
+      }
+      if (n < 0 && (errno == EAGAIN || errno == EINTR)) break;
+      pull_finish(p);
+      break;
+    }
+  }
+}
+
+static int pulls_active(void) {
+  for (int i = 0; i < 4; i++) if (pulls[i].fd > 0) return 1;
+  return 0;
+}
+
+/* the browser's clipboard text became the selection */
+static void paste_arrived(struct surface *s) {
+  size_t len;
+  int uris;
+  char *text = clipboard_fetch(s->win.fd, 0x46f4, &len, &uris);
+  if (!text) return;
+  if (len == 0 || (last_text && strcmp(last_text, text) == 0)) { free(text); return; }
+  selection_clear(1);
+  sel.text = text;
+  sel.len = len;
+  free(last_text);
+  last_text = strdup(text);
+  send_selection_to_focused();
+}
+
+static void dnd_end(void) {
+  free(dnd.text);
+  memset(&dnd, 0, sizeof dnd);
+}
+
+/* something was dropped on the window: offered as a drag over the pointer that ends in a drop soon after */
+static void drop_arrived(struct surface *s) {
+  size_t len;
+  int uris;
+  char *text = clipboard_fetch(s->win.fd, 0x46f5, &len, &uris);
+  struct client *c = s->client;
+  if (!text) return;
+  if (len == 0 || !live(c, c->ddev, T_DDEV) || dnd.client) { free(text); return; }
+  uint32_t offer = sobj_new(c, T_DOFFER, 3, &drag_marker);
+  if (!offer) { free(text); return; }
+  dnd.client = c; dnd.offer = offer; dnd.ddev = c->ddev; dnd.text = text; dnd.len = len; dnd.uris = uris;
+  dnd.due = now_ms() + 60;
+  ev(c, c->ddev, 0, "u", offer);
+  if (uris) ev(c, offer, 0, "s", "text/uri-list");
+  else { ev(c, offer, 0, "s", text_mimes[0]); ev(c, offer, 0, "s", text_mimes[1]); }
+  ev(c, offer, 1, "u", 1u);   /* source_actions: copy */
+  ev(c, c->ddev, 1, "uuiiu", serial_counter++, s->id, fixed(s->px), fixed(s->py), offer);
+  ev(c, c->ddev, 3, "uii", now_ms(), fixed(s->px), fixed(s->py));
+}
+
+static void dnd_run(void) {
+  if (!dnd.client || now_ms() < dnd.due || dnd.due == 0) return;
+  struct client *c = NULL;
+  for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] == dnd.client) c = clients[i];
+  if (!c) { dnd_end(); return; }
+  if (live(c, dnd.ddev, T_DDEV)) ev(c, dnd.ddev, 4, "");   /* drop */
+  dnd.due = 0;   /* the offer stays until the client has read it and finishes or destroys it */
+}
+
+static void on_ddmgr(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  uint32_t id = r_u32(r);
+  if (r->bad) return;
+  if (opcode == 0) {
+    struct dsource *d = calloc(1, sizeof *d);
+    if (!d) { fatal(c, self, 2, "out of memory"); return; }
+    obj_set(c, id, T_DSOURCE, c->objs[self].version, d);
+  } else if (opcode == 1) {
+    r_u32(r);   /* the wl_seat */
+    c->ddev = id;
+    obj_set(c, id, T_DDEV, c->objs[self].version, NULL);
+    if (has_focus(c)) send_selection(c);
+  }
+}
+
+static void source_free(struct client *c, uint32_t self) {
+  struct dsource *d = c->objs[self].data;
+  if (sel.client == c && sel.source == self) { selection_clear(0); send_selection_to_focused(); }
+  if (d) { for (int i = 0; i < d->nmimes; i++) free(d->mimes[i]); free(d); }
+  obj_free(c, self);
+}
+
+static void on_dsource(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  struct dsource *d = c->objs[self].data;
+  if (opcode == 0) {
+    const char *mime = r_str(r);
+    if (r->bad || !d || d->nmimes >= 16) return;
+    char *copy = strdup(mime);
+    if (copy) d->mimes[d->nmimes++] = copy;
+  } else if (opcode == 1) source_free(c, self);
+}
+
+static void on_doffer(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  struct obj *self_obj = obj_get(c, self);
+  int drag = self_obj && self_obj->data == &drag_marker;
+  if (opcode == 1) {   /* receive */
+    const char *mime = r_str(r);
+    int fd = take_fd(c);
+    if (r->bad) { if (fd >= 0) close(fd); return; }
+    if (fd < 0) return;
+    if (drag) {
+      if (dnd.client == c && dnd.offer == self && dnd.text) write_text(fd, dnd.text, dnd.len); else close(fd);
+    } else if (sel.text) write_text(fd, sel.text, sel.len);
+    else if (sel.cache && is_text_mime(mime)) write_text(fd, sel.cache, sel.cache_len);
+    else if (sel.client && live(sel.client, sel.source, T_DSOURCE)) {
+      LOG("clipboard: forwarding a request for %s (fd %d)", mime, fd);
+      send_fd = fd;
+      ev(sel.client, sel.source, 1, "s", mime);
+      send_fd = -1;
+      close(fd);
+    } else close(fd);
+  } else if (opcode == 2 || opcode == 3) {   /* destroy, finish */
+    if (drag && dnd.client == c && dnd.offer == self) dnd_end();
+    if (opcode == 2) obj_free(c, self);
+  } else if (opcode == 4) {   /* set_actions: only copying is on offer */
+    uint32_t actions = r_u32(r);
+    if (!r->bad && drag && (actions & 1)) ev(c, self, 2, "u", 1u);
+  }
+}
+
+static void on_ddev(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  if (opcode == 2) { if (c->ddev == self) c->ddev = 0; obj_free(c, self); return; }
+  uint32_t source = r_u32(r);
+  if (opcode == 0) {   /* start_drag: a drag from one client to another is not supported */
+    if (!r->bad && source && live(c, source, T_DSOURCE)) ev(c, source, 2, "");
+    return;
+  }
+  if (opcode != 1) return;
+  r_u32(r);   /* serial */
+  if (r->bad) return;
+  if (sel.client == c && sel.source == source && source) return;
+  int valid = source && live(c, source, T_DSOURCE);
+  selection_clear(1);
+  if (valid) {
+    sel.client = c;
+    sel.source = source;
+    pull_start(c, source);
+  }
+  send_selection_to_focused();
 }
 
 static uint32_t modifier_bit(unsigned code) {
@@ -834,7 +1197,12 @@ static void input_record(struct surface *s, uint16_t type, uint16_t code, int32_
       uint32_t n = 0;
       for (unsigned k = 0; k < 256 && n < 64; k++) if (s->down[k >> 3] & (1 << (k & 7))) keys[n++] = k;
       ev(c, c->keyboard, 1, "uua", serial_counter++, s->id, keys, n * 4);
+      send_selection(c);
     } else ev(c, c->keyboard, 2, "uu", serial_counter++, s->id);
+  } else if (type == EV_MSC && code == MSC_PASTE) {
+    if (value) paste_arrived(s);
+  } else if (type == EV_MSC && code == MSC_DROP) {
+    if (value) drop_arrived(s);
   } else if (type == EV_KEY) {
     if (code >= 0x110 && code < 0x120) {
       if (pointer && s->pointer_in) {
@@ -870,9 +1238,13 @@ static void read_input(struct surface *s) {
 /* ---- clients ---- */
 
 static void client_free(struct client *c) {
+  if (sel.client == c) { selection_clear(0); }
+  if (dnd.client == c) dnd_end();
+  for (int i = 0; i < 4; i++) if (pulls[i].fd > 0 && pulls[i].client == c) { close(pulls[i].fd); free(pulls[i].buf); memset(&pulls[i], 0, sizeof pulls[i]); }
   for (uint32_t id = 1; id < MAX_OBJECTS; id++) {
     struct obj *o = &c->objs[id];
     if (o->type == T_SURFACE) surface_destroy(c, o->data);
+    else if (o->type == T_DSOURCE && o->data) { struct dsource *d = o->data; for (int k = 0; k < d->nmimes; k++) free(d->mimes[k]); free(d); }
     else if (o->type == T_POOL) pool_unref(o->data);
     else if (o->type == T_BUFFER) { struct buffer *b = o->data; pool_unref(b->pool); free(b); }
   }
@@ -986,7 +1358,7 @@ int main(void) {
     }
     int windows_open = 0;
     for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) windows_open = 1;
-    poll(fds, (nfds_t)n, ndue > 0 || windows_open ? 16 : 100);
+    poll(fds, (nfds_t)n, ndue > 0 || windows_open || pulls_active() || dnd.client ? 16 : 100);
     for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) read_input(wins[i]);
     for (int k = 0; k < n; k++) {
       if (!(fds[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
@@ -1025,6 +1397,8 @@ int main(void) {
         obj_free(c, batch[i].id);
       }
     }
+    pulls_run();
+    dnd_run();
     if (now_ms() - last_check > 33) { last_check = now_ms(); check_windows(); }
     for (int i = 0; i < MAX_CLIENTS; i++) {
       if (clients[i] && !clients[i]->alive) { client_free(clients[i]); clients[i] = NULL; }

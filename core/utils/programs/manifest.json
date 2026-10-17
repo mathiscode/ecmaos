@@ -136,8 +136,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 136739,
-      "sha256": "aae7b5f8faa7b7e75da43f5aeee2bab9dcf59d4c2a70aa3f9260d4eecce52f06"
+      "size": 145729,
+      "sha256": "38e8fdfc03a185d549d2c970e4608213a0111888b68add0f2ecdaccda6565015"
     },
     "wldemo": {
       "file": "wldemo.wasm",
@@ -152,10 +152,10 @@
       "file": "sdlsnake.wasm",
       "version": "0.1.0",
       "license": "MIT OR Apache-2.0",
-      "description": "sdlsnake, Snake on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer (needs wlcomp running)",
+      "description": "sdlsnake, Snake with sound on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer, M mutes (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 1587217,
-      "sha256": "989b8c4e6da15fd6d2861b6fad0ee73ec8e3038084c2933e0eb5062f4d6fac34"
+      "size": 1587224,
+      "sha256": "5e12beb577cd4b8950ae0f6aafe637b7bc131b3a4b8a33b3a8f52fe8793dd0a1"
     },
     "sdlpaint": {
       "file": "sdlpaint.wasm",
@@ -163,8 +163,17 @@
       "license": "MIT OR Apache-2.0",
       "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a crosshair pointer over the picture (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 1582284,
-      "sha256": "4a72a171a8779fa9c2eea1cfdc0260a004675a58174789007d78e2191c2817c8"
+      "size": 1585934,
+      "sha256": "b27c1094b56ea05cbc967ae1f72701225d35b9bd7a3d377a8d766f556f6870c3"
+    },
+    "sdlclip": {
+      "file": "sdlclip.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "sdlclip, shows the clipboard and what is dropped on its window, on SDL 3 through its Wayland driver: C copies a line, V reads the clipboard (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1585667,
+      "sha256": "22a329845ba05ee69d33f7109d031beae483a7fa1ce0254791ee4153143cd772"
     }
   }
 }

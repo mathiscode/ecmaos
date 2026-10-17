@@ -149,6 +149,10 @@ export type WindowInput =
   | { k: 'enter' | 'leave' | 'focus' | 'blur' }
   /** The size the window's picture has on screen, in pixels; a resizable framebuffer follows it */
   | { k: 'size', width: number, height: number }
+  /** Text from the user's clipboard, for the program in the window (the user pressed a modifier or pasted into it) */
+  | { k: 'paste', text: string }
+  /** Text or a list of URIs dropped on the window at `x`, `y` (in the window's pixels) */
+  | { k: 'drop', x: number, y: number, text: string, uris?: boolean }
 
 /** Callbacks a renderer uses to report what happened to a window */
 export interface WindowReports {

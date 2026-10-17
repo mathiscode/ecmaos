@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -92,6 +93,22 @@ int main(void) {
   memset(back, 0, sizeof back);
   read(p[0], back, sizeof back - 1); /* EOF only once every copy of the write end is closed */
   printf("pipe-holds %s\n", back);
+
+  /* a pipe's write end sent and closed by the sender: while it is in flight the read end is not at its end */
+  int q[2];
+  pipe(q);
+  send_fds(pair[0], "Q", &q[1], 1);
+  close(q[1]);
+  struct pollfd pf = { q[0], POLLIN, 0 };
+  int ready = poll(&pf, 1, 0);
+  printf("inflight-read %s\n", ready == 0 ? "waits" : "ready");
+  recv_fds(pair[1], text, sizeof text, fds, 1, &got, &flags, 0);
+  write(fds[0], "late", 4);
+  close(fds[0]);
+  memset(back, 0, sizeof back);
+  read(q[0], back, sizeof back - 1);
+  printf("inflight-data %s\n", back);
+  close(q[0]);
 
   /* a read stops at the message that carries a descriptor, and does not run on past it */
   int f2 = open("/tmp/scm-file", O_RDONLY);

@@ -16,6 +16,8 @@
 #     /dev/dsp1 and SDL converts whatever the program asks for. SDL is built without threads, so the driver has no
 #     callback thread: SDL_PumpEvents (so SDL_PollEvent and SDL_WaitEvent) keeps the device about 100 ms ahead of
 #     the clock, and a program that does not poll events for a while is silent for that while;
+#   - the clipboard tells its own offers from other programs' by process id, which is 42 for every Emscripten program;
+#     the id gets the clock mixed in;
 #   - nothing else: no OpenGL, no joysticks, no libdecor.
 set -euo pipefail
 
@@ -46,6 +48,8 @@ build_sdl() {
     sed -i 's/^extern AudioBootStrap DUMMYAUDIO_bootstrap;$/&\nextern AudioBootStrap ECMAOSAUDIO_bootstrap;/' src/audio/SDL_sysaudio.h
     sed -i 's/^static void SDL_PumpEventsInternal(bool push_sentinel)$/extern void ECMAOS_PumpAudio(void);\n&/; s/^    \/\/ Free any temporary memory from old events$/    ECMAOS_PumpAudio();\n&/' src/events/SDL_events.c
     grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_audio.c && grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_sysaudio.h && grep -q ECMAOS_PumpAudio src/events/SDL_events.c && grep -q SDL_AUDIO_DRIVER_ECMAOS CMakeLists.txt || { echo "sdl: the audio patch did not apply" >&2; exit 1; }
+    sed -i 's/^        Uint64 pid = (Uint64)getpid();$/        Uint64 pid = (Uint64)getpid() ^ (SDL_GetPerformanceCounter() << 8);   \/\* ecmaOS: getpid() is 42 in every program \*\//' src/video/wayland/SDL_waylandevents.c
+    grep -q "getpid() is 42" src/video/wayland/SDL_waylandevents.c || { echo "sdl: the clipboard id patch did not apply" >&2; exit 1; }
     mkdir -p src/audio/ecmaos
     cat > src/audio/ecmaos/SDL_ecmaosaudio.c <<'SOURCE'
 // Audio for ecmaOS (added for it): playback to /dev/dsp1, interleaved signed 16 bit stereo at 48000 Hz, which the

@@ -30,6 +30,17 @@ export const FBIO_SETCURSOR = 0x46f0
 /** Private: the state of the window, as a 32-bit integer: 0 normal, 1 maximized, 2 fullscreen, 3 minimized. `GET` answers it, `SET` asks for it */
 export const FBIO_GETWINSTATE = 0x46f1
 export const FBIO_SETWINSTATE = 0x46f2
+/**
+ * Private: text moves between the window's program and the user's clipboard in chunks of 4096 bytes: a 32-bit header
+ * (bits 0..15 the byte count, bit 16 first chunk, bit 17 last, bits 20..21 for a drop 1 when the text is a list of URIs)
+ * then up to 4092 bytes. `SETCLIPBOARD` sends the program's text out; `GETPASTE` and `GETDROP` take the next chunk of
+ * what the user pasted or dropped (an empty first and last chunk when there is none).
+ */
+export const FBIO_SETCLIPBOARD = 0x46f3
+export const FBIO_GETPASTE = 0x46f4
+export const FBIO_GETDROP = 0x46f5
+export const ClipboardChunk = 4096
+export const ClipboardMax = 1 << 20
 const WindowStates = ['normal', 'maximized', 'fullscreen', 'minimized'] as const
 
 export const VarScreenInfoSize = 160
@@ -44,7 +55,7 @@ export interface PixelFrame {
 }
 
 /** Draws a frame wherever the framebuffer's window is shown; `setCursor` changes the pointer over it */
-export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void }
+export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void, setClipboard?: (text: string) => void }
 
 const PresentDelay = 16
 
@@ -67,6 +78,36 @@ export class Framebuffer {
   /** The pointer over the window: a CSS cursor name such as `pointer` or `text`, or `none` */
   setCursor(cursor: string) { this.pointerCursor = cursor; this._sink.setCursor?.(cursor) }
   pointerCursor = 'default'
+  /** Text the user pasted and a drop on the window, waiting for the program to take them (see `FBIO_GETPASTE`) */
+  incomingPaste: Uint8Array | undefined
+  pasteOffset = 0
+  dropOffset = 0
+  incomingDrop: { bytes: Uint8Array, uris: boolean } | undefined
+  private _outgoing: Uint8Array[] = []
+  private _outgoingSize = 0
+
+  /** One chunk of text the program sends to the user's clipboard; the last one completes it */
+  takeClipboardChunk(chunk: Uint8Array) {
+    if (chunk.length < 4) throw withErrno('EINVAL')
+    const header = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength).getUint32(0, true)
+    const count = header & 0xffff
+    if (count > ClipboardChunk - 4 || chunk.length < 4 + count) throw withErrno('EINVAL')
+    if (header & 0x10000) { this._outgoing = []; this._outgoingSize = 0 }
+    if (this._outgoingSize + count > ClipboardMax) { this._outgoing = []; this._outgoingSize = 0; throw withErrno('EFBIG') }
+    this._outgoing.push(chunk.slice(4, 4 + count))
+    this._outgoingSize += count
+    if (header & 0x20000) {
+      const all = new Uint8Array(this._outgoingSize)
+      let at = 0
+      for (const part of this._outgoing) { all.set(part, at); at += part.length }
+      this._outgoing = []
+      this._outgoingSize = 0
+      this.copiedText = new TextDecoder().decode(all)
+      this._sink.setClipboard?.(this.copiedText)
+    }
+  }
+  /** The text the program last put on the clipboard */
+  copiedText: string | undefined
   /** The state of the window the screen is shown in; set by `Framebuffers.create` */
   windowControl: { get(): number, set(state: number): void } | undefined
   get size() { return this.pixels.length }
@@ -181,6 +222,17 @@ const framebufferOf = (file: DeviceFile) => {
   return slot.framebuffer
 }
 
+/** The next chunk of `bytes` from `offset`, as `GETPASTE` and `GETDROP` answer it */
+function chunkOf(bytes: Uint8Array | undefined, offset: number, flags = 0): { chunk: Uint8Array, next: number } {
+  const chunk = new Uint8Array(ClipboardChunk)
+  const total = bytes?.length ?? 0
+  const count = Math.min(ClipboardChunk - 4, total - offset)
+  const header = count | (offset === 0 ? 0x10000 : 0) | (offset + count >= total ? 0x20000 : 0) | flags
+  new DataView(chunk.buffer).setUint32(0, header >>> 0, true)
+  if (bytes && count > 0) chunk.set(bytes.subarray(offset, offset + count), 4)
+  return { chunk, next: offset + count }
+}
+
 const operations: FileOperations = {
   read: (file, buffer, start, end) => framebufferOf(file).read(buffer.subarray(0, end - start)),
   write: (file, buffer, offset) => framebufferOf(file).write(buffer.slice(offset)),
@@ -218,6 +270,27 @@ const operations: FileOperations = {
       if (state < 0 || state >= WindowStates.length) throw withErrno('EINVAL')
       framebufferOf(file).windowControl?.set(state)
       return 0
+    },
+    [FBIO_SETCLIPBOARD]: (_context, file, chunk?: Uint8Array) => {
+      if (!ArrayBuffer.isView(chunk)) throw withErrno('EINVAL')
+      const bytes = chunk as Uint8Array
+      framebufferOf(file).takeClipboardChunk(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+      return 0
+    },
+    [FBIO_GETPASTE]: (_context, file) => {
+      const framebuffer = framebufferOf(file)
+      const { chunk, next } = chunkOf(framebuffer.incomingPaste, framebuffer.pasteOffset)
+      framebuffer.pasteOffset = next
+      if (next >= (framebuffer.incomingPaste?.length ?? 0)) { framebuffer.incomingPaste = undefined; framebuffer.pasteOffset = 0 }
+      return chunk
+    },
+    [FBIO_GETDROP]: (_context, file) => {
+      const framebuffer = framebufferOf(file)
+      const drop = framebuffer.incomingDrop
+      const { chunk, next } = chunkOf(drop?.bytes, framebuffer.dropOffset, drop?.uris ? 0x100000 : 0)
+      framebuffer.dropOffset = next
+      if (next >= (drop?.bytes.length ?? 0)) { framebuffer.incomingDrop = undefined; framebuffer.dropOffset = 0 }
+      return chunk
     },
     [FBIO_WAITFORVSYNC]: () => 0
   }
@@ -307,6 +380,9 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
     }
     context.putImageData(image, 0, 0)
   }
+  sink.setClipboard = text => {
+    try { void (globalThis as { navigator?: Navigator }).navigator?.clipboard?.writeText(text).catch(() => {}) } catch { /* no clipboard here */ }
+  }
   sink.setCursor = next => {
     cursor = next
     if (canvas) canvas.style.cursor = next
@@ -353,6 +429,8 @@ export class Framebuffers {
     const inputNode = registerWindowInput(index, width, height)
     let baseline = false
     const stopInput = this._windows.onInput(window.id, input => {
+      if (input.k === 'paste') framebuffer.incomingPaste = new TextEncoder().encode(input.text).subarray(0, ClipboardMax)
+      if (input.k === 'drop') framebuffer.incomingDrop = { bytes: new TextEncoder().encode(input.text).subarray(0, ClipboardMax), uris: input.uris === true }
       inputHub.window(inputNode.minor, input)
       if (input.k !== 'size' || !options.resizable) return
       // the first size is how the window starts out; only later ones are the user's

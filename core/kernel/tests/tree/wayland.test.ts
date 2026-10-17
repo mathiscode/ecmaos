@@ -31,6 +31,8 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlsnake', load(`${root}/../utils/programs/sdlsnake.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlpaint', load(`${root}/../utils/programs/sdlpaint.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlclip', load(`${root}/../utils/programs/sdlclip.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
@@ -279,5 +281,87 @@ describe('the Wayland compositor', () => {
     expect(kernel.framebuffers.list()).toHaveLength(1)
     expect(await client).toBe(0)
     await until(() => kernel.framebuffers.list().length === 0)
+  }, 60_000)
+
+  it('shares the clipboard between clients and with the browser, and hands a drop on a window to its client', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const ids = () => kernel.windows.list().filter(w => w.title === 'sdl-clip').map(w => w.id)
+    const clientA = kernel.shell.execute(`${env} sdl-clip alpha > /tmp/clip-a.out 2>&1`)
+    await until(() => ids().length === 1)
+    const a = ids()[0]!
+    await until(async () => (await read('/tmp/clip-a.out')).includes('shown'))
+    const clientB = kernel.shell.execute(`${env} sdl-clip beta > /tmp/clip-b.out 2>&1`)
+    await until(() => ids().length === 2)
+    const b = ids().find(id => id !== a)!
+    await until(async () => (await read('/tmp/clip-b.out')).includes('shown'))
+    const outA = () => read('/tmp/clip-a.out')
+    const outB = () => read('/tmp/clip-b.out')
+    const tap = (id: string, code: string) => { kernel.windows.reportInput(id, { k: 'key', code, down: true }); kernel.windows.reportInput(id, { k: 'key', code, down: false }) }
+
+    // what a client copies is offered to the next one that has the keyboard, and sent out to the browser
+    kernel.windows.reportInput(a, { k: 'focus' })
+    await until(async () => (await outA()).includes('focus gained'))
+    tap(a, 'F1')
+    await until(async () => (await outA()).includes('set '))
+    await until(() => kernel.framebuffers.list().some(fb => fb.copiedText === 'alpha'))
+    kernel.windows.reportInput(a, { k: 'blur' })
+    kernel.windows.reportInput(b, { k: 'focus' })
+    await until(async () => (await outB()).includes('clipboard update'))
+    tap(b, 'F2')
+    await until(async () => (await outB()).includes('clipboard [alpha] has=1'))
+
+    // text from the browser's clipboard becomes the clipboard of whoever has the keyboard
+    kernel.windows.reportInput(b, { k: 'paste', text: 'from the browser' })
+    await until(async () => (await outB()).split('clipboard update').length > 2)
+    tap(b, 'F2')
+    await until(async () => (await outB()).includes('clipboard [from the browser] has=1'))
+    kernel.windows.reportInput(b, { k: 'blur' })
+    kernel.windows.reportInput(a, { k: 'focus' })
+    await until(async () => (await outA()).split('focus gained').length > 2)
+    tap(a, 'F2')
+    await until(async () => (await outA()).includes('clipboard [from the browser] has=1'))
+
+    // text dropped on a window, and a list of URIs, reach its client as drops
+    kernel.windows.reportInput(b, { k: 'pointer', x: 20, y: 30 })
+    kernel.windows.reportInput(b, { k: 'enter' })
+    kernel.windows.reportInput(b, { k: 'drop', x: 20, y: 30, text: 'some dropped words' })
+    await until(async () => (await outB()).includes('drop text [some dropped words]'))
+    await until(async () => (await outB()).includes('drop complete'))
+    kernel.windows.reportInput(b, { k: 'drop', x: 21, y: 31, text: 'file:///tmp/one.txt\r\nfile:///tmp/two.txt\r\n', uris: true })
+    await until(async () => (await outB()).includes('drop file [/tmp/two.txt]'))
+    expect(await outB()).toContain('drop file [/tmp/one.txt]')
+
+    kernel.windows.close(a, true)
+    kernel.windows.close(b, true)
+    expect(await clientA).toBe(0)
+    expect(await clientB).toBe(0)
+  }, 90_000)
+
+  it('runs the shipped SDL clipboard program: C copies to the browser, pasted text and a drop change the picture', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const client = kernel.shell.execute(`${env} sdlclip > /tmp/sdlclip.out 2>&1`)
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    const id = kernel.windows.list().find(w => w.title === 'sdlclip')!.id
+    const picture = () => Buffer.from(fb.pixels).toString('base64')
+    await until(() => fb.pixels.some(byte => byte !== 0))
+    const tap = (code: string) => { kernel.windows.reportInput(id, { k: 'key', code, down: true }); kernel.windows.reportInput(id, { k: 'key', code, down: false }) }
+    kernel.windows.reportInput(id, { k: 'focus' })
+    const before = picture()
+
+    tap('KeyC')
+    await until(() => fb.copiedText === 'hello from sdlclip 1')
+    const copied = picture()
+    expect(copied).not.toBe(before)
+
+    kernel.windows.reportInput(id, { k: 'paste', text: 'pasted from the page' })
+    await until(() => picture() !== copied)
+    const pasted = picture()
+    kernel.windows.reportInput(id, { k: 'drop', x: 30, y: 30, text: 'a dropped line' })
+    await until(() => picture() !== pasted)
+
+    kernel.windows.close(id, true)
+    expect(await client).toBe(0)
+    expect(await read('/tmp/sdlclip.out')).not.toContain('ERROR')
   }, 60_000)
 })

@@ -18,8 +18,18 @@ export function attachCanvasInput(canvas: HTMLCanvasElement, emit: (input: Windo
     const y = Math.min(Math.max((event.clientY - top) / scale, 0), canvas.height - 1)
     return { k: 'pointer', x, y } as const
   }
+  // Reading the clipboard needs a gesture: the modifier of a paste is the earliest one, so the text is ready by the time V goes down
+  let lastClip: string | undefined
+  const fetchClipboard = () => {
+    try {
+      void (globalThis as { navigator?: Navigator }).navigator?.clipboard?.readText().then(text => {
+        if (typeof text === 'string' && text && text !== lastClip) { lastClip = text; emit({ k: 'paste', text }) }
+      }).catch(() => {})
+    } catch { /* no clipboard here */ }
+  }
   const key = (down: boolean) => (event: Event) => {
     const { code, repeat } = event as KeyboardEvent
+    if (down && !repeat && /^(Control|Meta)(Left|Right)$/.test(code)) fetchClipboard()
     emit({ k: 'key', code, down, repeat })
     event.preventDefault()
   }
@@ -35,6 +45,20 @@ export function attachCanvasInput(canvas: HTMLCanvasElement, emit: (input: Windo
       event.preventDefault()
     }],
     ['contextmenu', event => event.preventDefault()],
+    ['paste', event => {
+      const text = (event as ClipboardEvent).clipboardData?.getData('text/plain')
+      if (text) { lastClip = text; emit({ k: 'paste', text }) }
+      event.preventDefault()
+    }],
+    ['dragover', event => { event.preventDefault(); const transfer = (event as DragEvent).dataTransfer; if (transfer) transfer.dropEffect = 'copy' }],
+    ['drop', event => {
+      event.preventDefault()
+      const transfer = (event as DragEvent).dataTransfer
+      const where = position(event as MouseEvent)
+      const uris = transfer?.getData('text/uri-list')
+      const text = uris || transfer?.getData('text/plain')
+      if (text) emit({ k: 'drop', x: where.x, y: where.y, text, uris: !!uris })
+    }],
     ['keydown', key(true)],
     ['keyup', key(false)],
     ['focus', () => emit({ k: 'focus' })],

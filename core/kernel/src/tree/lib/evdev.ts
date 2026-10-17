@@ -101,6 +101,8 @@ export const Devices: readonly DeviceSpec[] = [
  */
 export const WindowInputMinor = 66
 export const MSC_POINTER_ENTER = 0x100, MSC_KEYBOARD_FOCUS = 0x101
+/** The browser's clipboard text arrived (fetch it with `FBIO_GETPASTE`) and something was dropped on the window (`FBIO_GETDROP`) */
+export const MSC_PASTE = 0x102, MSC_DROP = 0x103
 const windowSpecs = new Map<number, DeviceSpec>()
 
 const windowDeviceSpec = (index: number, width: number, height: number): DeviceSpec => ({
@@ -112,7 +114,7 @@ const windowDeviceSpec = (index: number, width: number, height: number): DeviceS
     [EV_KEY]: [...keyboardCodes, ...Object.values(MouseButtons)].sort((a, b) => a - b),
     [EV_REL]: [REL_HWHEEL, REL_WHEEL],
     [EV_ABS]: [ABS_X, ABS_Y],
-    [EV_MSC]: [MSC_POINTER_ENTER, MSC_KEYBOARD_FOCUS]
+    [EV_MSC]: [MSC_POINTER_ENTER, MSC_KEYBOARD_FOCUS, MSC_PASTE, MSC_DROP]
   },
   id: [0x06, 0x0ec3, 0x0003, 1],
   abs: { [ABS_X]: Math.max(width - 1, 0), [ABS_Y]: Math.max(height - 1, 0) }
@@ -193,6 +195,11 @@ export class InputHub {
         return
       }
       case 'size': return
+      case 'paste': this.emit(minor, [[EV_MSC, MSC_PASTE, 1]], now); return
+      case 'drop':
+        this.emit(minor, [[EV_ABS, ABS_X, Math.round(input.x)], [EV_ABS, ABS_Y, Math.round(input.y)]], now)
+        this.emit(minor, [[EV_MSC, MSC_DROP, 1]], now)
+        return
       case 'enter': case 'leave': this.emit(minor, [[EV_MSC, MSC_POINTER_ENTER, input.k === 'enter' ? 1 : 0]], now); return
       case 'focus': case 'blur': this.emit(minor, [[EV_MSC, MSC_KEYBOARD_FOCUS, input.k === 'focus' ? 1 : 0]], now)
     }
