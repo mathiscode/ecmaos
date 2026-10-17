@@ -168,6 +168,8 @@ async function install(packageArg, registryArg, reinstall) {
           line(2, red(`${binPath} does not exist`))
           return 1
         }
+        // An upgrade replaces the link an earlier version left
+        try { unlink(join('/usr/bin', bin)) } catch { /* not linked yet */ }
         symlink(binPath, join('/usr/bin', bin))
         line(1, blue(`Linked ${bin} to ${join('/usr/bin', bin)}`))
       }

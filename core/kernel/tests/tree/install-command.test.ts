@@ -114,4 +114,33 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     const usrLibEntries = await kernel.filesystem.fs.readdir('/usr/lib')
     expect(usrLibEntries.some(name => name.startsWith('.install-'))).toBe(false)
   })
+
+  it('links bins and desktop entries, and an upgrade moves the links to the new version', async () => {
+    const versions: Record<string, { tarball: Uint8Array, checksum: string }> = {}
+    for (const version of ['1.0.0', '2.0.0']) {
+      const tarball = await buildNpmTarballGzip({
+        'package.json': JSON.stringify({ name: 'tool-pkg', version, bin: { tool: 'dist/tool.js' } }),
+        'dist/tool.js': `// ${version}\n`,
+        'share/applications/tool.desktop': `[Desktop Entry]\nType=Application\nName=Tool ${version}\nExec=tool\n`
+      })
+      versions[version] = { tarball, checksum: await sha1Hex(tarball) }
+      routes.set(`/tool-pkg/-/tool-pkg-${version}.tgz`, () => ({ body: tarball }))
+    }
+    routes.set('/tool-pkg', () => ({
+      body: JSON.stringify({
+        name: 'tool-pkg',
+        'dist-tags': { latest: '2.0.0' },
+        versions: Object.fromEntries(Object.entries(versions).map(([version, { checksum }]) => [version, { dist: { tarball: `${registry}/tool-pkg/-/tool-pkg-${version}.tgz`, shasum: checksum } }]))
+      })
+    }))
+    const { fs } = kernel.filesystem
+
+    expect(await kernel.shell.execute(`install tool-pkg@1.0.0 --registry ${registry}`)).toBe(0)
+    expect(await fs.readlink('/usr/bin/tool')).toBe('/usr/lib/tool-pkg/1.0.0/dist/tool.js')
+    expect(await fs.readFile('/usr/share/applications/tool.desktop', 'utf-8')).toContain('Tool 1.0.0')
+
+    expect(await kernel.shell.execute(`install tool-pkg --registry ${registry}`)).toBe(0)
+    expect(await fs.readlink('/usr/bin/tool')).toBe('/usr/lib/tool-pkg/2.0.0/dist/tool.js')
+    expect(await fs.readFile('/usr/share/applications/tool.desktop', 'utf-8')).toContain('Tool 2.0.0')
+  })
 })

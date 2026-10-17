@@ -2248,6 +2248,21 @@ export class Kernel implements IKernel {
       for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
     }
 
+    // The dev server's workspace apps (`startx`): `/bin/<name>` follows `apps/<app>/dist`, so a rebuilt app is current
+    // after a reload. Absent in production and under test.
+    if (import.meta.env['MODE'] === 'development') {
+      const stampKey = this.machineKey('ecmaos:dev-apps')
+      const apps = await installPrograms(this.filesystem.fs, {
+        catalogUrl: '/dev-apps/index.json',
+        fetcher: this.host.fetch,
+        stamps: {
+          read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
+          write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
+        }
+      })
+      if (apps.installed.length) this.log.info(`Updated dev apps: ${apps.installed.join(', ')}`)
+    }
+
     // A stub from a command that is not on the in-process path this build (it is a real program
     // under another name, or was dropped) can only fail when run; clear any, so a stub never
     // outlives the command it pointed at.

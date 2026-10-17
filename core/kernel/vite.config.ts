@@ -8,6 +8,7 @@ import dts from 'vite-plugin-dts'
 import { playwright } from '@vitest/browser-playwright'
 import type { ViteDevServer } from 'vite'
 
+import { devApps } from './vite-plugin-dev-apps.ts'
 import { binCommands, binKernelCommands, binPrograms, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node.ts'
 
 import pkg from './package.json' with { type: 'json' }
@@ -116,6 +117,7 @@ export default defineConfig({
     binCommands(),
     binKernelCommands(),
     binPrograms(),
+    devApps(),
     gzipFixPlugin(),
     jcoBrowserFixPlugin(),
     nodePolyfills({
