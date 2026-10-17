@@ -3,6 +3,7 @@
 globalThis.ecmaosMountApp = (parent, launch, frameDocument, send, onDirty) => {
   const frame = document.createElement('iframe')
   frame.id = 'content'
+  frame.style.cssText = 'width:100%;height:100%;border:0;display:block'
   // an app draws its own background; the page's white default for a frame would show around it
   frame.style.background = 'transparent'
   // No `allow-same-origin`: the app gets an opaque origin, and so no access to this page or anything stored for it
@@ -19,9 +20,9 @@ globalThis.ecmaosMountApp = (parent, launch, frameDocument, send, onDirty) => {
   window.addEventListener('message', onMessage)
   parent.append(frame)
   return {
-    result(n, result, error) { frame.contentWindow && frame.contentWindow.postMessage({ type: 'result', n, result, error }, '*') },
+    result(n, result, error) { if (frame.contentWindow) frame.contentWindow.postMessage({ type: 'result', n, result, error }, '*') },
     dispose() {
-      try { frame.contentWindow && frame.contentWindow.postMessage({ type: 'dispose' }, '*') } catch (error) { void error }
+      try { if (frame.contentWindow) frame.contentWindow.postMessage({ type: 'dispose' }, '*') } catch (error) { void error }
       window.removeEventListener('message', onMessage)
       if (onDirty) onDirty(false)
       frame.remove()

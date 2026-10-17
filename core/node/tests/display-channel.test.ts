@@ -100,6 +100,17 @@ describe.skipIf(!supported)('the display channel', () => {
     expect(await shell.run('node /root/w.mjs 2>&1 | head -3')).toMatch(/ENODEV/)
   })
 
+  it('sends a screen a window\'s content that is larger than the screen may send back', async () => {
+    const { connection, shell } = await machine()
+    await shell.waitFor('root:/root# ')
+    const display = await screen(connection)
+    await shell.run(`echo "const s=globalThis.ecmaosSyscalls;const h=await s.custom('window_create','Big');await s.custom('window_write',h,'x'.repeat(300000));await new Promise(r=>setTimeout(r,60000))" > /root/w.mjs`)
+    await shell.send('node /root/w.mjs &\r')
+    await until(() => display.received.some(m => m.t === 'content'), 'the large content')
+    const content = display.received.find(m => m.t === 'content') as Extract<ToDisplay, { t: 'content' }>
+    expect('text' in content.content && content.content.text.length).toBe(300000)
+  })
+
   it('is refused to a connection that has not logged in', async () => {
     const session = new Session(['--quiet', '--ephemeral', '--listen=0'], { env: { ...process.env, ECMAOS_DISPLAY: '0' } })
     sessions.push(session)

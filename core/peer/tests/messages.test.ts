@@ -35,6 +35,27 @@ describe('MessageStream', () => {
     expect(server.closed).toBe(false)
   })
 
+  it('can send large messages and accept only small ones', async () => {
+    const [a, b] = memoryPair()
+    const client = new Connection(a, { role: 'client' })
+    const server = new Connection(b, { role: 'server' })
+    const received: Promise<MessageStream> = new Promise(resolve => server.accept('m', channel => { resolve(new MessageStream(channel, { maxReceive: 1000 })) }))
+    const channel = await client.open('m')
+    const open = new MessageStream(channel)
+    const limited = await received
+    const got: Value[] = []
+    open.onMessage = value => got.push(value)
+    // the side that accepts little can still send a lot
+    await limited.send(new Uint8Array(200_000))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(got).toHaveLength(1)
+    expect((got[0] as Uint8Array).length).toBe(200_000)
+    // and refuses a large message from the other side
+    await open.send(new Uint8Array(200_000)).catch(() => {})
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(limited.closed).toBe(true)
+  })
+
   it('a garbled message closes the channel, not the connection', async () => {
     const { sender, receiver, client } = await pair()
     await sender.channel.write(Uint8Array.from([0, 0, 0, 2, 99, 99]))

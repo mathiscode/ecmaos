@@ -15,10 +15,13 @@ export class MessageStream {
   private _have = 0
   private _need = -1
   private readonly _max: number
+  private readonly _maxReceive: number
   onMessage: ((value: Value) => void) | undefined
 
-  constructor(readonly channel: Channel, options: { maxMessage?: number } = {}) {
+  /** `maxMessage` limits what is sent; `maxReceive` limits what is accepted (the same unless given), so a side that sends much can still take little */
+  constructor(readonly channel: Channel, options: { maxMessage?: number, maxReceive?: number } = {}) {
     this._max = options.maxMessage ?? DefaultMaxMessage
+    this._maxReceive = options.maxReceive ?? this._max
     channel.onData = data => this._receive(data)
   }
 
@@ -44,7 +47,7 @@ export class MessageStream {
           if (this._have < 4) return
           const head = this._take(4)
           this._need = new DataView(head.buffer, head.byteOffset, 4).getUint32(0)
-          if (this._need > this._max) throw new PeerError('limit', 'message is too large')
+          if (this._need > this._maxReceive) throw new PeerError('limit', 'message is too large')
         }
         if (this._have < this._need) return
         const body = this._take(this._need)

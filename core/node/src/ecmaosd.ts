@@ -226,8 +226,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const account = Array.from(kernel.users.all.values()).find(candidate => candidate.username === user)
     if (!account) throw new PeerError('auth', 'no such user')
     if (!options.display) throw new PeerError('refused', 'this machine shows no windows')
-    // what the screen sends is small; what it is sent can be large (an image in a window)
-    const stream = new MessageStream(channel, { maxMessage: 1 << 16 })
+    // what the screen sends is small; what it is sent can be large (an app's code, an image in a window)
+    const stream = new MessageStream(channel, { maxReceive: 1 << 16 })
     let pending = 0
     const attached = options.display.attachRemote({
       uid: account.uid,
