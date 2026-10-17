@@ -19,6 +19,10 @@ export interface InitHost {
    * passed (a negative number waits for ever), or a signal arrived. Resolves to 0 for the last two.
    */
   wait(timeoutMs: number): Promise<number>
+  /** The runlevel `telinit` asked for, or `undefined` when none has (the file's `initdefault` applies). */
+  readRunlevel?(): string | undefined
+  /** Sends `signal` to one process, for stopping an entry that no longer belongs to the runlevel. */
+  kill?(pid: number, signal: number): Promise<void>
   /** The signals that arrived since the last call, by name without the `SIG` prefix. */
   takeSignals(): string[]
   /** Pauses, for when waiting itself fails. */
@@ -63,6 +67,10 @@ export class InitEngine {
   private stopped = false
   private requested: ShutdownMode | undefined
   private goingDown = false
+  /** The runlevel: `undefined` until the file or `telinit` names one, and then every entry runs */
+  private level: string | undefined
+  /** `wait` and `once` entries already run, so a change of level runs only those it newly brings in */
+  private readonly ran = new Set<string>()
 
   constructor(
     private readonly host: InitHost,
@@ -75,11 +83,14 @@ export class InitEngine {
   /** Reads the file and runs the entries that happen once. */
   async boot(): Promise<void> {
     this.entries = this.load()
-    for (const entry of this.entries) if (entry.action === 'sysinit') await this.runAndWait(entry)
-    for (const entry of this.entries) if (entry.action === 'wait') await this.runAndWait(entry)
+    this.level = this.levelOf(this.entries)
+    if (this.level !== undefined) this.host.log('info', `init: runlevel ${this.level}`)
+    const here = this.entries.filter(entry => this.applies(entry))
+    for (const entry of here) if (entry.action === 'sysinit') await this.runAndWait(entry)
+    for (const entry of here) if (entry.action === 'wait') { this.ran.add(entryKey(entry)); await this.runAndWait(entry) }
     await this.host.booted()
-    for (const entry of this.entries) if (entry.action === 'once') await this.start(entry)
-    for (const entry of this.entries) if (entry.action === 'respawn') await this.start(entry)
+    for (const entry of here) if (entry.action === 'once') { this.ran.add(entryKey(entry)); await this.start(entry) }
+    for (const entry of here) if (entry.action === 'respawn') await this.start(entry)
   }
 
   /** The reaping loop. Returns only after {@link stop}. */
@@ -103,21 +114,40 @@ export class InitEngine {
     this.stopped = true
   }
 
-  /** Reads the file again. A new `respawn` entry is started; a removed one is no longer restarted. */
+  /**
+   * Reads the file (and the level) again. A new `respawn` entry is started; a removed one, or one the level no longer
+   * includes, is no longer restarted and is stopped; `wait` and `once` entries the level newly brings in run.
+   */
   async reload(): Promise<void> {
     const next = this.load()
-    const wanted = new Set(next.filter(entry => entry.action === 'respawn').map(entryKey))
+    const before = this.level
+    this.entries = next
+    this.level = this.levelOf(next)
+    if (this.level !== before) this.host.log('info', `init: runlevel ${before ?? 'none'} to ${this.level ?? 'none'}`)
+    const wanted = new Set(next.filter(entry => entry.action === 'respawn' && this.applies(entry)).map(entryKey))
     for (const key of [...this.pending.keys()]) {
       if (!wanted.has(key)) { this.pending.delete(key); this.tracker.forget(key) }
     }
-    this.entries = next
+    // only an entry the level now leaves out is stopped; one removed from the file keeps running, as it always did
+    const inFile = new Set(next.filter(entry => entry.action === 'respawn').map(entryKey))
+    for (const [pid, entry] of [...this.running]) {
+      const key = entryKey(entry)
+      if (entry.action === 'respawn' && inFile.has(key) && !wanted.has(key)) await this.host.kill?.(pid, SIGTERM).catch(() => {})
+    }
     let started = 0
     for (const entry of next) {
-      if (entry.action !== 'respawn') continue
+      if (!this.applies(entry)) continue
       const key = entryKey(entry)
-      if (this.isRunning(key) || this.pending.has(key)) continue
-      await this.start(entry)
-      started++
+      if (entry.action === 'respawn') {
+        if (this.isRunning(key) || this.pending.has(key)) continue
+        await this.start(entry)
+        started++
+      } else if ((entry.action === 'wait' || entry.action === 'once') && !this.ran.has(key)) {
+        this.ran.add(key)
+        if (entry.action === 'wait') await this.runAndWait(entry)
+        else await this.start(entry)
+        started++
+      }
     }
     this.host.log('info', `init: read inittab again (${next.length} entries, ${started} started)`)
   }
@@ -141,6 +171,18 @@ export class InitEngine {
     return entries
   }
 
+  /** The level to be in: what `telinit` asked for, else the `initdefault` entry's, else none (nothing is filtered) */
+  private levelOf(entries: InitEntry[]): string | undefined {
+    const asked = this.host.readRunlevel?.()?.trim()
+    if (asked) return asked[0]
+    return entries.find(entry => entry.action === 'initdefault')?.runlevels[0]
+  }
+
+  /** Whether an entry belongs to the level: always without one, and a `shutdown` entry whatever it is */
+  private applies(entry: InitEntry): boolean {
+    return this.level === undefined || entry.action === 'shutdown' || entry.runlevels === '' || entry.runlevels.includes(this.level)
+  }
+
   private isRunning(key: string): boolean {
     for (const entry of this.running.values()) if (entryKey(entry) === key) return true
     return false
@@ -148,7 +190,7 @@ export class InitEngine {
 
   private isWanted(entry: InitEntry): boolean {
     const key = entryKey(entry)
-    return this.entries.some(candidate => candidate.action === 'respawn' && entryKey(candidate) === key)
+    return this.entries.some(candidate => candidate.action === 'respawn' && entryKey(candidate) === key && this.applies(candidate))
   }
 
   /** Starts an entry and remembers it. A command that cannot be started counts as one that exited at once. */

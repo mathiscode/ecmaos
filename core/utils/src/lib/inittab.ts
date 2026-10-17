@@ -1,7 +1,9 @@
 /**
  * `/etc/inittab`, BusyBox format: one entry per line, `id:runlevels:action:command`.
  * - `id` is a label (BusyBox uses it for the tty); it may be empty and need not be unique.
- * - `runlevels` is accepted and ignored.
+ * - `runlevels` lists the runlevels (one character each) an entry belongs to; empty means every one. Nothing is filtered
+ *   until the file has an `initdefault` entry, whose `runlevels` is the level init starts in (the `command` is empty), or
+ *   `telinit` has set one; `shutdown` entries run whatever the level.
  * - `action` is one of {@link INIT_ACTIONS}.
  * - `command` is everything after the third colon, split into words by `splitCommand` (quotes group; no shell
  *   syntax).
@@ -9,7 +11,7 @@
  * and the kernel's tests.
  */
 
-export const INIT_ACTIONS = ['sysinit', 'wait', 'once', 'respawn', 'shutdown'] as const
+export const INIT_ACTIONS = ['sysinit', 'wait', 'once', 'respawn', 'shutdown', 'initdefault'] as const
 export type InitAction = typeof INIT_ACTIONS[number]
 
 export interface InitEntry {
@@ -92,6 +94,9 @@ export const DEFAULT_INITTAB = [
   '#   respawn   start, and start again whenever it exits',
   '#   shutdown  run, in order, when the system goes down (reboot, halt and poweroff signal init)',
   '#',
+  '#   initdefault  the runlevels field is the level init starts in (id:5:initdefault:); with one, an entry runs only',
+  '#                in the levels its runlevels field lists (empty means all), and `telinit N` changes the level',
+  '#',
   '# The id and runlevels fields may be empty. `kill -HUP 1` makes init read this file again.',
   '::sysinit:/boot/init',
   '::respawn:/bin/crond',
@@ -167,6 +172,11 @@ export function parseInittab(text: string): Inittab {
 
     if (UNSUPPORTED[action]) { fail(`the ${action} action is not supported: ${UNSUPPORTED[action]}`); continue }
     if (!(INIT_ACTIONS as readonly string[]).includes(action)) { fail(`unknown action "${action}"`); continue }
+    if (action === 'initdefault') {
+      if (!runlevels) { fail('initdefault needs a runlevel'); continue }
+      entries.push({ id, runlevels, action, command: '', argv: [], line: number })
+      continue
+    }
     if (!command) { fail('missing command'); continue }
 
     let argv: string[]

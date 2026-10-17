@@ -27,7 +27,12 @@ class FakeHost implements InitHost {
   aliveFn: () => number = () => 0
   advanceOnEmpty = false
 
+  runlevel: string | undefined
+  killed: Array<[number, number]> = []
+
   readInittab() { return this.inittab }
+  readRunlevel() { return this.runlevel }
+  async kill(pid: number, signal: number) { this.killed.push([pid, signal]) }
   now() { return this.clock }
   async sleep(ms: number) { this.clock += ms }
   log(level: string, message: string) { this.logs.push(`${level}: ${message}`) }
@@ -306,5 +311,59 @@ describe('InitEngine shutdown', () => {
     host.script = [() => { host.signals.push('USR2', 'TERM'); return 0 }]
     await host.engine.run()
     expect(host.finished).toEqual(['poweroff'])
+  })
+})
+
+describe('InitEngine runlevels', () => {
+  it('runs every entry when nothing names a runlevel', async () => {
+    const host = make('::respawn:/bin/a\n1::respawn:/bin/b')
+    await host.engine.boot()
+    expect(host.order).toEqual(['booted', 'spawn /bin/a', 'spawn /bin/b'])
+  })
+
+  it('starts only the entries of the initdefault level, and an entry with no levels is in all of them', async () => {
+    const host = make('x:5:initdefault:\n::respawn:/bin/all\nt:12:respawn:/bin/text\nd:5:respawn:/bin/desktop\n:2:shutdown:/bin/bye')
+    await host.engine.boot()
+    expect(host.order).toEqual(['booted', 'spawn /bin/all', 'spawn /bin/desktop'])
+    expect(host.logs).toContain('info: init: runlevel 5')
+  })
+
+  it('stops an entry the new level leaves out and starts the ones it brings in, when told to read again', async () => {
+    const host = make('x:5:initdefault:\n::respawn:/bin/all\nt:12:respawn:/bin/text\nd:5:respawn:/bin/desktop\n:3:once:/bin/three')
+    await host.engine.boot()
+    host.runlevel = '2'
+    await host.engine.reload()
+    expect(host.killed).toEqual([[host.pidOf('/bin/desktop'), 15]])
+    expect(host.count('/bin/text')).toBe(1)
+    expect(host.count('/bin/all')).toBe(1)
+
+    host.runlevel = '3'
+    await host.engine.reload()
+    expect(host.count('/bin/three')).toBe(1)
+    host.runlevel = '5'
+    await host.engine.reload()
+    host.runlevel = '3'
+    await host.engine.reload()
+    expect(host.count('/bin/three')).toBe(1)
+    expect(host.logs).toContain('info: init: runlevel 5 to 2')
+  })
+
+  it('does not restart an entry the level left out when it exits', async () => {
+    const host = make('x:5:initdefault:\nd:5:respawn:/bin/desktop')
+    await host.engine.boot()
+    host.runlevel = '2'
+    await host.engine.reload()
+    host.advanceOnEmpty = true
+    host.script = [() => host.pidOf('/bin/desktop')]
+    await host.engine.run()
+    expect(host.count('/bin/desktop')).toBe(1)
+  })
+
+  it('runs shutdown entries whatever the level', async () => {
+    const host = make('x:5:initdefault:\n:2:shutdown:/bin/bye')
+    await host.engine.boot()
+    host.script = [() => { host.signals.push('USR1'); return 0 }, () => host.pidOf('/bin/bye')]
+    await host.engine.run()
+    expect(host.count('/bin/bye')).toBe(1)
   })
 })

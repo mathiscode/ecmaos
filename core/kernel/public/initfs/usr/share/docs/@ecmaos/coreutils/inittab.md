@@ -17,7 +17,7 @@ id:runlevels:action:command
 ```
 
 - `id` is a label. It may be empty and need not be unique. An id of the form `ttyN` (0 to 7) makes init run the command with that terminal as its controlling terminal, as BusyBox does; that is how `getty` is started.
-- `runlevels` is accepted and ignored.
+- `runlevels` lists the runlevels the entry belongs to, one character each; empty means every level. It only matters once a level is set (see Runlevels).
 - `action` says when and how the command runs.
 - `command` is everything after the third colon, so it may contain colons. It is split into words; single and double quotes group words, and a backslash escapes the next character. There is no shell syntax (no pipes, redirections or variables); put those in a script and run the script.
 
@@ -32,10 +32,21 @@ Blank lines and lines starting with `#` are ignored. A line that cannot be used 
 | `once` | start once and do not wait |
 | `respawn` | start, and start again whenever it exits |
 | `shutdown` | run, in file order, when the system goes down |
+| `initdefault` | the `runlevels` field is the level init starts in; there is no command (`id:5:initdefault:`) |
 
 A command that starts with `#!ecmaos:bin:script:` is a script for the kernel's own shell, such as `/boot/init`. Those are only allowed as `sysinit`, `wait` or `shutdown` entries, because that shell is shared with whoever is at the terminal.
 
 BusyBox's `ctrlaltdel`, `askfirst`, `respawnask` and `restart` actions are not supported, and a line using one is skipped with a message.
+
+## Runlevels
+
+Nothing is filtered until the file has an `initdefault` entry or `telinit` has set a level. After that an entry runs only when its `runlevels` field is empty or lists the current level; `shutdown` entries run whatever the level. `telinit N` writes the level to `/run/runlevel` and makes init read the file again: `respawn` entries the level leaves out are sent `SIGTERM` and not restarted, the ones it brings in are started, and `wait` and `once` entries it brings in for the first time run. `runlevel` prints the level. The level set by `telinit` lasts for the boot: `/run` is not kept, so the next boot starts in the `initdefault` level.
+
+```
+x:5:initdefault:
+tty1:12345:respawn:/sbin/getty tty1
+::respawn:/bin/crond
+```
 
 ## Default
 

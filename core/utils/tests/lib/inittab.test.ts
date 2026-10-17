@@ -166,3 +166,11 @@ describe('an untouched inittab', () => {
     expect(isUntouchedInittab(DEFAULT_INITTAB + gettyEntries(1))).toBe(true)
   })
 })
+
+describe('initdefault', () => {
+  it('takes a runlevel and no command, and refuses one with no level', () => {
+    const { entries, errors } = parseInittab('id:5:initdefault:\n::initdefault:\n')
+    expect(entries).toMatchObject([{ action: 'initdefault', runlevels: '5', argv: [] }])
+    expect(errors.map(error => error.reason)).toEqual(['initdefault needs a runlevel'])
+  })
+})

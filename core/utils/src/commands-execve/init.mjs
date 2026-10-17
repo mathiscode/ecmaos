@@ -102,6 +102,16 @@ const host = {
     return await call(spawn, path, entry.argv, { cwd: '/', pgid: 0, ...(terminal ? { tty: Number(terminal[1]) } : {}) })
   },
 
+  /** The level `telinit` wrote; absent until it has run */
+  readRunlevel() {
+    collectSignals()
+    try { return readFileText('/run/runlevel').trim() || undefined } catch { return undefined }
+  },
+
+  async kill(pid, signal) {
+    await call(custom, 'proc_kill', pid, signal)
+  },
+
   async wait(timeoutMs) {
     collectSignals()
     if (seen.size) return 0 // a signal is already waiting: let the engine act on it first
