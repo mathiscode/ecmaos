@@ -13,10 +13,16 @@ export interface HostWindow {
   exited: Promise<void>
 }
 
+/** What a window is asked to be besides its place and title; a launcher may ignore it */
+export interface LaunchOptions {
+  /** No chrome from the host (title bar, borders) */
+  frameless?: boolean
+}
+
 /** Opens a host window that loads `url`; `unavailable` explains why it cannot */
 export interface Launcher {
   readonly unavailable?: string
-  launch(url: string, geometry: WindowGeometry, title: string): HostWindow
+  launch(url: string, geometry: WindowGeometry, title: string, options?: LaunchOptions): HostWindow
 }
 
 const Linux = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'brave-browser', 'microsoft-edge', 'microsoft-edge-stable']

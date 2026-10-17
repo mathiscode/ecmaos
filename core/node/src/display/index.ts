@@ -1,12 +1,14 @@
 import type { HostDisplay, ToDisplay, ToKernel, WindowContent, WindowId, WindowInfo, WindowKind, WindowOptions, WindowRenderer, WindowReports } from '@ecmaos/types'
 
 import { browserLauncher } from './launch.ts'
+import { loadWebview, webviewLauncher } from './webview.ts'
 import type { HostWindow, Launcher } from './launch.ts'
 import { DisplayServer } from './server.ts'
 import type { DisplaySession } from './server.ts'
 
 export { browserLauncher, findBrowser } from './launch.ts'
-export type { HostWindow, Launcher } from './launch.ts'
+export { loadWebview, webviewLauncher } from './webview.ts'
+export type { HostWindow, Launcher, LaunchOptions } from './launch.ts'
 export { DisplayServer } from './server.ts'
 
 export interface NodeDisplayOptions {
@@ -47,6 +49,19 @@ interface Slot {
 }
 
 /**
+ * The webview when `@webviewjs/webview` is installed and loads, else the system's Chromium-based browser. Naming a browser
+ * (`ECMAOS_BROWSER`) or `ECMAOS_WEBVIEW=0` keeps the browser; a missing display is reported by the browser launcher.
+ */
+export function defaultLauncher(env: NodeJS.ProcessEnv = process.env, load: typeof loadWebview = loadWebview): Launcher {
+  const browser = browserLauncher(env)
+  const off = env['ECMAOS_WEBVIEW']
+  if (browser.unavailable?.startsWith('host windows are turned off') || browser.unavailable?.includes('has no display')) return browser
+  if (env['ECMAOS_BROWSER'] || off === '0' || off === 'off' || off === 'false') return browser
+  const loaded = load()
+  return 'module' in loaded ? webviewLauncher(loaded.module) : browser
+}
+
+/**
  * Host windows for a Node process. Nothing starts until a program asks for a window: the first one starts a loopback
  * display server and opens a host window loading the display page, and each further ecmaOS window gets a host window of
  * its own. Closing a host window asks the kernel to close the ecmaOS window; if the owner vetoes, the host window opens again.
@@ -59,7 +74,7 @@ export class NodeWindowRenderer implements WindowRenderer {
   private readonly _launcher: Launcher
 
   constructor(private readonly _options: NodeDisplayOptions = {}) {
-    this._launcher = _options.launcher ?? browserLauncher(_options.env)
+    this._launcher = _options.launcher ?? defaultLauncher(_options.env)
   }
 
   get unavailable() { return this._launcher.unavailable }
@@ -184,7 +199,7 @@ export class NodeWindowRenderer implements WindowRenderer {
       })
       slot.session = session
       session.send(this._openMessage(slot))
-      slot.host = this._launcher.launch(session.url, slot.info.geometry, slot.info.title)
+      slot.host = this._launcher.launch(session.url, slot.info.geometry, slot.info.title, { frameless: slot.info.frameless })
     } catch (error) {
       this._options.log?.(`could not open a host window: ${error instanceof Error ? error.message : String(error)}`)
       this._slots.delete(id)
