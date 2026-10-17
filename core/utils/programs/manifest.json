@@ -138,6 +138,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 133974,
       "sha256": "8031713ee0da1b9eb62b57ff64b7c3f27bc990fa952e81f16a815742e08ec5f5"
+    },
+    "wldemo": {
+      "file": "wldemo.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "wldemo, a demo Wayland client: a resizable window with a bouncing ball, a pointer follower and the last key typed (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 333527,
+      "sha256": "504a23574870d371c2b619190959ba907821dbb4d1301d9f9a5c49221e2c8ca1"
     }
   }
 }

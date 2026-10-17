@@ -27,6 +27,7 @@ describe('the Wayland compositor', () => {
     const load = (file: string) => new Uint8Array(readFileSync(file))
     await kernel.filesystem.fs.writeFile('/bin/wlcomp', load(`${root}/../utils/programs/wlcomp.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-shm', load(`${root}/tests/tree/wasi/fixtures/wl-shm.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/wldemo', load(`${root}/../utils/programs/wldemo.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
@@ -115,6 +116,28 @@ describe('the Wayland compositor', () => {
     kernel.windows.close(id, true)
     expect(await client).toBe(0)
     expect(await read('/tmp/wl-lib.out')).toContain('closed')
+  }, 60_000)
+
+  it('runs the shipped demo client: it animates, follows the pointer and quits on Escape', async () => {
+    const client = kernel.shell.execute(`${env} wldemo 120 90 > /tmp/wldemo.out 2>&1`)
+    await until(() => kernel.windows.list().some(w => w.title === 'wldemo'))
+    const id = kernel.windows.list().find(w => w.title === 'wldemo')!.id
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    await until(() => fb.pixels.some(byte => byte !== 0))
+    expect([fb.width, fb.height]).toEqual([120, 90])
+    const first = fb.pixels.slice()
+    await until(() => fb.pixels.some((byte, i) => byte !== first[i]))   // the ball moved
+
+    kernel.windows.reportInput(id, { k: 'pointer', x: 100, y: 80 })
+    kernel.windows.reportInput(id, { k: 'enter' })
+    const green = () => { for (let i = 0; i + 2 < fb.pixels.length; i += 4) if (fb.pixels[i] === 0x80 && fb.pixels[i + 1] === 0xff && fb.pixels[i + 2] === 0x40) return true; return false }
+    await until(green)   // the pointer's square (green: no button down), blue first
+
+    kernel.windows.reportInput(id, { k: 'focus' })
+    kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
+    expect(await client).toBe(0)
+    await until(() => kernel.framebuffers.list().length === 0)
   }, 60_000)
 
   it('takes a window away when its client goes', async () => {
