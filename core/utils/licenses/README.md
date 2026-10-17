@@ -22,6 +22,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `wlcomp` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `wlcomp/LICENSE` |
 | `wldemo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `wldemo/` |
 | `sdlsnake` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlsnake/` |
+| `sdlpaint` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpaint/` |
 
 Every program also contains musl libc and compiler-rt, from Emscripten: see `runtime/`.
 

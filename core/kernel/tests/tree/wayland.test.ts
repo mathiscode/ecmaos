@@ -30,6 +30,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/wldemo', load(`${root}/../utils/programs/wldemo.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlsnake', load(`${root}/../utils/programs/sdlsnake.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlpaint', load(`${root}/../utils/programs/sdlpaint.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
@@ -247,6 +248,29 @@ describe('the Wayland compositor', () => {
     kernel.windows.close(id, true)
     expect(await client).toBe(0)
     expect(await out()).toContain('close')
+  }, 90_000)
+
+  it('runs the shipped SDL paint program: a crosshair over the picture, strokes in the chosen color, an arrow over the palette', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const client = kernel.shell.execute(`${env} sdlpaint 200 150 > /tmp/sdlpaint.out 2>&1`)
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    const px = (x: number, y: number) => [...fb.pixels.subarray((y * fb.width + x) * 4, (y * fb.width + x) * 4 + 3)]
+    await until(() => px(100, 100)[0] === 0xfa)   // paper
+    const id = kernel.windows.list().find(w => w.title === 'sdlpaint')!.id
+    const send = (...inputs: Parameters<typeof kernel.windows.reportInput>[1][]) => { for (const input of inputs) kernel.windows.reportInput(id, input) }
+    send({ k: 'pointer', x: 100, y: 100 }, { k: 'enter' }, { k: 'focus' })
+    await until(() => fb.pointerCursor === 'crosshair')
+    send({ k: 'key', code: 'Digit2', down: true }, { k: 'key', code: 'Digit2', down: false })   // red
+    await new Promise(resolve => setTimeout(resolve, 300))
+    send({ k: 'pointer', x: 60, y: 80 }, { k: 'button', button: 0, down: true }, { k: 'pointer', x: 120, y: 80 }, { k: 'button', button: 0, down: false })
+    await until(() => px(90, 80)[2] === 0xe5)    // blue first: red 0xe5 is the last byte of three
+    expect(px(90, 80)).toEqual([0x35, 0x39, 0xe5])
+    expect(px(90, 130)[0]).toBe(0xfa)             // untouched paper
+    send({ k: 'pointer', x: 20, y: 10 })          // over the palette
+    await until(() => fb.pointerCursor === 'pointer')
+    send({ k: 'key', code: 'Escape', down: true }, { k: 'key', code: 'Escape', down: false })
+    expect(await client).toBe(0)
   }, 90_000)
 
   it('takes a window away when its client goes', async () => {
