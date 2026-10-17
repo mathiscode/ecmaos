@@ -29,6 +29,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/wl-shm', load(`${root}/tests/tree/wasi/fixtures/wl-shm.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wldemo', load(`${root}/../utils/programs/wldemo.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
   }, 60_000)
@@ -161,6 +162,46 @@ describe('the Wayland compositor', () => {
     kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
     expect(await client).toBe(0)
   }, 60_000)
+
+  it('serves an SDL 3 program through its Wayland driver: window surface, pointer, keys, text and resize', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const client = kernel.shell.execute(`${env} sdl-win 160 100 60000 > /tmp/sdl-win.out 2>&1`)
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    const px = (x: number, y: number) => [...fb.pixels.subarray((y * fb.width + x) * 4, (y * fb.width + x) * 4 + 3)]
+    await until(() => fb.pixels.some(byte => byte !== 0))
+    expect([fb.width, fb.height]).toEqual([160, 100])
+    await until(() => px(159, 99)[0] === 60)   // blue first: the gradient with 60 for blue, the corner is all but full red and green
+    expect(px(159, 99)).toEqual([60, Math.floor(99 * 255 / 100), Math.floor(159 * 255 / 160)])
+    const out = () => read('/tmp/sdl-win.out')
+    expect(await out()).toContain('driver wayland')
+    expect(await out()).not.toContain('ERROR')
+
+    const id = kernel.windows.list().find(w => w.title === 'sdl-win')!.id
+    for (const input of [
+      { k: 'pointer', x: 12, y: 7 }, { k: 'enter' }, { k: 'pointer', x: 13, y: 8 }, { k: 'button', button: 0, down: true }, { k: 'button', button: 0, down: false },
+      { k: 'focus' }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false },
+      { k: 'key', code: 'ShiftLeft', down: true }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'key', code: 'ShiftLeft', down: false }
+    ] as const) kernel.windows.reportInput(id, input)
+    await until(async () => (await out()).includes('key Left Shift up'))
+    const events = (await out()).split('\n').filter(line => /^(mouse|motion|button|focus|key|text) /.test(line))
+    expect(events).toEqual([
+      'mouse enter', 'motion 12 7', 'motion 13 8', 'button 1 1', 'button 1 0', 'focus gained',
+      'key A down', 'text a', 'key A up', 'key Left Shift down', 'key A down', 'text A', 'key A up', 'key Left Shift up'
+    ])
+
+    // the user resizing the window: SDL gets a new size, makes a new window surface and the compositor shows it whole
+    kernel.windows.reportInput(id, { k: 'size', width: 160, height: 100 })
+    kernel.windows.reportInput(id, { k: 'size', width: 200, height: 140 })
+    await until(async () => (await out()).includes('resized 200 140'))
+    await until(() => fb.width === 200 && fb.height === 140 && px(199, 139)[0] === 200)
+    expect(px(199, 139)).toEqual([200, Math.floor(139 * 255 / 140), Math.floor(199 * 255 / 200)])
+
+    // closing the window tells SDL, which ends the program
+    kernel.windows.close(id, true)
+    expect(await client).toBe(0)
+    expect(await out()).toContain('close')
+  }, 90_000)
 
   it('takes a window away when its client goes', async () => {
     const client = kernel.shell.execute(`${env} wl-shm 1 16 16 300 > /tmp/wl-shm2.out 2>&1`)

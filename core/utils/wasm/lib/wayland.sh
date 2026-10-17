@@ -110,6 +110,24 @@ PY
     emcc $CFLAGS -I"$S" -c gen/wayland-protocol.c -o gen/wayland-protocol.o
     emar rcs "$work/prefix/lib/libwayland-client.a" gen/*.o
     cp "$S/wayland-client.h" "$S/wayland-client-core.h" "$S/wayland-util.h" gen/wayland-client-protocol.h gen/wayland-version.h "$work/prefix/include/"
+
+    # libwayland-cursor (cursor themes; with no theme files it hands out no cursors) and libwayland-egl (the window
+    # object EGL surfaces are made from), for toolkits that link both. They need nothing beyond the client library.
+    mkdir -p gen/cursor gen/egl
+    for f in wayland-cursor os-compatibility xcursor; do
+      emcc $CFLAGS -I"$S/../cursor" -c "$S/../cursor/$f.c" -o "gen/cursor/$f.o" > "gen/cursor/$f.log" 2>&1 || { tail -30 "gen/cursor/$f.log" >&2; exit 1; }
+    done
+    emar rcs "$work/prefix/lib/libwayland-cursor.a" gen/cursor/*.o
+    emcc $CFLAGS -I"$S/../egl" -c "$S/../egl/wayland-egl.c" -o gen/egl/wayland-egl.o
+    emar rcs "$work/prefix/lib/libwayland-egl.a" gen/egl/*.o
+    cp "$S/../cursor/wayland-cursor.h" "$S/../egl/wayland-egl.h" "$S/../egl/wayland-egl-core.h" "$work/prefix/include/"
+    # pkg-config files, for builds that look the libraries up that way (SDL); `egl` is only named, nothing links it
+    mkdir -p "$work/prefix/lib/pkgconfig"
+    for lib in wayland-client wayland-cursor wayland-egl; do
+      printf 'prefix=%s\nName: %s\nDescription: %s\nVersion: %s\nRequires:\nLibs: -L%s -l%s\nCflags: -I%s\n' \
+        "$work/prefix" "$lib" "$lib" "$WAYLAND" "$work/prefix/lib" "$lib" "$work/prefix/include" > "$work/prefix/lib/pkgconfig/$lib.pc"
+    done
+    printf 'Name: egl\nDescription: egl\nVersion: 1.5\nRequires:\nLibs:\nCflags:\n' > "$work/prefix/lib/pkgconfig/egl.pc"
   )
   WAYLAND_INC="-I$work/prefix/include"
   WAYLAND_LIB="-L$work/prefix/lib -lwayland-client"

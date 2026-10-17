@@ -1467,7 +1467,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_getgid32: () => 0,
     __syscall_getegid32: () => 0,
     __syscall_dup3: (fd, newfd, _flags) => guardLinux(() => dup2(fd, newfd)),
-    __syscall_fallocate: () => ESUCCESS,
+    // `posix_fallocate` is how a program sizes a shared-memory file (SDL does), so the file must really grow
+    __syscall_fallocate: (fd, mode, offset, length) => guardLinux(() => {
+      if (mode & 1) return   // FALLOC_FL_KEEP_SIZE: nothing to reserve in a file that is not backed by blocks
+      const end = Number(offset) + Number(length)
+      if (end > fstat(fd).size) ftruncate(fd, end)
+    }),
+    __syscall_fdatasync: fd => guardLinux(() => fdatasync(fd)),
     __syscall_fadvise64: () => ESUCCESS,
     // The terminal ioctls a full-screen program needs. `struct termios` here is the kernel's
     // (iflag, oflag, cflag, lflag, line, cc[19]); musl hands `TCGETS` a larger struct but only the
@@ -2086,7 +2092,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   aroundCalls(wasi, ['fd_write', 'fd_pwrite', 'fd_sync', 'fd_datasync', 'fd_close', 'proc_exit'], { before: true })
   aroundCalls(wasi, ['fd_read', 'fd_pread', 'poll_oneoff'], { before: true, after: true })
   aroundCalls(wasi, ['clock_time_get'], { before: true, throttled: true })
-  aroundCalls(envSyscalls, ['__syscall_ioctl', '__syscall_ftruncate64', '__syscall_fallocate', '__syscall_sendto', '__syscall_sendmsg', 'exit'], { before: true })
+  aroundCalls(envSyscalls, ['__syscall_ioctl', '__syscall_ftruncate64', '__syscall_fallocate', '__syscall_fdatasync', '__syscall_sendto', '__syscall_sendmsg', 'exit'], { before: true })
   aroundCalls(envSyscalls, ['__syscall_poll', '__syscall_poll_nonblocking', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking', '__syscall_recvfrom', '__syscall_recvmsg'], { before: true, after: true })
   aroundCalls(envSyscalls, ['emscripten_get_now', 'emscripten_date_now'], { before: true, throttled: true })
 

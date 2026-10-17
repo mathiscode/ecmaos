@@ -26,7 +26,7 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_umask', '__syscall_mkdirat', '__syscall_fchownat', '__syscall_newfstatat', '__syscall_unlinkat',
   '__syscall_renameat', '__syscall_symlinkat', '__syscall_linkat', '__syscall_readlinkat', '__syscall_fchmodat2',
   '__syscall_faccessat', '__syscall_utimensat', '__syscall_getuid32', '__syscall_geteuid32', '__syscall_getgid32',
-  '__syscall_getegid32', '__syscall_dup3', '__syscall_fallocate', '__syscall_fadvise64', '__syscall_ioctl',
+  '__syscall_getegid32', '__syscall_dup3', '__syscall_fallocate', '__syscall_fdatasync', '__syscall_fadvise64', '__syscall_ioctl',
   '__syscall_epoll_create1', '__syscall_epoll_ctl', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking',
   '__syscall_socket', '__syscall_bind', '__syscall_listen', '__syscall_connect', '__syscall_accept4',
   '__syscall_getsockname', '__syscall_getpeername', '__syscall_shutdown', '__syscall_sendto',

@@ -40,6 +40,9 @@ build_xkbcommon() {
 #define HAVE_VASPRINTF 1
 #define HAVE_OPEN_MEMSTREAM 1
 CONFIG
+    # no Compose data is installed, so a program that asks for a locale's table is told there is none; that is not an error to print
+    sed -i 's/log_err(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE,/log_dbg(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE,/' src/compose/table.c
+    grep -q 'log_dbg(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE' src/compose/table.c || { echo "xkbcommon: the compose log patch did not apply" >&2; exit 1; }
     bison --defines=gen/parser.h -o gen/parser.c -p _xkbcommon_ src/xkbcomp/parser.y
     CFLAGS="-O2 -fwasm-exceptions -std=gnu11 -D_GNU_SOURCE -DHAVE_CONFIG_H -DENABLE_PRIVATE_APIS -Igen -I. -Isrc -Iinclude -Isrc/xkbcomp -Isrc/compose"
     for f in src/*.c src/xkbcomp/*.c src/compose/*.c gen/parser.c; do
@@ -49,6 +52,9 @@ CONFIG
     done
     emar rcs "$work/prefix/lib/libxkbcommon.a" gen/*.o
     cp include/xkbcommon/xkbcommon.h include/xkbcommon/xkbcommon-compat.h include/xkbcommon/xkbcommon-compose.h include/xkbcommon/xkbcommon-keysyms.h include/xkbcommon/xkbcommon-names.h "$work/prefix/include/xkbcommon/"
+    mkdir -p "$work/prefix/lib/pkgconfig"
+    printf 'Name: xkbcommon\nDescription: xkbcommon\nVersion: %s\nRequires:\nLibs: -L%s -lxkbcommon\nCflags: -I%s\n' \
+      "$XKBCOMMON" "$work/prefix/lib" "$work/prefix/include" > "$work/prefix/lib/pkgconfig/xkbcommon.pc"
   )
   XKBCOMMON_INC="-I$work/prefix/include"
   XKBCOMMON_LIB="-L$work/prefix/lib -lxkbcommon"
