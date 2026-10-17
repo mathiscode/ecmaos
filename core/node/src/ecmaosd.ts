@@ -4,13 +4,15 @@ import { createServer as createHttpsServer } from 'node:https'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
 
-import { announceShared, AuthChannel, Connection, DeviceChannel, DeviceShareChannel, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, parseDeviceInfo, PeerError, publicKeyOf, RemoteDevice, serveDevice, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
+import { announceShared, AuthChannel, Connection, DeviceChannel, DisplayChannel, DeviceShareChannel, fingerprint, FsChannel, FsClient, FsShareChannel, MessageStream, parseDeviceInfo, PeerError, publicKeyOf, RemoteDevice, serveDevice, serveFs, serverAuth, webSocketTransport } from '@ecmaos/peer'
 import type { Channel, DeviceSource, ExportFs, KeyPair, PublicKey, WebSocketLike } from '@ecmaos/peer'
 import type { Kernel } from '@ecmaos/kernel/kernel'
+import type { ToKernel } from '@ecmaos/types'
 import { RemoteFS } from '@ecmaos/kernel/lib/remote-fs'
 import { registerRemoteDevice } from '@ecmaos/kernel/lib/remote-device'
 import { DefaultLimits } from '@ecmaos/kernel/lib/remote-mount'
 
+import type { NodeWindowRenderer } from './display/index.ts'
 import { TerminalDriver } from './driver.ts'
 import type { Gateway } from './gateway.ts'
 import { loadHostKey } from './hostkey.ts'
@@ -31,6 +33,8 @@ const GlobalFailureWindow = 60_000
 const GlobalFailureLimit = 10
 /** A client this far behind on output is cut off rather than buffered for */
 const MaxQueuedOutput = 8 << 20
+/** Window messages a display may be behind by */
+const MaxPendingWindowMessages = 256
 
 export interface DaemonOptions {
   kernel: Kernel
@@ -50,6 +54,8 @@ export interface DaemonOptions {
   exports?: Array<{ name: string, readOnly: boolean, backend: ExportFs }>
   /** Host devices offered to root on the machines that log in, by name; none unless listed */
   devices?: DeviceSource[]
+  /** Shows windows on the screens of machines that log in with a `display` channel; none when absent */
+  display?: NodeWindowRenderer
   /** Lets machines that log in reach the network through this host; none unless given */
   gateway?: Gateway
   /** Makes what the kernel has written durable; called before a key enrolment is acknowledged */
@@ -212,6 +218,36 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     void channel.done.then(forget)
   }
 
+  /**
+   * A screen logs in and asks to see this machine's windows: it gets the windows of its user (all of them for root), now and as
+   * they open, and tells this machine what the user does to them. It speaks only for windows it was told about.
+   */
+  function openDisplay(channel: Channel, user: string) {
+    const account = Array.from(kernel.users.all.values()).find(candidate => candidate.username === user)
+    if (!account) throw new PeerError('auth', 'no such user')
+    if (!options.display) throw new PeerError('refused', 'this machine shows no windows')
+    // what the screen sends is small; what it is sent can be large (an image in a window)
+    const stream = new MessageStream(channel, { maxMessage: 1 << 16 })
+    let pending = 0
+    const attached = options.display.attachRemote({
+      uid: account.uid,
+      send: message => {
+        if (channel.closed) return
+        // a screen this far behind is cut off, as a terminal is
+        if (++pending > MaxPendingWindowMessages) { channel.close(new PeerError('limit', 'the display is not keeping up')); return }
+        // `undefined` fields are dropped; the codec has no such value
+        void stream.send(JSON.parse(JSON.stringify(message))).then(() => { pending-- }, () => { pending-- })
+      }
+    })
+    stream.onMessage = value => {
+      if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) return
+      const t = value['t']
+      if (t === 'close-request' || t === 'focused' || t === 'changed') attached.message(value as unknown as ToKernel)
+    }
+    log(`${user} attached a display`)
+    void channel.done.then(() => { attached.detach(); log(`${user}'s display went away`) })
+  }
+
   function serve(socket: WebSocketLike) {
     const connection = new Connection(webSocketTransport(socket), { role: 'server', meta: { name: 'ecmaosd', version: kernel.version }, maxChannels: 16 })
     live.add(connection)
@@ -248,6 +284,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         settle()
         log(`${user} logged in`)
         connection.accept('tty', channel => openTerminal(kernel, user, channel))
+        connection.accept(DisplayChannel, channel => openDisplay(channel, user))
         connection.accept(FsChannel, channel => openExport(channel, user))
         connection.accept(DeviceChannel, channel => openDevice(channel, user))
         connection.accept(DeviceShareChannel, channel => acceptDeviceShare(channel, user))

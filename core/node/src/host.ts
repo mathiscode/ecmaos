@@ -10,6 +10,8 @@ import type { Host } from '@ecmaos/types'
 
 import { resolveDataDir } from './data.ts'
 import { nodeDisplay } from './display/index.ts'
+import type { NodeWindowRenderer } from './display/index.ts'
+import type { HostDisplay } from '@ecmaos/types'
 import { MemoryStorage } from './memory-storage.ts'
 import { initfsFile, initfsUrl, ProgramsUrl, sourceFetch } from './sources.ts'
 import { SqliteStorage } from './sqlite-storage.ts'
@@ -31,6 +33,8 @@ export interface NodeHostOptions {
 }
 
 export interface NodeHost extends Host {
+  /** Host windows, and the screens of machines that log in */
+  readonly display: HostDisplay & { renderer: NodeWindowRenderer }
   /** The folder holding this machine's state; absent for an ephemeral one */
   readonly dataDir?: string
   /** Writes what is pending to the database now, instead of at the end of the current turn of the event loop */

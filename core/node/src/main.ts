@@ -195,6 +195,7 @@ if (listen) {
       devices: devices.map(openDevice),
       exports: exported,
       kernel,
+      display: host.display.renderer,
       dataDir: host.dataDir,
       flush: () => host.flush(),
       host: split > 0 ? address.slice(0, split) : undefined,
