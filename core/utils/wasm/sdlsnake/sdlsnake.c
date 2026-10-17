@@ -102,6 +102,7 @@ int main(int argc, char **argv) {
   if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "sdlsnake: %s (is wlcomp running?)\n", SDL_GetError()); return 1; }
   SDL_Window *win = SDL_CreateWindow("sdlsnake", w, h, SDL_WINDOW_RESIZABLE);
   if (!win) { fprintf(stderr, "sdlsnake: %s\n", SDL_GetError()); return 1; }
+  SDL_HideCursor();   /* the game is played from the keyboard */
   srand((unsigned)SDL_GetTicks());
   restart();
   Uint64 next = SDL_GetTicks();

@@ -1525,7 +1525,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           const type = (request >>> 8) & 0xff
           if (type !== 0x45 && type !== 0x46) throw { code: 'ENOTTY' }
           const FBIOPUT_VSCREENINFO = 0x4601
-          const argument = request === FBIOPUT_VSCREENINFO && ptr ? new Uint8Array(dv.buffer.slice(ptr, ptr + 160)) : undefined
+          const FBIO_SETCURSOR = 0x46f0   // wlcomp: a NUL-terminated CSS cursor name in 64 bytes
+          const argument = ptr && request === FBIOPUT_VSCREENINFO ? new Uint8Array(dv.buffer.slice(ptr, ptr + 160))
+            : ptr && request === FBIO_SETCURSOR ? new Uint8Array(dv.buffer.slice(ptr, ptr + 64)) : undefined
           const length = syscall('ioctl', real, request >>> 0, argument)
           if (length > 0) {
             const { bytes } = copyOut(class { constructor(buffer, offset) { this.bytes = new Uint8Array(buffer, offset, length) } })

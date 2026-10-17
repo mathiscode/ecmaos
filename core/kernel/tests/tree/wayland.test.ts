@@ -164,7 +164,7 @@ describe('the Wayland compositor', () => {
     expect(await client).toBe(0)
   }, 60_000)
 
-  it('runs the shipped SDL game: the snake moves, a key steers it and Escape quits', async () => {
+  it('runs the shipped SDL game: it hides the pointer, the snake moves, a key steers it and Escape quits', async () => {
     await until(() => kernel.framebuffers.list().length === 0)
     const client = kernel.shell.execute(`sdlsnake 240 170 > /tmp/sdlsnake.out 2>&1`)
     await until(() => kernel.windows.list().some(w => w.title === 'sdlsnake'))
@@ -174,6 +174,10 @@ describe('the Wayland compositor', () => {
     await until(() => fb.pixels.some(byte => byte !== 0))
     expect([fb.width, fb.height]).toEqual([240, 170])
     kernel.windows.reportInput(id, { k: 'focus' })
+    expect(fb.pointerCursor).toBe('default')
+    kernel.windows.reportInput(id, { k: 'pointer', x: 50, y: 40 })
+    kernel.windows.reportInput(id, { k: 'enter' })
+    await until(() => fb.pointerCursor === 'none')   // the game hid the pointer, so the window's cursor goes
     const first = fb.pixels.slice()
     await until(() => fb.pixels.some((byte, i) => byte !== first[i]))   // it moved
     kernel.windows.reportInput(id, { k: 'key', code: 'ArrowUp', down: true })
@@ -204,6 +208,7 @@ describe('the Wayland compositor', () => {
       { k: 'key', code: 'ShiftLeft', down: true }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'key', code: 'ShiftLeft', down: false }
     ] as const) kernel.windows.reportInput(id, input)
     await until(async () => (await out()).includes('key Left Shift up'))
+    expect(fb.pointerCursor).toBe('pointer')   // SDL's system cursor reaches the window as a CSS cursor
     const events = (await out()).split('\n').filter(line => /^(mouse|motion|button|focus|key|text) /.test(line))
     expect(events).toEqual([
       'mouse enter', 'motion 12 7', 'motion 13 8', 'button 1 1', 'button 1 0', 'focus gained',

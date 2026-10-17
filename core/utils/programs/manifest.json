@@ -136,8 +136,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 134685,
-      "sha256": "9bb482c4f2ed76b4887b2ba9606c0ebc6bbb98546b89a7df86345b4c49394508"
+      "size": 136135,
+      "sha256": "b8f9039efc318d454d99bc93636abdec873ec4eabb815f52dc5b11e596ff3b50"
     },
     "wldemo": {
       "file": "wldemo.wasm",
@@ -154,8 +154,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "sdlsnake, Snake on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 1582756,
-      "sha256": "211769fd0258f2f29545e0a91ca71394f136408c2b87ad7662e041934f4fdca1"
+      "size": 1582767,
+      "sha256": "0b68cdf78594992942624442bff27a2d2368624caaf0823e55d5c85fdbb59a5d"
     }
   }
 }

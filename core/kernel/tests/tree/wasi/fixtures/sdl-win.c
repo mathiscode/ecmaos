@@ -22,6 +22,7 @@ int main(int argc, char **argv) {
   SDL_Window *win = SDL_CreateWindow("sdl-win", w, h, SDL_WINDOW_RESIZABLE);
   if (!win) { printf("window failed: %s\n", SDL_GetError()); return 1; }
   SDL_StartTextInput(win);
+  SDL_SetCursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER));   /* sent as a cursor shape */
   SDL_Surface *s = SDL_GetWindowSurface(win);
   if (!s) { printf("surface failed: %s\n", SDL_GetError()); return 1; }
   int painted_w = s->w, painted_h = s->h;

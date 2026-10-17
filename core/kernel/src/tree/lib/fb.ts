@@ -25,6 +25,8 @@ export const FBIOGET_FSCREENINFO = 0x4602
 export const FBIOPAN_DISPLAY = 0x4606
 export const FBIOBLANK = 0x4611
 export const FBIO_WAITFORVSYNC = 0x40044620
+/** Private: the cursor the window shows, a CSS cursor name (or `none`) in 64 bytes, NUL-terminated */
+export const FBIO_SETCURSOR = 0x46f0
 
 export const VarScreenInfoSize = 160
 /** `struct fb_fix_screeninfo` for a 32-bit program (`unsigned long` is 4 bytes), which is every program here */
@@ -37,8 +39,8 @@ export interface PixelFrame {
   data: Uint8Array
 }
 
-/** Draws a frame wherever the framebuffer's window is shown */
-export type PixelSink = (frame: PixelFrame) => void
+/** Draws a frame wherever the framebuffer's window is shown; `setCursor` changes the pointer over it */
+export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void }
 
 const PresentDelay = 16
 
@@ -57,6 +59,10 @@ export class Framebuffer {
   }
 
   get path() { return `/dev/fb${this.index}` }
+
+  /** The pointer over the window: a CSS cursor name such as `pointer` or `text`, or `none` */
+  setCursor(cursor: string) { this.pointerCursor = cursor; this._sink.setCursor?.(cursor) }
+  pointerCursor = 'default'
   get size() { return this.pixels.length }
   get closed() { return this._closed }
 
@@ -183,6 +189,16 @@ const operations: FileOperations = {
     },
     [FBIOPAN_DISPLAY]: (_context, file) => { framebufferOf(file).flush(); return 0 },
     [FBIOBLANK]: () => 0,
+    [FBIO_SETCURSOR]: (_context, file, name?: Uint8Array) => {
+      if (!ArrayBuffer.isView(name)) throw withErrno('EINVAL')   // may come from another realm, so not instanceof
+      const bytes = name as Uint8Array
+      let end = 0
+      while (end < bytes.length && bytes[end] !== 0) end++
+      const text = String.fromCharCode(...bytes.subarray(0, end))
+      if (!/^[a-z]+(-[a-z]+)?$/.test(text)) throw withErrno('EINVAL')
+      framebufferOf(file).setCursor(text)
+      return 0
+    },
     [FBIO_WAITFORVSYNC]: () => 0
   }
 }
@@ -243,7 +259,8 @@ const encodeBase64 = (bytes: Uint8Array) => {
 export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) => void): PixelSink {
   let canvas: HTMLCanvasElement | undefined
   let image: ImageData | undefined
-  return frame => {
+  let cursor = 'default'
+  const sink: PixelSink = frame => {
     let body: HTMLElement | undefined
     try { body = window.body } catch { /* a window drawn without the DOM */ }
     if (!body) return window.setContent({ pixels: { width: frame.width, height: frame.height, data: encodeBase64(frame.data) } })
@@ -253,6 +270,7 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
       canvas.width = frame.width
       canvas.height = frame.height
       canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
+      canvas.style.cursor = cursor
       body.replaceChildren(canvas)
       if (onInput) attachCanvasInput(canvas, onInput)
       image = undefined
@@ -269,6 +287,11 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
     }
     context.putImageData(image, 0, 0)
   }
+  sink.setCursor = next => {
+    cursor = next
+    if (canvas) canvas.style.cursor = next
+  }
+  return sink
 }
 
 export interface FramebufferOptions {

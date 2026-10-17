@@ -3,8 +3,8 @@
  * wlcomp: a small Wayland compositor for ecmaOS.
  *
  * It listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY and speaks the wire protocol by hand (no libwayland): wl_compositor,
- * wl_shm, xdg-shell (toplevels), wl_output and wl_seat. Each toplevel gets a window made by `fbwin`, and what the
- * client commits is copied from its shm pool into that window's /dev/fbN. Pools are read with pread(), so a client
+ * wl_shm, xdg-shell (toplevels), wl_output, wl_seat and cursor-shape-v1 (a named cursor, or none, becomes the window's
+ * CSS cursor). Each toplevel gets a window made by `fbwin`, and what the client commits is copied from its shm pool into that window's /dev/fbN. Pools are read with pread(), so a client
  * that maps its pool shared (a file in the runtime directory, or memfd) is seen at each commit.
  */
 #define _GNU_SOURCE
@@ -31,10 +31,10 @@
 
 enum type {
   T_NONE, T_DISPLAY, T_REGISTRY, T_CALLBACK, T_COMPOSITOR, T_REGION, T_SHM, T_POOL, T_BUFFER, T_SURFACE,
-  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT, T_POINTER, T_KEYBOARD
+  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT, T_POINTER, T_KEYBOARD, T_CSMGR, T_CSDEV
 };
 
-enum global { G_COMPOSITOR = 1, G_SHM, G_WMBASE, G_OUTPUT, G_SEAT };
+enum global { G_COMPOSITOR = 1, G_SHM, G_WMBASE, G_OUTPUT, G_SEAT, G_CURSORSHAPE };
 
 struct client;
 
@@ -448,6 +448,7 @@ static void on_display(struct client *c, uint32_t opcode, struct rd *r) {
     ev(c, id, 0, "usu", (uint32_t)G_WMBASE, "xdg_wm_base", 2u);
     ev(c, id, 0, "usu", (uint32_t)G_OUTPUT, "wl_output", 2u);
     ev(c, id, 0, "usu", (uint32_t)G_SEAT, "wl_seat", 5u);
+    ev(c, id, 0, "usu", (uint32_t)G_CURSORSHAPE, "wp_cursor_shape_manager_v1", 1u);
   } else fatal(c, 1, 1, "unknown wl_display request");
 }
 
@@ -461,6 +462,7 @@ static void on_registry(struct client *c, uint32_t opcode, struct rd *r) {
   static const struct { enum global g; enum type t; const char *name; uint32_t max; } table[] = {
     { G_COMPOSITOR, T_COMPOSITOR, "wl_compositor", 4 }, { G_SHM, T_SHM, "wl_shm", 1 },
     { G_WMBASE, T_WMBASE, "xdg_wm_base", 2 }, { G_OUTPUT, T_OUTPUT, "wl_output", 2 }, { G_SEAT, T_SEAT, "wl_seat", 5 },
+    { G_CURSORSHAPE, T_CSMGR, "wp_cursor_shape_manager_v1", 1 },
   };
   for (size_t i = 0; i < sizeof table / sizeof table[0]; i++) {
     if ((uint32_t)table[i].g != name || strcmp(table[i].name, iface) != 0) continue;
@@ -642,6 +644,56 @@ static void on_seat(struct client *c, uint32_t self, uint32_t opcode, struct rd 
   } else fatal(c, self, 0, "no touch");
 }
 
+/* ---- cursors ---- */
+
+/* wp_cursor_shape_device_v1.shape (1..34) as the CSS cursor the window shows */
+static const char *const shape_css[] = {
+  NULL, "default", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text",
+  "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize",
+  "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize",
+  "row-resize", "all-scroll", "zoom-in", "zoom-out"
+};
+
+/* shows `name` (a CSS cursor, or "none") over the window of c that the pointer is in; the fb takes it as FBIO 0x46f0 */
+static void set_cursor(struct client *c, const char *name) {
+  for (size_t i = 0; i < sizeof wins / sizeof wins[0]; i++) {
+    struct surface *s = wins[i];
+    if (!s || s->client != c || !s->pointer_in || s->win.fd < 0) continue;
+    char buf[64];
+    memset(buf, 0, sizeof buf);
+    strncpy(buf, name, sizeof buf - 1);
+    ioctl(s->win.fd, 0x46f0, buf);
+  }
+}
+
+static void on_csmgr(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  if (opcode == 0) { obj_free(c, self); return; }
+  if (opcode != 1) { fatal(c, self, 0, "no tablets"); return; }
+  uint32_t id = r_u32(r);
+  r_u32(r);   /* the wl_pointer */
+  if (!r->bad) obj_set(c, id, T_CSDEV, 1, NULL);
+}
+
+static void on_csdev(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  if (opcode == 0) { obj_free(c, self); return; }
+  if (opcode != 1) return;
+  r_u32(r);   /* serial */
+  uint32_t shape = r_u32(r);
+  if (r->bad) return;
+  if (shape < 1 || shape >= sizeof shape_css / sizeof shape_css[0]) { fatal(c, self, 1, "invalid shape"); return; }
+  set_cursor(c, shape_css[shape]);
+}
+
+static void on_pointer(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  if (opcode == 1) { if (c->pointer == self) c->pointer = 0; obj_free(c, self); return; }
+  if (opcode != 0) return;
+  r_u32(r);   /* serial */
+  uint32_t surface = r_u32(r);
+  if (r->bad) return;
+  /* no surface hides the cursor; an image from the client cannot be shown yet, so the arrow stands in for it */
+  set_cursor(c, surface ? "default" : "none");
+}
+
 static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *r) {
   struct obj *o = obj_get(c, id);
   if (id == 1) { on_display(c, opcode, r); return; }
@@ -660,7 +712,9 @@ static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *
     case T_POSITIONER: if (opcode == 0) obj_free(c, id); break;
     case T_OUTPUT: if (opcode == 0) obj_free(c, id); break;
     case T_SEAT: on_seat(c, id, opcode, r); break;
-    case T_POINTER: if (opcode == 1) { if (c->pointer == id) c->pointer = 0; obj_free(c, id); } break;
+    case T_POINTER: on_pointer(c, id, opcode, r); break;
+    case T_CSMGR: on_csmgr(c, id, opcode, r); break;
+    case T_CSDEV: on_csdev(c, id, opcode, r); break;
     case T_KEYBOARD: if (opcode == 0) { if (c->keyboard == id) c->keyboard = 0; obj_free(c, id); } break;
     default: break;
   }
