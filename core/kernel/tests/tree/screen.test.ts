@@ -15,6 +15,9 @@ describe('screenRequest', () => {
     expect(screenRequest('?screen=localhost')).toEqual({ url: 'ws://localhost:30022/ecmaos', id: 'localhost:30022', user: 'root' })
     expect(screenRequest('?screen=127.0.0.1:4000&user=alice')).toEqual({ url: 'ws://127.0.0.1:4000/ecmaos', id: '127.0.0.1:4000', user: 'alice' })
     expect(screenRequest('?screen=wss://box.example.com')).toMatchObject({ url: 'wss://box.example.com:30022/ecmaos' })
+    // a page served over https can only reach a machine over wss, unless the address says otherwise
+    expect(screenRequest('?screen=box.example.com', true)).toMatchObject({ url: 'wss://box.example.com:30022/ecmaos' })
+    expect(screenRequest('?screen=ws://box.example.com', true)).toMatchObject({ url: 'ws://box.example.com:30022/ecmaos' })
     expect(screenRequest('?screen=[::1]:5000')).toMatchObject({ url: 'ws://[::1]:5000/ecmaos' })
   })
 

@@ -3,7 +3,7 @@ import { runScreen, screenRequest } from '#lib/screen.ts'
 
 // A page address with `?display=N` is only a display of another tab's machine; anything else boots a kernel
 // `?screen=HOST` is a screen of a machine running somewhere else (`ecmaos --listen`): it boots no kernel either
-const screen = screenRequest(globalThis.location?.search ?? '')
+const screen = screenRequest(globalThis.location?.search ?? '', globalThis.location?.protocol === 'https:')
 const display = displayRequest(globalThis.location?.search ?? '')
 if (screen) void runScreen(screen)
 else if (display) void runDisplay(display)

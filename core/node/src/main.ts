@@ -208,6 +208,7 @@ if (listen) {
     if (gateway) say(`gateway: on for ${gateway.users.join(', ')}${listenPorts ? `; guests may open ports ${listenPorts} on ${listenAddress ?? '127.0.0.1'}` : ''}`)
     for (const shared of exported) say(`ecmaosd: exporting ${shared.name}${shared.readOnly ? ' (read-only)' : ' (read-write)'}`)
     for (const device of devices) say(`ecmaosd: offering device ${device.name} (${device.kind}, ${device.read && device.write ? 'read-write' : device.write ? 'write-only' : 'read-only'})`)
+    if (site) say(`ecmaosd: screen page: ${certFile ? 'https' : 'http'}://${site.host}:${site.port}/?screen=${daemon.host}:${daemon.port}`)
     if (daemon.pairing) say(`ecmaosd: pairing code for ${daemon.pairing.user}: ${daemon.pairing.code} (one use, 10 minutes)`)
   } catch (error) {
     say(`ecmaosd: ${error instanceof Error ? error.message : String(error)}`)

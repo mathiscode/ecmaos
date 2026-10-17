@@ -24,11 +24,11 @@ export interface ScreenRequest {
 }
 
 /** What a page address asks to be a screen of, `undefined` for a normal boot */
-export function screenRequest(search: string): ScreenRequest | { error: string } | undefined {
+export function screenRequest(search: string, secure = false): ScreenRequest | { error: string } | undefined {
   const params = new URLSearchParams(search)
   const raw = params.get('screen')
   if (raw === null) return undefined
-  const tls = /^wss:\/\//.test(raw)
+  const tls = /^wss:\/\//.test(raw) || (secure && !/^ws:\/\//.test(raw))
   const match = /^(?:wss?:\/\/)?(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(?::(\d{1,5}))?$/.exec(raw)
   const port = match?.[2] ? Number(match[2]) : DefaultPort
   if (!match || port < 1 || port > 65535) return { error: `'${raw.slice(0, 60)}' is not a machine to show (use HOST or HOST:PORT)` }
@@ -223,14 +223,33 @@ export async function runScreen(request: ScreenRequest | { error: string }) {
     }
   }
 
+  // when the machine goes away the page tries again by itself, with longer waits, until the user stops it
+  const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
   try {
-    const connection = await connect()
-    const shown = await showWindows(connection, windows)
-    overlay.style.display = 'none'
-    await Promise.race([shown.closed, connection.done])
-    shown.view.dispose()
-    connection.close()
-    say(`${request.id} went away.`, button('Reconnect', () => location.reload()))
+    let connection = await connect()
+    for (;;) {
+      const shown = await showWindows(connection, windows)
+      overlay.style.display = 'none'
+      await Promise.race([shown.closed, connection.done])
+      shown.view.dispose()
+      connection.close()
+      let stopped = false
+      const stop = button('Stop', () => { stopped = true })
+      let delay = 1000
+      for (;;) {
+        say(`${request.id} went away. Reconnecting...`, stop)
+        await wait(delay)
+        if (stopped) throw new Error(`${request.id} went away.`)
+        try {
+          connection = await connectScreen({ request, identity, storage: localStorage })
+          break
+        } catch (error) {
+          // a key that no longer works is not fixed by waiting
+          if (error instanceof UnknownHost || (error as { code?: string }).code === 'auth' || /has changed/.test(String((error as Error)?.message))) throw error
+          delay = Math.min(delay * 2, 15_000)
+        }
+      }
+    }
   } catch (error) {
     say(`${error instanceof Error ? error.message : String(error)}`, button('Try again', () => location.reload()))
   }
