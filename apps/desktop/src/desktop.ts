@@ -67,7 +67,9 @@ export class Desktop {
     const taskbar = document.createElement('div')
     taskbar.className = 'taskbar'
     const start = document.createElement('button')
-    start.textContent = 'ecmaOS'
+    start.textContent = '👽'
+    start.title = 'Applications'
+    start.setAttribute('aria-label', 'Applications')
     start.onclick = event => { event.stopPropagation(); void this._toggleMenu() }
     this._tasks.className = 'tasks'
     this._clock.className = 'clock'
