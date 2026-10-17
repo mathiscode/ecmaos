@@ -26,7 +26,7 @@ export async function openTerminalWindow(kernel: Kernel, options: TerminalWindow
   // Owned by the kernel (so it outlives what opened it) but on the user's uid, which is what lets that user's `wmctrl` see it
   const user = [...kernel.users.all.values()].find(candidate => candidate.username === options.username)
   const window = kernel.windows.create({
-    title: options.title ?? `Terminal - ${options.username}`,
+    title: options.title ?? (options.login ? 'Login' : `Terminal - ${options.username}`),
     width: options.width ?? 720,
     height: options.height ?? 440,
     class: 'ecmaos-window ecmaos-terminal-window',
@@ -70,8 +70,8 @@ export async function openTerminalWindow(kernel: Kernel, options: TerminalWindow
     const process = await kernel.spawnOnPty({
       username: options.username,
       pty,
-      command: options.command ?? '/bin/ecmash',
-      args: options.command ? options.args : ['-l', ...(options.args ?? [])],
+      command: options.login ? '/sbin/getty' : options.command ?? '/bin/ecmash',
+      args: options.login ? ['-p'] : options.command ? options.args : ['-l', ...(options.args ?? [])],
       cwd: options.cwd,
       env: options.env
     })

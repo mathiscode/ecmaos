@@ -91,6 +91,31 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
+  it('logs a user in on a login window, runs their shell, and asks again after exit', async () => {
+    await kernel.users.add({ username: 'alice', password: 'wonderland', home: '/home/alice' })
+    const opened = await kernel.openTerminalWindow({ username: 'root', login: true })
+    expect(opened.window.info.title).toBe('Login')
+    await until(() => screen(opened.terminal).includes('login: '))
+
+    opened.terminal.input('alice\n')
+    await until(() => screen(opened.terminal).includes('Password: '))
+    opened.terminal.input('wrong\n')
+    await until(() => screen(opened.terminal).toLowerCase().includes('incorrect') || screen(opened.terminal).toLowerCase().includes('invalid'))
+
+    await until(() => screen(opened.terminal).split('login: ').length > 2)
+    opened.terminal.input('alice\n')
+    await until(() => screen(opened.terminal).split('Password: ').length > 2)
+    opened.terminal.input('wonderland\n')
+    await until(() => /\$|#/.test(screen(opened.terminal).split('Password: ').at(-1) ?? ''))
+    opened.terminal.input('echo me-$USER-$HOME-$((6*7))\n')
+    await until(() => screen(opened.terminal).includes('me-alice-/home/alice-42'))
+
+    opened.terminal.input('exit\n')
+    await until(() => screen(opened.terminal).split('login: ').length > 3)
+    expect(kernel.windows.get(opened.window.id)).toBeDefined()
+    opened.window.close(true)
+  })
+
   it('lists and controls windows with wmctrl', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root', title: 'wm-test' })
     const run = async (command: string) => {

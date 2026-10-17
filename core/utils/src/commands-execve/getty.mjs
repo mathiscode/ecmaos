@@ -17,6 +17,9 @@ const SIGTSTP = 20
 
 const encoder = new TextEncoder()
 
+/** `getty -p` (or `pts/N`): a login prompt on the terminal the program already has, a pty, not on a numbered one. */
+const onPty = argv.slice(1).some(arg => arg === '-p' || /(^|\/)pts\/\d+$/.test(arg))
+
 /** `getty tty2`, `getty 2` or `getty /dev/tty2`: the terminal number, 0 when none is given. */
 function ttyNumber() {
   const match = /(\d+)$/.exec(argv[1] ?? '')
@@ -46,7 +49,10 @@ async function main() {
     if (!username.trim()) continue
 
     try {
-      const pid = await spawn('/bin/login', ['login', '-t', String(tty), username.trim()], { cwd: '/', tty })
+      // on a pty the login inherits it; a numbered terminal is named
+      const pid = onPty
+        ? await spawn('/bin/login', ['login', '-p', username.trim()], { cwd: '/' })
+        : await spawn('/bin/login', ['login', '-t', String(tty), username.trim()], { cwd: '/', tty })
       await waitpid(pid, false)
     } catch (error) {
       out(`getty: cannot run /bin/login: ${error?.message ?? error}\n`)

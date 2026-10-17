@@ -21,12 +21,13 @@ const fail = (message, code = 1) => {
   exit(code)
 }
 
-/** `-t N USER`: the terminal to log in on and the user name. */
+/** `-t N USER`: the terminal to log in on and the user name; `-p USER`: the pty this program already runs on (terminal -1). */
 function parseArgs(args) {
   let tty
   const rest = []
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '-t') tty = Number(args[++i])
+    else if (args[i] === '-p') tty = -1
     else rest.push(args[i])
   }
   return { tty, username: rest[0] }
@@ -44,7 +45,8 @@ async function loginSession(tty, username, password) {
 }
 
 async function runShell(tty, session) {
-  const shell = session.shell
+  // a pty has no built-in shell to fall back on, so a user whose shell is not a program gets ecmash
+  const shell = tty < 0 && !session.shell.startsWith('/') ? '/bin/ecmash' : session.shell
   const isProgram = shell.startsWith('/') && (() => { try { return !isDirectory(shell) && stat(shell) !== undefined } catch { return false } })()
   if (!isProgram) {
     // The kernel's built-in shell has no file; the kernel runs it on this terminal until it exits.
@@ -55,7 +57,8 @@ async function runShell(tty, session) {
   try {
     // as the user who logged in: login itself is a root process, the shell it starts is not
     const credentials = { uid: session.uid, gid: session.gid, groups: session.groups }
-    const pid = await spawn(shell, [`-${name}`], { cwd: session.home, env: session.env, tty, credentials })
+    // on a pty the shell inherits the terminal; a numbered one is named
+    const pid = await spawn(shell, [`-${name}`], { cwd: session.home, env: session.env, credentials, ...(tty >= 0 && { tty }) })
     await waitpid(pid, false)
   } catch (error) {
     out(`login: cannot run ${shell}: ${error?.message ?? error}\n`)
@@ -65,13 +68,13 @@ async function runShell(tty, session) {
 async function main() {
   const { tty, username } = parseArgs(argv.slice(1))
   if (!username || tty === undefined || !Number.isInteger(tty)) {
-    write(2, encoder.encode('usage: login -t TTY USER\n'))
+    write(2, encoder.encode('usage: login -t TTY USER | login -p USER\n'))
     return 2
   }
   for (const signal of [SIGINT, SIGQUIT, SIGTSTP]) onSignal(signal, () => {})
 
   let password = ''
-  const settled = await custom('login_begin', tty, username) === 1
+  const settled = tty >= 0 && await custom('login_begin', tty, username) === 1
   if (!settled) {
     try {
       password = readSilent('Password: ') ?? ''
@@ -94,7 +97,7 @@ async function main() {
   try {
     await runShell(tty, session)
   } finally {
-    await custom('login_end', tty)
+    if (tty >= 0) await custom('login_end', tty)
   }
   return 0
 }

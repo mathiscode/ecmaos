@@ -3270,17 +3270,32 @@ export class Kernel implements IKernel {
    * feeds an emulator from it. The process is a child of init, and closing the master hangs it up.
    * Programs started from it find no `Shell`, so they take their identity from their own credentials.
    */
+  /** The environment a login session starts with: the system's, the user's identity and home, and a terminal type */
+  private sessionEnvironment(user: User, cred: Credentials, cwd: string): Record<string, string> {
+    return {
+      ...this.system.envObject,
+      UID: String(user.uid), GID: String(user.gid), EUID: String(cred.euid), EGID: String(cred.egid),
+      HOME: user.home || '/root', USER: user.username, LOGNAME: user.username, SHELL: user.shell || '/bin/ecmash',
+      TERM: 'xterm-256color', PWD: cwd
+    }
+  }
+
+  /**
+   * A login on a pty, for `/bin/login -p`: authenticates and resolves to what the login needs to start the user's shell on
+   * the terminal it already has. There is no `Shell` behind a pty, so no session record and no startup files here; the
+   * login shell reads its own.
+   */
+  async ptyLogin(username: string, password: string): Promise<{ shell: string, home: string, username: string, uid: number, gid: number, groups: number[], env: Record<string, string> }> {
+    const { user, cred } = await this.users.login(username, password)
+    const home = user.home || '/root'
+    return { shell: user.shell || 'ecmaos', home, username: user.username, uid: user.uid, gid: user.gid, groups: user.groups ?? [], env: this.sessionEnvironment(user, cred, home) }
+  }
+
   async spawnOnPty(options: { username: string, pty: KernelPty, command: string, args?: string[], env?: Record<string, string>, cwd?: string }): Promise<InstanceType<typeof ZenFSProcess>> {
     const { user, cred } = await this.users.sessionFor(options.username)
     const home = user.home || '/root'
     const cwd = options.cwd ?? home
-    const env: Record<string, string> = {
-      ...this.system.envObject,
-      UID: String(user.uid), GID: String(user.gid), EUID: String(cred.euid), EGID: String(cred.egid),
-      HOME: home, USER: user.username, LOGNAME: user.username, SHELL: user.shell || '/bin/ecmash',
-      TERM: 'xterm-256color', PWD: cwd,
-      ...options.env
-    }
+    const env = { ...this.sessionEnvironment(user, cred, cwd), ...options.env }
     const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: cwd, umask: 0 }
     if (this._programsRunAsUser && cred.euid !== 0) init.credentials = credentialsFor(cred)
 

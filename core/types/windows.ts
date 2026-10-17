@@ -230,6 +230,8 @@ export interface Windows {
 export interface TerminalWindowOptions {
   /** The user the program runs as */
   username: string
+  /** A login prompt (`/sbin/getty`) instead of a shell: the user at the keyboard names who they are. `username` is then who runs the prompt, root */
+  login?: boolean
   /** Defaults to the user's login shell, `/bin/ecmash -l` */
   command?: string
   args?: string[]

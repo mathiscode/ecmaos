@@ -1884,7 +1884,8 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     let result: unknown
     try {
-      result = { ok: true, ...await kernel.finishLogin(tty, username, password) }
+      // a negative terminal number is a pty: there is no numbered terminal behind it
+      result = { ok: true, ...(tty < 0 ? await kernel.ptyLogin(username, password) : await kernel.finishLogin(tty, username, password)) }
     } catch (error) {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
     }

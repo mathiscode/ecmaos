@@ -11,6 +11,10 @@ const TerminalEntry: DesktopEntry = {
   id: 'terminal', name: 'Terminal', comment: 'A shell in a window', exec: '', terminal: true, categories: ['System', 'TerminalEmulator']
 }
 
+const LoginEntry: DesktopEntry = {
+  id: 'login', name: 'Login', comment: 'A login prompt in a window, for any user', exec: '', terminal: true, categories: ['System']
+}
+
 const css = `
 #ecmaos-desktop { position: fixed; inset: 0; z-index: 2; overflow: hidden; font-family: system-ui, sans-serif; color: #e8e8e8;
   background: radial-gradient(circle at 30% 20%, #2a3b55 0%, #141a26 60%, #0b0e14 100%); }
@@ -176,14 +180,17 @@ export class Desktop {
         } catch { /* unreadable entry */ }
       }
     }
-    return [TerminalEntry, ...[...found.values()].sort((a, b) => a.name.localeCompare(b.name))]
+    return [TerminalEntry, LoginEntry, ...[...found.values()].sort((a, b) => a.name.localeCompare(b.name))]
   }
 
   /** Runs an entry: a terminal window for terminal programs, otherwise a program that opens its own windows */
   async launch(entry: DesktopEntry) {
     const options = { username: this._username }
     try {
-      if (entry.id === TerminalEntry.id) {
+      if (entry.id === LoginEntry.id) {
+        // the prompt runs as root, which is what lets it start a session for whoever logs in
+        await this._kernel.openTerminalWindow({ username: 'root', login: true })
+      } else if (entry.id === TerminalEntry.id) {
         await this._kernel.openTerminalWindow({ ...options, title: `Terminal - ${this._username}` })
       } else if (entry.terminal) {
         await this._kernel.openTerminalWindow({ ...options, title: entry.name, command: '/bin/ecmash', args: ['-c', entry.exec] })
