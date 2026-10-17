@@ -1,6 +1,6 @@
 // Runs in the display page. Mounts an app window's sandboxed frame and carries calls between the frame and the machine.
 // `send(call, op, args)` forwards a call to the machine; the machine's answer comes back through `result`.
-globalThis.ecmaosMountApp = (parent, launch, frameDocument, send) => {
+globalThis.ecmaosMountApp = (parent, launch, frameDocument, send, onDirty) => {
   const frame = document.createElement('iframe')
   frame.id = 'content'
   // an app draws its own background; the page's white default for a frame would show around it
@@ -13,6 +13,7 @@ globalThis.ecmaosMountApp = (parent, launch, frameDocument, send) => {
     const message = event.data
     if (!message || typeof message !== 'object') return
     if (message.type === 'ready') frame.contentWindow.postMessage({ type: 'boot', launch }, '*')
+    else if (message.type === 'dirty') { if (onDirty) onDirty(!!message.value) }
     else if (message.type === 'call' && typeof message.n === 'number' && typeof message.op === 'string' && Array.isArray(message.args)) send(message.n, message.op, message.args)
   }
   window.addEventListener('message', onMessage)
@@ -22,6 +23,7 @@ globalThis.ecmaosMountApp = (parent, launch, frameDocument, send) => {
     dispose() {
       try { frame.contentWindow && frame.contentWindow.postMessage({ type: 'dispose' }, '*') } catch (error) { void error }
       window.removeEventListener('message', onMessage)
+      if (onDirty) onDirty(false)
       frame.remove()
     }
   }

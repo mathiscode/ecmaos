@@ -41,6 +41,8 @@ export interface AppSdk {
     setTitle(title: string): Promise<void>
     /** Closes the window; the app ends with it */
     close(): Promise<void>
+    /** Says there are unsaved changes: the display asks before letting the user close the window */
+    setDirty(dirty: boolean): void
   }
   /** Shows a message over the app's window */
   toast(message: string, kind?: 'info' | 'success' | 'error'): void

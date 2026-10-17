@@ -50,7 +50,10 @@ ${relayScript}
       pre.textContent = content.text
       document.body.append(pre)
     } else if (content && content.app) {
-      app = ecmaosMountApp(document.body, content.app, frameDocument, (n, op, args) => send({ t: 'call', id, call: n, op, args }))
+      app = ecmaosMountApp(document.body, content.app, frameDocument, (n, op, args) => send({ t: 'call', id, call: n, op, args }), dirty => {
+        // the browser asks before the window closes while the app has unsaved changes
+        window.onbeforeunload = dirty ? event => { event.preventDefault(); event.returnValue = '' } : null
+      })
     } else if (content && (typeof content.html === 'string' || typeof content.url === 'string')) {
       const frame = document.createElement('iframe')
       frame.id = 'content'

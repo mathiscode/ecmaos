@@ -56,7 +56,8 @@
     },
     window: {
       setTitle: title => call('window.setTitle', String(title)),
-      close: () => call('window.close')
+      close: () => call('window.close'),
+      setDirty: dirty => { parent.postMessage({ type: 'dirty', value: !!dirty }, '*') }
     },
     toast,
     log: message => { void call('log', String(message)) },
