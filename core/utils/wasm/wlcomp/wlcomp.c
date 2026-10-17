@@ -62,6 +62,7 @@ struct surface {
   uint32_t xsurface;         /* xdg_surface id, 0 if none */
   uint32_t toplevel;         /* xdg_toplevel id, 0 if none */
   int configured, acked, mapped;
+  int wstate;                /* the window's state last seen: 0 normal, 1 maximized, 2 fullscreen, 3 minimized */
   uint32_t serial;
   char title[128];
   struct window win;
@@ -382,10 +383,25 @@ static int take_fd(struct client *c) {
   return fd;
 }
 
+/* the window's state (FBIO_GETWINSTATE), or 0 when it cannot be read */
+static int window_state(struct window *w) {
+  int32_t v = 0;
+  if (w->fd < 0 || ioctl(w->fd, 0x46f1, &v) != 0 || v < 0 || v > 3) return 0;
+  return v;
+}
+
+static void window_set_state(struct surface *s, int state) {
+  int32_t v = state;
+  if (s->win.fd >= 0) ioctl(s->win.fd, 0x46f2, &v);
+}
+
 static void send_configure(struct client *c, struct surface *s, uint32_t width, uint32_t height) {
-  uint8_t states[4];
-  memset(states, 0, sizeof states);
-  ev(c, s->toplevel, 0, "iia", (int32_t)width, (int32_t)height, states, 0u);
+  uint32_t states[1];
+  uint32_t n = 0;
+  s->wstate = window_state(&s->win);
+  if (s->wstate == 1) states[n++] = 1; /* maximized */
+  else if (s->wstate == 2) states[n++] = 2; /* fullscreen */
+  ev(c, s->toplevel, 0, "iia", (int32_t)width, (int32_t)height, states, n * 4);
   s->serial = serial_counter++;
   ev(c, s->xsurface, 0, "u", s->serial);
   s->configured = 1;
@@ -621,6 +637,19 @@ static void on_toplevel(struct client *c, uint32_t self, uint32_t opcode, struct
     case 2: {
       const char *t = r_str(r);
       if (!r->bad) snprintf(s->title, sizeof s->title, "%s", t);
+      break;
+    }
+    case 9: case 10: case 11: case 12: case 13: {
+      /* set_maximized, unset_maximized, set_fullscreen (output), unset_fullscreen, set_minimized */
+      if (s->win.fd < 0) break;
+      int now = window_state(&s->win);
+      int want = now;
+      if (opcode == 9) want = 1;
+      else if (opcode == 10) { if (now == 1) want = 0; }
+      else if (opcode == 11) want = 2;
+      else if (opcode == 12) { if (now == 2) want = 0; }
+      else want = 3;
+      if (want != now) window_set_state(s, want);
       break;
     }
     default: break;
@@ -900,6 +929,13 @@ static void check_windows(void) {
       struct surface *s = c->objs[id].data;
       if (!s->mapped || s->win.index < 0) continue;
       int state = window_probe(&s->win);
+      if (s->toplevel && s->configured) {
+        int ws = window_state(&s->win);
+        if (ws != s->wstate) {
+          if (ws == 3) s->wstate = ws; /* minimized has no xdg state */
+          else if (state != 2) { send_configure(c, s, s->win.width, s->win.height); continue; }
+        }
+      }
       if (state == 2 && s->toplevel) { LOG("window %d is now %ux%u", s->win.index, s->win.width, s->win.height); send_configure(c, s, s->win.width, s->win.height); present(s, 0, s->win.height); continue; }   /* what it had, meanwhile, rather than a blank */
       if (state != 0) continue;
       LOG("window %d is gone", s->win.index);

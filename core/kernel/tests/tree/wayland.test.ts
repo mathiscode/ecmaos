@@ -222,6 +222,27 @@ describe('the Wayland compositor', () => {
     await until(() => fb.width === 200 && fb.height === 140 && px(199, 139)[0] === 200)
     expect(px(199, 139)).toEqual([200, Math.floor(139 * 255 / 140), Math.floor(199 * 255 / 200)])
 
+    // window states: SDL asks and the window follows; the user changing the state reaches SDL as well
+    const tap = (code: string) => { kernel.windows.reportInput(id, { k: 'key', code, down: true }); kernel.windows.reportInput(id, { k: 'key', code, down: false }) }
+    const state = () => kernel.windows.list().find(w => w.id === id)!.state
+    tap('F1')
+    await until(() => state() === 'maximized')
+    await until(async () => (await out()).includes('\nmaximized'))
+    tap('F2')
+    await until(() => state() === 'normal')
+    await until(async () => (await out()).includes('restored'))
+    tap('F3')
+    await until(() => state() === 'fullscreen')
+    await until(async () => (await out()).includes('\nfullscreen'))
+    tap('F4')
+    await until(() => state() === 'normal')
+    await until(async () => (await out()).includes('windowed'))
+    kernel.windows.update(id, { state: 'maximized' })
+    await until(async () => (await out()).split('\nmaximized').length > 2)
+    kernel.windows.update(id, { state: 'normal' })
+    tap('F5')
+    await until(() => state() === 'minimized')
+
     // closing the window tells SDL, which ends the program
     kernel.windows.close(id, true)
     expect(await client).toBe(0)

@@ -53,7 +53,16 @@ int main(int argc, char **argv) {
       case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
         printf("key %s %s\n", SDL_GetKeyName(e.key.key), e.key.down ? "down" : "up");
         if (e.key.down && e.key.key == SDLK_ESCAPE) running = 0;
+        if (e.key.down && e.key.key == SDLK_F1) SDL_MaximizeWindow(win);
+        if (e.key.down && e.key.key == SDLK_F2) SDL_RestoreWindow(win);
+        if (e.key.down && e.key.key == SDLK_F3) SDL_SetWindowFullscreen(win, true);
+        if (e.key.down && e.key.key == SDLK_F4) SDL_SetWindowFullscreen(win, false);
+        if (e.key.down && e.key.key == SDLK_F5) SDL_MinimizeWindow(win);
         break;
+      case SDL_EVENT_WINDOW_MAXIMIZED: printf("maximized\n"); break;
+      case SDL_EVENT_WINDOW_RESTORED: printf("restored\n"); break;
+      case SDL_EVENT_WINDOW_ENTER_FULLSCREEN: printf("fullscreen\n"); break;
+      case SDL_EVENT_WINDOW_LEAVE_FULLSCREEN: printf("windowed\n"); break;
       case SDL_EVENT_TEXT_INPUT: printf("text %s\n", e.text.text); break;
       }
     }

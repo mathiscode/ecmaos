@@ -27,6 +27,10 @@ export const FBIOBLANK = 0x4611
 export const FBIO_WAITFORVSYNC = 0x40044620
 /** Private: the cursor the window shows, a CSS cursor name (or `none`) in 64 bytes, NUL-terminated */
 export const FBIO_SETCURSOR = 0x46f0
+/** Private: the state of the window, as a 32-bit integer: 0 normal, 1 maximized, 2 fullscreen, 3 minimized. `GET` answers it, `SET` asks for it */
+export const FBIO_GETWINSTATE = 0x46f1
+export const FBIO_SETWINSTATE = 0x46f2
+const WindowStates = ['normal', 'maximized', 'fullscreen', 'minimized'] as const
 
 export const VarScreenInfoSize = 160
 /** `struct fb_fix_screeninfo` for a 32-bit program (`unsigned long` is 4 bytes), which is every program here */
@@ -63,6 +67,8 @@ export class Framebuffer {
   /** The pointer over the window: a CSS cursor name such as `pointer` or `text`, or `none` */
   setCursor(cursor: string) { this.pointerCursor = cursor; this._sink.setCursor?.(cursor) }
   pointerCursor = 'default'
+  /** The state of the window the screen is shown in; set by `Framebuffers.create` */
+  windowControl: { get(): number, set(state: number): void } | undefined
   get size() { return this.pixels.length }
   get closed() { return this._closed }
 
@@ -199,6 +205,20 @@ const operations: FileOperations = {
       framebufferOf(file).setCursor(text)
       return 0
     },
+    [FBIO_GETWINSTATE]: (_context, file) => {
+      const control = framebufferOf(file).windowControl
+      const out = new Uint8Array(4)
+      new DataView(out.buffer).setInt32(0, control?.get() ?? 0, true)
+      return out
+    },
+    [FBIO_SETWINSTATE]: (_context, file, value?: Uint8Array) => {
+      if (!ArrayBuffer.isView(value) || (value as Uint8Array).length < 4) throw withErrno('EINVAL')
+      const bytes = value as Uint8Array
+      const state = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0, true)
+      if (state < 0 || state >= WindowStates.length) throw withErrno('EINVAL')
+      framebufferOf(file).windowControl?.set(state)
+      return 0
+    },
     [FBIO_WAITFORVSYNC]: () => 0
   }
 }
@@ -326,6 +346,10 @@ export class Framebuffers {
 
     const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
     const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input)))
+    framebuffer.windowControl = {
+      get: () => Math.max(0, WindowStates.indexOf(window.info.state as typeof WindowStates[number])),
+      set: state => window.setState(WindowStates[state]!)
+    }
     const inputNode = registerWindowInput(index, width, height)
     let baseline = false
     const stopInput = this._windows.onInput(window.id, input => {
