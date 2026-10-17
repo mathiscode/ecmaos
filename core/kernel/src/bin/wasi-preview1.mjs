@@ -1529,7 +1529,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           const argument = ptr && request === FBIOPUT_VSCREENINFO ? new Uint8Array(dv.buffer.slice(ptr, ptr + 160))
             : ptr && request === FBIO_SETCURSOR ? new Uint8Array(dv.buffer.slice(ptr, ptr + 64))
             : ptr && request === 0x46f2 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 4))   // FBIO_SETWINSTATE: an int
-            : ptr && request === 0x46f3 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 4096)) : undefined   // FBIO_SETCLIPBOARD: a chunk of text
+            : ptr && request === 0x46f3 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 4096))   // FBIO_SETCLIPBOARD: a chunk of text
+            : ptr && request === 0x46f6 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 16 + 64 * 64 * 4)) : undefined   // FBIO_SETCURSORIMAGE: size, hotspot, pixels
           const length = syscall('ioctl', real, request >>> 0, argument)
           if (length > 0) {
             const { bytes } = copyOut(class { constructor(buffer, offset) { this.bytes = new Uint8Array(buffer, offset, length) } })

@@ -58,6 +58,12 @@ int main(int argc, char **argv) {
         if (e.key.down && e.key.key == SDLK_F3) SDL_SetWindowFullscreen(win, true);
         if (e.key.down && e.key.key == SDLK_F4) SDL_SetWindowFullscreen(win, false);
         if (e.key.down && e.key.key == SDLK_F5) SDL_MinimizeWindow(win);
+        if (e.key.down && e.key.key == SDLK_F6) {   /* a cursor drawn here: 8 by 6, opaque red with the hotspot at (2, 1) */
+          SDL_Surface *img = SDL_CreateSurface(8, 6, SDL_PIXELFORMAT_ARGB8888);
+          SDL_FillSurfaceRect(img, NULL, SDL_MapSurfaceRGBA(img, 255, 0, 0, 255));
+          SDL_SetCursor(SDL_CreateColorCursor(img, 2, 1));
+        }
+        if (e.key.down && e.key.key == SDLK_F7) SDL_SetCursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR));
         break;
       case SDL_EVENT_WINDOW_MAXIMIZED: printf("maximized\n"); break;
       case SDL_EVENT_WINDOW_RESTORED: printf("restored\n"); break;

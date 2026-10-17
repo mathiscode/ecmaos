@@ -212,10 +212,19 @@ describe('the Wayland compositor', () => {
     ] as const) kernel.windows.reportInput(id, input)
     await until(async () => (await out()).includes('key Left Shift up'))
     expect(fb.pointerCursor).toBe('pointer')   // SDL's system cursor reaches the window as a CSS cursor
+    // a cursor the client drew arrives as an image with its hotspot, and a named cursor after it takes its place
+    kernel.windows.reportInput(id, { k: 'key', code: 'F6', down: true })
+    kernel.windows.reportInput(id, { k: 'key', code: 'F6', down: false })
+    await until(() => fb.pointerImage !== undefined)
+    expect(fb.pointerImage).toMatchObject({ width: 8, height: 6, x: 2, y: 1 })
+    expect([...fb.pointerImage!.data.subarray(0, 4)]).toEqual([0, 0, 255, 255])   // blue, green, red, alpha
+    kernel.windows.reportInput(id, { k: 'key', code: 'F7', down: true })
+    kernel.windows.reportInput(id, { k: 'key', code: 'F7', down: false })
+    await until(() => fb.pointerCursor === 'crosshair' && fb.pointerImage === undefined)
     const events = (await out()).split('\n').filter(line => /^(mouse|motion|button|focus|key|text) /.test(line))
     expect(events).toEqual([
       'mouse enter', 'motion 12 7', 'motion 13 8', 'button 1 1', 'button 1 0', 'focus gained',
-      'key A down', 'text a', 'key A up', 'key Left Shift down', 'key A down', 'text A', 'key A up', 'key Left Shift up'
+      'key A down', 'text a', 'key A up', 'key Left Shift down', 'key A down', 'text A', 'key A up', 'key Left Shift up', 'key F6 down', 'key F6 up', 'key F7 down', 'key F7 up'
     ])
 
     // the user resizing the window: SDL gets a new size, makes a new window surface and the compositor shows it whole

@@ -39,6 +39,13 @@ export const FBIO_SETWINSTATE = 0x46f2
 export const FBIO_SETCLIPBOARD = 0x46f3
 export const FBIO_GETPASTE = 0x46f4
 export const FBIO_GETDROP = 0x46f5
+/**
+ * Private: a cursor image from the program, which the window shows in place of a named cursor: four 32-bit integers
+ * (width, height, hotspot x, hotspot y; at most 64 by 64) then width * height pixels of 4 bytes, blue, green, red, alpha
+ * with the colors premultiplied (a width of 0 puts the named cursor back)
+ */
+export const FBIO_SETCURSORIMAGE = 0x46f6
+export const CursorImageMax = 64
 export const ClipboardChunk = 4096
 export const ClipboardMax = 1 << 20
 const WindowStates = ['normal', 'maximized', 'fullscreen', 'minimized'] as const
@@ -55,7 +62,7 @@ export interface PixelFrame {
 }
 
 /** Draws a frame wherever the framebuffer's window is shown; `setCursor` changes the pointer over it */
-export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void, setClipboard?: (text: string) => void }
+export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void, setCursorImage?: (image?: { width: number, height: number, x: number, y: number, data: Uint8Array }) => void, setClipboard?: (text: string) => void }
 
 const PresentDelay = 16
 
@@ -76,8 +83,11 @@ export class Framebuffer {
   get path() { return `/dev/fb${this.index}` }
 
   /** The pointer over the window: a CSS cursor name such as `pointer` or `text`, or `none` */
-  setCursor(cursor: string) { this.pointerCursor = cursor; this._sink.setCursor?.(cursor) }
+  setCursor(cursor: string) { this.pointerCursor = cursor; this.pointerImage = undefined; this._sink.setCursor?.(cursor) }
   pointerCursor = 'default'
+  /** A cursor image the program drew; it shows in place of `pointerCursor` until the program sends another or none */
+  pointerImage?: { width: number, height: number, x: number, y: number, data: Uint8Array }
+  setCursorImage(image?: { width: number, height: number, x: number, y: number, data: Uint8Array }) { this.pointerImage = image; this._sink.setCursorImage?.(image) }
   /** Text the user pasted and a drop on the window, waiting for the program to take them (see `FBIO_GETPASTE`) */
   incomingPaste: Uint8Array | undefined
   pasteOffset = 0
@@ -271,6 +281,18 @@ const operations: FileOperations = {
       framebufferOf(file).windowControl?.set(state)
       return 0
     },
+    [FBIO_SETCURSORIMAGE]: (_context, file, image?: Uint8Array) => {
+      if (!ArrayBuffer.isView(image)) throw withErrno('EINVAL')
+      const bytes = image as Uint8Array
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      const width = view.getUint32(0, true), height = view.getUint32(4, true)
+      const sink = framebufferOf(file)
+      if (width === 0 || height === 0) { sink.setCursorImage(undefined); return 0 }
+      if (width > CursorImageMax || height > CursorImageMax || 16 + width * height * 4 > bytes.length) throw withErrno('EINVAL')
+      const x = Math.min(view.getUint32(8, true), width - 1), y = Math.min(view.getUint32(12, true), height - 1)
+      sink.setCursorImage({ width, height, x, y, data: new Uint8Array(bytes.slice(16, 16 + width * height * 4)) })
+      return 0
+    },
     [FBIO_SETCLIPBOARD]: (_context, file, chunk?: Uint8Array) => {
       if (!ArrayBuffer.isView(chunk)) throw withErrno('EINVAL')
       const bytes = chunk as Uint8Array
@@ -353,6 +375,7 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
   let canvas: HTMLCanvasElement | undefined
   let image: ImageData | undefined
   let cursor = 'default'
+  let imageCursor: string | undefined
   const sink: PixelSink = frame => {
     let body: HTMLElement | undefined
     try { body = window.body } catch { /* a window drawn without the DOM */ }
@@ -363,7 +386,7 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
       canvas.width = frame.width
       canvas.height = frame.height
       canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
-      canvas.style.cursor = cursor
+      show()
       body.replaceChildren(canvas)
       if (onInput) attachCanvasInput(canvas, onInput)
       image = undefined
@@ -383,9 +406,35 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
   sink.setClipboard = text => {
     try { void (globalThis as { navigator?: Navigator }).navigator?.clipboard?.writeText(text).catch(() => {}) } catch { /* no clipboard here */ }
   }
+  // an image becomes a PNG data URL for CSS; the named cursor is its fallback, and the last name set is shown when the image goes
+  const show = () => { if (canvas) canvas.style.cursor = imageCursor ? `${imageCursor}, ${cursor}` : cursor }
   sink.setCursor = next => {
     cursor = next
-    if (canvas) canvas.style.cursor = next
+    imageCursor = undefined
+    show()
+  }
+  sink.setCursorImage = image => {
+    imageCursor = undefined
+    if (image) {
+      try {
+        const doc = (canvas?.ownerDocument ?? (globalThis as { document?: Document }).document)
+        const draw = doc?.createElement('canvas')
+        const context = draw?.getContext('2d')
+        if (draw && context) {
+          draw.width = image.width
+          draw.height = image.height
+          const out = context.createImageData(image.width, image.height)
+          for (let i = 0; i < image.width * image.height; i++) {
+            const b = image.data[i * 4]!, g = image.data[i * 4 + 1]!, r = image.data[i * 4 + 2]!, a = image.data[i * 4 + 3]!
+            const un = (v: number) => a ? Math.min(255, Math.round(v * 255 / a)) : 0   // premultiplied -> straight
+            out.data.set([un(r), un(g), un(b), a], i * 4)
+          }
+          context.putImageData(out, 0, 0)
+          imageCursor = `url(${draw.toDataURL('image/png')}) ${image.x} ${image.y}`
+        }
+      } catch { /* no canvas here: the named cursor stays */ }
+    }
+    show()
   }
   return sink
 }

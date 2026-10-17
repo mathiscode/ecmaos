@@ -93,6 +93,8 @@ struct client {
   int alive;
   uint32_t pointer, keyboard;   /* the wl_pointer and wl_keyboard objects, 0 if none */
   uint32_t ddev;                /* the wl_data_device, 0 if none */
+  uint32_t cursor_surf;         /* the surface the client draws its pointer on, 0 if none */
+  int32_t cursor_hx, cursor_hy; /* its hotspot */
 };
 
 struct due { struct client *client; uint32_t id; };
@@ -426,6 +428,8 @@ static void send_configure(struct client *c, struct surface *s, uint32_t width, 
   s->configured = 1;
 }
 
+static void cursor_image(struct client *c);
+
 static void surface_commit(struct client *c, struct surface *s) {
   int attached = s->has_attach;
   if (s->has_attach) {
@@ -460,10 +464,13 @@ static void surface_commit(struct client *c, struct surface *s) {
     ndue++;
   }
   s->nframes = 0;
+  if (c->cursor_surf == s->id) cursor_image(c);
 }
 
+static void set_cursor(struct client *c, const char *name);
 static void surface_destroy(struct client *c, struct surface *s) {
   window_close(&s->win);
+  if (c->cursor_surf == s->id) { c->cursor_surf = 0; set_cursor(c, "default"); }
   if (s->xsurface) c->objs[s->xsurface].data = NULL;
   if (s->toplevel) c->objs[s->toplevel].data = NULL;
   free(s);
@@ -715,6 +722,32 @@ static void set_cursor(struct client *c, const char *name) {
   }
 }
 
+/* sends the pixels of the client's cursor surface to the window the pointer is in (FBIO 0x46f6): size and hotspot, then
+ * premultiplied BGRA, at most 64 by 64; anything larger, or in another format, leaves the arrow */
+static void cursor_image(struct client *c) {
+  struct obj *o = c->cursor_surf ? obj_get(c, c->cursor_surf) : NULL;
+  if (!o || o->type != T_SURFACE) return;
+  struct surface *cs = o->data;
+  struct buffer *b = cs ? cs->buffer : NULL;
+  if (!b || b->width == 0 || b->height == 0 || b->width > 64 || b->height > 64 || (b->format != 0 && b->format != 1)) return;
+  static uint8_t arg[16 + 64 * 64 * 4];
+  uint32_t w = b->width, h = b->height;
+  int32_t hx = c->cursor_hx, hy = c->cursor_hy;
+  if (hx < 0) hx = 0;
+  if (hy < 0) hy = 0;
+  uint32_t head[4] = { w, h, (uint32_t)hx, (uint32_t)hy };
+  memcpy(arg, head, sizeof head);
+  for (uint32_t y = 0; y < h; y++) {
+    if (pread_all(b->pool->fd, arg + 16 + y * w * 4, w * 4, (off_t)b->offset + (off_t)y * b->stride) != (ssize_t)(w * 4)) return;
+  }
+  if (b->format == 1) for (uint32_t i = 0; i < w * h; i++) arg[16 + i * 4 + 3] = 255;
+  for (size_t i = 0; i < sizeof wins / sizeof wins[0]; i++) {
+    struct surface *s = wins[i];
+    if (!s || s->client != c || !s->pointer_in || s->win.fd < 0) continue;
+    ioctl(s->win.fd, 0x46f6, arg);
+  }
+}
+
 static void on_csmgr(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
   if (opcode == 0) { obj_free(c, self); return; }
   if (opcode != 1) { fatal(c, self, 0, "no tablets"); return; }
@@ -739,8 +772,16 @@ static void on_pointer(struct client *c, uint32_t self, uint32_t opcode, struct 
   r_u32(r);   /* serial */
   uint32_t surface = r_u32(r);
   if (r->bad) return;
-  /* no surface hides the cursor; an image from the client cannot be shown yet, so the arrow stands in for it */
-  set_cursor(c, surface ? "default" : "none");
+  int32_t hx = (int32_t)r_u32(r), hy = (int32_t)r_u32(r);
+  if (r->bad) return;
+  /* no surface hides the cursor; a surface is drawn by the window's browser as an image once it has a buffer */
+  c->cursor_surf = 0;
+  if (!surface) { set_cursor(c, "none"); return; }
+  c->cursor_surf = surface;
+  c->cursor_hx = hx;
+  c->cursor_hy = hy;
+  set_cursor(c, "default");   /* stands in until the surface has a buffer */
+  cursor_image(c);
 }
 
 static void on_ddmgr(struct client *c, uint32_t self, uint32_t opcode, struct rd *r);

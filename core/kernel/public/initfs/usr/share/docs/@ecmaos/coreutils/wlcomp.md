@@ -14,7 +14,7 @@ wlcomp is the Wayland compositor. It listens on `$XDG_RUNTIME_DIR/$WAYLAND_DISPL
 
 Run it in the background (`wlcomp &`) and start Wayland programs: `wldemo`, `sdlsnake`, `sdlpaint`, `sdlclip`, or anything built with libwayland-client or SDL 3.
 
-What the windows do reaches the client: resizing, closing, maximize, fullscreen and minimize in both directions, the pointer and the keyboard, and the cursor a client asks for (shown as the window's CSS cursor).
+What the windows do reaches the client: resizing, closing, maximize, fullscreen and minimize in both directions, the pointer and the keyboard, and the cursor a client asks for (a named one or none, or an image it drew up to 64 by 64 pixels, shown as the window's CSS cursor).
 
 The clipboard is shared with the browser. What a program copies (text) is written to the page's clipboard; the page's clipboard text reaches the program that has the keyboard when Control or Meta is pressed in its window, or on a paste into the window. Text or links dragged from the page onto a window are handed to its program as a drop. Dragging between two programs is not supported, and neither are dropped files.
 
