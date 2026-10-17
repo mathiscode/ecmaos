@@ -261,7 +261,7 @@ describe('the Wayland compositor', () => {
     expect(await out()).toContain('close')
   }, 90_000)
 
-  it('runs the shipped SDL paint program: a crosshair over the picture, strokes in the chosen color, an arrow over the palette', async () => {
+  it('runs the shipped SDL paint program: a ring cursor in the brush color over the picture, strokes in the chosen color, an arrow over the palette', async () => {
     await until(() => kernel.framebuffers.list().length === 0)
     const client = kernel.shell.execute(`${env} sdlpaint 200 150 > /tmp/sdlpaint.out 2>&1`)
     await until(() => kernel.framebuffers.list().length === 1)
@@ -271,8 +271,12 @@ describe('the Wayland compositor', () => {
     const id = kernel.windows.list().find(w => w.title === 'sdlpaint')!.id
     const send = (...inputs: Parameters<typeof kernel.windows.reportInput>[1][]) => { for (const input of inputs) kernel.windows.reportInput(id, input) }
     send({ k: 'pointer', x: 100, y: 100 }, { k: 'enter' }, { k: 'focus' })
-    await until(() => fb.pointerCursor === 'crosshair')
+    const centre = () => { const i = fb.pointerImage; return i ? [...i.data.subarray(((i.y * i.width) + i.x + 4) * 4, ((i.y * i.width) + i.x + 4) * 4 + 4)] : [] }
+    await until(() => fb.pointerImage !== undefined)
+    const first = fb.pointerImage!
+    expect([first.x, first.y]).toEqual([first.width >> 1, first.height >> 1])   // the hotspot is the middle of the ring
     send({ k: 'key', code: 'Digit2', down: true }, { k: 'key', code: 'Digit2', down: false })   // red
+    await until(() => fb.pointerImage !== first && centre()[2] === 0xe5)   // the ring is red now (blue, green, red, alpha)
     await new Promise(resolve => setTimeout(resolve, 300))
     send({ k: 'pointer', x: 60, y: 80 }, { k: 'button', button: 0, down: true }, { k: 'pointer', x: 120, y: 80 }, { k: 'button', button: 0, down: false })
     await until(() => px(90, 80)[2] === 0xe5)    // blue first: red 0xe5 is the last byte of three

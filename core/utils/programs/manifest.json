@@ -161,10 +161,10 @@
       "file": "sdlpaint.wasm",
       "version": "0.1.0",
       "license": "MIT OR Apache-2.0",
-      "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a crosshair pointer over the picture (needs wlcomp running)",
+      "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a brush-sized ring pointer over the picture (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 1585934,
-      "sha256": "b27c1094b56ea05cbc967ae1f72701225d35b9bd7a3d377a8d766f556f6870c3"
+      "size": 1586472,
+      "sha256": "4315ca267aac006d54b4f419dc873bb07406d2957475366ccfae0e0d010673ea"
     },
     "sdlclip": {
       "file": "sdlclip.wasm",

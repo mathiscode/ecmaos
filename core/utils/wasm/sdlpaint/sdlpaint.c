@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
  * sdlpaint: a small paint program for ecmaOS, written for this project on SDL 3 (its Wayland driver, see wasm/lib/sdl.sh).
  * Left button draws, right button erases; the wheel or [ and ] change the brush; 1-9 pick a color; C clears; F toggles
- * fullscreen; Escape or closing the window quits. The pointer is a crosshair over the picture and an arrow over the palette.
+ * fullscreen; Escape or closing the window quits. The pointer is a ring the size and color of the brush over the picture (a cursor this program draws) and an arrow over the palette.
  * Usage: sdlpaint [WIDTH] [HEIGHT]. Needs wlcomp running. Without XDG_RUNTIME_DIR it uses /run/user/UID, as wlcomp does. */
 #include <SDL3/SDL.h>
 #include <stdint.h>
@@ -18,9 +18,12 @@ static const Uint32 PAPER = 0xfafafa;
 
 static SDL_Window *win;
 static SDL_Surface *canvas;   /* the picture, as big as the area under the bar */
-static SDL_Cursor *arrow, *cross;
+static SDL_Cursor *arrow, *ring;   /* the ring is made again when the color or brush changes */
+static int ring_color = -1, ring_brush;
 static int color = 0, brush = 4, fullscreen, dirty = 1, over_bar;
 static int last_x = -1, last_y = -1;
+
+static void make_ring(void);
 
 static Uint32 map(SDL_Surface *s, Uint32 rgb) { return SDL_MapSurfaceRGB(s, rgb >> 16, (rgb >> 8) & 255, rgb & 255); }
 
@@ -78,6 +81,32 @@ static void render(void) {
   SDL_BlitSurface(canvas, NULL, s, &dst);
   SDL_UpdateWindowSurface(win);
   dirty = 0;
+  if (!over_bar) make_ring();   /* the color or brush may have changed */
+}
+
+/* a ring in the brush color, edged in white and black so it shows on any paint, the hotspot at its middle */
+static void make_ring(void) {
+  if (ring && ring_color == color && ring_brush == brush) return;
+  int r = brush > 12 ? 12 : brush, d = 2 * r + 5;
+  SDL_Surface *img = SDL_CreateSurface(d, d, SDL_PIXELFORMAT_ARGB8888);
+  if (!img) return;
+  Uint32 rgb = palette[color];
+  for (int y = 0; y < d; y++) for (int x = 0; x < d; x++) {
+    int dx = x - d / 2, dy = y - d / 2, q = dx * dx + dy * dy;
+    int lo = r * r - r, hi = r * r + r;
+    if (q >= lo && q <= hi) SDL_WriteSurfacePixel(img, x, y, rgb >> 16, (rgb >> 8) & 255, rgb & 255, 255);
+    else if (q >= lo - 2 * r - 1 && q < lo) SDL_WriteSurfacePixel(img, x, y, 255, 255, 255, 255);
+    else if (q > hi && q <= hi + 2 * r + 1) SDL_WriteSurfacePixel(img, x, y, 0, 0, 0, 255);
+  }
+  SDL_Cursor *next = SDL_CreateColorCursor(img, d / 2, d / 2);
+  SDL_DestroySurface(img);
+  if (!next) return;
+  SDL_Cursor *old = ring;
+  ring = next;
+  ring_color = color;
+  ring_brush = brush;
+  if (!over_bar) SDL_SetCursor(ring);
+  if (old) SDL_DestroyCursor(old);
 }
 
 static int swatch_at(float x, float y) {
@@ -92,7 +121,7 @@ static int swatch_at(float x, float y) {
 static void set_over(int bar) {
   if (bar == over_bar) return;
   over_bar = bar;
-  SDL_SetCursor(bar ? arrow : cross);
+  if (bar) SDL_SetCursor(arrow); else { make_ring(); if (ring) SDL_SetCursor(ring); }
 }
 
 int main(int argc, char **argv) {
@@ -108,8 +137,7 @@ int main(int argc, char **argv) {
   win = SDL_CreateWindow("sdlpaint", w, h, SDL_WINDOW_RESIZABLE);
   if (!win) { fprintf(stderr, "sdlpaint: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
   arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
-  cross = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
-  SDL_SetCursor(cross);
+  make_ring();
   int running = 1;
   while (running) {
     SDL_Event e;
