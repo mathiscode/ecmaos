@@ -62,14 +62,63 @@ static void fill(int x0, int y0, int w, int h, uint32_t color) {
     for (int x = x0 < 0 ? 0 : x0; x < x0 + w && x < width; x++) pixels[y * width + x] = color;
 }
 
-static void draw(void) {
+/* The gradient and the title never change at a given size, so they are drawn once into `background`; a frame repairs
+ * only the places the ball, the pointer's square and the key name were, draws them again, and reports just those. */
+static uint32_t *background;
+struct rect { int x, y, w, h; };
+static struct rect prev_ball, prev_ptr;
+static int full = 1;
+
+static void draw_background(void) {
+  free(background);
+  background = malloc((size_t)width * height * 4);
+  if (!background) exit(1);
+  uint32_t *saved = pixels;
+  pixels = background;
   for (int y = 0; y < height; y++) {
     uint32_t shade = 24 + (uint32_t)(y * 56 / height);
     for (int x = 0; x < width; x++) pixels[y * width + x] = (shade / 2 << 16) | (shade << 8) | (shade + 60);
   }
-  fill((int)bx - 8, (int)by - 8, 16, 16, 0xffe0b040);
-  if (inside) fill(px - 6, py - 6, 12, 12, down ? 0xffff4040 : 0xff40ff80);
   put_text(8, 8, "WLDEMO", 3, 0xffffffff);
+  pixels = saved;
+  memcpy(pixels, background, (size_t)width * height * 4);
+  prev_ball = prev_ptr = (struct rect){ 0, 0, 0, 0 };
+  full = 1;
+}
+
+static struct rect clip(struct rect r) {
+  if (r.x < 0) { r.w += r.x; r.x = 0; }
+  if (r.y < 0) { r.h += r.y; r.y = 0; }
+  if (r.x + r.w > width) r.w = width - r.x;
+  if (r.y + r.h > height) r.h = height - r.y;
+  if (r.w < 0) r.w = 0;
+  if (r.h < 0) r.h = 0;
+  return r;
+}
+static void repair(struct rect r) {
+  r = clip(r);
+  for (int y = r.y; y < r.y + r.h; y++) memcpy(pixels + y * width + r.x, background + y * width + r.x, (size_t)r.w * 4);
+  if (r.w > 0 && r.h > 0 && !full) wl_surface_damage(surface, r.x, r.y, r.w, r.h);
+}
+static void touch(struct rect r) {
+  r = clip(r);
+  if (r.w > 0 && r.h > 0 && !full) wl_surface_damage(surface, r.x, r.y, r.w, r.h);
+}
+
+static void draw(void) {
+  repair(prev_ball);
+  repair(prev_ptr);
+  struct rect text = { 8, height - 18, width - 8, 14 };
+  repair(text);
+  prev_ball = (struct rect){ (int)bx - 8, (int)by - 8, 16, 16 };
+  fill(prev_ball.x, prev_ball.y, 16, 16, 0xffe0b040);
+  touch(prev_ball);
+  prev_ptr = (struct rect){ 0, 0, 0, 0 };
+  if (inside) {
+    prev_ptr = (struct rect){ px - 6, py - 6, 12, 12 };
+    fill(prev_ptr.x, prev_ptr.y, 12, 12, down ? 0xffff4040 : 0xff40ff80);
+    touch(prev_ptr);
+  }
   put_text(8, height - 18, last_key[0] ? last_key : "TYPE SOMETHING", 2, 0xffd0e0ff);
 }
 
@@ -93,6 +142,7 @@ static void new_buffer(void) {
   buffer = wl_shm_pool_create_buffer(pool, 0, width, height, width * 4, WL_SHM_FORMAT_XRGB8888);
   wl_shm_pool_destroy(pool);
   close(fd);
+  draw_background();
 }
 
 static void present(void) {
@@ -102,7 +152,7 @@ static void present(void) {
   if (by < 8 || by > height - 8) { vy = -vy; by += vy; }
   draw();
   wl_surface_attach(surface, buffer, 0, 0);
-  wl_surface_damage(surface, 0, 0, width, height);
+  if (full) { wl_surface_damage(surface, 0, 0, width, height); full = 0; }
   frame = wl_surface_frame(surface);
   wl_callback_add_listener(frame, &frame_listener, NULL);
   wl_surface_commit(surface);

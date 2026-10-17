@@ -140,6 +140,28 @@ describe('the Wayland compositor', () => {
     await until(() => kernel.framebuffers.list().length === 0)
   }, 60_000)
 
+  it('keeps a large demo window whole, also through a burst of resizes', async () => {
+    const client = kernel.shell.execute(`wldemo 700 500 > /tmp/wldemo-big.out 2>&1`)   // 1.4 MB, over what one read returns
+    await until(() => kernel.windows.list().some(w => w.title === 'wldemo'))
+    const id = kernel.windows.list().find(w => w.title === 'wldemo')!.id
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    const dark = () => { let n = 0; for (let i = 0; i + 2 < fb.pixels.length; i += 4) if (!fb.pixels[i] && !fb.pixels[i + 1] && !fb.pixels[i + 2]) n++; return n }   // the backdrop is never black
+    await until(() => fb.pixels.some(byte => byte !== 0))
+    await until(() => dark() === 0)
+
+    for (let i = 1; i <= 12; i++) {
+      kernel.windows.reportInput(id, { k: 'size', width: 700 + i * 17, height: 500 + i * 11 })
+      await new Promise(resolve => setTimeout(resolve, 30))
+    }
+    await until(() => fb.width === 904 && fb.height === 632 && fb.pixels.length === 904 * 632 * 4)
+    await until(() => dark() === 0)
+
+    kernel.windows.reportInput(id, { k: 'focus' })
+    kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
+    expect(await client).toBe(0)
+  }, 60_000)
+
   it('takes a window away when its client goes', async () => {
     const client = kernel.shell.execute(`${env} wl-shm 1 16 16 300 > /tmp/wl-shm2.out 2>&1`)
     await until(async () => (await read('/tmp/wl-shm2.out')).includes('done'))

@@ -57,6 +57,8 @@ struct surface {
   uint32_t frames[16];       /* pending frame callbacks */
   int nframes;
   struct buffer *buffer;     /* current */
+  uint32_t damage_y0, damage_y1;   /* rows damaged since the last commit (none when y1 <= y0) */
+  int drawn_w, drawn_h;      /* the size of what the window last got */
   uint32_t xsurface;         /* xdg_surface id, 0 if none */
   uint32_t toplevel;         /* xdg_toplevel id, 0 if none */
   int configured, acked, mapped;
@@ -294,26 +296,66 @@ static int window_probe(struct window *w) {
   return 2;
 }
 
-/* copies the surface's current buffer into its window */
-static void present(struct surface *s) {
+/* copies the surface's current buffer into its window: rows y0 up to y1 when the buffer is the window's size (that is
+ * all a client that reports its damage changed), else the whole buffer, cropped or padded with black, in one write so
+ * the window is never seen half-drawn */
+/* a read or write may move less than asked (the system caps one at a megabyte), so go on until it is all there or nothing more comes */
+static ssize_t pread_all(int fd, uint8_t *to, size_t n, off_t at) {
+  size_t done = 0;
+  while (done < n) {
+    ssize_t got = pread(fd, to + done, n - done, at + (off_t)done);
+    if (got <= 0) break;
+    done += (size_t)got;
+  }
+  return (ssize_t)done;
+}
+static void pwrite_all(int fd, const uint8_t *from, size_t n, off_t at) {
+  size_t done = 0;
+  while (done < n) {
+    ssize_t put = pwrite(fd, from + done, n - done, at + (off_t)done);
+    if (put <= 0) break;
+    done += (size_t)put;
+  }
+}
+static uint8_t *scratch;
+static size_t scratch_size;
+static uint8_t *scratch_for(size_t n) {
+  if (n > scratch_size) {
+    uint8_t *bigger = realloc(scratch, n);
+    if (!bigger) return NULL;
+    scratch = bigger;
+    scratch_size = n;
+  }
+  return scratch;
+}
+static void present(struct surface *s, uint32_t y0, uint32_t y1) {
   struct buffer *b = s->buffer;
   if (!b || s->win.index < 0) return;
+  uint32_t src_stride = b->stride, dst_stride = s->win.width * 4;
+  if (b->width == s->win.width && b->height == s->win.height && src_stride == dst_stride) {
+    if (y1 > b->height) y1 = b->height;
+    if (y0 >= y1) return;
+    size_t n = (size_t)(y1 - y0) * dst_stride;
+    uint8_t *tmp = scratch_for(n);
+    if (!tmp) return;
+    ssize_t got = pread_all(b->pool->fd, tmp, n, (off_t)b->offset + (off_t)y0 * src_stride);
+    if (got <= 0) return;
+    pwrite_all(s->win.fd, tmp, (size_t)got, (off_t)y0 * dst_stride);
+    return;
+  }
+  size_t whole = (size_t)dst_stride * s->win.height, from = (size_t)src_stride * b->height;
+  uint8_t *tmp = scratch_for(whole + from);
+  if (!tmp) return;
+  ssize_t got = pread_all(b->pool->fd, tmp + whole, from, b->offset);
+  if (got < 0) got = 0;
+  memset(tmp, 0, whole);
   uint32_t rows = b->height < s->win.height ? b->height : s->win.height;
   uint32_t cols = b->width < s->win.width ? b->width : s->win.width;
-  uint32_t src_stride = b->stride, dst_stride = s->win.width * 4;
-  uint8_t *tmp = malloc((size_t)src_stride * b->height);
-  if (!tmp) return;
-  ssize_t got = pread(b->pool->fd, tmp, (size_t)src_stride * b->height, b->offset);
-  if (got < 0) got = 0;
-  if (b->width == s->win.width && src_stride == dst_stride && (size_t)got == (size_t)src_stride * b->height) {
-    pwrite(s->win.fd, tmp, (size_t)dst_stride * rows, 0);
-  } else {
-    for (uint32_t y = 0; y < rows; y++) {
-      if ((size_t)(y + 1) * src_stride > (size_t)got) break;
-      pwrite(s->win.fd, tmp + (size_t)y * src_stride, (size_t)cols * 4, (off_t)y * dst_stride);
-    }
+  for (uint32_t y = 0; y < rows; y++) {
+    if ((size_t)(y + 1) * src_stride > (size_t)got) break;
+    memcpy(tmp + (size_t)y * dst_stride, tmp + whole + (size_t)y * src_stride, (size_t)cols * 4);
   }
-  free(tmp);
+  pwrite_all(s->win.fd, tmp, whole, 0);
 }
 
 /* ---- the protocol ---- */
@@ -362,8 +404,14 @@ static void surface_commit(struct client *c, struct surface *s) {
       if (window_open(s, s->buffer->width, s->buffer->height) == 0) s->mapped = 1;
       else { fatal(c, s->id, 0, "no window could be made"); return; }
     }
-    present(s);
+    /* damage a client reports narrows the copy; a client that reports none, a new buffer or a new window size gets all */
+    uint32_t y0 = s->damage_y0, y1 = s->damage_y1;
+    if (y1 <= y0 || !attached || (int)s->buffer->width != s->drawn_w || (int)s->buffer->height != s->drawn_h || s->win.width != (uint32_t)s->drawn_w || s->win.height != (uint32_t)s->drawn_h) { y0 = 0; y1 = s->buffer->height; }
+    present(s, y0, y1);
+    s->drawn_w = (int)s->buffer->width;
+    s->drawn_h = (int)s->buffer->height;
   }
+  s->damage_y0 = s->damage_y1 = 0;
   /* the buffer was copied, so it is free again */
   if (attached && s->buffer) {
     for (uint32_t id = 1; id < MAX_OBJECTS; id++) {
@@ -511,8 +559,19 @@ static void on_surface(struct client *c, uint32_t self, uint32_t opcode, struct 
       if (s->nframes < 16) s->frames[s->nframes++] = id;
       break;
     }
+    case 2: case 9: {   /* damage, damage_buffer: only the rows matter */
+      r_u32(r);
+      int32_t y = (int32_t)r_u32(r); r_u32(r);
+      int32_t h = (int32_t)r_u32(r);
+      if (r->bad || h <= 0) break;
+      if (y < 0) { h += y; y = 0; }
+      if (h <= 0) break;
+      if (s->damage_y1 <= s->damage_y0) { s->damage_y0 = (uint32_t)y; s->damage_y1 = (uint32_t)(y + h); }
+      else { if ((uint32_t)y < s->damage_y0) s->damage_y0 = (uint32_t)y; if ((uint32_t)(y + h) > s->damage_y1) s->damage_y1 = (uint32_t)(y + h); }
+      break;
+    }
     case 6: surface_commit(c, s); break;
-    default: break; /* damage, regions, transform, scale */
+    default: break; /* regions, transform, scale */
   }
 }
 
@@ -787,7 +846,7 @@ static void check_windows(void) {
       struct surface *s = c->objs[id].data;
       if (!s->mapped || s->win.index < 0) continue;
       int state = window_probe(&s->win);
-      if (state == 2 && s->toplevel) { LOG("window %d is now %ux%u", s->win.index, s->win.width, s->win.height); send_configure(c, s, s->win.width, s->win.height); continue; }
+      if (state == 2 && s->toplevel) { LOG("window %d is now %ux%u", s->win.index, s->win.width, s->win.height); send_configure(c, s, s->win.width, s->win.height); present(s, 0, s->win.height); continue; }   /* what it had, meanwhile, rather than a blank */
       if (state != 0) continue;
       LOG("window %d is gone", s->win.index);
       s->win.pid = 0;
@@ -876,7 +935,7 @@ int main(void) {
         obj_free(c, batch[i].id);
       }
     }
-    if (now_ms() - last_check > 100) { last_check = now_ms(); check_windows(); }
+    if (now_ms() - last_check > 33) { last_check = now_ms(); check_windows(); }
     for (int i = 0; i < MAX_CLIENTS; i++) {
       if (clients[i] && !clients[i]->alive) { client_free(clients[i]); clients[i] = NULL; }
     }

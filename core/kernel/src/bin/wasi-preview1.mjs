@@ -1949,15 +1949,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
   const readBacking = (mapping) => {
     const into = new Uint8Array(mapping.len)
-    const readAt = (target, position) => read(mapping.fd, target, position)
     let done = 0
     while (done < mapping.len) {
-      const chunk = new Uint8Array(Math.min(65536, mapping.len - done))
-      const got = readAt(chunk, mapping.offset + done)
+      const got = read(mapping.fd, into.subarray(done), mapping.offset + done)
       if (got <= 0) break
-      into.set(chunk.subarray(0, got), done)
       done += got
-      if (got < chunk.length) break
     }
     return into
   }
@@ -1999,9 +1995,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     }
     for (let at = 0; at < mapping.len; at += PAGE) {
       const end = Math.min(at + PAGE, mapping.len)
-      let same = true
-      for (let i = at; i < end; i++) if (memory[mapping.ptr + i] !== mapping.shadow[i]) { same = false; break }
-      if (same) flushRun(at)
+      if (!differ(memory, mapping.ptr + at, mapping.shadow, at, end - at)) flushRun(at)
       else if (runStart < 0) runStart = at
     }
     flushRun(mapping.len)
@@ -2011,20 +2005,37 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   function refreshMapping(mapping) {
     if (!mapping.shared) return
     const memory = bytes()
+    // A regular file whose size and times are as when last read, and were stamped before this millisecond, was not
+    // written since (a write at this millisecond could still share the stamp, so that is read in full)
+    let stamp = null
+    if (mapping.regular) {
+      const st = fstat(mapping.fd)
+      stamp = `${st.size}:${st.mtimeMs}:${st.ctimeMs}`
+      if (stamp === mapping.stamp && Date.now() > st.mtimeMs + 1) return
+    }
+    mapping.stamp = stamp
     const fresh = readBacking(mapping)
     for (let at = 0; at < mapping.len; at += PAGE) {
       const end = Math.min(at + PAGE, mapping.len)
-      let untouched = true
-      let changed = false
-      for (let i = at; i < end; i++) {
-        if (memory[mapping.ptr + i] !== mapping.shadow[i]) { untouched = false; break }
-        if (fresh[i] !== mapping.shadow[i]) changed = true
-      }
-      if (untouched && changed) {
+      if (!differ(fresh, at, mapping.shadow, at, end - at)) continue   // nobody else changed it
+      if (!differ(memory, mapping.ptr + at, mapping.shadow, at, end - at)) {
         memory.set(fresh.subarray(at, end), mapping.ptr + at)
         mapping.shadow.set(fresh.subarray(at, end), at)
       }
     }
+  }
+
+  /** Whether `a[aAt, aAt + n)` and `b[bAt, bAt + n)` differ; whole words while both are aligned, which they are for a page */
+  const differ = (a, aAt, b, bAt, n) => {
+    let i = 0
+    if (((a.byteOffset + aAt) | (b.byteOffset + bAt)) % 4 === 0) {
+      const a32 = new Uint32Array(a.buffer, a.byteOffset + aAt, n >> 2)
+      const b32 = new Uint32Array(b.buffer, b.byteOffset + bAt, n >> 2)
+      for (; i < a32.length; i++) if (a32[i] !== b32[i]) return true
+      i <<= 2
+    }
+    for (; i < n; i++) if (a[aAt + i] !== b[bAt + i]) return true
+    return false
   }
 
   const overlapping = (addr, len) => [...mappings.values()].filter(m => m.ptr < addr + len && addr < m.ptr + m.len)

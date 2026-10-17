@@ -136,8 +136,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 133974,
-      "sha256": "8031713ee0da1b9eb62b57ff64b7c3f27bc990fa952e81f16a815742e08ec5f5"
+      "size": 134685,
+      "sha256": "9bb482c4f2ed76b4887b2ba9606c0ebc6bbb98546b89a7df86345b4c49394508"
     },
     "wldemo": {
       "file": "wldemo.wasm",
@@ -145,8 +145,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "wldemo, a demo Wayland client: a resizable window with a bouncing ball, a pointer follower and the last key typed (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 334088,
-      "sha256": "52d7fa09fae569eda18897e9890c5e524bb51d944850c1afb37d159468f69a4c"
+      "size": 335253,
+      "sha256": "8db19354719b1056356c13f518806aa25dfd29e865a510e2273a379b713b0117"
     }
   }
 }
