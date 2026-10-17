@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
  * sdlsnake: Snake for ecmaOS, written for this project on SDL 3 (its Wayland driver, see wasm/lib/sdl.sh). A
  * resizable window; arrows or WASD steer, P pauses, R restarts, Escape or closing the window quits.
- * Usage: sdlsnake [WIDTH] [HEIGHT]. Needs wlcomp running. */
+ * Usage: sdlsnake [WIDTH] [HEIGHT]. Needs wlcomp running. Without XDG_RUNTIME_DIR it uses /run/user/UID, as wlcomp does. */
 #include <SDL3/SDL.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #define COLS 24
 #define ROWS 16
@@ -91,6 +92,11 @@ static void draw(SDL_Surface *s) {
 
 int main(int argc, char **argv) {
   int w = argc > 1 ? atoi(argv[1]) : 480, h = argc > 2 ? atoi(argv[2]) : 340;
+  if (!getenv("XDG_RUNTIME_DIR") || !*getenv("XDG_RUNTIME_DIR")) {   /* the same default wlcomp listens in */
+    char dir[64];
+    snprintf(dir, sizeof dir, "/run/user/%d", (int)getuid());
+    setenv("XDG_RUNTIME_DIR", dir, 1);
+  }
   if (w < 120) w = 120;
   if (h < 90) h = 90;
   if (!SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "sdlsnake: %s (is wlcomp running?)\n", SDL_GetError()); return 1; }
