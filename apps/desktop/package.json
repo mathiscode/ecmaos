@@ -21,7 +21,7 @@
   },
   "scripts": {
     "build": "tsc && esbuild src/index.ts --bundle --sourcemap --platform=neutral --format=esm --outfile=dist/index.js --banner:js=#!ecmaos:bin:app:desktop",
-    "dev": "tsc --watch",
+    "dev": "esbuild src/index.ts --bundle --sourcemap --platform=neutral --format=esm --outfile=dist/index.js --banner:js=#!ecmaos:bin:app:desktop --watch",
     "test": "vitest run",
     "publish:dev": "npm run build && npm publish --registry=http://localhost:4873",
     "republish:dev": "npm run unpublish:dev && npm run publish:dev",

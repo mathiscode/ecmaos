@@ -27,7 +27,7 @@
     "build": "turbo run build",
     "build:docs": "(typedoc || true) && echo docs.ecmaos.sh > docs/CNAME",
     "build:kernel": "turbo run build --filter=@ecmaos/* --filter=@ecmaos-devices/*",
-    "dev": "turbo run dev --filter=@ecmaos/* --concurrency=20",
+    "dev": "turbo run dev --filter=@ecmaos/* --filter=@ecmaos-apps/desktop --concurrency=20",
     "dev:kernel": "turbo run dev --filter=@ecmaos/kernel",
     "dev:docs": "pnpm sync:readme && concurrently nodemon \"pnpx serve --cors -l 30444 ./docs\"",
     "fix": "prettier --write \"**/*.{ts,tsx,md}\"",
