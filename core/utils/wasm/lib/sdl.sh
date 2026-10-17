@@ -6,13 +6,17 @@
 # Sets SDL_INC and SDL_LIB for the caller; link with $SDL_LIB $SDL_DEPS_LIB.
 #
 # SDL treats Emscripten as the browser canvas (its own video, audio and timer code that calls into JavaScript). Here
-# the target is a Unix program on a Wayland compositor, so four small changes are made to the source:
+# the target is a Unix program on a Wayland compositor, so these changes are made to the source:
 #   - SDL_PLATFORM_EMSCRIPTEN is not defined, and CMake takes the Unix branch (no calls into the page);
 #   - the Wayland driver gets a software window surface, which SDL's own driver lacks (it presents only through
 #     OpenGL, Vulkan or a hardware render driver): SDL_GetWindowSurface and the software renderer draw into memory,
 #     and SDL_UpdateWindowSurface copies it into a wl_shm buffer and commits it;
 #   - the failed start of the cursor animation thread (SDL is built without threads) is logged at debug level;
-#   - nothing else: no OpenGL, no audio, no joysticks, no libdecor.
+#   - audio is a driver of its own (src/audio/ecmaos): it writes interleaved signed 16 bit stereo at 48000 Hz to
+#     /dev/dsp1 and SDL converts whatever the program asks for. SDL is built without threads, so the driver has no
+#     callback thread: SDL_PumpEvents (so SDL_PollEvent and SDL_WaitEvent) keeps the device about 100 ms ahead of
+#     the clock, and a program that does not poll events for a while is silent for that while;
+#   - nothing else: no OpenGL, no joysticks, no libdecor.
 set -euo pipefail
 
 SDL=3.4.18
@@ -37,6 +41,172 @@ build_sdl() {
     sed -i '0,/^#include "SDL_waylandvideo.h"$/s//&\n#include "SDL_waylandframebuffer.h"/' src/video/wayland/SDL_waylandvideo.c
     grep -q SDL_waylandframebuffer.h src/video/wayland/SDL_waylandvideo.c && grep -q Wayland_CreateWindowFramebuffer src/video/wayland/SDL_waylandvideo.c || { echo "sdl: the video device patch did not apply" >&2; exit 1; }
     grep -q "SDL_ECMAOS" CMakeLists.txt || { echo "sdl: the CMake patch did not apply" >&2; exit 1; }
+    sed -i 's/^  if(SDL_DUMMYAUDIO)$/  if(SDL_ECMAOS)\n    set(SDL_AUDIO_DRIVER_ECMAOS 1)\n    sdl_glob_sources(\n      "${SDL3_SOURCE_DIR}\/src\/audio\/ecmaos\/*.c"\n      "${SDL3_SOURCE_DIR}\/src\/audio\/ecmaos\/*.h"\n    )\n    set(HAVE_SDL_AUDIO TRUE)\n  endif()\n&/' CMakeLists.txt
+    sed -i 's/^#ifdef SDL_AUDIO_DRIVER_DISK$/#ifdef SDL_AUDIO_DRIVER_ECMAOS\n    \&ECMAOSAUDIO_bootstrap,\n#endif\n&/' src/audio/SDL_audio.c
+    sed -i 's/^extern AudioBootStrap DUMMYAUDIO_bootstrap;$/&\nextern AudioBootStrap ECMAOSAUDIO_bootstrap;/' src/audio/SDL_sysaudio.h
+    sed -i 's/^static void SDL_PumpEventsInternal(bool push_sentinel)$/extern void ECMAOS_PumpAudio(void);\n&/; s/^    \/\/ Free any temporary memory from old events$/    ECMAOS_PumpAudio();\n&/' src/events/SDL_events.c
+    grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_audio.c && grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_sysaudio.h && grep -q ECMAOS_PumpAudio src/events/SDL_events.c && grep -q SDL_AUDIO_DRIVER_ECMAOS CMakeLists.txt || { echo "sdl: the audio patch did not apply" >&2; exit 1; }
+    mkdir -p src/audio/ecmaos
+    cat > src/audio/ecmaos/SDL_ecmaosaudio.c <<'SOURCE'
+// Audio for ecmaOS (added for it): playback to /dev/dsp1, interleaved signed 16 bit stereo at 48000 Hz, which the
+// kernel plays through the browser. There is no callback thread (SDL is built without threads): SDL_PumpEvents calls
+// ECMAOS_PumpAudio, which runs the device's iteration (SDL_PlaybackAudioThreadIterate: it fills a buffer from the bound
+// streams, calling their callbacks) until about 100 ms of sound is queued ahead of the clock.
+#include "SDL_internal.h"
+
+#ifdef SDL_AUDIO_DRIVER_ECMAOS
+
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#include "../SDL_sysaudio.h"
+
+#define ECMAOS_AUDIO_NODE "/dev/dsp1"
+#define ECMAOS_AUDIO_RATE 48000
+#define ECMAOS_AUDIO_CHANNELS 2
+#define ECMAOS_AUDIO_AHEAD_NS (100 * SDL_NS_PER_MS)
+#define ECMAOS_AUDIO_MAX 8
+
+struct SDL_PrivateAudioData
+{
+    int fd;
+    Uint8 *mixbuf;
+    Uint64 queued_until; // when the sound written so far ends, in SDL_GetTicksNS time
+    Uint64 period_ns;
+};
+
+static SDL_AudioDevice *ecmaos_devices[ECMAOS_AUDIO_MAX];
+
+void ECMAOS_PumpAudio(void)
+{
+    for (int i = 0; i < ECMAOS_AUDIO_MAX; i++) {
+        SDL_AudioDevice *device = ecmaos_devices[i];
+        if (!device || !device->hidden) {
+            continue;
+        }
+        struct SDL_PrivateAudioData *priv = device->hidden;
+        const Uint64 now = SDL_GetTicksNS();
+        if (priv->queued_until < now) {
+            priv->queued_until = now; // the program stalled: do not make up the time with a burst
+        }
+        while (priv->queued_until - now < ECMAOS_AUDIO_AHEAD_NS) {
+            if (!SDL_PlaybackAudioThreadIterate(device)) {
+                break;
+            }
+            if (!ecmaos_devices[i] || !device->hidden) {
+                break; // the device was lost during the iteration
+            }
+            priv->queued_until += priv->period_ns;
+        }
+    }
+}
+
+static bool ECMAOSAUDIO_OpenDevice(SDL_AudioDevice *device)
+{
+    if (device->recording) {
+        return SDL_SetError("ecmaos audio: recording is not supported");
+    }
+    int slot = -1;
+    for (int i = 0; i < ECMAOS_AUDIO_MAX; i++) {
+        if (!ecmaos_devices[i]) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0) {
+        return SDL_SetError("ecmaos audio: too many open devices");
+    }
+
+    device->hidden = (struct SDL_PrivateAudioData *)SDL_calloc(1, sizeof(*device->hidden));
+    if (!device->hidden) {
+        return false;
+    }
+    device->hidden->fd = open(ECMAOS_AUDIO_NODE, O_WRONLY | O_NONBLOCK);
+    if (device->hidden->fd < 0) {
+        const int err = errno;
+        SDL_free(device->hidden);
+        device->hidden = NULL;
+        return SDL_SetError("ecmaos audio: cannot open %s (errno %d)", ECMAOS_AUDIO_NODE, err);
+    }
+
+    device->spec.format = SDL_AUDIO_S16LE;
+    device->spec.channels = ECMAOS_AUDIO_CHANNELS;
+    device->spec.freq = ECMAOS_AUDIO_RATE;
+    SDL_UpdatedAudioDeviceFormat(device);
+
+    device->hidden->mixbuf = (Uint8 *)SDL_malloc(device->buffer_size);
+    if (!device->hidden->mixbuf) {
+        close(device->hidden->fd);
+        SDL_free(device->hidden);
+        device->hidden = NULL;
+        return false;
+    }
+    SDL_memset(device->hidden->mixbuf, device->silence_value, device->buffer_size);
+    device->hidden->period_ns = ((Uint64)device->sample_frames * SDL_NS_PER_SECOND) / device->spec.freq;
+    device->hidden->queued_until = SDL_GetTicksNS();
+    ecmaos_devices[slot] = device;
+    return true;
+}
+
+static void ECMAOSAUDIO_CloseDevice(SDL_AudioDevice *device)
+{
+    for (int i = 0; i < ECMAOS_AUDIO_MAX; i++) {
+        if (ecmaos_devices[i] == device) {
+            ecmaos_devices[i] = NULL;
+        }
+    }
+    if (device->hidden) {
+        close(device->hidden->fd);
+        SDL_free(device->hidden->mixbuf);
+        SDL_free(device->hidden);
+        device->hidden = NULL;
+    }
+}
+
+static Uint8 *ECMAOSAUDIO_GetDeviceBuf(SDL_AudioDevice *device, int *buffer_size)
+{
+    return device->hidden->mixbuf;
+}
+
+static bool ECMAOSAUDIO_PlayDevice(SDL_AudioDevice *device, const Uint8 *buffer, int buflen)
+{
+    int done = 0;
+    while (done < buflen) {
+        const ssize_t n = write(device->hidden->fd, buffer + done, buflen - done);
+        if (n > 0) {
+            done += (int)n;
+        } else if (n < 0 && errno == EINTR) {
+            continue;
+        } else if (n < 0 && errno == EAGAIN) {
+            break; // the kernel holds as much as it takes: this part of the sound is dropped
+        } else {
+            return SDL_SetError("ecmaos audio: write to %s failed (errno %d)", ECMAOS_AUDIO_NODE, errno);
+        }
+    }
+    return true;
+}
+
+static bool ECMAOSAUDIO_Init(SDL_AudioDriverImpl *impl)
+{
+    if (access(ECMAOS_AUDIO_NODE, W_OK) != 0) {
+        return SDL_SetError("ecmaos audio: %s is not there", ECMAOS_AUDIO_NODE);
+    }
+    impl->OpenDevice = ECMAOSAUDIO_OpenDevice;
+    impl->CloseDevice = ECMAOSAUDIO_CloseDevice;
+    impl->GetDeviceBuf = ECMAOSAUDIO_GetDeviceBuf;
+    impl->PlayDevice = ECMAOSAUDIO_PlayDevice;
+    impl->ProvidesOwnCallbackThread = true;
+    impl->OnlyHasDefaultPlaybackDevice = true;
+    return true;
+}
+
+AudioBootStrap ECMAOSAUDIO_bootstrap = {
+    "ecmaos", "ecmaOS audio driver", ECMAOSAUDIO_Init, false, false
+};
+
+#endif // SDL_AUDIO_DRIVER_ECMAOS
+SOURCE
 
     cat > src/video/wayland/SDL_waylandframebuffer.h <<'HEADER'
 #ifndef SDL_waylandframebuffer_h_
@@ -250,11 +420,11 @@ SOURCE
   mkdir -p "$work/sdl-build"
   ( cd "$work/sdl-build"
     PKG_CONFIG_PATH="$work/prefix/lib/pkgconfig" emcmake cmake "../SDL3-$SDL" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
-      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS=-fwasm-exceptions \
+      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="-fwasm-exceptions -DSDL_AUDIO_DRIVER_ECMAOS=1" \
       -DSDL_ECMAOS=ON -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_DOCS=OFF \
       -DSDL_WAYLAND=ON -DSDL_WAYLAND_SHARED=OFF -DSDL_WAYLAND_LIBDECOR=OFF \
       -DSDL_X11=OFF -DSDL_KMSDRM=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF -DSDL_VULKAN=OFF \
-      -DSDL_AUDIO=OFF -DSDL_CAMERA=OFF -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_SENSOR=OFF \
+      -DSDL_AUDIO=ON -DSDL_DUMMYAUDIO=OFF -DSDL_DISKAUDIO=OFF -DSDL_CAMERA=OFF -DSDL_JOYSTICK=OFF -DSDL_HAPTIC=OFF -DSDL_SENSOR=OFF \
       -DSDL_DBUS=OFF -DSDL_IBUS=OFF -DSDL_LIBURING=OFF -DSDL_PIPEWIRE=OFF -DSDL_PULSEAUDIO=OFF -DSDL_ALSA=OFF \
       -DSDL_JACK=OFF -DSDL_SNDIO=OFF -DSDL_OSS=OFF > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
     grep -q "Video drivers:.*wayland" configure.log || { echo "sdl: the Wayland driver was not enabled" >&2; tail -30 configure.log >&2; exit 1; }

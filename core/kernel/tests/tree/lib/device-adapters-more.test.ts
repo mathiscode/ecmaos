@@ -336,6 +336,26 @@ describe('audio as sessions', () => {
     await session.close()
     await expect(session.write!(new Uint8Array([0, 0]))).rejects.toMatchObject({ code: 'ENODEV' })
   })
+
+  it('stereo speakers split interleaved frames into two channels and keep a partial frame for later', async () => {
+    const made: Array<{ channels: number, length: number, planes: number[][] }> = []
+    const context = {
+      sampleRate: 48000, state: 'running', currentTime: 0, destination: {},
+      createGain: () => ({ gain: { value: 1 }, connect() {} }),
+      createBuffer: (channels: number, length: number) => { const entry = { channels, length, planes: [] as number[][] }; made.push(entry); return { copyToChannel: (plane: Float32Array, channel: number) => { entry.planes[channel] = [...plane] } } },
+      createBufferSource: () => ({ buffer: null, connect() {}, start() {} }),
+      resume: async () => {}, close: async () => {}
+    }
+    const session = await openSpeakerSession({ rate: 48000, channels: 2, environment: { createContext: () => context as never, getUserMedia: async () => { throw new Error('no') } } })
+    expect(session.info).toMatchObject({ rate: 48000, channels: 2 })
+    // left 16384 / right -16384, then left 0 / right 8192, with the second frame cut after three bytes
+    await session.write!(new Uint8Array([0x00, 0x40, 0x00, 0xc0, 0x00, 0x00, 0x00]))
+    await session.write!(new Uint8Array([0x20]))
+    expect(made.map(({ channels, length }) => [channels, length])).toEqual([[2, 1], [2, 1]])
+    expect(made[0]!.planes).toEqual([[0.5], [-0.5]])
+    expect(made[1]!.planes).toEqual([[0], [0.25]])
+    await session.close()
+  })
 })
 
 describe('a camera as a session', () => {

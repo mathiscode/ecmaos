@@ -27,7 +27,7 @@
 A driver that talks to browser hardware (`serial`, `midi`, `gamepad`, `hid`, `usb`, `bluetooth`, `battery`, `geo`, `sensors`,
 `audio`, `camera`) has a `session.ts` that opens the hardware as a `DeviceSession` (`@ecmaos-devices/session`): bytes to read,
 bytes to write, controls and events. Two things use it. `sessionOperations` makes a `/dev` node from one (`ttyS<n>`, `midi<n>`,
-`js<n>`, `hidraw<n>`, `dsp`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
+`js<n>`, `hidraw<n>`, `dsp`, `dsp1`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
 once and works both ways.
 
 ## Major/Minor Number Allocation

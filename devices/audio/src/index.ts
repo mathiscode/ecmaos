@@ -148,15 +148,17 @@ async function test(kernel: Kernel, shell: Shell) {
 /** `/sys/class/audio` */
 const audio_class = new Class('audio')
 
-// Linux's sound majors: 14 minor 3 is /dev/dsp, 4 is /dev/audio, 5 is /dev/dspin (the microphone, as this system names it).
+// Linux's sound majors: 14 minor 3 is /dev/dsp (mono, 16000 Hz), 19 is /dev/dsp1 (stereo, 48000 Hz; what SDL plays to), 4 is /dev/audio, 5 is /dev/dspin (the microphone, as this system names it).
 // Each node has its own operations, so no minor number decides what a node is.
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const player = sessionOperations({ open: async () => await openPlayerSession({ onError: error => ctx.log.error(`audio: cannot play the file: ${error.message}`) }) })
   const speakers = sessionOperations({ open: async () => await openSpeakerSession(), onError: error => ctx.log.warn(`dsp: ${error.message}`) })
+  const speakers48 = sessionOperations({ open: async () => await openSpeakerSession({ rate: 48000, channels: 2 }), onError: error => ctx.log.warn(`dsp1: ${error.message}`) })
   const microphone = sessionOperations({ open: async () => await openMicrophoneSession(), onError: error => ctx.log.warn(`dspin: ${error.message}`) })
   return [
     { name: 'audio', major: 14, minor: 4, class: audio_class, ops: player },
     { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: speakers },
+    { name: 'dsp1', major: 14, minor: 19, class: audio_class, ops: speakers48 },
     { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: microphone }
   ]
 }

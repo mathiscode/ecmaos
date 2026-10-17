@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
  * sdlsnake: Snake for ecmaOS, written for this project on SDL 3 (its Wayland driver, see wasm/lib/sdl.sh). A
- * resizable window; arrows or WASD steer, P pauses, R restarts, Escape or closing the window quits.
+ * resizable window; arrows or WASD steer, P pauses, R restarts, M mutes the sound, Escape or closing the window quits.
  * Usage: sdlsnake [WIDTH] [HEIGHT]. Needs wlcomp running. Without XDG_RUNTIME_DIR it uses /run/user/UID, as wlcomp does. */
 #include <SDL3/SDL.h>
 #include <stdint.h>
@@ -19,6 +19,23 @@ static const uint8_t font[36][7] = {
 };
 
 static int sx[MAXLEN], sy[MAXLEN], len, dx, dy, qdx, qdy, fx, fy, score, best, over, paused;
+
+/* Sound: short square-wave beeps, made here and queued on an SDL audio stream (the device is /dev/dsp1, see wasm/lib/sdl.sh).
+ * Without audio the game is silent. */
+static SDL_AudioStream *audio;
+static int muted;
+
+static void beep(int hz, int ms) {
+  if (!audio || muted) return;
+  Sint16 buf[22050 / 10];
+  int n = 22050 * ms / 1000;
+  if (n > (int)(sizeof buf / sizeof buf[0])) n = (int)(sizeof buf / sizeof buf[0]);
+  for (int i = 0; i < n; i++) {
+    int amp = 5000 * (n - i) / n;                       /* fades out */
+    buf[i] = (Sint16)((i * hz * 2 / 22050) % 2 ? amp : -amp);
+  }
+  SDL_PutAudioStreamData(audio, buf, n * (int)sizeof buf[0]);
+}
 
 static void place_food(void) {
   for (;;) {
@@ -103,6 +120,11 @@ int main(int argc, char **argv) {
   SDL_Window *win = SDL_CreateWindow("sdlsnake", w, h, SDL_WINDOW_RESIZABLE);
   if (!win) { fprintf(stderr, "sdlsnake: %s\n", SDL_GetError()); return 1; }
   SDL_HideCursor();   /* the game is played from the keyboard */
+  if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+    SDL_AudioSpec spec = { SDL_AUDIO_S16, 1, 22050 };
+    audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (audio) SDL_ResumeAudioStreamDevice(audio);
+  }
   srand((unsigned)SDL_GetTicks());
   restart();
   Uint64 next = SDL_GetTicks();
@@ -119,19 +141,27 @@ int main(int argc, char **argv) {
         case SDLK_LEFT: case SDLK_A: if (dx == 0) { qdx = -1; qdy = 0; } break;
         case SDLK_RIGHT: case SDLK_D: if (dx == 0) { qdx = 1; qdy = 0; } break;
         case SDLK_P: case SDLK_SPACE: if (!over) paused = !paused; break;
-        case SDLK_R: restart(); break;
+        case SDLK_R: restart(); if (audio) SDL_ClearAudioStream(audio); break;
+        case SDLK_M: muted = !muted; if (audio) SDL_ClearAudioStream(audio); break;
         }
       }
     }
     Uint64 now = SDL_GetTicks();
     if (!over && !paused) {
       int period = 150 - score * 4 < 60 ? 60 : 150 - score * 4;
-      while (now >= next) { step(); next += period; if (over) break; }
+      while (now >= next) {
+        int before = score;
+        step();
+        next += period;
+        if (over) { beep(330, 120); beep(262, 120); beep(196, 300); break; }
+        if (score > before) { beep(880, 50); beep(1320, 70); }
+      }
     } else next = now;
     SDL_Surface *s = SDL_GetWindowSurface(win);
     if (s) { draw(s); SDL_UpdateWindowSurface(win); }
     SDL_Delay(33);
   }
+  if (audio) SDL_DestroyAudioStream(audio);
   SDL_DestroyWindow(win);
   SDL_Quit();
   return 0;

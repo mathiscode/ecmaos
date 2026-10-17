@@ -14,10 +14,10 @@ const environment = (decode: (bytes: ArrayBuffer) => Promise<unknown>) => {
 }
 
 describe('audio nodes', () => {
-  it('are /dev/audio, /dev/dsp and /dev/dspin on major 14 with their own minors', async () => {
+  it('are /dev/audio, /dev/dsp, /dev/dsp1 and /dev/dspin on major 14 with their own minors', async () => {
     const drivers = await getDrivers({ log: { error: vi.fn() } } as never)
-    expect(drivers.map(driver => [driver.name, driver.major, driver.minor])).toEqual([['audio', 14, 4], ['dsp', 14, 3], ['dspin', 14, 5]])
-    expect(new Set(drivers.map(driver => driver.ops)).size).toBe(3)
+    expect(drivers.map(driver => [driver.name, driver.major, driver.minor])).toEqual([['audio', 14, 4], ['dsp', 14, 3], ['dsp1', 14, 19], ['dspin', 14, 5]])
+    expect(new Set(drivers.map(driver => driver.ops)).size).toBe(4)
   })
 })
 

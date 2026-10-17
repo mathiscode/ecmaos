@@ -19,6 +19,8 @@ const browser = (): AudioEnvironment => ({
 export interface AudioSessionOptions {
   /** Samples per second; default 16000, from 8000 to 48000 */
   rate?: number
+  /** Channels of the speakers, 1 or 2 (interleaved); default 1 */
+  channels?: 1 | 2
   environment?: AudioEnvironment
 }
 
@@ -100,6 +102,7 @@ const MaxAhead = 1
  */
 export async function openSpeakerSession(options: AudioSessionOptions = {}): Promise<DeviceSession> {
   const rate = rateOf(options)
+  const channels = options.channels ?? 1
   const environment = options.environment ?? browser()
   const context = environment.createContext(rate)
   const gain = context.createGain()
@@ -109,26 +112,32 @@ export async function openSpeakerSession(options: AudioSessionOptions = {}): Pro
   let closed = false
   await context.resume().catch(() => {})
   return {
-    info: { kind: 'audio-out', read: false, write: true, rate, channels: 1, format: 's16le' },
+    info: { kind: 'audio-out', read: false, write: true, rate, channels, format: 's16le' },
     async write(data) {
       if (closed) throw new SessionError('ENODEV', 'the speakers are closed')
       const joined = new Uint8Array(carry.length + data.length)
       joined.set(carry)
       joined.set(data, carry.length)
-      const whole = joined.length - (joined.length % 2)
+      const frame = 2 * channels
+      const whole = joined.length - (joined.length % frame)
       carry = joined.slice(whole)
       if (whole === 0) return
       const samples = fromPcm16(joined.subarray(0, whole))
+      const frames = samples.length / channels
       while (!closed && playAt - context.currentTime > MaxAhead) await new Promise(resolve => setTimeout(resolve, 20))
       if (closed) return
-      const buffer = context.createBuffer(1, samples.length, rate)
-      buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0)
+      const buffer = context.createBuffer(channels, frames, rate)
+      for (let channel = 0; channel < channels; channel++) {
+        const plane = new Float32Array(frames)
+        for (let index = 0; index < frames; index++) plane[index] = samples[index * channels + channel]!
+        buffer.copyToChannel(plane, channel)
+      }
       const node = context.createBufferSource()
       node.buffer = buffer
       node.connect(gain)
       playAt = Math.max(playAt, context.currentTime)
       node.start(playAt)
-      playAt += samples.length / rate
+      playAt += frames / rate
     },
     async control(op, args) {
       if (op === 'volume') {
@@ -137,7 +146,7 @@ export async function openSpeakerSession(options: AudioSessionOptions = {}): Pro
         gain.gain.value = level
         return null
       }
-      if (op === 'info') return { rate: context.sampleRate, channels: 1, format: 's16le', volume: gain.gain.value, state: context.state }
+      if (op === 'info') return { rate: context.sampleRate, channels, format: 's16le', volume: gain.gain.value, state: context.state }
       throw new SessionError('ENOSYS', `no such operation: ${op.slice(0, 32)}`)
     },
     async close() {
