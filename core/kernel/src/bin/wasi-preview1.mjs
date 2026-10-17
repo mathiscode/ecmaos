@@ -1409,6 +1409,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       utimes(path, pick(0, current?.atimeMs ?? now), pick(16, current?.mtimeMs ?? now))
     }),
+    // Sessions and groups. `setsid`/`getsid` are the kernel's; the group calls are the job-control shim's.
+    __syscall_setsid: () => guardLinux(() => syscall('proc_setsid')),
+    __syscall_getsid: (pid) => guardLinux(() => syscall('proc_getsid', pid)),
+    __syscall_setpgid: (pid, pgid) => guardLinux(() => syscall('proc_setpgid', pid, pgid)),
+    __syscall_getpgid: (pid) => guardLinux(() => syscall('proc_getpgid', pid)),
     __syscall_getuid32: () => 0,
     __syscall_geteuid32: () => 0,
     __syscall_getgid32: () => 0,
@@ -1456,6 +1461,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           return ESUCCESS
         }
         case TIOCSWINSZ: return ESUCCESS
+        // controlling terminal: the argument of TIOCSCTTY is an int (1 steals), read as the pointer's value
+        case 0x540e: return syscall('proc_ctty', 0, real, varargsPtr ? varargI(varargsPtr, 0) : 0)
+        case 0x5422: return syscall('proc_ctty', 1, real, 0)
+        case 0x5429: { dv.setInt32(ptr, syscall('proc_ctty', 2, real, 0), true); return ESUCCESS }
         default: {
           // `EVIOC*` (an input device) and `FBIO*` (a framebuffer): the kernel leaves what the device answers in the return
           // region and gives its length. A request a program sets (`FBIOPUT_VSCREENINFO`) carries the bytes it points to.

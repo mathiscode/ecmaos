@@ -5,7 +5,7 @@ import '@zenfs/linux'
 import { Process, DevTmpFS } from '@zenfs/linux'
 import { defaultContext, configure, InMemory, fs } from '@zenfs/core'
 
-import { WUNTRACED, decodeStatus, getpgid, killpg, setpgid, spawnWithFds, waitpid } from '#lib/job-control.ts'
+import { WUNTRACED, decodeStatus, dropControllingTty, getpgid, getsid, killpg, setControllingTty, setpgid, setsid, spawnWithFds, ttySession, waitpid } from '#lib/job-control.ts'
 
 /** The process half of job control: wait statuses, process groups, and a spawn that wires fds. */
 describe('job-control shim', () => {
@@ -98,5 +98,71 @@ describe('job-control shim', () => {
     expect(await waitpid(parent, child.pid, 1)).toBe(0)
     child.kill('SIGKILL')
     await waitpid(parent, child.pid, false)
+  })
+
+  describe('sessions and controlling terminals', () => {
+    const fakeTty = () => ({ foreground: undefined as Process | undefined }) as unknown as NonNullable<Process['tty']>
+
+    it('a child starts in its parent\'s session, and setsid starts a new one with no terminal', async () => {
+      const child = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {})
+      expect(getsid(child)).toBe(getsid(parent))
+      expect(setsid(child)).toBe(child.pid)
+      expect(getsid(child)).toBe(child.pid)
+      expect(getpgid(child)).toBe(child.pid)
+      expect(child.tty).toBeNull()
+      child.kill('SIGKILL')
+      await waitpid(parent, child.pid, false)
+    })
+
+    it('a process group leader with others in its group cannot setsid, and a session leader cannot again', async () => {
+      const child = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {}, { pgid: 0 })
+      const mate = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {}, { pgid: child.pid })
+      expect(() => setsid(child)).toThrow(/not permitted/)
+      mate.kill('SIGKILL')
+      await waitpid(parent, mate.pid, false)
+      // alone in its group, a leader may start a session
+      expect(setsid(child)).toBe(child.pid)
+      child.kill('SIGKILL')
+      await waitpid(parent, child.pid, false)
+
+      const leader = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {}, { setsid: true })
+      expect(getsid(leader)).toBe(leader.pid)
+      expect(() => setsid(leader)).toThrow(/not permitted/)
+      leader.kill('SIGKILL')
+      await waitpid(parent, leader.pid, false)
+    })
+
+    it('only a session leader takes a terminal, one session at a time, and it is released when the leader exits', async () => {
+      const tty = fakeTty()
+      const plain = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {})
+      expect(() => setControllingTty(plain, tty, false)).toThrow(/not permitted/)
+
+      const one = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {}, { setsid: true })
+      const worker = await spawnWithFds(one, '/hang.js', ['/hang.js'], {})
+      expect(worker.tty).toBe(parent.tty)
+      expect(setControllingTty(one, tty, false)).toBe(0)
+      expect(ttySession(tty)).toBe(one.pid)
+      expect(tty.foreground).toBe(one)
+      expect(one.tty).toBe(tty)
+
+      const two = await spawnWithFds(parent, '/hang.js', ['/hang.js'], {}, { setsid: true })
+      expect(() => setControllingTty(two, tty, false)).toThrow(/not permitted/)
+      // only root may steal one, and the session that lost it is left with none
+      expect(setControllingTty(two, tty, true)).toBe(0)
+      expect(ttySession(tty)).toBe(two.pid)
+      expect(one.tty).toBeNull()
+
+      expect(dropControllingTty(two)).toBe(0)
+      expect(ttySession(tty)).toBeUndefined()
+      expect(() => dropControllingTty(two)).toThrow(/Inappropriate/)
+
+      expect(setControllingTty(two, tty, false)).toBe(0)
+      two.kill('SIGKILL')
+      await waitpid(parent, two.pid, false)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(ttySession(tty)).toBeUndefined()
+
+      for (const proc of [plain, one, worker]) { proc.kill('SIGKILL'); await waitpid(proc.parent!, proc.pid, false) }
+    })
   })
 })

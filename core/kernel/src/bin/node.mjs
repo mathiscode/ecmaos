@@ -221,8 +221,15 @@ globalThis.ecmaosSyscalls = {
   getpgid: (pid = 0) => syscall_async('proc_getpgid', pid),
   killpg: (pgid, signal) => syscall_async('proc_killpg', pgid, signal),
   tcsetpgrp: pid => syscall_async('proc_tcsetpgrp', pid),
+  // Sessions: `setsid()` and `getsid(pid)`, and the controlling terminal of the tty `fd` is open on: `TIOCSCTTY`
+  // (`steal` takes it from another session, root only), `TIOCNOTTY`, and `TIOCGSID` (the session that holds it).
+  setsid: () => syscall_async('proc_setsid'),
+  getsid: (pid = 0) => syscall_async('proc_getsid', pid),
+  setControllingTty: (fd, steal = false) => syscall_async('proc_ctty', 0, fd, steal ? 1 : 0),
+  dropControllingTty: fd => syscall_async('proc_ctty', 1, fd, 0),
+  ttySession: fd => syscall_async('proc_ctty', 2, fd, 0),
   spawn: (command, argv, options = {}) =>
-    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, tty: options.tty, credentials: options.credentials, trace: options.trace })),
+    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, setsid: options.setsid, tty: options.tty, credentials: options.credentials, trace: options.trace })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

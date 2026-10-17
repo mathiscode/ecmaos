@@ -149,6 +149,11 @@ export function ptyIndexOf(tty: TTY | null | undefined): number | undefined {
   for (const pair of pairs.values()) if (pair.slave === tty) return pair.index
 }
 
+/** The slave tty of `/dev/pts/<index>`, or `undefined` when there is none */
+export function ptySlaveOf(index: number): TTY | undefined {
+  return pairs.get(index)?.slave
+}
+
 /** Frees every pair whose master has no descriptor left. */
 export function sweepPtys(): void {
   for (const pair of [...pairs.values()]) {

@@ -158,6 +158,45 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
+  it('a program on a pty leads its own session with the pty as its controlling terminal', async () => {
+    await kernel.filesystem.fs.writeFile('/bin/ctty-test', `
+      const s = globalThis.ecmaosSyscalls
+      const out = []
+      const note = (name, value) => out.push(name + '=' + value)
+      const attempt = async (name, fn) => { try { note(name, await fn()) } catch (error) { note(name, error.code ?? error.message) } }
+      const fd = s.open('/dev/pts/' + s.argv[1], 2)
+      await attempt('session', () => s.getsid())
+      await attempt('group', () => s.getpgid())
+      await attempt('holder', () => s.ttySession(fd))
+      await attempt('again', () => s.setsid())
+      await attempt('drop', () => s.dropControllingTty(fd))
+      await attempt('free', () => s.ttySession(fd))
+      await attempt('retake', () => s.setControllingTty(fd))
+      await attempt('held', () => s.ttySession(fd))
+      s.write(1, new TextEncoder().encode(out.join(' ') + ' pid=' + s.getpid()))
+      s.exit(0)
+    `, { mode: 0o755 })
+    const pty = createPty()
+    let seen = ''
+    const decoder = new TextDecoder()
+    pty.onData(data => { seen += decoder.decode(data) })
+    const proc = await kernel.spawnOnPty({ username: 'root', pty, command: '/bin/ctty-test', args: [`${pty.index}`] })
+    await until(() => seen.includes('pid='), 3000).catch(error => { throw new Error(`${error.message}: ${JSON.stringify(seen)} code=${proc.code}`) })
+    const fields = Object.fromEntries(seen.trim().split(/\s+/).map(part => part.split('=')))
+    const pid = Number(fields.pid)
+    expect(pid).toBe(proc.pid)
+    expect(Number(fields.session), seen).toBe(pid)
+    expect(Number(fields.group)).toBe(pid)
+    expect(Number(fields.holder)).toBe(pid)
+    expect(fields.again).toMatch(/EPERM|permitted/)
+    expect(fields.drop).toBe('0')
+    expect(fields.free).toMatch(/ENOTTY|Inappropriate/)
+    expect(fields.retake).toBe('0')
+    expect(Number(fields.held)).toBe(pid)
+    await proc.exited
+    pty.close()
+  })
+
   it('runs a #!ecmaos:bin:program file from ecmash through execve', async () => {
     await kernel.filesystem.fs.writeFile('/bin/hello-program', '#!ecmaos:bin:program:hello\nconsole.log("x")\n', { mode: 0o755 })
     const code = await kernel.runDetached({ username: 'root', command: 'hello-program', args: ['>', '/tmp/hp.out', '2>&1'] })

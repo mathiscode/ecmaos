@@ -7,6 +7,7 @@
  *
  */
 
+import { startSession } from './lib/job-control.ts'
 import { DEFAULT_UMASK, setUmask } from './lib/umask-store.ts'
 import { installSkel, type SkelFs } from './lib/skel.ts'
 import '#lib/process-shim.ts'
@@ -3310,7 +3311,7 @@ export class Kernel implements IKernel {
     this.init.adopt(proc)
     setUmask(proc, DEFAULT_UMASK)
     registerProcessKernel(proc, this)
-    options.pty.slave.foreground = proc
+    startSession(proc, options.pty.slave)
     await zenfsExecve(proc, options.command, [options.command, ...(options.args ?? [])], env)
     return proc
   }

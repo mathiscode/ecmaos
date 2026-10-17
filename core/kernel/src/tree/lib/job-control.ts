@@ -18,9 +18,13 @@ import { finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-t
 import type { Tracer } from './syscall-trace.ts'
 
 const SIGCHLD = 17
+const SIGHUP = 1
 
 /** Process group of each pid; a process with no entry is in its parent's group, as after `fork`. */
 const groups = new Map<number, number>()
+
+/** Session id of each pid; a process with no entry is in its parent's session, as after `fork`. */
+const sessionIds = new Map<number, number>()
 
 /** For each traced child: resolves once the end of its trace is written */
 const traceFinished = new Map<number, Promise<void>>()
@@ -106,6 +110,97 @@ export function shareGroupSignals(proc: Process): void {
 /** Drops a process's group entry once it has exited, so the table does not grow with every command. */
 export function forgetGroup(pid: number): void {
   groups.delete(pid)
+  // a session leader that exits gives up its terminal, so the next session leader can take it
+  releaseSessionTty(pid)
+  sessionIds.delete(pid)
+}
+
+export function getsid(proc: Process): number {
+  return sessionIds.get(proc.pid) ?? (proc.parent ? getsid(proc.parent) : proc.pid)
+}
+
+/** The terminal each session leader holds as its controlling terminal, by session id */
+const sessionTtys = new Map<number, NonNullable<Process['tty']>>()
+
+/** Which session a terminal is the controlling terminal of, if any */
+export function ttySession(tty: Process['tty'] | undefined): number | undefined {
+  if (!tty) return undefined
+  for (const [sid, held] of sessionTtys) if (held === tty) return sid
+}
+
+function releaseSessionTty(sid: number): void {
+  if (!sessionTtys.delete(sid)) return
+  // what is left of the session no longer has a controlling terminal
+  for (const proc of processes.values()) if (proc.code === undefined && getsid(proc) === sid) setTty(proc, null)
+}
+
+/** `Process.tty` is read-only to callers but is an ordinary field */
+function setTty(proc: Process, tty: Process['tty'] | null): void {
+  (proc as unknown as { tty: Process['tty'] | null }).tty = tty
+}
+
+/**
+ * `setsid(2)`: the caller becomes the leader of a new session and of a new process group, with no controlling terminal.
+ * A process group leader whose group has other members may not (`EPERM`), since the group would then span two sessions.
+ */
+export function setsid(proc: Process): number {
+  // a group the caller leads and shares with others would then span two sessions; a group of one is simply left behind
+  const leadsOthers = getpgid(proc) === proc.pid && [...processes.values()].some(peer => peer !== proc && peer.code === undefined && getpgid(peer) === proc.pid)
+  if (leadsOthers) throw fail(Errno.EPERM, 'Operation not permitted')
+  if (getsid(proc) === proc.pid && sessionIds.has(proc.pid)) throw fail(Errno.EPERM, 'Operation not permitted')
+  sessionIds.set(proc.pid, proc.pid)
+  groups.set(proc.pid, proc.pid)
+  setTty(proc, null)
+  void proc.exited.then(() => forgetGroup(proc.pid))
+  return proc.pid
+}
+
+/**
+ * `ioctl(fd, TIOCSCTTY, steal)`: a session leader with no controlling terminal takes `tty` as its own, and the terminal
+ * is in front of the leader. A terminal another session holds is refused unless root asks to steal it.
+ */
+export function setControllingTty(proc: Process, tty: NonNullable<Process['tty']>, steal: boolean): number {
+  const sid = getsid(proc)
+  if (sid !== proc.pid || !sessionIds.has(proc.pid)) throw fail(Errno.EPERM, 'Operation not permitted')
+  if (sessionTtys.has(sid)) {
+    if (sessionTtys.get(sid) === tty) return 0
+    throw fail(Errno.EPERM, 'Operation not permitted')
+  }
+  const owner = ttySession(tty)
+  if (owner !== undefined && owner !== sid) {
+    if (!steal || proc.context.credentials.euid !== 0) throw fail(Errno.EPERM, 'Operation not permitted')
+    releaseSessionTty(owner)
+  }
+  sessionTtys.set(sid, tty)
+  for (const peer of processes.values()) if (peer.code === undefined && getsid(peer) === sid) setTty(peer, tty)
+  tty.foreground = proc
+  return 0
+}
+
+/** What a terminal's first process is: leader of a new session and group, with `tty` as its controlling terminal */
+export function startSession(proc: Process, tty: NonNullable<Process['tty']>): void {
+  sessionIds.set(proc.pid, proc.pid)
+  groups.set(proc.pid, proc.pid)
+  setTty(proc, null)
+  setControllingTty(proc, tty, true)
+  void proc.exited.then(() => forgetGroup(proc.pid))
+}
+
+/**
+ * `ioctl(fd, TIOCNOTTY)`: a session leader gives its controlling terminal up. What was in front of the terminal is hung
+ * up and continued, as on Linux.
+ */
+export function dropControllingTty(proc: Process): number {
+  const sid = getsid(proc)
+  const tty = sessionTtys.get(sid)
+  if (!tty || sid !== proc.pid) throw fail(Errno.ENOTTY, 'Inappropriate ioctl for device')
+  const front = tty.foreground
+  releaseSessionTty(sid)
+  if (front && front !== proc && front.code === undefined) {
+    try { front.kill(SIGHUP) } catch { /* already gone */ }
+    try { front.kill(SIGCONT) } catch { /* already gone */ }
+  }
+  return 0
 }
 
 /** `setpgid(2)`: `pid` 0 means the caller, `pgid` 0 means the target's own pid. */
@@ -187,6 +282,11 @@ export interface SpawnOptions {
   fds?: Record<string, number>
   pgid?: number
   /**
+   * Start the child as the leader of a new session. With a `terminal` it is also given that terminal as its
+   * controlling terminal, as `login` and `getty` do.
+   */
+  setsid?: boolean
+  /**
    * Run the child as this user instead of as the caller: what `login` does for the shell it starts (callers must be
    * root)
    */
@@ -242,10 +342,17 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       child.context.descriptors.set(Number(target), handle.ref())
     }
     if (options.pgid !== undefined) groups.set(child.pid, options.pgid === 0 ? child.pid : options.pgid)
+    if (options.setsid) {
+      sessionIds.set(child.pid, child.pid)
+      groups.set(child.pid, child.pid)
+      setTty(child, null)
+      void child.exited.then(() => forgetGroup(child.pid))
+    }
     await execve(child, command, argv, env)
     if (options.terminal?.zfsTty) {
       const tty = options.terminal.zfsTty
       const previous = tty.foreground
+      if (options.setsid) setControllingTty(child, tty, true)
       tty.foreground = child
       const terminal = options.terminal
       let release: (() => void) | undefined = terminal.attachInput()
@@ -261,6 +368,8 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   } catch (error) {
     child.dispose()
     groups.delete(child.pid)
+    releaseSessionTty(child.pid)
+    sessionIds.delete(child.pid)
     if (tracer) untraceProcess(child.pid)
     throw error
   }

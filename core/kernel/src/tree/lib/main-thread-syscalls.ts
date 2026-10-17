@@ -27,13 +27,13 @@ import { manageShare, type ShareRequest } from './remote-share.ts'
 import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
-import { installPtys, ptyIndexOf } from './pty.ts'
+import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
 import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
-import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
+import { dropControllingTty, getpgid, getsid, killpg, mayKill, setControllingTty, setpgid, setsid, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import { umaskOf, setUmask } from './umask-store.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
@@ -99,6 +99,9 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_getpgid(pid: number): number
     proc_killpg(pgid: number, signal: number): number
     proc_tcsetpgrp(pid: number): number
+    proc_setsid(): number
+    proc_getsid(pid: number): number
+    proc_ctty(op: number, fd: number, arg: number): number
     proc_wait(pid: number): number
     proc_kill(pid: number, signal: number): number
     fs_utimes(path: string, atime: number, mtime: number, noFollow?: number): number
@@ -1712,7 +1715,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, setsid?: boolean, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
     const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     // Starting a program as someone else is `setuid` and `exec` in one: only a root process may, and it
@@ -1731,7 +1734,7 @@ export function installMainThreadSyscalls(): void {
       const { fd, ...traceOptions } = options.trace
       trace = createTracer(traceOptions, traceSink(proc, fd))
     }
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, terminal, credentials, trace })
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, setsid: options.setsid, terminal, credentials, trace })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.
@@ -1777,6 +1780,32 @@ export function installMainThreadSyscalls(): void {
     if (!proc.tty || !target) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
     proc.tty.foreground = target
     return 0
+  })
+  // Sessions: `setsid(2)`, `getsid(2)` and the controlling-terminal ioctls. `proc_ctty` takes 0 for `TIOCSCTTY` (arg 1
+  // steals), 1 for `TIOCNOTTY` and 2 for `TIOCGSID`; the terminal is the one `fd` is open on.
+  define_syscall('proc_setsid', (proc: Process) => setsid(proc))
+  define_syscall('proc_getsid', (proc: Process, pid: number) => {
+    const target = pid === 0 ? proc : processes.get(pid)
+    if (!target || target.code !== undefined) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    return getsid(target)
+  })
+  define_syscall('proc_ctty', (proc: Process, op: number, fd: number, arg: number) => {
+    const kernel = kernelOf(proc)
+    const handle = proc.context.descriptors.get(fd) as unknown as { path?: string, internalPath?: string } | undefined
+    if (!handle) throw Object.assign(new Error('Bad file descriptor'), { errno: Errno.EBADF })
+    const path = handle.path ?? handle.internalPath ?? ''
+    const pts = /^(?:\/dev)?\/pts\/(\d+)$/.exec(path)
+    const numbered = /^(?:\/dev)?\/tty(\d+)$/.exec(path)
+    const tty = pts ? ptySlaveOf(Number(pts[1]))
+      : numbered ? kernel.shells.get(Number(numbered[1]))?.terminal.zfsTty
+      : /^(?:\/dev)?\/(?:tty|console)$/.test(path) ? proc.tty ?? undefined
+      : undefined
+    if (!tty) throw Object.assign(new Error('Inappropriate ioctl for device'), { errno: Errno.ENOTTY })
+    if (op === 0) return setControllingTty(proc, tty, arg !== 0)
+    if (op === 1) return dropControllingTty(proc)
+    const sid = ttySession(tty)
+    if (sid === undefined) throw Object.assign(new Error('Inappropriate ioctl for device'), { errno: Errno.ENOTTY })
+    return sid
   })
   define_syscall('proc_killpg', (proc: Process, pgid: number, signal: number) => { killpg(pgid, signal, proc); return 0 })
 
