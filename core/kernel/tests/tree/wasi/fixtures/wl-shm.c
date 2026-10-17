@@ -40,7 +40,7 @@ static void finish(int fd) {
 
 static uint8_t in[65536];
 static size_t inn;
-static uint32_t shm_name, comp_name, wm_name;
+static uint32_t shm_name, comp_name, wm_name, seat_name;
 static int configured, got_sync, frame_done, closed, error_seen;
 static uint32_t config_serial, sync_id = 3, frame_id;
 
@@ -52,6 +52,7 @@ static void handle(uint32_t id, uint32_t op, const uint8_t *p, size_t len) {
     if (!strcmp(iface, "wl_shm")) shm_name = name;
     if (!strcmp(iface, "wl_compositor")) comp_name = name;
     if (!strcmp(iface, "xdg_wm_base")) wm_name = name;
+    if (!strcmp(iface, "wl_seat")) seat_name = name;
     printf("global %u %s\n", name, iface);
   }
   else if (id == sync_id && op == 0) got_sync = 1;
@@ -59,6 +60,25 @@ static void handle(uint32_t id, uint32_t op, const uint8_t *p, size_t len) {
   else if (id == 8 && op == 0) { memcpy(&config_serial, p, 4); configured = 1; }
   else if (id == 9 && op == 1) closed = 1;
   else if (id == frame_id && frame_id && op == 0) frame_done = 1;
+  else if (id == 61) {   /* wl_pointer */
+    int32_t a, b, c, d;
+    uint32_t u0, u1, u2;
+    if (op == 0) { memcpy(&u0, p, 4); memcpy(&u1, p + 4, 4); memcpy(&a, p + 8, 4); memcpy(&b, p + 12, 4); printf("pointer enter surface=%u %d %d\n", u1, a / 256, b / 256); }
+    else if (op == 1) printf("pointer leave\n");
+    else if (op == 2) { memcpy(&a, p + 4, 4); memcpy(&b, p + 8, 4); printf("pointer motion %d %d\n", a / 256, b / 256); }
+    else if (op == 3) { memcpy(&u1, p + 8, 4); memcpy(&u2, p + 12, 4); printf("pointer button %u %u\n", u1, u2); }
+    else if (op == 4) { memcpy(&u1, p + 4, 4); memcpy(&c, p + 8, 4); printf("pointer axis %u %d\n", u1, c / 256); }
+    (void)d;
+  }
+  else if (id == 62) {   /* wl_keyboard */
+    uint32_t u1, u2, u3;
+    if (op == 0) { memcpy(&u1, p, 4); memcpy(&u2, p + 4, 4); printf("keyboard keymap format=%u size=%u\n", u1, u2); }
+    else if (op == 1) { memcpy(&u1, p + 8, 4); printf("keyboard enter keys=%u\n", u1 / 4); }
+    else if (op == 2) printf("keyboard leave\n");
+    else if (op == 3) { memcpy(&u1, p + 8, 4); memcpy(&u2, p + 12, 4); printf("keyboard key %u %u\n", u1, u2); }
+    else if (op == 4) { memcpy(&u1, p + 4, 4); memcpy(&u2, p + 8, 4); memcpy(&u3, p + 12, 4); printf("keyboard modifiers %u %u %u\n", u1, u2, u3); }
+    fflush(stdout);
+  }
   (void)len;
 }
 
@@ -85,6 +105,7 @@ static void roundtrip(void) { sync_id++; got_sync = 0; begin(1, 0); u32(sync_id)
 int main(int argc, char **argv) {
   int frames = argc > 1 ? atoi(argv[1]) : 3;
   int w = argc > 2 ? atoi(argv[2]) : 160, h = argc > 3 ? atoi(argv[3]) : 100;
+  setvbuf(stdout, NULL, _IOLBF, 0);
   int hold = argc > 4 ? atoi(argv[4]) : 0;
   const char *dir = getenv("XDG_RUNTIME_DIR"), *name = getenv("WAYLAND_DISPLAY");
   if (!dir || !name) { printf("no XDG_RUNTIME_DIR or WAYLAND_DISPLAY\n"); return 1; }
@@ -100,6 +121,11 @@ int main(int argc, char **argv) {
   begin(2, 0); u32(comp_name); str("wl_compositor"); u32(4); u32(4); finish(-1);   /* compositor = 4 */
   begin(2, 0); u32(shm_name); str("wl_shm"); u32(1); u32(5); finish(-1);           /* shm = 5 */
   begin(2, 0); u32(wm_name); str("xdg_wm_base"); u32(2); u32(6); finish(-1);       /* wm_base = 6 */
+  if (seat_name) {
+    begin(2, 0); u32(seat_name); str("wl_seat"); u32(5); u32(60); finish(-1);   /* seat = 60 */
+    begin(60, 0); u32(61); finish(-1);        /* pointer = 61 */
+    begin(60, 1); u32(62); finish(-1);        /* keyboard = 62 */
+  }
   begin(4, 0); u32(7); finish(-1);          /* surface = 7 */
   begin(6, 2); u32(8); u32(7); finish(-1);  /* xdg_surface = 8 */
   begin(8, 1); u32(9); finish(-1);          /* toplevel = 9 */
@@ -125,7 +151,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < frames; i++) {
     for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
       px[y * w + x] = (uint32_t)(((x * 255 / w) << 16) | ((y * 255 / h) << 8) | ((i * 60) & 255));
-    frame_id = 12 + (uint32_t)i;
+    frame_id = 100 + (uint32_t)i;
     frame_done = 0;
     begin(7, 1); u32(11); u32(0); u32(0); finish(-1);      /* attach */
     begin(7, 3); u32(frame_id); finish(-1);               /* frame */

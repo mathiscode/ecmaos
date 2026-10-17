@@ -242,7 +242,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     stream.onMessage = value => {
       if (!value || typeof value !== 'object' || value instanceof Uint8Array || Array.isArray(value)) return
       const t = value['t']
-      if (t === 'close-request' || t === 'focused' || t === 'changed' || t === 'call') attached.message(value as unknown as ToKernel)
+      if (t === 'close-request' || t === 'focused' || t === 'changed' || t === 'call' || t === 'input') attached.message(value as unknown as ToKernel)
     }
     log(`${user} attached a display`)
     void channel.done.then(() => { attached.detach(); log(`${user}'s display went away`) })

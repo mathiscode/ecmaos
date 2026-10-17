@@ -7,6 +7,7 @@
  *
  */
 
+import { dynamicMinor } from '#lib/dynamic-minors.ts'
 import { startSession } from './lib/job-control.ts'
 import { DEFAULT_UMASK, setUmask } from './lib/umask-store.ts'
 import { installSkel, type SkelFs } from './lib/skel.ts'
@@ -2333,7 +2334,11 @@ export class Kernel implements IKernel {
       const requestedMajor = typeof key === 'number' ? key : 0
       const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
         const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
-        if (!entry) throw new Error(`No device registered at minor ${file.devt.minor}`)
+        if (!entry) {
+          const made = dynamicMinor(file.devt.major, file.devt.minor)
+          if (made) return made
+          throw new Error(`No device registered at minor ${file.devt.minor}`)
+        }
 
         // Manifest `devices` enforcement; see `lib/syscall-policy.ts`. `current` is the calling process. No manifest,
         // or no `devices` list, is unrestricted.

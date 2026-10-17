@@ -6,6 +6,7 @@
 
 import type { AppLaunch, ToDisplay, ToKernel, WindowContent, WindowHandle, WindowId, Windows } from '@ecmaos/types'
 
+import { attachCanvasInput } from './canvas-input.ts'
 import { frameDocument } from './display-sandbox.ts'
 import './display-sandbox/relay.js'
 
@@ -138,7 +139,7 @@ export class ScreenView {
   }
 
   private _content(id: WindowId, shown: Shown, content: WindowContent) {
-    if ('pixels' in content) return this._pixels(shown, content.pixels)
+    if ('pixels' in content) return this._pixels(id, shown, content.pixels)
     shown.canvas = undefined
     shown.app?.dispose()
     shown.app = undefined
@@ -166,7 +167,7 @@ export class ScreenView {
   }
 
   /** A frame replaces what the canvas shows; the canvas is made once, so frames do not rebuild the window */
-  private _pixels(shown: Shown, pixels: { width: number, height: number, data: string }) {
+  private _pixels(id: WindowId, shown: Shown, pixels: { width: number, height: number, data: string }) {
     shown.app?.dispose()
     shown.app = undefined
     if (!shown.canvas?.isConnected) {
@@ -174,6 +175,7 @@ export class ScreenView {
       canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
       shown.handle.mount(canvas)
       shown.canvas = canvas
+      attachCanvasInput(canvas, input => this._send({ t: 'input', id, input }))
     }
     const canvas = shown.canvas
     if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height }

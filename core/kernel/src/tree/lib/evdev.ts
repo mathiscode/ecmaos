@@ -5,14 +5,16 @@
  * nobody reads is dropped from the oldest end instead of growing without bound.
  */
 
-import { Class, EPOLLIN, EPOLLOUT, syscalls, thread_of, WaitQueue } from '@zenfs/linux'
+import { Class, Device, EPOLLIN, EPOLLOUT, syscalls, thread_of, WaitQueue } from '@zenfs/linux'
 import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
 import { ioctlSync } from '@zenfs/core/vfs/ioctl'
 import { withErrno } from 'kerium'
-import type { KernelCharDevice, KernelDevice } from '@ecmaos/types'
+import { registerMinor } from './dynamic-minors.ts'
+import type { KernelCharDevice, KernelDevice, WindowInput } from '@ecmaos/types'
 
 export const EV_SYN = 0, EV_KEY = 1, EV_REL = 2, EV_ABS = 3, EV_MSC = 4
 export const SYN_REPORT = 0
+export const ABS_X = 0, ABS_Y = 1
 export const REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8
 export const BTN_LEFT = 0x110, BTN_RIGHT = 0x111, BTN_MIDDLE = 0x112, BTN_SIDE = 0x113, BTN_EXTRA = 0x114
 export const EventSize = 24
@@ -80,6 +82,8 @@ interface DeviceSpec {
   codes: Record<number, number[]>
   /** `input_id`: bus (0x06 is virtual), vendor, product, version */
   id: [number, number, number, number]
+  /** The largest value of each absolute axis (`EVIOCGABS`), for a device that has them */
+  abs?: Record<number, number>
 }
 
 const keyboardCodes = [...new Set(Object.values(KeyCodes))].sort((a, b) => a - b)
@@ -88,6 +92,31 @@ export const Devices: readonly DeviceSpec[] = [
   { name: 'ecmaOS keyboard', minor: KeyboardMinor, types: [EV_SYN, EV_KEY, EV_MSC], codes: { [EV_SYN]: [SYN_REPORT], [EV_KEY]: keyboardCodes, [EV_MSC]: [] }, id: [0x06, 0x0ec3, 0x0001, 1] },
   { name: 'ecmaOS pointer', minor: PointerMinor, types: [EV_SYN, EV_KEY, EV_REL], codes: { [EV_SYN]: [SYN_REPORT], [EV_KEY]: Object.values(MouseButtons), [EV_REL]: [REL_X, REL_Y, REL_HWHEEL, REL_WHEEL] }, id: [0x06, 0x0ec3, 0x0002, 1] }
 ]
+
+/**
+ * A pixel window's own input device, `/dev/input/event<2+N>` for framebuffer N (minor 66+N): the pointer as absolute
+ * position in the window's pixels (`ABS_X`, `ABS_Y`), buttons, wheel and keys, only while the window has them. Two
+ * private `EV_MSC` codes mark focus: `MSC_POINTER_ENTER` (1 when the pointer enters the window, 0 when it leaves) and
+ * `MSC_KEYBOARD_FOCUS` (1 and 0 for gaining and losing the keyboard).
+ */
+export const WindowInputMinor = 66
+export const MSC_POINTER_ENTER = 0x100, MSC_KEYBOARD_FOCUS = 0x101
+const windowSpecs = new Map<number, DeviceSpec>()
+
+const windowDeviceSpec = (index: number, width: number, height: number): DeviceSpec => ({
+  name: `ecmaOS window ${index}`,
+  minor: WindowInputMinor + index,
+  types: [EV_SYN, EV_KEY, EV_REL, EV_ABS, EV_MSC],
+  codes: {
+    [EV_SYN]: [SYN_REPORT],
+    [EV_KEY]: [...keyboardCodes, ...Object.values(MouseButtons)].sort((a, b) => a - b),
+    [EV_REL]: [REL_HWHEEL, REL_WHEEL],
+    [EV_ABS]: [ABS_X, ABS_Y],
+    [EV_MSC]: [MSC_POINTER_ENTER, MSC_KEYBOARD_FOCUS]
+  },
+  id: [0x06, 0x0ec3, 0x0003, 1],
+  abs: { [ABS_X]: Math.max(width - 1, 0), [ABS_Y]: Math.max(height - 1, 0) }
+})
 
 /** The most events a node keeps for a reader that is slow; the oldest go first */
 const QueueLimit = 1024
@@ -140,6 +169,32 @@ export class InputHub {
     }
     while (client.events.length > QueueLimit) client.events.shift()
     client.queue.wake_up()
+  }
+
+  /** What happened inside a pixel window, as the events of its own device */
+  window(minor: number, input: WindowInput, now?: number) {
+    switch (input.k) {
+      case 'key': {
+        const key = KeyCodes[input.code]
+        if (key !== undefined) this.emit(minor, [[EV_KEY, key, input.down ? (input.repeat ? 2 : 1) : 0]], now)
+        return
+      }
+      case 'pointer': this.emit(minor, [[EV_ABS, ABS_X, Math.round(input.x)], [EV_ABS, ABS_Y, Math.round(input.y)]], now); return
+      case 'button': {
+        const code = MouseButtons[input.button]
+        if (code !== undefined) this.emit(minor, [[EV_KEY, code, input.down ? 1 : 0]], now)
+        return
+      }
+      case 'wheel': {
+        const events: [number, number, number][] = []
+        if (Math.trunc(input.dy)) events.push([EV_REL, REL_WHEEL, Math.trunc(input.dy)])
+        if (Math.trunc(input.dx)) events.push([EV_REL, REL_HWHEEL, Math.trunc(input.dx)])
+        if (events.length) this.emit(minor, events, now)
+        return
+      }
+      case 'enter': case 'leave': this.emit(minor, [[EV_MSC, MSC_POINTER_ENTER, input.k === 'enter' ? 1 : 0]], now); return
+      case 'focus': case 'blur': this.emit(minor, [[EV_MSC, MSC_KEYBOARD_FOCUS, input.k === 'focus' ? 1 : 0]], now)
+    }
   }
 
   /** A key went down (`value` 1), up (0) or repeated (2). Returns whether the key has a Linux code. */
@@ -257,6 +312,13 @@ export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Ui
     const down = new Set(hub.down)
     return bits(spec.minor === KeyboardMinor ? [...down] : [], size)
   }
+  if (number >= 0x40 && number < 0x80 && direction === IOC_READ && spec.abs) { // EVIOCGABS(abs): struct input_absinfo
+    const max = spec.abs[number - 0x40]
+    if (max === undefined) return undefined
+    const out = new Uint8Array(Math.min(size, 24))
+    new DataView(out.buffer).setInt32(8, max, true) // value, minimum, maximum, fuzz, flat, resolution
+    return out
+  }
   if (number >= 0x20 && number < 0x40 && direction === IOC_READ) { // EVIOCGBIT(ev, len)
     const ev = number - 0x20
     if (ev === 0) return bits(spec.types, size)
@@ -269,7 +331,7 @@ export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Ui
 // - node ----------------------------------------------------------------------------------------------
 
 function nodeOperations(hub: InputHub): FileOperations {
-  const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor)
+  const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor) ?? windowSpecs.get(file.devt.minor)
   return {
     open: file => { hub.open(file.devt.minor) },
     release: file => { hub.release(file.devt.minor) },
@@ -322,6 +384,22 @@ export function installEvdevIoctl() {
 }
 
 const input_class = new Class('input')
+
+/**
+ * Makes the input device of pixel window `index` (`/dev/input/event<2+index>`). Returns the minor, the hub's events for it
+ * and the function that removes the node.
+ */
+export function registerWindowInput(index: number, width: number, height: number): { minor: number, remove: () => void } {
+  const spec = windowDeviceSpec(index, width, height)
+  windowSpecs.set(spec.minor, spec)
+  let device: Device | undefined
+  try {
+    device = new Device({ name: `input!event${2 + index}`, class: input_class, dev_t: { major: InputMajor, minor: spec.minor } })
+    device.register()
+  } catch { device = undefined /* no input major here (a kernel without devices) */ }
+  const forget = registerMinor(InputMajor, spec.minor, nodeOperations(inputHub))
+  return { minor: spec.minor, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.release(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
+}
 
 export const EvdevDevice: KernelDevice = {
   pkg: { name: 'input', version: '0.1.0', description: 'Linux input event devices (/dev/input/event*)' },

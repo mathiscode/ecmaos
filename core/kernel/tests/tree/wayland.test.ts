@@ -50,6 +50,21 @@ describe('the Wayland compositor', () => {
     expect(pixel(0, 0)).toEqual([120, 0, 0])
     expect(pixel(39, 19)).toEqual([120, Math.floor(19 * 255 / 20), Math.floor(39 * 255 / 40)])
 
+    // what the user does in the window reaches the client as pointer and keyboard events
+    const id = kernel.windows.list().find(w => w.title === 'wl-shm')!.id
+    expect(out).toContain('keyboard keymap format=1')
+    for (const input of [
+      { k: 'pointer', x: 12, y: 7 }, { k: 'enter' }, { k: 'pointer', x: 13, y: 8 }, { k: 'button', button: 0, down: true }, { k: 'button', button: 0, down: false },
+      { k: 'wheel', dx: 0, dy: 1 }, { k: 'focus' }, { k: 'key', code: 'ShiftLeft', down: true }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'blur' }, { k: 'leave' }
+    ] as const) kernel.windows.reportInput(id, input)
+    await until(async () => (await read('/tmp/wl-shm.out')).includes('pointer leave'))
+    const events = (await read('/tmp/wl-shm.out')).split('\n').filter(line => /^(pointer|keyboard) /.test(line) && !line.includes('keymap'))
+    expect(events).toEqual([
+      'pointer enter surface=7 12 7', 'pointer motion 13 8',
+      'pointer button 272 1', 'pointer button 272 0', 'pointer axis 0 -10',
+      'keyboard enter keys=0', 'keyboard key 42 1', 'keyboard modifiers 1 0 0', 'keyboard key 30 1', 'keyboard key 30 0', 'keyboard leave', 'pointer leave'
+    ])
+
     // closing the window tells the client, which then ends
     kernel.windows.close(kernel.windows.list().find(w => w.title === 'wl-shm')!.id, true)
     expect(await client).toBe(0)

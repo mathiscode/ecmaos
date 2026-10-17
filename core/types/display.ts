@@ -4,7 +4,7 @@
  * host several. Messages are JSON, one per WebSocket text frame.
  */
 
-import type { WindowGeometry, WindowId, WindowRenderer, WindowState } from './windows.ts'
+import type { WindowGeometry, WindowId, WindowInput, WindowRenderer, WindowState } from './windows.ts'
 
 /** An app to run inside a window's sandbox (see `AppSdk`): its code, and what it is told about the process that started it */
 export interface AppLaunch {
@@ -44,6 +44,8 @@ export type ToKernel =
   | { t: 'close-request', id: WindowId }
   | { t: 'changed', id: WindowId, state?: WindowState, geometry?: WindowGeometry, title?: string }
   | { t: 'focused', id: WindowId }
+  /** The user did something inside a pixel window */
+  | { t: 'input', id: WindowId, input: WindowInput }
   /** An app in the window's sandbox asks the kernel to do something for it (see `AppSdk`); bytes travel as `{ $bytes: base64 }` */
   | { t: 'call', id: WindowId, call: number, op: string, args: unknown[] }
 

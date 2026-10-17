@@ -6,6 +6,7 @@ import type {
   WindowHandle,
   WindowId,
   WindowInfo,
+  WindowInput,
   WindowInsets,
   WindowOptions,
   WindowOwner,
@@ -55,6 +56,7 @@ export class WindowServer implements Windows {
   private _workspace = 0
   private _workspaceListeners: Set<(workspace: number, count: number) => void> = new Set()
   private _renderers: WindowRenderer[] = []
+  private _inputListeners: Map<WindowId, Set<(input: WindowInput) => void>> = new Map()
   private _entries: Map<WindowId, Entry> = new Map()
   /** Bottom to top; the last id is focused */
   private _order: WindowId[] = []
@@ -76,6 +78,7 @@ export class WindowServer implements Windows {
       this._emit('update', entry)
     },
     focused: id => this._raise(id),
+    input: (id, input) => { for (const listener of this._inputListeners.get(id) ?? []) listener(input) },
     call: async (id, op, args) => {
       const handler = this._entries.get(id)?.onCall
       if (!handler) throw fail(`nothing in window ${id} answers calls`, Errno.ENOSYS)
@@ -263,6 +266,15 @@ export class WindowServer implements Windows {
     }
   }
 
+  reportInput(id: WindowId, input: WindowInput) { this._reports.input(id, input) }
+
+  onInput(id: WindowId, listener: (input: WindowInput) => void) {
+    let set = this._inputListeners.get(id)
+    if (!set) this._inputListeners.set(id, set = new Set())
+    set.add(listener)
+    return () => { set.delete(listener) }
+  }
+
   on(event: WindowEvent, listener: (info: WindowInfo) => void) {
     this._listeners[event].add(listener)
     return () => { this._listeners[event].delete(listener) }
@@ -275,6 +287,7 @@ export class WindowServer implements Windows {
     if (!force && entry.options.onclose?.(force) === true) return false
 
     this._entries.delete(id)
+    this._inputListeners.delete(id)
     this._order = this._order.filter(other => other !== id)
     entry.info.focused = false
     this._emit('close', entry)

@@ -137,8 +137,21 @@ export interface WindowRenderer {
   minimizeModeChanged?(mode: MinimizeMode): void
 }
 
+/**
+ * What the user did inside a window that draws pixels (a framebuffer window). Positions are in the window's own pixels.
+ * `focus` and `blur` are keyboard focus; `enter` and `leave` are the pointer.
+ */
+export type WindowInput =
+  | { k: 'key', code: string, down: boolean, repeat?: boolean }
+  | { k: 'pointer', x: number, y: number }
+  | { k: 'button', button: number, down: boolean }
+  | { k: 'wheel', dx: number, dy: number }
+  | { k: 'enter' | 'leave' | 'focus' | 'blur' }
+
 /** Callbacks a renderer uses to report what happened to a window */
 export interface WindowReports {
+  /** The user did something inside a pixel window */
+  input(id: WindowId, input: WindowInput): void
   /** The user asked to close; the server may veto. Returns whether the window was closed */
   closeRequested(id: WindowId, force?: boolean): boolean
   /** Reports state, geometry or title changes made by the user */
@@ -206,6 +219,12 @@ export interface Windows {
 
   /** Raise and focus a window */
   focus(id: WindowId): void
+
+  /** Reports what the user did inside a pixel window drawn with the DOM (other renderers use `WindowReports.input`) */
+  reportInput(id: WindowId, input: WindowInput): void
+
+  /** Calls `listener` with what the user does inside a pixel window; returns the function that stops it */
+  onInput(id: WindowId, listener: (input: WindowInput) => void): () => void
 
   /** Change a window's title, geometry or state */
   update(id: WindowId, patch: Partial<Pick<WindowInfo, 'state' | 'title'>> & Partial<WindowGeometry>): void

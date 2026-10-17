@@ -42,6 +42,33 @@ ${relayScript}
     document.querySelectorAll('#content, #text, #pixels').forEach(node => node.remove())
   }
 
+  // What the user does on a framebuffer's canvas goes to the machine (see lib/canvas-input.ts, which this repeats)
+  const attachInput = canvas => {
+    const emit = input => { if (id !== null) send({ t: 'input', id, input }) }
+    canvas.tabIndex = 0
+    canvas.style.outline = 'none'
+    const position = event => {
+      const rect = canvas.getBoundingClientRect()
+      const scale = Math.min(rect.width / canvas.width, rect.height / canvas.height) || 1
+      const left = rect.left + (rect.width - canvas.width * scale) / 2
+      const top = rect.top + (rect.height - canvas.height * scale) / 2
+      return { k: 'pointer', x: Math.min(Math.max((event.clientX - left) / scale, 0), canvas.width - 1), y: Math.min(Math.max((event.clientY - top) / scale, 0), canvas.height - 1) }
+    }
+    const key = down => event => { emit({ k: 'key', code: event.code, down, repeat: event.repeat }); event.preventDefault() }
+    const on = (name, listener) => canvas.addEventListener(name, listener)
+    on('mouseenter', event => { emit(position(event)); emit({ k: 'enter' }) })
+    on('mouseleave', () => emit({ k: 'leave' }))
+    on('mousemove', event => emit(position(event)))
+    on('mousedown', event => { canvas.focus(); emit(position(event)); emit({ k: 'button', button: event.button, down: true }) })
+    on('mouseup', event => emit({ k: 'button', button: event.button, down: false }))
+    on('wheel', event => { emit({ k: 'wheel', dx: Math.sign(event.deltaX), dy: -Math.sign(event.deltaY) }); event.preventDefault() })
+    on('contextmenu', event => event.preventDefault())
+    on('keydown', key(true))
+    on('keyup', key(false))
+    on('focus', () => emit({ k: 'focus' }))
+    on('blur', () => emit({ k: 'blur' }))
+  }
+
   // A framebuffer's frame replaces what its canvas shows; the canvas is made once, so frames do not rebuild the page
   const drawPixels = pixels => {
     let canvas = document.getElementById('pixels')
@@ -50,6 +77,7 @@ ${relayScript}
       canvas = document.createElement('canvas')
       canvas.id = 'pixels'
       document.body.append(canvas)
+      attachInput(canvas)
     }
     if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height }
     const context = canvas.getContext('2d')

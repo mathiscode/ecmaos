@@ -31,7 +31,7 @@
 
 enum type {
   T_NONE, T_DISPLAY, T_REGISTRY, T_CALLBACK, T_COMPOSITOR, T_REGION, T_SHM, T_POOL, T_BUFFER, T_SURFACE,
-  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT
+  T_WMBASE, T_XSURFACE, T_TOPLEVEL, T_POSITIONER, T_OUTPUT, T_SEAT, T_POINTER, T_KEYBOARD
 };
 
 enum global { G_COMPOSITOR = 1, G_SHM, G_WMBASE, G_OUTPUT, G_SEAT };
@@ -46,6 +46,7 @@ struct window {
   int fd;
   int pid;         /* of the fbwin that owns the window */
   uint32_t width, height;
+  int input;       /* the window's evdev node, or -1 */
 };
 
 struct surface {
@@ -62,6 +63,15 @@ struct surface {
   uint32_t serial;
   char title[128];
   struct window win;
+  /* input state */
+  int pointer_in, keyboard_in;
+  int px, py, moved;                 /* pointer, in window pixels */
+  uint8_t down[96];                  /* keys held, as a bit set over Linux key codes (0..767 is too wide; 0..255 used) */
+  uint32_t mods_depressed, mods_locked;
+  struct { uint16_t type, code; int32_t value; } batch[16];
+  int nbatch;
+  unsigned char pending[24];
+  int npending;
 };
 
 struct obj { uint8_t type, version; void *data; };
@@ -74,6 +84,7 @@ struct client {
   size_t inlen;
   struct obj objs[MAX_OBJECTS];
   int alive;
+  uint32_t pointer, keyboard;   /* the wl_pointer and wl_keyboard objects, 0 if none */
 };
 
 struct due { struct client *client; uint32_t id; };
@@ -81,6 +92,7 @@ struct due { struct client *client; uint32_t id; };
 static struct client *clients[MAX_CLIENTS];
 static struct due due[256];
 static int ndue;
+static struct surface *wins[64];
 static uint32_t serial_counter = 1;
 static int debug;
 #define LOG(...) do { if (debug) { fprintf(stderr, "wlcomp: " __VA_ARGS__); fputc(10, stderr); } } while (0)
@@ -117,12 +129,27 @@ static void m_array(struct msg *m, const void *p, uint32_t len) {
   memset(m->b + m->n + len, 0, ((len + 3) & ~3u) - len);
   m->n += (len + 3) & ~3u;
 }
+static int send_fd = -1;
 static void m_send(struct client *c, struct msg *m) {
   uint32_t head = (uint32_t)(m->n << 16) | (m->b[4] | (m->b[5] << 8));
   memcpy(m->b + 4, &head, 4);
   size_t at = 0;
   while (at < m->n && c->alive) {
-    ssize_t w = send(c->fd, m->b + at, m->n - at, 0);
+    ssize_t w;
+    if (send_fd >= 0 && at == 0) {
+      char control[CMSG_SPACE(sizeof(int))];
+      struct iovec io = { m->b, m->n };
+      struct msghdr mh;
+      memset(&mh, 0, sizeof mh);
+      memset(control, 0, sizeof control);
+      mh.msg_iov = &io; mh.msg_iovlen = 1;
+      mh.msg_control = control; mh.msg_controllen = sizeof control;
+      struct cmsghdr *ch = CMSG_FIRSTHDR(&mh);
+      ch->cmsg_level = SOL_SOCKET; ch->cmsg_type = SCM_RIGHTS; ch->cmsg_len = CMSG_LEN(sizeof(int));
+      memcpy(CMSG_DATA(ch), &send_fd, sizeof(int));
+      w = sendmsg(c->fd, &mh, 0);
+      send_fd = -1;
+    } else w = send(c->fd, m->b + at, m->n - at, 0);
     if (w < 0) {
       if (errno == EAGAIN || errno == EINTR) { usleep(1000); continue; }
       c->alive = 0;
@@ -181,6 +208,8 @@ static void pool_unref(struct pool *p) {
 
 static void window_close(struct window *w) {
   if (w->index < 0) return;
+  for (int i = 0; i < 64; i++) if (wins[i] && &wins[i]->win == w) wins[i] = NULL;
+  if (w->input >= 0) { close(w->input); w->input = -1; }
   if (w->fd >= 0) close(w->fd);
   if (w->pid > 0) {
     char cmd[64];
@@ -238,6 +267,10 @@ static int window_open(struct surface *s, uint32_t width, uint32_t height) {
   snprintf(path, sizeof path, "/dev/fb%d", index);
   int fd = open(path, O_RDWR);
   if (fd < 0) return -1;
+  char inpath[48];
+  snprintf(inpath, sizeof inpath, "/dev/input/event%d", 2 + index);
+  s->win.input = open(inpath, O_RDONLY | O_NONBLOCK);
+  for (int i = 0; i < 64; i++) if (!wins[i]) { wins[i] = s; break; }
   s->win.index = index;
   s->win.fd = fd;
   s->win.pid = pid;
@@ -382,7 +415,7 @@ static void on_registry(struct client *c, uint32_t opcode, struct rd *r) {
       ev(c, id, 1, "uiii", 1u, screen_w, screen_h, 60000);
       if (v >= 2) { ev(c, id, 3, "i", 1); ev(c, id, 2, ""); }
     }
-    if (table[i].t == T_SEAT) { ev(c, id, 0, "u", 0u); if (v >= 2) ev(c, id, 1, "s", "seat0"); }
+    if (table[i].t == T_SEAT) { ev(c, id, 0, "u", 3u); if (v >= 2) ev(c, id, 1, "s", "seat0"); }
     return;
   }
   fatal(c, 2, 0, "no such global");
@@ -398,6 +431,7 @@ static void on_compositor(struct client *c, uint32_t opcode, struct rd *r) {
     s->id = id;
     s->win.index = -1;
     s->win.fd = -1;
+    s->win.input = -1;
     obj_set(c, id, T_SURFACE, 4, s);
   } else if (opcode == 1) obj_set(c, id, T_REGION, 1, NULL);
 }
@@ -523,6 +557,23 @@ static void on_toplevel(struct client *c, uint32_t self, uint32_t opcode, struct
   }
 }
 
+static void send_keymap(struct client *c, uint32_t id);
+
+static void on_seat(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  uint32_t id = r_u32(r);
+  if (opcode == 3) { obj_free(c, self); return; }
+  if (r->bad) return;
+  uint32_t v = c->objs[self].version;
+  if (opcode == 0) {
+    c->pointer = id;
+    obj_set(c, id, T_POINTER, (int)v, NULL);
+  } else if (opcode == 1) {
+    c->keyboard = id;
+    obj_set(c, id, T_KEYBOARD, (int)v, NULL);
+    send_keymap(c, id);
+  } else fatal(c, self, 0, "no touch");
+}
+
 static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *r) {
   struct obj *o = obj_get(c, id);
   if (id == 1) { on_display(c, opcode, r); return; }
@@ -540,8 +591,133 @@ static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *
     case T_TOPLEVEL: on_toplevel(c, id, opcode, r); break;
     case T_POSITIONER: if (opcode == 0) obj_free(c, id); break;
     case T_OUTPUT: if (opcode == 0) obj_free(c, id); break;
-    case T_SEAT: break;
+    case T_SEAT: on_seat(c, id, opcode, r); break;
+    case T_POINTER: if (opcode == 1) { if (c->pointer == id) c->pointer = 0; obj_free(c, id); } break;
+    case T_KEYBOARD: if (opcode == 0) { if (c->keyboard == id) c->keyboard = 0; obj_free(c, id); } break;
     default: break;
+  }
+}
+
+
+/* ---- input ---- */
+
+static const char keymap_text[] =
+  "xkb_keymap {\n"
+  "  xkb_keycodes { include \"evdev+aliases(qwerty)\" };\n"
+  "  xkb_types { include \"complete\" };\n"
+  "  xkb_compat { include \"complete\" };\n"
+  "  xkb_symbols { include \"pc+us+inet(evdev)\" };\n"
+  "};\n";
+
+#define EV_KEY 1
+#define EV_REL 2
+#define EV_ABS 3
+#define EV_MSC 4
+#define MSC_POINTER_ENTER 0x100
+#define MSC_KEYBOARD_FOCUS 0x101
+
+static int live(struct client *c, uint32_t id, enum type t) {
+  struct obj *o = id ? obj_get(c, id) : NULL;
+  return o && o->type == t;
+}
+
+static int32_t fixed(int v) { return v * 256; }
+
+static void send_keymap(struct client *c, uint32_t id) {
+  char path[320];
+  snprintf(path, sizeof path, "%s/wlcomp-keymap-XXXXXX", runtime);
+  int fd = mkstemp(path);
+  if (fd < 0) return;
+  unlink(path);
+  size_t n = sizeof keymap_text;
+  if (write(fd, keymap_text, n) != (ssize_t)n) { close(fd); return; }
+  send_fd = fd;
+  ev(c, id, 0, "uu", 1u, (uint32_t)n);   /* xkb_v1 */
+  send_fd = -1;
+  close(fd);
+  if (c->objs[id].version >= 4) ev(c, id, 5, "ii", 25, 600);
+}
+
+static uint32_t modifier_bit(unsigned code) {
+  switch (code) {
+    case 42: case 54: return 1;        /* shift */
+    case 29: case 97: return 4;        /* control */
+    case 56: case 100: return 8;       /* alt (mod1) */
+    case 125: case 126: return 0x40;   /* logo (mod4) */
+  }
+  return 0;
+}
+
+static void key_event(struct surface *s, unsigned code, int value) {
+  struct client *c = s->client;
+  if (!live(c, c->keyboard, T_KEYBOARD) || !s->keyboard_in) return;
+  if (value == 2) return;   /* the client repeats on its own (repeat_info) */
+  if (code < 256) { if (value) s->down[code >> 3] |= 1 << (code & 7); else s->down[code >> 3] &= ~(1 << (code & 7)); }
+  uint32_t t = now_ms(), before = s->mods_depressed | s->mods_locked;
+  uint32_t bit = modifier_bit(code);
+  if (bit) { if (value) s->mods_depressed |= bit; else s->mods_depressed &= ~bit; }
+  if (code == 58 && value) s->mods_locked ^= 2;   /* caps lock */
+  ev(c, c->keyboard, 3, "uuuu", serial_counter++, t, code, value ? 1u : 0u);
+  if ((s->mods_depressed | s->mods_locked) != before) ev(c, c->keyboard, 4, "uuuuu", serial_counter++, s->mods_depressed, 0u, s->mods_locked, 0u);
+}
+
+static void input_record(struct surface *s, uint16_t type, uint16_t code, int32_t value) {
+  struct client *c = s->client;
+  int pointer = live(c, c->pointer, T_POINTER);
+  uint32_t t = now_ms();
+  if (type == EV_ABS) {
+    if (code == 0) s->px = value; else if (code == 1) s->py = value;
+    s->moved = 1;
+  } else if (type == 0 /* SYN */) {
+    if (s->moved && pointer && s->pointer_in) {
+      ev(c, c->pointer, 2, "uii", t, fixed(s->px), fixed(s->py));
+      if (c->objs[c->pointer].version >= 5) ev(c, c->pointer, 5, "");
+    }
+    s->moved = 0;
+  } else if (type == EV_MSC && code == MSC_POINTER_ENTER) {
+    if (!pointer) return;
+    s->pointer_in = value != 0;
+    if (value) ev(c, c->pointer, 0, "uuii", serial_counter++, s->id, fixed(s->px), fixed(s->py));
+    else ev(c, c->pointer, 1, "uu", serial_counter++, s->id);
+    if (c->objs[c->pointer].version >= 5) ev(c, c->pointer, 5, "");
+  } else if (type == EV_MSC && code == MSC_KEYBOARD_FOCUS) {
+    if (!live(c, c->keyboard, T_KEYBOARD)) return;
+    s->keyboard_in = value != 0;
+    if (value) {
+      uint32_t keys[64];
+      uint32_t n = 0;
+      for (unsigned k = 0; k < 256 && n < 64; k++) if (s->down[k >> 3] & (1 << (k & 7))) keys[n++] = k;
+      ev(c, c->keyboard, 1, "uua", serial_counter++, s->id, keys, n * 4);
+    } else ev(c, c->keyboard, 2, "uu", serial_counter++, s->id);
+  } else if (type == EV_KEY) {
+    if (code >= 0x110 && code < 0x120) {
+      if (pointer && s->pointer_in) {
+        ev(c, c->pointer, 3, "uuuu", serial_counter++, t, code, value ? 1u : 0u);
+        if (c->objs[c->pointer].version >= 5) ev(c, c->pointer, 5, "");
+      }
+    } else key_event(s, code, value);
+  } else if (type == EV_REL && (code == 8 || code == 6)) {
+    if (pointer && s->pointer_in) {
+      ev(c, c->pointer, 4, "uui", t, code == 8 ? 0u : 1u, code == 8 ? -fixed(10 * value) : fixed(10 * value));
+      if (c->objs[c->pointer].version >= 5) ev(c, c->pointer, 5, "");
+    }
+  }
+}
+
+static void read_input(struct surface *s) {
+  unsigned char buf[24 * 32];
+  for (;;) {
+    ssize_t n = read(s->win.input, buf, sizeof buf);
+    if (n <= 0) return;
+    for (ssize_t at = 0; at + 24 <= n; at += 24) {
+      uint16_t type, code;
+      int32_t value;
+      memcpy(&type, buf + at + 16, 2);
+      memcpy(&code, buf + at + 18, 2);
+      memcpy(&value, buf + at + 20, 4);
+      input_record(s, type, code, value);
+    }
+    if ((size_t)n < sizeof buf) return;
   }
 }
 
@@ -607,10 +783,10 @@ static void check_windows(void) {
       struct surface *s = c->objs[id].data;
       if (!s->mapped || s->win.index < 0 || window_alive(&s->win)) continue;
       LOG("window %d is gone", s->win.index);
-      close(s->win.fd);
+      s->win.pid = 0;
+      window_close(&s->win);
       s->win.fd = -1;
       s->win.index = -1;
-      s->win.pid = 0;
       s->mapped = 0;
       if (s->toplevel) ev(c, s->toplevel, 1, ""); /* xdg_toplevel.close */
     }
@@ -644,17 +820,26 @@ int main(void) {
 
   uint32_t last_check = now_ms();
   for (;;) {
-    struct pollfd fds[MAX_CLIENTS + 1];
-    int slot[MAX_CLIENTS + 1];
+    struct pollfd fds[MAX_CLIENTS + 1 + 64];
+    int slot[MAX_CLIENTS + 1 + 64];
     int n = 0;
     fds[n].fd = listener; fds[n].events = POLLIN; slot[n++] = -1;
     for (int i = 0; i < MAX_CLIENTS; i++) {
       if (!clients[i]) continue;
       fds[n].fd = clients[i]->fd; fds[n].events = POLLIN; slot[n++] = i;
     }
+    for (int i = 0; i < 64; i++) {
+      if (!wins[i] || wins[i]->win.input < 0) continue;
+      fds[n].fd = wins[i]->win.input; fds[n].events = POLLIN; slot[n++] = -2 - i;
+    }
     poll(fds, (nfds_t)n, ndue > 0 ? 16 : 250);
     for (int k = 0; k < n; k++) {
       if (!(fds[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+      if (slot[k] <= -2) {
+        struct surface *w = wins[-2 - slot[k]];
+        if (w && w->win.input == fds[k].fd) read_input(w);
+        continue;
+      }
       if (slot[k] < 0) {
         int fd = accept4(listener, NULL, NULL, SOCK_NONBLOCK);
         if (fd < 0) continue;

@@ -225,6 +225,7 @@ export class NodeWindowRenderer implements WindowRenderer {
 
   private _fromDisplay(id: WindowId, message: ToKernel, reply: (message: ToDisplay) => void) {
     if (message.t === 'focused') this._reports?.focused(id)
+    else if (message.t === 'input') this._reports?.input(id, message.input)
     else if (message.t === 'changed') this._reports?.changed(id, { state: message.state, geometry: message.geometry, title: message.title })
     else if (message.t === 'call') {
       const { call } = message

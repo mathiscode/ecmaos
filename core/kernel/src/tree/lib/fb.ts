@@ -10,7 +10,10 @@
 import { Class, Device, char_dev, syscalls } from '@zenfs/linux'
 import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
 import { withErrno } from 'kerium'
-import type { WindowHandle, WindowOwner, Windows } from '@ecmaos/types'
+import type { WindowHandle, WindowInput, WindowOwner, Windows } from '@ecmaos/types'
+
+import { attachCanvasInput } from './canvas-input.ts'
+import { inputHub, registerWindowInput } from './evdev.ts'
 
 export const FbMajor = 29
 export const MaxFramebuffers = 32
@@ -227,7 +230,7 @@ const encodeBase64 = (bytes: Uint8Array) => {
 }
 
 /** Paints frames into `window`: a canvas when it draws with the DOM, otherwise the frame is its content */
-export function windowSink(window: WindowHandle): PixelSink {
+export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) => void): PixelSink {
   let canvas: HTMLCanvasElement | undefined
   let image: ImageData | undefined
   return frame => {
@@ -240,6 +243,7 @@ export function windowSink(window: WindowHandle): PixelSink {
       canvas.height = frame.height
       canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
       body.replaceChildren(canvas)
+      if (onInput) attachCanvasInput(canvas, onInput)
       image = undefined
     }
     const context = canvas.getContext('2d')
@@ -285,7 +289,9 @@ export class Framebuffers {
     ensureMajor()
 
     const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
-    const framebuffer = new Framebuffer(index, width, height, windowSink(window))
+    const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input)))
+    const inputNode = registerWindowInput(index, width, height)
+    const stopInput = this._windows.onInput(window.id, input => inputHub.window(inputNode.minor, input))
     let device: Device
     try {
       device = new Device({ name: `fb${index}`, class: fb_class, dev_t: { major: FbMajor, minor: index } })
@@ -298,6 +304,8 @@ export class Framebuffers {
     const stop = this._windows.on('close', info => {
       if (info.id !== window.id) return
       stop()
+      stopInput()
+      inputNode.remove()
       framebuffer.close()
       slots.delete(index)
       try { device.unregister() } catch { /* already gone */ }
