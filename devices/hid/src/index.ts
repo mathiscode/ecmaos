@@ -155,7 +155,7 @@ const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/hid
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
   const drivers: KernelCharDevice[] = [{
     name: 'hid',
-    major: 13,
+    major: 0,
     minor: 64,
     class: hid_class,
     ops: controlOperations

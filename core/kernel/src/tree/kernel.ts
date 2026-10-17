@@ -26,6 +26,7 @@ import { of_platform_populate as populatePlatformBus } from '@zenfs/linux/driver
 import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
+import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -894,6 +895,8 @@ export class Kernel implements IKernel {
       await tty.init()
 
       await this.registerDevices()
+      installEvdevIoctl()
+      if (globalThis.document) captureDom(globalThis.document)
       await this.registerCommands()
       await this.registerPackages()
 
@@ -2348,7 +2351,17 @@ export class Kernel implements IKernel {
         write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
         sync: file => dispatch(file).sync?.(file),
         poll: file => dispatch(file).poll?.(file) ?? 0,
-        poll_wait: file => dispatch(file).poll_wait?.(file)
+        poll_wait: file => dispatch(file).poll_wait?.(file),
+        // a request is answered by the driver of the node it is made on; one no driver of this major knows is left to the file system
+        ioctl: group.some(({ driver }) => driver.ops.ioctl) ? new Proxy({}, {
+          get: (_target, request) => group.some(({ driver }) => driver.ops.ioctl?.[request as never])
+            ? (context: never, file: Parameters<NonNullable<FileOperations['read']>>[0], ...args: unknown[]) => {
+              const handler = dispatch(file).ioctl?.[request as never]
+              if (!handler) throw withErrno('ENOTTY')
+              return handler(context, file, ...args)
+            }
+            : undefined
+        }) as FileOperations['ioctl'] : undefined
       }
 
       // Majors and names are process-global in `@zenfs/linux`, so a second kernel in the same realm gets EBUSY/EEXIST

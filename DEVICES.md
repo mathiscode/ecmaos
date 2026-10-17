@@ -63,8 +63,9 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 10 | 101 | `geo` | ecmaOS misc range |
 | 10 | 102 | `sensors` | ecmaOS misc range |
 | 10 | 156 | `presentation` | ecmaOS misc range |
-| 13 | 64 | `hid` | Real Linux input-device major |
-| 13 | 65+n | `hid-<name>-<vendor>-<product>` | One per enumerated HID device, minor by enumeration order |
+| 13 | 64 | `input!event0` | Keyboard, `/dev/input/event0` (core, not a package) |
+| 13 | 65 | `input!event1` | Pointer, `/dev/input/event1` |
+| 0 (dynamic) | 64 | `hid` | The control node; `hidraw<n>` share its dynamic major. Major 13 belongs to `input` now |
 | 14 | 4 | `audio` | Real Linux OSS-audio major |
 | 35 | 0 | `midi` | Real Linux MIDI major |
 | 195 | 0 | `gpu` (NVIDIA) | Real Linux NVIDIA major |

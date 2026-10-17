@@ -1,0 +1,329 @@
+/**
+ * Linux input devices: `/dev/input/event0` (keyboard) and `/dev/input/event1` (pointer). What the user does on the screen
+ * is fed to the `InputHub`, which turns it into `struct input_event` records (24 bytes: seconds, microseconds, type, code,
+ * value) for every node that is open. Like a real evdev client, a node only sees what happens after it was opened, and what
+ * nobody reads is dropped from the oldest end instead of growing without bound.
+ */
+
+import { Class, EPOLLIN, EPOLLOUT, syscalls, thread_of, WaitQueue } from '@zenfs/linux'
+import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
+import { ioctlSync } from '@zenfs/core/vfs/ioctl'
+import { withErrno } from 'kerium'
+import type { KernelCharDevice, KernelDevice } from '@ecmaos/types'
+
+export const EV_SYN = 0, EV_KEY = 1, EV_REL = 2, EV_ABS = 3, EV_MSC = 4
+export const SYN_REPORT = 0
+export const REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8
+export const BTN_LEFT = 0x110, BTN_RIGHT = 0x111, BTN_MIDDLE = 0x112, BTN_SIDE = 0x113, BTN_EXTRA = 0x114
+export const EventSize = 24
+export const InputMajor = 13
+export const KeyboardMinor = 64
+export const PointerMinor = 65
+
+/** `KeyboardEvent.code` to Linux `KEY_*` */
+export const KeyCodes: Readonly<Record<string, number>> = {
+  Escape: 1, Digit1: 2, Digit2: 3, Digit3: 4, Digit4: 5, Digit5: 6, Digit6: 7, Digit7: 8, Digit8: 9, Digit9: 10, Digit0: 11,
+  Minus: 12, Equal: 13, Backspace: 14, Tab: 15, KeyQ: 16, KeyW: 17, KeyE: 18, KeyR: 19, KeyT: 20, KeyY: 21, KeyU: 22, KeyI: 23,
+  KeyO: 24, KeyP: 25, BracketLeft: 26, BracketRight: 27, Enter: 28, ControlLeft: 29, KeyA: 30, KeyS: 31, KeyD: 32, KeyF: 33,
+  KeyG: 34, KeyH: 35, KeyJ: 36, KeyK: 37, KeyL: 38, Semicolon: 39, Quote: 40, Backquote: 41, ShiftLeft: 42, Backslash: 43,
+  KeyZ: 44, KeyX: 45, KeyC: 46, KeyV: 47, KeyB: 48, KeyN: 49, KeyM: 50, Comma: 51, Period: 52, Slash: 53, ShiftRight: 54,
+  NumpadMultiply: 55, AltLeft: 56, Space: 57, CapsLock: 58, F1: 59, F2: 60, F3: 61, F4: 62, F5: 63, F6: 64, F7: 65, F8: 66,
+  F9: 67, F10: 68, NumLock: 69, ScrollLock: 70, Numpad7: 71, Numpad8: 72, Numpad9: 73, NumpadSubtract: 74, Numpad4: 75,
+  Numpad5: 76, Numpad6: 77, NumpadAdd: 78, Numpad1: 79, Numpad2: 80, Numpad3: 81, Numpad0: 82, NumpadDecimal: 83,
+  IntlBackslash: 86, F11: 87, F12: 88, IntlRo: 89, NumpadEnter: 96, ControlRight: 97, NumpadDivide: 98, PrintScreen: 99,
+  AltRight: 100, Home: 102, ArrowUp: 103, PageUp: 104, ArrowLeft: 105, ArrowRight: 106, End: 107, ArrowDown: 108,
+  PageDown: 109, Insert: 110, Delete: 111, AudioVolumeMute: 113, AudioVolumeDown: 114, AudioVolumeUp: 115, Pause: 119,
+  NumpadComma: 121, MetaLeft: 125, MetaRight: 126, ContextMenu: 127, F13: 183, F14: 184, F15: 185, F16: 186, F17: 187,
+  F18: 188, F19: 189, F20: 190, F21: 191, F22: 192, F23: 193, F24: 194
+}
+
+/** `MouseEvent.button` to Linux `BTN_*` */
+export const MouseButtons: Readonly<Record<number, number>> = { 0: BTN_LEFT, 1: BTN_MIDDLE, 2: BTN_RIGHT, 3: BTN_SIDE, 4: BTN_EXTRA }
+
+export interface InputEvent {
+  seconds: number
+  microseconds: number
+  type: number
+  code: number
+  value: number
+}
+
+export function encodeEvent(event: InputEvent): Uint8Array {
+  const bytes = new Uint8Array(EventSize)
+  const view = new DataView(bytes.buffer)
+  view.setBigUint64(0, BigInt(event.seconds), true)
+  view.setBigUint64(8, BigInt(event.microseconds), true)
+  view.setUint16(16, event.type, true)
+  view.setUint16(18, event.code, true)
+  view.setInt32(20, event.value, true)
+  return bytes
+}
+
+export function decodeEvent(bytes: Uint8Array): InputEvent {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return {
+    seconds: Number(view.getBigUint64(0, true)),
+    microseconds: Number(view.getBigUint64(8, true)),
+    type: view.getUint16(16, true),
+    code: view.getUint16(18, true),
+    value: view.getInt32(20, true)
+  }
+}
+
+/** One input device: what it is called, which event types it has, and the codes of each */
+interface DeviceSpec {
+  name: string
+  minor: number
+  /** Bits of `EV_*` the device reports */
+  types: number[]
+  /** Codes of each type the device reports */
+  codes: Record<number, number[]>
+  /** `input_id`: bus (0x06 is virtual), vendor, product, version */
+  id: [number, number, number, number]
+}
+
+const keyboardCodes = [...new Set(Object.values(KeyCodes))].sort((a, b) => a - b)
+
+export const Devices: readonly DeviceSpec[] = [
+  { name: 'ecmaOS keyboard', minor: KeyboardMinor, types: [EV_SYN, EV_KEY, EV_MSC], codes: { [EV_SYN]: [SYN_REPORT], [EV_KEY]: keyboardCodes, [EV_MSC]: [] }, id: [0x06, 0x0ec3, 0x0001, 1] },
+  { name: 'ecmaOS pointer', minor: PointerMinor, types: [EV_SYN, EV_KEY, EV_REL], codes: { [EV_SYN]: [SYN_REPORT], [EV_KEY]: Object.values(MouseButtons), [EV_REL]: [REL_X, REL_Y, REL_HWHEEL, REL_WHEEL] }, id: [0x06, 0x0ec3, 0x0002, 1] }
+]
+
+/** The most events a node keeps for a reader that is slow; the oldest go first */
+const QueueLimit = 1024
+
+interface Client {
+  events: Uint8Array[]
+  queue: WaitQueue
+}
+
+/**
+ * Where input enters the machine. The display layer calls `keyboard` and `pointer` with what the user did; every open event
+ * node gets the events of its device.
+ */
+export class InputHub {
+  private readonly clients = new Map<number, Client>()
+  private readonly keys = new Set<number>()
+  private readonly buttons = new Set<number>()
+
+  /** Whether a node of `minor` is open, so a source can skip work when nobody listens */
+  listening(minor?: number): boolean {
+    return minor === undefined ? this.clients.size > 0 : this.clients.has(minor)
+  }
+
+  open(minor: number): Client {
+    let client = this.clients.get(minor)
+    if (!client) this.clients.set(minor, client = { events: [], queue: new WaitQueue() })
+    return client
+  }
+
+  release(minor: number) {
+    const client = this.clients.get(minor)
+    this.clients.delete(minor)
+    client?.queue.wake_up()
+  }
+
+  client(minor: number): Client | undefined {
+    return this.clients.get(minor)
+  }
+
+  /** Keys that are down now, as `EVIOCGKEY` reports them */
+  get down(): ReadonlySet<number> { return this.keys }
+
+  private emit(minor: number, events: [type: number, code: number, value: number][], now = Date.now()) {
+    const client = this.clients.get(minor)
+    if (!client) return
+    const seconds = Math.floor(now / 1000)
+    const microseconds = (now % 1000) * 1000
+    for (const [type, code, value] of [...events, [EV_SYN, SYN_REPORT, 0] as [number, number, number]]) {
+      client.events.push(encodeEvent({ seconds, microseconds, type, code, value }))
+    }
+    while (client.events.length > QueueLimit) client.events.shift()
+    client.queue.wake_up()
+  }
+
+  /** A key went down (`value` 1), up (0) or repeated (2). Returns whether the key has a Linux code. */
+  keyboard(code: string, value: 0 | 1 | 2, now?: number): boolean {
+    const key = KeyCodes[code]
+    if (key === undefined) return false
+    if (value === 0) this.keys.delete(key)
+    else this.keys.add(key)
+    this.emit(KeyboardMinor, [[EV_KEY, key, value]], now)
+    return true
+  }
+
+  /** Pointer movement in pixels, relative to where it was */
+  move(dx: number, dy: number, now?: number) {
+    const events: [number, number, number][] = []
+    if (Math.trunc(dx)) events.push([EV_REL, REL_X, Math.trunc(dx)])
+    if (Math.trunc(dy)) events.push([EV_REL, REL_Y, Math.trunc(dy)])
+    if (events.length) this.emit(PointerMinor, events, now)
+  }
+
+  /** A pointer button (`MouseEvent.button`) went down or up. Returns whether the button has a Linux code. */
+  button(button: number, down: boolean, now?: number): boolean {
+    const code = MouseButtons[button]
+    if (code === undefined) return false
+    if (down) this.buttons.add(code)
+    else this.buttons.delete(code)
+    this.emit(PointerMinor, [[EV_KEY, code, down ? 1 : 0]], now)
+    return true
+  }
+
+  /** The wheel, in notches (positive is up and to the right, as on Linux) */
+  wheel(dx: number, dy: number, now?: number) {
+    const events: [number, number, number][] = []
+    if (Math.trunc(dy)) events.push([EV_REL, REL_WHEEL, Math.trunc(dy)])
+    if (Math.trunc(dx)) events.push([EV_REL, REL_HWHEEL, Math.trunc(dx)])
+    if (events.length) this.emit(PointerMinor, events, now)
+  }
+}
+
+export const inputHub = new InputHub()
+
+// - the page ------------------------------------------------------------------------------------------
+
+/**
+ * Feeds the hub from a page's keyboard and mouse. Nothing is prevented or stopped, so the page works as it did; a source with
+ * no node open does nothing. Returns the function that removes the listeners.
+ */
+export function captureDom(target: Document, hub: InputHub = inputHub): () => void {
+  const key = (value: 0 | 1) => (event: Event) => {
+    const { code, repeat } = event as KeyboardEvent
+    if (hub.listening(KeyboardMinor)) hub.keyboard(code, value === 1 && repeat ? 2 : value)
+  }
+  const move = (event: Event) => {
+    const { movementX, movementY } = event as MouseEvent
+    if (hub.listening(PointerMinor)) hub.move(movementX || 0, movementY || 0)
+  }
+  const button = (down: boolean) => (event: Event) => { if (hub.listening(PointerMinor)) hub.button((event as MouseEvent).button, down) }
+  const wheel = (event: Event) => {
+    const { deltaX, deltaY } = event as WheelEvent
+    if (hub.listening(PointerMinor)) hub.wheel(Math.sign(deltaX), -Math.sign(deltaY))
+  }
+  const listeners: [string, (event: Event) => void][] = [
+    ['keydown', key(1)], ['keyup', key(0)], ['mousemove', move], ['mousedown', button(true)], ['mouseup', button(false)], ['wheel', wheel]
+  ]
+  for (const [name, listener] of listeners) target.addEventListener(name, listener, { capture: true, passive: true })
+  return () => { for (const [name, listener] of listeners) target.removeEventListener(name, listener, { capture: true }) }
+}
+
+// - ioctl ---------------------------------------------------------------------------------------------
+
+const IOC_READ = 2, IOC_WRITE = 1
+const EvdevType = 0x45 // 'E'
+
+export interface Ioctl { direction: number, type: number, number: number, size: number }
+
+/** Splits a request number into the fields Linux's `_IOC` packs into it */
+export function ioctlFields(request: number): Ioctl {
+  return { number: request & 0xff, type: (request >>> 8) & 0xff, size: (request >>> 16) & 0x3fff, direction: (request >>> 30) & 3 }
+}
+
+const bits = (codes: number[], size: number) => {
+  const bytes = new Uint8Array(size)
+  for (const code of codes) if (code >> 3 < size) bytes[code >> 3]! |= 1 << (code & 7)
+  return bytes
+}
+
+/**
+ * What an `EVIOC*` request reads back, as the bytes the program's buffer takes (at most `size`); `undefined` for one that
+ * is not understood.
+ */
+export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Uint8Array | undefined {
+  const { type, number, size, direction } = ioctlFields(request)
+  if (type !== EvdevType) return undefined
+  if (number === 0x01 && direction === IOC_READ) { // EVIOCGVERSION
+    const out = new Uint8Array(4)
+    new DataView(out.buffer).setInt32(0, 0x010001, true)
+    return out
+  }
+  if (number === 0x02 && direction === IOC_READ) { // EVIOCGID: struct input_id
+    const out = new Uint8Array(8)
+    const view = new DataView(out.buffer)
+    spec.id.forEach((value, index) => view.setUint16(index * 2, value, true))
+    return out
+  }
+  if (number === 0x06 && direction === IOC_READ) { // EVIOCGNAME(len)
+    const name = new TextEncoder().encode(spec.name)
+    const out = new Uint8Array(Math.min(size, name.length + 1))
+    out.set(name.subarray(0, Math.max(0, out.length - 1)))
+    return out
+  }
+  if (number === 0x07 || number === 0x08) return new Uint8Array(Math.min(size, 1)) // EVIOCGPHYS, EVIOCGUNIQ: empty strings
+  if (number === 0x18 && direction === IOC_READ) { // EVIOCGKEY(len): the keys that are down
+    const down = new Set(hub.down)
+    return bits(spec.minor === KeyboardMinor ? [...down] : [], size)
+  }
+  if (number >= 0x20 && number < 0x40 && direction === IOC_READ) { // EVIOCGBIT(ev, len)
+    const ev = number - 0x20
+    if (ev === 0) return bits(spec.types, size)
+    return bits(spec.codes[ev] ?? [], size)
+  }
+  if (number === 0x90 && direction === IOC_WRITE) return new Uint8Array(0) // EVIOCGRAB: accepted; one reader at a time anyway
+  return undefined
+}
+
+// - node ----------------------------------------------------------------------------------------------
+
+function nodeOperations(hub: InputHub): FileOperations {
+  const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor)
+  return {
+    open: file => { hub.open(file.devt.minor) },
+    release: file => { hub.release(file.devt.minor) },
+    read: (file, buffer, start, end) => {
+      const client = hub.client(file.devt.minor) ?? hub.open(file.devt.minor)
+      if (end - start < EventSize) throw withErrno('EINVAL')
+      let done = 0
+      while (client.events.length && done + EventSize <= end - start) {
+        buffer.set(client.events.shift()!, start + done)
+        done += EventSize
+      }
+      return done
+    },
+    write: () => { throw withErrno('EINVAL') },
+    poll: file => (hub.client(file.devt.minor)?.events.length ? EPOLLIN : 0) | EPOLLOUT,
+    poll_wait: file => (hub.client(file.devt.minor) ?? hub.open(file.devt.minor)).queue,
+    ioctl: new Proxy({}, {
+      get: (_target, key) => {
+        const request = Number(key)
+        if (!Number.isInteger(request) || ioctlFields(request).type !== EvdevType) return undefined
+        return (_context: unknown, file: DeviceFile) => {
+          const device = spec(file)
+          const out = device && evdevIoctl(device, hub, request)
+          if (!out) throw withErrno('ENOTTY')
+          return out
+        }
+      },
+      has: (_target, key) => Number.isInteger(Number(key)) && ioctlFields(Number(key)).type === EvdevType
+    }) as FileOperations['ioctl']
+  }
+}
+
+/**
+ * A program's `ioctl` can only get a number back; a structure is left in the return region of its thread. `EVIOC*` requests
+ * answer with bytes, so the syscall is wrapped to put them there and give their length, as the upstream `ioctl` does for
+ * `TIOCGWINSZ` and `TCGETS`. Idempotent.
+ */
+let wrapped = false
+export function installEvdevIoctl() {
+  if (wrapped) return
+  wrapped = true
+  const original = syscalls.get('ioctl' as never) as ((proc: Process, ...args: unknown[]) => unknown) | undefined
+  if (!original) return
+  syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
+    if (ioctlFields(request >>> 0).type !== EvdevType) return original(proc, fd, request, arg)
+    const value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg)
+    return value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0
+  }) as never)
+}
+
+const input_class = new Class('input')
+
+export const EvdevDevice: KernelDevice = {
+  pkg: { name: 'input', version: '0.1.0', description: 'Linux input event devices (/dev/input/event*)' },
+  async getDrivers() {
+    const ops = nodeOperations(inputHub)
+    return Devices.map((device, index): KernelCharDevice => ({ name: `input!event${index}`, major: InputMajor, minor: device.minor, class: input_class, ops }))
+  }
+}

@@ -1456,7 +1456,16 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
           return ESUCCESS
         }
         case TIOCSWINSZ: return ESUCCESS
-        default: throw { code: 'ENOTTY' }
+        default: {
+          // `EVIOC*` on an input device (type 'E'): the kernel leaves what the device answers in the return region and gives its length
+          if (((request >>> 8) & 0xff) !== 0x45) throw { code: 'ENOTTY' }
+          const length = syscall('ioctl', real, request >>> 0, undefined)
+          if (length > 0 && (request >>> 30) & 2) {
+            const { bytes } = copyOut(class { constructor(buffer, offset) { this.bytes = new Uint8Array(buffer, offset, length) } })
+            if (ptr) new Uint8Array(dv.buffer).set(bytes, ptr)
+          }
+          return length
+        }
       }
     }),
     // The few non-syscall imports an ordinary emcc build leaves for its JS glue: process exit and

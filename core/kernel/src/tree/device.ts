@@ -22,6 +22,8 @@ import * as WebGLDevice from '@ecmaos-devices/webgl'
 
 import type { KernelDevice } from '@ecmaos/types'
 
+import { EvdevDevice } from '#lib/evdev.ts'
+
 export const DefaultDevices: Record<string, KernelDevice> = {
   audio: AudioDevice,
   battery: BatteryDevice,
@@ -31,6 +33,7 @@ export const DefaultDevices: Record<string, KernelDevice> = {
   geo: GeoDevice,
   gpu: GPUDevice,
   hid: HIDDevice,
+  input: EvdevDevice,
   midi: MIDIDevice,
   presentation: PresentationDevice,
   sensors: SensorsDevice,
