@@ -630,12 +630,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (timeoutMs > 0) sleepMs(timeoutMs)
       return 0
     }
-    const fds = entries.map(([fd, reg]) => {
-      const sock = sockets.get(fd)
-      const realFd = sock ? (sock.connected ? sock.readFd : -1) : (entryOf(fd)?.fd ?? fd)
-      return { fd: realFd, events: reg.events & (POLLIN | POLLOUT) }
-    })
-    const revents = pollFds(fds, timeoutMs)
+    const revents = pollGuest(entries.map(([fd, reg]) => ({ fd, events: reg.events & (POLLIN | POLLOUT) })), timeoutMs)
     const dv = view()
     let n = 0
     for (let i = 0; i < entries.length && n < maxevents; i++) {
@@ -771,16 +766,54 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return bufPtr + pos
   }
 
+  /**
+   * `poll` over the program's own descriptors. A connected socket is a pair of real fds (read for `POLLIN`, write for
+   * `POLLOUT`); a listening one is ready when a connection is queued, which the kernel is asked about every 20 ms
+   * while waiting; an unconnected one is never ready. Anything else is a real fd.
+   */
+  function pollGuest(items, timeout) {
+    const plan = items.map(({ fd, events }) => {
+      const sock = sockets.get(fd)
+      if (!sock) return { real: [{ fd: entryOf(fd)?.fd ?? fd, events, out: 0 }] }
+      if (sock.listening) return { listen: sock.key, events }
+      if (!sock.connected) return { real: [] }
+      const real = []
+      if (events & POLLIN) real.push({ fd: sock.readFd, events: POLLIN, out: 0 })
+      if (events & POLLOUT) real.push({ fd: sock.writeFd ?? sock.readFd, events: POLLOUT, out: 0 })
+      return { real }
+    })
+    const flat = plan.flatMap(entry => entry.real ?? [])
+    const listeners = plan.filter(entry => entry.listen !== undefined)
+    const result = items.map(() => 0)
+    const deadline = timeout < 0 ? Infinity : Date.now() + timeout
+    for (;;) {
+      const remaining = deadline === Infinity ? Infinity : Math.max(deadline - Date.now(), 0)
+      const slice = listeners.length ? Math.min(remaining, 20) : remaining
+      if (flat.length) {
+        const revents = pollFds(flat.map(({ fd, events }) => ({ fd, events })), slice === Infinity ? -1 : slice)
+        flat.forEach((entry, i) => { entry.out = revents[i] })
+      } else sleepMs(slice === Infinity ? 20 : slice)
+      let ready = 0
+      plan.forEach((entry, i) => {
+        if (entry.real) result[i] = entry.real.reduce((bits, one) => bits | one.out, 0)
+        else if (callMainThread('net_pending', entry.listen).pending > 0 && (entry.events & POLLIN)) result[i] = POLLIN
+        if (result[i]) ready++
+      })
+      if (ready || Date.now() >= deadline || (!listeners.length && flat.length)) return result
+      if (!listeners.length && !flat.length && deadline !== Infinity) return result
+    }
+  }
+
   function doPoll(fdsPtr, nfds, timeout) {
     const dv = view()
     const slots = []
     for (let i = 0; i < nfds; i++) {
       const fd = dv.getInt32(fdsPtr + i * 8, true)
       if (fd < 0) { dv.setInt16(fdsPtr + i * 8 + 6, 0, true); continue }
-      slots.push({ i, fd: entryOf(fd)?.fd ?? fd, events: dv.getInt16(fdsPtr + i * 8 + 4, true) })
+      slots.push({ i, fd, events: dv.getInt16(fdsPtr + i * 8 + 4, true) })
     }
     let revents = []
-    if (slots.length) revents = pollFds(slots.map(({ fd, events }) => ({ fd, events })), timeout)
+    if (slots.length) revents = pollGuest(slots.map(({ fd, events }) => ({ fd, events })), timeout)
     else sleepMs(timeout)
     const after = view()
     let ready = 0

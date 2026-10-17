@@ -129,6 +129,15 @@
       "homepage": "https://mandoc.bsd.lv",
       "size": 547142,
       "sha256": "97a122619ae98e71a0571a6f67caf114514435debf66619de57e2baa2e13b956"
+    },
+    "wlcomp": {
+      "file": "wlcomp.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels and wl_output, each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 58156,
+      "sha256": "9fcc1f65e9bb43f443a64cd2f34ac6fef3b64ad939923cd10cf1eb285813aabf"
     }
   }
 }

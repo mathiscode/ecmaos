@@ -1,0 +1,66 @@
+import { beforeAll, describe, expect, it } from 'vitest'
+
+import { Kernel } from '#kernel.ts'
+import { DefaultFilesystemOptions } from '#filesystem.ts'
+
+import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+
+const until = async (check: () => boolean | Promise<boolean>, ms = 20000) => {
+  const end = Date.now() + ms
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error('timed out')
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
+/** wlcomp, the Wayland compositor, with a hand-written client (`fixtures/wl-shm.c`) on the other end of a unix socket. */
+describe('the Wayland compositor', () => {
+  let kernel: Kernel
+  const env = 'XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-0'
+  const read = (path: string) => kernel.filesystem.fs.readFile(path, 'utf8').catch(() => '')
+
+  beforeAll(async () => {
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
+    await kernel.boot()
+    const { readFileSync } = process.getBuiltinModule('node:fs')
+    const root = process.cwd()
+    const load = (file: string) => new Uint8Array(readFileSync(file))
+    await kernel.filesystem.fs.writeFile('/bin/wlcomp', load(`${root}/../utils/programs/wlcomp.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/wl-shm', load(`${root}/tests/tree/wasi/fixtures/wl-shm.wasm`), { mode: 0o755 })
+    void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
+    await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
+  }, 60_000)
+
+  it('shows what a client commits, in a window the size of the buffer', async () => {
+    const client = kernel.shell.execute(`${env} wl-shm 3 40 20 4000 > /tmp/wl-shm.out 2>&1`)
+    await until(async () => (await read('/tmp/wl-shm.out')).includes('done'))
+    const out = await read('/tmp/wl-shm.out')
+    expect(out).toContain('global 1 wl_compositor')
+    expect(out).toContain('global 3 xdg_wm_base')
+    expect(out).toContain('configured')
+    expect(out).toContain('frame 0')
+    expect(out).toContain('frame 2')
+
+    const windows = kernel.framebuffers.list()
+    expect(windows).toHaveLength(1)
+    const fb = windows[0]!
+    expect([fb.width, fb.height]).toEqual([40, 20])
+    const pixel = (x: number, y: number) => [...fb.pixels.subarray((y * 40 + x) * 4, (y * 40 + x) * 4 + 3)]
+    // blue first: the client wrote red from x, green from y, blue 120 (the third frame)
+    expect(pixel(0, 0)).toEqual([120, 0, 0])
+    expect(pixel(39, 19)).toEqual([120, Math.floor(19 * 255 / 20), Math.floor(39 * 255 / 40)])
+
+    // closing the window tells the client, which then ends
+    kernel.windows.close(kernel.windows.list().find(w => w.title === 'wl-shm')!.id, true)
+    expect(await client).toBe(0)
+    expect(await read('/tmp/wl-shm.out')).toContain('closed')
+  }, 60_000)
+
+  it('takes a window away when its client goes', async () => {
+    const client = kernel.shell.execute(`${env} wl-shm 1 16 16 300 > /tmp/wl-shm2.out 2>&1`)
+    await until(async () => (await read('/tmp/wl-shm2.out')).includes('done'))
+    expect(kernel.framebuffers.list()).toHaveLength(1)
+    expect(await client).toBe(0)
+    await until(() => kernel.framebuffers.list().length === 0)
+  }, 60_000)
+})

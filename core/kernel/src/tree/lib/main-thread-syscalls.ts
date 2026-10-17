@@ -128,6 +128,7 @@ declare module '@zenfs/linux/uapi/abi' {
     net_connect_out(host: string, port: number, proto: string, path: string): number
     dns_lookup(name: string, family: number, path: string): number
     net_accept(key: string, nonblock: number, path: string): number
+    net_pending(key: string, path: string): number
     scm_send(conn: number, dir: string, offset: number, length: number, items: string, path: string): number
     scm_take(conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string): number
     scm_cred(conn: number, dir: string, path: string): number
@@ -1127,6 +1128,15 @@ export function installMainThreadSyscalls(): void {
       else text = JSON.stringify(nonblock ? { error: 'EAGAIN' } : { pending: true })
     }
 
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `net_pending`: how many connections wait on the listener's queue, without taking one (what `poll` on a listening socket asks)
+  define_syscall('net_pending', async (proc: Process, key: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const listener = loopbackListeners.get(key)
+    const text = JSON.stringify({ pending: listener && listener.serverProc === proc ? listener.queue.length : 0 })
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
