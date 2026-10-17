@@ -258,3 +258,17 @@ describe('WindowServer content', () => {
     expect(seen).toEqual([['w', { html: '<p>hi</p>' }]])
   })
 })
+
+describe('WindowServer calls', () => {
+  it('routes a renderer-reported call to the window\'s handler, and refuses when there is none', async () => {
+    const windows = new WindowServer()
+    let reports!: WindowReports
+    windows.registerRenderer({ supports: () => true, attach: r => { reports = r }, create() {}, update() {}, close() {} })
+    const win = windows.create({ id: 'w' })
+    await expect(reports.call('w', 'x', [])).rejects.toThrow(/answers calls/)
+    win.onCall((op, args) => [op, args])
+    await expect(reports.call('w', 'x', [1])).resolves.toEqual(['x', [1]])
+    win.onCall(undefined)
+    await expect(reports.call('w', 'x', [])).rejects.toThrow(/answers calls/)
+  })
+})

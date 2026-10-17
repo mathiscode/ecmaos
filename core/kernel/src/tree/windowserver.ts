@@ -32,6 +32,7 @@ interface Entry {
   handle: WindowHandle
   /** The state a minimized window had before it was minimized; `focus` returns it to that */
   restoreState?: WindowState
+  onCall?: (op: string, args: unknown[]) => Promise<unknown> | unknown
 }
 
 const fail = (message: string, errno: Errno) => Object.assign(new Error(message), { errno })
@@ -71,6 +72,11 @@ export class WindowServer implements Windows {
       this._emit('update', entry)
     },
     focused: id => this._raise(id),
+    call: async (id, op, args) => {
+      const handler = this._entries.get(id)?.onCall
+      if (!handler) throw fail(`nothing in window ${id} answers calls`, Errno.ENOSYS)
+      return handler(op, args)
+    },
     workarea: () => ({ ...this._workarea }),
     minimizeMode: () => this._minimizeMode
   }
@@ -297,6 +303,7 @@ export class WindowServer implements Windows {
       resize: (width, height) => this.update(id, { width, height }),
       setState: state => this.update(id, { state }),
       focus: () => this.focus(id),
+      onCall: handler => { entry.onCall = handler },
       close: force => { this.close(id, force) }
     }
   }

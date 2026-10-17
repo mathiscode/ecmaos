@@ -77,6 +77,6 @@ describe('presenters for a host with no page', () => {
   })
 
   it('has no presenter for what needs a page', () => {
-    for (const kind of ['clipboard-read', 'clipboard-write', 'speak', 'notify', 'download', 'upload', 'script', 'app']) expect(hostPresenters[kind]).toBeUndefined()
+    for (const kind of ['clipboard-read', 'clipboard-write', 'speak', 'notify', 'download', 'upload', 'script']) expect(hostPresenters[kind]).toBeUndefined()
   })
 })

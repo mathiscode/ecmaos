@@ -128,7 +128,7 @@ export class NodeWindowRenderer implements WindowRenderer {
     return {
       message: message => {
         if (!('id' in message) || !entry.known.has(message.id)) return
-        this._fromDisplay(message.id, message)
+        this._fromDisplay(message.id, message, reply => display.send(reply))
       },
       detach: () => {
         if (!this._remotes.delete(entry)) return
@@ -179,7 +179,7 @@ export class NodeWindowRenderer implements WindowRenderer {
       const server = await this._serve()
       if (slot.closing) return
       const session = server.open(id, {
-        message: message => this._fromDisplay(id, message),
+        message: message => this._fromDisplay(id, message, reply => session.send(reply)),
         disconnect: () => this._hostGone(slot)
       })
       slot.session = session
@@ -208,10 +208,14 @@ export class NodeWindowRenderer implements WindowRenderer {
     return starting
   }
 
-  private _fromDisplay(id: WindowId, message: ToKernel) {
+  private _fromDisplay(id: WindowId, message: ToKernel, reply: (message: ToDisplay) => void) {
     if (message.t === 'focused') this._reports?.focused(id)
     else if (message.t === 'changed') this._reports?.changed(id, { state: message.state, geometry: message.geometry, title: message.title })
-    else if (message.t === 'close-request') { if (this._reports?.closeRequested(id)) this.close(id) }
+    else if (message.t === 'call') {
+      const { call } = message
+      const answer = this._reports?.call(id, message.op, message.args) ?? Promise.reject(new Error('no window server'))
+      answer.then(result => reply({ t: 'result', id, call, result: result ?? null }), (error: unknown) => reply({ t: 'result', id, call, error: error instanceof Error ? error.message : String(error) }))
+    } else if (message.t === 'close-request') { if (this._reports?.closeRequested(id)) this.close(id) }
   }
 
   /** The page's socket closed without the kernel asking: the user closed the host window, or the browser died */

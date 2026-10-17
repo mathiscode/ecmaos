@@ -9,6 +9,7 @@ import { marked } from 'marked'
 
 import type { Kernel } from '#kernel.ts'
 
+import { serveApp } from '#lib/app-host.ts'
 import { detectFileType, getMimeType } from './document.ts'
 import { AUDIO_MIME, VIDEO_MIME, mimeType } from './media.ts'
 import type { Presented, Presenter } from './index.ts'
@@ -112,10 +113,35 @@ const presentMedia = (kind: 'video' | 'audio'): Presenter => async (kernel, _pro
   return { result: { duration: 0, metadataFailed: false } }
 }
 
+/**
+ * A DOM app (`#!ecmaos:bin:app:<name>`) on a host with no page: its code runs in the sandbox of a window on the display and
+ * reaches the machine only through the `AppSdk`. The app needs a `display` export; one written only for the kernel's own
+ * page (`main(params)`) fails when it starts, and the window closes with exit code 1.
+ */
+const presentApp: Presenter = async (kernel, proc, params, shell) => {
+  const file = text(params['file'], 'file')
+  const args = Array.isArray(params['args']) ? params['args'].map(String) : []
+  const command = typeof params['command'] === 'string' && params['command'] ? params['command'] : file.split('/').pop() ?? 'app'
+  const source = await kernel.filesystem.fs.readFile(file, 'utf-8')
+
+  const { uid, gid } = proc.context.credentials
+  const launch = {
+    source, command, args,
+    cwd: shell?.cwd ?? proc.context.pwd ?? '/',
+    env: shell?.envObject ?? {},
+    pid: proc.pid, uid: proc.context.credentials.euid ?? uid, gid: proc.context.credentials.egid ?? gid
+  }
+  const win = kernel.windows.create({ title: command, width: 900, height: 600, owner: { pid: proc.pid, uid: launch.uid, gid: launch.gid } })
+  const served = serveApp(kernel, proc, win, launch)
+  win.setContent({ app: launch })
+  return { closed: served.closed, dispose: served.dispose }
+}
+
 export const hostPresenters: Record<string, Presenter> = {
   external: presentExternal,
   browser: presentBrowser,
   document: presentDocument,
+  app: presentApp,
   video: presentMedia('video'),
   audio: presentMedia('audio')
 }

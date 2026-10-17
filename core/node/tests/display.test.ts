@@ -98,6 +98,28 @@ describe('host windows', () => {
     connection.socket.close()
   })
 
+  it('carry an app\'s calls to the window\'s handler and the answers back', async () => {
+    const { windows, opened } = setup()
+    const win = windows.create({ title: 'App' })
+    win.onCall(async (op, args) => {
+      if (op === 'fail') throw new Error('nope')
+      return { op, args }
+    })
+    await until(() => opened.length === 1, 'a host window')
+    const connection = await page(opened[0]!.url)
+    await until(() => connection.received.some(m => m.t === 'open'), 'open')
+    connection.send({ t: 'call', id: win.id, call: 1, op: 'echo', args: ['a', 2] })
+    connection.send({ t: 'call', id: win.id, call: 2, op: 'fail', args: [] })
+    await until(() => connection.received.filter(m => m.t === 'result').length === 2, 'two results')
+    expect(connection.received.find(m => m.t === 'result' && m.call === 1)).toMatchObject({ result: { op: 'echo', args: ['a', 2] } })
+    expect(connection.received.find(m => m.t === 'result' && m.call === 2)).toMatchObject({ error: 'nope' })
+    win.onCall(undefined)
+    connection.send({ t: 'call', id: win.id, call: 3, op: 'echo', args: [] })
+    await until(() => connection.received.some(m => m.t === 'result' && m.call === 3), 'a refusal')
+    expect(connection.received.find(m => m.t === 'result' && m.call === 3)).toMatchObject({ error: expect.stringContaining('answers calls') })
+    connection.socket.close()
+  })
+
   it('ignore a page that speaks for another window', async () => {
     const { windows, opened } = setup()
     const a = windows.create({ title: 'A' })

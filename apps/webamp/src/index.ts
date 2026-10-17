@@ -1,6 +1,6 @@
 import Webamp from 'webamp'
 
-import type { ProcessEntryParams } from '@ecmaos/types'
+import type { AppSdk, ProcessEntryParams } from '@ecmaos/types'
 
 const main = async (params: ProcessEntryParams) => {
   // const Webamp = WebampModule.default
@@ -36,6 +36,28 @@ const main = async (params: ProcessEntryParams) => {
   instance.keepAlive()
   player.onClose(() => instance.exit(0))
   instance.onDispose?.(() => player.dispose())
+}
+
+/**
+ * The entry for a host with no page of its own (a Node process): the player runs in the sandbox of its window, and the files
+ * named on the command line are read through the SDK.
+ */
+export const display = async (sdk: AppSdk) => {
+  if (!(Webamp as any).browserIsSupported()) throw new Error('Browser does not support necessary features for webamp')
+
+  const tracks: Array<{ url: string, metaData: { title: string } }> = []
+  for (const arg of sdk.args) {
+    const bytes = await sdk.fs.readFile(arg)
+    tracks.push({ url: URL.createObjectURL(new Blob([new Uint8Array(bytes)])), metaData: { title: arg.split('/').pop() ?? arg } })
+  }
+
+  const mount = document.createElement('div')
+  document.body.appendChild(mount)
+  const player = new (Webamp as any)(tracks.length ? { initialTracks: tracks } : {})
+  await player.renderWhenReady(mount)
+  player.onClose(() => { void sdk.exit(0) })
+  sdk.onDispose(() => player.dispose())
+  await sdk.window.setTitle('Webamp')
 }
 
 export default main

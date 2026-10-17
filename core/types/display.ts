@@ -6,11 +6,25 @@
 
 import type { WindowGeometry, WindowId, WindowRenderer, WindowState } from './windows.ts'
 
+/** An app to run inside a window's sandbox (see `AppSdk`): its code, and what it is told about the process that started it */
+export interface AppLaunch {
+  /** An ES module whose `display` export (or default export) is called with the `AppSdk` */
+  source: string
+  command: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+  pid: number
+  uid: number
+  gid: number
+}
+
 /** What a window shows when no DOM element was mounted into it */
 export type WindowContent =
   | { text: string }
   | { html: string }
   | { url: string }
+  | { app: AppLaunch }
 
 /** Kernel to display */
 export type ToDisplay =
@@ -19,6 +33,8 @@ export type ToDisplay =
   | { t: 'update', id: WindowId, title: string, geometry: WindowGeometry, state: WindowState }
   | { t: 'content', id: WindowId, content: WindowContent }
   | { t: 'close', id: WindowId }
+  /** The answer to a `call` of the same `call` number */
+  | { t: 'result', id: WindowId, call: number, result?: unknown, error?: string }
 
 /** Display to kernel. `hello` carries the one-time token and must be the first message */
 export type ToKernel =
@@ -26,6 +42,8 @@ export type ToKernel =
   | { t: 'close-request', id: WindowId }
   | { t: 'changed', id: WindowId, state?: WindowState, geometry?: WindowGeometry, title?: string }
   | { t: 'focused', id: WindowId }
+  /** An app in the window's sandbox asks the kernel to do something for it (see `AppSdk`); bytes travel as `{ $bytes: base64 }` */
+  | { t: 'call', id: WindowId, call: number, op: string, args: unknown[] }
 
 /** What a host offers for showing windows outside the kernel's own page */
 export interface HostDisplay {

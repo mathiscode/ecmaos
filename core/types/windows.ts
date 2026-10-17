@@ -109,6 +109,8 @@ export interface WindowHandle {
   setState(state: WindowState): void
   focus(): void
   close(force?: boolean): void
+  /** Sets who answers the calls that content running in the window makes (an app in a host window's sandbox) */
+  onCall(handler: ((op: string, args: unknown[]) => Promise<unknown> | unknown) | undefined): void
 }
 
 /**
@@ -138,6 +140,8 @@ export interface WindowReports {
   /** Reports state, geometry or title changes made by the user */
   changed(id: WindowId, patch: Partial<Pick<WindowInfo, 'state' | 'geometry' | 'title'>>): void
   focused(id: WindowId): void
+  /** Content running in the window asks for something; resolves to the answer */
+  call(id: WindowId, op: string, args: unknown[]): Promise<unknown>
   /** The current work area, for a renderer placing a new window */
   workarea(): WindowInsets
   /** The current minimize mode */
