@@ -31,6 +31,16 @@ describe('History', () => {
     expect(reads.count).toBe(1)
   })
 
+  it('does not treat a file that is not there yet as an empty history', async () => {
+    const { history, files } = setup()
+    await history.load(0)
+    // The filesystem comes up after the first load: the file the user already has appears
+    files.set('/h', 'old1\nold2\n')
+    await history.add(0, 'new')
+    expect(history.entries(0)).toEqual(['old1', 'old2', 'new'])
+    expect(files.get('/h')).toBe('old1\nold2\nnew\n')
+  })
+
   it('appends without reading the file back', async () => {
     const { history, files, reads } = setup('a\n')
     await history.load(0)

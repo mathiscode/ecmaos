@@ -79,9 +79,13 @@ export class History {
     user.fileLines = 0
     user.terminated = true
     user.text = ''
+    // A file that is not there yet is not cached as empty: the filesystem can still be coming up (the kernel's terminal
+    // loads before boot has mounted the root), and `add` would then write over the real file with the new commands alone.
+    let found = false
     try {
       const file = this.host.file(uid)
       if (await fs.exists(file)) {
+        found = true
         // NUL bytes are what a file damaged by the `appendFile` bug holds; dropping them heals it.
         const content = (await fs.readFile(file, 'utf-8')).replaceAll('\0', '')
         user.terminated = content.length === 0 || content.endsWith('\n')
@@ -104,7 +108,7 @@ export class History {
     }
 
     user.position = user.entries.length
-    user.loaded = true
+    user.loaded = found
   }
 
   private report(error: unknown, action: string) {
