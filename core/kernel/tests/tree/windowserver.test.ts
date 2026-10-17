@@ -272,3 +272,66 @@ describe('WindowServer calls', () => {
     await expect(reports.call('w', 'x', [])).rejects.toThrow(/answers calls/)
   })
 })
+
+describe('WindowServer workspaces', () => {
+  it('opens windows on the current workspace and hides the ones on the others when it switches', () => {
+    const { server, renderer } = setup()
+    expect(server.workspaces).toBe(1)
+    server.setWorkspaceCount(4)
+    const a = server.create({ id: 'a' })
+    server.switchWorkspace(1)
+    const b = server.create({ id: 'b' })
+    expect([a.info.workspace, a.info.hidden, b.info.workspace, b.info.hidden]).toEqual([0, true, 1, false])
+    expect(renderer.updates.some(info => info.id === 'a' && info.hidden)).toBe(true)
+    expect(b.info.focused).toBe(true)
+
+    server.switchWorkspace(0)
+    expect([a.info.hidden, b.info.hidden, a.info.focused, b.info.focused]).toEqual([false, true, true, false])
+  })
+
+  it('moves a window to a workspace, hiding it and handing focus to the one below', () => {
+    const { server } = setup()
+    server.setWorkspaceCount(4)
+    const a = server.create({ id: 'a' })
+    const b = server.create({ id: 'b' })
+    server.moveToWorkspace('b', 2)
+    expect([b.info.workspace, b.info.hidden, b.info.focused, a.info.focused]).toEqual([2, true, false, true])
+    expect(() => server.moveToWorkspace('b', 9)).toThrow()
+  })
+
+  it('switches to the workspace of a window that is focused', () => {
+    const { server } = setup()
+    server.setWorkspaceCount(4)
+    const a = server.create({ id: 'a' })
+    server.switchWorkspace(3)
+    expect(a.info.hidden).toBe(true)
+    a.focus()
+    expect(server.workspace).toBe(0)
+    expect([a.info.hidden, a.info.focused]).toEqual([false, true])
+  })
+
+  it('keeps a window that closes from handing focus to a hidden one', () => {
+    const { server } = setup()
+    server.setWorkspaceCount(4)
+    const a = server.create({ id: 'a' })
+    server.switchWorkspace(1)
+    const b = server.create({ id: 'b' })
+    b.close(true)
+    expect(a.info.focused).toBe(false)
+  })
+
+  it('reports a change to a listener, and moves windows off a removed workspace to the last one', () => {
+    const { server } = setup()
+    server.setWorkspaceCount(4)
+    const seen: Array<[number, number]> = []
+    server.onWorkspace((workspace, count) => seen.push([workspace, count]))
+    server.switchWorkspace(3)
+    const d = server.create({ id: 'd' })
+    server.setWorkspaceCount(2)
+    expect([server.workspace, d.info.workspace]).toEqual([1, 1])
+    expect(seen).toEqual([[3, 4], [1, 2]])
+    expect(() => server.switchWorkspace(2)).toThrow()
+    server.setWorkspaceCount(99)
+    expect(server.workspaces).toBe(16)
+  })
+})

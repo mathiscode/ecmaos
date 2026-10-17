@@ -55,6 +55,8 @@ export class WinBoxRenderer implements WindowRenderer {
   private _reports?: WindowReports
   /** Minimized windows hidden because the minimize mode is `hidden` */
   private _hidden: Set<WindowId> = new Set()
+  /** Windows hidden because they are on another workspace */
+  private _elsewhere: Set<WindowId> = new Set()
   /** Set while applying the server's change, so the WinBox hooks it triggers are not reported back */
   private _applying = false
 
@@ -123,6 +125,7 @@ export class WinBoxRenderer implements WindowRenderer {
       if (closed) {
         this._boxes.delete(id)
         this._hidden.delete(id)
+        this._elsewhere.delete(id)
         setTimeout(() => this._updateBodyClass(), 0)
       }
       return !closed
@@ -139,6 +142,9 @@ export class WinBoxRenderer implements WindowRenderer {
     this._applying = true
     try {
       if (box.title !== info.title) box.setTitle(info.title)
+      if (info.hidden !== this._elsewhere.has(info.id)) {
+        if (info.hidden) { this._elsewhere.add(info.id); box.hide() } else { this._elsewhere.delete(info.id); if (!this._hidden.has(info.id)) box.show() }
+      }
       if (info.state !== 'minimized') this._unhide(info.id)
       const current: WindowState = box.min ? 'minimized' : box.full ? 'fullscreen' : box.max ? 'maximized' : 'normal'
       if (current !== info.state) {
@@ -155,7 +161,7 @@ export class WinBoxRenderer implements WindowRenderer {
         if (box.width !== width || box.height !== height) box.resize(width, height)
       }
 
-      if (info.focused) box.focus()
+      if (info.focused && !info.hidden) box.focus()
     } finally {
       this._applying = false
     }
@@ -191,7 +197,7 @@ export class WinBoxRenderer implements WindowRenderer {
 
   private _unhide(id: WindowId) {
     if (!this._hidden.delete(id)) return
-    this._boxes.get(id)?.show()
+    if (!this._elsewhere.has(id)) this._boxes.get(id)?.show()
   }
 
   /** Closes the WinBox without asking `onclose` again; the server has already decided */
@@ -200,6 +206,7 @@ export class WinBoxRenderer implements WindowRenderer {
     if (!box) return
     this._boxes.delete(id)
     this._hidden.delete(id)
+    this._elsewhere.delete(id)
     this._applying = true
     try { box.close(true) } finally { this._applying = false }
     this._updateBodyClass()
@@ -207,7 +214,7 @@ export class WinBoxRenderer implements WindowRenderer {
 
   private _updateBodyClass() {
     let minimizedCount = 0
-    for (const [id, box] of this._boxes) if (box.min && !this._hidden.has(id)) minimizedCount++
+    for (const [id, box] of this._boxes) if (box.min && !this._hidden.has(id) && !this._elsewhere.has(id)) minimizedCount++
     document.body.classList.toggle('has-minimized-windows', minimizedCount > 0)
   }
 }

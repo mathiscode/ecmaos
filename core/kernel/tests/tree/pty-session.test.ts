@@ -109,6 +109,30 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     expect(kernel.windows.get(opened.window.id)).toBeUndefined()
   })
 
+  it('lists, switches and assigns workspaces with wmctrl', async () => {
+    const opened = await kernel.openTerminalWindow({ username: 'root', title: 'ws-test' })
+    const run = async (command: string) => {
+      const code = await kernel.runDetached({ username: 'root', command: 'wmctrl', args: [...command.split(' '), '>', '/tmp/ws.out', '2>&1'] })
+      return { code, out: await kernel.filesystem.fs.readFile('/tmp/ws.out', 'utf-8') }
+    }
+    expect((await run('-d')).out).toBe('0 * Workspace 1\n')
+    expect((await run('count 4')).code).toBe(0)
+    expect((await run('-d')).out).toBe('0 * Workspace 1\n1 - Workspace 2\n2 - Workspace 3\n3 - Workspace 4\n')
+    expect((await run(`-t ${opened.window.id} 2`)).code).toBe(0)
+    expect(opened.window.info).toMatchObject({ workspace: 2, hidden: true })
+    expect((await run('-s 2')).code).toBe(0)
+    expect(kernel.windows.workspace).toBe(2)
+    expect(opened.window.info.hidden).toBe(false)
+    expect((await run('-l')).out).toMatch(new RegExp(`${opened.window.id}\\s+2 `))
+    const bad = await run('-s 9')
+    expect(bad.code).toBe(1)
+    expect(bad.out).toContain('invalid')
+    expect((await run('-s 0')).code).toBe(0)
+    expect((await run('count 1')).code).toBe(0)
+    expect(opened.window.info).toMatchObject({ workspace: 0, hidden: false })
+    opened.window.close(true)
+  })
+
   it('runs a #!ecmaos:bin:program file from ecmash through execve', async () => {
     await kernel.filesystem.fs.writeFile('/bin/hello-program', '#!ecmaos:bin:program:hello\nconsole.log("x")\n', { mode: 0o755 })
     const code = await kernel.runDetached({ username: 'root', command: 'hello-program', args: ['>', '/tmp/hp.out', '2>&1'] })

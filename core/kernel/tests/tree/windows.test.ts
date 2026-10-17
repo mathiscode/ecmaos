@@ -95,6 +95,26 @@ describe('WinBoxRenderer', () => {
     win.close(true)
   })
 
+  it('should hide a window that is on another workspace and show it again', async () => {
+    const windows = await newWindows()
+    const win = windows.create()
+    const box = () => win.dom as HTMLElement
+    windows.setWorkspaceCount(4)
+    windows.switchWorkspace(1)
+    expect(box().classList.contains('hide')).toBe(true)
+    windows.switchWorkspace(0)
+    expect(box().classList.contains('hide')).toBe(false)
+
+    // minimized and hidden by the shell, then moved away and back: still hidden
+    windows.setMinimizeMode('hidden')
+    win.setState('minimized')
+    windows.moveToWorkspace(win.id, 2)
+    windows.moveToWorkspace(win.id, 0)
+    expect(box().classList.contains('hide')).toBe(true)
+    windows.setMinimizeMode('dock')
+    win.close(true)
+  })
+
   it('should bring a maximized window back maximized after minimizing it', async () => {
     const windows = await newWindows()
     const win = windows.create()

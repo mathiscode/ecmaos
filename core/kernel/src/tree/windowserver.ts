@@ -22,6 +22,7 @@ const DefaultWidth = 300
 const DefaultHeight = 300
 const DialogWidth = 320
 const DialogHeight = 200
+const MaxWorkspaces = 16
 
 interface Entry {
   info: WindowInfo
@@ -50,6 +51,9 @@ export class WindowServer implements Windows {
   private _workarea: WindowInsets = { top: 0, right: 0, bottom: 0, left: 0 }
   private _minimizeMode: MinimizeMode = 'dock'
   private _workareaListeners: Set<(insets: WindowInsets) => void> = new Set()
+  private _workspaceCount = 1
+  private _workspace = 0
+  private _workspaceListeners: Set<(workspace: number, count: number) => void> = new Set()
   private _renderers: WindowRenderer[] = []
   private _entries: Map<WindowId, Entry> = new Map()
   /** Bottom to top; the last id is focused */
@@ -105,6 +109,47 @@ export class WindowServer implements Windows {
     return () => { this._workareaListeners.delete(listener) }
   }
 
+  get workspaces() { return this._workspaceCount }
+  get workspace() { return this._workspace }
+
+  setWorkspaceCount(count: number) {
+    const next = Math.min(MaxWorkspaces, Math.max(1, Math.round(count)))
+    if (next === this._workspaceCount) return
+    this._workspaceCount = next
+    for (const entry of this._entries.values()) if (entry.info.workspace >= next) entry.info.workspace = next - 1
+    if (this._workspace >= next) this._workspace = next - 1
+    this._applyWorkspace()
+  }
+
+  switchWorkspace(workspace: number) {
+    if (!Number.isInteger(workspace) || workspace < 0 || workspace >= this._workspaceCount) throw fail(`No workspace ${workspace}`, Errno.EINVAL)
+    if (workspace === this._workspace) return
+    this._workspace = workspace
+    this._applyWorkspace()
+    const top = this._topVisible()
+    if (top !== undefined) this.focus(top)
+  }
+
+  moveToWorkspace(id: WindowId, workspace: number) {
+    if (!Number.isInteger(workspace) || workspace < 0 || workspace >= this._workspaceCount) throw fail(`No workspace ${workspace}`, Errno.EINVAL)
+    const entry = this._entries.get(id)
+    if (!entry || entry.info.workspace === workspace) return
+    entry.info.workspace = workspace
+    this._showOrHide(entry)
+    this._emit('update', entry)
+    // a window moved away from the current workspace leaves focus to the one below it
+    if (entry.info.focused && entry.info.hidden) {
+      entry.info.focused = false
+      const top = this._topVisible()
+      if (top !== undefined) this._raise(top)
+    }
+  }
+
+  onWorkspace(listener: (workspace: number, count: number) => void) {
+    this._workspaceListeners.add(listener)
+    return () => { this._workspaceListeners.delete(listener) }
+  }
+
   registerRenderer(renderer: WindowRenderer) {
     renderer.attach(this._reports)
     this._renderers.push(renderer)
@@ -136,6 +181,8 @@ export class WindowServer implements Windows {
         height: pixels(options.height, options.modal ? DialogHeight : DefaultHeight)
       },
       focused: false,
+      workspace: this._workspace,
+      hidden: false,
       modal: options.modal ?? false,
       frameless: options.frameless ?? false,
       icon: options.icon === undefined ? undefined : String(options.icon),
@@ -180,6 +227,7 @@ export class WindowServer implements Windows {
   focus(id: WindowId) {
     const entry = this._entries.get(id)
     if (!entry) return
+    if (entry.info.hidden) this.switchWorkspace(entry.info.workspace)
     const restored = entry.info.state === 'minimized'
     if (restored) entry.info.state = entry.restoreState ?? 'normal'
     this._raise(id)
@@ -232,9 +280,35 @@ export class WindowServer implements Windows {
     this._emit('close', entry)
 
     // The window below inherits focus
-    const next = this._order[this._order.length - 1]
+    const next = this._topVisible()
     if (next !== undefined) this._raise(next)
     return true
+  }
+
+  /** The topmost window on the current workspace that is not minimized */
+  private _topVisible(): WindowId | undefined {
+    for (let i = this._order.length - 1; i >= 0; i--) {
+      const entry = this._entries.get(this._order[i]!)
+      if (entry && !entry.info.hidden && entry.info.state !== 'minimized') return entry.info.id
+    }
+  }
+
+  private _showOrHide(entry: Entry) {
+    const hidden = entry.info.workspace !== this._workspace
+    if (hidden !== entry.info.hidden) entry.info.hidden = hidden
+    entry.renderer.update(entry.info)
+  }
+
+  private _applyWorkspace() {
+    for (const entry of this._entries.values()) {
+      const hidden = entry.info.workspace !== this._workspace
+      if (hidden === entry.info.hidden) continue
+      entry.info.hidden = hidden
+      if (hidden) entry.info.focused = false
+      entry.renderer.update(entry.info)
+      this._emit('update', entry)
+    }
+    for (const listener of this._workspaceListeners) listener(this._workspace, this._workspaceCount)
   }
 
   private _setState(entry: Entry, state: WindowState) {

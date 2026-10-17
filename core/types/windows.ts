@@ -55,6 +55,10 @@ export interface WindowInfo {
   modal: boolean
   frameless: boolean
   icon?: string
+  /** The workspace the window is on (0 is the first) */
+  workspace: number
+  /** On a workspace other than the current one, so a renderer does not draw it */
+  hidden: boolean
   /** `Date.now()` at creation */
   created: number
 }
@@ -168,6 +172,22 @@ export interface Windows {
 
   /** Sets where minimized windows go. The windows keep the `minimized` state either way; a shell restores one with `focus` */
   setMinimizeMode(mode: MinimizeMode): void
+
+  /** How many workspaces there are (at least 1) and the one being shown, 0-based */
+  readonly workspaces: number
+  readonly workspace: number
+
+  /** Sets how many workspaces there are; windows on a removed one move to the last. Counts from 1 to 16 */
+  setWorkspaceCount(count: number): void
+
+  /** Shows a workspace: the windows on it are drawn, the others hidden, and the topmost window on it is focused */
+  switchWorkspace(workspace: number): void
+
+  /** Moves a window to a workspace; it is hidden if that is not the current one */
+  moveToWorkspace(id: WindowId, workspace: number): void
+
+  /** Subscribe to workspace changes (a switch or a new count); returns an unsubscribe function */
+  onWorkspace(listener: (workspace: number, count: number) => void): () => void
 
   /** Adds a renderer; the most recently added renderer that supports a kind is used for it */
   registerRenderer(renderer: WindowRenderer): void

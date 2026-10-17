@@ -50,6 +50,7 @@ declare module '@zenfs/linux/uapi/abi' {
     window_close(handle: number): number
     window_list(path: string): number
     wm_control(id: string, action: string, a: number, b: number, text: string): number
+    wm_workspace(action: string, n: number, path: string): number
     window_focus(handle: number): number
     window_move(handle: number, x: number, y: number): number
     window_resize(handle: number, width: number, height: number): number
@@ -515,9 +516,31 @@ export function installMainThreadSyscalls(): void {
       case 'move': win.move(a, b); break
       case 'resize': win.resize(a, b); break
       case 'title': win.setTitle(text); break
+      case 'workspace':
+        try { kernel.windows.moveToWorkspace(win.id, a) } catch { return -Errno.EINVAL }
+        break
       default: return -Errno.EINVAL
     }
     return 0
+  })
+
+  // `wm_workspace`: the workspaces as a whole. `list` writes `{ "current": N, "count": N }` to `path`; `switch` (n) shows a
+  // workspace; `count` (n) sets how many there are and is for root. A syscall can only return a number, hence the file.
+  define_syscall('wm_workspace', async (proc: Process, action: string, n: number, path: string) => {
+    const kernel = kernelOf(proc)
+    switch (action) {
+      case 'list':
+        await writeScratch(kernel, proc, path, JSON.stringify({ current: kernel.windows.workspace, count: kernel.windows.workspaces }))
+        return 0
+      case 'switch':
+        try { kernel.windows.switchWorkspace(n) } catch { return -Errno.EINVAL }
+        return 0
+      case 'count':
+        if (!processIsRoot(proc)) return -Errno.EPERM
+        kernel.windows.setWorkspaceCount(n)
+        return 0
+      default: return -Errno.EINVAL
+    }
   })
 
   define_syscall('window_focus', async (proc: Process, handle: number) => {
