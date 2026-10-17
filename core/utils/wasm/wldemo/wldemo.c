@@ -2,7 +2,7 @@
  * wldemo: a small Wayland client for ecmaOS, to look at what wlcomp shows and sends. A resizable window with a
  * gradient, a ball that bounces (one frame per frame callback), a square that follows the pointer and turns red
  * while a button is down, and the last key typed, named by libxkbcommon. Escape or closing the window quits.
- * Written against libwayland-client and libxkbcommon (see wasm/lib). Usage: wldemo [WIDTH] [HEIGHT] */
+ * Written against libwayland-client and libxkbcommon (see wasm/lib). Usage: wldemo [WIDTH] [HEIGHT]. Without XDG_RUNTIME_DIR and WAYLAND_DISPLAY it uses /run/user/UID and wayland-0, as wlcomp does. */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -187,7 +187,11 @@ static const struct wl_seat_listener seat_listener = { seat_caps, seat_name };
 
 int main(int argc, char **argv) {
   if (argc > 2) { width = atoi(argv[1]); height = atoi(argv[2]); }
-  if (!getenv("XDG_RUNTIME_DIR")) { fprintf(stderr, "wldemo: XDG_RUNTIME_DIR is not set (start wlcomp, and use its environment)\n"); return 1; }
+  if (!getenv("XDG_RUNTIME_DIR") || !*getenv("XDG_RUNTIME_DIR")) {   /* the same default wlcomp listens in */
+    char dir[64];
+    snprintf(dir, sizeof dir, "/run/user/%d", (int)getuid());
+    setenv("XDG_RUNTIME_DIR", dir, 1);
+  }
   struct wl_display *display = wl_display_connect(NULL);
   if (!display) { fprintf(stderr, "wldemo: no Wayland display (is wlcomp running?)\n"); return 1; }
   struct wl_registry *registry = wl_display_get_registry(display);

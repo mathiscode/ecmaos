@@ -119,7 +119,7 @@ describe('the Wayland compositor', () => {
   }, 60_000)
 
   it('runs the shipped demo client: it animates, follows the pointer and quits on Escape', async () => {
-    const client = kernel.shell.execute(`${env} wldemo 120 90 > /tmp/wldemo.out 2>&1`)
+    const client = kernel.shell.execute(`wldemo 120 90 > /tmp/wldemo.out 2>&1`)
     await until(() => kernel.windows.list().some(w => w.title === 'wldemo'))
     const id = kernel.windows.list().find(w => w.title === 'wldemo')!.id
     await until(() => kernel.framebuffers.list().length === 1)
