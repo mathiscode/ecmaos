@@ -1,6 +1,6 @@
 /** Format and print arguments according to a printf-style format string. */
 
-import { formatPrintf } from '../lib/printf-format.ts'
+import { formatPrintf, printfBytes } from '../lib/printf-format.ts'
 
 const { argv, exit, writeAll } = globalThis.ecmaosSyscalls
 
@@ -58,7 +58,7 @@ function main() {
     writeAll(2, new TextEncoder().encode(`printf: \`${character}': invalid format character\n`))
     status = 1
   })
-  writeAll(1, new TextEncoder().encode(output))
+  writeAll(1, printfBytes(output))
   return status
 }
 

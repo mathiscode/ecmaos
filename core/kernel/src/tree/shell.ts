@@ -19,6 +19,7 @@ import type {
 import { ThemePresets } from '@ecmaos/types'
 
 import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
+import { printfBytes } from '@ecmaos/coreutils/lib/printf-format'
 import { ParseError, parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
@@ -2364,7 +2365,7 @@ export class Shell implements IShell {
     const out = async (text: string) => {
       if (outBroken) return
       outWriter ??= stdout.getWriter()
-      try { await outWriter.write(encoder.encode(text)) } catch (error) {
+      try { await outWriter.write(printfBytes(text)) } catch (error) {
         if ((error as { code?: string })?.code !== 'EPIPE') throw error
         outBroken = true
       }

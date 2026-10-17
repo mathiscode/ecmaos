@@ -56,6 +56,13 @@ describe('/dev/fb<N>', () => {
     expect(kernel.framebuffers.get(framebuffer.index)).toBeUndefined()
   })
 
+  it('takes a byte of 0x80 and up from a printf escape as that byte', async () => {
+    const framebuffer = kernel.framebuffers.create({ width: 2, height: 1, title: 'bytes' })
+    await kernel.shell.execute(`printf '\\377\\200\\x81A' > ${framebuffer.path}`)
+    expect([...framebuffer.pixels.subarray(0, 4)]).toEqual([0xff, 0x80, 0x81, 0x41])
+    kernel.windows.close(kernel.windows.list().find(w => w.title === 'bytes')!.id, true)
+  })
+
   it('numbers framebuffers from the lowest free one', async () => {
     const a = kernel.framebuffers.create({ width: 2, height: 2 })
     const b = kernel.framebuffers.create({ width: 2, height: 2 })

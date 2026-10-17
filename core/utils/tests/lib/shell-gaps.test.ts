@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseStatements } from '../../src/lib/control-flow-parser.ts'
-import { formatPrintf, quoteWord } from '../../src/lib/printf-format.ts'
+import { formatPrintf, printfBytes, printfString, quoteWord } from '../../src/lib/printf-format.ts'
 import { decodeAnsiC, tokenize } from '../../src/lib/shell-parser.ts'
 import { rewriteArithmeticCommands } from '../../src/lib/shell-core/interpreter.ts'
 import { ShellState } from '../../src/lib/shell-core/state.ts'
@@ -40,6 +40,12 @@ describe('$\'...\' quoting', () => {
 })
 
 describe('printf formatting', () => {
+  it('writes an escaped byte of 0x80 and up as that byte, not as UTF-8', () => {
+    expect([...printfBytes(formatPrintf('\\377a\\x80\\n', []))]).toEqual([0xff, 0x61, 0x80, 0x0a])
+    expect([...printfBytes(formatPrintf('é%s', ['\u00e9']))]).toEqual([0xc3, 0xa9, 0xc3, 0xa9])
+    expect(printfString(formatPrintf('\\377', [])).charCodeAt(0)).toBe(0xff)
+  })
+
   it('quotes a word so a shell reads it back', () => {
     expect(quoteWord('')).toBe("''")
     expect(quoteWord('plain-word_1.txt')).toBe('plain-word_1.txt')

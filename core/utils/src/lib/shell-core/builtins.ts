@@ -5,7 +5,7 @@
  * with the hosts.
  */
 
-import { formatPrintf } from '../printf-format.js'
+import { formatPrintf, printfString } from '../printf-format.js'
 import { formatUmask, formatUmaskSymbolic, parseUmask } from './umask.js'
 import { evaluateArithmeticExpression } from '../expand-variables.js'
 import { DEFAULT_IFS, splitOnIFS } from '../word-expansion.js'
@@ -878,7 +878,7 @@ async function printfBuiltin(host: BuiltinHost, argv: string[], io: BuiltinIO): 
   for (const character of badFormat) await io.writelnErr(`printf: \`${character}': invalid format character`)
   const status = invalid.length || badFormat.length ? 1 : 0
   if (variable === undefined) { await io.write(out); return status }
-  try { host.state.set(variable, out) } catch (error) { await io.writelnErr(`printf: ${message(error)}`); return 1 }
+  try { host.state.set(variable, printfString(out)) } catch (error) { await io.writelnErr(`printf: ${message(error)}`); return 1 }
   host.changed?.()
   return status
 }

@@ -14,6 +14,36 @@ export function quoteWord(text: string): string {
   return text.replace(/[^A-Za-z0-9_@%+=:,./-]/g, '\\$&')
 }
 
+/** A byte from an escape: 0x80 and up cannot be a character of the text (it would be written as UTF-8), so it is marked in the private-use block and `printfBytes` turns it back into the byte. */
+const RAW_BASE = 0xf700
+function rawByte(value: number): string {
+  return String.fromCharCode(value >= 0x80 ? RAW_BASE + value : value)
+}
+
+/** The bytes `formatPrintf`'s result stands for: text as UTF-8, and each byte an escape named as itself. */
+export function printfBytes(text: string): Uint8Array {
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if (code < RAW_BASE + 0x80 || code > RAW_BASE + 0xff) continue
+    if (i > start) parts.push(encoder.encode(text.slice(start, i)))
+    parts.push(Uint8Array.of(code - RAW_BASE))
+    start = i + 1
+  }
+  if (start < text.length) parts.push(encoder.encode(text.slice(start)))
+  const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0))
+  let at = 0
+  for (const part of parts) { out.set(part, at); at += part.length }
+  return out
+}
+
+/** `formatPrintf`'s result as a string value (for a shell variable): a byte an escape named is the character with that code. */
+export function printfString(text: string): string {
+  return text.replace(/[\uf780-\uf7ff]/g, c => String.fromCharCode(c.charCodeAt(0) - RAW_BASE))
+}
+
 export function interpretEscapes(text: string): string {
   let result = ''
   let i = 0
@@ -40,7 +70,7 @@ export function interpretEscapes(text: string): string {
             const char = text[j]
             if (char && /[0-7]/.test(char)) { octal += char; j++ } else break
           }
-          if (octal) { result += String.fromCharCode(parseInt(octal, 8)); i = j } else { result += text[i]; i++ }
+          if (octal) { result += rawByte(parseInt(octal, 8) & 0xff); i = j } else { result += text[i]; i++ }
           break
         }
         case 'x': {
@@ -50,7 +80,7 @@ export function interpretEscapes(text: string): string {
             const char = text[j]
             if (char && /[0-9a-fA-F]/.test(char)) { hex += char; j++ } else break
           }
-          if (hex) { result += String.fromCharCode(parseInt(hex, 16)); i = j } else { result += text[i]; i++ }
+          if (hex) { result += rawByte(parseInt(hex, 16)); i = j } else { result += text[i]; i++ }
           break
         }
         case 'u': case 'U': {
