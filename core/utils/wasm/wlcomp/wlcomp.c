@@ -95,7 +95,8 @@ static int ndue;
 static struct surface *wins[64];
 static uint32_t serial_counter = 1;
 static int debug;
-#define LOG(...) do { if (debug) { fprintf(stderr, "wlcomp: " __VA_ARGS__); fputc(10, stderr); } } while (0)
+static uint32_t now_ms(void);
+#define LOG(...) do { if (debug) { fprintf(stderr, "[%u] wlcomp: ", now_ms()); fprintf(stderr, __VA_ARGS__); fputc(10, stderr); } } while (0)
 static int next_window;
 static char runtime[256];
 static const int screen_w = 1024, screen_h = 768;
@@ -245,7 +246,7 @@ static int window_open(struct surface *s, uint32_t width, uint32_t height) {
   snprintf(pidfile, sizeof pidfile, "%s/wlcomp-%d.pid", runtime, n);
   unlink(pidfile);
   uint32_t before = fb_mask();
-  snprintf(cmd, sizeof cmd, "fbwin -t '%s' %ux%u > /dev/null 2>&1 & echo $! > %s; disown",
+  snprintf(cmd, sizeof cmd, "fbwin -r -t '%s' %ux%u > /dev/null 2>&1 & echo $! > %s; disown",
            title[0] ? title : "Wayland", width, height, pidfile);
   LOG("window: %s", cmd);
   int status = system(cmd);
@@ -279,10 +280,18 @@ static int window_open(struct surface *s, uint32_t width, uint32_t height) {
   return 0;
 }
 
-/* A framebuffer whose window was closed answers every call with ENODEV, even though its node stays while we hold it open */
-static int window_alive(struct window *w) {
+/* A framebuffer whose window was closed answers every call with ENODEV, even though its node stays while we hold it open.
+ * Returns 0 for gone, 1 for as before, 2 when the user gave the window another size (w is updated). */
+static int window_probe(struct window *w) {
   uint8_t info[160]; /* struct fb_var_screeninfo */
-  return ioctl(w->fd, 0x4600 /* FBIOGET_VSCREENINFO */, info) == 0;
+  if (ioctl(w->fd, 0x4600 /* FBIOGET_VSCREENINFO */, info) != 0) return 0;
+  uint32_t xres, yres;
+  memcpy(&xres, info, 4);
+  memcpy(&yres, info + 4, 4);
+  if (xres == w->width && yres == w->height) return 1;
+  w->width = xres;
+  w->height = yres;
+  return 2;
 }
 
 /* copies the surface's current buffer into its window */
@@ -781,7 +790,10 @@ static void check_windows(void) {
     for (uint32_t id = 1; id < MAX_OBJECTS; id++) {
       if (c->objs[id].type != T_SURFACE) continue;
       struct surface *s = c->objs[id].data;
-      if (!s->mapped || s->win.index < 0 || window_alive(&s->win)) continue;
+      if (!s->mapped || s->win.index < 0) continue;
+      int state = window_probe(&s->win);
+      if (state == 2 && s->toplevel) { LOG("window %d is now %ux%u", s->win.index, s->win.width, s->win.height); send_configure(c, s, s->win.width, s->win.height); continue; }
+      if (state != 0) continue;
       LOG("window %d is gone", s->win.index);
       s->win.pid = 0;
       window_close(&s->win);
@@ -820,26 +832,20 @@ int main(void) {
 
   uint32_t last_check = now_ms();
   for (;;) {
-    struct pollfd fds[MAX_CLIENTS + 1 + 64];
-    int slot[MAX_CLIENTS + 1 + 64];
+    struct pollfd fds[MAX_CLIENTS + 1];
+    int slot[MAX_CLIENTS + 1];
     int n = 0;
     fds[n].fd = listener; fds[n].events = POLLIN; slot[n++] = -1;
     for (int i = 0; i < MAX_CLIENTS; i++) {
       if (!clients[i]) continue;
       fds[n].fd = clients[i]->fd; fds[n].events = POLLIN; slot[n++] = i;
     }
-    for (int i = 0; i < 64; i++) {
-      if (!wins[i] || wins[i]->win.input < 0) continue;
-      fds[n].fd = wins[i]->win.input; fds[n].events = POLLIN; slot[n++] = -2 - i;
-    }
-    poll(fds, (nfds_t)n, ndue > 0 ? 16 : 250);
+    int windows_open = 0;
+    for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) windows_open = 1;
+    poll(fds, (nfds_t)n, ndue > 0 || windows_open ? 16 : 100);
+    for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) read_input(wins[i]);
     for (int k = 0; k < n; k++) {
       if (!(fds[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
-      if (slot[k] <= -2) {
-        struct surface *w = wins[-2 - slot[k]];
-        if (w && w->win.input == fds[k].fd) read_input(w);
-        continue;
-      }
       if (slot[k] < 0) {
         int fd = accept4(listener, NULL, NULL, SOCK_NONBLOCK);
         if (fd < 0) continue;
@@ -875,7 +881,7 @@ int main(void) {
         obj_free(c, batch[i].id);
       }
     }
-    if (now_ms() - last_check > 250) { last_check = now_ms(); check_windows(); }
+    if (now_ms() - last_check > 100) { last_check = now_ms(); check_windows(); }
     for (int i = 0; i < MAX_CLIENTS; i++) {
       if (clients[i] && !clients[i]->alive) { client_free(clients[i]); clients[i] = NULL; }
     }

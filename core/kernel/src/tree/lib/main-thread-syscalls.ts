@@ -45,7 +45,7 @@ import type { Shell, SocketConnection } from '@ecmaos/types'
 declare module '@zenfs/linux/uapi/abi' {
   interface Syscalls {
     window_create(title: string): number
-    fb_create(width: number, height: number, title: string): number
+    fb_create(width: number, height: number, title: string, resizable?: number): number
     window_write(handle: number, text: string): number
     window_close(handle: number): number
     window_list(path: string): number
@@ -376,11 +376,11 @@ export function installMainThreadSyscalls(): void {
   })
 
   // `fb_create`: a window of width by height pixels and the `/dev/fb<N>` node that draws in it. Returns N. The window goes with the process.
-  define_syscall('fb_create', async (proc: Process, width: number, height: number, title: string) => {
+  define_syscall('fb_create', async (proc: Process, width: number, height: number, title: string, resizable?: number) => {
     const kernel = kernelOf(proc)
     try {
       const { uid, gid } = identityOf(proc)
-      const framebuffer = kernel.framebuffers.create({ width, height, title, owner: { pid: proc.pid, uid, gid } })
+      const framebuffer = kernel.framebuffers.create({ width, height, title, resizable: resizable === 1, owner: { pid: proc.pid, uid, gid } })
       if (!hookedWindowOwners.has(proc.pid)) {
         hookedWindowOwners.add(proc.pid)
         void proc.exited.then(() => { hookedWindowOwners.delete(proc.pid); kernel.windows.closeOwnedBy(proc.pid) })

@@ -42,6 +42,7 @@ static uint8_t in[65536];
 static size_t inn;
 static uint32_t shm_name, comp_name, wm_name, seat_name;
 static int configured, got_sync, frame_done, closed, error_seen;
+static int want_w, want_h;
 static uint32_t config_serial, sync_id = 3, frame_id;
 
 static void handle(uint32_t id, uint32_t op, const uint8_t *p, size_t len) {
@@ -57,7 +58,15 @@ static void handle(uint32_t id, uint32_t op, const uint8_t *p, size_t len) {
   }
   else if (id == sync_id && op == 0) got_sync = 1;
   else if (id == 6 && op == 0) { uint32_t serial; memcpy(&serial, p, 4); begin(6, 3); u32(serial); finish(-1); }
-  else if (id == 8 && op == 0) { memcpy(&config_serial, p, 4); configured = 1; }
+  else if (id == 8 && op == 0) {
+    memcpy(&config_serial, p, 4);
+    if (configured) { begin(8, 4); u32(config_serial); finish(-1); }   /* a later configure: ack at once */
+    configured = 1;
+  }
+  else if (id == 9 && op == 0) {
+    int32_t cw, ch; memcpy(&cw, p, 4); memcpy(&ch, p + 4, 4);
+    if (cw > 0 && ch > 0) { want_w = cw; want_h = ch; }
+  }
   else if (id == 9 && op == 1) closed = 1;
   else if (id == frame_id && frame_id && op == 0) frame_done = 1;
   else if (id == 61) {   /* wl_pointer */
@@ -102,6 +111,26 @@ static void pump(int *flag) {
 
 static void roundtrip(void) { sync_id++; got_sync = 0; begin(1, 0); u32(sync_id); finish(-1); pump(&got_sync); }
 
+static uint32_t *new_buffer(const char *dir, int w, int h, uint32_t pool_id, uint32_t buf_id) {
+  char path[256];
+  snprintf(path, sizeof path, "%s/wl-shm-XXXXXX", dir);
+  int fd = mkstemp(path);
+  if (fd < 0) { printf("mkstemp failed %d\n", errno); exit(1); }
+  unlink(path);
+  size_t size = (size_t)w * h * 4;
+  if (ftruncate(fd, (off_t)size) < 0) { printf("ftruncate failed\n"); exit(1); }
+  uint32_t *px = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (px == MAP_FAILED) { printf("mmap failed %d\n", errno); exit(1); }
+  begin(5, 0); u32(pool_id); u32((uint32_t)size); finish(fd);
+  begin(pool_id, 0); u32(buf_id); u32(0); u32((uint32_t)w); u32((uint32_t)h); u32((uint32_t)w * 4); u32(1); finish(-1);
+  return px;
+}
+
+static void paint(uint32_t *px, int w, int h, int i) {
+  for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+    px[y * w + x] = (uint32_t)(((x * 255 / w) << 16) | ((y * 255 / h) << 8) | ((i * 60) & 255));
+}
+
 int main(int argc, char **argv) {
   int frames = argc > 1 ? atoi(argv[1]) : 3;
   int w = argc > 2 ? atoi(argv[2]) : 160, h = argc > 3 ? atoi(argv[3]) : 100;
@@ -136,24 +165,14 @@ int main(int argc, char **argv) {
   printf("configured\n");
   begin(8, 4); u32(config_serial); finish(-1);   /* ack_configure */
 
-  char path[256];
-  snprintf(path, sizeof path, "%s/wl-shm-XXXXXX", dir);
-  int fd = mkstemp(path);
-  if (fd < 0) { printf("mkstemp failed %d\n", errno); return 1; }
-  unlink(path);
-  size_t size = (size_t)w * h * 4;
-  if (ftruncate(fd, (off_t)size) < 0) { printf("ftruncate failed\n"); return 1; }
-  uint32_t *px = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (px == MAP_FAILED) { printf("mmap failed %d\n", errno); return 1; }
-  begin(5, 0); u32(10); u32((uint32_t)size); finish(fd);                              /* pool = 10 */
-  begin(10, 0); u32(11); u32(0); u32((uint32_t)w); u32((uint32_t)h); u32((uint32_t)w * 4); u32(1); finish(-1); /* buffer = 11, xrgb8888 */
+  uint32_t *px = new_buffer(dir, w, h, 10, 11);   /* pool = 10, buffer = 11 */
+  uint32_t buf = 11;
 
   for (int i = 0; i < frames; i++) {
-    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
-      px[y * w + x] = (uint32_t)(((x * 255 / w) << 16) | ((y * 255 / h) << 8) | ((i * 60) & 255));
+    paint(px, w, h, i);
     frame_id = 100 + (uint32_t)i;
     frame_done = 0;
-    begin(7, 1); u32(11); u32(0); u32(0); finish(-1);      /* attach */
+    begin(7, 1); u32(buf); u32(0); u32(0); finish(-1);      /* attach */
     begin(7, 3); u32(frame_id); finish(-1);               /* frame */
     begin(7, 6); finish(-1);                              /* commit */
     pump(&frame_done);
@@ -171,6 +190,18 @@ int main(int argc, char **argv) {
       inn += (size_t)n;
       int once = 1;
       pump(&once);
+    }
+    if (want_w && (want_w != w || want_h != h)) {
+      w = want_w; h = want_h;
+      begin(buf, 0); finish(-1);   /* destroy the old buffer */
+      static uint32_t next_id = 200;
+      px = new_buffer(dir, w, h, next_id, next_id + 1);
+      buf = next_id + 1;
+      next_id += 2;
+      paint(px, w, h, 9);
+      begin(7, 1); u32(buf); u32(0); u32(0); finish(-1);
+      begin(7, 6); finish(-1);
+      printf("resized %d %d\n", w, h);
     }
   }
   printf(closed ? "closed\n" : "exit\n");

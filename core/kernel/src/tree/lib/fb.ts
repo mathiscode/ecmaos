@@ -43,15 +43,15 @@ export type PixelSink = (frame: PixelFrame) => void
 const PresentDelay = 16
 
 export class Framebuffer {
-  readonly stride: number
-  readonly pixels: Uint8Array
+  stride: number
+  pixels: Uint8Array
   /** Where the next `read` or `write` on the node starts, in bytes */
   cursor = 0
   private _timer: ReturnType<typeof setTimeout> | undefined
   private _closed = false
   presents = 0
 
-  constructor(readonly index: number, readonly width: number, readonly height: number, private readonly _sink: PixelSink) {
+  constructor(readonly index: number, public width: number, public height: number, private readonly _sink: PixelSink) {
     this.stride = width * BytesPerPixel
     this.pixels = new Uint8Array(this.stride * height)
   }
@@ -101,6 +101,16 @@ export class Framebuffer {
     if (this._closed) return
     this.presents++
     this._sink({ width: this.width, height: this.height, data: this.pixels })
+  }
+
+  /** Gives the screen another size: the pixels start black and the cursor goes to the top */
+  resize(width: number, height: number) {
+    this.width = width
+    this.height = height
+    this.stride = width * BytesPerPixel
+    this.pixels = new Uint8Array(this.stride * height)
+    this.cursor = 0
+    this.flush()
   }
 
   close() {
@@ -237,6 +247,7 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
     let body: HTMLElement | undefined
     try { body = window.body } catch { /* a window drawn without the DOM */ }
     if (!body) return window.setContent({ pixels: { width: frame.width, height: frame.height, data: encodeBase64(frame.data) } })
+    if (canvas && (canvas.width !== frame.width || canvas.height !== frame.height)) { canvas.width = frame.width; canvas.height = frame.height; image = undefined }
     if (!canvas || canvas.ownerDocument !== body.ownerDocument || !body.contains(canvas)) {
       canvas = body.ownerDocument.createElement('canvas')
       canvas.width = frame.width
@@ -265,6 +276,8 @@ export interface FramebufferOptions {
   height: number
   title?: string
   owner?: WindowOwner
+  /** The screen takes the size its window shows it at (after the first report, which is the size it starts with) */
+  resizable?: boolean
 }
 
 /** The framebuffers of a machine; each has a window and a node */
@@ -291,7 +304,17 @@ export class Framebuffers {
     const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
     const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input)))
     const inputNode = registerWindowInput(index, width, height)
-    const stopInput = this._windows.onInput(window.id, input => inputHub.window(inputNode.minor, input))
+    let baseline = false
+    const stopInput = this._windows.onInput(window.id, input => {
+      inputHub.window(inputNode.minor, input)
+      if (input.k !== 'size' || !options.resizable) return
+      // the first size is how the window starts out; only later ones are the user's
+      if (!baseline) { baseline = true; return }
+      const next = { width: Math.min(Math.max(input.width, 1), 4096), height: Math.min(Math.max(input.height, 1), 4096) }
+      if (next.width === framebuffer.width && next.height === framebuffer.height) return
+      framebuffer.resize(next.width, next.height)
+      inputNode.resize(next.width, next.height)
+    })
     let device: Device
     try {
       device = new Device({ name: `fb${index}`, class: fb_class, dev_t: { major: FbMajor, minor: index } })

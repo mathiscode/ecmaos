@@ -41,5 +41,10 @@ export function attachCanvasInput(canvas: HTMLCanvasElement, emit: (input: Windo
     ['blur', () => emit({ k: 'blur' })]
   ]
   for (const [name, listener] of listeners) canvas.addEventListener(name, listener)
-  return () => { for (const [name, listener] of listeners) canvas.removeEventListener(name, listener) }
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+    const width = Math.round(canvas.clientWidth), height = Math.round(canvas.clientHeight)
+    if (width > 0 && height > 0) emit({ k: 'size', width, height })
+  }) : undefined
+  observer?.observe(canvas)
+  return () => { observer?.disconnect(); for (const [name, listener] of listeners) canvas.removeEventListener(name, listener) }
 }

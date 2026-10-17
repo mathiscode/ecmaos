@@ -192,6 +192,7 @@ export class InputHub {
         if (events.length) this.emit(minor, events, now)
         return
       }
+      case 'size': return
       case 'enter': case 'leave': this.emit(minor, [[EV_MSC, MSC_POINTER_ENTER, input.k === 'enter' ? 1 : 0]], now); return
       case 'focus': case 'blur': this.emit(minor, [[EV_MSC, MSC_KEYBOARD_FOCUS, input.k === 'focus' ? 1 : 0]], now)
     }
@@ -389,7 +390,7 @@ const input_class = new Class('input')
  * Makes the input device of pixel window `index` (`/dev/input/event<2+index>`). Returns the minor, the hub's events for it
  * and the function that removes the node.
  */
-export function registerWindowInput(index: number, width: number, height: number): { minor: number, remove: () => void } {
+export function registerWindowInput(index: number, width: number, height: number): { minor: number, remove: () => void, resize: (width: number, height: number) => void } {
   const spec = windowDeviceSpec(index, width, height)
   windowSpecs.set(spec.minor, spec)
   let device: Device | undefined
@@ -398,7 +399,8 @@ export function registerWindowInput(index: number, width: number, height: number
     device.register()
   } catch { device = undefined /* no input major here (a kernel without devices) */ }
   const forget = registerMinor(InputMajor, spec.minor, nodeOperations(inputHub))
-  return { minor: spec.minor, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.release(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
+  const resize = (w: number, h: number) => { spec.abs = { [ABS_X]: Math.max(w - 1, 0), [ABS_Y]: Math.max(h - 1, 0) } }
+  return { minor: spec.minor, resize, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.release(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
 }
 
 export const EvdevDevice: KernelDevice = {

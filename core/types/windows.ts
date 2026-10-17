@@ -147,6 +147,8 @@ export type WindowInput =
   | { k: 'button', button: number, down: boolean }
   | { k: 'wheel', dx: number, dy: number }
   | { k: 'enter' | 'leave' | 'focus' | 'blur' }
+  /** The size the window's picture has on screen, in pixels; a resizable framebuffer follows it */
+  | { k: 'size', width: number, height: number }
 
 /** Callbacks a renderer uses to report what happened to a window */
 export interface WindowReports {

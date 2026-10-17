@@ -3,11 +3,12 @@
 const syscalls = globalThis.ecmaosSyscalls
 const { argv, exit, write, stat, custom } = syscalls
 
-const usage = `Usage: fbwin [-t TITLE] [WIDTHxHEIGHT]
+const usage = `Usage: fbwin [-r] [-t TITLE] [WIDTHxHEIGHT]
 Open a window of WIDTHxHEIGHT pixels (default 640x480) and print the framebuffer device that draws in it,
 such as /dev/fb0. Pixels are 32 bits, blue first. The window and the device go when this command ends or
 the window is closed.
 
+  -r, --resizable       the screen follows the window when the user resizes it (/dev/fbN changes size)
   -t, --title TITLE     the window's title
   --help                display this help and exit`
 
@@ -19,10 +20,12 @@ const errors = { 22: 'a framebuffer is 1 to 4096 pixels each way', 28: 'no free 
 async function main() {
   const args = argv.slice(1)
   let title = ''
+  let resizable = 0
   let size = '640x480'
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--help' || arg === '-h') { out(usage); return 0 }
+    if (arg === '-r' || arg === '--resizable') { resizable = 1; continue }
     if (arg === '-t' || arg === '--title') { title = args[++i] ?? ''; continue }
     if (arg.startsWith('-')) return fail(`invalid option '${arg}'. Try 'fbwin --help'`)
     size = arg
@@ -32,7 +35,7 @@ async function main() {
 
   let index
   try {
-    index = await custom('fb_create', Number(match[1]), Number(match[2]), title)
+    index = await custom('fb_create', Number(match[1]), Number(match[2]), title, resizable)
   } catch (error) {
     return fail(errors[error?.errno] ?? (error instanceof Error ? error.message : String(error)))
   }

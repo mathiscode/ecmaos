@@ -32,7 +32,7 @@ describe('the Wayland compositor', () => {
   }, 60_000)
 
   it('shows what a client commits, in a window the size of the buffer', async () => {
-    const client = kernel.shell.execute(`${env} wl-shm 3 40 20 4000 > /tmp/wl-shm.out 2>&1`)
+    const client = kernel.shell.execute(`${env} wl-shm 3 40 20 8000 > /tmp/wl-shm.out 2>&1`)
     await until(async () => (await read('/tmp/wl-shm.out')).includes('done'))
     const out = await read('/tmp/wl-shm.out')
     expect(out).toContain('global 1 wl_compositor')
@@ -64,6 +64,14 @@ describe('the Wayland compositor', () => {
       'pointer button 272 1', 'pointer button 272 0', 'pointer axis 0 -10',
       'keyboard enter keys=0', 'keyboard key 42 1', 'keyboard modifiers 1 0 0', 'keyboard key 30 1', 'keyboard key 30 0', 'keyboard leave', 'pointer leave'
     ])
+
+    // the user resizing the window gives the client a new size, and it draws at that size
+    kernel.windows.reportInput(id, { k: 'size', width: 40, height: 20 })
+    kernel.windows.reportInput(id, { k: 'size', width: 80, height: 60 })
+    await until(async () => (await read('/tmp/wl-shm.out')).includes('resized 80 60'))
+    await until(() => fb.pixels.length === 80 * 60 * 4 && fb.pixels[0] === 28)
+    expect([fb.width, fb.height]).toEqual([80, 60])
+    expect([...fb.pixels.subarray((59 * 80 + 79) * 4, (59 * 80 + 79) * 4 + 3)]).toEqual([28, Math.floor(59 * 255 / 60), Math.floor(79 * 255 / 80)])
 
     // closing the window tells the client, which then ends
     kernel.windows.close(kernel.windows.list().find(w => w.title === 'wl-shm')!.id, true)

@@ -67,6 +67,7 @@ ${relayScript}
     on('keyup', key(false))
     on('focus', () => emit({ k: 'focus' }))
     on('blur', () => emit({ k: 'blur' }))
+    if (window.ResizeObserver) new ResizeObserver(() => { if (canvas.clientWidth > 0 && canvas.clientHeight > 0) emit({ k: 'size', width: Math.round(canvas.clientWidth), height: Math.round(canvas.clientHeight) }) }).observe(canvas)
   }
 
   // A framebuffer's frame replaces what its canvas shows; the canvas is made once, so frames do not rebuild the page
