@@ -207,6 +207,9 @@ describe('host windows', () => {
     const ok = await get(origin.host)
     expect(ok.status).toBe(200)
     expect(ok.body).toContain('WebSocket')
+    // the status overlay covers the window, so it must be able to go away and must never take clicks
+    expect(ok.body).toContain('#status[hidden] { display: none; }')
+    expect(ok.body).toMatch(/#status \{[^}]*pointer-events: none/)
     expect((await get(`rebind.example:${origin.port}`)).status).toBe(421)
   })
 

@@ -3,6 +3,8 @@
 globalThis.ecmaosMountApp = (parent, launch, frameDocument, send) => {
   const frame = document.createElement('iframe')
   frame.id = 'content'
+  // an app draws its own background; the page's white default for a frame would show around it
+  frame.style.background = 'transparent'
   // No `allow-same-origin`: the app gets an opaque origin, and so no access to this page or anything stored for it
   frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-forms allow-modals allow-downloads')
   frame.srcdoc = frameDocument

@@ -72,7 +72,7 @@ export function serveApp(kernel: Kernel, proc: Process, win: WindowHandle, launc
     'window.setTitle': title => { win.setTitle(String(title)) },
     'window.close': () => { win.close(true) },
     log: message => { kernel.log.info(`${launch.command}[${launch.pid}]: ${String(message)}`) },
-    exit: code => { finish(typeof code === 'number' ? code : 0); win.close(true) },
+    exit: code => { kernel.log.info(`${launch.command}[${launch.pid}]: exit ${String(code)}`); finish(typeof code === 'number' ? code : 0); win.close(true) },
     fail: message => { kernel.log.error(`${launch.command}[${launch.pid}]: ${String(message)}`); finish(1); win.close(true) }
   }
 

@@ -77,6 +77,10 @@
     }
   }
 
+  // what goes wrong in the app is told to the machine's log: the frame has no console anyone can see
+  addEventListener('error', event => { void call('log', 'error: ' + event.message).catch(() => {}) })
+  addEventListener('unhandledrejection', event => { void call('log', 'unhandled rejection: ' + (event.reason && event.reason.message ? event.reason.message : String(event.reason))).catch(() => {}) })
+
   addEventListener('message', event => {
     if (event.source !== parent) return
     const message = event.data

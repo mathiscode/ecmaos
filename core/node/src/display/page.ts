@@ -17,7 +17,8 @@ export const displayPage = `<!doctype html>
   html, body { margin: 0; height: 100%; background: #101010; color: #e8e8e8; font: 14px monospace; }
   #content { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
   pre#text { margin: 0; padding: 8px; white-space: pre-wrap; word-break: break-word; height: 100%; box-sizing: border-box; overflow: auto; }
-  #status { position: fixed; inset: 0; display: grid; place-items: center; opacity: .6; }
+  #status[hidden] { display: none; }
+  #status { position: fixed; inset: 0; display: grid; place-items: center; opacity: .6; pointer-events: none; }
 </style>
 </head>
 <body>
