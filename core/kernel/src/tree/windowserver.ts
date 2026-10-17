@@ -10,6 +10,7 @@ import type {
   WindowOptions,
   WindowOwner,
   WindowRenderer,
+  WindowState,
   WindowReports,
   Windows,
   MinimizeMode
@@ -29,6 +30,8 @@ interface Entry {
   body?: HTMLElement
   dom?: HTMLElement
   handle: WindowHandle
+  /** The state a minimized window had before it was minimized; `focus` returns it to that */
+  restoreState?: WindowState
 }
 
 const fail = (message: string, errno: Errno) => Object.assign(new Error(message), { errno })
@@ -63,7 +66,7 @@ export class WindowServer implements Windows {
       const entry = this._entries.get(id)
       if (!entry) return
       if (patch.title !== undefined) entry.info.title = patch.title
-      if (patch.state !== undefined) entry.info.state = patch.state
+      if (patch.state !== undefined) this._setState(entry, patch.state)
       if (patch.geometry) entry.info.geometry = { ...patch.geometry }
       this._emit('update', entry)
     },
@@ -171,9 +174,11 @@ export class WindowServer implements Windows {
   focus(id: WindowId) {
     const entry = this._entries.get(id)
     if (!entry) return
-    if (entry.info.state === 'minimized') entry.info.state = 'normal'
+    const restored = entry.info.state === 'minimized'
+    if (restored) entry.info.state = entry.restoreState ?? 'normal'
     this._raise(id)
     entry.renderer.update(entry.info)
+    if (restored) this._emit('update', entry)
   }
 
   update(id: WindowId, patch: Partial<Pick<WindowInfo, 'state' | 'title'>> & Partial<WindowGeometry>) {
@@ -181,7 +186,7 @@ export class WindowServer implements Windows {
     if (!entry) return
     const { info } = entry
     if (patch.title !== undefined) info.title = patch.title
-    if (patch.state !== undefined) info.state = patch.state
+    if (patch.state !== undefined) this._setState(entry, patch.state)
     if (patch.x !== undefined) info.geometry.x = patch.x
     if (patch.y !== undefined) info.geometry.y = patch.y
     if (patch.width !== undefined) info.geometry.width = patch.width
@@ -224,6 +229,11 @@ export class WindowServer implements Windows {
     const next = this._order[this._order.length - 1]
     if (next !== undefined) this._raise(next)
     return true
+  }
+
+  private _setState(entry: Entry, state: WindowState) {
+    if (state === 'minimized' && entry.info.state !== 'minimized') entry.restoreState = entry.info.state
+    entry.info.state = state
   }
 
   private _raise(id: WindowId) {

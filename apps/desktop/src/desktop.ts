@@ -198,7 +198,8 @@ export class Desktop {
     if (info.focused) button.classList.add('focused')
     if (info.state === 'minimized') button.classList.add('minimized')
     button.onclick = () => {
-      if (info.focused && info.state !== 'minimized') this._kernel.windows.update(info.id, { state: 'minimized' })
+      const current = this._kernel.windows.get(info.id)?.info
+      if (current?.focused && current.state !== 'minimized') this._kernel.windows.update(info.id, { state: 'minimized' })
       else this._kernel.windows.focus(info.id)
     }
     return button

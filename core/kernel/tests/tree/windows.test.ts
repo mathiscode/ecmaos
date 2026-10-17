@@ -95,6 +95,22 @@ describe('WinBoxRenderer', () => {
     win.close(true)
   })
 
+  it('should bring a maximized window back maximized after minimizing it', async () => {
+    const windows = await newWindows()
+    const win = windows.create()
+    const box = (win.dom as unknown as { winbox: { max: boolean, min: boolean, minimize(): void } }).winbox
+    win.setState('maximized')
+    expect(box.max).toBe(true)
+    box.minimize()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(win.info.state).toBe('minimized')
+    win.focus()
+    expect(win.info.state).toBe('maximized')
+    expect(box.max).toBe(true)
+    expect(box.min).toBe(false)
+    win.close(true)
+  })
+
   it('should report a user move back to the server', async () => {
     const windows = await newWindows()
     const win = windows.create({ x: 0, y: 0 })

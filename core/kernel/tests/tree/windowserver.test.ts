@@ -222,4 +222,21 @@ describe('WindowServer', () => {
     server.setMinimizeMode('dock')
     expect(modes).toEqual(['hidden', 'dock'])
   })
+
+  it('focusing a minimized window returns it to the state it had before', () => {
+    const { server } = setup()
+    const win = server.create({})
+    win.setState('maximized')
+    win.setState('minimized')
+    const updates: string[] = []
+    server.on('update', info => { updates.push(info.state) })
+    win.focus()
+    expect(updates).toEqual(['maximized'])
+    expect(win.info.state).toBe('maximized')
+    win.setState('minimized')
+    server.update(win.id, { state: 'normal' })
+    win.setState('minimized')
+    win.focus()
+    expect(win.info.state).toBe('normal')
+  })
 })
