@@ -1891,20 +1891,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
 
   const readBacking = (mapping) => {
     const into = new Uint8Array(mapping.len)
-    // A hole that `ftruncate` left in a file that is no longer linked does not read (ENOENT); it is zeros, so a chunk that
-    // fails is read again a page at a time and the pages that fail stay zero.
-    const readAt = (target, position) => {
-      try { return read(mapping.fd, target, position) } catch (error) {
-        if (error?.code !== 'ENOENT') throw error
-        if (target.length <= PAGE) return target.length
-        let got = 0
-        for (let at = 0; at < target.length; at += PAGE) {
-          const part = target.subarray(at, Math.min(at + PAGE, target.length))
-          try { got += read(mapping.fd, part, position + at) } catch (inner) { if (inner?.code !== 'ENOENT') throw inner; part.fill(0); got += part.length }
-        }
-        return got
-      }
-    }
+    const readAt = (target, position) => read(mapping.fd, target, position)
     let done = 0
     while (done < mapping.len) {
       const chunk = new Uint8Array(Math.min(65536, mapping.len - done))

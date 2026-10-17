@@ -739,3 +739,61 @@ const limitedNode = (original: (this: NodeLike, ...args: never[]) => unknown, si
   }
 for (const name of ['write', 'writeSync']) nodeProto[name] = limitedNode(nodeProto[name]!, ((data: Uint8Array, offset: number) => offset + data.byteLength) as never)
 nodeProto['truncate'] = limitedNode(nodeProto['truncate']!, ((length: number) => length) as never)
+
+/**
+ * A file that was unlinked while open has no path to read from, but the descriptor still reads it: the ranges it has
+ * cached are its data, and a range it never wrote (a hole `ftruncate` left) is zeros. The cache fetches a missing range
+ * from the store by path, which fails with `ENOENT`; here that range reads as zeros.
+ */
+type ReadNode = NodeLike & {
+  bypassCache: boolean
+  data: { missing(start: number, end: number): Iterable<{ start: number, end: number }>, add(chunk: Uint8Array, start: number): void }
+  copyFromCache(buffer: Uint8Array, start: number, end: number): void
+}
+const isMissing = (error: unknown) => (error as { code?: string } | undefined)?.code === 'ENOENT'
+const readNode = nodeProto['read']!
+nodeProto['read'] = async function (this: NodeLike, ...args: never[]) {
+  try { return await readNode.apply(this, args) } catch (error) {
+    const node = this as ReadNode
+    if (!isMissing(error) || node.bypassCache) throw error
+    const [buffer, start, end] = args as unknown as [Uint8Array, number, number]
+    for (const range of [...node.data.missing(start, end)]) {
+      const chunk = new Uint8Array(range.end - range.start)
+      try { await (node.fs as unknown as { read(path: string, buffer: Uint8Array, start: number, end: number): Promise<void> }).read(node.path, chunk, range.start, range.end) } catch (inner) { if (!isMissing(inner)) throw inner }
+      node.data.add(chunk, range.start)
+    }
+    node.copyFromCache(buffer, start, end)
+  }
+}
+const readNodeSync = nodeProto['readSync']!
+nodeProto['readSync'] = function (this: NodeLike, ...args: never[]) {
+  try { return readNodeSync.apply(this, args) } catch (error) {
+    const node = this as ReadNode
+    if (!isMissing(error) || node.bypassCache) throw error
+    const [buffer, start, end] = args as unknown as [Uint8Array, number, number]
+    for (const range of [...node.data.missing(start, end)]) {
+      const chunk = new Uint8Array(range.end - range.start)
+      try { (node.fs as unknown as { readSync(path: string, buffer: Uint8Array, start: number, end: number): void }).readSync(node.path, chunk, range.start, range.end) } catch (inner) { if (!isMissing(inner)) throw inner }
+      node.data.add(chunk, range.start)
+    }
+    node.copyFromCache(buffer, start, end)
+  }
+}
+
+/** Closing (syncing) a file that was unlinked while open has nowhere to write: what it held goes with it, and that is not an error. */
+type SyncNode = NodeLike & { dirtyRanges: unknown[], metadataDirty: boolean, truncatedTo: number | undefined }
+const syncNode = nodeProto['sync']!
+const syncNodeSync = nodeProto['syncSync']!
+const forget = (node: SyncNode) => { node.dirtyRanges = []; node.metadataDirty = false; node.truncatedTo = undefined }
+nodeProto['sync'] = async function (this: NodeLike, ...args: never[]) {
+  try { return await syncNode.apply(this, args) } catch (error) {
+    if (!isMissing(error)) throw error
+    forget(this as SyncNode)
+  }
+}
+nodeProto['syncSync'] = function (this: NodeLike, ...args: never[]) {
+  try { return syncNodeSync.apply(this, args) } catch (error) {
+    if (!isMissing(error)) throw error
+    forget(this as SyncNode)
+  }
+}
