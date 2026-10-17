@@ -81,6 +81,7 @@
     "./protocol": "./src/tree/protocol.ts",
     "./service": "./src/tree/service.ts",
     "./shell": "./src/tree/shell.ts",
+    "./windowserver": "./src/tree/windowserver.ts",
     "./storage": "./src/tree/storage.ts",
     "./telemetry": "./src/tree/telemetry.ts",
     "./terminal": "./src/tree/terminal.ts",

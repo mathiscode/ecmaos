@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -41,6 +42,21 @@ export interface NodeHost extends Host {
 const synchronousFrom = (value: string | undefined): Synchronous | undefined =>
   value === 'off' || value === 'normal' || value === 'full' ? value : undefined
 
+/** Hands an address to the desktop's opener; arguments go as an array, never through a shell */
+function openAddress(url: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const [command, args] = process.platform === 'darwin' ? ['open', [url]]
+    : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+    : ['xdg-open', [url]]
+  if (process.platform !== 'darwin' && process.platform !== 'win32' && !env['DISPLAY'] && !env['WAYLAND_DISPLAY']) {
+    return Promise.reject(new Error('this host has no display to open an address on'))
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'ignore', detached: true, env })
+    child.once('error', error => reject(new Error(`could not open ${url}: ${error.message}`)))
+    child.once('spawn', () => { child.unref(); resolve() })
+  })
+}
+
 /**
  * The Node host. The root filesystem is one SQLite database in the data directory (or in memory when ephemeral), the
  * only device is the tty, and there is no page, so no DOM, service worker or notifications.
@@ -63,7 +79,8 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
     platform: {
       hostname: () => os.hostname(),
       restart: () => options.onStop?.('reboot'),
-      exit: mode => options.onStop?.(mode)
+      exit: mode => options.onStop?.(mode),
+      open: url => openAddress(url, env)
     },
     fetch: sourceFetch(env, [initfsFile()]),
     defaults: {

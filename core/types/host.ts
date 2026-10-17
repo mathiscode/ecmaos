@@ -24,6 +24,8 @@ export interface HostPlatform {
   /** Ends the host after `halt` or `poweroff`, once the kernel has shut down (a Node process exits; a page has nothing to do) */
   exit?(mode: 'halt' | 'poweroff'): void | Promise<void>
   notifications?: HostNotifications
+  /** Opens an http, https or mailto address in the user's own browser or mail program; absent when the host cannot */
+  open?(url: string): void | Promise<void>
 }
 
 export interface HostStorage {

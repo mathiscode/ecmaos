@@ -20,6 +20,8 @@ import { presentExternal, presentDownload } from './open.ts'
 import { presentScript } from './script.ts'
 import { presentUpload } from './upload.ts'
 
+export { hostPresenters } from './host.ts'
+
 export interface Presented {
   /** Anything the program should be told about what was presented (a duration, a final size). JSON-safe. */
   result?: unknown

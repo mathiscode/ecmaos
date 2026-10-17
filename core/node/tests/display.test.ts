@@ -4,7 +4,7 @@ import WebSocket from 'ws'
 
 import type { ToDisplay, ToKernel, WindowGeometry } from '@ecmaos/types'
 
-import { WindowServer } from '../../kernel/src/tree/windowserver.ts'
+import { WindowServer } from '@ecmaos/kernel/windowserver'
 import { findBrowser } from '../src/display/launch.ts'
 import { nodeDisplay } from '../src/display/index.ts'
 import type { HostWindow, Launcher } from '../src/display/launch.ts'

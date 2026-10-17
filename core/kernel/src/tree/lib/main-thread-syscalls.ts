@@ -36,7 +36,7 @@ import { getpgid, killpg, mayKill, setpgid, spawnWithFds, ttyHoldOf, waitpid } f
 import { umaskOf, setUmask } from './umask-store.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
-import { presenters, type Presented } from './presenters/index.ts'
+import { hostPresenters, presenters, type Presented } from './presenters/index.ts'
 import { remoteKinds } from './presenters/remote.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
@@ -387,12 +387,15 @@ export function installMainThreadSyscalls(): void {
     let text: string
 
     try {
-      const presenter = Object.hasOwn(presenters, kind) ? presenters[kind] : undefined
-      if (!presenter) throw new Error(`unknown presenter: ${kind}`)
+      // A host with no page (Node) has its own set, which builds content for its display; the rest cannot work there
+      const pageless = typeof document === 'undefined'
+      const table = pageless ? hostPresenters : presenters
+      const presenter = Object.hasOwn(table, kind) ? table[kind] : undefined
+      if (!presenter) throw new Error(Object.hasOwn(presenters, kind) ? `${kind} is not available on this host: it has no page` : `unknown presenter: ${kind}`)
       const params = JSON.parse(paramsJson) as Record<string, unknown>
       // A browser call that needs the page the user is at goes to the display attached to the program's tty, if there
       // is one
-      const spec = Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
+      const spec = !pageless && Object.hasOwn(remoteKinds, kind) ? remoteKinds[kind] : undefined
       const tty = spec ? ttyNumberOf(kernel, proc) : undefined
       const remote = spec && tty !== undefined && kernel.hasDisplay(tty)
         ? kernel.presentOnDisplay(tty, kind, await spec.prepare?.(kernel, proc, params, shellOf(proc)) ?? params)

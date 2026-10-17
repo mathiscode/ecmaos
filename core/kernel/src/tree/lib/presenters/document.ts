@@ -24,9 +24,9 @@ interface ViewOptions {
   height?: number
 }
 
-type FileType = 'pdf' | 'image' | 'audio' | 'video' | 'markdown' | 'json' | 'application/octet-stream'
+export type FileType = 'pdf' | 'image' | 'audio' | 'video' | 'markdown' | 'json' | 'application/octet-stream'
 
-function detectFileType(filePath: string): FileType {
+export function detectFileType(filePath: string): FileType {
   const ext = extname(filePath)
   
   // PDF
@@ -55,7 +55,7 @@ function detectFileType(filePath: string): FileType {
   return 'application/octet-stream'
 }
 
-function getMimeType(filePath: string, fileType: FileType): string {
+export function getMimeType(filePath: string, fileType: FileType): string {
   const ext = extname(filePath)
   
   if (fileType === 'pdf') return 'application/pdf'
