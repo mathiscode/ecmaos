@@ -29,6 +29,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/wl-shm', load(`${root}/tests/tree/wasi/fixtures/wl-shm.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wldemo', load(`${root}/../utils/programs/wldemo.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlsnake', load(`${root}/../utils/programs/sdlsnake.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
@@ -161,6 +162,25 @@ describe('the Wayland compositor', () => {
     kernel.windows.reportInput(id, { k: 'focus' })
     kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
     expect(await client).toBe(0)
+  }, 60_000)
+
+  it('runs the shipped SDL game: the snake moves, a key steers it and Escape quits', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const client = kernel.shell.execute(`sdlsnake 240 170 > /tmp/sdlsnake.out 2>&1`)
+    await until(() => kernel.windows.list().some(w => w.title === 'sdlsnake'))
+    const id = kernel.windows.list().find(w => w.title === 'sdlsnake')!.id
+    await until(() => kernel.framebuffers.list().length === 1)
+    const fb = kernel.framebuffers.list()[0]!
+    await until(() => fb.pixels.some(byte => byte !== 0))
+    expect([fb.width, fb.height]).toEqual([240, 170])
+    kernel.windows.reportInput(id, { k: 'focus' })
+    const first = fb.pixels.slice()
+    await until(() => fb.pixels.some((byte, i) => byte !== first[i]))   // it moved
+    kernel.windows.reportInput(id, { k: 'key', code: 'ArrowUp', down: true })
+    kernel.windows.reportInput(id, { k: 'key', code: 'ArrowUp', down: false })
+    kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
+    expect(await client).toBe(0)
+    await until(() => kernel.framebuffers.list().length === 0)
   }, 60_000)
 
   it('serves an SDL 3 program through its Wayland driver: window surface, pointer, keys, text and resize', async () => {

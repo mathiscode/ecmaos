@@ -147,6 +147,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 335253,
       "sha256": "8db19354719b1056356c13f518806aa25dfd29e865a510e2273a379b713b0117"
+    },
+    "sdlsnake": {
+      "file": "sdlsnake.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "sdlsnake, Snake on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1582662,
+      "sha256": "119f3fcfa6e0d8affbdc675ae01ae921d8bbaad200cfc37f0db923abf2b74ddd"
     }
   }
 }
