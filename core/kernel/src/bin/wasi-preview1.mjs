@@ -1105,9 +1105,14 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return dgramSend(sock, data)
   }
 
-  /** The next bytes for the program and who they came from (`undefined` for a stream, whose peer is fixed) */
-  function sockRecv(sock, max) {
+  const MSG_DONTWAIT = 0x40
+  const O_NONBLOCK = 0x800
+
+  /** The next bytes for the program and who they came from (`undefined` for a stream, whose peer is fixed). With
+   *  `MSG_DONTWAIT`, or a socket set `O_NONBLOCK`, a stream with nothing to read answers EAGAIN instead of waiting. */
+  function sockRecv(sock, max, flags = 0) {
     if (!sock.connected) throw { code: 'ENOTCONN' }
+    if (!sock.dgram && (flags & MSG_DONTWAIT || sock.nonblock) && pollFds([{ fd: sock.readFd, events: POLLIN }], 0)[0] === 0) throw { code: 'EAGAIN' }
     if (sock.dgram) {
       const data = dgramRecv(sock, max)
       return { data, from: sock.addressed ? sock.from : { addr: sock.peerAddr, port: sock.peerPort } }
@@ -1381,9 +1386,19 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       return offset
     }),
     __syscall_fcntl64: (fd, cmd, varargsPtr) => guardLinux(() => {
-      const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4
-      if (cmd === F_DUPFD) return dup2(fd, varargI(varargsPtr, 0))
-      if (cmd === F_GETFD || cmd === F_GETFL) return 0
+      const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030
+      if (cmd === F_DUPFD || cmd === F_DUPFD_CLOEXEC) {
+        // the lowest free descriptor at or above the argument: a plain `dup` when that is already high enough
+        const least = varargI(varargsPtr, 0)
+        const copy = dup(fd)
+        if (copy >= least) return copy
+        close(copy)
+        return dup2(fd, least)
+      }
+      const sock = sockets.get(fd)
+      if (cmd === F_GETFL) return sock?.nonblock ? O_NONBLOCK : 0
+      if (cmd === F_SETFL && sock) { sock.nonblock = (varargI(varargsPtr, 0) & O_NONBLOCK) !== 0; return 0 }
+      if (cmd === F_GETFD) return 0
       if (cmd === F_SETFD || cmd === F_SETFL) return 0
       // Advisory record locks (SQLite takes them around every transaction). Each program here runs alone as
       // far as its own locks go: a lock is always granted and a query finds nothing holding one. Two programs
@@ -1656,7 +1671,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       if ((type & SOCK_STREAM_MASK) !== SOCK_STREAM) return -SYSCALL_ERRNO.EPROTONOSUPPORT
       const fd = nextFd++
-      sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false })
+      sockets.set(fd, { family: domain, key: null, bound: false, listening: false, connected: false, nonblock: (type & O_NONBLOCK) !== 0 })
       return fd
     },
     __syscall_bind: (fd, addrPtr, addrlen) => {
@@ -1789,10 +1804,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (!sock) throw { code: 'ENOTSOCK' }
       return sockSend(sock, bytes().slice(buf, buf + len), addrPtr ? readSockaddr(addrPtr) : undefined)
     }),
-    __syscall_recvfrom: (fd, buf, len, _flags, addrPtr, addrlenPtr) => guardLinux(() => {
+    __syscall_recvfrom: (fd, buf, len, flags, addrPtr, addrlenPtr) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
-      const { data, from } = sockRecv(sock, len)
+      const { data, from } = sockRecv(sock, len, flags)
       bytes().set(data, buf)
       if (from) writeSockaddrResult(addrPtr, addrlenPtr, from.addr, from.port, sock.family)
       return data.length
@@ -1819,7 +1834,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       }
       return sockSend(sock, data, namePtr ? readSockaddr(namePtr) : undefined)
     }),
-    __syscall_recvmsg: (fd, msgPtr, _flags) => guardLinux(() => {
+    __syscall_recvmsg: (fd, msgPtr, flags) => guardLinux(() => {
       const sock = sockets.get(fd)
       if (!sock) throw { code: 'ENOTSOCK' }
       const dv = view()
@@ -1829,6 +1844,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const controlLen = dv.getUint32(msgPtr + 20, true)
       let took
       let credSpace = 0
+      if ((flags & MSG_DONTWAIT || sock.nonblock) && !sock.dgram && sock.connected && pollFds([{ fd: sock.readFd, events: POLLIN }], 0)[0] === 0) throw { code: 'EAGAIN' }
       if (sock.conn && !sock.dgram) {
         credSpace = sock.passcred && controlLen >= cmsgAlign(CMSG_HEADER + 12) ? cmsgAlign(CMSG_HEADER + 12) : 0
         const room = Math.max(Math.floor((controlLen - credSpace - CMSG_HEADER) / 4), 0)

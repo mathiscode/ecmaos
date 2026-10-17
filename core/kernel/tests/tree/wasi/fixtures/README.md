@@ -58,3 +58,5 @@ emcc emcc-mmap.c -O1 -sSTANDALONE_WASM=0 -idirafter /usr/include -o emcc-mmap.js
 ```
 
 Emscripten has no `memfd_create` (the link fails), so the program uses `mkstemp` and `unlink`, which is also what Wayland's shared-memory helpers fall back to.
+
+`wl-shm.wasm` and `wl-lib.wasm` are two Wayland test clients for `wlcomp` (`../../wayland.test.ts`): `wl-shm.c` speaks the wire protocol by hand, `wl-lib.c` is written against libwayland-client. `wl-lib.build.sh` rebuilds the second (it builds libwayland-client first, through `core/utils/wasm/lib/wayland.sh`, and needs the host `wayland-scanner`).

@@ -27,6 +27,7 @@ describe('the Wayland compositor', () => {
     const load = (file: string) => new Uint8Array(readFileSync(file))
     await kernel.filesystem.fs.writeFile('/bin/wlcomp', load(`${root}/../utils/programs/wlcomp.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/wl-shm', load(`${root}/tests/tree/wasi/fixtures/wl-shm.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/wl-lib', load(`${root}/tests/tree/wasi/fixtures/wl-lib.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
     await until(async () => (await read('/tmp/wlcomp.out')).includes('listening'))
   }, 60_000)
@@ -77,6 +78,39 @@ describe('the Wayland compositor', () => {
     kernel.windows.close(kernel.windows.list().find(w => w.title === 'wl-shm')!.id, true)
     expect(await client).toBe(0)
     expect(await read('/tmp/wl-shm.out')).toContain('closed')
+  }, 60_000)
+
+  it('serves a client built on libwayland-client (wl-lib): window, keymap text, input and resize', async () => {
+    const client = kernel.shell.execute(`${env} wl-lib 2 40 20 8000 > /tmp/wl-lib.out 2>&1`)
+    await until(async () => (await read('/tmp/wl-lib.out')).includes('done'))
+    const out = await read('/tmp/wl-lib.out')
+    expect(out).toContain('global 3 xdg_wm_base')
+    expect(out).toContain('frame 1')
+    expect(out).toContain('keyboard keymap format=1 text')
+    const fb = kernel.framebuffers.list()[0]!
+    expect([fb.width, fb.height]).toEqual([40, 20])
+    expect([...fb.pixels.subarray(0, 3)]).toEqual([60, 0, 0])
+
+    const id = kernel.windows.list().find(w => w.title === 'wl-lib')!.id
+    for (const input of [
+      { k: 'pointer', x: 5, y: 6 }, { k: 'enter' }, { k: 'button', button: 0, down: true }, { k: 'button', button: 0, down: false },
+      { k: 'focus' }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'blur' }, { k: 'leave' }
+    ] as const) kernel.windows.reportInput(id, input)
+    await until(async () => (await read('/tmp/wl-lib.out')).includes('pointer leave'))
+    const events = (await read('/tmp/wl-lib.out')).split('\n').filter(line => /^(pointer|keyboard) /.test(line) && !line.includes('keymap'))
+    expect(events).toEqual([
+      'pointer enter surface=mine 5 6', 'pointer button 272 1', 'pointer button 272 0',
+      'keyboard enter keys=0', 'keyboard key 30 1', 'keyboard key 30 0', 'keyboard leave', 'pointer leave'
+    ])
+
+    kernel.windows.reportInput(id, { k: 'size', width: 40, height: 20 })
+    kernel.windows.reportInput(id, { k: 'size', width: 64, height: 48 })
+    await until(async () => (await read('/tmp/wl-lib.out')).includes('resized 64 48'))
+    await until(() => fb.pixels.length === 64 * 48 * 4 && fb.pixels[0] === 28)
+
+    kernel.windows.close(id, true)
+    expect(await client).toBe(0)
+    expect(await read('/tmp/wl-lib.out')).toContain('closed')
   }, 60_000)
 
   it('takes a window away when its client goes', async () => {
