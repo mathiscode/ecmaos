@@ -27,6 +27,7 @@ import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
+import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -321,6 +322,8 @@ export class Kernel implements IKernel {
   public readonly wasm: IWasm
   /** Window management service */
   public readonly windows: IWindows
+  /** The framebuffers (`/dev/fb<N>`), each drawing in a window */
+  public readonly framebuffers: Framebuffers
   /** Web Worker management service */
   public readonly workers: IWorkers
 
@@ -366,6 +369,7 @@ export class Kernel implements IKernel {
     this.modules = new Map()
     this.screensavers = new Map()
     this.windows = new WindowServer()
+    this.framebuffers = new Framebuffers(this.windows)
     this.workers = new Workers()
 
     // Tier 1: context-only.

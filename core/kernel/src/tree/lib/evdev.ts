@@ -212,6 +212,8 @@ export function captureDom(target: Document, hub: InputHub = inputHub): () => vo
 
 const IOC_READ = 2, IOC_WRITE = 1
 const EvdevType = 0x45 // 'E'
+/** The type of the framebuffer requests (`FBIO*`), which answer with bytes in the same way */
+const FbType = 0x46 // 'F'
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -312,7 +314,8 @@ export function installEvdevIoctl() {
   const original = syscalls.get('ioctl' as never) as ((proc: Process, ...args: unknown[]) => unknown) | undefined
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
-    if (ioctlFields(request >>> 0).type !== EvdevType) return original(proc, fd, request, arg)
+    const type = ioctlFields(request >>> 0).type
+    if (type !== EvdevType && type !== FbType) return original(proc, fd, request, arg)
     const value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg)
     return value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0
   }) as never)

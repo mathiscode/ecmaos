@@ -49,4 +49,14 @@ describe('/dev/input/event*', () => {
     const name = await ioctl('/dev/input/event1', (2 << 30) | (64 << 16) | (0x45 << 8) | 0x06) as Uint8Array
     expect(new TextDecoder().decode(name).replace(/\0.*$/, '')).toBe('ecmaOS pointer')
   })
+
+  it('keeps reading events across reads of one open (the file position moves on)', async () => {
+    const reading = kernel.shell.execute('dd if=/dev/input/event0 bs=24 count=4 2> /dev/null | od -An -tu1 -w24 > /tmp/event0b.out')
+    for (let i = 0; i < 100 && !inputHub.listening(KeyboardMinor); i++) await new Promise(resolve => setTimeout(resolve, 20))
+    inputHub.keyboard('KeyB', 1)
+    inputHub.keyboard('KeyB', 0)
+    await reading
+    const lines = (await kernel.filesystem.fs.readFile('/tmp/event0b.out', 'utf-8')).trim().split('\n').map(line => line.trim().split(/\s+/).map(Number))
+    expect(lines.map(line => line.slice(16, 22))).toEqual([[1, 0, 48, 0, 1, 0], [0, 0, 0, 0, 0, 0], [1, 0, 48, 0, 0, 0], [0, 0, 0, 0, 0, 0]])
+  })
 })

@@ -22,6 +22,8 @@ declare global {
 interface Shown {
   handle: WindowHandle
   app?: AppMount
+  /** The canvas a framebuffer's frames are drawn in */
+  canvas?: HTMLCanvasElement
 }
 
 /** Where the first window opens, and how far each next one is moved so they do not all cover each other */
@@ -136,6 +138,8 @@ export class ScreenView {
   }
 
   private _content(id: WindowId, shown: Shown, content: WindowContent) {
+    if ('pixels' in content) return this._pixels(shown, content.pixels)
+    shown.canvas = undefined
     shown.app?.dispose()
     shown.app = undefined
     this._setDirty(id, false)
@@ -159,5 +163,30 @@ export class ScreenView {
       container.append(frame)
     }
     shown.handle.mount(container)
+  }
+
+  /** A frame replaces what the canvas shows; the canvas is made once, so frames do not rebuild the window */
+  private _pixels(shown: Shown, pixels: { width: number, height: number, data: string }) {
+    shown.app?.dispose()
+    shown.app = undefined
+    if (!shown.canvas?.isConnected) {
+      const canvas = document.createElement('canvas')
+      canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
+      shown.handle.mount(canvas)
+      shown.canvas = canvas
+    }
+    const canvas = shown.canvas
+    if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height }
+    const context = canvas.getContext('2d')
+    if (!context) return
+    const text = atob(pixels.data)
+    const image = context.createImageData(pixels.width, pixels.height)
+    const target = new Uint32Array(image.data.buffer)
+    // blue, green, red, unused -> red, green, blue, opaque
+    for (let i = 0; i < target.length; i++) {
+      const o = i * 4
+      target[i] = 0xff000000 | (text.charCodeAt(o) << 16) | (text.charCodeAt(o + 1) << 8) | text.charCodeAt(o + 2)
+    }
+    context.putImageData(image, 0, 0)
   }
 }

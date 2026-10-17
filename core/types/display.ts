@@ -25,6 +25,8 @@ export type WindowContent =
   | { html: string }
   | { url: string }
   | { app: AppLaunch }
+  /** A frame of pixels (a framebuffer's window): `width * height` of them, 4 bytes each (blue, green, red, unused), base64 */
+  | { pixels: { width: number, height: number, data: string } }
 
 /** Kernel to display */
 export type ToDisplay =

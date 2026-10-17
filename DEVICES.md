@@ -67,6 +67,7 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 13 | 65 | `input!event1` | Pointer, `/dev/input/event1` |
 | 0 (dynamic) | 64 | `hid` | The control node; `hidraw<n>` share its dynamic major. Major 13 belongs to `input` now |
 | 14 | 4 | `audio` | Real Linux OSS-audio major |
+| 29 | 0-31 | `fb<N>` | Real Linux framebuffer major. Made at runtime, one per window (`fbwin`); not in the package list |
 | 35 | 0 | `midi` | Real Linux MIDI major |
 | 195 | 0 | `gpu` (NVIDIA) | Real Linux NVIDIA major |
 | 216 | 0 | `bluetooth` | Real Linux Bluetooth-adapter major |

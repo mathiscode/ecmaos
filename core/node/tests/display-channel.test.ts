@@ -66,6 +66,24 @@ describe.skipIf(!supported)('the display channel', () => {
     expect(await shell.run('wmctrl -l')).not.toContain('Remote one')
   })
 
+  it('shows what a program writes to its framebuffer as pixels', async () => {
+    const { connection, shell } = await machine()
+    await shell.waitFor('root:/root# ')
+    const display = await screen(connection)
+    await shell.send('fbwin -t Pixels 8x4 &\r')
+    await until(() => display.received.some(m => m.t === 'open'), 'the framebuffer window')
+    expect(display.received.find(m => m.t === 'open')).toMatchObject({ title: 'Pixels' })
+    // 8 x 4 pixels of blue, green, red, unused: a red pixel first, then a blue one
+    await shell.run('printf "\\000\\000\\177\\000\\177\\000\\000\\000" > /dev/fb0')
+    const written = (m: ToDisplay) => m.t === 'content' && 'pixels' in m.content && Buffer.from(m.content.pixels.data, 'base64').some(byte => byte !== 0)
+    await until(() => display.received.some(written), 'the frame')
+    const frame = display.received.find(written) as Extract<ToDisplay, { t: 'content' }>
+    const pixels = (frame.content as { pixels: { width: number, height: number, data: string } }).pixels
+    expect([pixels.width, pixels.height]).toEqual([8, 4])
+    expect([...Buffer.from(pixels.data, 'base64').subarray(0, 8)]).toEqual([0, 0, 127, 0, 127, 0, 0, 0])
+    expect(await shell.run('wmctrl -l')).toContain('Pixels')
+  })
+
   it('announces the windows already open when another display attaches, and ignores messages about others', async () => {
     const { connection, shell } = await machine()
     await shell.waitFor('root:/root# ')

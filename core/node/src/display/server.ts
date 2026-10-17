@@ -84,7 +84,11 @@ export class DisplayServer {
       send: message => {
         if (entry.closed) return
         if (entry.socket) entry.socket.send(JSON.stringify(message))
-        else entry.queue.push(message)
+        else {
+          // a frame of pixels replaces the one still waiting for the page: nobody sees the older one
+          if (message.t === 'content' && 'pixels' in message.content) entry.queue = entry.queue.filter(queued => !(queued.t === 'content' && 'pixels' in queued.content))
+          entry.queue.push(message)
+        }
       },
       close: () => this._end(entry, false)
     }

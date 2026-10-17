@@ -29,6 +29,7 @@ import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installPtys, ptyIndexOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
+import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
 import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
@@ -44,6 +45,7 @@ import type { Shell, SocketConnection } from '@ecmaos/types'
 declare module '@zenfs/linux/uapi/abi' {
   interface Syscalls {
     window_create(title: string): number
+    fb_create(width: number, height: number, title: string): number
     window_write(handle: number, text: string): number
     window_close(handle: number): number
     window_list(path: string): number
@@ -359,6 +361,30 @@ export function installMainThreadSyscalls(): void {
   installEcmaosBinfmt()
   installDeviceHolds()
   installSharedRandom()
+  installFbSeek((proc, fd) => {
+    const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
+    let inode: NonNullable<typeof handle>['inode']
+    try { inode = handle?.inode } catch { return undefined }
+    if (!inode || (inode.mode & 0o170000) !== 0o020000) return undefined
+    const rdev = BigInt(inode.rdev ?? 0)
+    return Number(rdev >> 20n) === FbMajor ? framebufferAt(Number(rdev & 0xfffffn)) : undefined
+  })
+
+  // `fb_create`: a window of width by height pixels and the `/dev/fb<N>` node that draws in it. Returns N. The window goes with the process.
+  define_syscall('fb_create', async (proc: Process, width: number, height: number, title: string) => {
+    const kernel = kernelOf(proc)
+    try {
+      const { uid, gid } = identityOf(proc)
+      const framebuffer = kernel.framebuffers.create({ width, height, title, owner: { pid: proc.pid, uid, gid } })
+      if (!hookedWindowOwners.has(proc.pid)) {
+        hookedWindowOwners.add(proc.pid)
+        void proc.exited.then(() => { hookedWindowOwners.delete(proc.pid); kernel.windows.closeOwnedBy(proc.pid) })
+      }
+      return framebuffer.index
+    } catch (error) {
+      return -errnoOf(error)
+    }
+  })
 
   define_syscall('window_create', async (proc: Process, title: string) => {
     const kernel = kernelOf(proc)

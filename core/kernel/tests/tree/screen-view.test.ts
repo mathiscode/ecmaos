@@ -46,6 +46,22 @@ describe('ScreenView', () => {
     view.dispose()
   })
 
+  it('draws a framebuffer\'s frames in one canvas of the frame\'s size, and a later content replaces it', async () => {
+    const { windows, view } = await setup()
+    view.handle(open('a'))
+    const frame = (width: number, height: number) => ({ t: 'content', id: 'a', content: { pixels: { width, height, data: btoa('\0'.repeat(width * height * 4)) } } }) as never
+    view.handle(frame(3, 2))
+    const canvas = windows.get('a')!.body.querySelector('canvas')!
+    expect([canvas.width, canvas.height]).toEqual([3, 2])
+    view.handle(frame(3, 2))
+    expect(windows.get('a')!.body.querySelector('canvas')).toBe(canvas)
+    view.handle(frame(4, 4))
+    expect([canvas.width, canvas.height]).toEqual([4, 4])
+    view.handle({ t: 'content', id: 'a', content: { text: 'done' } })
+    expect(windows.get('a')!.body.querySelector('canvas')).toBeNull()
+    view.dispose()
+  })
+
   it('asks the machine to close when the user closes a window, and closes it when told', async () => {
     const { windows, view, sent } = await setup()
     view.handle(open('a'))

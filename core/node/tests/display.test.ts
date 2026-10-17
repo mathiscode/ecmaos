@@ -83,6 +83,20 @@ describe('host windows', () => {
     connection.socket.close()
   })
 
+  it('send a page a frame of pixels as the window\'s content, and only the last one that waited for it', async () => {
+    const { windows, opened } = setup()
+    const win = windows.create({ title: 'Pixels' })
+    await until(() => opened.length === 1, 'a host window')
+    const frame = (text: string) => ({ pixels: { width: 2, height: 1, data: btoa(text) } })
+    win.setContent(frame('\x01\x02\x03\x00\x04\x05\x06\x00'))
+    win.setContent(frame('\x07\x08\x09\x00\x0a\x0b\x0c\x00'))
+    const connection = await page(opened[0]!.url)
+    await until(() => connection.received.some(m => m.t === 'content'), 'the frame')
+    const frames = connection.received.filter(m => m.t === 'content')
+    expect(frames).toEqual([{ t: 'content', id: win.id, content: frame('\x07\x08\x09\x00\x0a\x0b\x0c\x00') }])
+    connection.socket.close()
+  })
+
   it('apply what the page reports (focus, geometry) to the window server', async () => {
     const { windows, opened } = setup()
     const a = windows.create({ title: 'A' })

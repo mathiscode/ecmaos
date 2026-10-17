@@ -1457,14 +1457,19 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         }
         case TIOCSWINSZ: return ESUCCESS
         default: {
-          // `EVIOC*` on an input device (type 'E'): the kernel leaves what the device answers in the return region and gives its length
-          if (((request >>> 8) & 0xff) !== 0x45) throw { code: 'ENOTTY' }
-          const length = syscall('ioctl', real, request >>> 0, undefined)
-          if (length > 0 && (request >>> 30) & 2) {
+          // `EVIOC*` (an input device) and `FBIO*` (a framebuffer): the kernel leaves what the device answers in the return
+          // region and gives its length. A request a program sets (`FBIOPUT_VSCREENINFO`) carries the bytes it points to.
+          const type = (request >>> 8) & 0xff
+          if (type !== 0x45 && type !== 0x46) throw { code: 'ENOTTY' }
+          const FBIOPUT_VSCREENINFO = 0x4601
+          const argument = request === FBIOPUT_VSCREENINFO && ptr ? new Uint8Array(dv.buffer.slice(ptr, ptr + 160)) : undefined
+          const length = syscall('ioctl', real, request >>> 0, argument)
+          if (length > 0) {
             const { bytes } = copyOut(class { constructor(buffer, offset) { this.bytes = new Uint8Array(buffer, offset, length) } })
             if (ptr) new Uint8Array(dv.buffer).set(bytes, ptr)
           }
-          return length
+          // `fbdev` requests give 0; an event device's give the length of what it answered
+          return type === 0x46 ? 0 : length
         }
       }
     }),

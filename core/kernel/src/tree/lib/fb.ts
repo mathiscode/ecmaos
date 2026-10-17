@@ -1,0 +1,308 @@
+/**
+ * Linux framebuffer devices: `/dev/fb<N>` on major 29, one per window. A `Framebuffer` owns the pixels (32 bits each, blue
+ * first: `xrgb8888`), answers the `FBIO*` ioctls the way `fbdev` does and paints its window when the pixels change. A window
+ * that draws with the DOM gets a canvas; a host window or a screen is sent the frame as window content.
+ *
+ * `@zenfs/linux` hands a device neither the file position nor an `mmap`, so a node keeps one write and read cursor
+ * (`lseek` moves it, see `installFbSeek`). Programs that map `/dev/fb0` need the `mmap` spike.
+ */
+
+import { Class, Device, char_dev, syscalls } from '@zenfs/linux'
+import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
+import { withErrno } from 'kerium'
+import type { WindowHandle, WindowOwner, Windows } from '@ecmaos/types'
+
+export const FbMajor = 29
+export const MaxFramebuffers = 32
+export const BytesPerPixel = 4
+
+export const FBIOGET_VSCREENINFO = 0x4600
+export const FBIOPUT_VSCREENINFO = 0x4601
+export const FBIOGET_FSCREENINFO = 0x4602
+export const FBIOPAN_DISPLAY = 0x4606
+export const FBIOBLANK = 0x4611
+export const FBIO_WAITFORVSYNC = 0x40044620
+
+export const VarScreenInfoSize = 160
+/** `struct fb_fix_screeninfo` for a 32-bit program (`unsigned long` is 4 bytes), which is every program here */
+export const FixScreenInfoSize = 68
+
+export interface PixelFrame {
+  width: number
+  height: number
+  /** `width * height` pixels, 4 bytes each: blue, green, red, unused */
+  data: Uint8Array
+}
+
+/** Draws a frame wherever the framebuffer's window is shown */
+export type PixelSink = (frame: PixelFrame) => void
+
+const PresentDelay = 16
+
+export class Framebuffer {
+  readonly stride: number
+  readonly pixels: Uint8Array
+  /** Where the next `read` or `write` on the node starts, in bytes */
+  cursor = 0
+  private _timer: ReturnType<typeof setTimeout> | undefined
+  private _closed = false
+  presents = 0
+
+  constructor(readonly index: number, readonly width: number, readonly height: number, private readonly _sink: PixelSink) {
+    this.stride = width * BytesPerPixel
+    this.pixels = new Uint8Array(this.stride * height)
+  }
+
+  get path() { return `/dev/fb${this.index}` }
+  get size() { return this.pixels.length }
+  get closed() { return this._closed }
+
+  /** Copies `data` in at the cursor (cut short at the end of the screen) and moves the cursor on; returns how much went in */
+  write(data: Uint8Array): number {
+    if (this._closed) throw withErrno('ENODEV')
+    if (this.cursor >= this.size) throw withErrno('ENOSPC')
+    const count = Math.min(data.length, this.size - this.cursor)
+    this.pixels.set(data.subarray(0, count), this.cursor)
+    this.cursor += count
+    this.present()
+    return count
+  }
+
+  /** Copies pixels out from the cursor and moves it on; 0 at the end of the screen */
+  read(into: Uint8Array): number {
+    if (this._closed) throw withErrno('ENODEV')
+    const count = Math.max(0, Math.min(into.length, this.size - this.cursor))
+    into.set(this.pixels.subarray(this.cursor, this.cursor + count))
+    this.cursor += count
+    return count
+  }
+
+  /** Moves the cursor as `lseek` would; returns the new position */
+  seek(offset: number, whence: number): number {
+    const base = whence === 0 ? 0 : whence === 1 ? this.cursor : whence === 2 ? this.size : undefined
+    if (base === undefined || base + offset < 0) throw withErrno('EINVAL')
+    return this.cursor = base + offset
+  }
+
+  /** Shows the pixels as they are now, soon: changes made in quick succession are one frame */
+  present() {
+    if (this._closed || this._timer) return
+    this._timer = setTimeout(() => this.flush(), PresentDelay)
+    ;(this._timer as { unref?: () => void }).unref?.()
+  }
+
+  /** Shows the pixels now */
+  flush() {
+    clearTimeout(this._timer)
+    this._timer = undefined
+    if (this._closed) return
+    this.presents++
+    this._sink({ width: this.width, height: this.height, data: this.pixels })
+  }
+
+  close() {
+    this._closed = true
+    clearTimeout(this._timer)
+    this._timer = undefined
+  }
+
+  /** `struct fb_var_screeninfo`: 32 bits per pixel, blue in the low byte */
+  varScreenInfo(): Uint8Array {
+    const out = new Uint8Array(VarScreenInfoSize)
+    const view = new DataView(out.buffer)
+    const unknown = 0xffffffff
+    const fields = [
+      this.width, this.height, this.width, this.height, 0, 0, 32, 0, // resolution, virtual resolution, offset, bits per pixel, grayscale
+      16, 8, 0, 8, 8, 0, 0, 8, 0, 24, 0, 0, // red, green, blue, transparency: offset, length, msb_right
+      0, 0, unknown, unknown, 0, // nonstd, activate, height and width in mm, accel_flags
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // pixclock, margins, sync lengths, sync, vmode, rotate, colorspace
+      0, 0, 0, 0 // reserved
+    ]
+    fields.forEach((value, index) => view.setUint32(index * 4, value, true))
+    return out
+  }
+
+  /** `struct fb_fix_screeninfo` as a 32-bit program lays it out */
+  fixScreenInfo(): Uint8Array {
+    const out = new Uint8Array(FixScreenInfoSize)
+    const view = new DataView(out.buffer)
+    out.set(new TextEncoder().encode('ecmaOS fb'), 0)
+    view.setUint32(20, this.size, true) // smem_len (smem_start at 16 stays 0: there is no physical address)
+    view.setUint32(24, 0, true) // type: FB_TYPE_PACKED_PIXELS
+    view.setUint32(32, 2, true) // visual: FB_VISUAL_TRUECOLOR
+    view.setUint16(36, 1, true) // xpanstep
+    view.setUint16(38, 1, true) // ypanstep
+    view.setUint32(44, this.stride, true) // line_length
+    return out
+  }
+
+  /** Whether `info` (a `fb_var_screeninfo` a program sets) asks for the mode the screen is in */
+  accepts(info: Uint8Array): boolean {
+    if (info.length < 28) return false
+    const view = new DataView(info.buffer, info.byteOffset, info.byteLength)
+    return view.getUint32(0, true) === this.width && view.getUint32(4, true) === this.height && view.getUint32(24, true) === 32
+  }
+}
+
+// - the nodes ------------------------------------------------------------------------------------------
+
+const fb_class = new Class('graphics')
+const slots = new Map<number, { framebuffer: Framebuffer, device: Device }>()
+let majorRegistered = false
+
+const framebufferOf = (file: DeviceFile) => {
+  const slot = slots.get(file.devt.minor)
+  if (!slot) throw withErrno('ENODEV')
+  return slot.framebuffer
+}
+
+const operations: FileOperations = {
+  read: (file, buffer, start, end) => framebufferOf(file).read(buffer.subarray(0, end - start)),
+  write: (file, buffer, offset) => framebufferOf(file).write(buffer.slice(offset)),
+  poll: () => 1 | 4,
+  ioctl: {
+    [FBIOGET_VSCREENINFO]: (_context, file) => framebufferOf(file).varScreenInfo(),
+    [FBIOGET_FSCREENINFO]: (_context, file) => framebufferOf(file).fixScreenInfo(),
+    [FBIOPUT_VSCREENINFO]: (_context, file, info?: Uint8Array) => {
+      // the one mode there is can be set again; another one cannot
+      if (!(info instanceof Uint8Array) || !framebufferOf(file).accepts(info)) throw withErrno('EINVAL')
+      return 0
+    },
+    [FBIOPAN_DISPLAY]: (_context, file) => { framebufferOf(file).flush(); return 0 },
+    [FBIOBLANK]: () => 0,
+    [FBIO_WAITFORVSYNC]: () => 0
+  }
+}
+
+function ensureMajor() {
+  if (majorRegistered) return
+  majorRegistered = true
+  try { char_dev.register(FbMajor, 'fb', operations) } catch { /* a second kernel in this realm; the first one's operations answer */ }
+}
+
+/** The framebuffer behind `/dev/fb<index>`, if there is one */
+export function framebufferAt(index: number): Framebuffer | undefined {
+  return slots.get(index)?.framebuffer
+}
+
+/**
+ * A device is not told the file position, so the calls that carry one are answered here for framebuffer nodes: `lseek` moves
+ * the node's cursor, and a `read` or `write` with a position (`pread`, `pwrite`, what `dd` does for `seek=`) uses that
+ * position and leaves the cursor where it was. Idempotent.
+ * @param descriptor finds the framebuffer a descriptor of `proc` is open on, or `undefined` for anything else
+ */
+let seekWrapped = false
+export function installFbSeek(descriptor: (proc: Process, fd: number) => Framebuffer | undefined) {
+  if (seekWrapped) return
+  seekWrapped = true
+  type Handler = (proc: Process, ...args: unknown[]) => unknown
+  const seek = syscalls.get('lseek' as never) as Handler | undefined
+  if (seek) {
+    syscalls.set('lseek' as never, ((proc: Process, fd: number, offset: number, whence: number) => {
+      const framebuffer = descriptor(proc, fd)
+      return framebuffer ? framebuffer.seek(offset, whence) : seek(proc, fd, offset, whence)
+    }) as never)
+  }
+  // `write` is (fd, data, position) and `read` is (fd, count, position); a position below 0 means the current one
+  for (const [name, at] of [['write', 2], ['read', 2]] as const) {
+    const original = syscalls.get(name as never) as Handler | undefined
+    if (!original) continue
+    syscalls.set(name as never, (async (proc: Process, ...args: unknown[]) => {
+      const framebuffer = descriptor(proc, args[0] as number)
+      const position = args[at] as number | undefined
+      if (!framebuffer || position === undefined || position < 0) return await original(proc, ...args)
+      const saved = framebuffer.cursor
+      framebuffer.cursor = position
+      try { return await original(proc, ...args) } finally { framebuffer.cursor = saved }
+    }) as never)
+  }
+}
+
+// - windows --------------------------------------------------------------------------------------------
+
+const encodeBase64 = (bytes: Uint8Array) => {
+  let text = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(text)
+}
+
+/** Paints frames into `window`: a canvas when it draws with the DOM, otherwise the frame is its content */
+export function windowSink(window: WindowHandle): PixelSink {
+  let canvas: HTMLCanvasElement | undefined
+  let image: ImageData | undefined
+  return frame => {
+    let body: HTMLElement | undefined
+    try { body = window.body } catch { /* a window drawn without the DOM */ }
+    if (!body) return window.setContent({ pixels: { width: frame.width, height: frame.height, data: encodeBase64(frame.data) } })
+    if (!canvas || canvas.ownerDocument !== body.ownerDocument || !body.contains(canvas)) {
+      canvas = body.ownerDocument.createElement('canvas')
+      canvas.width = frame.width
+      canvas.height = frame.height
+      canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
+      body.replaceChildren(canvas)
+      image = undefined
+    }
+    const context = canvas.getContext('2d')
+    if (!context) return
+    image ??= context.createImageData(frame.width, frame.height)
+    // blue, green, red, unused -> red, green, blue, opaque
+    const source = new Uint32Array(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength >> 2)
+    const target = new Uint32Array(image.data.buffer)
+    for (let i = 0; i < source.length; i++) {
+      const pixel = source[i]!
+      target[i] = 0xff000000 | ((pixel & 0xff) << 16) | (pixel & 0xff00) | ((pixel >>> 16) & 0xff)
+    }
+    context.putImageData(image, 0, 0)
+  }
+}
+
+export interface FramebufferOptions {
+  width: number
+  height: number
+  title?: string
+  owner?: WindowOwner
+}
+
+/** The framebuffers of a machine; each has a window and a node */
+export class Framebuffers {
+  constructor(private readonly _windows: Windows) {}
+
+  list(): Framebuffer[] {
+    return [...slots.values()].map(slot => slot.framebuffer)
+  }
+
+  get(index: number): Framebuffer | undefined {
+    return framebufferAt(index)
+  }
+
+  /** Opens a window of `width` by `height` pixels and the node that draws in it; closing the window removes the node */
+  create(options: FramebufferOptions): Framebuffer {
+    const { width, height } = options
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 4096 || height > 4096) throw withErrno('EINVAL', 'a framebuffer is 1 to 4096 pixels each way')
+    let index = 0
+    while (slots.has(index)) index++
+    if (index >= MaxFramebuffers) throw withErrno('ENOSPC', 'no free framebuffer')
+    ensureMajor()
+
+    const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
+    const framebuffer = new Framebuffer(index, width, height, windowSink(window))
+    let device: Device
+    try {
+      device = new Device({ name: `fb${index}`, class: fb_class, dev_t: { major: FbMajor, minor: index } })
+      device.register()
+    } catch (error) {
+      window.close(true)
+      throw error
+    }
+    slots.set(index, { framebuffer, device })
+    const stop = this._windows.on('close', info => {
+      if (info.id !== window.id) return
+      stop()
+      framebuffer.close()
+      slots.delete(index)
+      try { device.unregister() } catch { /* already gone */ }
+    })
+    framebuffer.flush()
+    return framebuffer
+  }
+}

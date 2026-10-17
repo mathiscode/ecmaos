@@ -16,6 +16,7 @@ export const displayPage = `<!doctype html>
 <style>
   html, body { margin: 0; height: 100%; background: #101010; color: #e8e8e8; font: 14px monospace; }
   #content { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+  canvas#pixels { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; background: #000; }
   pre#text { margin: 0; padding: 8px; white-space: pre-wrap; word-break: break-word; height: 100%; box-sizing: border-box; overflow: auto; }
   #status[hidden] { display: none; }
   #status { position: fixed; inset: 0; display: grid; place-items: center; opacity: .6; pointer-events: none; }
@@ -38,10 +39,32 @@ ${relayScript}
   let app = null
   const clear = () => {
     if (app) { app.dispose(); app = null }
-    document.querySelectorAll('#content, #text').forEach(node => node.remove())
+    document.querySelectorAll('#content, #text, #pixels').forEach(node => node.remove())
+  }
+
+  // A framebuffer's frame replaces what its canvas shows; the canvas is made once, so frames do not rebuild the page
+  const drawPixels = pixels => {
+    let canvas = document.getElementById('pixels')
+    if (!canvas) {
+      clear()
+      canvas = document.createElement('canvas')
+      canvas.id = 'pixels'
+      document.body.append(canvas)
+    }
+    if (canvas.width !== pixels.width || canvas.height !== pixels.height) { canvas.width = pixels.width; canvas.height = pixels.height }
+    const context = canvas.getContext('2d')
+    const text = atob(pixels.data)
+    const image = context.createImageData(pixels.width, pixels.height)
+    const target = new Uint32Array(image.data.buffer)
+    for (let i = 0; i < target.length; i++) {
+      const o = i * 4
+      target[i] = 0xff000000 | (text.charCodeAt(o) << 16) | (text.charCodeAt(o + 1) << 8) | text.charCodeAt(o + 2)
+    }
+    context.putImageData(image, 0, 0)
   }
 
   const show = content => {
+    if (content && content.pixels) { status.hidden = true; return drawPixels(content.pixels) }
     clear()
     status.hidden = true
     if (content && typeof content.text === 'string') {
