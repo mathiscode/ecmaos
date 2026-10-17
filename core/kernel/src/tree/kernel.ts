@@ -64,6 +64,7 @@ import { Protocol } from '#protocol.ts'
 import { DefaultServiceOptions, Service } from '#service.ts'
 import { Sockets } from '#sockets.ts'
 import { Shell } from '#shell.ts'
+import { PopupRenderer } from '#popups.ts'
 import { Storage } from '#storage.ts'
 import { FitAddon } from '@xterm/addon-fit'
 import { Telemetry } from '#telemetry.ts'
@@ -463,6 +464,8 @@ export class Kernel implements IKernel {
     const windowRenderer = new WinBoxRenderer()
     await Promise.all([this.telemetry.init(), this.dom.init(), windowRenderer.init()])
     this.windows.registerRenderer(windowRenderer)
+    // an opt-in seamless mode: with `ecmaos:windows:popups` set to `1` in local storage, new windows are browser popups
+    if (globalThis.document) this.windows.registerRenderer(new PopupRenderer(windowRenderer, { enabled: () => this.host.storage.local.getItem('ecmaos:windows:popups') === '1' }))
     // A host that shows windows itself (Node) is registered after the page's renderer, so it wins for the kinds it supports
     if (this.host.display) this.windows.registerRenderer(this.host.display.renderer)
     const tracer = this.telemetry.getTracer('ecmaos.kernel', this.version)
