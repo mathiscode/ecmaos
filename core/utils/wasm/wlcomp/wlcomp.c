@@ -610,14 +610,9 @@ static void dispatch(struct client *c, uint32_t id, uint32_t opcode, struct rd *
 
 /* ---- input ---- */
 
-static const char keymap_text[] =
-  "xkb_keymap {\n"
-  "  xkb_keycodes { include \"evdev+aliases(qwerty)\" };\n"
-  "  xkb_types { include \"complete\" };\n"
-  "  xkb_compat { include \"complete\" };\n"
-  "  xkb_symbols { include \"pc+us+inet(evdev)\" };\n"
-  "};\n";
-
+/* The US layout, expanded: no include statements, so a client's libxkbcommon needs no xkb data files. keymap-us.xkb is
+ * `xkbcli compile-keymap --layout us`; build.sh turns it into keymap-us.h. */
+#include "keymap-us.h"
 #define EV_KEY 1
 #define EV_REL 2
 #define EV_ABS 3
@@ -638,8 +633,8 @@ static void send_keymap(struct client *c, uint32_t id) {
   int fd = mkstemp(path);
   if (fd < 0) return;
   unlink(path);
-  size_t n = sizeof keymap_text;
-  if (write(fd, keymap_text, n) != (ssize_t)n) { close(fd); return; }
+  size_t n = keymap_us_xkb_len + 1;   /* with the NUL */
+  if (write(fd, keymap_us_xkb, keymap_us_xkb_len) != (ssize_t)keymap_us_xkb_len || write(fd, "", 1) != 1) { close(fd); return; }
   send_fd = fd;
   ev(c, id, 0, "uu", 1u, (uint32_t)n);   /* xkb_v1 */
   send_fd = -1;

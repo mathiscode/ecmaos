@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <wayland-client.h>
+#include <xkbcommon/xkbcommon.h>
 #include "xdg-shell-client-protocol.h"
 
 static struct wl_compositor *compositor;
@@ -66,18 +67,33 @@ static void ptr_axis_stop(void *d, struct wl_pointer *p, uint32_t t, uint32_t a)
 static void ptr_axis_discrete(void *d, struct wl_pointer *p, uint32_t a, int32_t v) { (void)d; (void)p; (void)a; (void)v; }
 static const struct wl_pointer_listener ptr_listener = { ptr_enter, ptr_leave, ptr_motion, ptr_button, ptr_axis, ptr_frame, ptr_axis_source, ptr_axis_stop, ptr_axis_discrete };
 
+static struct xkb_context *xkb;
+static struct xkb_keymap *keymap;
+static struct xkb_state *xstate;
+
 static void kb_keymap(void *d, struct wl_keyboard *k, uint32_t format, int32_t fd, uint32_t size) {
   (void)d; (void)k;
   char *text = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
-  printf("keyboard keymap format=%u %s\n", format, text != MAP_FAILED && !strncmp(text, "xkb_keymap", 10) ? "text" : "unreadable");
-  if (text != MAP_FAILED) munmap(text, size);
+  if (text != MAP_FAILED) {
+    if (!xkb) xkb = xkb_context_new(XKB_CONTEXT_NO_DEFAULT_INCLUDES | XKB_CONTEXT_NO_ENVIRONMENT_NAMES);
+    keymap = xkb_keymap_new_from_buffer(xkb, text, size - 1, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    xstate = keymap ? xkb_state_new(keymap) : NULL;
+    munmap(text, size);
+  }
+  printf("keyboard keymap format=%u %s\n", format, xstate ? "parsed" : "unreadable");
   close(fd);
   fflush(stdout);
 }
 static void kb_enter(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s, struct wl_array *keys) { (void)d; (void)k; (void)serial; (void)s; printf("keyboard enter keys=%zu\n", keys->size / 4); fflush(stdout); }
 static void kb_leave(void *d, struct wl_keyboard *k, uint32_t serial, struct wl_surface *s) { (void)d; (void)k; (void)serial; (void)s; printf("keyboard leave\n"); fflush(stdout); }
-static void kb_key(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t t, uint32_t key, uint32_t state) { (void)d; (void)k; (void)serial; (void)t; printf("keyboard key %u %u\n", key, state); fflush(stdout); }
-static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group) { (void)d; (void)k; (void)serial; (void)group; printf("keyboard modifiers %u %u %u\n", dep, lat, lock); fflush(stdout); }
+static void kb_key(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t t, uint32_t key, uint32_t state) { (void)d; (void)k; (void)serial; (void)t; 
+  char name[64] = "";
+  if (xstate) {
+    xkb_keysym_t sym = xkb_state_key_get_one_sym(xstate, key + 8);
+    xkb_keysym_get_name(sym, name, sizeof name);
+  }
+  printf("keyboard key %u %u %s\n", key, state, name); fflush(stdout); }
+static void kb_modifiers(void *d, struct wl_keyboard *k, uint32_t serial, uint32_t dep, uint32_t lat, uint32_t lock, uint32_t group) { (void)d; (void)k; (void)serial; if (xstate) xkb_state_update_mask(xstate, dep, lat, lock, 0, 0, group); printf("keyboard modifiers %u %u %u\n", dep, lat, lock); fflush(stdout); }
 static void kb_repeat(void *d, struct wl_keyboard *k, int32_t rate, int32_t delay) { (void)d; (void)k; (void)rate; (void)delay; }
 static const struct wl_keyboard_listener kb_listener = { kb_keymap, kb_enter, kb_leave, kb_key, kb_modifiers, kb_repeat };
 

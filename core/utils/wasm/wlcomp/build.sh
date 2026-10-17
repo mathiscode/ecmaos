@@ -13,6 +13,7 @@ OUT=$HERE/../../programs/wlcomp.wasm
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-emcc "$HERE/wlcomp.c" -O2 -Wall -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=4194304 -o "$WORK/wlcomp.js"
+( cd "$HERE" && xxd -i keymap-us.xkb ) > "$WORK/keymap-us.h"
+emcc "$HERE/wlcomp.c" -I"$WORK" -O2 -Wall -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=4194304 -o "$WORK/wlcomp.js"
 cp "$WORK/wlcomp.wasm" "$OUT"
 ls -l "$OUT"

@@ -86,7 +86,7 @@ describe('the Wayland compositor', () => {
     const out = await read('/tmp/wl-lib.out')
     expect(out).toContain('global 3 xdg_wm_base')
     expect(out).toContain('frame 1')
-    expect(out).toContain('keyboard keymap format=1 text')
+    expect(out).toContain('keyboard keymap format=1 parsed')
     const fb = kernel.framebuffers.list()[0]!
     expect([fb.width, fb.height]).toEqual([40, 20])
     expect([...fb.pixels.subarray(0, 3)]).toEqual([60, 0, 0])
@@ -94,13 +94,17 @@ describe('the Wayland compositor', () => {
     const id = kernel.windows.list().find(w => w.title === 'wl-lib')!.id
     for (const input of [
       { k: 'pointer', x: 5, y: 6 }, { k: 'enter' }, { k: 'button', button: 0, down: true }, { k: 'button', button: 0, down: false },
-      { k: 'focus' }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'blur' }, { k: 'leave' }
+      { k: 'focus' }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false },
+      { k: 'key', code: 'ShiftLeft', down: true }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'key', code: 'ShiftLeft', down: false },
+      { k: 'key', code: 'Enter', down: true }, { k: 'key', code: 'Enter', down: false }, { k: 'blur' }, { k: 'leave' }
     ] as const) kernel.windows.reportInput(id, input)
     await until(async () => (await read('/tmp/wl-lib.out')).includes('pointer leave'))
     const events = (await read('/tmp/wl-lib.out')).split('\n').filter(line => /^(pointer|keyboard) /.test(line) && !line.includes('keymap'))
     expect(events).toEqual([
       'pointer enter surface=mine 5 6', 'pointer button 272 1', 'pointer button 272 0',
-      'keyboard enter keys=0', 'keyboard key 30 1', 'keyboard key 30 0', 'keyboard leave', 'pointer leave'
+      'keyboard enter keys=0', 'keyboard key 30 1 a', 'keyboard key 30 0 a',
+      'keyboard key 42 1 Shift_L', 'keyboard modifiers 1 0 0', 'keyboard key 30 1 A', 'keyboard key 30 0 A', 'keyboard key 42 0 Shift_L', 'keyboard modifiers 0 0 0',
+      'keyboard key 28 1 Return', 'keyboard key 28 0 Return', 'keyboard leave', 'pointer leave'
     ])
 
     kernel.windows.reportInput(id, { k: 'size', width: 40, height: 20 })
