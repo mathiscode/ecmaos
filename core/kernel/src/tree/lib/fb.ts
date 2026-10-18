@@ -198,14 +198,17 @@ export class Framebuffer {
     for (const wake of waiters) wake()
   }
 
-  /** Gives the screen another size: the pixels start black and the cursor goes to the top */
+  /** Gives the screen another size: what was drawn stays at the top left (the rest is black) until the program draws again, and the cursor goes to the top */
   resize(width: number, height: number) {
+    const old = this.pixels, oldStride = this.stride, oldHeight = this.height
     this.width = width
     this.height = height
     this.stride = width * BytesPerPixel
     this.pixels = new Uint8Array(this.stride * height)
+    const row = Math.min(oldStride, this.stride)
+    for (let y = 0; y < Math.min(oldHeight, height); y++) this.pixels.set(old.subarray(y * oldStride, y * oldStride + row), y * this.stride)
     this.cursor = 0
-    this.flush()
+    this.present()
   }
 
   close() {
@@ -410,7 +413,7 @@ const encodeBase64 = (bytes: Uint8Array) => {
 }
 
 /** Paints frames into `window`: a canvas when it draws with the DOM, otherwise the frame is its content */
-export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) => void): PixelSink {
+export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) => void, fill = false): PixelSink {
   let canvas: HTMLCanvasElement | undefined
   let image: ImageData | undefined
   let cursor = 'default'
@@ -424,7 +427,7 @@ export function windowSink(window: WindowHandle, onInput?: (input: WindowInput) 
       canvas = body.ownerDocument.createElement('canvas')
       canvas.width = frame.width
       canvas.height = frame.height
-      canvas.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;background:#000'
+      canvas.style.cssText = `display:block;width:100%;height:100%;object-fit:${fill ? 'fill' : 'contain'};image-rendering:pixelated;background:#000`
       show()
       body.replaceChildren(canvas)
       if (onInput) attachCanvasInput(canvas, onInput)
@@ -509,7 +512,7 @@ export class Framebuffers {
     ensureMajor()
 
     const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
-    const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input)))
+    const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input), options.resizable === true))
     framebuffer.windowControl = {
       get: () => Math.max(0, WindowStates.indexOf(window.info.state as typeof WindowStates[number])),
       set: state => window.setState(WindowStates[state]!)

@@ -63,6 +63,21 @@ describe('Framebuffer', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
+  it('keeps what was drawn at the top left when resized, and paints once the program had its turn', async () => {
+    const { framebuffer, frames } = make()
+    framebuffer.write(new Uint8Array(32).fill(7))
+    await vi.advanceTimersByTimeAsync(20)
+    framebuffer.resize(6, 3)
+    expect(frames.length).toBe(1)
+    expect(framebuffer.pixels.length).toBe(72)
+    expect([...framebuffer.pixels.subarray(0, 16)]).toEqual(new Array(16).fill(7))
+    expect([...framebuffer.pixels.subarray(16, 24)]).toEqual(new Array(8).fill(0))
+    expect([...framebuffer.pixels.subarray(24, 40)]).toEqual(new Array(16).fill(7))
+    expect([...framebuffer.pixels.subarray(48)]).toEqual(new Array(24).fill(0))
+    await vi.advanceTimersByTimeAsync(20)
+    expect(frames.length).toBe(2)
+  })
+
   it('seeks like lseek and reads from there', () => {
     const { framebuffer } = make()
     framebuffer.write(Uint8Array.from({ length: 32 }, (_, i) => i))
