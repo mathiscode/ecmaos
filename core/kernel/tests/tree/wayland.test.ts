@@ -36,6 +36,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/sdlclip', load(`${root}/../utils/programs/sdlclip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlpad', load(`${root}/../utils/programs/sdlpad.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlgl', load(`${root}/../utils/programs/sdlgl.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlgears', load(`${root}/../utils/programs/sdlgears.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
@@ -459,6 +460,28 @@ describe('the Wayland compositor', () => {
       expect(await client).toBe(0)
       expect(await read('/tmp/sdlgl.out')).not.toContain('ERROR')
       await until(() => glContextAt(0) === undefined)   // the context went with the process
+    } finally {
+      setGlSurfaceFactory(previous)
+    }
+  }, 90_000)
+
+  it('runs sdlgears: three gears, each its own buffer, drawn with depth testing', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const { made, factory } = fakeGlSurfaces()
+    const previous = setGlSurfaceFactory(factory)
+    try {
+      const client = kernel.shell.execute(`${env} sdlgears 64 48 > /tmp/sdlgears.out 2>&1`)
+      await until(() => kernel.framebuffers.list().length === 1)
+      const id = kernel.windows.list().find(w => w.title === 'sdlgears')!.id
+      await until(async () => (await read('/tmp/sdlgears.out')).includes('OpenGL ES 2.0 ecmaOS'), 30_000)
+      const calls = () => made[0]!.calls
+      await until(() => calls().filter(([m]) => m === 'drawArrays').length >= 6)
+      expect(calls().some(([m, a]) => m === 'enable' && a[0] === 0xb71)).toBe(true)   // DEPTH_TEST
+      expect(calls().filter(([m]) => m === 'createBuffer')).toHaveLength(3)
+      expect(calls().find(([m]) => m === 'drawArrays')![1][2]).toBeGreaterThan(100)
+      kernel.windows.close(id, true)
+      expect(await client).toBe(0)
+      expect(await read('/tmp/sdlgears.out')).toContain('OpenGL ES 2.0 ecmaOS')
     } finally {
       setGlSurfaceFactory(previous)
     }

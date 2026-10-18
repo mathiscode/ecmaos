@@ -192,6 +192,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 1798189,
       "sha256": "f5fcc9b71a0d7a755dcdeef119a6d265539ff76ccb91356b506fe121b629d00d"
+    },
+    "sdlgears": {
+      "file": "sdlgears.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "sdlgears, three meshing gears in OpenGL ES on SDL 3, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1803378,
+      "sha256": "3d0c167a6abe34bc5315ce3f46e9dda48baf9ef20c2473f67dea6470c492b682"
     }
   }
 }
