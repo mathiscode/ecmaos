@@ -903,7 +903,7 @@ export class Kernel implements IKernel {
 
       await this.registerDevices()
       installEvdevIoctl()
-      registerGlControl()
+      if (!registerGlControl()) this.log.warn('OpenGL ES is unavailable: another driver holds the major of /dev/gl')
       if (globalThis.document) captureDom(globalThis.document)
       await this.registerCommands()
       await this.registerPackages()

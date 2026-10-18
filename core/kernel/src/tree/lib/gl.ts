@@ -1,5 +1,5 @@
 /**
- * GL devices: `/dev/gl<N>` on major 226, one OpenGL ES context each, drawn by the browser's WebGL2. A program writes a
+ * GL devices: `/dev/gl<N>` on major 227, one OpenGL ES context each, drawn by the browser's WebGL2. A program writes a
  * stream of commands (see `gl-commands.ts`), asks for a frame with `GL_SWAP` and reads the pixels back as
  * `xrgb8888`, blue first and the top row first, the way `/dev/fb<N>` takes them; a compositor copies them into the
  * buffer of its window. `/dev/glctl` makes the contexts: `GLCTL_CREATE` answers the number of a new one.
@@ -14,7 +14,8 @@ import { withErrno } from 'kerium'
 
 import { GlCommandByOp } from './gl-commands.ts'
 
-export const GlMajor = 226
+/** Fixed, below the dynamic majors (234 up) and clear of the `webgl` device package's 226 */
+export const GlMajor = 227
 export const GlControlMinor = 128
 export const MaxGlContexts = 16
 export const GlMaxSize = 4096
@@ -271,17 +272,24 @@ const operations: FileOperations = {
   }
 }
 
+/** Whether this module's drivers answer for the major (false if another driver holds it) */
+let majorOwned = false
+
 function ensureMajor() {
   if (majorRegistered) return
   majorRegistered = true
-  try { char_dev.register(GlMajor, 'gl', operations) } catch { /* a second kernel in this realm; the first one's operations answer */ }
+  try {
+    char_dev.register(GlMajor, 'gl', operations)
+    majorOwned = true
+  } catch { majorOwned = false /* a second kernel in this realm, or another driver on the major */ }
   try {
     control = new Device({ name: 'glctl', class: gl_class, dev_t: { major: GlMajor, minor: GlControlMinor } })
     control.register()
   } catch { control = undefined }
 }
 
-/** Makes `/dev/glctl`, so a program can ask for a context before it has one */
-export function registerGlControl() {
+/** Makes `/dev/glctl`, so a program can ask for a context before it has one; false if the major is not ours to use */
+export function registerGlControl(): boolean {
   ensureMajor()
+  return majorOwned
 }

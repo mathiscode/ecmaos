@@ -3,7 +3,7 @@ import { ioctl } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
-import { GL_DESTROY, GL_GETINFO, GL_RESIZE, GL_SWAP, GLCTL_CREATE, MaxGlContexts, destroyGlContext, glContextAt, setGlSurfaceFactory } from '#lib/gl.ts'
+import { GL_DESTROY, GL_GETINFO, GL_RESIZE, GL_SWAP, GLCTL_CREATE, MaxGlContexts, destroyGlContext, glContextAt, registerGlControl, setGlSurfaceFactory } from '#lib/gl.ts'
 
 import { fakeGlSurfaces } from './fixtures/fake-gl'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
@@ -54,10 +54,11 @@ describe('/dev/gl<N>', () => {
     } finally { await handle.close() }
   }
 
-  it('has a control node on major 226 that makes a context and its node', async () => {
+  it('has a control node on major 227 that makes a context and its node', async () => {
+    expect(registerGlControl()).toBe(true)
     const control = await kernel.filesystem.fs.stat('/dev/glctl')
     expect(control.isCharacterDevice()).toBe(true)
-    expect(Number(BigInt(control.rdev) >> 20n)).toBe(226)
+    expect(Number(BigInt(control.rdev) >> 20n)).toBe(227)
     const { index, path } = await create(4, 2)
     const stat = await kernel.filesystem.fs.stat(path)
     expect(Number(BigInt(stat.rdev) & 0xfffffn)).toBe(index)
