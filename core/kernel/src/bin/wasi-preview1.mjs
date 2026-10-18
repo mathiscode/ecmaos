@@ -1520,24 +1520,25 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         case 0x5422: return syscall('proc_ctty', 1, real, 0)
         case 0x5429: { dv.setInt32(ptr, syscall('proc_ctty', 2, real, 0), true); return ESUCCESS }
         default: {
-          // `EVIOC*` (an input device) and `FBIO*` (a framebuffer): the kernel leaves what the device answers in the return
+          // `EVIOC*` (an input device), `FBIO*` (a framebuffer) and the GL devices' requests: the kernel leaves what the device answers in the return
           // region and gives its length. A request a program sets (`FBIOPUT_VSCREENINFO`) carries the bytes it points to.
           const type = (request >>> 8) & 0xff
-          if (type !== 0x45 && type !== 0x46) throw { code: 'ENOTTY' }
+          if (type !== 0x45 && type !== 0x46 && type !== 0x47) throw { code: 'ENOTTY' }
           const FBIOPUT_VSCREENINFO = 0x4601
           const FBIO_SETCURSOR = 0x46f0   // wlcomp: a NUL-terminated CSS cursor name in 64 bytes
           const argument = ptr && request === FBIOPUT_VSCREENINFO ? new Uint8Array(dv.buffer.slice(ptr, ptr + 160))
             : ptr && request === FBIO_SETCURSOR ? new Uint8Array(dv.buffer.slice(ptr, ptr + 64))
             : ptr && request === 0x46f2 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 4))   // FBIO_SETWINSTATE: an int
             : ptr && request === 0x46f3 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 4096))   // FBIO_SETCLIPBOARD: a chunk of text
-            : ptr && request === 0x46f6 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 16 + 64 * 64 * 4)) : undefined   // FBIO_SETCURSORIMAGE: size, hotspot, pixels
+            : ptr && request === 0x46f6 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 16 + 64 * 64 * 4))   // FBIO_SETCURSORIMAGE: size, hotspot, pixels
+            : ptr && type === 0x47 ? new Uint8Array(dv.buffer.slice(ptr, ptr + 8)) : undefined   // the GL devices (gl.ts): a width and a height at most
           const length = syscall('ioctl', real, request >>> 0, argument)
           if (length > 0) {
             const { bytes } = copyOut(class { constructor(buffer, offset) { this.bytes = new Uint8Array(buffer, offset, length) } })
             if (ptr) new Uint8Array(dv.buffer).set(bytes, ptr)
           }
-          // `fbdev` requests give 0; an event device's give the length of what it answered
-          return type === 0x46 ? 0 : length
+          // `fbdev` and GL requests give 0; an event device's give the length of what it answered
+          return type === 0x46 || type === 0x47 ? 0 : length
         }
       }
     }),

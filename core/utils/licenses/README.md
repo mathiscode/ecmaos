@@ -25,6 +25,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `sdlpaint` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpaint/` |
 | `sdlclip` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlclip/` |
 | `sdlpad` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpad/` |
+| `sdlgl` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgl/` |
 
 Every program also contains musl libc and compiler-rt, from Emscripten: see `runtime/`.
 

@@ -213,6 +213,10 @@ const u32 = (value: number) => {
   return out
 }
 
+let caller: number | undefined
+/** The process whose `ioctl` is being answered, so a context it makes goes with it (set by the `ioctl` syscall in `evdev.ts`) */
+export function setGlCaller(pid: number | undefined) { caller = pid }
+
 /** Makes a context in the lowest free number, with its node; `owner` is the process it goes with */
 export function createGlContext(width: number, height: number, owner?: number): GlContext {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > GlMaxSize || height > GlMaxSize) throw withErrno('EINVAL', `a GL surface is 1 to ${GlMaxSize} pixels each way`)
@@ -254,7 +258,7 @@ const operations: FileOperations = {
     [GLCTL_CREATE]: (_context, file, size?: Uint8Array) => {
       if (file.devt.minor !== GlControlMinor) throw withErrno('ENOTTY')
       const { width, height } = sizeIn(size)
-      return u32(createGlContext(width, height).index)
+      return u32(createGlContext(width, height, caller).index)
     },
     [GL_SWAP]: (_context, file) => u32(contextOf(file).swap()),
     [GL_RESIZE]: (_context, file, size?: Uint8Array) => {

@@ -120,7 +120,7 @@ PY
     emar rcs "$work/prefix/lib/libwayland-cursor.a" gen/cursor/*.o
     emcc $CFLAGS -I"$S/../egl" -c "$S/../egl/wayland-egl.c" -o gen/egl/wayland-egl.o
     emar rcs "$work/prefix/lib/libwayland-egl.a" gen/egl/*.o
-    cp "$S/../cursor/wayland-cursor.h" "$S/../egl/wayland-egl.h" "$S/../egl/wayland-egl-core.h" "$work/prefix/include/"
+    cp "$S/../cursor/wayland-cursor.h" "$S/../egl/wayland-egl.h" "$S/../egl/wayland-egl-core.h" "$S/../egl/wayland-egl-backend.h" "$work/prefix/include/"
     # pkg-config files, for builds that look the libraries up that way (SDL); `egl` is only named, nothing links it
     mkdir -p "$work/prefix/lib/pkgconfig"
     for lib in wayland-client wayland-cursor wayland-egl; do

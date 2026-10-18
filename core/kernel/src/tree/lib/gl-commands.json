@@ -1,0 +1,7 @@
+{
+  "commands": [
+    { "op": 1, "name": "clearColor", "args": ["GLfloat red", "GLfloat green", "GLfloat blue", "GLfloat alpha"], "sig": "ffff" },
+    { "op": 2, "name": "clear", "args": ["GLbitfield mask"], "sig": "u" },
+    { "op": 3, "name": "viewport", "args": ["GLint x", "GLint y", "GLsizei width", "GLsizei height"], "sig": "iiii" }
+  ]
+}

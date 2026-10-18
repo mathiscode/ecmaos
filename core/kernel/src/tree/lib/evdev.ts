@@ -10,6 +10,7 @@ import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
 import { ioctlSync } from '@zenfs/core/vfs/ioctl'
 import { withErrno } from 'kerium'
 import { registerMinor } from './dynamic-minors.ts'
+import { destroyGlContextsOf, setGlCaller } from './gl.ts'
 import type { KernelCharDevice, KernelDevice, WindowInput } from '@ecmaos/types'
 
 export const EV_SYN = 0, EV_KEY = 1, EV_REL = 2, EV_ABS = 3, EV_MSC = 4
@@ -378,6 +379,7 @@ function nodeOperations(hub: InputHub): FileOperations {
  * answer with bytes, so the syscall is wrapped to put them there and give their length, as the upstream `ioctl` does for
  * `TIOCGWINSZ` and `TCGETS`. Idempotent.
  */
+const glWatched = new Set<number>()
 let wrapped = false
 export function installEvdevIoctl() {
   if (wrapped) return
@@ -387,7 +389,15 @@ export function installEvdevIoctl() {
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
     if (type !== EvdevType && type !== FbType && type !== GlType) return original(proc, fd, request, arg)
-    const value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg)
+    if (type === GlType) {
+      setGlCaller(proc.pid)
+      if (!glWatched.has(proc.pid)) {
+        glWatched.add(proc.pid)
+        void proc.exited.then(() => { glWatched.delete(proc.pid); destroyGlContextsOf(proc.pid) })
+      }
+    }
+    let value: unknown
+    try { value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg) } finally { setGlCaller(undefined) }
     return value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0
   }) as never)
 }

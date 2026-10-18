@@ -2,7 +2,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
+import { glContextAt, setGlSurfaceFactory } from '#lib/gl.ts'
 
+import { fakeGlSurfaces } from './fixtures/fake-gl'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 const until = async (check: () => boolean | Promise<boolean>, ms = 20000) => {
@@ -33,6 +35,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/sdlpaint', load(`${root}/../utils/programs/sdlpaint.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlclip', load(`${root}/../utils/programs/sdlclip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlpad', load(`${root}/../utils/programs/sdlpad.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlgl', load(`${root}/../utils/programs/sdlgl.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
@@ -425,6 +428,39 @@ describe('the Wayland compositor', () => {
       expect(await read('/tmp/sdlpad.out')).not.toContain('ERROR')
     } finally {
       Object.defineProperty(globalThis.navigator, 'getGamepads', { value: before, configurable: true })
+    }
+  }, 90_000)
+
+  it('runs the shipped OpenGL ES program: SDL draws through its EGL, the commands go to /dev/gl<N> and the frame that comes back is the window', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const { made, factory } = fakeGlSurfaces()
+    const previous = setGlSurfaceFactory(factory)
+    try {
+      const client = kernel.shell.execute(`${env} sdlgl 64 48 > /tmp/sdlgl.out 2>&1`)
+      await until(() => kernel.framebuffers.list().length === 1)
+      const fb = kernel.framebuffers.list()[0]!
+      const id = kernel.windows.list().find(w => w.title === 'sdlgl')!.id
+      await until(async () => (await read('/tmp/sdlgl.out')).includes('OpenGL ES 2.0 ecmaOS'), 30_000)
+      const color = () => [...fb.pixels.subarray(0, 3)]
+      await until(() => color().join() === '51,51,51')   // the first clear: gray 0.2
+      expect(made).toHaveLength(1)
+      expect(made[0]!.viewports.at(-1)).toEqual([0, 0, 64, 48])
+
+      kernel.windows.reportInput(id, { k: 'focus' })
+      for (const [code, name, rgb] of [['KeyR', 'red', [0, 0, 255]], ['KeyB', 'blue', [255, 0, 0]], ['KeyG', 'green', [0, 255, 0]]] as const) {
+        kernel.windows.reportInput(id, { k: 'key', code, down: true })
+        kernel.windows.reportInput(id, { k: 'key', code, down: false })
+        await until(async () => (await read('/tmp/sdlgl.out')).includes(`sdlgl: ${name}`))
+        await until(() => color().join() === rgb.join())
+      }
+      expect(glContextAt(0)).toBeDefined()
+
+      kernel.windows.close(id, true)
+      expect(await client).toBe(0)
+      expect(await read('/tmp/sdlgl.out')).not.toContain('ERROR')
+      await until(() => glContextAt(0) === undefined)   // the context went with the process
+    } finally {
+      setGlSurfaceFactory(previous)
     }
   }, 90_000)
 })

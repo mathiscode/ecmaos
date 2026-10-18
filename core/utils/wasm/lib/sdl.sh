@@ -21,9 +21,12 @@
 #   - joysticks are a driver of their own (src/joystick/ecmaos): it reads the pads the browser has from /dev/js0 to
 #     /dev/js3 (Linux's joystick API). A pad shows up once a button has been pressed on it; the browser's "standard"
 #     pads get the SDL gamepad mapping, with the triggers as buttons;
-#   - nothing else: no OpenGL, no libdecor.
+#   - OpenGL ES is an EGL and GLES2 of our own (sdl-gl/): calls are packed into a command stream that the kernel runs on
+#     the browser's WebGL2 (/dev/gl<N>), and each frame comes back as pixels in a wl_shm buffer (see ecmaos_gl.c);
+#   - nothing else: no desktop OpenGL, no libdecor.
 set -euo pipefail
 
+SDL_GL_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sdl-gl
 SDL=3.4.18
 SDL_SHA256=9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
 
@@ -427,6 +430,13 @@ void Wayland_DestroyWindowFramebuffer(SDL_VideoDevice *_this, SDL_Window *window
 
 #endif // SDL_VIDEO_DRIVER_WAYLAND
 SOURCE
+    # OpenGL ES: an EGL and a GLES2 of our own (sdl-gl/), linked in place of a GPU driver. SDL_VIDEO_STATIC_ANGLE makes SDL
+    # call the eglXxx functions directly instead of loading libEGL.
+    mkdir -p src/video/ecmaos
+    cp "$SDL_GL_DIR/ecmaos_gl.c" src/video/ecmaos/
+    node "$SDL_GL_DIR/gen-cmds.mjs" "$SDL_GL_DIR/../../../../kernel/src/tree/lib/gl-commands.json" > src/video/ecmaos/ecmaos_gl_cmds.inc
+    sed -i 's/^if(NOT HAVE_SDL_JOYSTICK)$/if(SDL_ECMAOS AND SDL_VIDEO_OPENGL_EGL)\n  sdl_glob_sources("${SDL3_SOURCE_DIR}\/src\/video\/ecmaos\/*.c")\nendif()\n&/' CMakeLists.txt
+    grep -q "src/video/ecmaos" CMakeLists.txt || { echo "sdl: the OpenGL ES patch did not apply" >&2; exit 1; }
     mkdir -p src/joystick/ecmaos
     cat > src/joystick/ecmaos/SDL_sysjoystick.c <<'SOURCE'
 // Joysticks for ecmaOS (added for it): the pads the browser has, as /dev/js0 to /dev/js3 in the layout of Linux's joystick
@@ -830,10 +840,10 @@ SOURCE
   mkdir -p "$work/sdl-build"
   ( cd "$work/sdl-build"
     PKG_CONFIG_PATH="$work/prefix/lib/pkgconfig" emcmake cmake "../SDL3-$SDL" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
-      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="-fwasm-exceptions -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_JOYSTICK_ECMAOS=1" \
+      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="-fwasm-exceptions -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_JOYSTICK_ECMAOS=1 -DSDL_VIDEO_STATIC_ANGLE=1" \
       -DSDL_ECMAOS=ON -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_DOCS=OFF \
       -DSDL_WAYLAND=ON -DSDL_WAYLAND_SHARED=OFF -DSDL_WAYLAND_LIBDECOR=OFF \
-      -DSDL_X11=OFF -DSDL_KMSDRM=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF -DSDL_VULKAN=OFF \
+      -DSDL_X11=OFF -DSDL_KMSDRM=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=ON -DSDL_VULKAN=OFF \
       -DSDL_AUDIO=ON -DSDL_DUMMYAUDIO=OFF -DSDL_DISKAUDIO=OFF -DSDL_CAMERA=OFF -DSDL_JOYSTICK=ON -DSDL_HAPTIC=OFF -DSDL_SENSOR=OFF \
       -DSDL_DBUS=OFF -DSDL_IBUS=OFF -DSDL_LIBURING=OFF -DSDL_PIPEWIRE=OFF -DSDL_PULSEAUDIO=OFF -DSDL_ALSA=OFF \
       -DSDL_JACK=OFF -DSDL_SNDIO=OFF -DSDL_OSS=OFF > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }

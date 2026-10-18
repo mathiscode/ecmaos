@@ -183,6 +183,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 1735557,
       "sha256": "8da7573deb86a4074a1c2f30cb9fe4d85bdd2c1d58ff7acd2a2629a477846ab8"
+    },
+    "sdlgl": {
+      "file": "sdlgl.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1785683,
+      "sha256": "36ab7a80813a59bf0d41b2c36dbb7cdc96945e5afcbe1eacabdc5863ce24e965"
     }
   }
 }
