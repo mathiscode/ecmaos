@@ -15,7 +15,8 @@ build_wayland() {
   local work=$1
   command -v wayland-scanner > /dev/null || { echo "wayland: needs the host wayland-scanner" >&2; exit 1; }
   ( cd "$work"
-    curl -fsSL -o wayland.tar.xz "https://gitlab.freedesktop.org/wayland/wayland/-/releases/$WAYLAND/downloads/wayland-$WAYLAND.tar.xz"
+    if [ -n "${WAYLAND_ARCHIVE:-}" ]; then cp "$WAYLAND_ARCHIVE" wayland.tar.xz   # an archive already fetched (a copyleft build's sources/)
+    else curl -fsSL -o wayland.tar.xz "https://gitlab.freedesktop.org/wayland/wayland/-/releases/$WAYLAND/downloads/wayland-$WAYLAND.tar.xz"; fi
     echo "$WAYLAND_SHA256  wayland.tar.xz" | sha256sum -c -
     tar xf wayland.tar.xz
     mkdir -p prefix/include prefix/lib protocols

@@ -50,7 +50,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/sdlpad', load(`${root}/../utils/programs/sdlpad.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlgl', load(`${root}/../utils/programs/sdlgl.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlgears', load(`${root}/../utils/programs/sdlgears.wasm`), { mode: 0o755 })
-    await kernel.filesystem.fs.writeFile('/bin/doom', load(`${root}/../utils/programs/doom.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/doom', load(`${root}/../utils-copyleft/programs/doom.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)

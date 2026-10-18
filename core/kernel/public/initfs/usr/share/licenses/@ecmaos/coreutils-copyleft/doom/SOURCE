@@ -1,0 +1,41 @@
+doom 0.1.0 (GPL-2.0-or-later AND Zlib AND MIT)
+
+programs/doom.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz  (doomgeneric e257a09527062bfb986b6e5e0780839b6cbd5b71, GPL-2.0-or-later)
+    sha256 26f8f60daa6c6e4d3c01e5eac9fb700d592dede803d13ac848154ff356b2a2e7
+    from https://github.com/ozkl/doomgeneric/archive/e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz
+  SDL3-3.4.18.tar.gz  (sdl 3.4.18, Zlib)
+    sha256 9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
+    from https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
+  wayland-1.26.0.tar.xz  (wayland 1.26.0, MIT)
+    sha256 64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3
+    from https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.26.0/downloads/wayland-1.26.0.tar.xz
+  libxkbcommon-xkbcommon-1.13.2.tar.gz  (xkbcommon 1.13.2, MIT)
+    sha256 acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528
+    from https://github.com/xkbcommon/libxkbcommon/archive/refs/tags/xkbcommon-1.13.2.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/doom/build.sh
+    the build: compiles the doomgeneric engine without its other platform layers and its SDL_mixer sound and music modules
+  wasm/doom/doomecma.c
+    new file, linked into the program: the platform layer, which draws the engine's frames into a window on SDL 3 and turns SDL key events into Doom keys
+  wasm/doom/doomsound.c
+    new file, linked into the program: the engine's sound module, a mixer that plays the sound effect lumps through an SDL 3 audio stream
+  core/utils/wasm/lib/sdl.sh (in the repository; wasm/lib/sdl.sh and wasm/lib/sdl-gl/ in the npm package @ecmaos/coreutils)
+    builds SDL as a static library for a Unix program on Wayland: a software window surface for its Wayland driver, audio and joystick drivers of its own, and the other changes its header lists
+  core/utils/wasm/lib/wayland.sh (in the repository; wasm/lib/wayland.sh in the npm package @ecmaos/coreutils)
+    builds libwayland-client, -cursor and -egl as static libraries, with listener calls made without libffi
+  core/utils/wasm/lib/xkbcommon.sh (in the repository; wasm/lib/xkbcommon.sh in the npm package @ecmaos/coreutils)
+    builds libxkbcommon as a static library without meson; a missing Compose table is logged at debug level
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+
+Where to get it
+  - /sources/doomgeneric-e257a09527062bfb986b6e5e0780839b6cbd5b71.tar.gz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

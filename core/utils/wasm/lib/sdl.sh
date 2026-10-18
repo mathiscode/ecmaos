@@ -36,7 +36,8 @@ build_sdl() {
   command -v ninja > /dev/null || { echo "sdl: needs the host ninja" >&2; exit 1; }
   command -v pkg-config > /dev/null || { echo "sdl: needs the host pkg-config" >&2; exit 1; }
   ( cd "$work"
-    curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz"
+    if [ -n "${SDL_ARCHIVE:-}" ]; then cp "$SDL_ARCHIVE" sdl.tar.gz   # an archive already fetched (a copyleft build's sources/)
+    else curl -fsSL -o sdl.tar.gz "https://github.com/libsdl-org/SDL/releases/download/release-$SDL/SDL3-$SDL.tar.gz"; fi
     echo "$SDL_SHA256  sdl.tar.gz" | sha256sum -c -
     tar xzf sdl.tar.gz
     cd "SDL3-$SDL"

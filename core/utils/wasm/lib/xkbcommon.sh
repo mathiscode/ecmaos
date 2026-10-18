@@ -14,7 +14,8 @@ build_xkbcommon() {
   local work=$1
   command -v bison > /dev/null || { echo "xkbcommon: needs the host bison" >&2; exit 1; }
   ( cd "$work"
-    curl -fsSL -o xkbcommon.tar.gz "https://github.com/xkbcommon/libxkbcommon/archive/refs/tags/xkbcommon-$XKBCOMMON.tar.gz"
+    if [ -n "${XKBCOMMON_ARCHIVE:-}" ]; then cp "$XKBCOMMON_ARCHIVE" xkbcommon.tar.gz   # an archive already fetched (a copyleft build's sources/)
+    else curl -fsSL -o xkbcommon.tar.gz "https://github.com/xkbcommon/libxkbcommon/archive/refs/tags/xkbcommon-$XKBCOMMON.tar.gz"; fi
     echo "$XKBCOMMON_SHA256  xkbcommon.tar.gz" | sha256sum -c -
     tar xzf xkbcommon.tar.gz
     mkdir -p prefix/include/xkbcommon prefix/lib

@@ -1,6 +1,6 @@
 # doom
 
-`man @ecmaos/coreutils/doom`
+`man @ecmaos/coreutils-copyleft/doom`
 
 ## Synopsis
 

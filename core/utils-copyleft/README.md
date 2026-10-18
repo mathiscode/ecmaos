@@ -1,6 +1,6 @@
 # @ecmaos/coreutils-copyleft
 
-Copyleft programs for ecmaOS, built to WebAssembly: GNU make, GNU nano (with ncurses), GNU ed, lz4, tree and Vim. They live apart
+Copyleft programs for ecmaOS, built to WebAssembly: GNU make, GNU nano (with ncurses), GNU ed, lz4, tree, Vim and Doom. They live apart
 from `@ecmaos/coreutils` (MIT OR Apache-2.0) so that package, and the kernel, carry no copyleft code. The ecmaOS
 site serves these programs as separate files under `/programs/`; nothing in the kernel bundle contains them.
 
@@ -17,10 +17,11 @@ syscalls, arguments and pipes. The programs are never imported as libraries.
 | `lz4` 1.10.0 | GPL-2.0-or-later | the command line tool; liblz4, linked in, is BSD-2-Clause |
 | `tree` 2.2.1 | GPL-2.0-or-later | |
 | `vim` 9.1.0 | Vim license | a modified version: see `licenses/vim/SOURCE`; `:version` and the intro screen say so |
+| `doom` 0.1.0 | GPL-2.0-or-later | doomgeneric (the Doom source release), statically linked with SDL 3.4.18 (zlib license), libwayland 1.26.0 and libxkbcommon 1.13.2 (MIT); SDL and the two libraries are built by the scripts in `@ecmaos/coreutils` (`wasm/lib/`); no game data |
 
 Each binary also contains musl libc and compiler-rt (see `licenses/runtime/`). Files written for ecmaOS in this
 package are licensed as the program they belong to when they modify or are linked into it
-(`wasm/make/ecmaos-spawn.c`: GPL-3.0-or-later), and otherwise MIT OR Apache-2.0 (`wasm/vim/libc-gaps.c`, the
+(`wasm/make/ecmaos-spawn.c`: GPL-3.0-or-later; `wasm/doom/doomecma.c` and `doomsound.c`: GPL-2.0-or-later), and otherwise MIT OR Apache-2.0 (`wasm/vim/libc-gaps.c`, the
 scripts); each carries an `SPDX-License-Identifier`. The texts are in `licenses/`.
 
 ## Source
