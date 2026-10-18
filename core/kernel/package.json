@@ -97,8 +97,8 @@
     "#*": "./src/tree/*"
   },
   "scripts": {
-    "build": "vite build && cp index-dist.html dist/index.html",
-    "dev": "vite",
+    "build": "node ../../utils/initfs.mjs build --if-possible && vite build && cp index-dist.html dist/index.html",
+    "dev": "node ../../utils/initfs.mjs build --if-possible && vite",
     "lint": "eslint src",
     "preview": "vite preview",
     "test": "vitest run",

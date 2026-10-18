@@ -26,6 +26,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:docs": "(typedoc || true) && echo docs.ecmaos.sh > docs/CNAME",
+    "check:initfs": "node utils/initfs.mjs check",
     "build:kernel": "turbo run build --filter=@ecmaos/* --filter=@ecmaos-devices/*",
     "dev": "turbo run dev --filter=@ecmaos/* --filter=@ecmaos-apps/desktop --concurrency=20",
     "dev:kernel": "turbo run dev --filter=@ecmaos/kernel",
@@ -39,7 +40,7 @@
     "start": "turbo run dev --filter=@ecmaos/kernel",
     "sync": "pnpm sync:readme && pnpm sync:version && pnpm sync:version:html && pnpm build:docs && pnpm sync:tutorials && pnpm sync:docs && pnpm sync:licenses && pnpm sync:zenfs && pnpm sync:initfs",
     "sync:docs": "rm -rf core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel/docs && cp -r docs core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel",
-    "sync:initfs": "tar --owner=root --group=root -czf core/kernel/public/initfs.tar.gz -C core/kernel/public/initfs .",
+    "sync:initfs": "node utils/initfs.mjs build",
     "sync:licenses": "cp LICENSE LICENSE-APACHE LICENSE-MIT core/kernel/public/initfs/usr/share/licenses/@ecmaos/kernel/ && for p in utils utils-copyleft; do rm -rf core/kernel/public/initfs/usr/share/licenses/@ecmaos/core$p && mkdir -p core/kernel/public/initfs/usr/share/licenses/@ecmaos && cp -r core/$p/licenses core/kernel/public/initfs/usr/share/licenses/@ecmaos/core$p; done && node utils/sync-zenfs-licenses.mjs",
     "sync:readme": "cp README.md core/kernel/README.md && cp README.md core/kernel/public/initfs/usr/share/docs/@ecmaos/kernel/index.md",
     "sync:tutorials": "./utils/sync-tutorials.sh",

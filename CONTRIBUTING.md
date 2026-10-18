@@ -87,6 +87,20 @@ count is only stable once `dist/` is populated.
 
 The number only ever ratchets down from wherever it's set.
 
+## The initfs
+
+`core/kernel/public/initfs/` is what a new machine's filesystem starts with, and `core/kernel/public/initfs.tar.gz` is
+what the kernel actually fetches. A machine unpacks `/usr/share` again whenever the tarball changes, so the two have to
+move together:
+
+* Change the folder, then run `pnpm sync:initfs` (the kernel's `dev` and `build` do it too, when GNU tar is installed)
+  and commit the tarball with the change. The tarball is reproducible: the same folder always gives the same bytes.
+* Some files in the folder are copies of files kept elsewhere (the README, the API docs, the license texts of the
+  kernel and both coreutils packages). Change the source, then run its sync (`pnpm sync:readme`, `sync:docs`,
+  `sync:licenses`) before `sync:initfs`.
+* `pnpm check:initfs` says whether the tarball matches the folder and every copy matches its source, and which sync
+  fixes what does not. CI runs it.
+
 ## License
 
 By contributing to ecmaOS, you agree that your contributions will be licensed under its MIT license.

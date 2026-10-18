@@ -38,6 +38,10 @@ jobs:
       - name: Seed kernel .env from template
         run: cp core/kernel/.env.template core/kernel/.env
 
+      # Before the build, which rebuilds the tarball itself and would hide one that was never committed
+      - name: Initfs is up to date
+        run: pnpm check:initfs
+
       - name: Build
         run: pnpm build
 
