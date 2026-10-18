@@ -30,6 +30,9 @@ export const GL_SWAP = 0x4700
 export const GL_RESIZE = 0x4701
 export const GL_GETINFO = 0x4702
 export const GL_DESTROY = 0x4703
+export const GL_REPLY = 0x4704
+/** The most answer bytes a `GL_REPLY` hands back at once, after a word that says how many there are (the program cannot see the length an ioctl answered with) */
+export const GlReplyMax = 1020
 export const GlType = 0x47
 
 /** What a context draws with: the part of `WebGL2RenderingContext` the commands and the readback use */
@@ -66,6 +69,45 @@ export const webGl2Surface: GlSurfaceFactory = (width, height) => {
   }
 }
 
+/** Bytes a `readPixels` of `width` by `height` fills: whole rows padded to the pack alignment but the last */
+function readSize(width: number, height: number, format: number, type: number, alignment: number): number {
+  const channels = format === 0x1908 ? 4 : format === 0x1907 ? 3 : format === 0x190a ? 2 : 1
+  const unit = type === 0x1401 ? channels : type === 0x1406 ? channels * 4 : 2   // bytes, floats, packed shorts
+  const row = Math.ceil(width * unit / alignment) * alignment
+  return height > 0 ? row * (height - 1) + width * unit : 0
+}
+
+const asText = (value: unknown) => new TextEncoder().encode(typeof value === 'string' ? value : '')
+
+/** An answer as the bytes of its `reply` form (see `GlCommand`); `undefined` or something of the wrong kind is zeros */
+function encodeReply(form: NonNullable<GlCommand['reply']>, value: unknown): Uint8Array {
+  const number = typeof value === 'boolean' ? Number(value) : typeof value === 'number' ? value : 0
+  switch (form) {
+    case 'i': { const out = new Uint8Array(4); new DataView(out.buffer).setInt32(0, number | 0, true); return out }
+    case 's': { const text = asText(value); const out = new Uint8Array(4 + text.length); new DataView(out.buffer).setUint32(0, text.length, true); out.set(text, 4); return out }
+    case 'p': return value instanceof Uint8Array ? value : new Uint8Array(0)
+    case 'a': {
+      const info = value as { size?: number, type?: number, name?: string } | null | undefined
+      const text = asText(info?.name)
+      const out = new Uint8Array(12 + text.length)
+      const view = new DataView(out.buffer)
+      view.setInt32(0, info?.size ?? 0, true)
+      view.setUint32(4, info?.type ?? 0, true)
+      view.setUint32(8, text.length, true)
+      out.set(text, 12)
+      return out
+    }
+    default: {   // 'v' and 'f': one value or several
+      const values = value == null ? [] : ArrayBuffer.isView(value) || Array.isArray(value) ? Array.from(value as ArrayLike<number>) : [value]
+      const out = new Uint8Array(4 + values.length * 4)
+      const view = new DataView(out.buffer)
+      view.setUint32(0, values.length, true)
+      values.forEach((v, i) => { const n = Number(v) || 0; if (form === 'f') view.setFloat32(4 + i * 4, n, true); else view.setInt32(4 + i * 4, n | 0, true) })
+      return out
+    }
+  }
+}
+
 export class GlContext {
   frame: Uint8Array
   /** Where the next `read` on the node starts; a swap puts it back to the top */
@@ -74,6 +116,9 @@ export class GlContext {
   /** The first error a command ended in, until `GL_GETINFO` reports it: a GL error code, or `0x10000` for a bad stream */
   error = 0
   private _pending = new Uint8Array(0)
+  private _replies: Uint8Array[] = []
+  private _replyBytes = 0
+  private _packAlignment = 4
   private _objects = new Map<string, Map<number, unknown>>()
   private _scratch: Uint8Array
   private _surface: GlSurface
@@ -134,9 +179,51 @@ export class GlContext {
         call[i] = name === 0 || name === -1 || name === 0xffffffff ? null : this._objects.get(kind)?.get(name) ?? null
       }
     }
+    if (command.name === 'pixelStorei' && call[0] === 0x0d05) this._packAlignment = call[1] as number
+    if (command.reply) return this._ask(command, call)
     const result = (gl[command.name] as (...a: unknown[]) => unknown).apply(gl, call)
     if (made !== undefined && result) this._table(command.make!.kind).set(made, result)
     if (dropped) this._objects.get(dropped.kind)?.delete(dropped.name)
+  }
+
+  /** Runs a question and keeps its answer, which is zeros if the call fails */
+  private _ask(command: GlCommand, call: unknown[]) {
+    const gl = this._surface.gl
+    let result: unknown
+    try {
+      if (command.name === 'readPixels') {
+        const [x, y, width, height, format, type] = call as number[]
+        if (width! * height! > GlMaxSize * GlMaxSize) throw new Error('too big')
+        const into = new Uint8Array(Math.max(0, width!) * Math.max(0, height!) * 16)
+        gl.readPixels(x!, y!, width!, height!, format!, type!, into)
+        result = into.subarray(0, readSize(width!, height!, format!, type!, this._packAlignment))
+      } else result = (gl[command.name] as (...a: unknown[]) => unknown).apply(gl, call)
+    } catch { result = undefined }
+    this._reply(encodeReply(command.reply!, result))
+  }
+
+  private _reply(bytes: Uint8Array) {
+    if (this._replyBytes + bytes.length > GlMaxSize * GlMaxSize * 8) return   // a program that never fetches its answers
+    this._replies.push(bytes)
+    this._replyBytes += bytes.length
+  }
+
+  /** Hands back up to `max` bytes of the answers so far, oldest first, after a word with their count */
+  takeReply(max = GlReplyMax): Uint8Array {
+    const count = Math.min(max, this._replyBytes)
+    const out = new Uint8Array(4 + count)
+    new DataView(out.buffer).setUint32(0, count, true)
+    let at = 4
+    while (at < out.length) {
+      const head = this._replies[0]!
+      const n = Math.min(head.length, out.length - at)
+      out.set(head.subarray(0, n), at)
+      at += n
+      if (n === head.length) this._replies.shift()
+      else this._replies[0] = head.subarray(n)
+    }
+    this._replyBytes -= count
+    return out
   }
 
   private _table(kind: string) {
@@ -224,7 +311,7 @@ export class GlContext {
     return out
   }
 
-  destroy() { this._objects.clear(); this._surface.destroy() }
+  destroy() { this._objects.clear(); this._replies = []; this._replyBytes = 0; this._surface.destroy() }
 }
 
 // - the nodes ------------------------------------------------------------------------------------------
@@ -326,6 +413,7 @@ const operations: FileOperations = {
       return 0
     },
     [GL_GETINFO]: (_context, file) => contextOf(file).info(),
+    [GL_REPLY]: (_context, file) => contextOf(file).takeReply(),
     [GL_DESTROY]: (_context, file) => { contextOf(file); destroyGlContext(file.devt.minor); return 0 }
   }
 }

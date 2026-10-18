@@ -4,7 +4,7 @@ import { ioctl } from '@zenfs/core'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { GlCommands } from '#lib/gl-commands.ts'
-import { GL_DESTROY, GL_GETINFO, GL_RESIZE, GL_SWAP, GLCTL_CREATE, MaxGlContexts, destroyGlContext, glContextAt, registerGlControl, setGlSurfaceFactory } from '#lib/gl.ts'
+import { GL_DESTROY, GL_GETINFO, GL_REPLY, GL_RESIZE, GL_SWAP, GLCTL_CREATE, MaxGlContexts, destroyGlContext, glContextAt, registerGlControl, setGlSurfaceFactory } from '#lib/gl.ts'
 
 import { fakeGlSurfaces } from './fixtures/fake-gl'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
@@ -158,6 +158,34 @@ describe('/dev/gl<N>', () => {
     const bad = record('shaderSource', 1, 'abcd')
     bad[2] = 400   // claims more bytes than the record holds
     await expect(kernel.filesystem.fs.writeFile(path, new Uint8Array(bad.buffer))).rejects.toThrow()
+  })
+
+  it('answers questions in the order they were asked, a part at a time, and with zeros when the call fails', async () => {
+    const { path } = await create(2, 2)
+    const fake = surfaces.at(-1)!
+    const taken = async () => { const out = await ioctl(path, GL_REPLY) as Uint8Array; return out.subarray(4, 4 + u32(out)) }
+    fake.answers.getAttribLocation = 3
+    fake.answers.getProgramParameter = true
+    fake.answers.getShaderInfoLog = 'line 1: error'
+    fake.answers.getParameter = (name: number) => name === 0xba2 ? new Int32Array([0, 0, 2, 2]) : undefined
+    fake.answers.getActiveUniform = { size: 2, type: 0x8b52, name: 'uMvp' }
+    await kernel.filesystem.fs.writeFile(path, join(
+      record('createProgram', 1), record('getAttribLocation', 1, 'aPos'), record('getProgramiv', 1, 0x8b82),
+      record('createShader', 0x8b30, 2), record('getShaderInfoLog', 2), record('getIntegerv', 0xba2), record('getFloatv', 0xb21),
+      record('getActiveUniform', 1, 0), record('checkFramebufferStatus', 0x8d40)))
+    const bytes = await taken()
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    expect(view.getInt32(0, true)).toBe(3)
+    expect(view.getInt32(4, true)).toBe(1)   // true is 1
+    expect([view.getUint32(8, true), new TextDecoder().decode(bytes.subarray(12, 25))]).toEqual([13, 'line 1: error'])
+    expect([view.getUint32(25, true), view.getInt32(29, true), view.getInt32(41, true)]).toEqual([4, 0, 2])
+    expect(view.getUint32(45, true)).toBe(0)   // getFloatv of nothing: no values
+    expect([view.getInt32(49, true), view.getUint32(53, true), view.getUint32(57, true)]).toEqual([2, 0x8b52, 4])
+    expect(bytes.length).toBe(61 + 4 + 4)   // "uMvp", then the status the fake gave no answer for: a zero word
+    expect((await taken()).length).toBe(0)
+    // a big answer comes in parts of at most GlReplyMax
+    await kernel.filesystem.fs.writeFile(path, join(record('readPixels', 0, 0, 2, 2, 0x1908, 0x1401)))
+    expect((await taken()).length).toBe(16)
   })
 
   it('resizes, numbers contexts from the lowest free one, refuses a bad size and a full table', async () => {

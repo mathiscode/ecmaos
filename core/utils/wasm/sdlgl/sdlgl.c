@@ -3,7 +3,8 @@
  * through /dev/gl<N>; see wasm/lib/sdl.sh and wasm/lib/sdl-gl). A triangle with a red, a green and a blue corner turns
  * in front of a light, shaded by the angle it makes with it. The positions are in a buffer and the colors in the
  * program's memory, so both ways of giving GL an array are used. R, G and B set the color of the window behind it to red,
- * green or blue and Space to gray; it prints the GL strings when it starts and the color when it changes.
+ * green or blue and Space to gray; P reads the pixel at the middle of the window back with glReadPixels and prints it. It
+ * prints the GL strings when it starts, the shaders' logs if one does not build, and the color when it changes.
  * Escape or closing the window quits.
  * Usage: sdlgl [WIDTH] [HEIGHT]. Needs wlcomp running. Without XDG_RUNTIME_DIR it uses /run/user/UID, as wlcomp does. */
 #include <SDL3/SDL.h>
@@ -36,6 +37,13 @@ static GLuint compile(GLenum type, const char *source)
   GLuint shader = glCreateShader(type);
   glShaderSource(shader, 1, &source, NULL);
   glCompileShader(shader);
+  GLint ok = 0;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+  if (!ok) {
+    char log[512];
+    glGetShaderInfoLog(shader, sizeof log, NULL, log);
+    fprintf(stderr, "sdlgl: shader: %s\n", log);
+  }
   return shader;
 }
 
@@ -77,6 +85,15 @@ int main(int argc, char **argv)
   glBindAttribLocation(program, 0, "aPos");
   glBindAttribLocation(program, 1, "aColor");
   glLinkProgram(program);
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  if (!linked) {
+    char log[512];
+    glGetProgramInfoLog(program, sizeof log, NULL, log);
+    fprintf(stderr, "sdlgl: link: %s\n", log);
+    return 1;
+  }
+  if (glGetAttribLocation(program, "aPos") != 0 || glGetAttribLocation(program, "aColor") != 1) { fprintf(stderr, "sdlgl: attribute locations differ from the ones bound\n"); return 1; }
   const GLint mvp_at = glGetUniformLocation(program, "uMvp"), normal_at = glGetUniformLocation(program, "uNormalMat"), light_at = glGetUniformLocation(program, "uLight");
 
   static const float positions[] = { 0.0f, 0.7f, 0.0f,   -0.7f, -0.5f, 0.0f,   0.7f, -0.5f, 0.0f };
@@ -102,6 +119,13 @@ int main(int argc, char **argv)
         if (key == SDLK_R) { color[0] = 1; color[1] = color[2] = 0; printf("sdlgl: red\n"); }
         if (key == SDLK_G) { color[1] = 1; color[0] = color[2] = 0; printf("sdlgl: green\n"); }
         if (key == SDLK_B) { color[2] = 1; color[0] = color[1] = 0; printf("sdlgl: blue\n"); }
+        if (key == SDLK_P) {
+          int pw, ph;
+          SDL_GetWindowSizeInPixels(win, &pw, &ph);
+          unsigned char px[4] = { 0, 0, 0, 0 };
+          glReadPixels(pw / 2, ph / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+          printf("sdlgl: pixel %d %d %d\n", px[0], px[1], px[2]);
+        }
         if (key == SDLK_SPACE) { color[0] = color[1] = color[2] = 0.5f; printf("sdlgl: gray\n"); }
         fflush(stdout);
       }

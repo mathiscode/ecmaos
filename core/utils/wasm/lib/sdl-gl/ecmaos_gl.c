@@ -33,6 +33,8 @@ extern int Wayland_CreateTempFD(off_t size);
 #define GL_RESIZE_REQUEST 0x4701
 #define GL_GETINFO_REQUEST 0x4702
 #define GL_DESTROY_REQUEST 0x4703
+#define GL_REPLY_REQUEST 0x4704
+#define REPLY_MAX 1020 // the answer bytes one GL_REPLY gives, after a word with their count
 
 #define ECMAOS_CONFIG ((EGLConfig)1)
 #define ECMAOS_DISPLAY_FALLBACK ((EGLDisplay)1)
@@ -61,7 +63,9 @@ typedef struct
     size_t used, capacity;
     uint32_t names; // the numbers of the objects the program has made; the kernel keeps the objects under them
     GLuint array_buffer, element_buffer, scratch_elements;
-    GLint unpack_alignment;
+    GLint unpack_alignment, pack_alignment;
+    uint8_t reply[4 + REPLY_MAX]; // answers fetched from the kernel and not yet used
+    size_t reply_at, reply_have;
     Attrib attribs[MAX_ATTRIBS];
 } Context;
 
@@ -356,6 +360,9 @@ GL_APICALL void GL_APIENTRY glPixelStorei(GLenum name, GLint param)
     const uint32_t w[2] = { name, (uint32_t)param };
     if (current && name == GL_UNPACK_ALIGNMENT) {
         current->unpack_alignment = param;
+    }
+    if (current && name == GL_PACK_ALIGNMENT) {
+        current->pack_alignment = param;
     }
     ecmaos_emit(ECMAOS_OP_pixelStorei, 2, w);
 }
@@ -652,33 +659,215 @@ GL_APICALL const GLubyte *GL_APIENTRY glGetString(GLenum name)
     }
 }
 
+// - questions: GLES2 calls the browser answers ----------------------------------------------------------
+//
+// A question is a record in the stream like any call; the kernel keeps its answer, and the program fetches the answers
+// with GL_REPLY once the stream is flushed. The kernel answers every question (with zeros if it fails), so a fetch that
+// comes back short means a broken device and the rest is zeros.
+
+// the next `n` bytes of answer into `out` (dropped if NULL), or zeros once the kernel has no more
+static bool reply_take(Context *c, void *out, size_t n)
+{
+    Uint8 *to = (Uint8 *)out;
+    while (n) {
+        if (c->reply_at >= c->reply_have) {
+            uint8_t buffer[4 + REPLY_MAX];
+            uint32_t count = 0;
+            if (ioctl(c->fd, GL_REPLY_REQUEST, buffer) != 0) {
+                break;
+            }
+            memcpy(&count, buffer, 4);
+            if (count == 0 || count > REPLY_MAX) {
+                break;
+            }
+            memcpy(c->reply, buffer + 4, count);
+            c->reply_at = 0;
+            c->reply_have = count;
+        }
+        size_t take = c->reply_have - c->reply_at;
+        if (take > n) {
+            take = n;
+        }
+        if (to) {
+            memcpy(to, c->reply + c->reply_at, take);
+            to += take;
+        }
+        c->reply_at += take;
+        n -= take;
+    }
+    if (n && to) {
+        memset(to, 0, n);
+    }
+    return n == 0;
+}
+
+static int32_t reply_int(Context *c)
+{
+    int32_t value = 0;
+    reply_take(c, &value, 4);
+    return value;
+}
+
+// a text answer: its length, then its bytes, of which `size` - 1 are kept
+static void reply_text(Context *c, GLsizei size, GLsizei *length, GLchar *out)
+{
+    const uint32_t n = (uint32_t)reply_int(c);
+    const uint32_t keep = size > 0 ? (n < (uint32_t)(size - 1) ? n : (uint32_t)(size - 1)) : 0;
+    if (out && size > 0) {
+        reply_take(c, out, keep);
+        out[keep] = 0;
+    } else {
+        reply_take(c, NULL, keep);
+    }
+    reply_take(c, NULL, n - keep);
+    if (length) {
+        *length = (GLsizei)keep;
+    }
+}
+
+// sends a question with no text and makes the stream reach the kernel; the answer is next in the replies
+static Context *ask(unsigned op, unsigned count, const uint32_t *words)
+{
+    Context *c = current;
+    if (!c) {
+        return NULL;
+    }
+    ecmaos_emit(op, count, words);
+    return flush_stream(c) ? c : NULL;
+}
+
+GL_APICALL GLint GL_APIENTRY glGetAttribLocation(GLuint program, const GLchar *name)
+{
+    Context *c = current;
+    if (!c) {
+        return -1;
+    }
+    emit_blob(ECMAOS_OP_getAttribLocation, &program, 1, name, SDL_strlen(name), NULL, 0);
+    return flush_stream(c) ? reply_int(c) : -1;
+}
+
+GL_APICALL void GL_APIENTRY glGetShaderiv(GLuint shader, GLenum pname, GLint *params)
+{
+    const uint32_t w[2] = { shader, pname };
+    Context *c = ask(ECMAOS_OP_getShaderiv, 2, w);
+    *params = c ? reply_int(c) : 0;
+}
+
+GL_APICALL void GL_APIENTRY glGetProgramiv(GLuint program, GLenum pname, GLint *params)
+{
+    const uint32_t w[2] = { program, pname };
+    Context *c = ask(ECMAOS_OP_getProgramiv, 2, w);
+    *params = c ? reply_int(c) : 0;
+}
+
+GL_APICALL void GL_APIENTRY glGetShaderInfoLog(GLuint shader, GLsizei size, GLsizei *length, GLchar *log)
+{
+    Context *c = ask(ECMAOS_OP_getShaderInfoLog, 1, &shader);
+    if (c) {
+        reply_text(c, size, length, log);
+    } else if (length) {
+        *length = 0;
+    }
+}
+
+GL_APICALL void GL_APIENTRY glGetProgramInfoLog(GLuint program, GLsizei size, GLsizei *length, GLchar *log)
+{
+    Context *c = ask(ECMAOS_OP_getProgramInfoLog, 1, &program);
+    if (c) {
+        reply_text(c, size, length, log);
+    } else if (length) {
+        *length = 0;
+    }
+}
+
+GL_APICALL GLenum GL_APIENTRY glCheckFramebufferStatus(GLenum target)
+{
+    Context *c = ask(ECMAOS_OP_checkFramebufferStatus, 1, &target);
+    return c ? (GLenum)reply_int(c) : 0;
+}
+
+static void get_values(unsigned op, GLenum name, void *values, bool floats)
+{
+    Context *c = ask(op, 1, &name);
+    if (!c) {
+        return;
+    }
+    const uint32_t n = (uint32_t)reply_int(c);
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t word = (uint32_t)reply_int(c);
+        if (i < 16) {
+            if (floats) {
+                memcpy((float *)values + i, &word, 4);
+            } else {
+                ((int32_t *)values)[i] = (int32_t)word;
+            }
+        }
+    }
+}
+
 GL_APICALL void GL_APIENTRY glGetIntegerv(GLenum name, GLint *values)
 {
-    switch (name) {
-    case GL_RED_BITS:
-    case GL_GREEN_BITS:
-    case GL_BLUE_BITS:
-    case GL_ALPHA_BITS:
-        values[0] = 8;
-        break;
-    case GL_DEPTH_BITS:
-        values[0] = 24;
-        break;
-    case GL_STENCIL_BITS:
-        values[0] = 8;
-        break;
-    case GL_MAX_TEXTURE_SIZE:
-        values[0] = 4096;
-        break;
-    case GL_VIEWPORT: // what a new context has; the program's own glViewport is not tracked here
-        values[0] = values[1] = 0;
-        values[2] = current ? current->width : 0;
-        values[3] = current ? current->height : 0;
-        break;
-    default:
-        values[0] = 0;
-        break;
+    values[0] = 0;
+    get_values(ECMAOS_OP_getIntegerv, name, values, false);
+}
+
+GL_APICALL void GL_APIENTRY glGetBooleanv(GLenum name, GLboolean *values)
+{
+    GLint wide[16] = { 0 };
+    get_values(ECMAOS_OP_getIntegerv, name, wide, false);
+    for (int i = 0; i < 4; i++) {
+        values[i] = wide[i] != 0; // as many as the largest answer that is a boolean (a color mask)
     }
+}
+
+GL_APICALL void GL_APIENTRY glGetFloatv(GLenum name, GLfloat *values)
+{
+    values[0] = 0;
+    get_values(ECMAOS_OP_getFloatv, name, values, true);
+}
+
+GL_APICALL void GL_APIENTRY glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels)
+{
+    const uint32_t w[6] = { (uint32_t)x, (uint32_t)y, (uint32_t)width, (uint32_t)height, format, type };
+    Context *c = ask(ECMAOS_OP_readPixels, 6, w);
+    if (!c || width <= 0 || height <= 0) {
+        return;
+    }
+    const GLint align = c->pack_alignment > 0 ? c->pack_alignment : 4;
+    const size_t unit = pixel_size(format, type);
+    const size_t row = ((size_t)width * unit + (size_t)align - 1) / (size_t)align * (size_t)align;
+    reply_take(c, pixels, row * (size_t)(height - 1) + (size_t)width * unit);
+}
+
+static void get_active(unsigned op, GLuint program, GLuint index, GLsizei size, GLsizei *length, GLint *out_size, GLenum *type, GLchar *name)
+{
+    const uint32_t w[2] = { program, index };
+    Context *c = ask(op, 2, w);
+    if (!c) {
+        if (length) {
+            *length = 0;
+        }
+        return;
+    }
+    const int32_t count = reply_int(c);
+    const uint32_t kind = (uint32_t)reply_int(c);
+    if (out_size) {
+        *out_size = count;
+    }
+    if (type) {
+        *type = kind;
+    }
+    reply_text(c, size, length, name);
+}
+
+GL_APICALL void GL_APIENTRY glGetActiveAttrib(GLuint program, GLuint index, GLsizei size, GLsizei *length, GLint *out_size, GLenum *type, GLchar *name)
+{
+    get_active(ECMAOS_OP_getActiveAttrib, program, index, size, length, out_size, type, name);
+}
+
+GL_APICALL void GL_APIENTRY glGetActiveUniform(GLuint program, GLuint index, GLsizei size, GLsizei *length, GLint *out_size, GLenum *type, GLchar *name)
+{
+    get_active(ECMAOS_OP_getActiveUniform, program, index, size, length, out_size, type, name);
 }
 
 // - EGL ------------------------------------------------------------------------------------------------
@@ -824,6 +1013,7 @@ EGLAPI EGLContext EGLAPIENTRY eglCreateContext(EGLDisplay display, EGLConfig con
     }
     c->fd = -1;
     c->unpack_alignment = 4;
+    c->pack_alignment = 4;
     return (EGLContext)c;
 }
 
@@ -1046,7 +1236,7 @@ EGLAPI __eglMustCastToProperFunctionPointerType EGLAPIENTRY eglGetProcAddress(co
         { "glFlush", (void *)glFlush },
         { "glFinish", (void *)glFinish },
         { "glGetString", (void *)glGetString },
-        { "glGetIntegerv", (void *)glGetIntegerv },
+        { "glGetBooleanv", (void *)glGetBooleanv },
         { "glGenBuffers", (void *)glGenBuffers },
         { "glDeleteBuffers", (void *)glDeleteBuffers },
         { "glGenTextures", (void *)glGenTextures },

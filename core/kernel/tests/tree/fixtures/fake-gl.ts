@@ -9,6 +9,8 @@ export class FakeGl {
   /** Every call the fake has no behavior for, in order: the method and its arguments */
   calls: Array<[string, unknown[]]> = []
   made = 0
+  /** What a question gets for an answer, by method: a value, or a function of the arguments */
+  answers: Record<string, unknown> = { getShaderParameter: true, getProgramParameter: true, getAttribLocation: (_program: unknown, name: string) => name === 'aPos' ? 0 : 1 }
   viewports: number[][] = []
   buffer: Uint8Array
   constructor(public width: number, public height: number) { this.buffer = new Uint8Array(width * height * 4) }
@@ -35,6 +37,7 @@ export function fakeGlSurfaces(made: FakeGl[] = []) {
           if (typeof key !== 'string' || key in target) return Reflect.get(target, key, receiver)
           return (...args: unknown[]) => {
             target.calls.push([key, args])
+            if (key in target.answers) { const answer = target.answers[key]; return typeof answer === 'function' ? answer(...args) : answer }
             return key.startsWith('create') || key === 'getUniformLocation' ? { made: key, number: ++target.made } : undefined
           }
         }

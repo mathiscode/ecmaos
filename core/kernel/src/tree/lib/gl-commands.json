@@ -98,6 +98,17 @@
     {"op": 98, "name": "uniform4iv", "fn": "glUniform4iv", "args": ["GLint location", "GLsizei count", "const GLint *value"], "sig": "uI", "objs": "l-", "manual": true},
     {"op": 99, "name": "uniformMatrix2fv", "fn": "glUniformMatrix2fv", "args": ["GLint location", "GLsizei count", "GLboolean transpose", "const GLfloat *value"], "sig": "uuF", "objs": "l--", "manual": true},
     {"op": 100, "name": "uniformMatrix3fv", "fn": "glUniformMatrix3fv", "args": ["GLint location", "GLsizei count", "GLboolean transpose", "const GLfloat *value"], "sig": "uuF", "objs": "l--", "manual": true},
-    {"op": 101, "name": "uniformMatrix4fv", "fn": "glUniformMatrix4fv", "args": ["GLint location", "GLsizei count", "GLboolean transpose", "const GLfloat *value"], "sig": "uuF", "objs": "l--", "manual": true}
+    {"op": 101, "name": "uniformMatrix4fv", "fn": "glUniformMatrix4fv", "args": ["GLint location", "GLsizei count", "GLboolean transpose", "const GLfloat *value"], "sig": "uuF", "objs": "l--", "manual": true},
+    {"op": 102, "name": "getAttribLocation", "fn": "glGetAttribLocation", "args": ["GLuint program", "const GLchar *name"], "sig": "uS", "objs": "p-", "reply": "i", "manual": true},
+    {"op": 103, "name": "getShaderParameter", "key": "getShaderiv", "fn": "glGetShaderiv", "args": ["GLuint shader", "GLenum pname", "GLint *params"], "sig": "uu", "objs": "s-", "reply": "i", "manual": true},
+    {"op": 104, "name": "getProgramParameter", "key": "getProgramiv", "fn": "glGetProgramiv", "args": ["GLuint program", "GLenum pname", "GLint *params"], "sig": "uu", "objs": "p-", "reply": "i", "manual": true},
+    {"op": 105, "name": "getShaderInfoLog", "fn": "glGetShaderInfoLog", "args": ["GLuint shader", "GLsizei bufSize", "GLsizei *length", "GLchar *infoLog"], "sig": "u", "objs": "s", "reply": "s", "manual": true},
+    {"op": 106, "name": "getProgramInfoLog", "fn": "glGetProgramInfoLog", "args": ["GLuint program", "GLsizei bufSize", "GLsizei *length", "GLchar *infoLog"], "sig": "u", "objs": "p", "reply": "s", "manual": true},
+    {"op": 107, "name": "checkFramebufferStatus", "fn": "glCheckFramebufferStatus", "args": ["GLenum target"], "sig": "u", "reply": "i", "manual": true},
+    {"op": 108, "name": "getParameter", "key": "getIntegerv", "fn": "glGetIntegerv", "args": ["GLenum pname", "GLint *data"], "sig": "u", "reply": "v", "manual": true},
+    {"op": 109, "name": "getParameter", "key": "getFloatv", "fn": "glGetFloatv", "args": ["GLenum pname", "GLfloat *data"], "sig": "u", "reply": "f", "manual": true},
+    {"op": 110, "name": "readPixels", "fn": "glReadPixels", "args": ["GLint x", "GLint y", "GLsizei width", "GLsizei height", "GLenum format", "GLenum type", "void *pixels"], "sig": "iiuuuu", "reply": "p", "manual": true},
+    {"op": 111, "name": "getActiveAttrib", "fn": "glGetActiveAttrib", "args": ["GLuint program", "GLuint index", "GLsizei bufSize", "GLsizei *length", "GLint *size", "GLenum *type", "GLchar *name"], "sig": "uu", "objs": "p-", "reply": "a", "manual": true},
+    {"op": 112, "name": "getActiveUniform", "fn": "glGetActiveUniform", "args": ["GLuint program", "GLuint index", "GLsizei bufSize", "GLsizei *length", "GLint *size", "GLenum *type", "GLchar *name"], "sig": "uu", "objs": "p-", "reply": "a", "manual": true}
   ]
 }

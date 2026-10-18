@@ -190,8 +190,8 @@
       "license": "MIT OR Apache-2.0",
       "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 1796021,
-      "sha256": "9db2464c1bd03083830c1a8f1a51c3d1003a504a65398b3cf465140ded61a024"
+      "size": 1798189,
+      "sha256": "f5fcc9b71a0d7a755dcdeef119a6d265539ff76ccb91356b506fe121b629d00d"
     }
   }
 }

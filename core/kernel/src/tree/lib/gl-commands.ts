@@ -32,12 +32,19 @@ export interface GlCommand {
   manual?: boolean
   /** The name of the C function when it is not `gl` plus the capitalized `name`; empty for none */
   fn?: string
+  /**
+   * The command is a question: its answer is kept for the program to fetch with `GL_REPLY`, in this form: `i` one signed
+   * word, `s` a byte count and then the text, `v` a word count and then signed words, `f` the same as floats, `p` the bytes
+   * themselves (for `readPixels`), `a` a size word, a type word and then text as `s`. A question that fails is answered
+   * with zeros, so a program never waits for nothing
+   */
+  reply?: 'i' | 's' | 'v' | 'f' | 'p' | 'a'
   /** Tells apart commands that share a `name` */
   key?: string
   /** The C parameters of the GLES2 function, such as `GLfloat red` */
   args: string[]
 }
 
-export const GlCommands: readonly GlCommand[] = table.commands
+export const GlCommands = table.commands as readonly GlCommand[]
 
 export const GlCommandByOp: ReadonlyMap<number, GlCommand> = new Map(GlCommands.map(command => [command.op, command]))
