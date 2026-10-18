@@ -201,6 +201,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 1803378,
       "sha256": "3d0c167a6abe34bc5315ce3f46e9dda48baf9ef20c2473f67dea6470c492b682"
+    },
+    "doom": {
+      "file": "doom.wasm",
+      "version": "0.1.0",
+      "license": "GPL-2.0-or-later",
+      "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)",
+      "homepage": "https://github.com/ozkl/doomgeneric",
+      "size": 2135727,
+      "sha256": "5f777deed154ab92917330b6c64a7e8fdd27cb61d257b121057a76b30ca89cae"
     }
   }
 }

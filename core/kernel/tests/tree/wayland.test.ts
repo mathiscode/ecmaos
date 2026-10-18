@@ -7,6 +7,8 @@ import { glContextAt, setGlSurfaceFactory } from '#lib/gl.ts'
 import { fakeGlSurfaces } from './fixtures/fake-gl'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
+const doomWad = process.env.DOOM_WAD
+
 const until = async (check: () => boolean | Promise<boolean>, ms = 20000) => {
   const end = Date.now() + ms
   while (!(await check())) {
@@ -37,6 +39,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/sdlpad', load(`${root}/../utils/programs/sdlpad.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlgl', load(`${root}/../utils/programs/sdlgl.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlgears', load(`${root}/../utils/programs/sdlgears.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/doom', load(`${root}/../utils/programs/doom.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
@@ -486,4 +489,17 @@ describe('the Wayland compositor', () => {
       setGlSurfaceFactory(previous)
     }
   }, 90_000)
+
+  // needs game data, which is not in the repo: DOOM_WAD=/path/to/freedoom1.wad pnpm vitest run tests/tree/wayland.test.ts
+  it.skipIf(!doomWad)('runs doom: the engine starts from a WAD and draws frames into a window', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    await kernel.filesystem.fs.writeFile('/tmp/doom.wad', new Uint8Array(process.getBuiltinModule('node:fs').readFileSync(doomWad!)))
+    const client = kernel.shell.execute(`${env} doom -iwad /tmp/doom.wad > /tmp/doom.out 2>&1`)
+    await until(() => kernel.framebuffers.list().length === 1, 60_000)
+    const id = kernel.windows.list()[0]!.id   // the engine retitles it with the game's name
+    await until(() => kernel.framebuffers.list()[0]!.pixels.some(byte => byte !== 0), 30_000)
+    kernel.windows.close(id, true)
+    await client
+    expect(await read('/tmp/doom.out')).toContain('Doom Generic')
+  }, 180_000)
 })
