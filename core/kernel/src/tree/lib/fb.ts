@@ -67,6 +67,8 @@ export interface PixelFrame {
 export type PixelSink = ((frame: PixelFrame) => void) & { setCursor?: (cursor: string) => void, setCursorImage?: (image?: { width: number, height: number, x: number, y: number, data: Uint8Array }) => void, setClipboard?: (text: string) => void }
 
 const PresentDelay = 16
+/** A tab that is not shown gets no animation frames; a frame is still painted (and waited for) after this long */
+const HiddenDelay = 50
 
 export class Framebuffer {
   stride: number
@@ -74,6 +76,8 @@ export class Framebuffer {
   /** Where the next `read` or `write` on the node starts, in bytes */
   cursor = 0
   private _timer: ReturnType<typeof setTimeout> | undefined
+  private _raf: number | undefined
+  private _waiters: Array<() => void> = []
   private _closed = false
   presents = 0
 
@@ -155,17 +159,43 @@ export class Framebuffer {
   /** Shows the pixels as they are now, soon: changes made in quick succession are one frame */
   present() {
     if (this._closed || this._timer) return
-    this._timer = setTimeout(() => this.flush(), PresentDelay)
+    const raf = (globalThis as { requestAnimationFrame?: (callback: () => void) => number }).requestAnimationFrame
+    if (raf) {
+      // paint when the display does; the timer covers a tab that gets no animation frames
+      this._raf = raf(() => this.flush())
+      this._timer = setTimeout(() => this.flush(), HiddenDelay)
+    } else this._timer = setTimeout(() => this.flush(), PresentDelay)
     ;(this._timer as { unref?: () => void }).unref?.()
+  }
+
+  /** Resolves when the next frame has been painted (what `FBIO_WAITFORVSYNC` waits for); at once for a closed screen, and after a short wait when nothing is drawn */
+  waitForFrame(): Promise<void> {
+    if (this._closed) return Promise.resolve()
+    return new Promise(resolve => {
+      const timer = setTimeout(done, HiddenDelay)
+      ;(timer as { unref?: () => void }).unref?.()
+      const waiter = () => done()
+      function done() { clearTimeout(timer); resolve() }
+      this._waiters.push(waiter)
+    })
+  }
+
+  private _cancelPending() {
+    clearTimeout(this._timer)
+    this._timer = undefined
+    if (this._raf !== undefined) (globalThis as { cancelAnimationFrame?: (id: number) => void }).cancelAnimationFrame?.(this._raf)
+    this._raf = undefined
   }
 
   /** Shows the pixels now */
   flush() {
-    clearTimeout(this._timer)
-    this._timer = undefined
+    this._cancelPending()
     if (this._closed) return
     this.presents++
     this._sink({ width: this.width, height: this.height, data: this.pixels })
+    const waiters = this._waiters
+    this._waiters = []
+    for (const wake of waiters) wake()
   }
 
   /** Gives the screen another size: the pixels start black and the cursor goes to the top */
@@ -180,8 +210,10 @@ export class Framebuffer {
 
   close() {
     this._closed = true
-    clearTimeout(this._timer)
-    this._timer = undefined
+    this._cancelPending()
+    const waiters = this._waiters
+    this._waiters = []
+    for (const wake of waiters) wake()
   }
 
   /** `struct fb_var_screeninfo`: 32 bits per pixel, blue in the low byte */
@@ -321,7 +353,7 @@ const operations: FileOperations = {
       if (next >= (drop?.bytes.length ?? 0)) { framebuffer.incomingDrop = undefined; framebuffer.dropOffset = 0 }
       return chunk
     },
-    [FBIO_WAITFORVSYNC]: () => 0
+    [FBIO_WAITFORVSYNC]: async (_context, file) => { await framebufferOf(file).waitForFrame(); return 0 }
   }
 }
 

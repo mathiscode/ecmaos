@@ -24,6 +24,45 @@ describe('Framebuffer', () => {
     expect([...framebuffer.pixels.subarray(18, 22)]).toEqual([1, 1, 2, 2])
   })
 
+  it('waitForFrame resolves when the next frame is painted, and after a short wait when nothing is drawn', async () => {
+    const { framebuffer, frames } = make()
+    let done = 0
+    void framebuffer.waitForFrame().then(() => done++)
+    framebuffer.write(new Uint8Array(4))
+    await vi.advanceTimersByTimeAsync(16)
+    expect(frames.length).toBe(1)
+    expect(done).toBe(1)
+    void framebuffer.waitForFrame().then(() => done++)
+    await vi.advanceTimersByTimeAsync(60)
+    expect(done).toBe(2)
+    expect(frames.length).toBe(1)
+  })
+
+  it('paints on the display\'s animation frame when there is one', async () => {
+    const callbacks: Array<() => void> = []
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => callbacks.push(cb))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    try {
+      const { framebuffer, frames } = make()
+      framebuffer.write(new Uint8Array(4))
+      await vi.advanceTimersByTimeAsync(20)
+      expect(frames.length).toBe(0)
+      callbacks[0]!()
+      expect(frames.length).toBe(1)
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('still paints in a tab that gets no animation frames', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    try {
+      const { framebuffer, frames } = make()
+      framebuffer.write(new Uint8Array(4))
+      await vi.advanceTimersByTimeAsync(60)
+      expect(frames.length).toBe(1)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it('seeks like lseek and reads from there', () => {
     const { framebuffer } = make()
     framebuffer.write(Uint8Array.from({ length: 32 }, (_, i) => i))
