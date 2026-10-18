@@ -8,7 +8,7 @@
  */
 
 import { ready, exit } from '@zenfs/linux/uapi/process'
-import { open, read, close } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close } from '@zenfs/linux/uapi/fs'
 import { run } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasi-preview1.mjs'
 
@@ -53,5 +53,7 @@ try {
   exit(code)
 } catch (error) {
   console.error(error)
+  // a trap or an uncaught throw ends the program: say so on its stderr, which the console above does not show the user
+  try { write(2, new TextEncoder().encode(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`), -1) } catch { /* no stderr */ }
   exit(1)
 }
