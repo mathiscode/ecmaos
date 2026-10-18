@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Class } from '@zenfs/linux'
 import { sessionOperations } from '@ecmaos-devices/session'
 
+import { DefaultDevices } from '#device.ts'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { glContextAt, setGlSurfaceFactory } from '#lib/gl.ts'
@@ -34,7 +35,7 @@ describe('the Wayland compositor', () => {
         ops: sessionOperations({ open: async () => ({ info: { kind: 'audio-out', read: false, write: true }, write: async (data: Uint8Array) => { played.push(data) }, close: async () => {} }) })
       }]
     }
-    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, devices: { audio: speakers as never } })
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, devices: { ...DefaultDevices, audio: speakers as never } })
     await kernel.boot()
     const { readFileSync } = process.getBuiltinModule('node:fs')
     const root = process.cwd()
