@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { processes } from '@zenfs/linux'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 
 import { Kernel } from '#kernel.ts'
@@ -26,6 +27,13 @@ describe('pipes that nothing refers to are freed', () => {
     // what is left belongs to the system's own processes, not to the 40 pipelines (about a dozen pipes each before this)
     expect(pipeCount()).toBeLessThan(60)
   }, 120000)
+
+  it('runs every stage of a pipeline of the same program and leaves no process behind', async () => {
+    const before = new Set(processes.keys())
+    for (let i = 0; i < 10; i++) expect(await kernel.shell.execute('echo a | cat | cat > /tmp/same')).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/same', 'utf8')).toBe('a\n')
+    expect([...processes].filter(([pid, proc]) => !before.has(pid) && proc.code === undefined && proc.exe === undefined)).toEqual([])
+  }, 60000)
 
   it('leaves a pipe alone while a process still holds it', async () => {
     const running = kernel.shell.execute('sleep 1 | cat')

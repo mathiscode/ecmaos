@@ -8,11 +8,12 @@
  * signal. `waitpid` returns `pid * 65536 + status`, or 0 when `WNOHANG` finds nothing.
  */
 
-import { Process, execve, kill as zenfsKill, processes } from '@zenfs/linux'
+import { Process, kill as zenfsKill, processes } from '@zenfs/linux'
 import { inheritUmask } from './umask-store.ts'
 import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
+import { execveWhenFree } from './execve-retry.ts'
 import { setuidCredentials } from './process-credentials.ts'
 import { finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { Tracer } from './syscall-trace.ts'
@@ -348,7 +349,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       setTty(child, null)
       void child.exited.then(() => forgetGroup(child.pid))
     }
-    await execve(child, command, argv, env)
+    await execveWhenFree(child, command, argv, env)
     if (options.terminal?.zfsTty) {
       const tty = options.terminal.zfsTty
       const previous = tty.foreground

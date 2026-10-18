@@ -20,7 +20,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, boundContexts, Credentials, fs as zenfsFs } from '@zenfs/core'
-import { char_dev, current as zenfsCurrent, Device, execve as zenfsExecve, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
+import { char_dev, current as zenfsCurrent, Device, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
@@ -28,6 +28,7 @@ import { of_platform_populate as populatePlatformBus } from '@zenfs/linux/driver
 import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
+import { execveWhenFree as zenfsExecve } from '#lib/execve-retry.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
 import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
@@ -1491,6 +1492,7 @@ export class Kernel implements IKernel {
     } catch (error) {
       this.log.error(`Failed to execute ${options.command}: ${error}`)
       terminal?.writeln(chalk.red(error instanceof Error ? error.message : String(error)))
+      if (liveProc && liveProc.code === undefined) liveProc.exit(-1)
       return -1
     } finally {
       for (const stop of stopBridges) stop()
