@@ -174,6 +174,15 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "size": 1585667,
       "sha256": "22a329845ba05ee69d33f7109d031beae483a7fa1ce0254791ee4153143cd772"
+    },
+    "sdlpad": {
+      "file": "sdlpad.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/js0 to /dev/js3 (needs wlcomp running)",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1735557,
+      "sha256": "8da7573deb86a4074a1c2f30cb9fe4d85bdd2c1d58ff7acd2a2629a477846ab8"
     }
   }
 }

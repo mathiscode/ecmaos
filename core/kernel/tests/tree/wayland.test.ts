@@ -32,6 +32,7 @@ describe('the Wayland compositor', () => {
     await kernel.filesystem.fs.writeFile('/bin/sdlsnake', load(`${root}/../utils/programs/sdlsnake.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlpaint', load(`${root}/../utils/programs/sdlpaint.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdlclip', load(`${root}/../utils/programs/sdlclip.wasm`), { mode: 0o755 })
+    await kernel.filesystem.fs.writeFile('/bin/sdlpad', load(`${root}/../utils/programs/sdlpad.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-clip', load(`${root}/tests/tree/wasi/fixtures/sdl-clip.wasm`), { mode: 0o755 })
     await kernel.filesystem.fs.writeFile('/bin/sdl-win', load(`${root}/tests/tree/wasi/fixtures/sdl-win.wasm`), { mode: 0o755 })
     void kernel.shell.execute(`${env} wlcomp > /tmp/wlcomp.out 2>&1`)
@@ -377,4 +378,53 @@ describe('the Wayland compositor', () => {
     expect(await client).toBe(0)
     expect(await read('/tmp/sdlclip.out')).not.toContain('ERROR')
   }, 60_000)
+
+  it('runs the shipped SDL gamepad program on a browser pad: found once a button is pressed, buttons and sticks change the picture, unplugging is noticed', async () => {
+    await until(() => kernel.framebuffers.list().length === 0)
+    const navigatorPads = globalThis.navigator as unknown as { getGamepads: () => unknown[] }
+    const before = navigatorPads.getGamepads
+    const pad = {
+      id: 'Test Pad (STANDARD GAMEPAD Vendor: 0000 Product: 0000)', index: 0, connected: true, mapping: 'standard', timestamp: 0,
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })), axes: [0, 0, 0, 0]
+    }
+    let plugged = false
+    Object.defineProperty(globalThis.navigator, 'getGamepads', { value: () => plugged ? [pad, null, null, null] : [null, null, null, null], configurable: true })
+    try {
+      const client = kernel.shell.execute(`${env} sdlpad > /tmp/sdlpad.out 2>&1`)
+      await until(() => kernel.framebuffers.list().length === 1)
+      const fb = kernel.framebuffers.list()[0]!
+      const id = kernel.windows.list().find(w => w.title === 'sdlpad')!.id
+      const picture = () => Buffer.from(fb.pixels).toString('base64')
+      await until(() => fb.pixels.some(byte => byte !== 0))
+      const none = picture()
+
+      plugged = true
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('17 buttons, 4 axes, standard layout'), 30_000)
+      await until(() => picture() !== none)
+      const idle = picture()
+
+      pad.buttons[0]!.pressed = true
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('a down'))
+      await until(() => picture() !== idle)
+      const held = picture()
+      pad.buttons[0]!.pressed = false
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('a up'))
+      await until(() => picture() === idle)
+
+      pad.axes[0] = 0.5
+      pad.buttons[12]!.pressed = true
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('dpup down'))
+      await until(() => picture() !== idle && picture() !== held)
+
+      pad.connected = false
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('gamepad gone'))
+      await until(() => picture() === none)
+
+      kernel.windows.close(id, true)
+      expect(await client).toBe(0)
+      expect(await read('/tmp/sdlpad.out')).not.toContain('ERROR')
+    } finally {
+      Object.defineProperty(globalThis.navigator, 'getGamepads', { value: before, configurable: true })
+    }
+  }, 90_000)
 })
