@@ -46,6 +46,8 @@ export const FBIO_GETDROP = 0x46f5
  */
 export const FBIO_SETCURSORIMAGE = 0x46f6
 export const CursorImageMax = 64
+/** Private: how many frames the window has painted so far (a 32-bit integer that wraps); a program that waits for it to change paces itself to the display */
+export const FBIO_GETFRAMES = 0x46f7
 export const ClipboardChunk = 4096
 export const ClipboardMax = 1 << 20
 const WindowStates = ['normal', 'maximized', 'fullscreen', 'minimized'] as const
@@ -280,6 +282,11 @@ const operations: FileOperations = {
       if (state < 0 || state >= WindowStates.length) throw withErrno('EINVAL')
       framebufferOf(file).windowControl?.set(state)
       return 0
+    },
+    [FBIO_GETFRAMES]: (_context, file) => {
+      const out = new Uint8Array(4)
+      new DataView(out.buffer).setUint32(0, framebufferOf(file).presents >>> 0, true)
+      return out
     },
     [FBIO_SETCURSORIMAGE]: (_context, file, image?: Uint8Array) => {
       if (!ArrayBuffer.isView(image)) throw withErrno('EINVAL')

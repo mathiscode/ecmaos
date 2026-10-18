@@ -59,6 +59,8 @@ struct surface {
   int has_attach;
   uint32_t frames[16];       /* pending frame callbacks */
   int nframes;
+  int frame_wait;            /* the frame callbacks wait for the browser to paint (see frames_release) */
+  uint32_t frame_seq, frame_t;   /* the window's frame count and the time when they began to wait */
   struct buffer *buffer;     /* current */
   uint32_t damage_y0, damage_y1;   /* rows damaged since the last commit (none when y1 <= y0) */
   int drawn_w, drawn_h;      /* the size of what the window last got */
@@ -350,6 +352,31 @@ static uint8_t *scratch_for(size_t n) {
   }
   return scratch;
 }
+/* Hands the frame callbacks of windows whose pixels have been painted to the due list. A window the browser does not paint
+ * (a hidden tab) is let go after 100 ms, so a client still moves, slowly. */
+static void frames_release(void) {
+  uint32_t t = now_ms();
+  for (int i = 0; i < 64; i++) {
+    struct surface *s = wins[i];
+    if (!s || !s->frame_wait) continue;
+    uint32_t seq;
+    int painted = s->win.fd < 0 || ioctl(s->win.fd, 0x46f7, &seq) != 0 || seq != s->frame_seq;
+    if (!painted && t - s->frame_t < 100) continue;
+    s->frame_wait = 0;
+    for (int k = 0; k < s->nframes && ndue < (int)(sizeof due / sizeof due[0]); k++) {
+      due[ndue].client = s->client;
+      due[ndue].id = s->frames[k];
+      ndue++;
+    }
+    s->nframes = 0;
+  }
+}
+
+static int frames_waiting(void) {
+  for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->frame_wait) return 1;
+  return 0;
+}
+
 static void present(struct surface *s, uint32_t y0, uint32_t y1) {
   struct buffer *b = s->buffer;
   if (!b || s->win.index < 0) return;
@@ -437,6 +464,8 @@ static void surface_commit(struct client *c, struct surface *s) {
     s->attached = NULL;
     s->has_attach = 0;
   }
+  uint32_t seq = 0;
+  int seq_ok = 0;
   if (s->toplevel && !s->configured) { send_configure(c, s, 0, 0); return; }
   if (s->toplevel && s->buffer && s->acked) {
     if (!s->mapped) {
@@ -446,6 +475,7 @@ static void surface_commit(struct client *c, struct surface *s) {
     /* damage a client reports narrows the copy; a client that reports none, a new buffer or a new window size gets all */
     uint32_t y0 = s->damage_y0, y1 = s->damage_y1;
     if (y1 <= y0 || !attached || (int)s->buffer->width != s->drawn_w || (int)s->buffer->height != s->drawn_h || s->win.width != (uint32_t)s->drawn_w || s->win.height != (uint32_t)s->drawn_h) { y0 = 0; y1 = s->buffer->height; }
+    seq_ok = ioctl(s->win.fd, 0x46f7, &seq) == 0;   /* before the pixels go in, so a paint that happens meanwhile still counts */
     present(s, y0, y1);
     s->drawn_w = (int)s->buffer->width;
     s->drawn_h = (int)s->buffer->height;
@@ -458,12 +488,19 @@ static void surface_commit(struct client *c, struct surface *s) {
       if (o->type == T_BUFFER && o->data == s->buffer) { ev(c, id, 0, ""); break; }
     }
   }
-  for (int i = 0; i < s->nframes && ndue < (int)(sizeof due / sizeof due[0]); i++) {
-    due[ndue].client = c;
-    due[ndue].id = s->frames[i];
-    ndue++;
+  /* a window's callbacks wait until the browser has painted what was just drawn, so a client runs at the display's rate */
+  if (s->nframes > 0 && s->mapped && s->win.fd >= 0 && seq_ok) {
+    s->frame_wait = 1;
+    s->frame_seq = seq;
+    s->frame_t = now_ms();
+  } else {
+    for (int i = 0; i < s->nframes && ndue < (int)(sizeof due / sizeof due[0]); i++) {
+      due[ndue].client = c;
+      due[ndue].id = s->frames[i];
+      ndue++;
+    }
+    s->nframes = 0;
   }
-  s->nframes = 0;
   if (c->cursor_surf == s->id) cursor_image(c);
 }
 
@@ -1399,7 +1436,7 @@ int main(void) {
     }
     int windows_open = 0;
     for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) windows_open = 1;
-    poll(fds, (nfds_t)n, ndue > 0 || windows_open || pulls_active() || dnd.client ? 16 : 100);
+    poll(fds, (nfds_t)n, ndue > 0 || frames_waiting() || windows_open || pulls_active() || dnd.client ? 16 : 100);
     for (int i = 0; i < 64; i++) if (wins[i] && wins[i]->win.input >= 0) read_input(wins[i]);
     for (int k = 0; k < n; k++) {
       if (!(fds[k].revents & (POLLIN | POLLHUP | POLLERR))) continue;
@@ -1423,6 +1460,7 @@ int main(void) {
       }
     }
     /* frame callbacks, at most one round every 16 ms */
+    frames_release();
     if (ndue > 0) {
       uint32_t t = now_ms();
       struct due batch[256];
