@@ -13,6 +13,10 @@ import type { DeviceFile, FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 
 import { GlCommandByOp } from './gl-commands.ts'
+import type { GlCommand } from './gl-commands.ts'
+
+/** The length word of a blob that is a null pointer */
+const NoBlob = 0xffffffff
 
 /** Fixed, below the dynamic majors (234 up) and clear of the `webgl` device package's 226 */
 export const GlMajor = 227
@@ -70,6 +74,7 @@ export class GlContext {
   /** The first error a command ended in, until `GL_GETINFO` reports it: a GL error code, or `0x10000` for a bad stream */
   error = 0
   private _pending = new Uint8Array(0)
+  private _objects = new Map<string, Map<number, unknown>>()
   private _scratch: Uint8Array
   private _surface: GlSurface
 
@@ -107,14 +112,67 @@ export class GlContext {
 
   private _run(op: number, view: DataView, at: number, words: number) {
     const command = GlCommandByOp.get(op)
-    if (!command || command.sig.length !== words) { this._pending = new Uint8Array(0); this.error ||= 0x10000; throw withErrno('EINVAL', `bad GL command ${op}`) }
-    const args: number[] = []
-    for (let i = 0; i < words; i++) {
-      const letter = command.sig[i]
-      args.push(letter === 'f' ? view.getFloat32(at + i * 4, true) : letter === 'u' ? view.getUint32(at + i * 4, true) : view.getInt32(at + i * 4, true))
-    }
+    const bad = (why: string) => { this._pending = new Uint8Array(0); this.error ||= 0x10000; throw withErrno('EINVAL', `bad GL command ${op}: ${why}`) }
+    if (!command) return bad('unknown')
+    const args = this._decode(command, view, at, words)
+    if (!args) return bad('malformed')
     const gl = this._surface.gl
-    ;(gl[command.name] as (...a: number[]) => unknown).apply(gl, args)
+    let call = args
+    let made: number | undefined
+    if (command.make) {
+      made = args[command.make.arg] as number
+      call = args.filter((_, i) => i !== command.make!.arg)
+    }
+    let dropped: { kind: string, name: number } | undefined
+    if (command.objs) {
+      call = call.slice()
+      for (let i = 0; i < command.objs.length; i++) {
+        const kind = command.objs[i]!
+        if (kind === '-') continue
+        const name = call[i] as number
+        if (command.drop) dropped = { kind, name }
+        call[i] = name === 0 || name === -1 || name === 0xffffffff ? null : this._objects.get(kind)?.get(name) ?? null
+      }
+    }
+    const result = (gl[command.name] as (...a: unknown[]) => unknown).apply(gl, call)
+    if (made !== undefined && result) this._table(command.make!.kind).set(made, result)
+    if (dropped) this._objects.get(dropped.kind)?.delete(dropped.name)
+  }
+
+  private _table(kind: string) {
+    let table = this._objects.get(kind)
+    if (!table) this._objects.set(kind, table = new Map())
+    return table
+  }
+
+  /** The arguments of a record as values, or undefined if its words do not fit its signature */
+  private _decode(command: GlCommand, view: DataView, at: number, words: number): unknown[] | undefined {
+    const args: unknown[] = []
+    let word = 0
+    for (const letter of command.sig) {
+      if (word >= words) return undefined
+      const position = at + word * 4
+      word++
+      switch (letter) {
+        case 'f': args.push(view.getFloat32(position, true)); break
+        case 'i': args.push(view.getInt32(position, true)); break
+        case 'u': args.push(view.getUint32(position, true)); break
+        default: {
+          const length = view.getUint32(position, true)
+          if (length === NoBlob) { args.push(null); break }
+          const used = Math.ceil(length / 4)
+          if (word + used > words) return undefined
+          const bytes = new Uint8Array(view.buffer, view.byteOffset + position + 4, length).slice()
+          word += used
+          if (letter === 'b') args.push(bytes)
+          else if (letter === 'F') args.push(new Float32Array(bytes.buffer, 0, length >> 2))
+          else if (letter === 'I') args.push(new Int32Array(bytes.buffer, 0, length >> 2))
+          else if (letter === 'S') args.push(new TextDecoder().decode(bytes))
+          else return undefined
+        }
+      }
+    }
+    return word === words ? args : undefined
   }
 
   /** Finishes the commands so far and keeps the picture as the frame to read; returns the number of frames made */
@@ -166,7 +224,7 @@ export class GlContext {
     return out
   }
 
-  destroy() { this._surface.destroy() }
+  destroy() { this._objects.clear(); this._surface.destroy() }
 }
 
 // - the nodes ------------------------------------------------------------------------------------------

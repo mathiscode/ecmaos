@@ -38,12 +38,31 @@ extern int Wayland_CreateTempFD(off_t size);
 #define ECMAOS_DISPLAY_FALLBACK ((EGLDisplay)1)
 #define FLUSH_AT 65536
 
+#define MAX_ATTRIBS 16
+#define NO_BLOB 0xffffffffu
+#define CHUNK 131072 // the most a record carries of a blob; a record has at most 65535 words
+
+typedef struct
+{
+    GLboolean enabled;
+    GLint size;
+    GLenum type;
+    GLboolean normalized;
+    GLsizei stride;
+    const void *pointer; // memory of the program, when no buffer was bound to the array
+    GLuint scratch;      // the buffer its data is sent in for a draw
+} Attrib;
+
 typedef struct
 {
     int fd;
     int width, height;
     Uint8 *stream;
     size_t used, capacity;
+    uint32_t names; // the numbers of the objects the program has made; the kernel keeps the objects under them
+    GLuint array_buffer, element_buffer, scratch_elements;
+    GLint unpack_alignment;
+    Attrib attribs[MAX_ATTRIBS];
 } Context;
 
 typedef struct
@@ -97,34 +116,472 @@ static bool flush_stream(Context *c)
     return true;
 }
 
-static void ecmaos_emit(unsigned op, unsigned count, const uint32_t *words)
+// room for a record of `count` payload words; returns where the payload goes, or NULL with no current context
+static uint32_t *emit_reserve(unsigned op, size_t count)
 {
     Context *c = current;
-    const size_t need = 4 + (size_t)count * 4;
+    const size_t need = 4 + count * 4;
     if (!c) {
-        return; // GL calls with no current context do nothing
+        return NULL; // GL calls with no current context do nothing
+    }
+    if (c->used >= FLUSH_AT) {
+        flush_stream(c);
     }
     if (c->used + need > c->capacity) {
-        const size_t capacity = c->capacity ? c->capacity * 2 : 4096;
+        size_t capacity = c->capacity ? c->capacity : 4096;
+        while (c->used + need > capacity) {
+            capacity *= 2;
+        }
         Uint8 *grown = (Uint8 *)SDL_realloc(c->stream, capacity);
         if (!grown) {
-            return;
+            return NULL;
         }
         c->stream = grown;
         c->capacity = capacity;
     }
-    const uint32_t header = (op << 16) | count;
+    const uint32_t header = (op << 16) | (uint32_t)count;
     memcpy(c->stream + c->used, &header, 4);
-    if (count) {
-        memcpy(c->stream + c->used + 4, words, (size_t)count * 4);
-    }
+    uint32_t *payload = (uint32_t *)(void *)(c->stream + c->used + 4);
     c->used += need;
-    if (c->used >= FLUSH_AT) {
-        flush_stream(c);
+    return payload;
+}
+
+static void ecmaos_emit(unsigned op, unsigned count, const uint32_t *words)
+{
+    uint32_t *payload = emit_reserve(op, count);
+    if (payload && count) {
+        memcpy(payload, words, (size_t)count * 4);
+    }
+}
+
+// a record of plain words, a blob (`data` of `length` bytes, or none), and more plain words; at most CHUNK bytes of blob
+static void emit_blob(unsigned op, const uint32_t *head, unsigned heads, const void *data, size_t length, const uint32_t *tail, unsigned tails)
+{
+    const size_t padded = data ? (length + 3) / 4 : 0;
+    uint32_t *payload = emit_reserve(op, heads + 1 + padded + tails);
+    if (!payload) {
+        return;
+    }
+    if (heads) {
+        memcpy(payload, head, (size_t)heads * 4);
+    }
+    payload[heads] = data ? (uint32_t)length : NO_BLOB;
+    if (data) {
+        if (padded) {
+            payload[heads + padded] = 0;
+        }
+        memcpy(payload + heads + 1, data, length);
+    }
+    if (tails) {
+        memcpy(payload + heads + 1 + padded, tail, (size_t)tails * 4);
     }
 }
 
 #include "ecmaos_gl_cmds.inc"
+
+// - GLES2 calls that carry memory of the program or keep state here ---------------------------------------------
+
+static uint32_t make_name(void)
+{
+    return current ? ++current->names : 0;
+}
+
+#define GEN_DELETE(Kind, create_op, delete_op) \
+    GL_APICALL void GL_APIENTRY glGen##Kind##s(GLsizei n, GLuint *names) \
+    { \
+        for (GLsizei i = 0; i < n; i++) { \
+            names[i] = make_name(); \
+            ecmaos_emit(create_op, 1, &names[i]); \
+        } \
+    } \
+    GL_APICALL void GL_APIENTRY glDelete##Kind##s(GLsizei n, const GLuint *names) \
+    { \
+        for (GLsizei i = 0; i < n; i++) { \
+            if (names[i]) { \
+                const uint32_t name = names[i]; \
+                ecmaos_emit(delete_op, 1, &name); \
+            } \
+        } \
+    }
+
+GEN_DELETE(Texture, ECMAOS_OP_createTexture, ECMAOS_OP_deleteTexture)
+GEN_DELETE(Framebuffer, ECMAOS_OP_createFramebuffer, ECMAOS_OP_deleteFramebuffer)
+GEN_DELETE(Renderbuffer, ECMAOS_OP_createRenderbuffer, ECMAOS_OP_deleteRenderbuffer)
+
+GL_APICALL void GL_APIENTRY glGenBuffers(GLsizei n, GLuint *names)
+{
+    for (GLsizei i = 0; i < n; i++) {
+        names[i] = make_name();
+        ecmaos_emit(ECMAOS_OP_createBuffer, 1, &names[i]);
+    }
+}
+
+GL_APICALL void GL_APIENTRY glDeleteBuffers(GLsizei n, const GLuint *names)
+{
+    for (GLsizei i = 0; i < n; i++) {
+        const uint32_t name = names[i];
+        if (!name) {
+            continue;
+        }
+        if (current && current->array_buffer == name) {
+            current->array_buffer = 0;
+        }
+        if (current && current->element_buffer == name) {
+            current->element_buffer = 0;
+        }
+        ecmaos_emit(ECMAOS_OP_deleteBuffer, 1, &name);
+    }
+}
+
+GL_APICALL GLuint GL_APIENTRY glCreateShader(GLenum type)
+{
+    uint32_t w[2] = { type, make_name() };
+    if (w[1]) {
+        ecmaos_emit(ECMAOS_OP_createShader, 2, w);
+    }
+    return w[1];
+}
+
+GL_APICALL GLuint GL_APIENTRY glCreateProgram(void)
+{
+    uint32_t name = make_name();
+    if (name) {
+        ecmaos_emit(ECMAOS_OP_createProgram, 1, &name);
+    }
+    return name;
+}
+
+GL_APICALL void GL_APIENTRY glDeleteShader(GLuint shader)
+{
+    ecmaos_emit(ECMAOS_OP_deleteShader, 1, &shader);
+}
+
+GL_APICALL void GL_APIENTRY glDeleteProgram(GLuint program)
+{
+    ecmaos_emit(ECMAOS_OP_deleteProgram, 1, &program);
+}
+
+GL_APICALL void GL_APIENTRY glShaderSource(GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length)
+{
+    size_t total = 0;
+    for (GLsizei i = 0; i < count; i++) {
+        total += length && length[i] >= 0 ? (size_t)length[i] : SDL_strlen(string[i]);
+    }
+    if (total > CHUNK) {
+        return; // a shader this long is not one
+    }
+    char *text = (char *)SDL_malloc(total + 1);
+    if (!text) {
+        return;
+    }
+    size_t at = 0;
+    for (GLsizei i = 0; i < count; i++) {
+        const size_t n = length && length[i] >= 0 ? (size_t)length[i] : SDL_strlen(string[i]);
+        memcpy(text + at, string[i], n);
+        at += n;
+    }
+    emit_blob(ECMAOS_OP_shaderSource, &shader, 1, text, total, NULL, 0);
+    SDL_free(text);
+}
+
+GL_APICALL void GL_APIENTRY glBindAttribLocation(GLuint program, GLuint index, const GLchar *name)
+{
+    const uint32_t head[2] = { program, index };
+    emit_blob(ECMAOS_OP_bindAttribLocation, head, 2, name, SDL_strlen(name), NULL, 0);
+}
+
+GL_APICALL GLint GL_APIENTRY glGetUniformLocation(GLuint program, const GLchar *name)
+{
+    const uint32_t id = make_name();
+    if (!id) {
+        return -1;
+    }
+    emit_blob(ECMAOS_OP_getUniformLocation, &program, 1, name, SDL_strlen(name), &id, 1);
+    return (GLint)id;
+}
+
+GL_APICALL void GL_APIENTRY glBindBuffer(GLenum target, GLuint buffer)
+{
+    const uint32_t w[2] = { target, buffer };
+    if (current) {
+        if (target == GL_ARRAY_BUFFER) {
+            current->array_buffer = buffer;
+        } else if (target == GL_ELEMENT_ARRAY_BUFFER) {
+            current->element_buffer = buffer;
+        }
+    }
+    ecmaos_emit(ECMAOS_OP_bindBuffer, 2, w);
+}
+
+GL_APICALL void GL_APIENTRY glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void *data)
+{
+    for (GLsizeiptr done = 0; done < size; done += CHUNK) {
+        const GLsizeiptr n = size - done < CHUNK ? size - done : CHUNK;
+        const uint32_t head[2] = { target, (uint32_t)(offset + done) };
+        emit_blob(ECMAOS_OP_bufferSubData, head, 2, (const Uint8 *)data + done, (size_t)n, NULL, 0);
+    }
+}
+
+GL_APICALL void GL_APIENTRY glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage)
+{
+    const uint32_t w[3] = { target, (uint32_t)size, usage };
+    ecmaos_emit(ECMAOS_OP_bufferDataSize, 3, w);
+    if (data) {
+        glBufferSubData(target, 0, size, data);
+    }
+}
+
+static size_t pixel_size(GLenum format, GLenum type)
+{
+    switch (type) {
+    case GL_UNSIGNED_SHORT_5_6_5:
+    case GL_UNSIGNED_SHORT_4_4_4_4:
+    case GL_UNSIGNED_SHORT_5_5_5_1:
+        return 2;
+    default:
+        break;
+    }
+    size_t channels = 1;
+    switch (format) {
+    case GL_RGBA: channels = 4; break;
+    case GL_RGB: channels = 3; break;
+    case GL_LUMINANCE_ALPHA: channels = 2; break;
+    default: break;
+    }
+    return channels * (type == GL_FLOAT ? 4 : type == GL_UNSIGNED_SHORT || type == GL_SHORT ? 2 : 1);
+}
+
+GL_APICALL void GL_APIENTRY glPixelStorei(GLenum name, GLint param)
+{
+    const uint32_t w[2] = { name, (uint32_t)param };
+    if (current && name == GL_UNPACK_ALIGNMENT) {
+        current->unpack_alignment = param;
+    }
+    ecmaos_emit(ECMAOS_OP_pixelStorei, 2, w);
+}
+
+// A texture image of width by height pixels: sent whole when it fits a record, otherwise made empty and filled a band
+// of rows at a time. `x` and `y` are where a sub-image goes; for a whole image `internalformat` and `border` are used.
+static void send_pixels(bool sub, GLenum target, GLint level, GLint x, GLint y, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels)
+{
+    const GLint align = current && current->unpack_alignment > 0 ? current->unpack_alignment : 4;
+    const size_t bpp = pixel_size(format, type);
+    const size_t row = (((size_t)width * bpp + align - 1) / align) * align;
+    const size_t whole = height > 0 && width > 0 ? row * (size_t)(height - 1) + (size_t)width * bpp : 0;
+    uint32_t words[8];
+    if (sub) {
+        const uint32_t h[8] = { target, (uint32_t)level, (uint32_t)x, (uint32_t)y, (uint32_t)width, (uint32_t)height, format, type };
+        memcpy(words, h, sizeof h);
+    } else {
+        const uint32_t h[8] = { target, (uint32_t)level, (uint32_t)internalformat, (uint32_t)width, (uint32_t)height, (uint32_t)border, format, type };
+        memcpy(words, h, sizeof h);
+    }
+    const unsigned op = sub ? ECMAOS_OP_texSubImage2D : ECMAOS_OP_texImage2D;
+    if (!pixels || whole <= CHUNK) {
+        emit_blob(op, words, 8, pixels, whole, NULL, 0);
+        return;
+    }
+    if (!sub) {
+        emit_blob(op, words, 8, NULL, 0, NULL, 0);
+    }
+    const GLsizei rows = (GLsizei)(CHUNK / row > 0 ? CHUNK / row : 1);
+    for (GLsizei top = 0; top < height; top += rows) {
+        const GLsizei n = height - top < rows ? height - top : rows;
+        const uint32_t band[8] = { target, (uint32_t)level, (uint32_t)(sub ? x : 0), (uint32_t)((sub ? y : 0) + top), (uint32_t)width, (uint32_t)n, format, type };
+        emit_blob(ECMAOS_OP_texSubImage2D, band, 8, (const Uint8 *)pixels + (size_t)top * row, row * (size_t)(n - 1) + (size_t)width * bpp, NULL, 0);
+    }
+}
+
+GL_APICALL void GL_APIENTRY glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels)
+{
+    send_pixels(false, target, level, 0, 0, internalformat, width, height, border, format, type, pixels);
+}
+
+GL_APICALL void GL_APIENTRY glTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void *pixels)
+{
+    send_pixels(true, target, level, xoffset, yoffset, 0, width, height, 0, format, type, pixels);
+}
+
+#define UNIFORM_V(n, letter, Type) \
+    GL_APICALL void GL_APIENTRY glUniform##n##letter##v(GLint location, GLsizei count, const Type *value) \
+    { \
+        const uint32_t head = (uint32_t)location; \
+        const size_t bytes = (size_t)count * n * 4; \
+        if (value && bytes <= CHUNK) { \
+            emit_blob(ECMAOS_OP_uniform##n##letter##v, &head, 1, value, bytes, NULL, 0); \
+        } \
+    }
+
+UNIFORM_V(1, f, GLfloat)
+UNIFORM_V(2, f, GLfloat)
+UNIFORM_V(3, f, GLfloat)
+UNIFORM_V(4, f, GLfloat)
+UNIFORM_V(1, i, GLint)
+UNIFORM_V(2, i, GLint)
+UNIFORM_V(3, i, GLint)
+UNIFORM_V(4, i, GLint)
+
+#define UNIFORM_MATRIX(n) \
+    GL_APICALL void GL_APIENTRY glUniformMatrix##n##fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) \
+    { \
+        const uint32_t head[2] = { (uint32_t)location, transpose }; \
+        const size_t bytes = (size_t)count * n * n * 4; \
+        if (value && bytes <= CHUNK) { \
+            emit_blob(ECMAOS_OP_uniformMatrix##n##fv, head, 2, value, bytes, NULL, 0); \
+        } \
+    }
+
+UNIFORM_MATRIX(2)
+UNIFORM_MATRIX(3)
+UNIFORM_MATRIX(4)
+
+#define VERTEX_ATTRIB_V(n) \
+    GL_APICALL void GL_APIENTRY glVertexAttrib##n##fv(GLuint index, const GLfloat *v) \
+    { \
+        emit_blob(ECMAOS_OP_vertexAttrib##n##fv, &index, 1, v, n * 4, NULL, 0); \
+    }
+
+VERTEX_ATTRIB_V(1)
+VERTEX_ATTRIB_V(2)
+VERTEX_ATTRIB_V(3)
+VERTEX_ATTRIB_V(4)
+
+// - vertex arrays: the browser takes only arrays in buffers, GLES2 also takes the program's own memory ----------
+
+GL_APICALL void GL_APIENTRY glEnableVertexAttribArray(GLuint index)
+{
+    if (current && index < MAX_ATTRIBS) {
+        current->attribs[index].enabled = GL_TRUE;
+    }
+    ecmaos_emit(ECMAOS_OP_enableVertexAttribArray, 1, &index);
+}
+
+GL_APICALL void GL_APIENTRY glDisableVertexAttribArray(GLuint index)
+{
+    if (current && index < MAX_ATTRIBS) {
+        current->attribs[index].enabled = GL_FALSE;
+    }
+    ecmaos_emit(ECMAOS_OP_disableVertexAttribArray, 1, &index);
+}
+
+GL_APICALL void GL_APIENTRY glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer)
+{
+    if (!current || index >= MAX_ATTRIBS) {
+        return;
+    }
+    Attrib *a = &current->attribs[index];
+    a->size = size;
+    a->type = type;
+    a->normalized = normalized;
+    a->stride = stride;
+    if (current->array_buffer == 0) {
+        a->pointer = pointer; // sent with the draw that uses it
+        return;
+    }
+    a->pointer = NULL;
+    const uint32_t w[6] = { index, (uint32_t)size, type, normalized, (uint32_t)stride, (uint32_t)(uintptr_t)pointer };
+    ecmaos_emit(ECMAOS_OP_vertexAttribPointer, 6, w);
+}
+
+static size_t type_size(GLenum type)
+{
+    return type == GL_BYTE || type == GL_UNSIGNED_BYTE ? 1 : type == GL_SHORT || type == GL_UNSIGNED_SHORT ? 2 : 4;
+}
+
+static bool has_client_arrays(void)
+{
+    for (int i = 0; i < MAX_ATTRIBS; i++) {
+        if (current->attribs[i].enabled && current->attribs[i].pointer) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Sends the first `vertices` vertices of the arrays that live in the program's memory into buffers made for the
+// purpose and points the attributes at them; the program's own array buffer binding is put back afterwards.
+static void send_client_arrays(size_t vertices)
+{
+    Context *c = current;
+    for (GLuint i = 0; i < MAX_ATTRIBS; i++) {
+        Attrib *a = &c->attribs[i];
+        if (!a->enabled || !a->pointer) {
+            continue;
+        }
+        if (!a->scratch) {
+            a->scratch = make_name();
+            ecmaos_emit(ECMAOS_OP_createBuffer, 1, &a->scratch);
+        }
+        const size_t packed = (size_t)a->size * type_size(a->type);
+        const size_t stride = a->stride ? (size_t)a->stride : packed;
+        const size_t length = vertices ? stride * (vertices - 1) + packed : 0;
+        const uint32_t bind[2] = { GL_ARRAY_BUFFER, a->scratch };
+        ecmaos_emit(ECMAOS_OP_bindBuffer, 2, bind);
+        const uint32_t size[3] = { GL_ARRAY_BUFFER, (uint32_t)length, GL_STREAM_DRAW };
+        ecmaos_emit(ECMAOS_OP_bufferDataSize, 3, size);
+        for (size_t done = 0; done < length; done += CHUNK) {
+            const size_t n = length - done < CHUNK ? length - done : CHUNK;
+            const uint32_t head[2] = { GL_ARRAY_BUFFER, (uint32_t)done };
+            emit_blob(ECMAOS_OP_bufferSubData, head, 2, (const Uint8 *)a->pointer + done, n, NULL, 0);
+        }
+        const uint32_t pointer[6] = { i, (uint32_t)a->size, a->type, a->normalized, (uint32_t)a->stride, 0 };
+        ecmaos_emit(ECMAOS_OP_vertexAttribPointer, 6, pointer);
+    }
+    const uint32_t restore[2] = { GL_ARRAY_BUFFER, c->array_buffer };
+    ecmaos_emit(ECMAOS_OP_bindBuffer, 2, restore);
+}
+
+GL_APICALL void GL_APIENTRY glDrawArrays(GLenum mode, GLint first, GLsizei count)
+{
+    if (!current || count < 0 || first < 0) {
+        return;
+    }
+    if (has_client_arrays()) {
+        send_client_arrays((size_t)first + (size_t)count);
+    }
+    const uint32_t w[3] = { mode, (uint32_t)first, (uint32_t)count };
+    ecmaos_emit(ECMAOS_OP_drawArrays, 3, w);
+}
+
+GL_APICALL void GL_APIENTRY glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices)
+{
+    if (!current || count < 0) {
+        return;
+    }
+    const size_t bytes = type_size(type);
+    if (current->element_buffer) { // the indices are in a buffer, and so have to be the arrays
+        const uint32_t w[4] = { mode, (uint32_t)count, type, (uint32_t)(uintptr_t)indices };
+        ecmaos_emit(ECMAOS_OP_drawElements, 4, w);
+        return;
+    }
+    if (!indices || (type != GL_UNSIGNED_BYTE && type != GL_UNSIGNED_SHORT) || (size_t)count * bytes > CHUNK) {
+        return;
+    }
+    size_t highest = 0;
+    for (GLsizei i = 0; i < count; i++) {
+        const size_t index = bytes == 1 ? ((const Uint8 *)indices)[i] : ((const Uint16 *)indices)[i];
+        if (index > highest) {
+            highest = index;
+        }
+    }
+    if (has_client_arrays()) {
+        send_client_arrays(highest + 1);
+    }
+    if (!current->scratch_elements) {
+        current->scratch_elements = make_name();
+        ecmaos_emit(ECMAOS_OP_createBuffer, 1, &current->scratch_elements);
+    }
+    const uint32_t bind[2] = { GL_ELEMENT_ARRAY_BUFFER, current->scratch_elements };
+    ecmaos_emit(ECMAOS_OP_bindBuffer, 2, bind);
+    const uint32_t size[3] = { GL_ELEMENT_ARRAY_BUFFER, (uint32_t)((size_t)count * bytes), GL_STREAM_DRAW };
+    ecmaos_emit(ECMAOS_OP_bufferDataSize, 3, size);
+    const uint32_t head[2] = { GL_ELEMENT_ARRAY_BUFFER, 0 };
+    emit_blob(ECMAOS_OP_bufferSubData, head, 2, indices, (size_t)count * bytes, NULL, 0);
+    const uint32_t draw[4] = { mode, (uint32_t)count, type, 0 };
+    ecmaos_emit(ECMAOS_OP_drawElements, 4, draw);
+    const uint32_t restore[2] = { GL_ELEMENT_ARRAY_BUFFER, current->element_buffer };
+    ecmaos_emit(ECMAOS_OP_bindBuffer, 2, restore);
+}
 
 static bool open_context(Context *c, int width, int height)
 {
@@ -366,6 +823,7 @@ EGLAPI EGLContext EGLAPIENTRY eglCreateContext(EGLDisplay display, EGLConfig con
         return EGL_NO_CONTEXT;
     }
     c->fd = -1;
+    c->unpack_alignment = 4;
     return (EGLContext)c;
 }
 
@@ -589,6 +1047,19 @@ EGLAPI __eglMustCastToProperFunctionPointerType EGLAPIENTRY eglGetProcAddress(co
         { "glFinish", (void *)glFinish },
         { "glGetString", (void *)glGetString },
         { "glGetIntegerv", (void *)glGetIntegerv },
+        { "glGenBuffers", (void *)glGenBuffers },
+        { "glDeleteBuffers", (void *)glDeleteBuffers },
+        { "glGenTextures", (void *)glGenTextures },
+        { "glDeleteTextures", (void *)glDeleteTextures },
+        { "glGenFramebuffers", (void *)glGenFramebuffers },
+        { "glDeleteFramebuffers", (void *)glDeleteFramebuffers },
+        { "glGenRenderbuffers", (void *)glGenRenderbuffers },
+        { "glDeleteRenderbuffers", (void *)glDeleteRenderbuffers },
+        { "glCreateShader", (void *)glCreateShader },
+        { "glCreateProgram", (void *)glCreateProgram },
+        { "glDeleteShader", (void *)glDeleteShader },
+        { "glDeleteProgram", (void *)glDeleteProgram },
+        { "glGetUniformLocation", (void *)glGetUniformLocation },
         { "eglGetPlatformDisplay", (void *)eglGetPlatformDisplay },
         { NULL, NULL }
     };

@@ -6,6 +6,9 @@ export class FakeGl {
   readonly UNSIGNED_BYTE = 0x1401
   readonly NO_ERROR = 0
   color = [0, 0, 0, 0]
+  /** Every call the fake has no behavior for, in order: the method and its arguments */
+  calls: Array<[string, unknown[]]> = []
+  made = 0
   viewports: number[][] = []
   buffer: Uint8Array
   constructor(public width: number, public height: number) { this.buffer = new Uint8Array(width * height * 4) }
@@ -24,9 +27,19 @@ export function fakeGlSurfaces(made: FakeGl[] = []) {
   return {
     made,
     factory: (width: number, height: number): GlSurface => {
-      const gl = new FakeGl(width, height)
-      made.push(gl)
-      return { gl: gl as unknown as GlLike, resize(w, h) { gl.width = w; gl.height = h; gl.buffer = new Uint8Array(w * h * 4) }, destroy() {} }
+      const fake = new FakeGl(width, height)
+      made.push(fake)
+      // anything else is a call to record; the ones that make an object answer with a new one
+      const gl = new Proxy(fake, {
+        get: (target, key, receiver) => {
+          if (typeof key !== 'string' || key in target) return Reflect.get(target, key, receiver)
+          return (...args: unknown[]) => {
+            target.calls.push([key, args])
+            return key.startsWith('create') || key === 'getUniformLocation' ? { made: key, number: ++target.made } : undefined
+          }
+        }
+      })
+      return { gl: gl as unknown as GlLike, resize(w, h) { fake.width = w; fake.height = h; fake.buffer = new Uint8Array(w * h * 4) }, destroy() {} }
     }
   }
 }

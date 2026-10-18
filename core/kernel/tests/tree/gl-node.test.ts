@@ -3,6 +3,7 @@ import { ioctl } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
+import { GlCommands } from '#lib/gl-commands.ts'
 import { GL_DESTROY, GL_GETINFO, GL_RESIZE, GL_SWAP, GLCTL_CREATE, MaxGlContexts, destroyGlContext, glContextAt, registerGlControl, setGlSurfaceFactory } from '#lib/gl.ts'
 
 import { fakeGlSurfaces } from './fixtures/fake-gl'
@@ -25,6 +26,29 @@ const words = (...parts: Array<[number, 'f' | 'i' | 'u', number[]]>) => {
   }
   return out
 }
+/** A record for the command called `name` (and tagged `key` when several share it), from values in the order of its signature */
+const record = (name: string, ...values: unknown[]) => {
+  const command = GlCommands.find(c => (c.key ?? c.name) === name)!
+  const out: number[] = []
+  const bytes = new ArrayBuffer(4)
+  const view = new DataView(bytes)
+  const word = (set: (view: DataView) => void) => { set(view); out.push(view.getUint32(0, true)) }
+  ;[...command.sig].forEach((letter, i) => {
+    const value = values[i]
+    if (letter === 'f') return word(v => v.setFloat32(0, value as number, true))
+    if (letter === 'i') return word(v => v.setInt32(0, value as number, true))
+    if (letter === 'u') return word(v => v.setUint32(0, value as number, true))
+    if (value === null) return out.push(0xffffffff)
+    const data = letter === 'S' ? new TextEncoder().encode(value as string) : new Uint8Array((value as ArrayBufferView).buffer, (value as ArrayBufferView).byteOffset, (value as ArrayBufferView).byteLength)
+    out.push(data.length)
+    const padded = new Uint8Array(Math.ceil(data.length / 4) * 4)
+    padded.set(data)
+    const dv = new DataView(padded.buffer)
+    for (let at = 0; at < padded.length; at += 4) out.push(dv.getUint32(at, true))
+  })
+  return new Uint32Array([((command.op << 16) | out.length) >>> 0, ...out])
+}
+const join = (...records: Uint32Array[]) => { const all = new Uint32Array(records.reduce((n, r) => n + r.length, 0)); let at = 0; for (const r of records) { all.set(r, at); at += r.length } return new Uint8Array(all.buffer) }
 const size = (width: number, height: number) => words([0, 'u', [width, height]]).subarray(4)
 const u32 = (bytes: Uint8Array, at = 0) => new DataView(bytes.buffer, bytes.byteOffset).getUint32(at, true)
 
@@ -69,7 +93,7 @@ describe('/dev/gl<N>', () => {
 
   it('draws the commands written to it and hands the picture back as blue-first pixels, top row first', async () => {
     const { path } = await create(3, 2)
-    await kernel.filesystem.fs.writeFile(path, words([1, 'f', [1, 0.5, 0, 1]], [2, 'u', [0x4000]], [3, 'i', [0, 0, 3, 2]]))
+    await kernel.filesystem.fs.writeFile(path, join(record('clearColor', 1, 0.5, 0, 1), record('clear', 0x4000), record('viewport', 0, 0, 3, 2)))
     expect(surfaces.at(-1)!.viewports).toEqual([[0, 0, 3, 2]])
     expect(u32(await ioctl(path, GL_SWAP) as Uint8Array)).toBe(1)
     const frame = await frameOf(path)
@@ -88,13 +112,52 @@ describe('/dev/gl<N>', () => {
 
   it('waits for the rest of a command that was written in pieces, and refuses one it does not know', async () => {
     const { path } = await create(2, 2)
-    const stream = words([1, 'f', [0, 1, 0, 1]], [2, 'u', [0x4000]])
+    const stream = join(record('clearColor', 0, 1, 0, 1), record('clear', 0x4000))
     await kernel.filesystem.fs.writeFile(path, stream.subarray(0, 10))
     expect(surfaces.at(-1)!.color).toEqual([0, 0, 0, 0])
     await kernel.filesystem.fs.writeFile(path, stream.subarray(10))
     expect(surfaces.at(-1)!.color).toEqual([0, 1, 0, 1])
     await expect(kernel.filesystem.fs.writeFile(path, words([999, 'u', [1]]))).rejects.toThrow()
     expect(u32(await ioctl(path, GL_GETINFO) as Uint8Array, 12)).toBe(0x10000)
+  })
+
+  it('keeps the objects a program names, and turns the names back into objects', async () => {
+    const { path } = await create(2, 2)
+    const fake = surfaces.at(-1)!
+    const matrix = new Float32Array(16).map((_, i) => i)
+    await kernel.filesystem.fs.writeFile(path, join(
+      record('createShader', 0x8b31, 1), record('shaderSource', 1, 'void main() {}'), record('compileShader', 1),
+      record('createProgram', 2), record('attachShader', 2, 1), record('bindAttribLocation', 2, 0, 'aPos'), record('linkProgram', 2),
+      record('getUniformLocation', 2, 'uMvp', 5), record('useProgram', 2), record('uniformMatrix4fv', 5, 0, matrix),
+      record('uniform1f', 5, 0.5), record('uniform1f', 9, 1),
+      record('createBuffer', 3), record('bindBuffer', 0x8892, 3),
+      record('bufferDataSize', 0x8892, 12, 0x88e4), record('bufferSubData', 0x8892, 4, new Uint8Array([1, 2, 3])),
+      record('deleteShader', 1), record('attachShader', 2, 1), record('bindBuffer', 0x8892, 0)
+    ))
+    const call = (name: string, n = 0) => fake.calls.filter(([method]) => method === name)[n]![1]
+    const shader = fake.calls.find(([m]) => m === 'createShader')![1]
+    expect(shader).toEqual([0x8b31])
+    expect(call('shaderSource')[0]).toBe(call('compileShader')[0])
+    expect(call('shaderSource')[1]).toBe('void main() {}')
+    expect(call('attachShader', 0)).toEqual([call('useProgram')[0], call('shaderSource')[0]])
+    expect(call('bindAttribLocation')).toEqual([call('useProgram')[0], 0, 'aPos'])
+    expect(call('uniformMatrix4fv')[0]).toBe(fake.calls.find(([m]) => m === 'getUniformLocation')!.length && call('uniform1f', 0)[0])
+    expect([call('uniformMatrix4fv')[1], [...(call('uniformMatrix4fv')[2] as Float32Array)]]).toEqual([false, [...matrix]].map((v, i) => i ? v : 0))
+    expect(call('uniform1f', 1)[0]).toBeNull()   // a location nobody made
+    expect(call('bufferData')).toEqual([0x8892, 12, 0x88e4])
+    expect([...(call('bufferSubData')[2] as Uint8Array)]).toEqual([1, 2, 3])
+    expect(call('attachShader', 1)[1]).toBeNull()   // deleted: its name is no object now
+    expect(call('bindBuffer', 1)).toEqual([0x8892, null])
+  })
+
+  it('takes a texture with no pixels as a null, and refuses a blob longer than its record', async () => {
+    const { path } = await create(2, 2)
+    const fake = surfaces.at(-1)!
+    await kernel.filesystem.fs.writeFile(path, join(record('texImage2D', 0xde1, 0, 0x1908, 4, 4, 0, 0x1908, 0x1401, null)))
+    expect(fake.calls.at(-1)).toEqual(['texImage2D', [0xde1, 0, 0x1908, 4, 4, 0, 0x1908, 0x1401, null]])
+    const bad = record('shaderSource', 1, 'abcd')
+    bad[2] = 400   // claims more bytes than the record holds
+    await expect(kernel.filesystem.fs.writeFile(path, new Uint8Array(bad.buffer))).rejects.toThrow()
   })
 
   it('resizes, numbers contexts from the lowest free one, refuses a bad size and a full table', async () => {
