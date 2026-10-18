@@ -36,7 +36,9 @@ fi
 SRC=$WORK/doomgeneric-$COMMIT/doomgeneric
 # every engine file but the other platforms' layers and the sound and music modules (SDL_mixer and Allegro)
 SOURCES=$(cd "$SRC" && ls *.c | grep -v -e '^doomgeneric_' -e '^i_allegro' -e '^i_sdlmusic\.c$' -e '^i_sdlsound\.c$' -e '^icon\.c$' | sed "s|^|$SRC/|")
-emcc $SOURCES "$HERE/doomecma.c" -I"$SRC" $SDL_INC -O2 -w -fwasm-exceptions -sSUPPORT_LONGJMP=wasm -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE \
+# i_sound.c includes SDL_mixer.h when sound is on; doomsound.c is the sound module instead, so the header is empty
+mkdir -p "$WORK/stub" && : > "$WORK/stub/SDL_mixer.h"
+emcc $SOURCES "$HERE/doomecma.c" "$HERE/doomsound.c" -I"$SRC" -I"$WORK/stub" -DFEATURE_SOUND $SDL_INC -O2 -w -fwasm-exceptions -sSUPPORT_LONGJMP=wasm -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE \
   -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=33554432 ${DOOM_EXTRA:-} \
   $SDL_LIB $SDL_DEPS_LIB -o "$WORK/doom.js"
 cp "$WORK/doom.wasm" "$OUT"

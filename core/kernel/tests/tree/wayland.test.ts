@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { Class } from '@zenfs/linux'
+import { sessionOperations } from '@ecmaos-devices/session'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -20,11 +22,19 @@ const until = async (check: () => boolean | Promise<boolean>, ms = 20000) => {
 /** wlcomp, the Wayland compositor, with a hand-written client (`fixtures/wl-shm.c`) on the other end of a unix socket. */
 describe('the Wayland compositor', () => {
   let kernel: Kernel
+  const played: Uint8Array[] = []   // what programs play to /dev/dsp1
   const env = 'XDG_RUNTIME_DIR=/run/user/0 WAYLAND_DISPLAY=wayland-0'
   const read = (path: string) => kernel.filesystem.fs.readFile(path, 'utf8').catch(() => '')
 
   beforeAll(async () => {
-    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
+    const speakers = {
+      pkg: { name: 'audio', version: '0', description: 'a speaker that keeps what it is given' },
+      getDrivers: async () => [{
+        name: 'dsp1', major: 14, minor: 19, class: new Class('audio'),
+        ops: sessionOperations({ open: async () => ({ info: { kind: 'audio-out', read: false, write: true }, write: async (data: Uint8Array) => { played.push(data) }, close: async () => {} }) })
+      }]
+    }
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, devices: { audio: speakers as never } })
     await kernel.boot()
     const { readFileSync } = process.getBuiltinModule('node:fs')
     const root = process.cwd()
@@ -491,13 +501,16 @@ describe('the Wayland compositor', () => {
   }, 90_000)
 
   // needs game data, which is not in the repo: DOOM_WAD=/path/to/freedoom1.wad pnpm vitest run tests/tree/wayland.test.ts
-  it.skipIf(!doomWad)('runs doom: the engine starts from a WAD and draws frames into a window', async () => {
+  it.skipIf(!doomWad)('runs doom: the engine starts from a WAD and draws frames into a window and plays sounds', async () => {
     await until(() => kernel.framebuffers.list().length === 0)
     await kernel.filesystem.fs.writeFile('/tmp/doom.wad', new Uint8Array(process.getBuiltinModule('node:fs').readFileSync(doomWad!)))
     const client = kernel.shell.execute(`${env} doom -iwad /tmp/doom.wad > /tmp/doom.out 2>&1`)
     await until(() => kernel.framebuffers.list().length === 1, 60_000)
     const id = kernel.windows.list()[0]!.id   // the engine retitles it with the game's name
     await until(() => kernel.framebuffers.list()[0]!.pixels.some(byte => byte !== 0), 30_000)
+    // the demo that plays behind the title has sound effects: the mixer sends them as stereo samples
+    const heard = () => played.some(chunk => new Int16Array(chunk.buffer, chunk.byteOffset, chunk.length >> 1).some(sample => sample !== 0))
+    await until(heard, 90_000)
     kernel.windows.close(id, true)
     await client
     expect(await read('/tmp/doom.out')).toContain('Doom Generic')

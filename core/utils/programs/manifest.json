@@ -208,8 +208,8 @@
       "license": "GPL-2.0-or-later",
       "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)",
       "homepage": "https://github.com/ozkl/doomgeneric",
-      "size": 2135727,
-      "sha256": "5f777deed154ab92917330b6c64a7e8fdd27cb61d257b121057a76b30ca89cae"
+      "size": 2138262,
+      "sha256": "738c1ee84e29d6a5e48be2aa408d779140eab7bcd4841cd8a714a6deb860bef2"
     }
   }
 }
