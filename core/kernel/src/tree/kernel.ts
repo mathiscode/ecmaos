@@ -29,6 +29,7 @@ import { kobj_init as initKobjects } from '@zenfs/linux/kobject'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
+import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
@@ -902,6 +903,7 @@ export class Kernel implements IKernel {
 
       await this.registerDevices()
       installEvdevIoctl()
+      registerGlControl()
       if (globalThis.document) captureDom(globalThis.document)
       await this.registerCommands()
       await this.registerPackages()

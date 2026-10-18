@@ -277,6 +277,7 @@ const IOC_READ = 2, IOC_WRITE = 1
 const EvdevType = 0x45 // 'E'
 /** The type of the framebuffer requests (`FBIO*`), which answer with bytes in the same way */
 const FbType = 0x46 // 'F'
+const GlType = 0x47 // 'G': the GL devices (see gl.ts)
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -385,7 +386,7 @@ export function installEvdevIoctl() {
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
-    if (type !== EvdevType && type !== FbType) return original(proc, fd, request, arg)
+    if (type !== EvdevType && type !== FbType && type !== GlType) return original(proc, fd, request, arg)
     const value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg)
     return value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0
   }) as never)
