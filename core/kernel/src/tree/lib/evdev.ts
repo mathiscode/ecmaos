@@ -127,6 +127,8 @@ const QueueLimit = 1024
 interface Client {
   events: Uint8Array[]
   queue: WaitQueue
+  /** How many open files share this client; a poller sleeps on its queue, so it lives until the last one closes */
+  users: number
 }
 
 /**
@@ -145,11 +147,27 @@ export class InputHub {
 
   open(minor: number): Client {
     let client = this.clients.get(minor)
-    if (!client) this.clients.set(minor, client = { events: [], queue: new WaitQueue() })
+    if (!client) this.clients.set(minor, client = { events: [], queue: new WaitQueue(), users: 0 })
+    return client
+  }
+
+  /** A file opened the node: it counts as a user of the client, which `open` alone (a poll or read that got there first) does not */
+  attach(minor: number): Client {
+    const client = this.open(minor)
+    client.users++
     return client
   }
 
   release(minor: number) {
+    const client = this.clients.get(minor)
+    if (!client) return
+    if (--client.users > 0) return
+    this.clients.delete(minor)
+    client.queue.wake_up()
+  }
+
+  /** The node is gone whoever still has it open (its window closed) */
+  drop(minor: number) {
     const client = this.clients.get(minor)
     this.clients.delete(minor)
     client?.queue.wake_up()
@@ -343,7 +361,7 @@ export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Ui
 function nodeOperations(hub: InputHub): FileOperations {
   const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor) ?? windowSpecs.get(file.devt.minor)
   return {
-    open: file => { hub.open(file.devt.minor) },
+    open: file => { hub.attach(file.devt.minor) },
     release: file => { hub.release(file.devt.minor) },
     read: (file, buffer, start, end) => {
       const client = hub.client(file.devt.minor) ?? hub.open(file.devt.minor)
@@ -418,7 +436,7 @@ export function registerWindowInput(index: number, width: number, height: number
   } catch { device = undefined /* no input major here (a kernel without devices) */ }
   const forget = registerMinor(InputMajor, spec.minor, nodeOperations(inputHub))
   const resize = (w: number, h: number) => { spec.abs = { [ABS_X]: Math.max(w - 1, 0), [ABS_Y]: Math.max(h - 1, 0) } }
-  return { minor: spec.minor, resize, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.release(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
+  return { minor: spec.minor, resize, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.drop(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
 }
 
 export const EvdevDevice: KernelDevice = {

@@ -27,6 +27,20 @@ describe('evdev', () => {
     ])
   })
 
+  it('keeps the client for a second opener when the first closes, so a poller on its queue still wakes', () => {
+    const hub = new InputHub()
+    const first = hub.attach(KeyboardMinor)
+    hub.attach(KeyboardMinor)
+    let woken = 0
+    first.queue.wait_with(() => { woken++ })
+    hub.release(KeyboardMinor)
+    expect(hub.client(KeyboardMinor)).toBe(first)
+    hub.keyboard('KeyA', 1)
+    expect(woken).toBe(1)
+    hub.release(KeyboardMinor)
+    expect(hub.client(KeyboardMinor)).toBeUndefined()
+  })
+
   it('keeps nothing for a node nobody has open, and forgets a node when it is released', () => {
     const hub = new InputHub()
     hub.keyboard('KeyA', 1)
