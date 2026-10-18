@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseStatements } from '../../src/lib/control-flow-parser.ts'
-import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, WhileStatement } from '../../src/lib/control-flow-parser.ts'
+import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, Statement, WhileStatement } from '../../src/lib/control-flow-parser.ts'
 
 describe('parseStatements: C-style for', () => {
   it('parses the three arithmetic parts, inline and multi-line', () => {
@@ -418,8 +418,49 @@ describe('parseStatements: pipelines with compound stages', () => {
     expect(kinds('echo a || echo b')).toEqual(['simple'])
   })
 
-  it('refuses a compound stage after && or ||, which it cannot split from the list', () => {
-    expect(() => parseStatements('x && echo a | while read l; do echo $l; done')).toThrow(/not supported/)
+  it('an && inside a compound stage\'s body is the body\'s own, not a list operator', () => {
+    expect(kinds('echo a | while read l; do true && if true; then echo $l; fi; done')).toEqual(['simple', 'while'])
+  })
+
+  it('a list after the last compound stage takes the whole pipeline as its first operand', () => {
+    const [statement] = parseStatements('echo a | while read l; do echo $l; done && echo after')
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return
+    expect(statement.first.type === 'pipeline' && statement.first.stages.map(stage => stage.type)).toEqual(['simple', 'while'])
+    expect(statement.rest).toEqual([{ op: '&&', statement: { type: 'simple', line: 'echo after' } }])
+  })
+})
+
+describe('parseStatements: lists with a pipeline operand that has a compound stage', () => {
+  /** Each operand of the list as its type, and a pipeline's as its stages' types */
+  const operands = (text: string) => {
+    const [statement] = parseStatements(text)
+    expect(statement?.type).toBe('andor')
+    if (statement?.type !== 'andor') return []
+    const describe = (s: Statement) => s.type === 'pipeline' ? s.stages.map(stage => stage.type).join('|') : s.type === 'simple' ? s.line : s.type
+    return [describe(statement.first), ...statement.rest.map(r => `${r.op} ${describe(r.statement)}`)]
+  }
+
+  it('the pipeline after && or || is that operator\'s operand', () => {
+    expect(operands('cd /tmp && printf a | while read l; do echo $l; done')).toEqual(['cd /tmp', '&& simple|while'])
+    expect(operands('false || echo a | while read l; do echo $l; done')).toEqual(['false', '|| simple|while'])
+    expect(operands('x && echo a | { cat; }')).toEqual(['x', '&& simple|group'])
+  })
+
+  it('the operators before it are the list\'s, and keep their left-to-right meaning', () => {
+    expect(operands('a && b || c | while read l; do echo $l; done')).toEqual(['a && b', '|| simple|while'])
+  })
+
+  it('what follows the closing keyword continues the list', () => {
+    expect(operands('x && echo a | while read l; do echo $l; done && echo after')).toEqual(['x', '&& simple|while', '&& echo after'])
+  })
+
+  it('an && inside the loop body stays in the body', () => {
+    expect(operands('x && echo a | while read l; do true && echo $l; done')).toEqual(['x', '&& simple|while'])
+  })
+
+  it('works when the loop spans lines', () => {
+    expect(operands('x && echo a | while read l\ndo\n  echo $l\ndone')).toEqual(['x', '&& simple|while'])
   })
 })
 

@@ -485,24 +485,36 @@ function startsCompound(text: string): boolean {
 }
 
 /**
- * A plain line that is part of a pipeline with a compound stage in it: the first `|` followed by a
- * compound opener, or a trailing `|` that continues on the next line. `head` is what stays here and
- * `rest` is the remainder, empty when it is on the following lines.
+ * The index of the `|` in `text` that starts a compound stage: the first one followed by a compound opener, or a
+ * trailing `|` that continues on the next line.
+ */
+function compoundPipeIndex(text: string): number | undefined {
+  const pipes = pipeIndexes(text)
+  const trailing = /\|\s*$/.test(text) && !/\|\|\s*$/.test(text)
+  return pipes.find(index => {
+    const tail = text.slice(index + 1).trim()
+    return (trailing && index === pipes[pipes.length - 1] && tail === '') || startsCompound(tail)
+  })
+}
+
+/**
+ * The `&&` and `||` of `text` that separate the operands of a list. When a `|` starts a compound stage, only the ones
+ * before it count: what follows it belongs to that stage, and an `&&` in a loop body there (`a | while ...; do b &&
+ * c; done`) is the body's own.
+ */
+function listOperators(text: string): Array<{ index: number, op: '&&' | '||' }> {
+  const pipe = compoundPipeIndex(text)
+  return andOrIndexes(text).filter(({ index }) => pipe === undefined || index < pipe)
+}
+
+/**
+ * A plain line that is part of a pipeline with a compound stage in it (see {@link compoundPipeIndex}). `head` is what
+ * stays here and `rest` is the remainder, empty when it is on the following lines.
  */
 function splitSimplePipe(line: string): { head: string, rest: string } | undefined {
-  const pipes = pipeIndexes(line)
-  const trailing = /\|\s*$/.test(line) && !/\|\|\s*$/.test(line)
-  for (const index of pipes) {
-    const tail = line.slice(index + 1).trim()
-    const isTrailing = trailing && index === pipes[pipes.length - 1] && tail === ''
-    if (!isTrailing && !startsCompound(tail)) continue
-    const head = line.slice(0, index).trim()
-    if (/&&|\|\||;/.test(head.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, ''))) {
-      throw new ControlFlowParseError('A pipeline stage after && or || is not supported; put the pipeline on its own line')
-    }
-    return { head, rest: tail }
-  }
-  return undefined
+  const index = compoundPipeIndex(line)
+  if (index === undefined) return undefined
+  return { head: line.slice(0, index).trim(), rest: line.slice(index + 1).trim() }
 }
 
 /**
@@ -584,12 +596,14 @@ class LineParser {
     let background = false
 
     if (first.type === 'simple') {
-      // `x && for ...` / `x || { ...; }`: the first operator in front of a compound command
-      for (const { index, op } of andOrIndexes(first.line)) {
-        const tail = first.line.slice(index + 2).trim()
-        if (startsCompound(tail)) return this.finishAndOr({ type: 'simple', line: first.line.slice(0, index).trim() }, op, tail, lineNumber)
-      }
-      const split = splitSimplePipe(first.line)
+      // `x && for ...` / `x || { ...; }`: the first operator in front of a compound command. `x && a | while ...`:
+      // the last operator before the pipeline with the compound stage, which is that operator's operand.
+      const line = first.line
+      const operators = listOperators(line)
+      const lead = operators.find(({ index }) => startsCompound(line.slice(index + 2).trim()))
+        ?? (compoundPipeIndex(line) === undefined ? undefined : operators[operators.length - 1])
+      if (lead) return this.finishAndOr({ type: 'simple', line: line.slice(0, lead.index).trim() }, lead.op, line.slice(lead.index + 2).trim(), lineNumber)
+      const split = splitSimplePipe(line)
       if (!split) return first
       first = { type: 'simple', line: split.head }
       rest = split.rest
@@ -620,7 +634,11 @@ class LineParser {
       if (this.atEnd()) throw new ControlFlowParseError('Expected a command after |', true)
       const next = this.parsePositionedStatement()
       if (next.type === 'function') throw new ControlFlowParseError('A function definition cannot be a pipeline stage')
-      if (next.type === 'pipeline') { stages.push(...next.stages); background = Boolean(next.background) } else stages.push(next)
+      // `a | while ...; done && b`: the list after the last stage takes the whole pipeline as its first operand
+      const list = next.type === 'andor' ? next : undefined
+      const stage = list ? list.first : next
+      if (stage.type === 'pipeline') { stages.push(...stage.stages); background = Boolean(stage.background) } else stages.push(stage)
+      if (list) return { type: 'andor', first: { type: 'pipeline', stages }, rest: list.rest }
     }
     return { type: 'pipeline', stages, ...(background ? { background: true } : {}) }
   }
@@ -641,14 +659,15 @@ class LineParser {
         if (next.type === 'andor') { rest.push({ op: currentOp, statement: next.first }, ...next.rest) } else rest.push({ op: currentOp, statement: next })
         break
       }
-      if (startsCompound(text)) {
+      const more = listOperators(text)
+      // a compound command, or a pipeline with a compound stage (`a | while ...`), is parsed as the next statement
+      if (startsCompound(text) || (more.length === 0 && compoundPipeIndex(text) !== undefined)) {
         this.pushBack(text, lineNumber ?? 1)
         const next = this.parsePositionedStatement()
         if (next.type === 'andor') rest.push({ op: currentOp, statement: next.first }, ...next.rest)
         else rest.push({ op: currentOp, statement: next })
         break
       }
-      const more = andOrIndexes(text)
       const stop = more.find(({ index }) => startsCompound(text.slice(index + 2).trim())) ?? more[0]
       if (!stop) { rest.push({ op: currentOp, statement: { type: 'simple', line: text } }); break }
       rest.push({ op: currentOp, statement: { type: 'simple', line: text.slice(0, stop.index).trim() } })

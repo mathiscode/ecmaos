@@ -383,6 +383,31 @@ for i in 3 1 2; do echo $i; done | sort && echo ok
 for i in 1 2; do echo $i; done | grep -q 2 && echo found || echo none
 ### control/andor-pipe-while
 printf 'b\na\n' | while read x; do echo $x; done | sort && echo sorted
+### control/andor-into-pipe-while fs
+cd /tmp/pc && printf 'a\nb\n' | while read l; do echo "got $l"; done
+### control/andor-into-pipe-or
+false || printf 'x\n' | while read l; do echo "or $l"; done
+### control/andor-into-pipe-skipped
+false && printf 'n\n' | while read l; do echo no; done; echo st=$?
+### control/andor-into-pipe-chain
+true && false || printf 'y\n' | while read l; do echo "chain $l"; done
+### control/andor-into-pipe-then
+true && printf 'z\n' | while read l; do echo "$l" && echo inner; done && echo after
+### control/andor-into-pipe-tail-fails
+true && printf 'q\n' | while read l; do false; done || echo "fell st=$?"
+### control/andor-into-pipe-body-if
+printf 'p\n' | while read l; do true && if true; then echo "if $l"; fi; done
+### control/andor-into-pipe-group
+true && echo hi | { read v; echo "grp $v"; }
+### control/andor-into-pipe-for
+true && printf '1\n2\n' | for x in a; do cat; done | sort -r
+### control/andor-into-pipe-multiline
+true && printf 'm\n' | while read l
+do
+  echo "multi $l"
+done
+### control/pipe-while-then-and
+printf 'w\n' | while read l; do echo "$l"; done && echo next
 ### gaps/read-timeout-expires
 sleep 1 | { read -t 0.2 x; echo "st=$?"; }
 ### gaps/read-timeout-data

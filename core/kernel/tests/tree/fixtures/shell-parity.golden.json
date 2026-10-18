@@ -639,6 +639,50 @@
     "stdout": "a\nb\nsorted\n",
     "status": 0
   },
+  "control/andor-into-pipe-while": {
+    "stdout": "got a\ngot b\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-or": {
+    "stdout": "or x\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-skipped": {
+    "stdout": "st=1\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-chain": {
+    "stdout": "chain y\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-then": {
+    "stdout": "z\ninner\nafter\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-tail-fails": {
+    "stdout": "fell st=1\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-body-if": {
+    "stdout": "if p\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-group": {
+    "stdout": "grp hi\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-for": {
+    "stdout": "2\n1\n",
+    "status": 0
+  },
+  "control/andor-into-pipe-multiline": {
+    "stdout": "multi m\n",
+    "status": 0
+  },
+  "control/pipe-while-then-and": {
+    "stdout": "w\nnext\n",
+    "status": 0
+  },
   "gaps/read-timeout-expires": {
     "stdout": "st=142\n",
     "status": 0
