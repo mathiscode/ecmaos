@@ -505,7 +505,9 @@ static void surface_commit(struct client *c, struct surface *s) {
 }
 
 static void set_cursor(struct client *c, const char *name);
+static void dnd_forget(struct surface *s);
 static void surface_destroy(struct client *c, struct surface *s) {
+  dnd_forget(s);
   window_close(&s->win);
   if (c->cursor_surf == s->id) { c->cursor_surf = 0; set_cursor(c, "default"); }
   if (s->xsurface) c->objs[s->xsurface].data = NULL;
@@ -909,6 +911,8 @@ static struct { struct client *client; uint32_t source; char *text; size_t len; 
 static char *last_text;   /* the text last sent to or taken from the browser: the same text again is not news */
 static int drag_marker;   /* the data of an offer that is part of a drop */
 static struct { struct client *client; uint32_t offer, ddev; char *text; size_t len; int uris; uint32_t due; } dnd;
+/* a drop that came while the last one was still open (its client has not yet finished the offer); offered when it is */
+static struct { struct surface *s; char *text; size_t len; int uris; } dnd_next;
 static struct pull { struct client *client; int fd; uint8_t *buf; size_t n; uint32_t started; uint32_t source; } pulls[4];
 
 static int is_text_mime(const char *mime) {
@@ -1115,14 +1119,16 @@ static void dnd_end(void) {
   memset(&dnd, 0, sizeof dnd);
 }
 
-/* something was dropped on the window: offered as a drag over the pointer that ends in a drop soon after */
-static void drop_arrived(struct surface *s) {
-  size_t len;
-  int uris;
-  char *text = clipboard_fetch(s->win.fd, 0x46f5, &len, &uris);
+static void dnd_forget(struct surface *s) {
+  if (dnd_next.s != s) return;
+  free(dnd_next.text);
+  memset(&dnd_next, 0, sizeof dnd_next);
+}
+
+/* offered as a drag over the pointer that ends in a drop soon after; takes the text */
+static void dnd_offer(struct surface *s, char *text, size_t len, int uris) {
   struct client *c = s->client;
-  if (!text) return;
-  if (len == 0 || !live(c, c->ddev, T_DDEV) || dnd.client) { free(text); return; }
+  if (len == 0 || !live(c, c->ddev, T_DDEV)) { free(text); return; }
   uint32_t offer = sobj_new(c, T_DOFFER, 3, &drag_marker);
   if (!offer) { free(text); return; }
   dnd.client = c; dnd.offer = offer; dnd.ddev = c->ddev; dnd.text = text; dnd.len = len; dnd.uris = uris;
@@ -1135,7 +1141,26 @@ static void drop_arrived(struct surface *s) {
   ev(c, c->ddev, 3, "uii", now_ms(), fixed(s->px), fixed(s->py));
 }
 
+/* something was dropped on the window */
+static void drop_arrived(struct surface *s) {
+  size_t len;
+  int uris;
+  char *text = clipboard_fetch(s->win.fd, 0x46f5, &len, &uris);
+  if (!text) return;
+  if (!dnd.client) { dnd_offer(s, text, len, uris); return; }
+  free(dnd_next.text);   /* only the latest drop waits */
+  dnd_next.s = s; dnd_next.text = text; dnd_next.len = len; dnd_next.uris = uris;
+}
+
 static void dnd_run(void) {
+  if (!dnd.client && dnd_next.s) {
+    struct surface *s = dnd_next.s;
+    char *text = dnd_next.text;
+    size_t len = dnd_next.len;
+    int uris = dnd_next.uris;
+    memset(&dnd_next, 0, sizeof dnd_next);
+    dnd_offer(s, text, len, uris);
+  }
   if (!dnd.client || now_ms() < dnd.due || dnd.due == 0) return;
   struct client *c = NULL;
   for (int i = 0; i < MAX_CLIENTS; i++) if (clients[i] == dnd.client) c = clients[i];

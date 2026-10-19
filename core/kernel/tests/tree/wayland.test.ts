@@ -230,7 +230,7 @@ describe('the Wayland compositor', () => {
       { k: 'key', code: 'ShiftLeft', down: true }, { k: 'key', code: 'KeyA', down: true }, { k: 'key', code: 'KeyA', down: false }, { k: 'key', code: 'ShiftLeft', down: false }
     ] as const) kernel.windows.reportInput(id, input)
     await until(async () => (await out()).includes('key Left Shift up'))
-    expect(fb.pointerCursor).toBe('pointer')   // SDL's system cursor reaches the window as a CSS cursor
+    await until(() => fb.pointerCursor === 'pointer')   // SDL's system cursor reaches the window as a CSS cursor
     // a cursor the client drew arrives as an image with its hotspot, and a named cursor after it takes its place
     kernel.windows.reportInput(id, { k: 'key', code: 'F6', down: true })
     kernel.windows.reportInput(id, { k: 'key', code: 'F6', down: false })
