@@ -22,7 +22,7 @@ import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { printfBytes } from '@ecmaos/coreutils/lib/printf-format'
 import { ParseError, parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
-import { CONTROL_FLOW_KEYWORDS, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
+import { CONTROL_FLOW_KEYWORDS, ControlFlowParseError, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { aggregateBuiltinNames, jobStatusLabel, kernelBuiltinHost, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { testExpression, shellQuote } from '@ecmaos/coreutils/lib/shell-core/builtins'
@@ -269,7 +269,13 @@ function syntaxMessage(message: string): string {
   const open = /^Unterminated (single|double) quote$/.exec(message)
   if (open) return `unexpected EOF while looking for matching \`${open[1] === 'single' ? "'" : '"'}'`
   if (message === 'Unterminated backquote') return "unexpected EOF while looking for matching ``'"
+  if (message.startsWith('syntax error')) return message
   return `syntax error: ${message}`
+}
+
+/** What a statement-tree parse failure says: bash's words for input that ends inside a command, or the parser's own */
+function controlFlowMessage(error: ControlFlowParseError): string {
+  return error.incomplete ? 'syntax error: unexpected end of file' : syntaxMessage(error.message)
 }
 
 class CommandNotFoundError extends Error {
@@ -1607,7 +1613,7 @@ export class Shell implements IShell {
 
   /**
    * Executes a line typed at the prompt. Lines with control flow go through `parseStatements` and
-   * `executeStatements`; a line that does not parse falls back to `executeSimple`.
+   * `executeStatements`; a line that does not parse is a syntax error (status 2) and runs nothing.
    */
   async execute(line: string): Promise<number> {
     const trimmed = stripComments(line).trim()
@@ -1656,8 +1662,11 @@ export class Shell implements IShell {
     let statements: Statement[]
     try {
       statements = parseStatements(trimmed)
-    } catch {
-      return this.executeSimple(trimmed)
+    } catch (error) {
+      // A line that does not parse is not run, as in bash: `fi`, or `a | while x; do` and no `done`
+      if (!(error instanceof ControlFlowParseError)) throw error
+      await this.terminalBuiltinIO().writelnErr(controlFlowMessage(error))
+      return this.reportExit(2)
     }
 
     if (statements.length !== 1 || statements[0]?.type !== 'simple') {
@@ -1996,6 +2005,10 @@ export class Shell implements IShell {
       statements = parseStatements(script)
     } catch (error) {
       // A script that does not parse is not run at all, as in bash.
+      if (error instanceof ControlFlowParseError) {
+        await this.terminalBuiltinIO().writelnErr(controlFlowMessage(error))
+        return this.reportExit(2)
+      }
       if (!(error instanceof ParseError)) throw error
       await this.terminalBuiltinIO().writelnErr(syntaxMessage(error.message))
       return this.reportExit(2)

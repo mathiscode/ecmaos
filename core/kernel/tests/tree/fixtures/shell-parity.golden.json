@@ -683,6 +683,46 @@
     "stdout": "w\nnext\n",
     "status": 0
   },
+  "syntax/closing-word-alone": {
+    "stdout": "",
+    "status": 2
+  },
+  "syntax/closing-word-after-list": {
+    "stdout": "",
+    "status": 2
+  },
+  "syntax/word-after-subshell": {
+    "stdout": "",
+    "status": 2
+  },
+  "syntax/word-after-group": {
+    "stdout": "",
+    "status": 2
+  },
+  "syntax/word-after-done": {
+    "stdout": "",
+    "status": 2
+  },
+  "syntax/reserved-word-as-argument": {
+    "stdout": "fi done }\n1\n",
+    "status": 0
+  },
+  "syntax/fi-after-subshell": {
+    "stdout": "a\nnext\n",
+    "status": 0
+  },
+  "syntax/done-after-subshell": {
+    "stdout": "1\n2\n",
+    "status": 0
+  },
+  "syntax/brace-after-subshell": {
+    "stdout": "a\nnext\n",
+    "status": 0
+  },
+  "syntax/fi-after-group": {
+    "stdout": "a\n",
+    "status": 0
+  },
   "gaps/read-timeout-expires": {
     "stdout": "st=142\n",
     "status": 0

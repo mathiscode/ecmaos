@@ -372,6 +372,15 @@ const BRACE_GROUP_OPEN = /^\{(?:\s|$)/
 /** A line that opens a subshell: `(` but not `((`, which is arithmetic. */
 const SUBSHELL_OPEN = /^\((?!\()/
 
+/** What may follow a compound command's closing keyword on its line: a redirection, a pipe, a list operator or `&` */
+const COMPOUND_TAIL = /^(?:\d*[<>]|&>|&&|\||&(?![&>]))/
+
+/** Reserved words that close or continue a compound command, and so cannot start one: a command there is a syntax error */
+const CLOSING_WORDS = new Set(['then', 'elif', 'else', 'fi', 'do', 'done', 'esac', '}', ')'])
+
+/** bash's report of a word where the grammar has no place for it */
+const unexpectedToken = (word: string) => new ControlFlowParseError(`syntax error near unexpected token \`${word}'`)
+
 /**
  * The index of the `)` closing the `(` at `start`, skipping quotes, escapes and nested parentheses
  * (so `$(...)` inside the subshell is fine), or -1 when the line ends first.
@@ -703,6 +712,7 @@ class LineParser {
           this.advance()
           return this.finishFunctionBody(fnMatch[1] as string, line.trim().includes('{'), fnMatch[2])
         }
+        if (CLOSING_WORDS.has(keyword)) throw unexpectedToken(keyword)
         this.advance()
         return { type: 'simple', line }
       }
@@ -744,7 +754,20 @@ class LineParser {
         this.atEnd()
       )
     }
-    return this.restAfterKeyword(this.advance(), keyword)
+    const at = this.here() ?? 1
+    return this.compoundTail(this.restAfterKeyword(this.advance(), keyword), at)
+  }
+
+  /**
+   * What followed a compound command's closing keyword or brace: a redirection or operator stays with it, a closing
+   * word (`(a) fi`, `{ b; } done`) goes back to close what encloses it, and anything else is a syntax error.
+   */
+  private compoundTail(rest: string, at: number): string {
+    if (!rest || COMPOUND_TAIL.test(rest)) return rest
+    const word = this.firstWord(rest)
+    if (!CLOSING_WORDS.has(word)) throw unexpectedToken(word)
+    this.pushBack(rest, at)
+    return ''
   }
 
   private parseIf(): IfStatement {
@@ -829,7 +852,7 @@ class LineParser {
     const line = this.advance().trim()
     const close = /^\{\s/.test(line) ? closingBrace(line) : -1
     if (close !== -1) {
-      const redirect = line.slice(close + 1).trim()
+      const redirect = this.compoundTail(line.slice(close + 1).trim(), at)
       return { type: 'group', body: parseInlineBody(line.slice(1, close), at), ...(redirect ? { redirect } : {}) }
     }
 
@@ -854,9 +877,7 @@ class LineParser {
         rest = pieces[0] as string
         for (const piece of pieces.slice(1).reverse()) this.pushBack(piece, at)
       }
-      if (rest && !/^(?:\d*[<>]|&>|&&|\||&(?![&>]))/.test(rest)) {
-        throw new ControlFlowParseError(`A subshell followed by "${rest.split(/\s/)[0]}" is not supported; put it on its own line`)
-      }
+      rest = this.compoundTail(rest, at)
       return { type: 'subshell', body: parseInlineBody(line.slice(1, close), at), ...(rest ? { redirect: rest } : {}) }
     }
 
@@ -948,7 +969,7 @@ class LineParser {
     }
 
     const body: Statement[] = []
-    while (!this.atEnd() && this.peek() !== '}') {
+    while (!this.atEnd() && this.firstWord(this.peek() as string) !== '}') {
       body.push(this.parsePositionedStatement())
     }
 

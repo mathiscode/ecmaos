@@ -408,6 +408,26 @@ do
 done
 ### control/pipe-while-then-and
 printf 'w\n' | while read l; do echo "$l"; done && echo next
+### syntax/closing-word-alone
+fi
+### syntax/closing-word-after-list
+echo a; done
+### syntax/word-after-subshell
+(echo a) b
+### syntax/word-after-group
+{ echo a; } b
+### syntax/word-after-done
+for i in 1; do echo $i; done extra
+### syntax/reserved-word-as-argument
+echo fi done }; x=1; echo "$x"
+### syntax/fi-after-subshell
+if true; then (echo a) fi; echo next
+### syntax/done-after-subshell
+for i in 1 2; do (echo "$i") done
+### syntax/brace-after-subshell
+{ (echo a) }; echo next
+### syntax/fi-after-group
+if true; then { echo a; } fi
 ### gaps/read-timeout-expires
 sleep 1 | { read -t 0.2 x; echo "st=$?"; }
 ### gaps/read-timeout-data

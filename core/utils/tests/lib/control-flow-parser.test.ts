@@ -527,3 +527,36 @@ describe('parseStatements: quoted strings over several lines', () => {
     expect(parseStatements("echo one # it's\necho two").map(s => (s as SimpleStatement).line)).toEqual(["echo one # it's", 'echo two'])
   })
 })
+
+describe('parseStatements: syntax errors bash reports', () => {
+  it('refuses a reserved word where a command starts', () => {
+    for (const word of ['fi', 'done', 'then', 'else', 'elif', 'do', 'esac', '}']) {
+      expect(() => parseStatements(word)).toThrow(`syntax error near unexpected token \`${word}'`)
+    }
+    expect(() => parseStatements('echo a; fi')).toThrow("syntax error near unexpected token `fi'")
+    expect(() => parseStatements('if true; then echo; done; fi')).toThrow("syntax error near unexpected token `done'")
+  })
+  it('keeps a reserved word that is an argument, or follows an assignment', () => {
+    expect(parseStatements('echo done fi }').map(s => s.type)).toEqual(['simple'])
+    expect(parseStatements('x=1 fi').map(s => s.type)).toEqual(['simple'])
+  })
+  it('refuses a word after a compound command closes', () => {
+    expect(() => parseStatements('(echo a) b')).toThrow("syntax error near unexpected token `b'")
+    expect(() => parseStatements('{ echo a; } b')).toThrow("syntax error near unexpected token `b'")
+    expect(() => parseStatements('while false; do :; done extra')).toThrow("syntax error near unexpected token `extra'")
+    expect(() => parseStatements('if true; then :; fi fi')).toThrow("syntax error near unexpected token `fi'")
+  })
+  it('lets a closing word follow a subshell or group without a separator', () => {
+    const [ifStatement] = parseStatements('if true; then (echo a) fi') as IfStatement[]
+    expect(ifStatement?.branches[0]?.body.map(s => s.type)).toEqual(['subshell'])
+    const [forStatement] = parseStatements('for i in 1; do (echo a) done') as ForStatement[]
+    expect(forStatement?.body.map(s => s.type)).toEqual(['subshell'])
+    expect(parseStatements('{ (echo a) }').map(s => s.type)).toEqual(['group'])
+    expect(parseStatements('if true; then { echo a; } fi').map(s => s.type)).toEqual(['if'])
+  })
+  it('keeps redirections and operators after a closing keyword', () => {
+    expect(parseStatements('(echo a) > /tmp/x; echo b').map(s => s.type)).toEqual(['subshell', 'simple'])
+    expect(parseStatements('while read l; do echo $l; done < f | sort && echo ok').map(s => s.type)).toEqual(['andor'])
+    expect(parseStatements('{ echo a; } 2>&1 | cat').map(s => s.type)).toEqual(['pipeline'])
+  })
+})
