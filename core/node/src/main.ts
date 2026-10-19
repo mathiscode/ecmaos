@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { formatWithOptions } from 'node:util'
 
 import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
@@ -140,10 +141,15 @@ const host = nodeHost({
 const kernel = new Kernel({
   // `--login` leaves the console at a login prompt (`/sbin/getty` under init) instead of logging root in
   credentials: args.has('--login') ? undefined : { username: 'root', password: 'root' },
-  host,
-  // the console is this terminal, so --quiet keeps the kernel's log off it; /var/log/kernel.log still gets every line
-  ...(args.has('--quiet') ? { log: { type: 'hidden' as const } } : {})
+  host
 })
+
+// --quiet keeps the kernel's chatter off the console and still says what went wrong (warnings and errors); every line
+// still goes to /var/log/kernel.log
+if (args.has('--quiet')) (kernel.log.settings.overwrite ??= {}).transportFormatted = (meta, logArgs, errors, logMeta) => {
+  if ((logMeta?.logLevelId ?? 0) < 4) return
+  console.log(meta + formatWithOptions(kernel.log.settings.prettyInspectOptions, ...logArgs) + (errors.length ? `\n${errors.join('\n')}` : ''))
+}
 
 await kernel.boot({ silent: args.has('--quiet') })
 terminal.detach = attachStdio(kernel, { stdin: process.stdin, stdout: process.stdout })

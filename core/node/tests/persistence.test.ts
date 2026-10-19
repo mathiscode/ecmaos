@@ -7,11 +7,6 @@ import { Session } from './session.ts'
 
 const supported = Number(process.versions.node.split('.')[0]) >= 24
 const temp = (name: string) => mkdtempSync(path.join(tmpdir(), `ecmaos-${name}-`))
-// This `stat` prints the file's `Stats` as JSON
-const statOf = async (session: Session, file: string) => {
-  const out = await session.run(`stat ${file}`)
-  return JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as { mode: number, uid: number, gid: number, size: number }
-}
 const clean: string[] = []
 const scratch = (name: string) => { const dir = temp(name); clean.push(dir); return dir }
 
@@ -33,8 +28,7 @@ describe.skipIf(!supported)('the persistent root', () => {
     await second.ready()
     try {
       expect(await second.run('cat /root/deep/er/file.txt')).toBe('persisted')
-      const stat = await statOf(second, '/root/deep/er/file.txt')
-      expect([(stat.mode & 0o7777).toString(8), stat.uid, stat.gid]).toEqual(['640', 1234, 4321])
+      expect(await second.run('stat -c "%a %u %g" /root/deep/er/file.txt')).toBe('640 1234 4321')
       expect(await second.run('readlink /root/link')).toBe('/root/deep/er/file.txt')
       expect(await second.run('cat /root/link')).toBe('persisted')
       expect(await second.run('cat /etc/ecmaos-test')).toBe('marker')
@@ -118,7 +112,7 @@ describe.skipIf(!supported)('the persistent root', () => {
     await session.ready()
     try {
       await session.run('dd if=/dev/zero of=/root/big bs=1M count=24 2>/dev/null', 120_000)
-      expect((await statOf(session, '/root/big')).size).toBe(24 * 1024 * 1024)
+      expect(await session.run('stat -c %s /root/big')).toBe(String(24 * 1024 * 1024))
     } finally { await session.stop() }
   }, 180_000)
 })

@@ -21,7 +21,9 @@ describe.skipIf(!supported)('the bundled Node kernel', () => {
 
   it('identifies itself', async () => {
     expect(await session.run('whoami')).toBe('root')
-    expect(await session.run('uname')).toMatch(/ecmaos/i)
+    // the kernel name is Linux, as programs that test for it expect; the version names ecmaOS
+    expect(await session.run('uname')).toBe('Linux')
+    expect(await session.run('uname -v')).toMatch(/^#1 .*ecmaos/i)
   })
 
   it('lists the built-in commands', async () => {
