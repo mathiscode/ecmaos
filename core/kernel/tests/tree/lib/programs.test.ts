@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createHash } from 'node:crypto'
-import { installPrograms } from '#lib/programs.ts'
+import { installPrograms, PLACEHOLDER, stagePrograms } from '#lib/programs.ts'
 import type { ProgramCatalog } from '#lib/programs.ts'
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
@@ -109,6 +109,30 @@ describe('installPrograms', () => {
     expect(result.installed).toEqual(['vim'])
     expect(fs.files['/bin/alpha']).toBeUndefined()
     expect(fs.files['/bin/vim']).toEqual(b)
+  })
+
+  it('stages a placeholder for each program not installed yet, and installs only when started', async () => {
+    const env = setup({ alpha: a, beta: b })
+    const fs = fakeFs({ '/bin/beta': new Uint8Array([7]) })
+    const staged = await stagePrograms(fs, { catalogUrl: 'http://x/programs/index.json', stamps: env.stamps, fetcher: env.fetcher, placeholders: true })
+    expect(staged.placeholders).toEqual(['alpha'])
+    expect(fs.files['/bin/alpha']).toBe(PLACEHOLDER)
+    expect(fs.files['/bin/beta']).toEqual(new Uint8Array([7]))   // an older copy stays until the new one lands
+    expect(env.requests).toEqual(['http://x/programs/index.json'])
+
+    const result = await staged.start()
+    expect(result.installed).toEqual(['alpha', 'beta'])
+    expect(fs.files['/bin/alpha']).toEqual(a)
+    expect(staged.start()).toBe(staged.start())   // started once
+  })
+
+  it('takes away the placeholder of a program that fails, so nothing waits for it', async () => {
+    const env = setup({ alpha: a }, { missing: ['alpha'] })
+    const fs = fakeFs()
+    const staged = await stagePrograms(fs, { catalogUrl: 'http://x/programs/index.json', stamps: env.stamps, fetcher: env.fetcher, placeholders: true })
+    expect(fs.files['/bin/alpha']).toBeDefined()
+    expect(Object.keys((await staged.start()).failed)).toEqual(['alpha'])
+    expect(fs.files['/bin/alpha']).toBeUndefined()
   })
 
   describe('runtime', () => {

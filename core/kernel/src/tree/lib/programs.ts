@@ -54,11 +54,75 @@ export interface InstallProgramsResult {
 
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
 
+/** How many programs are fetched and written at once */
+const CONCURRENCY = 6
+
+/** The program a placeholder names as its interpreter: it waits for the real program, then runs it */
+export const PROGRAM_WAITER = '/usr/libexec/ecmaos/wait-for-program'
+
 /**
- * Writes `/bin/<name>` for each catalog program that is missing or differs. An unreachable catalog is not an error; a
- * program that fails (missing file, hash mismatch) is reported and the rest still install.
+ * What `/bin/<name>` holds while the program downloads. It is on `PATH` like the program, so a shell, `which` and
+ * `execve` all find it. It is a `#!` script, not JS of its own: a JS file is read twice when it is run (once to see what
+ * it is, then by the worker), and the program could land between the two.
  */
-export async function installPrograms(fs: Fs, options: InstallProgramsOptions): Promise<InstallProgramsResult> {
+export const PLACEHOLDER = `#!${PROGRAM_WAITER}\n# ecmaOS: this program is still being installed\n`
+
+/**
+ * {@link PROGRAM_WAITER}: waits for the file it is given to stop being the placeholder, then runs it with the same
+ * arguments and ends with its status. If the install fails the placeholder is removed, and a waiting run says so.
+ */
+export const programWaiterSource = `// ecmaOS: runs a program that is still being installed once it is (see PLACEHOLDER in the kernel's lib/programs.ts)
+const { argv, env, exit, writeAll, open, read, close, spawn, waitpid, getcwd, O_RDONLY } = globalThis.ecmaosSyscalls
+const path = argv[1]
+const name = path.split('/').pop()
+const mark = new TextEncoder().encode(${JSON.stringify(PLACEHOLDER)})
+const say = text => writeAll(2, new TextEncoder().encode(name + ': ' + text + '\\n'))
+// 'gone' when the file was removed (the install failed), 'waiting' while it is the placeholder, 'ready' after
+const state = () => {
+  let fd
+  try { fd = open(path, O_RDONLY) } catch { return 'gone' }
+  try {
+    const head = new Uint8Array(mark.length)
+    const n = read(fd, head, -1)
+    // empty while the program is being written over it
+    if (n <= 0) return 'waiting'
+    return n === mark.length && head.every((byte, i) => byte === mark[i]) ? 'waiting' : 'ready'
+  } finally { close(fd) }
+}
+const started = Date.now()
+let told = false
+for (;;) {
+  const now = state()
+  if (now === 'ready') break
+  if (now === 'gone') { say('could not be installed'); exit(127) }
+  if (Date.now() - started > 300000) { say('is still being installed; try again shortly'); exit(126) }
+  if (!told && Date.now() - started > 1000) { say('still being installed; it starts when it is ready'); told = true }
+  await new Promise(resolve => setTimeout(resolve, 100))
+}
+const pid = await spawn(path, [path, ...argv.slice(2)], { cwd: getcwd(), env })
+for (;;) {
+  try {
+    const done = await waitpid(pid, false)
+    exit(done.signal ? 128 + done.signal : done.code)
+  } catch (error) {
+    if (!String(error?.code ?? error?.message ?? error).includes('EINTR')) throw error
+  }
+}
+`
+
+export interface StagedPrograms {
+  /** Programs that got a placeholder because nothing was installed under their name */
+  placeholders: string[]
+  /** Starts the downloads (once) and settles when every program is installed or has failed; it never rejects */
+  start(): Promise<InstallProgramsResult>
+}
+
+/**
+ * Fetches the catalog and, with `placeholders`, writes one for each program not installed yet ({@link PLACEHOLDER};
+ * the caller installs {@link PROGRAM_WAITER}). `start` installs the
+ * programs: several at a time, each one's stamp saved as it lands. Boot waits for the first part only.
+ */
+export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { placeholders?: boolean }): Promise<StagedPrograms> {
   const fetcher = options.fetcher ?? ((url, init) => fetch(url, init))
   const result: InstallProgramsResult = { installed: [], current: [], failed: {} }
 
@@ -69,12 +133,10 @@ export async function installPrograms(fs: Fs, options: InstallProgramsOptions): 
     catalog = await response.json() as ProgramCatalog
   } catch (error) {
     result.failed['(catalog)'] = `${options.catalogUrl}: ${(error as Error).message}`
-    return result
+    return { placeholders: [], start: () => Promise.resolve(result) }
   }
 
   const stamps = options.stamps.read()
-  let changed = false
-
   const sha = async (bytes: Uint8Array) => globalThis.crypto?.subtle ? hex(await globalThis.crypto.subtle.digest('SHA-256', bytes as BufferSource)) : undefined
   const fetchFile = async (pkg: ProgramPackage, entry: { file: string, size: number, sha256: string }) => {
     const url = new URL(`${pkg.path}/${entry.file}`, new URL(options.catalogUrl, globalThis.location?.href ?? 'http://localhost/'))
@@ -89,35 +151,69 @@ export async function installPrograms(fs: Fs, options: InstallProgramsOptions): 
     return bytes
   }
 
-  for (const pkg of catalog.packages) {
-    for (const [name, entry] of Object.entries(pkg.programs)) {
-      if (options.skip?.(name)) continue
-      if (entry.runtime && options.extract && stamps[`${name}:runtime`] !== entry.runtime.sha256) {
-        try {
-          await options.extract(await fetchFile(pkg, entry.runtime))
-          stamps[`${name}:runtime`] = entry.runtime.sha256
-          changed = true
-        } catch (error) {
-          result.failed[`${name} (runtime)`] = (error as Error).message
-        }
-      }
-      const target = `/bin/${name}`
-      try {
-        // An earlier build linked `vim` to `vi`; writing through that link would replace the other program.
-        if ((await fs.lstat(target).catch(() => undefined))?.isSymbolicLink()) await fs.unlink(target)
-        const installed = await fs.stat(target).catch(() => undefined)
-        if (installed?.isFile() && installed.size === entry.size && stamps[name] === entry.sha256) { result.current.push(name); continue }
+  const programs = catalog.packages.flatMap(pkg => Object.entries(pkg.programs).map(([name, entry]) => ({ pkg, name, entry })))
+    .filter(({ name }) => !options.skip?.(name))
 
-        const bytes = await fetchFile(pkg, entry)
-        await fs.writeFile(target, bytes, { mode: 0o755 })
-        stamps[name] = entry.sha256
-        changed = true
-        result.installed.push(name)
-      } catch (error) {
-        result.failed[name] = (error as Error).message
-      }
+  const placeholders: string[] = []
+  if (options.placeholders) {
+    for (const { name } of programs) {
+      const target = `/bin/${name}`
+      if (await fs.lstat(target).catch(() => undefined)) continue
+      try {
+        await fs.writeFile(target, PLACEHOLDER, { mode: 0o755 })
+        placeholders.push(name)
+      } catch { /* the program is installed without one */ }
     }
   }
-  if (changed) options.stamps.write(stamps)
-  return result
+
+  const install = async ({ pkg, name, entry }: typeof programs[number]) => {
+    if (entry.runtime && options.extract && stamps[`${name}:runtime`] !== entry.runtime.sha256) {
+      try {
+        await options.extract(await fetchFile(pkg, entry.runtime))
+        stamps[`${name}:runtime`] = entry.runtime.sha256
+        options.stamps.write(stamps)
+      } catch (error) {
+        result.failed[`${name} (runtime)`] = (error as Error).message
+      }
+    }
+    const target = `/bin/${name}`
+    try {
+      // An earlier build linked `vim` to `vi`; writing through that link would replace the other program.
+      if ((await fs.lstat(target).catch(() => undefined))?.isSymbolicLink()) await fs.unlink(target)
+      const installed = await fs.stat(target).catch(() => undefined)
+      if (installed?.isFile() && installed.size === entry.size && stamps[name] === entry.sha256) { result.current.push(name); return }
+
+      const bytes = await fetchFile(pkg, entry)
+      await fs.writeFile(target, bytes, { mode: 0o755 })
+      stamps[name] = entry.sha256
+      options.stamps.write(stamps)
+      result.installed.push(name)
+    } catch (error) {
+      result.failed[name] = (error as Error).message
+      // a placeholder left behind would wait for a program that is not coming
+      if (placeholders.includes(name)) await fs.unlink(target).catch(() => {})
+    }
+  }
+
+  let finished: Promise<InstallProgramsResult> | undefined
+  const run = async () => {
+    const queue = [...programs]
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) await install(next)
+    }))
+    // in catalog order, however the downloads finished
+    const order = programs.map(({ name }) => name)
+    for (const list of [result.installed, result.current]) list.sort((a, b) => order.indexOf(a) - order.indexOf(b))
+    return result
+  }
+  return { placeholders, start: () => (finished ??= run()) }
+}
+
+/**
+ * Writes `/bin/<name>` for each catalog program that is missing or differs, and resolves when all are done. An
+ * unreachable catalog is not an error; a program that fails (missing file, hash mismatch) is reported and the rest
+ * still install.
+ */
+export async function installPrograms(fs: Fs, options: InstallProgramsOptions): Promise<InstallProgramsResult> {
+  return await (await stagePrograms(fs, options)).start()
 }

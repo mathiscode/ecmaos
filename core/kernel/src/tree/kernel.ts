@@ -95,7 +95,7 @@ import { openTerminalWindow, runDetached } from '#lib/terminal-window.ts'
 import type { TerminalWindow } from '#lib/terminal-window.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
-import { installPrograms } from '#lib/programs.ts'
+import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
 
 import {
@@ -1057,6 +1057,7 @@ export class Kernel implements IKernel {
 
       this._state = KernelState.RUNNING
       this.setupDebugGlobals()
+      this._startPrograms?.()
       
       bootSpan.setAttribute('kernel.state', this._state)
       bootSpan.end()
@@ -2242,12 +2243,16 @@ export class Kernel implements IKernel {
     for (let i = 0; i < names.length; i += 16) await Promise.all(names.slice(i, i + 16).map(install))
 
     // Prebuilt WebAssembly programs (`vim`, `jq`, `make`, ...): real binaries, fetched from the site's program
-    // catalog and
-    // written only when the installed copy differs. See `lib/programs.ts`.
+    // catalog and written only when the installed copy differs. See `lib/programs.ts`. Boot waits for the catalog and
+    // a placeholder for each program not installed yet; the downloads start once the kernel is running (they would
+    // hold up the rest of boot's file system work), and a placeholder that is run waits for its program.
     const catalogUrl = this.programsUrl()
     if (catalogUrl) {
       const stampKey = this.machineKey('ecmaos:programs')
-      const programs = await installPrograms(this.filesystem.fs, {
+      await this.filesystem.fs.mkdir(path.dirname(PROGRAM_WAITER), { recursive: true })
+      await this.filesystem.fs.writeFile(PROGRAM_WAITER, programWaiterSource, { mode: 0o755 })
+      const staged = await stagePrograms(this.filesystem.fs, {
+        placeholders: true,
         catalogUrl,
         fetcher: this.host.fetch,
         // A program's runtime (`vim`'s /usr/share/vim) is a tarball rooted at `/`
@@ -2262,8 +2267,12 @@ export class Kernel implements IKernel {
           write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
         }
       })
-      if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
-      for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
+      const started = new Promise<void>(resolve => { this._startPrograms = resolve })
+      this._programsReady = started.then(() => staged.start()).then(programs => {
+        if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
+        for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
+      })
+      if (this._state === KernelState.RUNNING) this._startPrograms?.()
     }
 
     // The dev server's workspace apps (`startx`): `/bin/<name>` follows `apps/<app>/dist`, so a rebuilt app is current
@@ -3038,6 +3047,14 @@ export class Kernel implements IKernel {
   /** True once `whenReady` has resolved. */
   get ready(): boolean { return this._isReady }
   private _isReady = false
+
+  /**
+   * Resolves when the catalog's programs are installed (or have failed), which boot does not wait for. Until then a
+   * program not installed before is a placeholder that waits for it.
+   */
+  whenProgramsReady(): Promise<void> { return this._programsReady }
+  private _programsReady: Promise<void> = Promise.resolve()
+  private _startPrograms?: () => void
 
   /** Each getty terminal's shell state from before its first login. */
   private readonly _cleanShells = new Map<number, ReturnType<Shell['state']['snapshot']>>()

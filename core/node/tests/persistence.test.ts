@@ -73,7 +73,9 @@ describe.skipIf(!supported)('the persistent root', () => {
     const session = new Session()
     await session.ready()
     try {
-      // vim is in the copyleft package, installed beside this one in the workspace
+      // vim is in the copyleft package, installed beside this one in the workspace. Programs download after boot, each
+      // runtime before its program, so running vim waits for both
+      expect(await session.run('vim --version 2>/dev/null | head -1', 60_000)).toMatch(/^VIM /)
       expect(await session.run('ls /usr/share/vim/vim91 | head -3')).toContain('autoload')
       expect(await session.run('test -f /usr/share/vim/vim91/syntax/c.vim && echo yes')).toBe('yes')
     } finally { await session.stop() }
