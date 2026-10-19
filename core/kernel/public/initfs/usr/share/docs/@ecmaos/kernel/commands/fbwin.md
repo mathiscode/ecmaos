@@ -5,7 +5,7 @@
 ## Synopsis
 
 ```
-fbwin [-t TITLE] [WIDTHxHEIGHT]
+fbwin [-r] [-t TITLE] [WIDTHxHEIGHT]
 ```
 
 ## Description
@@ -16,4 +16,5 @@ The window and the device go when the command ends or the window is closed.
 
 ## Options
 
+- `-r`, `--resizable`: the screen follows the window when the user resizes it, so `/dev/fbN` changes size; `FBIOGET_VSCREENINFO` gives the new size
 - `-t`, `--title TITLE`: the window's title

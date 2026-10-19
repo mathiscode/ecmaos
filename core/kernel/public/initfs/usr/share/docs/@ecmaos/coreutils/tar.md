@@ -20,12 +20,22 @@ Create, extract, or list tar archives.
   -t, --list      list the contents of an archive
   -f, --file      use archive file (required for create, optional for extract/list - uses stdin if omitted)
   -z, --gzip      filter the archive through gzip
+  -j, --bzip2     filter the archive through bzip2
+  -J, --xz        filter the archive through xz
+      --lzma      filter the archive through xz --format=lzma
+      --zstd      filter the archive through zstd
+  -I, --use-compress-program=PROG   filter through PROG (it must accept -d)
+  -a, --auto-compress   pick the compression by the archive's suffix
   -v, --verbose   verbosely list files processed
   -C, --directory change to directory before extracting
   -h, --help      display this help and exit
 
 The options may be given without a dash as the first word: tar czf out.tgz dir
 ```
+
+## Compression
+
+gzip is built in. The others run the program of that name as a filter (`bzip2`, `xz` and `zstd` ship with `@ecmaos/coreutils`), and `-I` runs any program on `PATH` that reads standard input, writes standard output, and decompresses with `-d`. A compressed archive is recognized by its first bytes when it is read, so `tar xf a.tar.xz` needs no option; lzma has no reliable mark, so it is read by the `.lzma` or `.tlz` suffix or with `--lzma`. A compressed archive cannot be appended to, updated or deleted from.
 
 ## Backing up the machine
 

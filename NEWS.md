@@ -8,12 +8,20 @@
 
 ## 1.0.0
 
-- ecmaOS 1.0.0 is here! Every command now runs through a real, worker-hosted `execve` - the old in-process `ProcessManager` is gone for good.
-- The shell now supports `<<` heredocs, `<<<` here-strings, `[[ ]]` tests, indexed arrays (`a=(x y)`, `${a[@]}`), `${PIPESTATUS[@]}`, and `trap`.
+- ecmaOS 1.0.0 is here! Every command now runs through a real, worker-hosted `execve` - the old in-process `ProcessManager` is gone for good. Programs have real pids, signals, exit codes, sessions and controlling terminals.
+- `/sbin/init` is pid 1 and runs `/etc/inittab`, with a `getty` login on each of the eight terminals, runlevels (`telinit`, `runlevel`), and `reboot`, `halt` and `poweroff` that stop the system in order.
+- Real users: your programs run as you, `su` and `sudo` are setuid programs (`/etc/sudoers` with aliases), `/etc/passwd`, `/etc/group` and `/etc/shadow` are in the Linux format (existing installs are migrated on boot), and there are `useradd`, `usermod`, `groupadd`, `visudo` and friends, `/etc/skel`, and storage quotas.
+- The shell grew up, and there are two of them: the built-in one and `/bin/ecmash`, both checked against bash. Heredocs, here-strings, `[[ ]]`, indexed and associative arrays, functions, `case`, C-style `for`, arithmetic, brace expansion, process substitution, `trap` for every signal, job control, aliases, completion, `~/.bashrc` and the other startup files, and a readline line editor with history. `/bin/sh` and `/bin/bash` point at them.
+- Coreutils match GNU: more than 380 commands are compared against real GNU output, and there are new ones (`xargs`, `timeout`, `watch`, `top`, `pgrep`, `strace`, `fsck`, `df`, `dmesg`, `fastfetch` and more). `ls` and `grep` do `--color`, and `man` has a page for nearly everything.
+- Real programs built to WebAssembly: Vim 9.1, nano, GNU make, ed, sqlite3, jq, Lua, MicroPython, QuickJS, bc, tree, ncdu, mg and the compressors (bzip2, xz, zstd, brotli, lz4). Copyleft programs ship with their source.
+- A desktop: `startx` gives a taskbar, a launcher, terminal windows and workspaces. Below it are Linux framebuffers, evdev input, a Wayland compositor (`wlcomp`), and SDL 3 with OpenGL ES on WebGL2, enough to play `doom` (bring a WAD; Freedoom works).
+- Devices are files: `/dev/usb<N>`, `/dev/ble<N>`, `/dev/ttyS<N>`, `/dev/hidraw<N>`, `/dev/midi<N>`, `/dev/js<N>`, `/dev/dsp`, the sensors, pseudo-terminals and more, each keeping its number across boots.
+- Networking: POSIX sockets (Unix, IPv4, IPv6, UDP, descriptor passing) between programs, and a gateway (`gateway up`) through an `ecmaos --listen` machine for real TCP and UDP.
+- ecmaOS runs in Node too (`@ecmaos/node`): a machine in a terminal, kept in a SQLite file. With `ecmaos --listen`, other machines can log in, mount its folders, attach its devices, and show its windows on a browser page (`?screen=`).
+- One tab per machine: a second tab offers to take over, open a console on the running machine (`?display=N`) or start a guest session, and `?machine=NAME` runs a separate machine.
+- The browser is part of the machine: `notify-send`, `xclip`, `say` and `xdg-open`.
 - Clicking a command link in terminal output now asks you to confirm before it runs.
-- `/etc/passwd` and `/etc/group` moved to the real Linux format; existing installs are migrated automatically on next boot.
-- Added the `free` command, and filled in a few missing `/proc` entries.
-- A failed boot now leaves you with a readable error instead of a stuck spinner.
+- A failed boot now leaves you with a readable error instead of a stuck spinner, and a page without cross-origin isolation says which headers to set.
 - Toolchain upgraded across the board: Vite 8, TypeScript 7, ESLint 10, vitest 5.
 
 ## 2025-12-31

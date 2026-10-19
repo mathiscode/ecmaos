@@ -52,32 +52,42 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 
 | Major | Minor | Device | Note |
 |---|---|---|---|
-| 1 | 0 | `webgl` | No Linux analog; ecmaOS-assigned |
 | 4 | 192–199 | `xterm0`–`xterm7` | Real Linux tty major, via `@zenfs/linux`'s `xterm_driver` (a real `TTYDriver`, not a `char_dev`) - not this org's device packages |
-| 0 (dynamic) | per port | `serial`, `ttyS<n>` | WebSerial; no longer major 4 - that collided with `xterm_driver` above |
 | 5 | 1 | `echo` | Real Linux `/dev/console` major, reused loosely |
-| 8 | 0 | `usb` | Real Linux SCSI-disk-class major, reused loosely for USB |
-| 8 | 1+n | `usb-<name>-<vendor>-<product>` | One per enumerated USB device, minor by enumeration order (not derived from vendor/product IDs, which can exceed 256 or collide) |
+| 5 | 2 | `ptmx` | Real Linux pty multiplexer (core, not a package); slaves are `/dev/pts/<n>` on major 136, masters on 128 |
 | 10 | 0 | `gpu` (non-NVIDIA) | Real Linux misc major |
 | 10 | 100 | `battery` | ecmaOS misc range |
 | 10 | 101 | `geo` | ecmaOS misc range |
-| 10 | 102 | `sensors` | ecmaOS misc range |
 | 10 | 156 | `presentation` | ecmaOS misc range |
-| 13 | 64 | `input!event0` | Keyboard, `/dev/input/event0` (core, not a package) |
-| 13 | 65 | `input!event1` | Pointer, `/dev/input/event1` |
-| 0 (dynamic) | 64 | `hid` | The control node; `hidraw<n>` share its dynamic major. Major 13 belongs to `input` now |
-| 14 | 4 | `audio` | Real Linux OSS-audio major |
-| 29 | 0-31 | `fb<N>` | Real Linux framebuffer major. Made at runtime, one per window (`fbwin`); not in the package list |
-| 35 | 0 | `midi` | Real Linux MIDI major |
+| 13 | 64 | `input/event0` | Keyboard (core, not a package) |
+| 13 | 65 | `input/event1` | Pointer |
+| 13 | 66+n | `input/event<2+n>` | One per framebuffer window, made with its `fb<N>` |
+| 14 | 3 | `dsp` | Real Linux OSS-audio major: signed 16-bit mono at 16000 Hz to the speakers |
+| 14 | 4 | `audio` | A whole audio file, decoded and played on close |
+| 14 | 5 | `dspin` | The microphone, in the format of `dsp` |
+| 14 | 19 | `dsp1` | Interleaved 16-bit stereo at 48000 Hz (what SDL programs play to) |
+| 29 | 0–31 | `fb<N>` | Real Linux framebuffer major. Made at runtime, one per window (`fbwin`, SDL and Wayland programs); not in the package list |
+| 35 | 0 | `midi` | Real Linux MIDI major; the control node |
+| 35 | 1+n | `midi<n>` | One per MIDI port, numbered by position |
+| 81 | 0 | `camera` | Real Linux video4linux major; a command only, offered to other machines with `attach -s` |
+| 180 | 0 | `usb` | Real Linux USB major; the control node |
+| 180 | 1+n | `usb<n>` | One per granted USB device; the number stays with the device (`/var/lib/ecmaos/usb-minors.json`) |
 | 195 | 0 | `gpu` (NVIDIA) | Real Linux NVIDIA major |
-| 216 | 0 | `bluetooth` | Real Linux Bluetooth-adapter major |
-| 0 (dynamic) | 1 | `gamepad` | No longer major 13 - `hid` needs that major to itself now that majors can't be informally shared |
+| 216 | 0 | `bluetooth` | Real Linux Bluetooth-adapter major; the control node |
+| 216 | 1+n | `ble<n>` | One per paired Bluetooth LE device; the number stays with the device |
+| 226 | 0 | `webgl` | Real Linux DRM major, reused loosely |
+| 227 | 0–15 | `gl<N>` | One OpenGL ES context each, drawn by WebGL2 (core, not a package); ecmaOS-assigned, clear of `webgl` |
+| 227 | 128 | `glctl` | Asks for a GL context before a program has one |
+| 0 (dynamic) | 0, 1+n | `serial`, `ttyS<n>` | WebSerial; not major 4, which `xterm_driver` holds |
+| 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID; major 13 belongs to `input` |
+| 0 (dynamic) | 0, 1–4 | `gamepad`, `js0`–`js3` | Gamepads; the nodes are made ahead and open with `ENODEV` until a button is pressed on the pad |
+| 0 (dynamic) | 0, 1+n | `sensors`, `sensor-<kind>` | One per Generic Sensor class the browser has |
+| 0 (dynamic) | any | `ecmaos-remote` | Devices attached from another machine (`attach`) |
 
-`bluetooth` and `usb`'s base entries have no per-device data to carry - there is no way to give the
-*bus itself* a real minor, so `0` marks "the bus, not a device on it." Do not add a new device with
-major/minor `(0, 0)`: major `0` in the *minor* position is reserved in Linux for "unassigned" and is
-never a real device's number (major `0` in the *major* position means "allocate dynamically," which
-is different and fine to request).
+A control node (`usb`, `bluetooth`, `midi`, `serial`, `hid`, `gamepad`, `sensors`) is the bus, not a device on it, and is
+always there, even where the browser lacks the API, so its command can be run. Do not add a new device with major/minor
+`(0, 0)` as a fixed number: major `0` asks for a dynamic major, which is fine to request, but is never a real device's
+number.
 
 ## Community Devices
 
