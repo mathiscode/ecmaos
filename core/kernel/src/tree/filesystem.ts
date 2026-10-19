@@ -533,10 +533,21 @@ export class Filesystem {
     const hasPackageDir = tar.fileInfos.some(file => file.name.startsWith('package/'))
     const stripPrefix = hasPackageDir ? 'package/' : ''
 
+    // The directories already made or seen, with their parents, so a tarball's hundreds of files in a few directories
+    // do not each check theirs again
+    const known = new Set<string>()
+    const remember = (dirPath: string) => {
+      for (let dir = dirPath; !known.has(dir); dir = path.dirname(dir)) {
+        known.add(dir)
+        if (dir === '/' || dir === '.') break
+      }
+    }
+
     // Helper function to ensure a directory exists, removing any file that conflicts
     const ensureDirectory = async (dirPath: string) => {
       const normalizedPath = path.normalize(dirPath)
-      
+      if (known.has(normalizedPath)) return
+
       // Check if path exists and what type it is
       if (await this.fs.exists(normalizedPath)) {
         try {
@@ -546,6 +557,7 @@ export class Filesystem {
             await this.fs.unlink(normalizedPath)
           } else if (stat.isDirectory()) {
             // Directory already exists, nothing to do
+            remember(normalizedPath)
             return
           }
         } catch {
@@ -574,8 +586,12 @@ export class Filesystem {
           throw mkdirError
         }
       }
+      remember(normalizedPath)
     }
 
+    // Directories first, one at a time since they nest; then the files, several at a time, as each only needs its
+    // directory to exist
+    const files: { name: string, relativePath: string }[] = []
     for (const file of tar.fileInfos) {
       // Skip GNU tar @LongLink entries (used for paths > 100 characters)
       // These are metadata entries, not actual files
@@ -592,36 +608,35 @@ export class Filesystem {
           await ensureDirectory(path.join(extractPath, relativePath))
           continue
         }
-
         await ensureDirectory(path.join(extractPath, path.dirname(relativePath)))
-
-        const blob = tar.getFileBlob(file.name)
-        if (!blob) {
-          // Skip files that can't be extracted (e.g., hard links, symlinks, or empty files)
-          continue
-        }
-
-        try {
-          // a Blob without arrayBuffer() (jsdom's) is read the older way
-          const binaryData = new Uint8Array(await (typeof blob.arrayBuffer === 'function'
-            ? blob.arrayBuffer()
-            : new Promise<ArrayBuffer>((resolve, reject) => {
-              const reader = new FileReader()
-              reader.onload = () => resolve(reader.result as ArrayBuffer)
-              reader.onerror = () => reject(reader.error)
-              reader.readAsArrayBuffer(blob as Blob)
-            })))
-          const filePath = path.join(extractPath, relativePath)
-          await this.fs.writeFile(filePath, binaryData, { encoding: 'binary', mode: fileMode })
-        } catch (extractError) {
-          // If we can't extract the file content, skip it rather than failing the entire extraction
-          globalThis.kernel?.terminal.writeln(`Failed to extract file ${file.name}: ${extractError instanceof Error ? extractError.message : String(extractError)}`)
-          continue
-        }
+        files.push({ name: file.name, relativePath })
       } catch (error) {
         globalThis.kernel?.terminal.writeln(`Failed to extract file ${file.name}: ${error}`)
       }
     }
+
+    const extractFile = async ({ name, relativePath }: typeof files[number]) => {
+      const blob = tar.getFileBlob(name)
+      // Skip files that can't be extracted (e.g., hard links, symlinks, or empty files)
+      if (!blob) return
+      try {
+        // a Blob without arrayBuffer() (jsdom's) is read the older way
+        const binaryData = new Uint8Array(await (typeof blob.arrayBuffer === 'function'
+          ? blob.arrayBuffer()
+          : new Promise<ArrayBuffer>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as ArrayBuffer)
+            reader.onerror = () => reject(reader.error)
+            reader.readAsArrayBuffer(blob as Blob)
+          })))
+        const filePath = path.join(extractPath, relativePath)
+        await this.fs.writeFile(filePath, binaryData, { encoding: 'binary', mode: fileMode })
+      } catch (extractError) {
+        // If we can't extract the file content, skip it rather than failing the entire extraction
+        globalThis.kernel?.terminal.writeln(`Failed to extract file ${name}: ${extractError instanceof Error ? extractError.message : String(extractError)}`)
+      }
+    }
+    for (let i = 0; i < files.length; i += 16) await Promise.all(files.slice(i, i + 16).map(extractFile))
   }
 
   /**
