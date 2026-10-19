@@ -136,7 +136,7 @@ describe('evdev', () => {
     expect(ioctlFields(ioc(2, 0x06, 64))).toEqual({ direction: 2, type: 0x45, number: 6, size: 64 })
   })
 
-  describe('the page', () => {
+  describe.skipIf(typeof document === 'undefined')('the page', () => {
     it('feeds an open node from key, mouse and wheel events, and only while it is open', () => {
       const hub = new InputHub()
       const stop = captureDom(document, hub)

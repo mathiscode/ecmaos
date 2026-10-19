@@ -14,6 +14,9 @@ const until = async (check: () => boolean, ms = 8000) => {
   }
 }
 
+// terminal windows are drawn on a page
+const windows = typeof document !== 'undefined'
+
 /** A program run on a pty the kernel holds the master of: what a terminal window does. */
 describe('programs on a kernel-held pty, and terminal windows', () => {
   let kernel: Kernel
@@ -55,7 +58,7 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     return lines.join('\n')
   }
 
-  it('opens a window whose terminal drives a login shell, and closing the window hangs it up', async () => {
+  it.skipIf(!windows)('opens a window whose terminal drives a login shell, and closing the window hangs it up', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root', title: 'term' })
     expect(kernel.windows.list().some(info => info.id === opened.window.id)).toBe(true)
     expect(opened.window.dom.querySelector('.xterm')).not.toBeNull()
@@ -69,14 +72,14 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     await until(() => opened.process.code !== undefined)
   })
 
-  it('closes the window when the shell exits', async () => {
+  it.skipIf(!windows)('closes the window when the shell exits', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root' })
     opened.terminal.input('exit\n')
     await until(() => kernel.windows.get(opened.window.id) === undefined)
     expect(ptyIndices()).not.toContain(opened.pty.index)
   })
 
-  it('passes the emulator\'s size to the program', async () => {
+  it.skipIf(!windows)('passes the emulator\'s size to the program', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root' })
     opened.terminal.resize(111, 33)
     opened.terminal.input('stty size\n')
@@ -84,14 +87,14 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
-  it('names the pty as the terminal', async () => {
+  it.skipIf(!windows)('names the pty as the terminal', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root' })
     opened.terminal.input('tty\n')
     await until(() => screen(opened.terminal).includes(`/dev/pts/${opened.pty.index}`))
     opened.window.close(true)
   })
 
-  it('logs a user in on a login window, runs their shell, and asks again after exit', async () => {
+  it.skipIf(!windows)('logs a user in on a login window, runs their shell, and asks again after exit', async () => {
     await kernel.users.add({ username: 'alice', password: 'wonderland', home: '/home/alice' })
     const opened = await kernel.openTerminalWindow({ username: 'root', login: true })
     expect(opened.window.info.title).toBe('Login')
@@ -116,7 +119,7 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     opened.window.close(true)
   })
 
-  it('lists and controls windows with wmctrl', async () => {
+  it.skipIf(!windows)('lists and controls windows with wmctrl', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root', title: 'wm-test' })
     const run = async (command: string) => {
       const code = await kernel.runDetached({ username: 'root', command: 'wmctrl', args: [...command.split(' '), '>', '/tmp/wm.out', '2>&1'] })
@@ -134,7 +137,7 @@ describe('programs on a kernel-held pty, and terminal windows', () => {
     expect(kernel.windows.get(opened.window.id)).toBeUndefined()
   })
 
-  it('lists, switches and assigns workspaces with wmctrl', async () => {
+  it.skipIf(!windows)('lists, switches and assigns workspaces with wmctrl', async () => {
     const opened = await kernel.openTerminalWindow({ username: 'root', title: 'ws-test' })
     const run = async (command: string) => {
       const code = await kernel.runDetached({ username: 'root', command: 'wmctrl', args: [...command.split(' '), '>', '/tmp/ws.out', '2>&1'] })

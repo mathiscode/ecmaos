@@ -142,7 +142,7 @@ describe('windowSink', () => {
     expect(set).toEqual([{ pixels: { width: 1, height: 1, data: btoa('\x01\x02\x03\x00') } }])
   })
 
-  it('draws a window with a body in a canvas of the frame size', () => {
+  it.skipIf(typeof document === 'undefined')('draws a window with a body in a canvas of the frame size', () => {
     const body = document.createElement('div')
     document.body.append(body)
     windowSink({ body, setContent: () => { throw new Error('unused') } } as never)({ width: 3, height: 2, data: new Uint8Array(24) })

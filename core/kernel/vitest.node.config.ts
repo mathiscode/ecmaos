@@ -34,7 +34,13 @@ export const DomBound: Record<string, string> = {
   // xterm's own key handling, which needs an opened terminal
   'tests/tree/shell-jobs-execve.test.ts': '`^C` arrives through xterm\'s key events',
   'tests/tree/ecmash.test.ts': 'mounts a second terminal on the same tty',
-  'tests/tree/shell-builtins.test.ts': 'mounts a second terminal on the same tty'
+  'tests/tree/shell-builtins.test.ts': 'mounts a second terminal on the same tty',
+  // framebuffer windows, which need a window renderer, and the page's own window views
+  'tests/tree/wayland.test.ts': 'every client draws in a framebuffer window',
+  'tests/tree/fb-input.test.ts': 'the input node of a framebuffer window',
+  'tests/tree/wasi/emcc-mmap.test.ts': 'draws into a framebuffer window through a map',
+  'tests/tree/popups.test.ts': 'windows in browser popups',
+  'tests/tree/screen-view.test.ts': 'draws a remote machine\'s windows in the page'
 }
 
 /** `document.createElement(...)` and `document.body.appendChild(...)` in a test become calls on the stand-in page (see `tests/setup-node.ts`) */
@@ -42,7 +48,7 @@ const standInPage: Plugin = {
   name: 'ecmaos:node-test-page',
   enforce: 'pre',
   transform(code, id) {
-    if (!/\/tests\/.*\.test\.ts$/.test(id) || !code.includes('document.')) return
+    if (!/\/tests\/.*\.ts$/.test(id) || !code.includes('document.')) return
     return code.replace(/\bdocument\.(createElement|body\.appendChild)\(/g, 'globalThis.__page.$1(')
   }
 }

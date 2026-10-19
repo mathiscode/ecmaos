@@ -25,6 +25,10 @@ for (const name of ['localStorage', 'sessionStorage'] as const) {
   Object.defineProperty(globalThis, name, { value: new MemoryStorage(), configurable: true, writable: true })
 }
 
+// Node has `navigator.locks` and jsdom does not: with it, the second kernel a file boots on the same store waits for
+// the first to give up the machine, which it never does. The tests of the machine lock bring their own.
+Object.defineProperty(globalThis.navigator, 'locks', { value: undefined, configurable: true })
+
 // Tests mount the terminal into a page element, and a Node host has no page: it gives the terminal its tty with
 // `attach_xterm`, which is all `mount` does that the kernel needs. The config rewrites those `document` calls to
 // `globalThis.__page`, a stand-in (a global `document` would send the kernel down its browser paths). Tests that need

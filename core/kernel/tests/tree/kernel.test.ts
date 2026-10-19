@@ -87,7 +87,7 @@ describe('Kernel device dispatch', async () => {
       return 0
     },
     async getDrivers() {
-      return [{ name: 'test-device', init: () => ({ major: 250, minor: 0 }), read: () => 0, write: () => 0 }]
+      return [{ name: 'test-device', major: 250, minor: 0, ops: { read: () => 0, write: () => 0 } }]
     }
   }
 
