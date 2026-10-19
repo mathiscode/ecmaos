@@ -19,7 +19,6 @@ export class Log extends Logger<ILogObj> implements ILog {
       type: options.type || 'pretty',
       maskValuesOfKeysCaseInsensitive: true,
       hideLogPositionForProduction: true,
-      prettyLogTemplate: '{{dateIsoStr}} {{name}} {{logLevelName}}\t {{icon}}\t ',
       prettyErrorTemplate: '{{errorName}} {{errorMessage}} {{errorStack}}',
       overwrite: {
         /* v8 ignore start */
@@ -48,6 +47,9 @@ export class Log extends Logger<ILogObj> implements ILog {
         /* v8 ignore end */
       }
     })
+
+    // Set after construction: tslog warns about any placeholder it does not know, including the ones addPlaceholders adds
+    this.settings.prettyLogTemplate = '{{dateIsoStr}} {{name}} {{logLevelName}}\t {{icon}}\t '
 
     this._name = options.name || 'ecmaos:kernel'
 

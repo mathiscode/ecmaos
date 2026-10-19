@@ -140,7 +140,9 @@ const host = nodeHost({
 const kernel = new Kernel({
   // `--login` leaves the console at a login prompt (`/sbin/getty` under init) instead of logging root in
   credentials: args.has('--login') ? undefined : { username: 'root', password: 'root' },
-  host
+  host,
+  // the console is this terminal, so --quiet keeps the kernel's log off it; /var/log/kernel.log still gets every line
+  ...(args.has('--quiet') ? { log: { type: 'hidden' as const } } : {})
 })
 
 await kernel.boot({ silent: args.has('--quiet') })
