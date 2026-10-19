@@ -4,6 +4,9 @@ packages:
   - 'devices/*'
   - 'modules/*'
   - 'utils/*'
+  - '!utils/opentelemetry'
+  - '!utils/wasm'
+  - '!utils/webtransport'
 
 minimumReleaseAgeExclude:
   - '@zenfs/*'

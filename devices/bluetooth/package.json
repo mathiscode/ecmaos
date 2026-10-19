@@ -22,9 +22,9 @@
     "vite-plugin-node-polyfills": "^0.28.0"
   },
   "dependencies": {
+    "@ecmaos-devices/session": "workspace:^",
     "ansi-escape-sequences": "^6.2.4",
-    "smol-toml": "^1.6.0",
-    "@ecmaos-devices/session": "workspace:^"
+    "smol-toml": "^1.6.0"
   },
   "files": [
     "dist"

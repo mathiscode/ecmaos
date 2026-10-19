@@ -546,7 +546,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0
       '@types/winbox':
-        specifier: ^0.2.5
+        specifier: 0.2.5
         version: 0.2.5
       '@typhonjs-typedoc/ts-lib-docs':
         specifier: ^2024.9.18

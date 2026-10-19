@@ -42,6 +42,10 @@ jobs:
       - name: Initfs is up to date
         run: pnpm check:initfs
 
+      # Package manifests: one version of each dependency across the workspace, dependencies sorted (pnpm fix:repo fixes it)
+      - name: Workspace manifests
+        run: pnpm lint:repo
+
       - name: Build
         run: pnpm build
 

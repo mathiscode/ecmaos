@@ -26,8 +26,8 @@
     "vite-plugin-node-polyfills": "^0.28.0"
   },
   "dependencies": {
-    "ansi-escape-sequences": "^6.2.4",
-    "@ecmaos-devices/session": "workspace:^"
+    "@ecmaos-devices/session": "workspace:^",
+    "ansi-escape-sequences": "^6.2.4"
   },
   "files": [
     "dist"

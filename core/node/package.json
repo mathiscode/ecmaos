@@ -34,7 +34,7 @@
     "@ecmaos/peer": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.7.4",
+    "@types/node": "22.20.2",
     "@types/ws": "^8.18.1",
     "@zenfs/core": "^2.7.7",
     "@zenfs/linux": "0.6.1",
