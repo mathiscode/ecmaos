@@ -1,9 +1,10 @@
 /**
  * `tar`: create, list, extract, append to, update and delete from tar archives, as GNU tar does. Headers are written byte for
  * byte as GNU writes them (`gnu` by default; `ustar`, `posix` and `v7` with `--format`), an archive is padded to full records, a
- * name too long for a header goes in a long-name member, and archives can be gzip compressed (`-z`, or by the name with `-a`;
- * a compressed archive is recognized when read). Options after a file name are positional, as in GNU tar: `--exclude` and
- * `-C` apply to the names that follow them.
+ * name too long for a header goes in a long-name member, and archives can be compressed: gzip in place (`-z`), and bzip2, xz,
+ * lzma and zstd (`-j`, `-J`, `--lzma`, `--zstd`) or any program (`-I`) through the program of that name, run as a filter; `-a`
+ * picks one by the archive's name, and a compressed archive is recognized when read. Options after a file name are positional,
+ * as in GNU tar: `--exclude` and `-C` apply to the names that follow them.
  */
 
 import { compile as compilePattern } from './lib/fnmatch.mjs'
@@ -11,9 +12,10 @@ import { readFdBytes, readFileBytes, writeFdBytes } from './lib/bytes.mjs'
 import { reasonOf } from './lib/errno.mjs'
 import { chmodOwned, chownOwned, utimesOwned } from './lib/owner-ops.mjs'
 import { resolve } from './lib/path-utils.mjs'
+import { findProgram, readAll, statusOf, waitFor } from './lib/run.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { argv, exit, getcwd, open, close, stat, lstat, readdir, mkdir, unlink, rmdir, symlink, link, readlink, getuid, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
+const { argv, exit, getcwd, open, close, stat, lstat, readdir, mkdir, unlink, rmdir, symlink, link, readlink, getuid, getpid, pipe, spawn, env, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -54,7 +56,12 @@ GNU 'tar' saves many files together into a single tape or disk archive, and can 
 
  Compression options:
   -a, --auto-compress        use archive suffix to determine the compression program
+  -I, --use-compress-program=PROG   filter through PROG (must accept -d)
+  -j, --bzip2                filter the archive through bzip2
+  -J, --xz                   filter the archive through xz
+      --lzma                 filter the archive through xz --format=lzma
   -z, --gzip, --gunzip, --ungzip   filter the archive through gzip
+      --zstd                 filter the archive through zstd
 
  Local file selection:
   -C, --directory=DIR        change to directory DIR
@@ -344,7 +351,7 @@ function parseTransform(expression) {
 
 const LONG = {
   create: ['c'], extract: ['x'], get: ['x'], list: ['t'], append: ['r'], update: ['u'], catenate: ['A'], concatenate: ['A'], delete: ['delete'], diff: ['d'], compare: ['d'],
-  file: ['f', 1], verbose: ['v'], gzip: ['z'], gunzip: ['z'], ungzip: ['z'], bzip2: ['j'], xz: ['J'], lzma: ['lzma'], 'auto-compress': ['a'],
+  file: ['f', 1], verbose: ['v'], gzip: ['z'], gunzip: ['z'], ungzip: ['z'], bzip2: ['j'], xz: ['J'], lzma: ['lzma'], zstd: ['zstd'], 'auto-compress': ['a'],
   directory: ['C', 1], exclude: ['exclude', 1], 'exclude-from': ['X', 1], 'files-from': ['T', 1], 'strip-components': ['strip', 1], 'to-stdout': ['O'],
   'keep-old-files': ['k'], 'skip-old-files': ['skip-old'], 'keep-newer-files': ['keep-newer'], overwrite: ['overwrite'], 'no-overwrite-dir': ['no-overwrite-dir'],
   'preserve-permissions': ['p'], 'same-permissions': ['p'], 'no-same-permissions': ['no-p'], 'same-owner': ['same-owner'], 'no-same-owner': ['no-same-owner'],
@@ -369,7 +376,7 @@ function parseCommandLine(args) {
     mode: undefined, file: undefined, verbose: 0, gzip: false, auto: false, strip: 0, toStdout: false, keepOld: false, skipOld: false, keepNewer: false,
     preserve: undefined, sameOwner: undefined, touch: false, numericOwner: false, owner: undefined, group: undefined, mtime: undefined, mode_: undefined,
     format: 'gnu', dereference: false, absolute: false, topLevel: undefined, wildcards: false, anchored: false, ignoreCase: false, nullSep: false, recursion: true,
-    removeFiles: false, totals: false, blocking: 20, ignoreZeros: false, filesFrom: [], excludeFrom: [], newer: undefined, sort: 'name', compressProgram: undefined, transforms: []
+    removeFiles: false, totals: false, blocking: 20, ignoreZeros: false, filesFrom: [], excludeFrom: [], newer: undefined, sort: 'name', compress: undefined, compressProgram: undefined, transforms: []
   }
   const state = { directory: undefined, excludes: [], recursion: true, transforms: [] }
   const items = []
@@ -396,8 +403,10 @@ function parseCommandLine(args) {
       case 'f': o.file = value; break
       case 'v': o.verbose++; break
       case 'z': o.gzip = true; break
-      case 'j': throw new Fatal('bzip2 compression is not available here')
-      case 'J': case 'lzma': throw new Fatal('xz compression is not available here')
+      case 'j': o.compress = 'bzip2'; break
+      case 'J': o.compress = 'xz'; break
+      case 'lzma': o.compress = 'lzma'; break
+      case 'zstd': o.compress = 'zstd'; break
       case 'a': o.auto = true; break
       case 'C': state.directory = value; break
       case 'exclude': state.excludes = [...state.excludes, value]; if (seenName) optionsAfterNames.push('--exclude'); break
@@ -506,16 +515,96 @@ async function through(bytes, transform) {
   return concat(chunks)
 }
 
+/** The programs the compressions other than gzip run through, as GNU tar runs them (with `-d` added to decompress) */
+const FILTERS = { bzip2: ['bzip2'], xz: ['xz'], lzma: ['xz', '--format=lzma'], zstd: ['zstd', '-q'] }
+
+/** The compression an archive's name asks for under `-a`, as GNU tar reads the suffix */
+function compressionOfName(name) {
+  if (!name) return undefined
+  if (/\.(gz|tgz|taz)$/.test(name)) return 'gzip'
+  if (/\.(bz2|tz2|tbz2|tbz)$/.test(name)) return 'bzip2'
+  if (/\.(xz|txz)$/.test(name)) return 'xz'
+  if (/\.(lzma|tlz)$/.test(name)) return 'lzma'
+  if (/\.(zst|tzst)$/.test(name)) return 'zstd'
+  return undefined
+}
+
+/** The compression `bytes` were made with, from their first bytes */
+function compressionOfBytes(bytes) {
+  const starts = (...magic) => bytes.length >= magic.length && magic.every((byte, i) => bytes[i] === byte)
+  if (starts(0x1f, 0x8b)) return 'gzip'
+  if (starts(0x42, 0x5a, 0x68)) return 'bzip2'
+  if (starts(0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00)) return 'xz'
+  if (starts(0x28, 0xb5, 0x2f, 0xfd)) return 'zstd'
+  return undefined
+}
+
+let scratchCount = 0
+
+/**
+ * `bytes` through `words` (a program and its arguments) as a filter: the program reads them on its standard input, from a
+ * scratch file so neither side waits on the other, and what it writes to its standard output is the result.
+ */
+async function filter(words, bytes) {
+  const program = findProgram(words[0])
+  if (!program) throw new Fatal(`${words[0]}: Cannot exec: No such file or directory`, 2, 'Error is not recoverable: exiting now')
+  const scratch = `/tmp/.tar-${getpid()}-${scratchCount++}`
+  const input = open(scratch, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+  try { writeFdBytes(input, bytes) } finally { close(input) }
+  let output
+  let status
+  try {
+    const stdin = open(scratch, O_RDONLY)
+    const [reader, writer] = pipe()
+    let pid
+    try { pid = await spawn(program, [words[0].split('/').pop(), ...words.slice(1)], { cwd: getcwd(), env, fds: { 0: stdin, 1: writer, 2: 2 } }) } finally {
+      close(writer)
+      close(stdin)
+    }
+    output = readAll(reader)
+    close(reader)
+    status = statusOf(await waitFor(pid))
+  } finally {
+    try { unlink(scratch) } catch { /* already gone */ }
+  }
+  if (status !== 0) throw new Fatal(`Child returned status ${status}`, 2, 'Error is not recoverable: exiting now')
+  return output
+}
+
+/** The program words of a compression, or of `-I` */
+const filterWords = (o, compression) => compression === 'program' ? o.compressProgram.split(/\s+/).filter(Boolean) : FILTERS[compression]
+
+async function compress(o, compression, bytes) {
+  if (compression === 'gzip') return await through(bytes, new CompressionStream('gzip'))
+  return await filter(filterWords(o, compression), bytes)
+}
+
+async function decompress(o, compression, bytes) {
+  if (compression === 'gzip') {
+    try { return await through(bytes, new DecompressionStream('gzip')) } catch { throw new Fatal('Child returned status 1', 2, 'Error is not recoverable: exiting now') }
+  }
+  return await filter([...filterWords(o, compression), '-d'], bytes)
+}
+
+/** What `-z`, `-j`, `-J`, `--lzma`, `--zstd`, `-I` or (with `-a`) the archive's name ask to compress with, if anything */
+function chosenCompression(o) {
+  if (o.compressProgram !== undefined) return /^gzip( -c)?$/.test(o.compressProgram.trim()) ? 'gzip' : 'program'
+  if (o.compress) return o.compress
+  if (o.gzip) return 'gzip'
+  if (o.auto) return compressionOfName(o.file)
+  return undefined
+}
+
 async function readArchive(o) {
   let bytes
   try { bytes = o.file === undefined || o.file === '-' ? readFdBytes(0) : readFileBytes(resolve(getcwd(), o.file)) } catch (error) {
     throw new Fatal(`${o.file}: Cannot open: ${reasonOf(error)}`, 2, 'Error is not recoverable: exiting now')
   }
-  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    try { bytes = await through(bytes, new DecompressionStream('gzip')) } catch { throw new Fatal('Child returned status 1', 2, 'Error is not recoverable: exiting now') }
-  } else if (bytes.length >= 3 && bytes[0] === 0x42 && bytes[1] === 0x5a && bytes[2] === 0x68) throw new Fatal('bzip2 compressed archives are not supported here')
-  else if (bytes.length >= 6 && bytes[0] === 0xfd && bytes[1] === 0x37 && bytes[2] === 0x7a && bytes[3] === 0x58) throw new Fatal('xz compressed archives are not supported here')
-  return bytes
+  // the bytes say what they are; `-I` is taken at its word, and lzma (whose header is too loose to tell by) is asked for
+  // with --lzma or named by the archive's suffix
+  const chosen = chosenCompression({ ...o, auto: false })
+  const compression = chosen === 'program' || chosen === 'lzma' ? chosen : compressionOfBytes(bytes) ?? (compressionOfName(o.file) === 'lzma' ? 'lzma' : undefined)
+  return compression ? await decompress(o, compression, bytes) : bytes
 }
 
 async function writeArchive(o, chunks) {
@@ -524,9 +613,8 @@ async function writeArchive(o, chunks) {
   const record = o.blocking * BLOCK
   const padded = new Uint8Array(Math.ceil(body.length / record) * record)
   padded.set(body)
-  let bytes = padded
-  const gzip = o.gzip || (o.auto && o.file && /\.(tgz|taz|gz)$/.test(o.file)) || o.compressProgram === 'gzip' || o.compressProgram === 'gzip -c'
-  if (gzip) bytes = await through(bytes, new CompressionStream('gzip'))
+  const compression = chosenCompression(o)
+  const bytes = compression ? await compress(o, compression, padded) : padded
   if (o.file === undefined || o.file === '-') { flushOut(); writeFdBytes(1, bytes); return }
   const fd = open(resolve(getcwd(), o.file), O_WRONLY | O_CREAT | O_TRUNC, 0o666)
   try { writeFdBytes(fd, bytes) } finally { close(fd) }
@@ -864,13 +952,13 @@ async function currentUmask() {
 /** `-r`, `-u`, `--delete` and `-A`: the archive is read, changed and written back (compression is not allowed) */
 async function modify(o, items) {
   if (o.file === undefined || o.file === '-') throw new Fatal('Cannot update compressed archives or standard input', 2)
-  if (o.gzip) throw new Fatal('Cannot update compressed archives', 2)
+  if (chosenCompression({ ...o, auto: false })) throw new Fatal('Cannot update compressed archives', 2)
   const path = resolve(getcwd(), o.file)
   let bytes
   try { bytes = readFileBytes(path) } catch (error) {
     if (o.mode === 'r' || o.mode === 'u') { bytes = new Uint8Array() } else throw new Fatal(`${o.file}: Cannot open: ${reasonOf(error)}`, 2, 'Error is not recoverable: exiting now')
   }
-  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) throw new Fatal('Cannot update compressed archives', 2)
+  if (['gzip', 'bzip2', 'xz', 'zstd'].includes(compressionOfBytes(bytes))) throw new Fatal('Cannot update compressed archives', 2)
   const { entries, problem } = parseArchive(bytes)
   if (bytes.length > 0 && entries.length === 0 && problem) { err(problem); err('Exiting with failure status due to previous errors'); return 2 }
   const kept = entries.map(entry => entry.raw)
@@ -883,7 +971,7 @@ async function modify(o, items) {
       remaining.push(entry.raw)
     }
     patterns.forEach((pattern, index) => { if (!matched.has(index)) fail(`${pattern}: Not found in archive`) })
-    await writeArchive({ ...o, gzip: false, auto: false }, remaining)
+    await writeArchive({ ...o, gzip: false, auto: false, compress: undefined, compressProgram: undefined }, remaining)
   } else if (o.mode === 'A') {
     const chunks = [...kept]
     for (const item of items) {
@@ -892,7 +980,7 @@ async function modify(o, items) {
       try { other = parseArchive(readFileBytes(resolve(getcwd(), item.name))) } catch (error) { fail(`${item.name}: Cannot open: ${reasonOf(error)}`); continue }
       chunks.push(...other.entries.map(entry => entry.raw))
     }
-    await writeArchive({ ...o, gzip: false, auto: false }, chunks)
+    await writeArchive({ ...o, gzip: false, auto: false, compress: undefined, compressProgram: undefined }, chunks)
   } else {
     let chunks
     if (o.mode === 'u') {
@@ -910,7 +998,7 @@ async function modify(o, items) {
       }
       chunks = fresh
     } else chunks = await createEntries(o, items, { count: 0 })
-    await writeArchive({ ...o, gzip: false, auto: false }, [...kept, ...chunks])
+    await writeArchive({ ...o, gzip: false, auto: false, compress: undefined, compressProgram: undefined }, [...kept, ...chunks])
   }
   flushOut()
   if (failures) { err('Exiting with failure status due to previous errors'); return 2 }

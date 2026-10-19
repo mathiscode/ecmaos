@@ -77,6 +77,46 @@ describe('text command batch 12: tar, real execve', () => {
     expect(content).toBe('gzipped content')
   })
 
+  describe('compression through the shipped programs', () => {
+    beforeAll(async () => {
+      const { readFileSync } = process.getBuiltinModule('node:fs')
+      for (const name of ['bzip2', 'xz', 'zstd']) {
+        await kernel.filesystem.fs.writeFile(`/bin/${name}`, new Uint8Array(readFileSync(`${process.cwd()}/../utils/programs/${name}.wasm`)), { mode: 0o755 })
+      }
+      await kernel.filesystem.fs.mkdir('/tmp/tar-filter-src', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/tmp/tar-filter-src/f.txt', 'filtered content\n'.repeat(200))
+    })
+
+    const roundTrip = async (create: string, archive: string, extract: string, magic: number[]) => {
+      expect(await kernel.shell.execute(`cd /tmp && tar ${create} /tmp/${archive} tar-filter-src`)).toBe(0)
+      const bytes = await kernel.filesystem.fs.readFile(`/tmp/${archive}`)
+      expect([...bytes.subarray(0, magic.length)]).toEqual(magic)
+      const dest = `/tmp/tar-filter-${archive.replace(/\W/g, '-')}`
+      await kernel.filesystem.fs.mkdir(dest, { recursive: true })
+      expect(await kernel.shell.execute(`tar ${extract} /tmp/${archive} -C ${dest}`)).toBe(0)
+      expect(await kernel.filesystem.fs.readFile(`${dest}/tar-filter-src/f.txt`, 'utf-8')).toBe('filtered content\n'.repeat(200))
+    }
+
+    it('-j goes through bzip2', async () => { await roundTrip('-cjf', 'a.tar.bz2', '-xjf', [0x42, 0x5a, 0x68]) })
+    it('-J goes through xz', async () => { await roundTrip('-cJf', 'a.tar.xz', '-xJf', [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) })
+    it('--zstd goes through zstd', async () => { await roundTrip('--zstd -cf', 'a.tar.zst', '--zstd -xf', [0x28, 0xb5, 0x2f, 0xfd]) })
+    it('--lzma goes through xz --format=lzma, and the suffix names it when read', async () => { await roundTrip('--lzma -cf', 'a.tar.lzma', '-xf', [0x5d, 0x00, 0x00]) })
+    it('-a picks the program by the suffix, and reading recognizes the compression', async () => { await roundTrip('-caf', 'b.tar.xz', '-xf', [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) })
+    it('-I runs any program, with -d to decompress', async () => { await roundTrip('-I bzip2 -cf', 'c.tbz', '-I bzip2 -xf', [0x42, 0x5a, 0x68]) })
+
+    it('lists a compressed archive from standard input', async () => {
+      expect(await kernel.shell.execute('cd /tmp && tar -cJf /tmp/d.tar.xz tar-filter-src && tar -tf - < /tmp/d.tar.xz > /tmp/tar-filter-list.out')).toBe(0)
+      expect(await kernel.filesystem.fs.readFile('/tmp/tar-filter-list.out', 'utf-8')).toBe('tar-filter-src/\ntar-filter-src/f.txt\n')
+    })
+
+    it('refuses to update a compressed archive, and says when the program is missing', async () => {
+      expect(await kernel.shell.execute('cd /tmp && tar -rf /tmp/a.tar.bz2 tar-filter-src 2>/tmp/tar-filter-r.err')).toBe(2)
+      expect(await kernel.filesystem.fs.readFile('/tmp/tar-filter-r.err', 'utf-8')).toContain('Cannot update compressed archives')
+      expect(await kernel.shell.execute('cd /tmp && tar -I nosuchzip -cf /tmp/e.tar tar-filter-src 2>/tmp/tar-filter-missing.err')).toBe(2)
+      expect(await kernel.filesystem.fs.readFile('/tmp/tar-filter-missing.err', 'utf-8')).toBe('tar: nosuchzip: Cannot exec: No such file or directory\ntar: Error is not recoverable: exiting now\n')
+    })
+  })
+
   it('extracts a multi-level nested path with no intermediate directory entries, matching real npm tarballs', async () => {
     // Regression: extraction's `mkdir` was single-level. An npm tarball often has only file entries for nested paths
     // such as `dist/assets/foo.js`, so the archive is built by hand with `packTar` and no directory entries.
