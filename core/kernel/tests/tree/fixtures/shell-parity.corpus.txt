@@ -428,6 +428,26 @@ for i in 1 2; do (echo "$i") done
 { (echo a) }; echo next
 ### syntax/fi-after-group
 if true; then { echo a; } fi
+### syntax/function-redirect fs
+f() { echo inside; } > out.txt; f; f; cat out.txt
+### syntax/function-redirect-stderr
+g() { echo err >&2; echo out; } 2>/dev/null; g
+### syntax/function-keyword-redirect fs
+function h { echo kw; } >> log.txt; h; h; cat log.txt
+### syntax/function-redirect-multiline fs
+f() {
+  echo a
+  echo b
+} > ml.txt
+f; cat ml.txt
+### syntax/source-runs-lines-before-error fs
+printf 'echo one\necho two\nfi\necho three\n' > s.sh; . ./s.sh; echo "status $?"
+### syntax/source-error-on-first-line fs
+printf 'echo one; fi\n' > s.sh; . ./s.sh; echo "status $?"
+### syntax/source-incomplete fs
+printf 'echo one\nif true; then\necho two\n' > s.sh; . ./s.sh; echo "status $?"
+### syntax/eval-runs-lines-before-error
+eval $'echo one\nfi\necho two'; echo "status $?"
 ### gaps/read-timeout-expires
 sleep 1 | { read -t 0.2 x; echo "st=$?"; }
 ### gaps/read-timeout-data

@@ -18,6 +18,7 @@ import { ulimitBuiltin } from './builtin-ulimit.js'
 import { evaluateTest, type TestFileInfo, type TestHost } from './test-eval.js'
 import { hashBuiltin, helpBuiltin, logoutBuiltin, timesBuiltin } from './builtins-info.js'
 import type { Interpreter } from './interpreter.js'
+import { ControlFlowParseError } from '../control-flow-parser.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, parseSignalArgument } from './signals.js'
 import { UNCATCHABLE_SIGNALS, normalizeSignal, signalNameList } from './signal-table.js'
 import type { ShellOptionName, ShellState } from './state.js'
@@ -1131,6 +1132,11 @@ async function source(host: BuiltinHost, argv: string[], io: BuiltinIO, keyword:
     return await host.interpreter.runSourced(text, args.length > 0 ? args : undefined, resolved)
   } catch (error) {
     if (isControlFlowSignal(error)) throw error
+    // the commands before a syntax error have run, as in bash, and the status is bash's for a syntax error
+    if (error instanceof ControlFlowParseError) {
+      await io.writelnErr(`${name}: ${error.incomplete ? 'syntax error: unexpected end of file' : error.message}`)
+      return 2
+    }
     await io.writelnErr(`${keyword}: ${name}: ${message(error)}`)
     return 1
   }

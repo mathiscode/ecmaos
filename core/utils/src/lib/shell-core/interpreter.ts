@@ -4,7 +4,7 @@
  * `break`/`continue`/`return`/`exit` unwinding. Running a pipeline stays with each host ({@link InterpreterHost}).
  */
 
-import { parseStatements, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
+import { parseRunnable, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
 import { parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
 import { ArithmeticError } from '../expand-variables.js'
 import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
@@ -106,8 +106,15 @@ export class Interpreter {
     return Number((await this.host.expandWords(`$(( ${expression} ))`))[0] ?? 0)
   }
 
+  /**
+   * Runs `text` as bash reads a script, a command at a time: when a line does not parse, the commands before it have
+   * run, and the {@link ControlFlowParseError} is thrown after them.
+   */
   async runText(text: string): Promise<number> {
-    return await this.runStatements(parseStatements(text))
+    const { statements, failure } = parseRunnable(text)
+    const status = await this.runStatements(statements)
+    if (failure) throw failure
+    return status
   }
 
   private statementDepth = 0
@@ -519,12 +526,14 @@ export class Interpreter {
    * the shell that sourced it.
    */
   async runSourced(text: string, positional?: string[], file?: string): Promise<number> {
-    const statements = parseStatements(text)
+    const { statements, failure } = parseRunnable(text)
     const restoreParameters = positional ? this.host.enterParameters(positional) : undefined
     this.catchers.return++
     if (file !== undefined) this.state.pushSourceFrame(file)
     try {
-      return await this.runStatements(statements)
+      const status = await this.runStatements(statements)
+      if (failure) throw failure
+      return status
     } catch (signal) {
       if (signal instanceof ReturnSignal) return signal.code
       throw signal

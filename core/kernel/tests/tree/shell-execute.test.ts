@@ -249,6 +249,15 @@ describe('Shell.execute - real execution over the new parser', () => {
     })
   })
 
+  describe('a script with a syntax error', () => {
+    it('runs the commands before the bad line, then stops with status 2, as bash does', async () => {
+      const path = '/tmp/shell-script-syntax.out'
+      const code = await kernel.shell.executeScriptText(`echo one > ${path}\necho two >> ${path}\nfi\necho three >> ${path}\n`)
+      expect(code).toBe(2)
+      expect(await kernel.filesystem.fs.readFile(path, 'utf-8')).toBe('one\ntwo\n')
+    })
+  })
+
   describe('trap', () => {
     it('runs an EXIT trap when a script finishes', async () => {
       const path = '/tmp/shell-trap-exit-test.out'

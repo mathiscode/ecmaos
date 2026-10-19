@@ -181,6 +181,11 @@ export type Statement = AndOrStatement | PipelineStatement | SimpleStatement | I
  */
 export class ControlFlowParseError extends Error {
   readonly incomplete: boolean
+  /**
+   * The statements of a whole script that end on lines before the one that failed. bash reads a script a command at a
+   * time, so it has run these when it finds the error; {@link parseStatements} sets it.
+   */
+  before?: Statement[]
   constructor(message: string, incomplete = false) {
     super(message)
     this.incomplete = incomplete
@@ -580,6 +585,23 @@ class LineParser {
     return (line.split(/\s+/)[0]) ?? ''
   }
 
+  /** The statements of a whole script; a failure carries the ones that ended before it, as `before` */
+  parseScript(): Statement[] {
+    const statements: Statement[] = []
+    while (!this.atEnd()) {
+      const start = this.here()
+      try {
+        statements.push(this.parsePositionedStatement())
+      } catch (error) {
+        if (error instanceof ControlFlowParseError) {
+          error.before = statements.filter(statement => start === undefined || statement.lineNumber === undefined || statement.lineNumber < start)
+        }
+        throw error
+      }
+    }
+    return statements
+  }
+
   parseStatements(stopWords: string[]): Statement[] {
     const statements: Statement[] = []
     while (!this.atEnd() && !stopWords.includes(this.firstWord(this.peek() as string))) {
@@ -701,12 +723,9 @@ class LineParser {
       case '{': return this.parseGroup()
       default: {
         if (SUBSHELL_OPEN.test(line)) return this.parseSubshell()
-        const inlineFn = INLINE_FUNCTION_DEF.exec(line)
-        if (inlineFn) {
-          const at = this.here() ?? 1
-          this.advance()
-          return { type: 'function', name: inlineFn[1] as string, body: parseInlineBody(inlineFn[2] as string, at) }
-        }
+        const header = FUNCTION_HEADER.exec(line)
+        const inlineFn = header && this.inlineFunction(header[1] as string, header[2] as string)
+        if (inlineFn) return inlineFn
         const fnMatch = OPEN_FUNCTION_DEF.exec(line)
         if (fnMatch) {
           this.advance()
@@ -939,10 +958,11 @@ class LineParser {
   }
 
   private parseFunctionKeywordForm(): FunctionDef {
-    const at = this.here() ?? 1
-    const header = this.restAfterKeyword(this.advance(), 'function')
-    const inline = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.+)\}\s*$/.exec(header)
-    if (inline) return { type: 'function', name: inline[1] as string, body: parseInlineBody(inline[2] as string, at) }
+    const header = this.restAfterKeyword(this.peek() as string, 'function')
+    const braced = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*(\{.*)$/s.exec(header)
+    const inline = braced && this.inlineFunction(braced[1] as string, braced[2] as string)
+    if (inline) return inline
+    this.advance()
     const open = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*\{(.*)$/.exec(header)
     if (open) return this.finishFunctionBody(open[1] as string, true, open[2])
     const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(\s*\))?\s*$/.exec(header)
@@ -973,15 +993,32 @@ class LineParser {
       body.push(this.parsePositionedStatement())
     }
 
-    this.expectKeywordLine('}')
-    return { type: 'function', name, body }
+    return this.functionDef(name, body, this.expectKeywordLine('}'))
+  }
+
+  /**
+   * `NAME() { list; }` whole on this line, the `{...` part given as `braced`, and consumes the line; undefined when the
+   * body goes on past it. What follows the `}` is a redirection made each time the function is called.
+   */
+  private inlineFunction(name: string, braced: string): FunctionDef | undefined {
+    const text = braced.trim()
+    const close = /^\{\s/.test(text) ? closingBrace(text) : -1
+    if (close === -1) return undefined
+    const at = this.here() ?? 1
+    this.advance()
+    return this.functionDef(name, parseInlineBody(text.slice(1, close), at), this.compoundTail(text.slice(close + 1).trim(), at))
+  }
+
+  /** A redirection on the definition applies to every call: the body becomes a group that carries it */
+  private functionDef(name: string, body: Statement[], redirect: string): FunctionDef {
+    if (!redirect) return { type: 'function', name, body }
+    if (!/^\d*[<>]|^&>/.test(redirect)) throw unexpectedToken(this.firstWord(redirect))
+    return { type: 'function', name, body: [{ type: 'group', body, redirect }] }
   }
 }
 
-/**
- * A whole function definition on one line: `f() { echo hi; }`. The body is greedy, so nested blocks stay inside it.
- */
-const INLINE_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{(.+)\}\s*$/s
+/** `NAME()` and the rest of the line from its opening brace: a definition whose body may close on this line. */
+const FUNCTION_HEADER = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(\{.*)$/s
 
 /** `NAME()` with an opening brace whose body is not closed on this line (`greet() {` or `greet() { echo hi`). */
 const OPEN_FUNCTION_DEF = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*(?:\{(.*))?$/s
@@ -1171,9 +1208,17 @@ function normalizeOneLine(text: string): string {
  */
 export function parseStatements(script: string): Statement[] {
   const lines = preprocessLines(foldHeredocs(script))
-  const parser = new LineParser(lines)
-  const statements = parser.parseStatements([])
-  return statements
+  return new LineParser(lines).parseScript()
+}
+
+/** A script's statements; when it does not parse, the ones that come before the failure, and the failure. */
+export function parseRunnable(script: string): { statements: Statement[], failure?: ControlFlowParseError } {
+  try {
+    return { statements: parseStatements(script) }
+  } catch (error) {
+    if (!(error instanceof ControlFlowParseError)) throw error
+    return { statements: error.before ?? [], failure: error }
+  }
 }
 
 /**

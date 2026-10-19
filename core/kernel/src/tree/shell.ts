@@ -22,7 +22,7 @@ import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { printfBytes } from '@ecmaos/coreutils/lib/printf-format'
 import { ParseError, parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
-import { CONTROL_FLOW_KEYWORDS, ControlFlowParseError, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
+import { CONTROL_FLOW_KEYWORDS, ControlFlowParseError, parseRunnable, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
 import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-parser'
 import { aggregateBuiltinNames, jobStatusLabel, kernelBuiltinHost, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { testExpression, shellQuote } from '@ecmaos/coreutils/lib/shell-core/builtins'
@@ -2000,15 +2000,11 @@ export class Shell implements IShell {
 
   /** Runs a full script's text to completion; `Kernel.executeScript`'s entry point. */
   async executeScriptText(script: string, file?: string, args?: string[]): Promise<number> {
-    let statements: Statement[]
+    // bash reads a script a command at a time: the commands before a line that does not parse run, then it stops
+    let parsed: ReturnType<typeof parseRunnable>
     try {
-      statements = parseStatements(script)
+      parsed = parseRunnable(script)
     } catch (error) {
-      // A script that does not parse is not run at all, as in bash.
-      if (error instanceof ControlFlowParseError) {
-        await this.terminalBuiltinIO().writelnErr(controlFlowMessage(error))
-        return this.reportExit(2)
-      }
       if (!(error instanceof ParseError)) throw error
       await this.terminalBuiltinIO().writelnErr(syntaxMessage(error.message))
       return this.reportExit(2)
@@ -2021,7 +2017,10 @@ export class Shell implements IShell {
     const previousName = this._env.get('0')
     if (file !== undefined) { this.state.pushSourceFrame(file, 0); this._env.set('0', file) }
     try {
-      return await this.executeStatements(statements)
+      const status = await this.executeStatements(parsed.statements)
+      if (!parsed.failure) return status
+      await this.terminalBuiltinIO().writelnErr(controlFlowMessage(parsed.failure))
+      return this.reportExit(2)
     } catch (signal) {
       // `exit N` ends the script with code N. The `EXIT` trap still runs, in the `finally` below,
       // because that is precisely when bash runs it.

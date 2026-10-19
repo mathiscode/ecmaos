@@ -723,6 +723,38 @@
     "stdout": "a\n",
     "status": 0
   },
+  "syntax/function-redirect": {
+    "stdout": "inside\n",
+    "status": 0
+  },
+  "syntax/function-redirect-stderr": {
+    "stdout": "out\n",
+    "status": 0
+  },
+  "syntax/function-keyword-redirect": {
+    "stdout": "kw\nkw\n",
+    "status": 0
+  },
+  "syntax/function-redirect-multiline": {
+    "stdout": "a\nb\n",
+    "status": 0
+  },
+  "syntax/source-runs-lines-before-error": {
+    "stdout": "one\ntwo\nstatus 2\n",
+    "status": 0
+  },
+  "syntax/source-error-on-first-line": {
+    "stdout": "status 2\n",
+    "status": 0
+  },
+  "syntax/source-incomplete": {
+    "stdout": "one\nstatus 2\n",
+    "status": 0
+  },
+  "syntax/eval-runs-lines-before-error": {
+    "stdout": "one\nstatus 2\n",
+    "status": 0
+  },
   "gaps/read-timeout-expires": {
     "stdout": "st=142\n",
     "status": 0

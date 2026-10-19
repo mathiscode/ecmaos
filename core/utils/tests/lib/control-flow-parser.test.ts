@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseStatements } from '../../src/lib/control-flow-parser.ts'
+import { parseRunnable, parseStatements } from '../../src/lib/control-flow-parser.ts'
 import type { CaseStatement, ForStatement, FunctionDef, IfStatement, SimpleStatement, Statement, WhileStatement } from '../../src/lib/control-flow-parser.ts'
 
 describe('parseStatements: C-style for', () => {
@@ -558,5 +558,35 @@ describe('parseStatements: syntax errors bash reports', () => {
     expect(parseStatements('(echo a) > /tmp/x; echo b').map(s => s.type)).toEqual(['subshell', 'simple'])
     expect(parseStatements('while read l; do echo $l; done < f | sort && echo ok').map(s => s.type)).toEqual(['andor'])
     expect(parseStatements('{ echo a; } 2>&1 | cat').map(s => s.type)).toEqual(['pipeline'])
+  })
+})
+
+describe('parseStatements: a redirection on a function definition', () => {
+  it('wraps the body in a group that carries it, so every call makes it', () => {
+    for (const text of ['f() { echo a; } > /tmp/x', 'function f { echo a; } > /tmp/x', 'f() {\n  echo a\n} > /tmp/x']) {
+      const [fn] = parseStatements(text) as FunctionDef[]
+      expect(fn).toMatchObject({ type: 'function', name: 'f', body: [{ type: 'group', redirect: '> /tmp/x', body: [{ type: 'simple', line: 'echo a' }] }] })
+    }
+  })
+  it('keeps a body with no redirection as it is, and refuses a word after the brace', () => {
+    expect(parseStatements('f() { echo a; }')).toMatchObject([{ type: 'function', body: [{ type: 'simple', line: 'echo a' }] }])
+    expect(() => parseStatements('f() { echo a; } b')).toThrow("syntax error near unexpected token `b'")
+  })
+})
+
+describe('parseRunnable: what bash has run when it finds a syntax error', () => {
+  it('gives the statements on lines before the failing one', () => {
+    const { statements, failure } = parseRunnable('echo one\necho two\nfi\necho three')
+    expect(statements.map(s => (s as SimpleStatement).line)).toEqual(['echo one', 'echo two'])
+    expect(failure?.message).toBe("syntax error near unexpected token `fi'")
+  })
+  it('gives none from the failing line itself, and keeps a block that closed before it', () => {
+    expect(parseRunnable('echo one; fi').statements).toEqual([])
+    expect(parseRunnable('if true; then\n  echo a\nfi\ndone').statements.map(s => s.type)).toEqual(['if'])
+  })
+  it('stops before a block the script ends inside', () => {
+    const { statements, failure } = parseRunnable('echo one\nif true; then\necho two')
+    expect(statements.map(s => s.type)).toEqual(['simple'])
+    expect(failure?.incomplete).toBe(true)
   })
 })
