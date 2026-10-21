@@ -12,7 +12,7 @@ const SWAPI_BASE_PATH = '/swapi'
 const pendingFileRequests = new Map<string, {
   resolve: (value: any) => void
   reject: (reason?: any) => void
-  timeout: NodeJS.Timeout
+  timeout: ReturnType<typeof setTimeout>
 }>()
 
 const app = new Hono().basePath(SWAPI_BASE_PATH)
@@ -21,7 +21,11 @@ app.get('/', (c) => c.json({ name: pkg.name, version: pkg.version }))
 
 app.get('/fake/:namespace/:func', (c) => {
   const { namespace, func } = c.req.param()
-  return c.json(faker[namespace][func]())
+  // the module's methods read `this`, so the generator is called on its module
+  const module = (faker as unknown as Record<string, Record<string, unknown> | undefined>)[namespace]
+  const generator = module?.[func]
+  if (typeof generator !== 'function') return c.json({ error: `no faker function ${namespace}.${func}` }, 404)
+  return c.json(generator.call(module))
 })
 
 app.get('/fs/:file{.*}', async (c) => {
@@ -59,7 +63,7 @@ app.get('/fs/:file{.*}', async (c) => {
 
     return response
   } catch (error) {
-    return c.json({ error: error.message }, 500)
+    return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
   }
 })
 

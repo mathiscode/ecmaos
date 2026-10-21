@@ -15,7 +15,8 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "install:kernel": "npm run build && cp dist/swapi.js ../kernel/public/"
+    "install:kernel": "npm run build && cp dist/swapi.js ../kernel/public/",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",

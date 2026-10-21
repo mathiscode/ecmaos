@@ -52,6 +52,9 @@ jobs:
       - name: Typecheck error-budget ratchet
         run: node scripts/typecheck-ratchet.mjs
 
+      - name: Typecheck the service worker, the Node host and peer
+        run: pnpm --filter @ecmaos/swapi --filter @ecmaos/node --filter @ecmaos/peer run typecheck
+
       - name: Lint
         run: pnpm lint
 
