@@ -79,8 +79,9 @@ mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp o
 `wali-proc.c` (posix_spawn with file actions, pipes and close-on-exec, waitpid, execve, system and popen, and signal
 handlers, masks and inheritance) and `wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
 epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout) `wali-shared.c` (a shared file mapping in
-step with the file across processes, and unmapped in part) and `wali-tty.c` (a pty, stopping and continuing, and
-reading the terminal from the background); the last four start copies of themselves in the roles
+step with the file across processes, and unmapped in part), `wali-tty.c` (a pty, stopping and continuing, and
+reading the terminal from the background) and `wali-thread.c` (mutexes, condition variables, thread-local storage,
+malloc from many threads at once, detached threads, and exit() from a thread); the last five start copies of themselves in the roles
 named by their first argument. `wali-mmap.wasm` is `emcc-mmap.c` built on WALI, and `emcc-mmap.test.ts` runs both
 builds with the same assertions.
 `../wali.test.ts` runs them. `wali.build.sh` rebuilds them all with the pinned toolchain; the first run builds the

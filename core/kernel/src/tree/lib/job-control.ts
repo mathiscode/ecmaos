@@ -121,6 +121,13 @@ export function getsid(proc: Process): number {
   return sessionIds.get(proc.pid) ?? (proc.parent ? getsid(proc.parent) : proc.pid)
 }
 
+/** Puts a thread of `leader`'s process (`wali-threads.ts`), which has no parent, in the leader's group and session */
+export function joinThreadGroup(thread: Process, leader: Process): void {
+  groups.set(thread.pid, getpgid(leader))
+  sessionIds.set(thread.pid, getsid(leader))
+  void thread.exited.then(() => { groups.delete(thread.pid); sessionIds.delete(thread.pid) })
+}
+
 /** The terminal each session leader holds as its controlling terminal, by session id */
 const sessionTtys = new Map<number, NonNullable<Process['tty']>>()
 

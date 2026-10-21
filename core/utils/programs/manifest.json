@@ -93,8 +93,8 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 68236,
-      "sha256": "669ea90286086dc30edd2fd4141ba943b3fa4a6b18c90bd4d6c22d86275cc906"
+      "size": 68357,
+      "sha256": "12b12e65bb307a3476f4686892b2ffda46302d0730eecac1c3d73439e3d549c9"
     },
     "ncdu": {
       "file": "ncdu.wasm",

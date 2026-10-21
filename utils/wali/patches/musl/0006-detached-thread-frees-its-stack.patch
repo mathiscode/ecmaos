@@ -1,0 +1,34 @@
+ecmaOS: a detached thread that ends hands its stack mapping to the host, which frees it and ends the thread
+(__ecmaos_unmapself). WALI printed a line to stdout there and kept the stack.
+
+--- i/src/internal/pthread_impl.h
++++ w/src/internal/pthread_impl.h
+@@ -166,6 +166,12 @@
+   __import_name__("__wasm_thread_spawn")
+ ));
+ 
++/* ecmaOS: frees a detached thread's stack mapping and ends the thread; it does not return */
++hidden _Noreturn void __ecmaos_unmapself(void *, size_t) __attribute((
++  __import_module__("wali"),
++  __import_name__("__ecmaos_unmapself")
++));
++
+ hidden int __set_thread_area(void *) __attribute((
+   __import_module__("wali"),
+   __import_name__("__set_thread_area")
+--- i/src/thread/pthread_create.c
++++ w/src/thread/pthread_create.c
+@@ -168,10 +168,9 @@
+ 		if (self->robust_list.off)
+ 			__syscall_SYS_set_robust_list(0, 3*sizeof(long));
+ 
+-    printf("== Detached Thread End: unmapself TBD\n");
+-		/* The following call unmaps the thread's stack mapping
+-		 * and then exits without touching the stack. */
+-		//__unmapself(self->map_base, self->map_size);
++		/* ecmaOS: the host frees the thread's stack and ends the thread, without returning to code that would run on
++		 * the stack it freed. */
++		__ecmaos_unmapself(self->map_base, self->map_size);
+ 	}
+ 
+ 	/* Wake any joiner. */

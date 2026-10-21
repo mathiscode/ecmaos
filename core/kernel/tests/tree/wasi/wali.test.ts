@@ -147,6 +147,22 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('runs threads on one memory: mutexes, condition variables, TLS, malloc from many at once, detached threads and exit()', async () => {
+    expect(await run('wali-thread')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'mutex: counter=80000 returned=360 tls main=0',
+        'condvar: passes=100',
+        'malloc: 8000 of 8000 blocks intact',
+        'detached: 5 threads wrote',
+        'ids: same pid=1 other tid=1',
+        'exit from a thread: exit=9',
+        ''
+      ].join('\n')
+    })
+  }, 120_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

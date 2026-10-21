@@ -30,6 +30,7 @@ import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installBusyRetry } from './busy-retry.ts'
+import { installThreads } from './wali-threads.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -444,6 +445,7 @@ export function installMainThreadSyscalls(): void {
   installSharedRandom()
   installBusyRetry()
   installStops()
+  installThreads()
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
     let inode: NonNullable<typeof handle>['inode']

@@ -8,6 +8,7 @@
  */
 
 import { ready, exit, getpid } from '@zenfs/linux/uapi/process'
+import { receive } from '@zenfs/linux/uapi/port'
 import { syscall_raw } from '@zenfs/linux/uapi/base'
 import { open, read, write, close } from '@zenfs/linux/uapi/fs'
 import { run, wali } from '@zenfs/linux/uapi/wali'
@@ -15,16 +16,60 @@ import { runPreview1 } from './wasi-preview1.mjs'
 import { install, attach } from './wali-host.mjs'
 
 /**
- * A WALI module runs on the dependency's table with ecmaOS's calls added (`wali-host.mjs`). `run()` keeps the
- * instance to itself, so its memory is picked up here as the module is instantiated; this worker runs one program.
+ * The limits of the memory a module imports (`wali.memory`, which the toolchain links it to import so each thread's
+ * instance can be given the same one), read from its import section: `{ initial, maximum }` in pages, or undefined
+ * for a module that defines its own memory.
  */
-function runWali(source) {
-  install(wali)
+function memoryLimits(bytes) {
+  let at = 8
+  const leb = () => {
+    let result = 0, shift = 0, byte
+    do { byte = bytes[at++]; result += (byte & 0x7f) * 2 ** shift; shift += 7 } while (byte & 0x80)
+    return result
+  }
+  const skipName = () => { const length = leb(); at += length }
+  while (at < bytes.length) {
+    const id = bytes[at++], size = leb(), end = at + size
+    if (id !== 2) { at = end; continue }
+    for (let count = leb(); count > 0; count--) {
+      skipName()
+      skipName()
+      const kind = bytes[at++]
+      if (kind === 0) leb()
+      else if (kind === 1) { at++; const flags = bytes[at++]; leb(); if (flags & 1) leb() }
+      else if (kind === 2) { const flags = bytes[at++]; const initial = leb(); return { initial, maximum: flags & 1 ? leb() : initial } }
+      else if (kind === 3) at += 2
+      else if (kind === 4) { at++; leb() }
+    }
+    return undefined
+  }
+  return undefined
+}
+
+/** A thread of a WALI process (`proc_thread`) is told which, after it starts: the memory, the shared state and its argument */
+const threadStart = Promise.withResolvers()
+receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(message) })
+
+/**
+ * A WALI module runs on the dependency's table with ecmaOS's calls added (`wali-host.mjs`). `run()` keeps the
+ * instance to itself, so its memory is picked up here as the module is instantiated. The first thread makes the
+ * shared memory the module imports; a later one is given it, and runs `__wasm_thread_start_libc` rather than
+ * `_start`. Each worker runs one thread.
+ */
+function runWali(source, start) {
+  install(wali, start)
+  const limits = memoryLimits(source)
+  if (start) wali.memory = start.memory
+  else if (limits) wali.memory = new WebAssembly.Memory({ ...limits, shared: true })
   const instantiate = WebAssembly.instantiate
   WebAssembly.instantiate = async (...args) => {
     const instance = await instantiate(...args)
     attach(instance)
-    return instance
+    if (!start) return instance
+    const exports = Object.assign(Object.create(null), instance.exports, {
+      _start: () => instance.exports.__wasm_thread_start_libc(getpid(), start.arg)
+    })
+    return { exports }
   }
   return run(source)
 }
@@ -66,7 +111,8 @@ try {
   // `wasi-preview1.mjs`; anything else is WALI.
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
-  const code = isPreview1 ? await runPreview1(source) : await runWali(source)
+  const start = init.env?.__WALI_THREAD__ ? await threadStart.promise : undefined
+  const code = isPreview1 ? await runPreview1(source) : await runWali(source, start)
   exit(code)
 } catch (error) {
   // An exception nothing caught (a C++ throw, or a longjmp with no setjmp) leaves the module as a WebAssembly

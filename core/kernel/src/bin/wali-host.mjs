@@ -23,7 +23,7 @@
  * Numbers are Linux's: WALI's musl is Linux musl, so `errno` values and structures need no translation.
  */
 
-import { syscall_raw, returned, pending, on_signal, off_signal } from '@zenfs/linux/uapi/base'
+import { syscall_raw, returned, pending, on_signal, off_signal, init } from '@zenfs/linux/uapi/base'
 import { getdents } from '@zenfs/linux/uapi/fs'
 import { environ, getpid } from '@zenfs/linux/uapi/process'
 
@@ -53,6 +53,30 @@ let memory
 /** The module's function table, through which a signal handler is called */
 let table
 const bytes = () => new Uint8Array(memory.buffer)
+
+/**
+ * What the process's threads share, in one SharedArrayBuffer the first thread makes and each new one is given: the
+ * allocator's lock, top and free ranges, a version for the signal dispositions, a close-on-exec bit per descriptor,
+ * and the dispositions themselves. Everything else here (the mask, pending signals, epoll instances, directory
+ * positions, shared mappings) is the thread's own.
+ */
+const LOCK = 0, VERSION = 1, TOP = 2, FREE_COUNT = 3, HEADER_WORDS = 16
+const MAX_RANGES = 16384, MAX_FDS = 65536, SIGNALS = 65
+function sharedState(buffer) {
+  const rangesAt = HEADER_WORDS, cloexecAt = rangesAt + MAX_RANGES * 2, actionsAt = cloexecAt + MAX_FDS / 32
+  buffer ??= new SharedArrayBuffer((actionsAt + SIGNALS * 6) * 4)
+  return {
+    buffer,
+    words: new Int32Array(buffer),
+    addresses: new Uint32Array(buffer),
+    ranges: new Uint32Array(buffer, rangesAt * 4, MAX_RANGES * 2),
+    cloexec: new Int32Array(buffer, cloexecAt * 4, MAX_FDS / 32),
+    actions: new Uint32Array(buffer, actionsAt * 4, SIGNALS * 6)
+  }
+}
+let state
+/** For a thread other than the first: the process's id and this thread's */
+let thread
 const view = () => new DataView(memory.buffer)
 
 function readString(ptr) {
@@ -104,15 +128,24 @@ const entries = () => (environment ??= Object.entries(environ()).map(([key, valu
 
 // --- descriptors ---
 
-/** Per descriptor: its open flags and whether it closes on exec. The kernel's table is the truth for what is open. */
-const fds = new Map([[0, { flags: O_RDWR, cloexec: false }], [1, { flags: O_RDWR, cloexec: false }], [2, { flags: O_RDWR, cloexec: false }]])
-const entryOf = fd => fds.get(fd) ?? { flags: O_RDWR, cloexec: false }
+/**
+ * Whether each descriptor closes on exec (`FD_CLOEXEC`), which the kernel does not keep: a bit per descriptor in the
+ * state the process's threads share. The kernel's table is the truth for what is open, and the open file's status
+ * flags are the kernel's too (`fd_getfl`).
+ */
+const isCloexec = fd => fd >= 0 && fd < MAX_FDS && (Atomics.load(state.cloexec, fd >> 5) & (1 << (fd & 31))) !== 0
 
-/** Records a descriptor the kernel just handed out */
+function setCloexec(fd, on) {
+  if (fd < 0 || fd >= MAX_FDS) return
+  if (on) Atomics.or(state.cloexec, fd >> 5, 1 << (fd & 31))
+  else Atomics.and(state.cloexec, fd >> 5, ~(1 << (fd & 31)))
+}
+
+/** Records a descriptor the kernel just handed out, closing on exec if `flags` has `O_CLOEXEC` or `cloexec` says so */
 function opened(fd, flags, cloexec = (flags & O_CLOEXEC) !== 0) {
   if (fd < 0) return fd
   forget(fd)
-  fds.set(fd, { flags: flags & ~O_CLOEXEC, cloexec })
+  setCloexec(fd, cloexec)
   return fd
 }
 
@@ -121,7 +154,7 @@ const positions = new Map()
 
 /** Forgets what was known about a descriptor that has been closed or replaced */
 function forget(fd) {
-  fds.delete(fd)
+  setCloexec(fd, false)
   positions.delete(fd)
 }
 
@@ -137,7 +170,7 @@ function openDescriptors() {
       syscall_raw('close', dir)
     }
   }
-  return [...fds.keys()].filter(fd => syscall_raw('fstat', fd) >= 0)
+  return Array.from({ length: 256 }, (_, fd) => fd).filter(fd => syscall_raw('fstat', fd) >= 0)
 }
 
 /**
@@ -170,7 +203,6 @@ function stat(name, ptr, target) {
 }
 
 function fcntl(fd, cmd, arg) {
-  const entry = fds.get(fd)
   switch (cmd) {
     case F_DUPFD:
     case F_DUPFD_CLOEXEC: {
@@ -183,13 +215,13 @@ function fcntl(fd, cmd, arg) {
         copy = syscall_raw('dup', fd)
       }
       for (const extra of held) syscall_raw('close', extra)
-      return copy < 0 ? copy : opened(copy, entryOf(fd).flags, cmd === F_DUPFD_CLOEXEC)
+      return copy < 0 ? copy : opened(copy, 0, cmd === F_DUPFD_CLOEXEC)
     }
     case F_GETFD:
-      return syscall_raw('fstat', fd) < 0 ? -EBADF : (entry?.cloexec ? FD_CLOEXEC : 0)
+      return syscall_raw('fstat', fd) < 0 ? -EBADF : (isCloexec(fd) ? FD_CLOEXEC : 0)
     case F_SETFD:
       if (syscall_raw('fstat', fd) < 0) return -EBADF
-      fds.set(fd, { ...entryOf(fd), cloexec: (arg & FD_CLOEXEC) !== 0 })
+      setCloexec(fd, (arg & FD_CLOEXEC) !== 0)
       return 0
     // the status flags belong to the open file, which the kernel keeps: O_NONBLOCK there decides whether a read waits
     case F_GETFL: {
@@ -291,12 +323,13 @@ function deviceIoctl(fd, request, ptr) {
  * used again first-fit; the memory only grows when nothing free is big enough. Lengths are in musl's 4 KiB pages.
  * (One process, one thread: a threaded process will need this state where every thread can reach it.)
  */
-const free = []
+/** The free ranges and the top, loaded from the shared state while the allocator's lock is held (see `locked`) */
+let free = []
 let top = 0
 
 const roundUp = (n, to) => Math.ceil(n / to) * to
 
-function release(start, length) {
+function releaseRange(start, length) {
   free.push({ start, length })
   free.sort((a, b) => a.start - b.start)
   for (let i = 0; i < free.length - 1;) {
@@ -312,7 +345,7 @@ function release(start, length) {
   }
 }
 
-function allocate(length) {
+function allocateRange(length) {
   const index = free.findIndex(range => range.length >= length)
   if (index >= 0) {
     const range = free[index]
@@ -323,6 +356,9 @@ function allocate(length) {
     return start
   }
   const start = top
+  // what lies above the top was used before and given back (the top comes down when its last range is freed), and a
+  // new mapping is zeroes
+  bytes().fill(0, start, Math.min(start + length, memory.buffer.byteLength))
   const needed = start + length - memory.buffer.byteLength
   if (needed > 0) {
     try {
@@ -346,6 +382,36 @@ function fill(fd, start, length, offset) {
   }
   return 0
 }
+
+/**
+ * The allocator is the process's, shared by its threads: its free ranges and top live in the shared state, and each
+ * change is made under its lock, with the list loaded here first and stored back after. A call that makes another
+ * (a move that allocates and releases) holds the lock once.
+ */
+let depth = 0
+function locked(change) {
+  if (depth++ === 0) {
+    while (Atomics.compareExchange(state.words, LOCK, 0, 1) !== 0) Atomics.wait(state.words, LOCK, 1, 1)
+    top = Atomics.load(state.addresses, TOP)
+    const count = Atomics.load(state.addresses, FREE_COUNT)
+    free = Array.from({ length: count }, (_, i) => ({ start: state.ranges[i * 2], length: state.ranges[i * 2 + 1] }))
+  }
+  try {
+    return change()
+  } finally {
+    if (--depth === 0) {
+      if (free.length > MAX_RANGES) free.splice(0, free.length - MAX_RANGES) // the lowest ranges, kept by nothing, are lost
+      free.forEach((range, i) => { state.ranges[i * 2] = range.start; state.ranges[i * 2 + 1] = range.length })
+      Atomics.store(state.addresses, FREE_COUNT, free.length)
+      Atomics.store(state.addresses, TOP, top)
+      Atomics.store(state.words, LOCK, 0)
+      Atomics.notify(state.words, LOCK, 1)
+    }
+  }
+}
+const release = (start, length) => locked(() => releaseRange(start, length))
+const allocate = length => locked(() => allocateRange(length))
+const resize = (addr, oldLength, newLength, flags) => locked(() => resizeRange(addr, oldLength, newLength, flags))
 
 function mmap(addr, length, prot, flags, fd, offset) {
   if (!length) return -EINVAL
@@ -380,7 +446,7 @@ function mmap(addr, length, prot, flags, fd, offset) {
   return start
 }
 
-function resize(addr, oldLength, newLength, flags) {
+function resizeRange(addr, oldLength, newLength, flags) {
   const before = roundUp(oldLength, PAGE), after = roundUp(newLength, PAGE)
   if (after <= before) {
     if (after < before) release(addr + after, before - after)
@@ -619,10 +685,33 @@ const KERNEL_SIGNALS = 31
 const bit = signal => 1n << BigInt(signal - 1)
 const UNBLOCKABLE = bit(SIGKILL) | bit(SIGSTOP)
 
-/** Per signal, what `rt_sigaction` set: `handler` is a table index, or SIG_DFL or SIG_IGN */
-const actions = new Map()
+/**
+ * Per signal, what `rt_sigaction` set: `handler` is a table index, or SIG_DFL or SIG_IGN. Dispositions are the
+ * process's, so they live in the shared state, six words a signal; a change bumps a version each thread checks as a
+ * call comes in, to route the signals it should again (the mask and pending signals are each thread's own).
+ */
 const defaultAction = { handler: SIG_DFL, flags: 0n, restorer: 0, mask: 0n }
-const actionOf = signal => actions.get(signal) ?? defaultAction
+const ACTION_WORDS = 6
+function actionOf(signal) {
+  const at = signal * ACTION_WORDS, words = state.actions
+  return {
+    handler: words[at],
+    flags: BigInt(words[at + 1]) | (BigInt(words[at + 2]) << 32n),
+    restorer: words[at + 3],
+    mask: BigInt(words[at + 4]) | (BigInt(words[at + 5]) << 32n)
+  }
+}
+function setAction(signal, action) {
+  const at = signal * ACTION_WORDS, words = state.actions
+  words[at] = action.handler
+  words[at + 1] = Number(action.flags & 0xffffffffn)
+  words[at + 2] = Number(action.flags >> 32n)
+  words[at + 3] = action.restorer
+  words[at + 4] = Number(action.mask & 0xffffffffn)
+  words[at + 5] = Number(action.mask >> 32n)
+  seenVersion = Atomics.add(state.words, VERSION, 1) + 1
+}
+let seenVersion = 0
 let mask = 0n
 /** Raised and not yet delivered, as a sigset */
 let raised = 0n
@@ -670,6 +759,12 @@ function publish() {
 
 /** Signals the kernel raised while the program was computing, which the next syscall would otherwise clear */
 function collect() {
+  // another thread changed a disposition
+  const version = Atomics.load(state.words, VERSION)
+  if (version !== seenVersion) {
+    seenVersion = version
+    routeAll()
+  }
   const bits = pending()
   if (!bits) return
   for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) {
@@ -680,8 +775,8 @@ function collect() {
 /** The ignored signals and the mask as the kernel keeps them across an exec: sigsets of signals 1 to 31 */
 function ignoredSet(reset = 0n) {
   let set = 0
-  for (const [signal, action] of actions) {
-    if (signal <= KERNEL_SIGNALS && action.handler === SIG_IGN && !(reset & bit(signal))) set |= 1 << (signal - 1)
+  for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) {
+    if (actionOf(signal).handler === SIG_IGN && !(reset & bit(signal))) set |= 1 << (signal - 1)
   }
   return set
 }
@@ -692,7 +787,7 @@ function inheritSignals() {
   const ignored = syscall_raw('proc_sigstate', 0)
   const blocked = syscall_raw('proc_sigstate', 1)
   for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) {
-    if (ignored > 0 && (ignored & (1 << (signal - 1)))) actions.set(signal, { ...defaultAction, handler: SIG_IGN })
+    if (ignored > 0 && (ignored & (1 << (signal - 1)))) setAction(signal, { ...defaultAction, handler: SIG_IGN })
   }
   if (blocked > 0) mask = BigInt(blocked) & ~UNBLOCKABLE
   routeAll()
@@ -754,7 +849,7 @@ function deliver() {
     if (!(action.flags & SA_RESTART)) restart = false
     const saved = mask
     mask = (mask | action.mask | (action.flags & SA_NODEFER ? 0n : bit(signal))) & ~UNBLOCKABLE
-    if (action.flags & SA_RESETHAND) actions.set(signal, defaultAction)
+    if (action.flags & SA_RESETHAND) setAction(signal, defaultAction)
     routeAll()
     table.get(action.handler)(signal, siginfoFor(signal), 0)
     mask = saved
@@ -863,7 +958,7 @@ function spawn(pathPtr, argvPtr, envpPtr, opsPtr, count, flags, pgrp, defaultsPt
   const argv = readStrings(argvPtr)
   const env = environment_of(readStrings(envpPtr))
   // child fd -> { source: this process's fd, cloexec }
-  const children = new Map(openDescriptors().map(fd => [fd, { source: fd, cloexec: fds.get(fd)?.cloexec ?? false }]))
+  const children = new Map(openDescriptors().map(fd => [fd, { source: fd, cloexec: isCloexec(fd) }]))
   let cwd = getcwd()
   const opened = []
   try {
@@ -953,8 +1048,8 @@ function execve(pathPtr, argvPtr, envpPtr) {
   if (executable < 0) return executable
   const argv = readStrings(argvPtr)
   const env = environment_of(readStrings(envpPtr))
-  for (const [fd, entry] of [...fds]) {
-    if (!entry.cloexec) continue
+  for (const fd of openDescriptors()) {
+    if (!isCloexec(fd)) continue
     syscall_raw('close', fd)
     forget(fd)
   }
@@ -1302,7 +1397,7 @@ function epollWait(epfd, eventsPtr, max, timeout, sigmaskPtr) {
   if (!interest) return -EINVAL
   if (max <= 0) return -EINVAL
   // a descriptor closed since it was added leaves the list, as its last close takes it out of Linux's
-  const entries = [...interest].filter(([fd]) => fds.has(fd) || syscall_raw('fstat', fd) >= 0 || !interest.delete(fd))
+  const entries = [...interest].filter(([fd]) => syscall_raw('fstat', fd) >= 0 || !interest.delete(fd))
     .filter(([, entry]) => !entry.disabled)
   const saved = mask
   if (sigmaskPtr) {
@@ -1330,6 +1425,58 @@ function epollWait(epfd, eventsPtr, max, timeout, sigmaskPtr) {
       mask = saved
       routeAll()
     }
+  }
+}
+
+// --- threads ---
+
+const FUTEX_WAIT = 0, FUTEX_WAKE = 1, FUTEX_REQUEUE = 3, FUTEX_CMP_REQUEUE = 4, FUTEX_WAIT_BITSET = 9, FUTEX_WAKE_BITSET = 10, FUTEX_PRIVATE = 128, FUTEX_CLOCK_REALTIME = 256
+const EAGAIN = 11, ETIMEDOUT = 110
+
+/**
+ * After a call that ends this thread: the kernel is stopping its worker, and the program must not run on meanwhile
+ * (code after a call that does not return is unreachable)
+ */
+function ended() {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0)
+}
+
+/**
+ * `pthread_create`: the kernel starts a thread of this process (`proc_thread`), a worker with its own instance of the
+ * program on this memory, which runs `__wasm_thread_start_libc` with `arg`. @returns its thread id
+ */
+function spawnThread(arg) {
+  return syscall_raw('proc_thread', init.exe, init.interpreter, memory, state.buffer, arg)
+}
+
+/**
+ * A futex, on the memory every thread shares. A wait goes in slices so a signal for this thread ends it with EINTR, as on
+ * Linux; a timeout is relative for `FUTEX_WAIT` and a point on the clock for `FUTEX_WAIT_BITSET`. A waiter cannot be
+ * moved to another address, so a requeue (which musl's condition variables hand their waiters to the mutex with) wakes
+ * every waiter instead: a futex's users take a wakeup as a reason to look again, never as a promise.
+ */
+function futex(ptr, op, value, timeoutPtr, _ptr2, value3) {
+  const cmd = op & ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME)
+  const words = new Int32Array(memory.buffer)
+  if (cmd === FUTEX_WAKE || cmd === FUTEX_WAKE_BITSET) return Atomics.notify(words, ptr >> 2, value)
+  if (cmd === FUTEX_REQUEUE || cmd === FUTEX_CMP_REQUEUE) {
+    if (cmd === FUTEX_CMP_REQUEUE && Atomics.load(words, ptr >> 2) !== value3) return -EAGAIN
+    return Atomics.notify(words, ptr >> 2)
+  }
+  if (cmd !== FUTEX_WAIT && cmd !== FUTEX_WAIT_BITSET) return -ENOSYS
+  let deadline = Infinity
+  if (timeoutPtr) {
+    const time = readTimespec(timeoutPtr)
+    deadline = performance.now() + (cmd === FUTEX_WAIT ? time : time - now(op & FUTEX_CLOCK_REALTIME ? CLOCK_REALTIME : 1))
+  }
+  for (;;) {
+    const left = deadline - performance.now()
+    if (left <= 0) return -ETIMEDOUT
+    const result = Atomics.wait(words, ptr >> 2, value, Math.min(left, 50))
+    if (result === 'not-equal') return -EAGAIN
+    if (result === 'ok') return 0
+    collect()
+    if (raised & ~mask) return -EINTR
   }
 }
 
@@ -1381,16 +1528,16 @@ const calls = {
     positions.set(fd, index)
     return big(offset)
   },
-  SYS_dup: fd => big(opened(syscall_raw('dup', fd), entryOf(fd).flags, false)),
+  SYS_dup: fd => big(opened(syscall_raw('dup', fd), 0, false)),
   SYS_dup2: (from, to) => {
     if (from === to) return big(syscall_raw('fstat', from) < 0 ? -EBADF : to)
     const value = syscall_raw('dup2', from, to)
-    return big(value < 0 ? value : opened(value, entryOf(from).flags, false))
+    return big(value < 0 ? value : opened(value, 0, false))
   },
   SYS_dup3: (from, to, flags) => {
     if (from === to || (flags & ~O_CLOEXEC)) return big(-EINVAL)
     const value = syscall_raw('dup2', from, to)
-    return big(value < 0 ? value : opened(value, entryOf(from).flags, (flags & O_CLOEXEC) !== 0))
+    return big(value < 0 ? value : opened(value, 0, (flags & O_CLOEXEC) !== 0))
   },
   SYS_fcntl: (fd, cmd, arg) => big(fcntl(fd, cmd, num(arg))),
   // the dependency copies everything the kernel answered to the pointer, past the end of the structure
@@ -1463,7 +1610,7 @@ const calls = {
     const next = actPtr ? readAction(actPtr) : undefined
     if (oldPtr) writeAction(oldPtr, actionOf(signal))
     if (next) {
-      actions.set(signal, next)
+      setAction(signal, next)
       if (next.handler === SIG_IGN) raised &= ~bit(signal)
       if (signal <= KERNEL_SIGNALS) route(signal)
       publish()
@@ -1552,6 +1699,16 @@ const calls = {
   SYS_epoll_wait: (epfd, events, max, timeout) => big(epollWait(epfd, events, max, timeout, 0)),
   SYS_epoll_pwait: (epfd, events, max, timeout, sigmask) => big(epollWait(epfd, events, max, timeout, sigmask)),
 
+  __wasm_thread_spawn: (_start, arg) => spawnThread(arg),
+  // a detached thread's end: its stack goes back to the allocator, and the thread ends without running on it again
+  __ecmaos_unmapself: (base, size) => {
+    release(base, roundUp(size, PAGE))
+    ended(syscall_raw('exit', 0))
+  },
+  SYS_getpid: () => big(thread ? thread.tgid : getpid()),
+  SYS_gettid: () => big(getpid()),
+  SYS_futex: (ptr, op, value, timeout, ptr2, value3) => big(futex(ptr, op, value, timeout, ptr2, value3)),
+
   SYS_mmap: (addr, length, prot, flags, fd, offset) => big(mmap(addr, length, prot, flags, fd, num(offset))),
   SYS_munmap: (addr, length) => big(munmap(addr, length)),
   SYS_msync: (addr, length, flags) => big(msync(addr, length, flags)),
@@ -1564,7 +1721,14 @@ const calls = {
 /** The dependency's own calls that ecmaOS's wrap */
 const original = {}
 
-export function install(wali) {
+export function install(wali, start) {
+  thread = start && { tgid: start.tgid, tid: getpid() }
+  state = sharedState(start?.shared)
+  if (thread) {
+    // exit() in any thread ends the process, and its threads with it
+    calls.SYS_exit_group = code => ended(syscall_raw('proc_exit_group', code))
+    calls.__proc_exit = code => ended(syscall_raw('proc_exit_group', code))
+  }
   Object.assign(original, { SYS_ioctl: wali.SYS_ioctl })
   const { SYS_lseek } = wali
   // `rewinddir` is a seek to 0, which starts the listing again
@@ -1589,12 +1753,16 @@ export function install(wali) {
     if (typeof call !== 'function') continue
     wali[name] = name === '__proc_exit' ? mapped(name, call) : delivering(name, mapped(name, call))
   }
-  inheritSignals()
+  // a new thread takes the process's dispositions as they are; its mask comes from pthread_create
+  if (thread) {
+    seenVersion = Atomics.load(state.words, VERSION)
+    routeAll()
+  } else inheritSignals()
 }
 
 /** Gives this half the module's memory and function table, once it is instantiated */
 export function attach(instance) {
   memory = instance.exports.memory
   table = instance.exports.__indirect_function_table
-  top = roundUp(memory.buffer.byteLength, PAGE)
+  if (!thread) Atomics.store(state.addresses, TOP, roundUp(memory.buffer.byteLength, PAGE))
 }
