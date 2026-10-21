@@ -10,13 +10,14 @@ mg [-nR] [-b FILE] [-f MODE] [-u FILE] [+NUMBER] [FILE]...
 
 ## Description
 
-mg, a small Emacs-style editor from OpenBSD, on the terminal in raw mode. The usual Emacs keys work: `C-f C-b C-n C-p`, `C-a C-e`, `C-k` and `C-y`, `C-s` and `C-r` to search, `C-x C-f` to open, `C-x C-s` to save, `C-x b` to switch buffers, `C-x 2` to split, `C-g` to cancel, `C-x C-c` to quit. `M-x` runs a command by name. This build has no syntax highlighting and no pty-based batch mode (`-f`).
+mg, a small Emacs-style editor from OpenBSD, on the terminal in raw mode. The usual Emacs keys work: `C-f C-b C-n C-p`, `C-a C-e`, `C-k` and `C-y`, `C-s` and `C-r` to search, `C-x C-f` to open, `C-x C-s` to save, `C-x b` to switch buffers, `C-x 2` to split, `C-g` to cancel, `C-x C-c` to quit. `M-x` runs a command by name, and `M-!` runs a shell command (`/bin/sh` when `SHELL` is the kernel's own shell). `-b FILE` runs the mg commands in FILE without a terminal (batch mode). This build has no syntax highlighting.
 
 ## Examples
 
 ```
 mg notes.txt
 mg +42 main.c
+mg -b edits.mg
 ```
 
 ## License

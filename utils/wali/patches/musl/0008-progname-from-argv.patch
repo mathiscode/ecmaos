@@ -1,0 +1,34 @@
+ecmaOS: __progname and __progname_full (program_invocation_short_name and program_invocation_name) come from
+argv[0], as __init_libc sets them. WALI's _start does not go through __libc_start_main, so they were NULL, and a
+program naming itself by them (err(), warn(), usage messages) printed "(null)".
+
+--- i/src/startup/__main_void.c
++++ w/src/startup/__main_void.c
+@@ -5,6 +5,19 @@
+ 
+ extern void __wasm_init_tp(void);
+ 
++/* ecmaOS: __progname and __progname_full (program_invocation_short_name and program_invocation_name, what err()
++ * and warn() name the program by) from argv[0], as __init_libc sets them; WALI's _start does not go through
++ * __libc_start_main */
++extern char *__progname, *__progname_full;
++static void init_progname(void) {
++  if (__cl_get_argc() < 1) return;
++  char *pn = calloc(__cl_get_argv_len(0) + 1, 1);
++  if (!pn) return;
++  __cl_copy_argv(pn, 0);
++  __progname = __progname_full = pn;
++  for (char *p = pn; *p; p++) if (*p == '/') __progname = p + 1;
++}
++
+ // __wali_init must be run before any main or other exported functions
+ //
+ // This is called by default in `crt`, but can be exported for users to 
+@@ -24,6 +37,7 @@
+   if (r) {
+     return r;
+   }
++  init_progname();
+   return 0;
+ }
+ 

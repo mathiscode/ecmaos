@@ -7,7 +7,7 @@ import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel
 
 /**
  * `/bin/ncdu` and `/bin/mg` are curses programs built to WebAssembly with ncurses (`core/utils/wasm/ncdu`, `core/utils/wasm/mg`).
- * Their screens are checked by hand in a browser; here, what runs without a terminal.
+ * Here, what runs without a terminal, and mg and ncdu driven on the terminal as a person would.
  */
 describe('ncdu and mg', () => {
   let kernel: Kernel
@@ -74,6 +74,14 @@ describe('ncdu and mg', () => {
     expect(result.err).toContain('usage: mg')
   }, 60000)
 
+  // batch mode runs on a pty of its own (openpty and login_tty), with no terminal needed
+  it('mg runs a batch file that edits and saves a file', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/mg-batch.mg', 'find-file /tmp/mg-batch.txt\ninsert "from a batch file"\nnewline\nsave-buffer\n')
+    const result = await run('mg -b /tmp/mg-batch.mg')
+    expect(result.code).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/mg-batch.txt', 'utf8')).toBe('from a batch file\n')
+  }, 60000)
+
   // xterm.js sends these once the program has switched the keypad on (smkx); curses has to recognise them from its
   // terminfo entry. It did not while the ncurses key table was empty (see wasm/lib/ncurses.sh).
   it('ncdu takes the arrow keys: Down moves the selection, Enter opens it, Left goes back', async () => {
@@ -93,6 +101,37 @@ describe('ncdu and mg', () => {
     await press('\x1bOD') // Left: up a directory
     await waitFor(() => /--- \/tmp\/dk -/.test(screenText()))
     await press('q')
+    expect(await done).toBe(0)
+  }, 90000)
+
+  /** Starts mg on `file` in the foreground and waits for its screen; `press` types keys and gives mg time to redraw */
+  const startMg = async (file: string) => {
+    const done = kernel.shell.execute(`mg ${file}`)
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await waitFor(() => screenText().includes(file.split('/').pop()!))
+    const press = async (keys: string) => { kernel.terminal.input(keys, true); await new Promise(resolve => setTimeout(resolve, 400)) }
+    return { done, press }
+  }
+
+  it('mg edits a file and saves it', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/mg-edit.txt', 'second line\n')
+    const { done, press } = await startMg('/tmp/mg-edit.txt')
+    await press('first line\r')
+    await press('\x18\x13') // C-x C-s
+    await waitFor(() => screenText().includes('Wrote'))
+    await press('\x18\x03') // C-x C-c
+    expect(await done).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/mg-edit.txt', 'utf8')).toBe('first line\nsecond line\n')
+  }, 90000)
+
+  // mg starts a command with posix_spawn where it would fork (core/utils/wasm/mg/build.sh)
+  it('mg runs a shell command and shows its output', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/mg-shell.txt', 'text\n')
+    const { done, press } = await startMg('/tmp/mg-shell.txt')
+    await press('\x1b!') // M-!: shell-command
+    await press('echo from-the-shell\r')
+    await waitFor(() => screenText().includes('from-the-shell') && screenText().includes('*Shell Command Output*'))
+    await press('\x18\x03')
     expect(await done).toBe(0)
   }, 90000)
 })

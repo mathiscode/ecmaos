@@ -1657,7 +1657,8 @@ export class Terminal extends XTerm implements ITerminal {
   private _atLineStart = true
 
   private noteOutput(data: string | Uint8Array, newline: boolean): void {
-    const text = (data instanceof Uint8Array ? new TextDecoder().decode(data) : data)
+    // bytes may come from another realm (the tty driver's, under the tests' DOM), where `instanceof Uint8Array` is false
+    const text = (typeof data === 'string' ? data : new TextDecoder().decode(data))
       // control sequences move or style the cursor and print nothing
       .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
     if (text.length > 0 || newline) this._atLineStart = newline || /[\r\n]$/.test(text)
@@ -1676,7 +1677,7 @@ export class Terminal extends XTerm implements ITerminal {
     this.noteOutput(data, false)
     for (const sink of this._mirrors) sink(data)
     super.write(data)
-    this.events.dispatch<TerminalWriteEvent>(TerminalEvents.WRITE, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
+    this.events.dispatch<TerminalWriteEvent>(TerminalEvents.WRITE, { text: typeof data === 'string' ? data : new TextDecoder().decode(data) })
     if (this._isMobile) {
       setTimeout(() => this._scrollTerminalToBottom(), 0)
     }
@@ -1686,7 +1687,7 @@ export class Terminal extends XTerm implements ITerminal {
     this.noteOutput(data, true)
     for (const sink of this._mirrors) { sink(data); sink('\r\n') }
     super.writeln(data)
-    this.events.dispatch<TerminalWritelnEvent>(TerminalEvents.WRITELN, { text: data instanceof Uint8Array ? new TextDecoder().decode(data) : data })
+    this.events.dispatch<TerminalWritelnEvent>(TerminalEvents.WRITELN, { text: typeof data === 'string' ? data : new TextDecoder().decode(data) })
     if (this._isMobile) {
       setTimeout(() => this._scrollTerminalToBottom(), 0)
     }

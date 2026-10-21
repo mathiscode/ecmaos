@@ -23,9 +23,9 @@
 #define TAILQ_FOREACH_REVERSE_SAFE(var, head, headname, field, tvar) \
 	for ((var) = TAILQ_LAST(head, headname); (var) && ((tvar) = TAILQ_PREV(var, headname, field), 1); (var) = (tvar))
 #endif
-struct winsize;
-int openpty(int *, int *, char *, const void *, const struct winsize *);
-int login_tty(int);
+/* batch mode's pty: musl's own */
+#include <pty.h>
+#include <utmp.h>
 void *recallocarray(void *, size_t, size_t, size_t);
 long long strtonum(const char *numstr, long long minval, long long maxval, const char **errstrp);
 #endif

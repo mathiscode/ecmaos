@@ -111,8 +111,9 @@
       "license": "LicenseRef-PublicDomain AND ISC AND BSD-3-Clause AND BSD-2-Clause AND X11",
       "description": "mg, a small Emacs-style editor, with ncurses",
       "homepage": "https://github.com/hboetes/mg",
-      "size": 270273,
-      "sha256": "b13b675357812c8dd6aac25657dd07a5fdd055b4c081950bfc3ac794f4550fd5"
+      "toolchain": "wali",
+      "size": 321545,
+      "sha256": "4f0a596150734a0074f2ca11698f598dba91f40e82644d53a9a1821d9699adb0"
     },
     "micropython": {
       "file": "micropython.wasm",

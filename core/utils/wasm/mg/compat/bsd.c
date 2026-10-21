@@ -31,22 +31,6 @@ long long strtonum(const char *numstr, long long minval, long long maxval, const
 	return value;
 }
 
-/* Batch mode (`mg -f`) wants a pty; the runtime has none a program can open this way, so it fails and mg carries on. */
-struct winsize;
-int openpty(int *master, int *slave, char *name, const void *termp, const struct winsize *winp)
-{
-	(void)master; (void)slave; (void)name; (void)termp; (void)winp;
-	errno = ENOSYS;
-	return -1;
-}
-
-int login_tty(int fd)
-{
-	(void)fd;
-	errno = ENOSYS;
-	return -1;
-}
-
 /* fparseln(3), reduced to what mg's tags loader needs: one logical line, without its newline, in a malloc'd buffer;
  * a backslash right before the newline joins the next physical line. NULL at end of file. Comments and escape
  * characters are not interpreted (mg asks for none), and *len and *lineno are filled in when given. */
