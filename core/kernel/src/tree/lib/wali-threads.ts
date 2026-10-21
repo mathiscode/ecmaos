@@ -27,7 +27,7 @@ const threads = new WeakMap<ProcessType, Set<ProcessType>>()
 /** Each thread's context of its own, with its own (empty) table, which it ends with */
 const ownContexts = new WeakMap<ProcessType, ProcessType['context']>()
 
-const leaderOf = (proc: ProcessType) => leaders.get(proc) ?? proc
+export const leaderOf = (proc: ProcessType) => leaders.get(proc) ?? proc
 
 /** What upstream keeps read-only or protected, which a thread needs set: its context, and the worker it posts to */
 type Settable = { context: ProcessType['context'] }

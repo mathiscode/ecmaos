@@ -5,8 +5,12 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** Ancillary data on local sockets through a real emcc build (`fixtures/emcc-scm.c`): SCM_RIGHTS, SCM_CREDENTIALS, SO_PEERCRED, socketpair. */
-describe('an emcc program passing descriptors over local sockets', () => {
+/**
+ * Ancillary data on local sockets through a real emcc build (`fixtures/emcc-scm.c`): SCM_RIGHTS, SCM_CREDENTIALS,
+ * SO_PEERCRED, socketpair. The same programs built on WALI's musl (`fixtures/wali.build.sh`) run with the same
+ * assertions.
+ */
+describe.each(['emcc', 'wali'])('the %s build passing descriptors over local sockets', abi => {
   let out: string
   let kernel: Kernel
 
@@ -14,9 +18,9 @@ describe('an emcc program passing descriptors over local sockets', () => {
     kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
     await kernel.boot()
     const { readFileSync } = process.getBuiltinModule('node:fs')
-    await kernel.filesystem.fs.writeFile('/tmp/emcc-scm', new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/emcc-scm.wasm`)), { mode: 0o755 })
-    expect(await kernel.shell.execute('/tmp/emcc-scm > /tmp/emcc-scm.out 2>&1')).toBe(0)
-    out = await kernel.filesystem.fs.readFile('/tmp/emcc-scm.out', 'utf8')
+    await kernel.filesystem.fs.writeFile(`/tmp/${abi}-scm`, new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/${abi}-scm.wasm`)), { mode: 0o755 })
+    expect(await kernel.shell.execute(`/tmp/${abi}-scm > /tmp/${abi}-scm.out 2>&1`)).toBe(0)
+    out = await kernel.filesystem.fs.readFile(`/tmp/${abi}-scm.out`, 'utf8')
   }, 60_000)
 
   it('passes a file that is still usable after the sender closed it', () => {
@@ -66,11 +70,11 @@ describe('an emcc program passing descriptors over local sockets', () => {
 
   it('moves a descriptor from one program into another', async () => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
-    await kernel.filesystem.fs.writeFile('/tmp/scm-peer', new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/emcc-scm-peer.wasm`)), { mode: 0o755 })
-    await kernel.shell.execute('/tmp/scm-peer serve /tmp/scm-x.sock > /tmp/scm-serve.out 2>&1 &')
-    for (let i = 0; i < 50 && !(await kernel.filesystem.fs.readFile('/tmp/scm-serve.out', 'utf8')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
-    expect(await kernel.shell.execute('/tmp/scm-peer send /tmp/scm-x.sock /tmp/scm-peer-file > /tmp/scm-send.out 2>&1')).toBe(0)
-    expect(await kernel.filesystem.fs.readFile('/tmp/scm-send.out', 'utf8')).toContain('answer done')
-    expect(await kernel.filesystem.fs.readFile('/tmp/scm-peer-file', 'utf8')).toBe('written by the receiver')
+    await kernel.filesystem.fs.writeFile(`/tmp/${abi}-scm-peer`, new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/${abi}-scm-peer.wasm`)), { mode: 0o755 })
+    await kernel.shell.execute(`/tmp/${abi}-scm-peer serve /tmp/${abi}-scm-x.sock > /tmp/${abi}-scm-serve.out 2>&1 &`)
+    for (let i = 0; i < 50 && !(await kernel.filesystem.fs.readFile(`/tmp/${abi}-scm-serve.out`, 'utf8')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+    expect(await kernel.shell.execute(`/tmp/${abi}-scm-peer send /tmp/${abi}-scm-x.sock /tmp/${abi}-scm-peer-file > /tmp/${abi}-scm-send.out 2>&1`)).toBe(0)
+    expect(await kernel.filesystem.fs.readFile(`/tmp/${abi}-scm-send.out`, 'utf8')).toContain('answer done')
+    expect(await kernel.filesystem.fs.readFile(`/tmp/${abi}-scm-peer-file`, 'utf8')).toBe('written by the receiver')
   }, 60_000)
 })

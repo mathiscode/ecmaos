@@ -8,6 +8,11 @@
  * the pipe file system counts them as open, and its reads, writes and polls go to them. When the last descriptor for
  * the socket closes, anywhere, they are closed too, and the other end sees the end of the stream.
  *
+ * Descriptors sent with `SCM_RIGHTS` travel beside the bytes of a local connection: each pipe keeps the ones sent with
+ * the messages still in it, by the byte offset each message starts at, and a read stops at the edges of such a message
+ * as Linux's does. A descriptor in flight is an extra reference to its open file, kept in the kernel's own table, so a
+ * pipe whose write end is on its way somewhere is not at its end, and a socket on its way is not let go.
+ *
  * A datagram socket has no pipes: what arrives for it waits in a queue of whole datagrams, each with its sender, and
  * what it sends goes to the UDP port it holds (`udp-ports.ts`), which carries it to another program's port or out
  * through the gateway.
@@ -60,6 +65,71 @@ export interface Datagrams {
   queue: Datagram[]
   /** Sends one datagram from the socket's port; there once the socket has one */
   send?: (addr: string, port: number, data: Uint8Array) => void
+}
+
+/** A descriptor on its way: its open file, referenced once more in `holder`'s table under `key` */
+interface InFlight { holder: Process, key: number }
+
+/** The descriptors sent with the `length` bytes starting `offset` bytes into a pipe */
+interface Rights { offset: number, length: number, held: InFlight[] }
+
+/** What a pipe of a local connection carries besides its bytes: how much has been read of it, and the descriptors sent with what is still in it, oldest first */
+interface Ancillary { taken: number, rights: Rights[] }
+
+/** Each pipe's, by the pipe both its ends share; a pipe with no descriptors in it has none */
+const ancillary = new WeakMap<PipeEnd['pipe'], Ancillary>()
+
+/** Where in-flight descriptors go in the holder's table: far above any number a program is given */
+let nextInFlight = 0x50000000
+
+/** The most descriptors in flight on one pipe, as Linux's `SCM_MAX_FD` limits one message */
+const MaxInFlight = 253
+
+const InFlightHandle = (held: InFlight) => (held.holder.context.descriptors as unknown as Table).get(held.key)
+
+/** Lets go of descriptors that will not be received */
+function drop(held: InFlight[]): void {
+  for (const one of held) {
+    const handle = InFlightHandle(one)
+    ;(one.holder.context.descriptors as unknown as Table).delete(one.key)
+    try { handle?.closeSync() } catch { /* already closed */ }
+  }
+}
+
+/**
+ * Bytes from a connection's pipe into `into`, as one read takes them: never past the end of a message that carried
+ * descriptors, nor into the next one that does. The descriptors of the message the read starts at come back with it
+ * (none for a peek); those of a message an earlier read passed over are let go.
+ */
+function takeFrom(pipe: PipeEnd['pipe'], into: Uint8Array, peek: boolean): { length: number, rights?: Rights } {
+  const state = ancillary.get(pipe)
+  let limit = into.byteLength
+  let first: Rights | undefined
+  if (state) {
+    while (state.rights[0] && state.rights[0].offset < state.taken) drop(state.rights.shift()!.held)
+    if (state.rights[0]?.offset === state.taken) { first = state.rights[0]; limit = Math.min(limit, first.length) }
+    else if (state.rights[0]) limit = Math.min(limit, state.rights[0].offset - state.taken)
+  }
+  const part = into.subarray(0, limit)
+  if (peek) {
+    const length = Math.min(part.byteLength, pipe.buffer.byteLength)
+    part.set(pipe.buffer.subarray(0, length))
+    return { length }
+  }
+  const length = pipe.take(part)
+  if (!state) return { length }
+  state.taken += length
+  if (length && first) state.rights.shift()
+  if (!state.rights.length) ancillary.delete(pipe)
+  return { length, rights: length ? first : undefined }
+}
+
+/** Lets go of every descriptor still in flight in a pipe */
+function dropAll(pipe: PipeEnd['pipe'] | undefined): void {
+  const state = pipe && ancillary.get(pipe)
+  if (!state) return
+  for (const rights of state.rights) drop(rights.held)
+  ancillary.delete(pipe)
 }
 
 /** How many datagrams wait to be read before more are dropped, as a full receive buffer drops them */
@@ -172,7 +242,11 @@ const socketOps = {
     }
     if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
     const rx = endOf(socket, socket.rx)
-    return rx ? pipefs.read_device(rx.file, buffer, start, end) : 0
+    if (!rx) return 0
+    // a plain read takes no descriptors: those sent with what it reads are let go
+    const { length, rights } = takeFrom(rx.end.pipe, buffer.subarray(start, end), false)
+    if (rights) drop(rights.held)
+    return length
   },
   write(file: { path: string }, buffer: Uint8Array): number {
     const socket = socketOfFile(file)
@@ -216,6 +290,8 @@ function closeEnd(socket: Socket, fd: number | undefined): void {
   if (fd === undefined || !socket.holder) return
   const table = socket.holder.context.descriptors as unknown as Table
   const pipeOfEnd = endOf(socket, fd)?.end.pipe
+  // descriptors sent to a socket that will read no more are never received
+  if (fd === socket.rx) dropAll(pipeOfEnd)
   const handle = table.get(fd)
   table.delete(fd)
   try { handle?.closeSync() } catch { /* already closed */ }
@@ -254,11 +330,95 @@ export async function receive(proc: Process, fd: number, count: number, flags: n
   const into = region.subarray(0, Math.min(count, region.byteLength))
   const rx = endOf(socket, socket.rx)
   if (!rx) return thread_of(proc).filled(0)
-  if (!(flags & MSG_PEEK)) return thread_of(proc).filled(rx.end.pipe.take(into))
-  const held = rx.end.pipe.buffer
-  const length = Math.min(into.byteLength, held.byteLength)
-  into.set(held.subarray(0, length))
+  const { length, rights } = takeFrom(rx.end.pipe, into, (flags & MSG_PEEK) !== 0)
+  if (rights) drop(rights.held)
   return thread_of(proc).filled(length)
+}
+
+/** Whether a socket can carry descriptors: a stream between programs on this machine (`AF_UNIX`) */
+const carriesRights = (socket: Socket) => !socket.datagrams && (socket.info.family === 1 || socket.info.family === 'unix')
+
+/**
+ * `sendmsg(2)` with `SCM_RIGHTS`: sends `data` with the descriptors `fds` of `proc`, which the other end gets with the
+ * first read of these bytes. Until then each is held in `holder`'s table (the kernel's process, which outlives the
+ * sender). @returns the bytes sent
+ */
+export async function sendRights(proc: Process, fd: number, data: Uint8Array, fds: number[], holder: Process, flags: number): Promise<number> {
+  const { socket, handle } = socketAt(proc, fd)
+  if (!carriesRights(socket)) throw fail(Errno.EINVAL, 'Invalid argument')
+  if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
+  const table = proc.context.descriptors as unknown as Table
+  const handles = fds.map(one => table.get(one))
+  if (handles.some(one => !one)) throw fail(Errno.EBADF, 'Bad file descriptor')
+  const ready = () => !!(readiness(socket) & EPOLLOUT)
+  if (!ready()) {
+    if ((handle.flag & O_NONBLOCK) || (flags & MSG_DONTWAIT)) throw fail(Errno.EAGAIN, 'Resource temporarily unavailable')
+    await wait_event(queueOf(socket), ready, proc)
+  }
+  const tx = endOf(socket, socket.tx)
+  if (!tx) throw fail(Errno.EPIPE, 'Broken pipe')
+  const pipe = tx.end.pipe
+  const state = ancillary.get(pipe) ?? { taken: 0, rights: [] }
+  if (state.rights.reduce((sum, rights) => sum + rights.held.length, 0) + handles.length > MaxInFlight) throw fail(Errno.ETOOMANYREFS, 'Too many references')
+  const offset = state.taken + pipe.readable
+  const length = socketOps.write({ path: handle.internalPath }, data)
+  if (!length) return 0
+  const held = handles.map(one => {
+    const key = nextInFlight++
+    ;(holder.context.descriptors as unknown as Table).set(key, (one as unknown as { ref(): Handle }).ref())
+    return { holder, key }
+  })
+  state.rights.push({ offset, length, held })
+  ancillary.set(pipe, state)
+  return length
+}
+
+/** What comes before the data `receiveRights` puts in the region: the count of descriptors (4), flags (4: 1 when some were cut, 2 when credentials follow), the sender's pid, uid and gid (12), then the descriptors (4 each) */
+export const RightsHeader = 20
+const RightsCut = 1, RightsCredentials = 2
+
+/**
+ * `recvmsg(2)` on a local stream: the next bytes, as `receive` gives them, with the descriptors sent with them put in
+ * `proc`'s table (the lowest free numbers), up to `room` of them; the rest are let go, and the flags say so. With
+ * `SO_PASSCRED` on, the peer's credentials come too.
+ */
+export async function receiveRights(proc: Process, fd: number, count: number, flags: number, room: number): Promise<number> {
+  const { socket, handle } = socketAt(proc, fd)
+  if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
+  const ready = () => {
+    const rx = endOf(socket, socket.rx)
+    return !rx || rx.end.pipe.readable > 0 || !openEnds(opposite(rx.file.path))
+  }
+  if (!ready()) {
+    if ((handle.flag & O_NONBLOCK) || (flags & MSG_DONTWAIT)) throw fail(Errno.EAGAIN, 'Resource temporarily unavailable')
+    await wait_event(queueOf(socket), ready, proc)
+  }
+  const { region } = thread_of(proc)
+  const answer = new DataView(region.buffer, region.byteOffset)
+  region.fill(0, 0, RightsHeader)
+  const rx = endOf(socket, socket.rx)
+  // the descriptors go after the header, so the data starts after the most there could be
+  const dataAt = RightsHeader + 4 * MaxInFlight
+  const { length, rights } = rx ? takeFrom(rx.end.pipe, region.subarray(dataAt, dataAt + Math.max(0, Math.min(count, region.byteLength - dataAt))), (flags & MSG_PEEK) !== 0) : { length: 0 }
+  const held = rights?.held ?? []
+  const given = held.slice(0, Math.max(room, 0))
+  drop(held.slice(given.length))
+  const table = proc.context.descriptors as unknown as Table
+  let next = 0
+  given.forEach((one, i) => {
+    const moving = InFlightHandle(one)
+    ;(one.holder.context.descriptors as unknown as Table).delete(one.key)
+    while (table.has(next)) next++
+    if (moving) table.set(next, moving)
+    answer.setInt32(RightsHeader + 4 * i, moving ? next : -1, true)
+  })
+  answer.setUint32(0, given.length, true)
+  const cred = socket.info.passcred ? socket.info.peercred as { pid: number, uid: number, gid: number } | undefined : undefined
+  answer.setUint32(4, (held.length > given.length ? RightsCut : 0) | (cred ? RightsCredentials : 0), true)
+  if (cred) { answer.setInt32(8, cred.pid, true); answer.setInt32(12, cred.uid, true); answer.setInt32(16, cred.gid, true) }
+  // the data follows the descriptors given
+  region.copyWithin(RightsHeader + 4 * given.length, dataAt, dataAt + length)
+  return thread_of(proc).filled(RightsHeader + 4 * given.length + length)
 }
 
 /** `send(2)` with `MSG_DONTWAIT`: a full pipe is EAGAIN rather than a wait */

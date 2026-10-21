@@ -1064,10 +1064,16 @@ function sleep(ms, remainPtr, clock) {
 const AF_UNSPEC = 0, AF_UNIX = 1, AF_INET = 2, AF_INET6 = 10
 const SOCK_STREAM = 1, SOCK_DGRAM = 2, SOCK_TYPE_MASK = 0xf, SOCK_NONBLOCK = 0x800, SOCK_CLOEXEC = 0x80000
 const MSG_PEEK = 0x2, MSG_TRUNC = 0x20, MSG_DONTWAIT = 0x40, MSG_WAITALL = 0x100
-const SOL_SOCKET = 1, SO_TYPE = 3, SO_ERROR = 4, SO_SNDBUF = 7, SO_RCVBUF = 8, SO_ACCEPTCONN = 30, SO_PROTOCOL = 38, SO_DOMAIN = 39
+const SOL_SOCKET = 1, SO_TYPE = 3, SO_ERROR = 4, SO_SNDBUF = 7, SO_RCVBUF = 8, SO_PASSCRED = 16, SO_PEERCRED = 17, SO_ACCEPTCONN = 30, SO_PROTOCOL = 38, SO_DOMAIN = 39
+const SCM_RIGHTS = 1, SCM_CREDENTIALS = 2, MSG_CTRUNC = 0x8, MSG_CMSG_CLOEXEC = 0x40000000
 const IPPROTO_TCP = 6, IPPROTO_UDP = 17, IPPROTO_IPV6 = 41, IPV6_V6ONLY = 26
 /** `struct msghdr` with a 64-bit `long`: name 0, namelen 4, iov 8, iovlen 12, control 20, controllen 24, flags 32 */
-const MSG_NAMELEN = 4, MSG_IOV = 8, MSG_IOVLEN = 12, MSG_CONTROLLEN = 24, MSG_FLAGS = 32
+const MSG_NAMELEN = 4, MSG_IOV = 8, MSG_IOVLEN = 12, MSG_CONTROL = 20, MSG_CONTROLLEN = 24, MSG_FLAGS = 32
+/** `struct cmsghdr`: len 0 (a `socklen_t` and padding), level 8, type 12, data 16; each is aligned to 4 */
+const CMSG_HEADER = 16
+const cmsgSpace = length => (CMSG_HEADER + length + 3) & ~3
+/** `struct ucred`: pid, uid, gid */
+const UCRED_SIZE = 12
 
 /** What the kernel knows of a socket and what this host recorded about it, or a negative errno (ENOTSOCK) */
 function socketInfo(fd) {
@@ -1292,17 +1298,101 @@ function iovecs(msgPtr) {
   return Array.from({ length: count }, (_, i) => [dv.getUint32(iov + i * 8, true), dv.getUint32(iov + i * 8 + 4, true)])
 }
 
+/**
+ * The descriptors an outgoing control buffer passes (`SCM_RIGHTS`), or a negative errno. `SCM_CREDENTIALS` is taken
+ * and not needed: the receiver is given the sender's own, which is all Linux lets an unprivileged sender claim.
+ */
+function rightsOf(controlPtr, controlLength) {
+  const dv = view()
+  const fds = []
+  for (let at = controlPtr; at + CMSG_HEADER <= controlPtr + controlLength;) {
+    const length = dv.getUint32(at, true)
+    if (length < CMSG_HEADER || at + length > controlPtr + controlLength) return -EINVAL
+    const level = dv.getInt32(at + 8, true), type = dv.getInt32(at + 12, true)
+    if (level !== SOL_SOCKET || (type !== SCM_RIGHTS && type !== SCM_CREDENTIALS)) return -EINVAL
+    if (type === SCM_RIGHTS) for (let p = at + CMSG_HEADER; p + 4 <= at + length; p += 4) fds.push(dv.getInt32(p, true))
+    at += (length + 3) & ~3
+  }
+  return fds
+}
+
 function sendmsg(fd, msgPtr, flags) {
-  // passing descriptors and credentials (SCM_RIGHTS, SCM_CREDENTIALS) is not here yet
-  if (view().getUint32(msgPtr + MSG_CONTROLLEN, true)) return -EOPNOTSUPP
+  const controlLength = view().getUint32(msgPtr + MSG_CONTROLLEN, true)
+  const fds = controlLength ? rightsOf(view().getUint32(msgPtr + MSG_CONTROL, true), controlLength) : []
+  if (typeof fds === 'number') return fds
   const parts = iovecs(msgPtr).map(([ptr, length]) => bytes().slice(ptr, ptr + length))
   const data = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0))
   let at = 0
   for (const part of parts) { data.set(part, at); at += part.byteLength }
+  // descriptors go with the bytes, on a local stream only (the kernel says EINVAL for any other socket)
+  if (fds.length) return syscall_raw('sock_sendmsg', fd, data, JSON.stringify(fds), flags & MSG_DONTWAIT)
   return sendTo(fd, data, flags, view().getUint32(msgPtr, true), view().getUint32(msgPtr + MSG_NAMELEN, true))
 }
 
+/** What the kernel puts before the data `sock_recvmsg` received: the count of descriptors, flags (1 some were cut, 2 credentials follow), pid, uid and gid, then the descriptors */
+const RIGHTS_HEADER = 20
+
+/**
+ * `recvmsg` with a control buffer on a local stream: the descriptors that came with the bytes are put in this
+ * process's table and named in an `SCM_RIGHTS` message, after an `SCM_CREDENTIALS` one when `SO_PASSCRED` is on (the
+ * order Linux writes them in). What does not fit is cut, and `MSG_CTRUNC` says so.
+ */
+function recvmsgRights(fd, msgPtr, flags, controlPtr, controlLength, info) {
+  const buffers = iovecs(msgPtr)
+  const total = buffers.reduce((sum, [, length]) => sum + length, 0)
+  const credentialSpace = info.passcred ? cmsgSpace(UCRED_SIZE) : 0
+  const room = Math.max(0, Math.floor((controlLength - credentialSpace - CMSG_HEADER) / 4))
+  const value = syscall_raw('sock_recvmsg', fd, total, flags & (MSG_PEEK | MSG_DONTWAIT), room)
+  if (value < 0) return value
+  const answer = new DataView(returned.buffer, returned.byteOffset)
+  const given = answer.getUint32(0, true), got = answer.getUint32(4, true)
+  const dataAt = RIGHTS_HEADER + 4 * given
+  let at = dataAt
+  for (const [ptr, length] of buffers) {
+    const part = Math.min(length, value - at)
+    if (part <= 0) break
+    bytes().set(returned.subarray(at, at + part), ptr)
+    at += part
+  }
+  const dv = view()
+  let used = 0, msgFlags = got & 1 ? MSG_CTRUNC : 0
+  const cmsg = (type, length) => {
+    dv.setUint32(controlPtr + used, CMSG_HEADER + length, true)
+    dv.setUint32(controlPtr + used + 4, 0, true)
+    dv.setInt32(controlPtr + used + 8, SOL_SOCKET, true)
+    dv.setInt32(controlPtr + used + 12, type, true)
+    const data = controlPtr + used + CMSG_HEADER
+    used += cmsgSpace(length)
+    return data
+  }
+  if (got & 2) {
+    if (controlLength - used >= CMSG_HEADER + UCRED_SIZE) {
+      const data = cmsg(SCM_CREDENTIALS, UCRED_SIZE)
+      for (let i = 0; i < 3; i++) dv.setInt32(data + i * 4, answer.getInt32(8 + i * 4, true), true)
+    } else msgFlags |= MSG_CTRUNC
+  }
+  if (given) {
+    const data = cmsg(SCM_RIGHTS, 4 * given)
+    for (let i = 0; i < given; i++) {
+      const received = answer.getInt32(RIGHTS_HEADER + 4 * i, true)
+      opened(received, 0, (flags & MSG_CMSG_CLOEXEC) !== 0)
+      dv.setInt32(data + 4 * i, received, true)
+    }
+  }
+  dv.setUint32(msgPtr + MSG_NAMELEN, 0, true)
+  dv.setUint32(msgPtr + MSG_CONTROLLEN, Math.min(used, controlLength), true)
+  dv.setInt32(msgPtr + MSG_FLAGS, msgFlags, true)
+  return value - dataAt
+}
+
 function recvmsg(fd, msgPtr, flags) {
+  const controlPtr = view().getUint32(msgPtr + MSG_CONTROL, true), controlLength = view().getUint32(msgPtr + MSG_CONTROLLEN, true)
+  // only a local stream carries descriptors and credentials; any other socket's control buffer comes back empty
+  if (controlPtr && controlLength) {
+    const info = socketInfo(fd)
+    if (typeof info === 'number') return info
+    if (info.family === AF_UNIX && info.type === SOCK_STREAM) return recvmsgRights(fd, msgPtr, flags, controlPtr, controlLength, info)
+  }
   const buffers = iovecs(msgPtr)
   const total = buffers.reduce((sum, [, length]) => sum + length, 0)
   const scratch = allocate(roundUp(Math.max(total, 1), PAGE))
@@ -1341,9 +1431,17 @@ function recvmsg(fd, msgPtr, flags) {
 function getsockopt(fd, level, name, valuePtr, lengthPtr) {
   const info = socketInfo(fd)
   if (typeof info === 'number') return info
+  // the program at the other end of a local connection, as `struct ucred`
+  if (level === SOL_SOCKET && name === SO_PEERCRED) {
+    const cred = info.peercred ?? { pid: 0, uid: -1, gid: -1 }
+    if (!valuePtr || !lengthPtr || view().getUint32(lengthPtr, true) < UCRED_SIZE) return -EINVAL
+    ;[cred.pid, cred.uid, cred.gid].forEach((part, i) => view().setInt32(valuePtr + i * 4, part, true))
+    view().setUint32(lengthPtr, UCRED_SIZE, true)
+    return 0
+  }
   let value
   if (level === SOL_SOCKET) {
-    value = { [SO_TYPE]: info.type, [SO_ERROR]: 0, [SO_DOMAIN]: info.family, [SO_ACCEPTCONN]: info.listening ? 1 : 0,
+    value = { [SO_TYPE]: info.type, [SO_PASSCRED]: info.passcred ? 1 : 0, [SO_ERROR]: 0, [SO_DOMAIN]: info.family, [SO_ACCEPTCONN]: info.listening ? 1 : 0,
       [SO_PROTOCOL]: info.family === AF_UNIX ? 0 : info.type === SOCK_DGRAM ? IPPROTO_UDP : IPPROTO_TCP, [SO_SNDBUF]: 65536, [SO_RCVBUF]: 65536 }[name] ?? 0
   } else if (level === IPPROTO_IPV6 && name === IPV6_V6ONLY) value = info.v6only ? 1 : 0
   else if (level === IPPROTO_TCP) value = 0
@@ -1355,11 +1453,12 @@ function getsockopt(fd, level, name, valuePtr, lengthPtr) {
   return 0
 }
 
-/** Options are taken and kept where they mean something here (`IPV6_V6ONLY`); the rest change nothing on a loopback stream */
+/** Options are taken and kept where they mean something here (`IPV6_V6ONLY`, `SO_PASSCRED`); the rest change nothing on a loopback stream */
 function setsockopt(fd, level, name, valuePtr, length) {
   const info = socketInfo(fd)
   if (typeof info === 'number') return info
   if (level === IPPROTO_IPV6 && name === IPV6_V6ONLY && valuePtr && length >= 4) remember(fd, { v6only: view().getInt32(valuePtr, true) !== 0 })
+  if (level === SOL_SOCKET && name === SO_PASSCRED && valuePtr && length >= 4) remember(fd, { passcred: view().getInt32(valuePtr, true) !== 0 })
   return 0
 }
 

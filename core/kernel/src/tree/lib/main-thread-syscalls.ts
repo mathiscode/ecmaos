@@ -8,7 +8,7 @@
  */
 
 import { binfmts, define_syscall, kill as zenfsKill, processes, Process as ZenFSProcess, syscalls, thread_of, type BinFmt, type Process } from '@zenfs/linux'
-import { attach, createSocket, deliverDatagram, describe, receive, receiveDatagram, send, sendDatagram, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
+import { attach, createSocket, deliverDatagram, describe, receive, receiveDatagram, receiveRights, send, sendDatagram, sendRights, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
 import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
@@ -31,7 +31,7 @@ import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installBusyRetry } from './busy-retry.ts'
 import { installNotDirectory } from './not-directory.ts'
-import { installThreads } from './wali-threads.ts'
+import { installThreads, leaderOf } from './wali-threads.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -144,6 +144,8 @@ declare module '@zenfs/linux/uapi/abi' {
     sock_peer(fd: number, addr: string, port: number): number
     sock_sendto(fd: number, data: Uint8Array, family: number, addr: string, port: number, flags: number): number
     sock_recvfrom(fd: number, count: number, flags: number): number
+    sock_sendmsg(fd: number, data: Uint8Array, fds: string, flags: number): number
+    sock_recvmsg(fd: number, count: number, flags: number, room: number): number
     sock_bind(fd: number, family: string, addr: string, port: number): number
     sock_listen(fd: number, backlog: number): number
     sock_accept(fd: number, flags: number): number
@@ -239,6 +241,12 @@ function identityOf(proc: Process): Credentials {
   return shell.credentials
 }
 
+/** A program's credentials as the other end of a connection sees them: its process (a thread's leader), user and group */
+function credentialsOf(proc: Process): PeerCredentials {
+  const identity = identityOf(proc)
+  return { pid: leaderOf(proc).pid, uid: identity.uid, gid: identity.gid }
+}
+
 /**
  * Whether the calling process itself is privileged: what init, getty, login and crond are, and a user's program is
  * not.
@@ -293,15 +301,20 @@ const socketResults = new Map<string, SocketResult>()
 interface LoopbackListener {
   key: string
   serverProc: Process
+  /** The program listening, when that is not `serverProc` (a socket file's connections land in the kernel's table) */
+  owner?: Process
   listening: boolean
   /**
    * `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client)
    */
-  queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string, conn?: number }>
+  queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string, conn?: number, cred?: PeerCredentials }>
   /** Wakes a socket file listening here (`socket-files.ts`) when a connection joins the queue */
   wake?: () => void
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
+
+/** `struct ucred`: who is at the other end of a local connection (`SO_PEERCRED`, `SCM_CREDENTIALS`) */
+interface PeerCredentials { pid: number, uid: number, gid: number }
 
 /**
  * Ancillary data on a local stream connection (`SCM_RIGHTS`). Each connection has a number and two ends (`c` client,
@@ -1334,6 +1347,7 @@ export function installMainThreadSyscalls(): void {
     const listener = key ? loopbackListeners.get(key) : undefined
     if (!listener || socket.connected) throw socketErrno('EINVAL')
     listener.listening = true
+    listener.owner = proc
     socket.listening = key
     socket.wake.wake_up()
     return 0
@@ -1347,7 +1361,7 @@ export function installMainThreadSyscalls(): void {
     await whenPending(proc, socket, handle)
     const next = listener.queue.shift()
     if (!next) throw socketErrno('EAGAIN')
-    const made = createSocket(proc, flags, { ...socket.info, bound: undefined, local: socket.info.local, peer: { addr: next.peerAddr, key: next.peerKey } })
+    const made = createSocket(proc, flags, { ...socket.info, bound: undefined, local: socket.info.local, peer: { addr: next.peerAddr, key: next.peerKey }, peercred: next.cred })
     attach(made.socket, listener.serverProc, next.fd, next.writeFd)
     return made.fd
   })
@@ -1365,8 +1379,10 @@ export function installMainThreadSyscalls(): void {
     const toServer = kernel.linkProcesses(holder, listener.serverProc)
     const toClient = kernel.linkProcesses(listener.serverProc, holder)
     const conn = openConnection({ c: proc, s: listener.serverProc })
-    listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn })
+    listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn, cred: credentialsOf(proc) })
     listener.wake?.()
+    // the client's peer is whoever listened
+    socket.info.peercred = credentialsOf(listener.owner ?? listener.serverProc)
     attach(socket, holder, toClient.readerFd, toServer.writerFd)
     return 0
   })
@@ -1397,7 +1413,7 @@ export function installMainThreadSyscalls(): void {
   define_syscall('sock_pair', (proc: Process, flags: number) => {
     const holder = kernelOf(proc).pipeProcess
     const [aToB, bToA] = [createPipe(holder.context), createPipe(holder.context)]
-    const a = createSocket(proc, flags, { family: 'unix' }), b = createSocket(proc, flags, { family: 'unix' })
+    const a = createSocket(proc, flags, { family: 'unix', peercred: credentialsOf(proc) }), b = createSocket(proc, flags, { family: 'unix', peercred: credentialsOf(proc) })
     attach(a.socket, holder, bToA[0], aToB[1])
     attach(b.socket, holder, aToB[0], bToA[1])
     const { region } = thread_of(proc)
@@ -1421,6 +1437,11 @@ export function installMainThreadSyscalls(): void {
     return 0
   })
   define_syscall('sock_recv', (proc: Process, fd: number, count: number, flags: number) => receive(proc, fd, count, flags))
+  /** `sendmsg(2)` with `SCM_RIGHTS` on a local stream: `fds` is the descriptors' numbers, as JSON; they wait in the kernel's table until received */
+  define_syscall('sock_sendmsg', (proc: Process, fd: number, data: Uint8Array, fds: string, flags: number) =>
+    sendRights(proc, fd, data, JSON.parse(fds) as number[], kernelOf(proc).pipeProcess, flags))
+  /** `recvmsg(2)` on a local stream, with up to `room` descriptors and the peer's credentials (`socket-files.ts`, `receiveRights`) */
+  define_syscall('sock_recvmsg', (proc: Process, fd: number, count: number, flags: number, room: number) => receiveRights(proc, fd, count, flags, room))
   define_syscall('sock_send', (proc: Process, fd: number, data: Uint8Array, flags: number) => send(proc, fd, data, flags))
 
   // The status flags of an open file, which every descriptor for it shares: `O_NONBLOCK` decides whether a read of a
