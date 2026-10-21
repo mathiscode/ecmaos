@@ -28,7 +28,7 @@ import { getdents } from '@zenfs/linux/uapi/fs'
 import { environ, getpid } from '@zenfs/linux/uapi/process'
 import { absolute, environment_of, getcwd, openDescriptors, spawn as spawnShared } from './spawn.mjs'
 
-const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, EINVAL = 22, EPIPE = 32, ENOSYS = 38
+const EPERM = 1, ENOENT = 2, ESRCH = 3, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, EINVAL = 22, EMFILE = 24, EPIPE = 32, ENOSYS = 38
 const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
@@ -58,21 +58,34 @@ const bytes = () => new Uint8Array(memory.buffer)
 /**
  * What the process's threads share, in one SharedArrayBuffer the first thread makes and each new one is given: the
  * allocator's lock, top and free ranges, a version for the signal dispositions, a close-on-exec bit per descriptor,
- * and the dispositions themselves. Everything else here (the mask, pending signals, epoll instances, directory
+ * the dispositions themselves, the futexes' wake counters (see `futex`) and the resource limits. Everything else here (the mask, pending signals, epoll instances, directory
  * positions, shared mappings) is the thread's own.
  */
 const LOCK = 0, VERSION = 1, TOP = 2, FREE_COUNT = 3, HEADER_WORDS = 16
-const MAX_RANGES = 16384, MAX_FDS = 65536, SIGNALS = 65
+const MAX_RANGES = 16384, MAX_FDS = 65536, SIGNALS = 65, FUTEX_BUCKETS = 256, RESOURCES = 16
+const RLIMIT_NOFILE = 7, RLIM_INFINITY = 0xffffffffffffffffn
 function sharedState(buffer) {
   const rangesAt = HEADER_WORDS, cloexecAt = rangesAt + MAX_RANGES * 2, actionsAt = cloexecAt + MAX_FDS / 32
-  buffer ??= new SharedArrayBuffer((actionsAt + SIGNALS * 6) * 4)
+  const wakesAt = actionsAt + SIGNALS * 6, limitsAt = wakesAt + FUTEX_BUCKETS
+  const fresh = !buffer
+  buffer ??= new SharedArrayBuffer((limitsAt + RESOURCES * 4) * 4)
+  const limits = new BigUint64Array(buffer, limitsAt * 4, RESOURCES * 2)
+  if (fresh) {
+    // each resource's soft and hard limit: none, but for descriptors, which have Linux's usual 1024 and a hard
+    // limit of what this host keeps flags for
+    limits.fill(RLIM_INFINITY)
+    limits[RLIMIT_NOFILE * 2] = 1024n
+    limits[RLIMIT_NOFILE * 2 + 1] = BigInt(MAX_FDS)
+  }
   return {
+    limits,
     buffer,
     words: new Int32Array(buffer),
     addresses: new Uint32Array(buffer),
     ranges: new Uint32Array(buffer, rangesAt * 4, MAX_RANGES * 2),
     cloexec: new Int32Array(buffer, cloexecAt * 4, MAX_FDS / 32),
-    actions: new Uint32Array(buffer, actionsAt * 4, SIGNALS * 6)
+    actions: new Uint32Array(buffer, actionsAt * 4, SIGNALS * 6),
+    wakes: new Int32Array(buffer, wakesAt * 4, FUTEX_BUCKETS)
   }
 }
 let state
@@ -146,6 +159,41 @@ function opened(fd, flags, cloexec = (flags & O_CLOEXEC) !== 0) {
   return fd
 }
 
+/** The soft limit on descriptors: one at or past it may not be had */
+const descriptorLimit = () => Number(Atomics.load(state.limits, RLIMIT_NOFILE * 2))
+
+/** Descriptors the program asked for, given back if any is past RLIMIT_NOFILE: then EMFILE, else the first */
+function withinLimit(...fds) {
+  if (fds.some(fd => fd < 0)) return fds.find(fd => fd < 0)
+  if (fds.every(fd => fd < descriptorLimit())) return fds[0]
+  for (const fd of fds) {
+    syscall_raw('close', fd)
+    forget(fd)
+  }
+  return -EMFILE
+}
+
+/** `prlimit64` (and getrlimit and setrlimit on it), for this process: `struct rlimit` is two 64-bit numbers */
+function prlimit(pid, resource, newPtr, oldPtr) {
+  if (pid !== 0 && pid !== getpid()) return pid > 0 ? -EPERM : -ESRCH
+  if (resource < 0 || resource >= RESOURCES) return -EINVAL
+  const dv = view()
+  if (newPtr) {
+    const soft = dv.getBigUint64(newPtr, true), hard = dv.getBigUint64(newPtr + 8, true)
+    if (soft > hard) return -EINVAL
+    if (resource === RLIMIT_NOFILE && hard > BigInt(MAX_FDS)) return -EPERM
+  }
+  if (oldPtr) {
+    dv.setBigUint64(oldPtr, Atomics.load(state.limits, resource * 2), true)
+    dv.setBigUint64(oldPtr + 8, Atomics.load(state.limits, resource * 2 + 1), true)
+  }
+  if (newPtr) {
+    Atomics.store(state.limits, resource * 2, dv.getBigUint64(newPtr, true))
+    Atomics.store(state.limits, resource * 2 + 1, dv.getBigUint64(newPtr + 8, true))
+  }
+  return 0
+}
+
 /** How far `getdents64` has read each directory, as an index into the kernel's listing */
 const positions = new Map()
 
@@ -197,7 +245,7 @@ function fcntl(fd, cmd, arg) {
         copy = syscall_raw('dup', fd)
       }
       for (const extra of held) syscall_raw('close', extra)
-      return copy < 0 ? copy : opened(copy, 0, cmd === F_DUPFD_CLOEXEC)
+      return withinLimit(opened(copy, 0, cmd === F_DUPFD_CLOEXEC))
     }
     case F_GETFD:
       return syscall_raw('fstat', fd) < 0 ? -EBADF : (isCloexec(fd) ? FD_CLOEXEC : 0)
@@ -953,6 +1001,40 @@ const now = clock => (clock === CLOCK_REALTIME || clock === CLOCK_REALTIME_COARS
   ? Date.now()
   : performance.now()
 
+const UTIME_NOW = 0x3fffffff, UTIME_OMIT = 0x3ffffffe
+
+/**
+ * `utimensat`, and `futimens`, which names no path and works on the open file (one that is unlinked too): the two
+ * timespecs, either of which can be UTIME_NOW or UTIME_OMIT, become the kernel's `utimes` or `futimes` in seconds;
+ * an omitted time is the file's own, from `stat`
+ */
+function utimensat(dirfd, pathPtr, timesPtr, flags) {
+  const path = pathPtr ? resolveAt(dirfd, pathPtr, flags) : dirfd
+  if (typeof path === 'number' && pathPtr) return path
+  if (!pathPtr && syscall_raw('fstat', dirfd) < 0) return -EBADF
+  const now = Date.now() / 1000
+  const time = index => {
+    if (!timesPtr) return now
+    const dv = view(), at = timesPtr + index * 16, nsec = Number(dv.getBigInt64(at + 8, true))
+    if (nsec === UTIME_NOW) return now
+    if (nsec === UTIME_OMIT) return undefined
+    if (nsec < 0 || nsec > 999999999) return null
+    return Number(dv.getBigInt64(at, true)) + nsec / 1e9
+  }
+  let atime = time(0), mtime = time(1)
+  if (atime === null || mtime === null) return -EINVAL
+  if (atime === undefined || mtime === undefined) {
+    const value = syscall_raw(pathPtr ? 'stat' : 'fstat', path)
+    if (value < 0) return value
+    const dv = new DataView(returned.buffer, returned.byteOffset)
+    const statTime = at => Number(dv.getBigInt64(at, true)) + Number(dv.getBigInt64(at + 8, true)) / 1e9
+    atime ??= statTime(72)
+    mtime ??= statTime(88)
+  }
+  // `utimes` takes seconds; `futimes` sets the open file's times as they are kept, in milliseconds
+  return pathPtr ? syscall_raw('utimes', path, atime, mtime) : syscall_raw('futimes', path, atime * 1000, mtime * 1000)
+}
+
 function readTimespec(ptr) {
   const dv = view()
   return Number(dv.getBigInt64(ptr, true)) * 1000 + dv.getInt32(ptr + 8, true) / 1e6
@@ -1071,6 +1153,7 @@ function socket(domain, type) {
   const fd = syscall_raw('sock_open', type & SOCK_NONBLOCK)
   if (fd < 0) return fd
   opened(fd, O_RDWR | (type & SOCK_NONBLOCK), (type & SOCK_CLOEXEC) !== 0)
+  if (withinLimit(fd) < 0) return -EMFILE
   remember(fd, { family: domain, type: SOCK_STREAM })
   return fd
 }
@@ -1104,6 +1187,7 @@ function accept(fd, ptr, lengthPtr, flags) {
   const made = syscall_raw('sock_accept', fd, flags & SOCK_NONBLOCK)
   if (made < 0) return made
   opened(made, O_RDWR | (flags & SOCK_NONBLOCK), (flags & SOCK_CLOEXEC) !== 0)
+  if (withinLimit(made) < 0) return -EMFILE
   if (ptr) {
     const info = socketInfo(made)
     writeSockaddr(ptr, lengthPtr, info.family, info.peer)
@@ -1225,6 +1309,7 @@ function socketpair(domain, type, svPtr) {
   if (value < 0) return value
   const answer = new DataView(returned.buffer, returned.byteOffset)
   const pair = [answer.getInt32(0, true), answer.getInt32(4, true)]
+  if (withinLimit(...pair) < 0) return -EMFILE
   pair.forEach((fd, i) => {
     opened(fd, O_RDWR | (type & SOCK_NONBLOCK), (type & SOCK_CLOEXEC) !== 0)
     remember(fd, { family: AF_UNIX, type: SOCK_STREAM, local: {}, peer: {} })
@@ -1252,6 +1337,7 @@ function epollCreate(flags) {
   const fd = syscall_raw('open', '/dev/null', O_RDONLY, 0)
   if (fd < 0) return fd
   opened(fd, O_RDONLY, (flags & O_CLOEXEC) !== 0)
+  if (withinLimit(fd) < 0) return -EMFILE
   epolls.set(fd, new Map())
   return fd
 }
@@ -1344,10 +1430,17 @@ function spawnThread(arg) {
 function futex(ptr, op, value, timeoutPtr, _ptr2, value3) {
   const cmd = op & ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME)
   const words = new Int32Array(memory.buffer)
-  if (cmd === FUTEX_WAKE || cmd === FUTEX_WAKE_BITSET) return Atomics.notify(words, ptr >> 2, value)
+  // a wake counts on the address's bucket and wakes every thread waiting there; each checks its own word again, as
+  // after any wake (a requeue wakes them all too)
+  const bucket = (ptr >>> 2) % FUTEX_BUCKETS
+  const wake = () => {
+    Atomics.add(state.wakes, bucket, 1)
+    return Atomics.notify(state.wakes, bucket)
+  }
+  if (cmd === FUTEX_WAKE || cmd === FUTEX_WAKE_BITSET) return Math.min(wake(), value)
   if (cmd === FUTEX_REQUEUE || cmd === FUTEX_CMP_REQUEUE) {
     if (cmd === FUTEX_CMP_REQUEUE && Atomics.load(words, ptr >> 2) !== value3) return -EAGAIN
-    return Atomics.notify(words, ptr >> 2)
+    return wake()
   }
   if (cmd !== FUTEX_WAIT && cmd !== FUTEX_WAIT_BITSET) return -ENOSYS
   let deadline = Infinity
@@ -1355,12 +1448,15 @@ function futex(ptr, op, value, timeoutPtr, _ptr2, value3) {
     const time = readTimespec(timeoutPtr)
     deadline = performance.now() + (cmd === FUTEX_WAIT ? time : time - now(op & FUTEX_CLOCK_REALTIME ? CLOCK_REALTIME : 1))
   }
+  // As Linux does, the word is compared once, on the way in; after that only a wake (or a signal, or the time) ends
+  // the wait, whatever the word becomes. The counter is read before the comparison, so a wake that follows the
+  // comparison has moved it and is not missed.
+  const seen = Atomics.load(state.wakes, bucket)
+  if (Atomics.load(words, ptr >> 2) !== value) return -EAGAIN
   for (;;) {
     const left = deadline - performance.now()
     if (left <= 0) return -ETIMEDOUT
-    const result = Atomics.wait(words, ptr >> 2, value, Math.min(left, 50))
-    if (result === 'not-equal') return -EAGAIN
-    if (result === 'ok') return 0
+    if (Atomics.wait(state.wakes, bucket, seen, Math.min(left, 50)) !== 'timed-out') return 0
     collect()
     if (raised & ~mask) return -EINTR
   }
@@ -1377,8 +1473,8 @@ const calls = {
     return 0
   },
 
-  SYS_open: (path, flags, mode) => big(opened(syscall_raw('open', readString(path), flags, mode), flags)),
-  SYS_openat: (dirfd, path, flags, mode) => at(dirfd, path, resolved => opened(syscall_raw('open', resolved, flags, mode), flags)),
+  SYS_open: (path, flags, mode) => big(withinLimit(opened(syscall_raw('open', readString(path), flags, mode), flags))),
+  SYS_openat: (dirfd, path, flags, mode) => at(dirfd, path, resolved => withinLimit(opened(syscall_raw('open', resolved, flags, mode), flags))),
   SYS_close: fd => {
     const value = syscall_raw('close', fd)
     if (value >= 0) {
@@ -1414,14 +1510,16 @@ const calls = {
     positions.set(fd, index)
     return big(offset)
   },
-  SYS_dup: fd => big(opened(syscall_raw('dup', fd), 0, false)),
+  SYS_dup: fd => big(withinLimit(opened(syscall_raw('dup', fd), 0, false))),
   SYS_dup2: (from, to) => {
+    if (to >= descriptorLimit()) return big(-EBADF)
     if (from === to) return big(syscall_raw('fstat', from) < 0 ? -EBADF : to)
     const value = syscall_raw('dup2', from, to)
     return big(value < 0 ? value : opened(value, 0, false))
   },
   SYS_dup3: (from, to, flags) => {
     if (from === to || (flags & ~O_CLOEXEC)) return big(-EINVAL)
+    if (to >= descriptorLimit()) return big(-EBADF)
     const value = syscall_raw('dup2', from, to)
     return big(value < 0 ? value : opened(value, 0, (flags & O_CLOEXEC) !== 0))
   },
@@ -1453,6 +1551,10 @@ const calls = {
     return at(dirfd, path, resolved => stat(flags & AT_SYMLINK_NOFOLLOW ? 'lstat' : 'stat', ptr, resolved), flags)
   },
   SYS_fstatat: (dirfd, path, ptr, flags) => calls.SYS_newfstatat(dirfd, path, ptr, flags),
+  SYS_utimensat: (dirfd, path, times, flags) => big(utimensat(dirfd, path, times, flags)),
+  SYS_prlimit64: (pid, resource, newPtr, oldPtr) => big(prlimit(pid, resource, newPtr, oldPtr)),
+  SYS_getrlimit: (resource, ptr) => big(prlimit(0, resource, 0, ptr)),
+  SYS_setrlimit: (resource, ptr) => big(prlimit(0, resource, ptr, 0)),
   SYS_faccessat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode)),
   SYS_faccessat2: (dirfd, path, mode, flags) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode), flags),
   SYS_mkdirat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('mkdir', resolved, mode)),
@@ -1628,8 +1730,10 @@ export function install(wali, start) {
     calls[name] = (ptr, flags = 0) => {
       const value = make(ptr, flags)
       if (value >= 0n) {
-        opened(view().getInt32(ptr, true), O_RDONLY | flags)
-        opened(view().getInt32(ptr + 4, true), O_WRONLY | flags)
+        const ends = [view().getInt32(ptr, true), view().getInt32(ptr + 4, true)]
+        opened(ends[0], O_RDONLY | flags)
+        opened(ends[1], O_WRONLY | flags)
+        if (withinLimit(...ends) < 0) return BigInt(-EMFILE)
       }
       return value
     }

@@ -7,29 +7,24 @@ functional.ipc_sem          semget: ENOSYS
 functional.ipc_shm          shmget: ENOSYS
 
 # threads
-functional.pthread_mutex    an error-checking or recursive mutex unlocked by another thread is not EPERM
 functional.pthread_mutex_pi priority inheritance (PTHREAD_PRIO_INHERIT) is ENOSYS
 functional.pthread_robust   robust mutexes are ENOSYS; times out
 regression.pthread-robust-detach  robust mutexes are ENOSYS
 regression.pthread_create-oom     times out
 regression.raise-race       pthread_kill is EINVAL; times out
 
-# named semaphores live in /dev/shm, which is not there
-functional.sem_open         sem_open: ENOENT; times out
-regression.sem_close-unmap  sem_open fails
-
 # datagram sockets
 functional.socket           socket(AF_INET, SOCK_DGRAM): ESOCKTNOSUPPORT
 
 # formatting and parsing
-functional.strptime         %F, %s and %z are not parsed
+functional.strptime         %F, %s and %z are not parsed (musl has them only after 1.2.5)
 functional.strtod           hexadecimal floats past 53 bits are not rounded to nearest
-functional.strtold          WALI's musl is built without long double in printf (SIGABRT)
-functional.wordexp          WRDE_NOSPACE for every word: wordexp runs `sh` through fork
+functional.strtold          WALI's musl formats no long double (SIGABRT); built with it, it misformats doubles
+functional.wordexp          most cases pass; the rest are musl 1.2.3's wordexp and ecmash's eval (positional
+                            parameters, quoting inside ${X-...}, syntax errors)
 
 # files
-functional.utime            utimensat and futimens: ENOSYS
-regression.statvfs          / has 0 blocks
+regression.statvfs          / has 0 blocks: the IndexedDB root does not report its size
 
 # processes and signals
 functional.vfork            vfork: ENOSYS (there is no fork)
@@ -42,5 +37,4 @@ regression.sigaltstack      sigaltstack: ENOSYS
 regression.malloc-brk-fail  times out
 regression.malloc-oom       times out
 regression.setenv-oom       times out
-regression.rlimit-open-files  times out
 regression.flockfile-list   "0 is not an allocated pointer"

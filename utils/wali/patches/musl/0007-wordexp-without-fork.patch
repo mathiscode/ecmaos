@@ -1,0 +1,62 @@
+ecmaOS: wordexp starts the shell with posix_spawn, as there is no fork to run it in. The write end of the pipe
+becomes the child's stdout through a file action, and the child has the caller's signal mask, as the forked one did
+once fork returned, so the signals blocked around the fork are not blocked here.
+
+--- i/src/misc/wordexp.c
++++ w/src/misc/wordexp.c
+@@ -8,9 +8,12 @@
+ #include <sys/wait.h>
+ #include <signal.h>
+ #include <errno.h>
++#include <spawn.h>
+ #include <fcntl.h>
+ #include "pthread_impl.h"
+ 
++extern char **__environ;
++
+ static void reap(pid_t pid)
+ {
+ 	int status;
+@@ -36,7 +39,6 @@
+ 	char **wv = 0;
+ 	int p[2];
+ 	pid_t pid;
+-	sigset_t set;
+ 
+ 	if (flags & WRDE_REUSE) wordfree(we);
+ 
+@@ -96,22 +98,23 @@
+ 		we->we_offs = 0;
+ 	}
+ 
++	/* ecmaOS: there is no fork, so the shell is started with posix_spawn, its stdout the pipe's write end */
+ 	if (pipe2(p, O_CLOEXEC) < 0) goto nospace;
+-	__block_all_sigs(&set);
+-	pid = fork();
+-	__restore_sigs(&set);
+-	if (pid < 0) {
++	posix_spawn_file_actions_t fa;
++	if (posix_spawn_file_actions_init(&fa)) {
+ 		close(p[0]);
+ 		close(p[1]);
+ 		goto nospace;
+ 	}
+-	if (!pid) {
+-		if (p[1] == 1) fcntl(1, F_SETFD, 0);
+-		else dup2(p[1], 1);
+-		execl("/bin/sh", "sh", "-c",
+-			"eval \"printf %s\\\\\\\\0 x $1 $2\"",
+-			"sh", s, redir, (char *)0);
+-		_exit(1);
++	posix_spawn_file_actions_adddup2(&fa, p[1], 1);
++	int spawned = posix_spawn(&pid, "/bin/sh", &fa, 0, (char *[]){ "sh", "-c",
++		"eval \"printf %s\\\\\\\\0 x $1 $2\"",
++		"sh", (char *)s, (char *)redir, 0 }, __environ);
++	posix_spawn_file_actions_destroy(&fa);
++	if (spawned) {
++		close(p[0]);
++		close(p[1]);
++		goto nospace;
+ 	}
+ 	close(p[1]);
+ 	

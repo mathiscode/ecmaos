@@ -1444,8 +1444,9 @@ export class Kernel implements IKernel {
       // Bridging one stream twice would fail, since `.getWriter()` throws on a locked stream.
       if (options.stderr) {
         if (stdoutBridged && sharesDestination(options.stdout, options.stderr)) {
+          // a second descriptor on the open file, so closing one (`dup2` over fd 2) leaves the other open
           const shared = proc.context.descriptors.get(1)
-          if (shared) proc.context.descriptors.set(2, shared)
+          if (shared) proc.context.descriptors.set(2, shared.ref())
         } else {
           // fd 2 is never a pipe to another stage - `Shell.buildOutputStreams` only ever gives it the
           // terminal or a file - so its drain is always safe to await and always worth awaiting.

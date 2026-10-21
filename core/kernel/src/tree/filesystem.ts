@@ -247,6 +247,8 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
     // every existing machine already has (it is what the backend defaults to), so it must not change.
     '/': { backend: IndexedDB, storeName: 'zenfs' } as unknown as ConfigMounts[string],
     '/dev': new DevTmpFS(),
+    // POSIX shared memory and named semaphores (shm_open, sem_open) are files here, as on Linux
+    '/dev/shm': { backend: InMemory, options: { name: 'shm' } },
     '/media': { backend: InMemory, options: { name: 'media' } },
     '/mnt': { backend: InMemory, options: { name: 'mnt' } },
     '/proc': new ProcFS(),

@@ -13,7 +13,7 @@ const STICKY = 0o1000
 const WORLD_WRITABLE = 0o002
 
 /** Directories that are world-writable by design: anyone may create files, only an owner may remove theirs. */
-export const TEMPORARY_DIRECTORIES: readonly string[] = ['/tmp', '/var/tmp']
+export const TEMPORARY_DIRECTORIES: readonly string[] = ['/tmp', '/var/tmp', '/dev/shm']
 
 /** Every other system directory and the mode it should have when found world-writable. */
 export const SYSTEM_DIRECTORY_MODES: Readonly<Record<string, number>> = {

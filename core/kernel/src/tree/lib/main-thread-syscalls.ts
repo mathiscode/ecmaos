@@ -30,6 +30,7 @@ import { startDeviceCli, waitDeviceCli } from './device-cli.ts'
 import { installFdLinks } from './fd-links.ts'
 import { installPipeWakeup } from './pipe-wakeup.ts'
 import { installBusyRetry } from './busy-retry.ts'
+import { installNotDirectory } from './not-directory.ts'
 import { installThreads } from './wali-threads.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
@@ -444,6 +445,7 @@ export function installMainThreadSyscalls(): void {
   installDeviceHolds()
   installSharedRandom()
   installBusyRetry()
+  installNotDirectory()
   installStops()
   installThreads()
   installFbSeek((proc, fd) => {
