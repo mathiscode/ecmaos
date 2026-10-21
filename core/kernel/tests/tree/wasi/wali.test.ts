@@ -126,6 +126,27 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('drives a pty and does job control: stops, SIGCONT, and reading the terminal from the background', async () => {
+    expect(await run('wali-tty')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'pty: grant=0 unlock=0 name=/dev/pts/N tty=1',
+        'winsize: 30x100',
+        'output: cooked crlf=1 raw lf=1 icanon=0',
+        'input: read=1 key=k',
+        'tstp: stopped=1 sig=20',
+        'child continued, handler=1',
+        'tstp: exit=0',
+        'sigstop: stopped=1 sig=19 exit=4',
+        'background read: stopped by SIGTTIN, foreground=1',
+        'ignored SIGTTIN: read=-1 EIO',
+        'background read: exit=5',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

@@ -149,6 +149,12 @@ export function ptyIndexOf(tty: TTY | null | undefined): number | undefined {
   for (const pair of pairs.values()) if (pair.slave === tty) return pair.index
 }
 
+/** The device path of a terminal: `/dev/pts/<index>` for a pty's slave, `/dev/<name>` for the others */
+export function ttyPathOf(tty: TTY): string {
+  const index = ptyIndexOf(tty)
+  return index === undefined ? `/dev/${tty.name}` : `/dev/pts/${index}`
+}
+
 /** The slave tty of `/dev/pts/<index>`, or `undefined` when there is none */
 export function ptySlaveOf(index: number): TTY | undefined {
   return pairs.get(index)?.slave
@@ -237,7 +243,7 @@ export function installPtys(): void {
         }
       }
       // A process's own terminal, not the console's.
-      if (path === '/dev/tty' && proc.tty) return await open(proc, `/dev/${proc.tty.name}`, ...rest)
+      if (path === '/dev/tty' && proc.tty) return await open(proc, ttyPathOf(proc.tty), ...rest)
       return await open(proc, path, ...rest)
     }) as never)
   }

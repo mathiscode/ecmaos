@@ -241,7 +241,22 @@ function fixScreenInfo(ptr, length) {
   bytes().set(out, ptr)
 }
 
+const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414
+
 function deviceIoctl(fd, request, ptr) {
+  // a pty master's number and its lock: an int each, through the pointer
+  if (request === TIOCGPTN) {
+    const number = syscall_raw('ioctl', fd, request, undefined)
+    if (number < 0) return number
+    if (ptr) view().setInt32(ptr, number, true)
+    return 0
+  }
+  if (request === TIOCSPTLCK) return syscall_raw('ioctl', fd, request, ptr ? view().getInt32(ptr, true) : 0)
+  // the kernel's terminals take a size as `{ rows, cols }`
+  if (request === TIOCSWINSZ) {
+    if (!ptr) return -EFAULT
+    return syscall_raw('ioctl', fd, request, { rows: view().getUint16(ptr, true), cols: view().getUint16(ptr + 2, true) })
+  }
   if (request === TIOCSCTTY) return syscall_raw('proc_ctty', 0, fd, ptr)
   if (request === TIOCNOTTY) return syscall_raw('proc_ctty', 1, fd, 0)
   if (request === TIOCGSID) {
@@ -641,6 +656,18 @@ function routeAll() {
   for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) route(signal)
 }
 
+/**
+ * Tells the kernel which signals are ignored and blocked now: what an exec keeps, and what decides whether reading the
+ * terminal from the background is EIO rather than `SIGTTIN`
+ */
+let published = ''
+function publish() {
+  const ignored = ignoredSet(), blocked = kernelSet(mask)
+  if (`${ignored}:${blocked}` === published) return
+  published = `${ignored}:${blocked}`
+  syscall_raw('proc_set_sigstate', ignored, blocked)
+}
+
 /** Signals the kernel raised while the program was computing, which the next syscall would otherwise clear */
 function collect() {
   const bits = pending()
@@ -669,6 +696,7 @@ function inheritSignals() {
   }
   if (blocked > 0) mask = BigInt(blocked) & ~UNBLOCKABLE
   routeAll()
+  published = `${ignoredSet()}:${kernelSet(mask)}`
 }
 
 /** `struct k_sigaction`, packed: handler (4), flags (8, a 64-bit long), restorer (4), mask (8) */
@@ -1438,6 +1466,7 @@ const calls = {
       actions.set(signal, next)
       if (next.handler === SIG_IGN) raised &= ~bit(signal)
       if (signal <= KERNEL_SIGNALS) route(signal)
+      publish()
     }
     return 0n
   },
@@ -1451,6 +1480,7 @@ const calls = {
       else return big(-EINVAL)
       mask &= ~UNBLOCKABLE
       routeAll()
+      publish()
     }
     if (oldPtr) view().setBigUint64(oldPtr, previous, true)
     return 0n

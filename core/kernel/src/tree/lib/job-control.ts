@@ -8,12 +8,13 @@
  * signal. `waitpid` returns `pid * 65536 + status`, or 0 when `WNOHANG` finds nothing.
  */
 
-import { Process, kill as zenfsKill, processes } from '@zenfs/linux'
+import { Process, Thread, kill as zenfsKill, processes, syscalls } from '@zenfs/linux'
 import { inheritUmask } from './umask-store.ts'
 import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
 import { execveWhenFree } from './execve-retry.ts'
+import { ttyPathOf } from './pty.ts'
 import { setuidCredentials } from './process-credentials.ts'
 import { finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { Tracer } from './syscall-trace.ts'
@@ -229,6 +230,121 @@ export function killpg(pgid: number, signal: number, caller?: Process): number {
   return count
 }
 
+/** The signal each stopped process stopped with, which a `WUNTRACED` wait reports */
+const stopSignals = new WeakMap<Process, number>()
+/** For each stopped process, what lets its held syscall go on: `SIGCONT`, or its end */
+const resumes = new WeakMap<Process, { promise: Promise<void>, resolve: () => void }>()
+
+function resume(proc: Process): void {
+  resumes.get(proc)?.resolve()
+  resumes.delete(proc)
+}
+
+/**
+ * Stopping, as Linux does it. The kernel's default action for `SIGSTOP`, `SIGTSTP`, `SIGTTIN` and `SIGTTOU` only marks
+ * the process stopped, and a `SIGCONT` the program catches is only raised on its thread: here a stopped process's next
+ * syscall waits until it is continued (a program that is computing is stopped when it next makes a call), `SIGCONT`
+ * continues a process whether or not it catches the signal, and the parent hears of the stop by `SIGCHLD`. Idempotent.
+ */
+let stopsInstalled = false
+export function installStops(): void {
+  if (stopsInstalled) return
+  stopsInstalled = true
+  const kill = Process.prototype.kill
+  Process.prototype.kill = function (this: Process, signal: Parameters<typeof kill>[0]) {
+    const number = typeof signal === 'number' ? signal : undefined
+    const wasStopped = this.stopped
+    if (number === SIGCONT) this.stopped = false
+    const result = kill.call(this, signal)
+    if (!wasStopped && this.stopped) {
+      stopSignals.set(this, number ?? SIGTSTP)
+      const parent = this.parent
+      if (parent && parent.code === undefined) try { parent.kill(SIGCHLD) } catch { /* nobody is listening */ }
+    }
+    if (wasStopped && (!this.stopped || this.code !== undefined)) resume(this)
+    return result
+  }
+  // the method the thread runs each syscall the program makes through, which upstream keeps protected
+  type Syscall = (this: Thread, message: unknown) => Promise<void>
+  const prototype = Thread.prototype as unknown as { syscall: Syscall }
+  const syscall = prototype.syscall
+  prototype.syscall = async function (this: Thread, message: unknown) {
+    await whenContinued(this.proc)
+    return await syscall.call(this, message)
+  }
+  // A call that stopped the process (a `raise(SIGTSTP)`), or that was running when it stopped, comes back only once it
+  // is continued, as on Linux: so a handler for `SIGCONT` has run before `raise` returns
+  const threadOf = Thread.prototype as unknown as { wake(this: Thread, value: number): void }
+  const wake = threadOf.wake
+  threadOf.wake = function (this: Thread, value: number) {
+    if (!this.proc.stopped || this.proc.code !== undefined) return wake.call(this, value)
+    void whenContinued(this.proc).then(() => wake.call(this, value))
+  }
+  installBackgroundChecks()
+}
+
+/** Waits while `proc` is stopped: until a `SIGCONT`, or its end */
+async function whenContinued(proc: Process): Promise<void> {
+  while (proc.stopped && proc.code === undefined) {
+    let held = resumes.get(proc)
+    if (!held) {
+      held = Promise.withResolvers<void>()
+      resumes.set(proc, held)
+      void proc.exited.then(() => resume(proc))
+    }
+    await held.promise
+  }
+}
+
+const SIGTTIN = 21, SIGTTOU = 22
+const TOSTOP = 0o400
+const TCSETS = 0x5402, TCSETSW = 0x5403, TCSETSF = 0x5404, TIOCSPGRP = 0x5410
+
+/**
+ * A process in the background of its controlling terminal (its group is not the foreground's) that reads from it gets
+ * `SIGTTIN`, and one that changes its settings, or writes to it with `TOSTOP` set, gets `SIGTTOU`, sent to its whole
+ * group. Stopped by it (the default), the call goes on once the group is continued; with a handler, it fails with
+ * EINTR. A process that ignores or blocks `SIGTTIN` reads EIO instead; one that ignores or blocks `SIGTTOU` just goes
+ * ahead. Processes share their parent's group unless something set one (`setpgid`, `posix_spawn`), so this only ever
+ * comes up under a shell that does job control.
+ */
+async function backgroundCheck(proc: Process, fd: unknown, signal: number, setting = false): Promise<void> {
+  for (;;) {
+    const tty = proc.tty
+    if (!tty) return
+    const handle = proc.context.descriptors.get(fd as number) as { path?: string } | undefined
+    if (!handle || handle.path !== ttyPathOf(tty)) return
+    const front = tty.foreground
+    if (!front || front.code !== undefined || getpgid(front) === getpgid(proc)) return
+    if (signal === SIGTTOU && !setting && !(tty.termios.lflag & TOSTOP)) return
+    const state = signalStateOf(proc.pid)
+    if ((state.ignored | state.blocked) & (1 << (signal - 1))) {
+      if (signal === SIGTTIN) throw fail(Errno.EIO, 'Input/output error')
+      return
+    }
+    try { killpg(getpgid(proc), signal) } catch { /* the group is gone */ }
+    if (!proc.stopped) throw fail(Errno.EINTR, 'Interrupted system call')
+    await whenContinued(proc)
+  }
+}
+
+function installBackgroundChecks(): void {
+  type Handler = (proc: Process, ...args: unknown[]) => unknown
+  const wrap = (name: string, check: (proc: Process, args: unknown[]) => Promise<void>) => {
+    const original = syscalls.get(name as never) as Handler | undefined
+    if (!original) return
+    syscalls.set(name as never, (async (proc: Process, ...args: unknown[]) => {
+      await check(proc, args)
+      return await original(proc, ...args)
+    }) as never)
+  }
+  wrap('read', (proc, [fd]) => backgroundCheck(proc, fd, SIGTTIN))
+  wrap('write', (proc, [fd]) => backgroundCheck(proc, fd, SIGTTOU))
+  wrap('ioctl', async (proc, [fd, request]) => {
+    if (request === TCSETS || request === TCSETSW || request === TCSETSF || request === TIOCSPGRP) await backgroundCheck(proc, fd, SIGTTOU, true)
+  })
+}
+
 /** `waitpid(2)`: `pid` -1 for any child; `nohang` returns 0 rather than waiting. */
 export async function waitpid(caller: Process, pid: number, flags: number | boolean): Promise<number> {
   const bits = typeof flags === 'boolean' ? (flags ? WNOHANG : 0) : flags
@@ -252,7 +368,7 @@ export async function waitpid(caller: Process, pid: number, flags: number | bool
       const stopped = children.find(child => child.stopped && !stopReported.has(child))
       if (stopped) {
         stopReported.add(stopped)
-        return stopped.pid * 65536 + encodeStopped(SIGTSTP)
+        return stopped.pid * 65536 + encodeStopped(stopSignals.get(stopped) ?? SIGTSTP)
       }
     }
     if (nohang) return 0
@@ -393,7 +509,12 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       void child.exited.then(() => forgetGroup(child.pid))
     }
     if (options.signals) setSignalState(child, options.signals)
+    // `execve` puts the program in front of its terminal; a child started in a group or session of its own is not
+    // (Linux's exec never changes the foreground): whoever does job control moves it there with `tcsetpgrp`
+    const ownGroup = options.pgid !== undefined || options.setsid
+    const front = child.tty?.foreground
     await execveWhenFree(child, command, argv, env)
+    if (ownGroup && child.tty && child.tty.foreground === child) child.tty.foreground = front
     if (options.terminal?.zfsTty) {
       const tty = options.terminal.zfsTty
       const previous = tty.foreground
