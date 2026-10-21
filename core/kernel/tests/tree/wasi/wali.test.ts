@@ -76,28 +76,6 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
-  it('spawns, waits, execs and handles signals', async () => {
-    expect(await run('wali-proc')).toEqual({
-      code: 0,
-      err: '',
-      out: [
-        'addopen: exit=7 wrote=from the child',
-        'pipe: from the child',
-        'cloexec: plain open, cloexec closed',
-        'execve: exit=0 plain open, cloexec closed',
-        'wnohang: 0 then pid, exit=3',
-        'signaled: 1 sig=15',
-        'spawnp: 0 exit=3 missing=No such file or directory',
-        'system: exit=5 popen: through the shell pclose=0',
-        'raise: 1 blocked: 1 pending=1 unblocked: 2 ignored usr2: alive',
-        'inherited: exit=0 usr2 survived, usr1 blocked=1',
-        'sigchld: 1 wait=pid',
-        'alarm: handled=2 sleep left 4 of 5, pause returned',
-        ''
-      ].join('\n')
-    })
-  }, 60_000)
-
   it('talks over sockets: pairs, AF_UNIX and loopback TCP between processes, poll, epoll and SIGPIPE', async () => {
     expect(await run('wali-net')).toEqual({
       code: 0,

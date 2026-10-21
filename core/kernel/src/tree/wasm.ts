@@ -36,6 +36,9 @@ const IMPLEMENTED_SYSCALLS = new Set([
   'emscripten_get_now', 'emscripten_date_now', 'emscripten_get_heap_max', 'emscripten_err', '__assert_fail', '_tzset_js', '_localtime_js', '_mktime_js', '_gmtime_js', '_timegm_js', '_mmap_js', '_munmap_js', '_msync_js', '_setitimer_js', 'strptime',
   '__syscall_dup', '__syscall_pipe2', '__syscall_mknodat', '_emscripten_get_progname',
   'getaddrinfo', 'getnameinfo', '_emscripten_lookup_name',
+  // libecmaos (core/utils/wasm/lib/ecmaos.sh)
+  '__ecmaos_spawn', '__ecmaos_execve', '__ecmaos_wait4', '__ecmaos_kill', '__ecmaos_sigstate', '__ecmaos_set_sigstate',
+  '__ecmaos_sleep', '__ecmaos_pause', '__syscall_getpid', '__syscall_getppid',
 ])
 
 /**

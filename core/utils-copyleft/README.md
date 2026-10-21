@@ -21,8 +21,9 @@ syscalls, arguments and pipes. The programs are never imported as libraries.
 
 Each binary also contains musl libc and compiler-rt (see `licenses/runtime/`). Files written for ecmaOS in this
 package are licensed as the program they belong to when they modify or are linked into it
-(`wasm/make/ecmaos-spawn.c`: GPL-3.0-or-later; `wasm/doom/doomecma.c` and `doomsound.c`: GPL-2.0-or-later), and otherwise MIT OR Apache-2.0 (`wasm/vim/libc-gaps.c`, the
-scripts); each carries an `SPDX-License-Identifier`. The texts are in `licenses/`.
+(`wasm/doom/doomecma.c` and `doomsound.c`: GPL-2.0-or-later), and otherwise MIT OR Apache-2.0 (the scripts); each
+carries an `SPDX-License-Identifier`. `vim` and `make` are also linked with libecmaos, from `@ecmaos/coreutils`
+(`wasm/lib/ecmaos/`, MIT OR Apache-2.0). The texts are in `licenses/`.
 
 ## Source
 

@@ -9,10 +9,10 @@ Upstream source
     from https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
 
 Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
-  wasm/make/ecmaos-spawn.c
-    new file, linked into the program: runs each recipe line through system() and answers waitpid, since the runtime has no fork
   wasm/make/build.sh
-    the build; patches src/job.c so child_execute_job calls ecmaos_run instead of vfork
+    the build: configures make to start its jobs with posix_spawn and to wait for jobserver tokens without pselect; the make source is unmodified
+  core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)
+    builds libecmaos, linked into the program: posix_spawn, waitpid, execve and kill on the kernel's processes, the kernel's signals run through the program's handlers, and the sleeps and timers
 
 The changes were made in 2026; the repository history dates each one.
 

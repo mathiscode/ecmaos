@@ -15,13 +15,12 @@ given with `-f`), works out which targets are out of date by modification time, 
 up to date. Variables, pattern rules, automatic variables (`$@`, `$<`, `$^`), functions (`$(shell ...)`,
 `$(wildcard ...)`, `$(patsubst ...)`), conditionals, `include` and `.PHONY` all work.
 
-Each recipe line runs with `/bin/ecmash -c`, as a child that holds the terminal while it runs, so `^C` stops the recipe.
+A recipe line is started as a child process: a simple command directly, one with shell syntax with `/bin/sh -c`. `-j`
+runs jobs side by side, and a recursive `$(MAKE)` shares the jobserver, so the whole tree keeps to the one limit.
 
 Differences from a Linux `make`:
 
-- Jobs run one at a time: `-j` is accepted and has no effect, and there is no jobserver.
-- A recipe sees the environment of the shell that ran `make`, not variables that `make` exported itself.
-- `$(shell ...)` collects the command's standard output (its standard error goes to the terminal).
+- The jobserver is a pipe; `--jobserver-style=fifo` is not available.
 - `load` (dynamic objects) and Guile are not available.
 
 ## Examples

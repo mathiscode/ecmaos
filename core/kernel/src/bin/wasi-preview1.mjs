@@ -7,12 +7,17 @@
  * Exported and imported memory are both supported (`detectMemoryImport`). Preview2 components are not routed here.
  * A wasi fd and a real fd share one numbering: 0-2 are stdio and the `/` and `.` preopens are opened for real at
  * startup, so they cannot collide with fds `env.__syscall_openat` returns.
+ * A program linked with libecmaos (`core/utils/wasm/lib/ecmaos.sh`) also has processes and signals: `__ecmaos_spawn`
+ * (`spawn.mjs`, the call WALI programs make), `execve`, `wait4` and `kill` on the kernel's process calls, and the
+ * kernel's signals run through its handlers (`enableSignals`).
  */
 
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, link, symlink, readlink, getcwd, chdir, chmod, fchmod, chown, fchown, utimes, access, dup, dup2, pipe, statfs, tcgetattr, tcsetattr, winsize } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
-import { syscall, copyOut, on_signal } from '@zenfs/linux/uapi/base'
+import { syscall, syscall_raw, copyOut, on_signal, off_signal } from '@zenfs/linux/uapi/base'
+import { Errno } from 'kerium'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp, parseIp } from '../tree/lib/ip.ts'
+import { environment_of, openDescriptors, spawn } from './spawn.mjs'
 
 const ESUCCESS = 0
 const EBADF = 8
@@ -34,7 +39,12 @@ const SYSCALL_ERRNO = {
   ENOTSOCK: 57, ENOPROTOOPT: 50, EPROTONOSUPPORT: 66, EAFNOSUPPORT: 5, EISCONN: 30, ENOTCONN: 53,
   ENETUNREACH: 40, EALREADY: 7, EINPROGRESS: 26, EEXIST: 20, ESRCH: 71,
   ECONNRESET: 15, EHOSTUNREACH: 23, ENOBUFS: 42, ETIMEDOUT: 73, EDESTADDRREQ: 17, EMSGSIZE: 35,
+  ECHILD: 12, ENOEXEC: 45,
 }
+
+/** A kernel answer (a count, or a negative Linux errno) as an `env.__syscall_*` one */
+const fromLinux = value => value >= 0 ? value : -(SYSCALL_ERRNO[Errno[-value]] ?? SYSCALL_ERRNO.EIO)
+const LINUX_EINTR = 4
 
 // open(2) flags (Linux values)
 const O_RDONLY = 0
@@ -45,6 +55,7 @@ const O_EXCL = 0x80
 const O_TRUNC = 0x200
 const O_APPEND = 0x400
 const O_DIRECTORY = 0x10000
+const O_CLOEXEC = 0x80000
 
 // wasi oflags
 const OFLAGS_CREAT = 1
@@ -134,6 +145,13 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     [preopenRoot, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
     [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
+  // The descriptors that close on exec, which the kernel does not keep: a child spawned does not get them, and the
+  // preopens are this host's own.
+  const cloexec = new Set([preopenRoot, preopenCwd])
+  const setCloexec = (fd, on) => { if (on) cloexec.add(fd); else cloexec.delete(fd) }
+  // Signals delivered while an import ran (see `enableSignals`): a call the kernel woke with EINTR is resumed when no
+  // handler ran, restarted after handlers that all had SA_RESTART, and fails with EINTR after any other.
+  const delivery = { enabled: false, handled: 0, interrupting: 0 }
   // Synthetic descriptors (sockets, epoll instances) count up from here, well clear of the real ones, which the
   // kernel hands out lowest first:
   // a program using a few hundred descriptors would otherwise be given a real number a socket already has.
@@ -148,10 +166,25 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   const bytes = () => new Uint8Array(getMemory().buffer)
   const readString = (ptr, len) => decoder.decode(bytes().subarray(ptr, ptr + len))
 
+  /**
+   * Runs `fn` until a signal does not resume it: when it fails with EINTR, it runs again unless a handler without
+   * SA_RESTART ran meanwhile (or, for `waits` - poll and the like, which Linux never restarts - any handler).
+   */
+  const resuming = (fn, waits = false) => {
+    for (;;) {
+      const before = waits ? delivery.handled : delivery.interrupting
+      try {
+        return fn()
+      } catch (error) {
+        if (error?.code !== 'EINTR' || (waits ? delivery.handled : delivery.interrupting) !== before) throw error
+      }
+    }
+  }
+
   /** Runs `fn`, turning a thrown syscall error into a WASI errno. */
-  const guard = (fn) => {
+  const guard = (fn, waits = false) => {
     try {
-      return fn() ?? ESUCCESS
+      return resuming(fn, waits) ?? ESUCCESS
     } catch (error) {
       if (error instanceof ProcExit) throw error
       return errnoOf(error)
@@ -162,6 +195,25 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     let end = ptr
     while (bytes()[end] !== 0) end++
     return decoder.decode(bytes().subarray(ptr, end))
+  }
+
+  /** A NULL-terminated array of strings, `argv` or `envp` */
+  const readCStrings = (ptr) => {
+    const list = []
+    for (let at = ptr; ptr; at += 4) {
+      const item = view().getUint32(at, true)
+      if (!item) break
+      list.push(readCString(item))
+    }
+    return list
+  }
+
+  // What `posix_spawn` (spawn.mjs) reads: the program's memory, and its signals, which libecmaos hands the kernel
+  // (`__ecmaos_set_sigstate`) before it spawns
+  const spawnMemory = { view, string: readCString, strings: readCStrings }
+  const spawnSignals = {
+    ignored: resets => Math.max(0, syscall_raw('proc_sigstate', 0)) & ~Number(resets & 0x7fffffffn),
+    mask: () => BigInt(Math.max(0, syscall_raw('proc_sigstate', 1))),
   }
 
   // A real fd not registered here (opened through `env.__syscall_openat`) is treated as an open file rather than
@@ -308,6 +360,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       return guard(() => {
         if (entry.fd !== null) close(entry.fd)
         fds.delete(fd)
+        cloexec.delete(fd)
       })
     },
     fd_read(fd, iovPtr, iovCnt, nreadPtr) {
@@ -654,9 +707,9 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   // (entries already handed out); without it a `readdir` loop never sees the end of the directory.
   const dirPos = new Map()
 
-  const guardLinux = (fn) => {
+  const guardLinux = (fn, waits = false) => {
     try {
-      return fn() ?? ESUCCESS
+      return resuming(fn, waits) ?? ESUCCESS
     } catch (error) {
       if (error instanceof ProcExit) throw error
       return -(SYSCALL_ERRNO[error?.code] ?? SYSCALL_ERRNO.EIO)
@@ -1390,16 +1443,27 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       if (cmd === F_DUPFD || cmd === F_DUPFD_CLOEXEC) {
         // the lowest free descriptor at or above the argument: a plain `dup` when that is already high enough
         const least = varargI(varargsPtr, 0)
-        const copy = dup(fd)
-        if (copy >= least) return copy
-        close(copy)
-        return dup2(fd, least)
+        let copy = dup(fd)
+        if (copy < least) {
+          close(copy)
+          copy = dup2(fd, least)
+        }
+        setCloexec(copy, cmd === F_DUPFD_CLOEXEC)
+        return copy
       }
       const sock = sockets.get(fd)
-      if (cmd === F_GETFL) return sock?.nonblock ? O_NONBLOCK : 0
+      if (cmd === F_GETFL && sock) return sock.nonblock ? O_NONBLOCK : 0
       if (cmd === F_SETFL && sock) { sock.nonblock = (varargI(varargsPtr, 0) & O_NONBLOCK) !== 0; return 0 }
-      if (cmd === F_GETFD) return 0
-      if (cmd === F_SETFD || cmd === F_SETFL) return 0
+      // the open file's status flags are the kernel's (O_NONBLOCK makes a read of an empty pipe EAGAIN)
+      if (cmd === F_GETFL) return syscall('fd_getfl', fd)
+      if (cmd === F_SETFL) return syscall('fd_setfl', fd, varargI(varargsPtr, 0))
+      // FD_CLOEXEC, which only this host keeps; the descriptor has to be open
+      if (cmd === F_GETFD || cmd === F_SETFD) {
+        if (!sock && !epollInstances.has(fd)) fstat(fd)
+        if (cmd === F_GETFD) return cloexec.has(fd) ? 1 : 0
+        setCloexec(fd, (varargI(varargsPtr, 0) & 1) !== 0)
+        return 0
+      }
       // Advisory record locks (SQLite takes them around every transaction). Each program here runs alone as
       // far as its own locks go: a lock is always granted and a query finds nothing holding one. Two programs
       // writing the same file at once are not kept apart.
@@ -1412,6 +1476,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const path = resolveAt(dirfd, pathPtr)
       const mode = varargsPtr ? varargI(varargsPtr, 0) : 0o644
       const fd = open(path, wasiOflagsFromLinux(flags), mode)
+      setCloexec(fd, (flags & O_CLOEXEC) !== 0)
       dirPos.delete(fd)
       if (flags & O_DIRECTORY) dirPaths.set(fd, path)
       return fd
@@ -1466,7 +1531,11 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     __syscall_geteuid32: () => 0,
     __syscall_getgid32: () => 0,
     __syscall_getegid32: () => 0,
-    __syscall_dup3: (fd, newfd, _flags) => guardLinux(() => dup2(fd, newfd)),
+    __syscall_dup3: (fd, newfd, flags) => guardLinux(() => {
+      const copy = dup2(fd, newfd)
+      setCloexec(copy, (flags & O_CLOEXEC) !== 0)
+      return copy
+    }),
     // `posix_fallocate` is how a program sizes a shared-memory file (SDL does), so the file must really grow
     __syscall_fallocate: (fd, mode, offset, length) => guardLinux(() => {
       if (mode & 1) return   // FALLOC_FL_KEEP_SIZE: nothing to reserve in a file that is not backed by blocks
@@ -1584,6 +1653,86 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
         return -1
       }
     },
+    // Processes and signals for a program built with libecmaos (core/utils/wasm/lib/ecmaos.sh): the calls
+    // `ecmaos/imports.h` declares.
+    __ecmaos_spawn: (...args) => {
+      flushAll()
+      return fromLinux(spawn(spawnMemory, spawnSignals, fd => cloexec.has(fd), ...args))
+    },
+    // execve(2): descriptors marked close-on-exec go; the ignored signals and the mask were handed to the kernel first
+    __ecmaos_execve: (pathPtr, argvPtr, envpPtr) => {
+      const path = readCString(pathPtr)
+      const executable = syscall_raw('access', path, 1 /* X_OK */)
+      if (executable < 0) return fromLinux(executable)
+      const list = readCStrings(argvPtr)
+      const env = environment_of(readCStrings(envpPtr))
+      flushAll()
+      for (const fd of openDescriptors()) {
+        if (!cloexec.has(fd)) continue
+        syscall_raw('close', fd)
+        cloexec.delete(fd)
+      }
+      return fromLinux(syscall_raw('execve', path, list, env))
+    },
+    // wait4(2): the kernel answers `pid * 65536 + status`, Linux's status word (and Emscripten's)
+    __ecmaos_wait4: (pid, statusPtr, options) => {
+      const WNOHANG = 1, WUNTRACED = 2
+      // a process group (0 for the caller's, -pgid for another) is waited for as any child
+      const target = pid < -1 || pid === 0 ? -1 : pid
+      const flags = options & (WNOHANG | WUNTRACED)
+      for (;;) {
+        const before = delivery.interrupting
+        let value = syscall_raw('proc_waitpid', target, flags)
+        if (value === -LINUX_EINTR) {
+          // the SIGCHLD raised as a child ends wakes the wait; Linux returns that child, which is ready by then
+          const ready = syscall_raw('proc_waitpid', target, flags | WNOHANG)
+          if (ready > 0) value = ready
+          else if (delivery.interrupting === before) continue
+        }
+        if (value <= 0) return fromLinux(value)
+        if (statusPtr) view().setInt32(statusPtr, value % 65536, true)
+        return Math.floor(value / 65536)
+      }
+    },
+    __ecmaos_kill: (pid, signal) => {
+      if (signal < 0 || signal > 64) return -SYSCALL_ERRNO.EINVAL
+      // from raise(3): a default action, which is the kernel's
+      if (pid === getpid()) {
+        if (signal) off_signal(signal)
+        return fromLinux(syscall_raw('proc_kill', pid, signal))
+      }
+      if (pid > 0) return fromLinux(syscall_raw('proc_kill', pid, signal))
+      if (pid === -1) return -SYSCALL_ERRNO.ENOSYS
+      const group = pid === 0 ? syscall_raw('proc_getpgid', 0) : -pid
+      return fromLinux(syscall_raw('proc_killpg', group, signal))
+    },
+    __ecmaos_sigstate: (which) => Math.max(0, syscall_raw('proc_sigstate', which)),
+    __ecmaos_set_sigstate: (ignored, blocked) => fromLinux(syscall_raw('proc_set_sigstate', ignored, blocked)),
+    // nanosleep(2): a wait for nothing, which ends early only when a handler runs; what was left goes in `remain`
+    __ecmaos_sleep: (ms, remainPtr) => {
+      const deadline = performance.now() + ms
+      for (;;) {
+        const left = deadline - performance.now()
+        if (left <= 0) return 0
+        const before = delivery.handled
+        const value = syscall_raw('poll', [], Math.ceil(left))
+        if (value === -LINUX_EINTR && delivery.handled !== before) {
+          if (remainPtr) {
+            const rest = Math.max(0, deadline - performance.now())
+            view().setBigInt64(remainPtr, BigInt(Math.floor(rest / 1000)), true)
+            view().setInt32(remainPtr + 8, Math.floor((rest % 1000) * 1e6), true)
+          }
+          return -SYSCALL_ERRNO.EINTR
+        }
+      }
+    },
+    // pause(2): the caller waits again until a handler has run
+    __ecmaos_pause: () => {
+      syscall_raw('poll', [], -1)
+      return -SYSCALL_ERRNO.EINTR
+    },
+    __syscall_getpid: () => getpid(),
+    __syscall_getppid: () => Math.max(0, syscall_raw('getppid')),
     // Clocks, time zone and assertions. The zone is the browser's, as `localtime` reports it.
     emscripten_get_now: () => performance.now(),
     emscripten_date_now: () => Date.now(),
@@ -1618,26 +1767,36 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       writeTm(tmPtr, date)
       return BigInt(Math.floor(date.getTime() / 1000))
     },
-    // No timers and no signal delivery: setitimer(2) accepts and never fires.
-    _setitimer_js: () => 0,
+    // setitimer(2) and alarm(3): the kernel's timer raises the signal, for a program that can take it (one built with
+    // libecmaos); for any other it would end the program, so the timer is accepted and never fires. Emscripten's libc
+    // keeps the interval and passes only the time to the next expiry, so an interval timer fires once.
+    _setitimer_js: (which, ms) => {
+      if (delivery.enabled) syscall_raw('setitimer', which, Math.max(0, Math.round(ms)), 0)
+      return 0
+    },
     // Memory-mapped files and devices (see `mappings` above): the region is a copy in the program's memory that is kept
     // in step with the object at syscalls.
     _mmap_js: (len, prot, flags, fd, offset, allocatedPtr, addrPtr) => guardLinux(() => mapObject(len, prot, flags, fd, Number(offset), allocatedPtr, addrPtr)),
     _munmap_js: (addr, len) => guardLinux(() => unmapObject(addr, len)),
     _msync_js: (addr, len) => guardLinux(() => syncRegion(addr, len)),
     strptime: (bufPtr, formatPtr, tmPtr) => strptime(bufPtr, readCString(formatPtr), tmPtr),
-    // dup(2) and pipe2(2) are only reached when Vim starts a child process, which cannot happen here.
-    __syscall_dup: () => -SYSCALL_ERRNO.ENOSYS,
+    __syscall_dup: (fd) => guardLinux(() => {
+      const copy = dup(fd)
+      cloexec.delete(copy)
+      return copy
+    }),
     // mkfifo(3) and mknod(2): GNU make's jobserver asks for a fifo, and falls back when it cannot have one.
     __syscall_mknodat: () => -SYSCALL_ERRNO.ENOSYS,
-    // pipe2(2): two real descriptors, written to `int fds[2]`. (`flags` - O_CLOEXEC, O_NONBLOCK - are not applied.)
+    // pipe2(2): two real descriptors, written to `int fds[2]`.
     __syscall_pipe2: (fdsPtr, flags) => guardLinux(() => {
       const [readEnd, writeEnd] = pipe(flags)
+      setCloexec(readEnd, (flags & O_CLOEXEC) !== 0)
+      setCloexec(writeEnd, (flags & O_CLOEXEC) !== 0)
       view().setInt32(fdsPtr, readEnd, true)
       view().setInt32(fdsPtr + 4, writeEnd, true)
     }),
     // poll(2): `struct pollfd` is { int fd; short events; short revents }.
-    __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout)),
+    __syscall_poll: (fdsPtr, nfds, timeout) => guardLinux(() => doPoll(fdsPtr, nfds, timeout), true),
     __syscall_poll_nonblocking: (fdsPtr, nfds) => guardLinux(() => doPoll(fdsPtr, nfds, 0)),
     __syscall_epoll_create1: (flags) => {
       if (flags & ~EPOLL_CLOEXEC) return -SYSCALL_ERRNO.EINVAL
@@ -2102,7 +2261,31 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   aroundCalls(envSyscalls, ['__syscall_poll', '__syscall_poll_nonblocking', '__syscall_epoll_pwait', '__syscall_epoll_pwait_nonblocking', '__syscall_recvfrom', '__syscall_recvmsg'], { before: true, after: true })
   aroundCalls(envSyscalls, ['emscripten_get_now', 'emscripten_date_now'], { before: true, throttled: true })
 
-  return { imports: { wasi_snapshot_preview1: wasi, env: envSyscalls }, ProcExit, args }
+  /**
+   * For a module exporting `ecmaos_signal(sig)` (libecmaos, `core/utils/wasm/lib/ecmaos/signal.c`), runs the kernel's
+   * signals through the handlers it set with `signal()` or `sigaction()`. They run as a syscall returns, which is
+   * inside the module's own import call, and the answer says what became of the call (see `resuming`). A default
+   * action that ends or stops the program is the kernel's. Registering a handler stops the kernel's default action, so
+   * this is only done for modules that can answer.
+   */
+  function enableSignals(instance) {
+    const deliver = instance.exports.ecmaos_signal
+    if (typeof deliver !== 'function') return
+    delivery.enabled = true
+    for (const signal of CATCHABLE_SIGNALS) {
+      on_signal(signal, () => {
+        const answer = deliver(signal)
+        if (answer === RESTART || answer === INTERRUPT) delivery.handled++
+        if (answer === INTERRUPT) delivery.interrupting++
+        if (answer !== DEFAULT_ACTION || IGNORED_BY_DEFAULT.has(signal)) return
+        off_signal(signal)
+        syscall_raw('proc_kill', getpid(), signal)
+        throw new ProcExit(128 + signal)
+      })
+    }
+  }
+
+  return { imports: { wasi_snapshot_preview1: wasi, env: envSyscalls }, ProcExit, args, env, enableSignals }
 }
 
 /** Runs a preview1 module to completion and returns its exit code. */
@@ -2124,6 +2307,7 @@ function buildArgv(memory, args, stackAlloc) {
     bytes[offset + arg.length] = 0
     offset += arg.length + 1
   })
+  view.setUint32(base + args.length * 4, 0, true)
   return base
 }
 
@@ -2188,33 +2372,19 @@ function detectMemoryImport(bytes) {
   return null
 }
 
-// The signals a program can catch here. SIGWINCH's default is to be ignored; the others end the program.
-const CATCHABLE_SIGNALS = [1, 2, 10, 12, 15, 28]
-const SIGWINCH = 28
-
-/**
- * For a module exporting `ecmaos_signal(sig)` (see `core/utils-copyleft/wasm/vim/libc-gaps.c`), runs the kernel's
- * signals through the handlers it set with `signal()` or `sigaction()`. They run as a blocking syscall returns, which
- * is inside the module's own import call. A signal with no handler does the default; registering a handler stops the
- * kernel's default action, so this is only done for modules that can answer.
- */
-function deliverSignals(instance, Exit) {
-  const deliver = instance.exports.ecmaos_signal
-  if (typeof deliver !== 'function') return
-  for (const signal of CATCHABLE_SIGNALS) {
-    on_signal(signal, () => {
-      if (deliver(signal)) return
-      if (signal !== SIGWINCH) throw new Exit(128 + signal)
-    })
-  }
-}
+// The signals a program built with libecmaos takes from the kernel (the stops and SIGCONT stay the kernel's), and
+// what `ecmaos_signal` answers for one: the default action, or nothing ran (it was blocked or ignored), or a handler
+// ran with SA_RESTART, or one ran without.
+const CATCHABLE_SIGNALS = [1, 2, 3, 10, 12, 14, 15, 17, 28]
+const IGNORED_BY_DEFAULT = new Set([17, 28])
+const DEFAULT_ACTION = 0, RESTART = 2, INTERRUPT = 3
 
 /** Runs a preview1 or ordinary-`emcc` module to completion and returns its exit code. */
 export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   const module = await WebAssembly.compile(source)
   let memory
-  const { imports, ProcExit: Exit, args } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports)
+  const { imports, ProcExit: Exit, args, env, enableSignals } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports)
   const memoryImport = detectMemoryImport(bytes)
   if (memoryImport) {
     // The module wants its memory handed in rather than exported - create it to the module's own
@@ -2226,7 +2396,7 @@ export async function runPreview1(source) {
   }
   let instance
   instance = await WebAssembly.instantiate(module, imports)
-  deliverSignals(instance, Exit)
+  enableSignals(instance)
   memory = memory ?? instance.exports.memory
   if (!memory) throw new Error('wasi: the module does not export or import its memory')
   // A `-sSTANDALONE_WASM` build exports `__main_argc_argv`; an ordinary one exports plain `main`.
@@ -2247,7 +2417,9 @@ export async function runPreview1(source) {
       const stackAlloc = instance.exports._emscripten_stack_alloc
       if (typeof stackAlloc !== 'function') throw new Error('wasi: the module has no _emscripten_stack_alloc to build argv in')
       const argvPtr = buildArgv(memory, args, stackAlloc)
-      code = __main_argc_argv(args.length, argvPtr) | 0
+      // a `main(argc, argv, envp)` (GNU make's) reads its environment from the third; a two-argument one ignores it
+      const envPtr = buildArgv(memory, env, stackAlloc)
+      code = __main_argc_argv(args.length, argvPtr, envPtr) | 0
       if (typeof fflush === 'function') fflush(0)
       if (typeof __funcs_on_exit === 'function') __funcs_on_exit()
     } else {

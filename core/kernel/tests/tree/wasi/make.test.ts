@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/make` is GNU make built to WebAssembly (`core/utils-copyleft/wasm/make/build.sh`); recipes run through the system() shim. */
+/** `/bin/make` is GNU make built to WebAssembly (`core/utils-copyleft/wasm/make/build.sh`); it starts its jobs with libecmaos's posix_spawn. */
 describe('make', () => {
   let kernel: Kernel
 
@@ -50,6 +50,18 @@ describe('make', () => {
     expect(result.out).toBe('one\n')
     expect(result.err).toMatch(/Error 3/)
     expect(await run('/tmp/mk3', 'all:\n\t-@exit 3\n\t@echo after\n')).toEqual({ code: 0, out: 'after\n', err: expect.stringMatching(/Error 3.*ignored/) })
+  }, 60000)
+
+  it('runs jobs side by side with -j, and a sub-make shares the jobserver', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/mk5/sub', { recursive: true })
+    await kernel.filesystem.fs.writeFile('/tmp/mk5/sub/Makefile', 'all: x y\nx:\n\t@sleep 1; echo x\ny:\n\t@echo y\n')
+    const result = await run('/tmp/mk5', '.PHONY: sub\nall: slow fast sub\nslow:\n\t@sleep 1; echo slow\nfast:\n\t@echo fast\nsub:\n\t@$(MAKE) --no-print-directory -C sub\n', '-j4')
+    expect(result).toEqual({ code: 0, out: expect.any(String), err: '' })
+    const lines = result.out.trim().split('\n')
+    expect([...lines].sort()).toEqual(['fast', 'slow', 'x', 'y'])
+    // the quick jobs finish while the slow ones still sleep
+    expect(lines.indexOf('fast')).toBeLessThan(lines.indexOf('slow'))
+    expect(lines.indexOf('y')).toBeLessThan(lines.indexOf('x'))
   }, 60000)
 
   it('does nothing for an up-to-date target and prints with -n', async () => {

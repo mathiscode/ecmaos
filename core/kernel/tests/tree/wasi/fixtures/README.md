@@ -75,18 +75,28 @@ node tests/tree/wasi/fixtures/p2-echo.build.mjs
 `wali-*.wasm` are built on WALI's musl, the C library ecmaOS is moving its programs to: `wali-libc.c` (arguments,
 environment, Linux errno numbers, `*at` calls against a directory descriptor, readdir and rewinddir, a private file
 mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp on wasm exceptions), `wali-cxx.cpp`
-(C++ exceptions, the standard library and `std::filesystem`), `wali-uncaught.cpp` (an exception nothing catches) and
-`wali-proc.c` (posix_spawn with file actions, pipes and close-on-exec, waitpid, execve, system and popen, and signal
-handlers, masks and inheritance) and `wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
+(C++ exceptions, the standard library and `std::filesystem`), `wali-uncaught.cpp` (an exception nothing catches),
+`wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
 epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout) `wali-shared.c` (a shared file mapping in
 step with the file across processes, and unmapped in part), `wali-tty.c` (a pty, stopping and continuing, and
 reading the terminal from the background) and `wali-thread.c` (mutexes, condition variables, thread-local storage,
-malloc from many threads at once, detached threads, and exit() from a thread); the last five start copies of themselves in the roles
+malloc from many threads at once, detached threads, and exit() from a thread); the last four start copies of themselves in the roles
 named by their first argument. `wali-mmap.wasm` is `emcc-mmap.c` built on WALI, and `emcc-mmap.test.ts` runs both
-builds with the same assertions.
+builds with the same assertions; so are `wali-proc.wasm` and `emcc-proc.c`, below.
 `../wali.test.ts` runs them. `wali.build.sh` rebuilds them all with the pinned toolchain; the first run builds the
 sysroot (`utils/check-wali.sh`, a minute or two):
 
 ```sh
 tests/tree/wasi/fixtures/wali.build.sh
+```
+
+`emcc-proc.wasm` is `emcc-proc.c` (posix_spawn with file actions, pipes and close-on-exec, waitpid, execve, system and
+popen, and signal handlers, masks, inheritance, alarm, sleep and pause; it starts copies of itself in the roles named by
+its first argument) built with emcc and libecmaos (`core/utils/wasm/lib/ecmaos.sh`), which gives an Emscripten program
+processes and the kernel's signals. `wali.build.sh` builds the same source on WALI as `wali-proc.wasm`, and
+`../emcc-proc.test.ts` runs both with the same assertions. From this directory:
+
+```sh
+bash -c 'source ../../../../../utils/wasm/lib/ecmaos.sh && build_ecmaos "$(mktemp -d)" &&
+  emcc emcc-proc.c -O1 -sSTANDALONE_WASM=0 $ECMAOS_LDFLAGS $ECMAOS_LIB -o emcc-proc.js' && rm emcc-proc.js
 ```

@@ -26,8 +26,9 @@
 import { syscall_raw, returned, pending, on_signal, off_signal, init } from '@zenfs/linux/uapi/base'
 import { getdents } from '@zenfs/linux/uapi/fs'
 import { environ, getpid } from '@zenfs/linux/uapi/process'
+import { absolute, environment_of, getcwd, openDescriptors, spawn as spawnShared } from './spawn.mjs'
 
-const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, ENOTDIR = 20, EINVAL = 22, EPIPE = 32, ENOSYS = 38
+const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, EINVAL = 22, EPIPE = 32, ENOSYS = 38
 const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
@@ -105,11 +106,7 @@ function readStrings(ptr) {
   }
 }
 
-/** `NAME=value` strings as the object the kernel takes for an environment */
-const environment_of = entries => Object.fromEntries(entries.map(entry => {
-  const equals = entry.indexOf('=')
-  return equals < 0 ? [entry, ''] : [entry.slice(0, equals), entry.slice(equals + 1)]
-}))
+
 
 const big = value => BigInt(value)
 const num = value => typeof value === 'bigint' ? Number(value) : value
@@ -156,21 +153,6 @@ const positions = new Map()
 function forget(fd) {
   setCloexec(fd, false)
   positions.delete(fd)
-}
-
-/** The descriptors open in this process, as procfs lists them: also the ones this host did not see made */
-function openDescriptors() {
-  const dir = syscall_raw('open', '/proc/self/fd', 0x10000 /* O_DIRECTORY */, 0)
-  if (dir >= 0) {
-    try {
-      return getdents(dir).map(entry => Number(entry.name)).filter(fd => Number.isInteger(fd) && fd !== dir)
-    } catch {
-      // listed below instead
-    } finally {
-      syscall_raw('close', dir)
-    }
-  }
-  return Array.from({ length: 256 }, (_, fd) => fd).filter(fd => syscall_raw('fstat', fd) >= 0)
 }
 
 /**
@@ -510,7 +492,7 @@ function mremap(addr, oldLength, newLength, flags) {
  */
 const PROT_WRITE = 2
 const MS_INVALIDATE = 2
-const S_IFREG = 0o100000, S_IFCHR = 0o020000
+const S_IFMT = 0o170000, S_IFREG = 0o100000, S_IFCHR = 0o020000
 /** address -> { ptr, length, prot, file: { fd, refs } (its own descriptor), offset, shadow, regular, stamp } */
 const mappings = new Map()
 
@@ -917,111 +899,15 @@ function delivering(name, call) {
 
 // --- processes ---
 
-const FDOP_CLOSE = 1, FDOP_DUP2 = 2, FDOP_OPEN = 3, FDOP_CHDIR = 4, FDOP_FCHDIR = 5
-const POSIX_SPAWN_SETPGROUP = 2, POSIX_SPAWN_SETSIGDEF = 4, POSIX_SPAWN_SETSIGMASK = 8, POSIX_SPAWN_SETSID = 0x80
 const WNOHANG = 1, WUNTRACED = 2
 /** `struct rusage`: two timevals and fourteen longs, a long being 8 bytes here */
 const RUSAGE_SIZE = 144
-const S_IFMT = 0o170000, S_IFDIR = 0o040000
 
-function getcwd() {
-  const value = syscall_raw('getcwd')
-  return value < 0 ? '/' : decoder.decode(returned.slice())
-}
+const spawnMemory = { view: () => view(), string: ptr => readString(ptr), strings: ptr => readStrings(ptr) }
+const spawnSignals = { ignored: resets => ignoredSet(resets), mask: () => mask }
 
-const absolute = (path, cwd) => path.startsWith('/') ? path : `${cwd.endsWith('/') ? cwd : `${cwd}/`}${path}`
-
-/** The path an open descriptor names, through procfs */
-function pathOf(fd) {
-  const length = syscall_raw('readlink', `/proc/self/fd/${fd}`)
-  return length < 0 ? length : decoder.decode(returned.slice(0, length))
-}
-
-/** Whether a path is a directory, or the errno that says why it cannot be one */
-function directory(path) {
-  const value = syscall_raw('stat', path)
-  if (value < 0) return value
-  const mode = new DataView(returned.buffer, returned.byteOffset).getUint32(24, true)
-  return (mode & S_IFMT) === S_IFDIR ? 0 : -ENOTDIR
-}
-
-/**
- * `posix_spawn`: the child starts with a copy of this process's descriptor table, close-on-exec flags and all; the file
- * actions are replayed on that copy (a file to open is opened here and handed over, and `dup2` clears the flag on its
- * target, as it does in a forked child); then what is still close-on-exec goes, as the exec would close it, and the
- * kernel starts the program with exactly the rest. Its directory, process group, session and signals are what the
- * actions and attributes say.
- * @returns the child's pid, or a negative errno
- */
-function spawn(pathPtr, argvPtr, envpPtr, opsPtr, count, flags, pgrp, defaultsPtr, maskPtr) {
-  const path = readString(pathPtr)
-  const argv = readStrings(argvPtr)
-  const env = environment_of(readStrings(envpPtr))
-  // child fd -> { source: this process's fd, cloexec }
-  const children = new Map(openDescriptors().map(fd => [fd, { source: fd, cloexec: isCloexec(fd) }]))
-  let cwd = getcwd()
-  const opened = []
-  try {
-    const dv = view()
-    for (let i = 0; i < count; i++) {
-      const op = opsPtr + i * 24
-      const cmd = dv.getInt32(op, true), fd = dv.getInt32(op + 4, true), srcfd = dv.getInt32(op + 8, true)
-      const oflag = dv.getInt32(op + 12, true), mode = dv.getInt32(op + 16, true)
-      const opPath = () => readString(dv.getUint32(op + 20, true))
-      switch (cmd) {
-        case FDOP_CLOSE:
-          children.delete(fd)
-          break
-        case FDOP_DUP2: {
-          const source = children.get(srcfd)
-          if (!source) return -EBADF
-          children.set(fd, { source: source.source, cloexec: false })
-          break
-        }
-        case FDOP_OPEN: {
-          const file = syscall_raw('open', absolute(opPath(), cwd), oflag, mode)
-          if (file < 0) return file
-          opened.push(file)
-          children.set(fd, { source: file, cloexec: (oflag & O_CLOEXEC) !== 0 })
-          break
-        }
-        case FDOP_CHDIR: {
-          const dir = absolute(opPath(), cwd)
-          const check = directory(dir)
-          if (check < 0) return check
-          cwd = dir
-          break
-        }
-        case FDOP_FCHDIR: {
-          const source = children.get(fd)
-          if (!source) return -EBADF
-          const dir = pathOf(source.source)
-          if (typeof dir === 'number') return dir
-          const check = directory(dir)
-          if (check < 0) return check
-          cwd = dir
-          break
-        }
-        default:
-          return -EINVAL
-      }
-    }
-    const kept = Object.fromEntries([...children].filter(([, entry]) => !entry.cloexec).map(([fd, entry]) => [fd, entry.source]))
-    const resets = flags & POSIX_SPAWN_SETSIGDEF ? view().getBigUint64(defaultsPtr, true) : 0n
-    const blocked = flags & POSIX_SPAWN_SETSIGMASK ? view().getBigUint64(maskPtr, true) : mask
-    const options = {
-      env,
-      fds: kept,
-      exactFds: true,
-      signals: { ignored: ignoredSet(resets), blocked: kernelSet(blocked & ~UNBLOCKABLE) },
-      ...(flags & POSIX_SPAWN_SETPGROUP ? { pgid: pgrp } : {}),
-      ...(flags & POSIX_SPAWN_SETSID ? { setsid: true } : {})
-    }
-    return syscall_raw('proc_spawn', path, JSON.stringify(argv), cwd, JSON.stringify(options))
-  } finally {
-    for (const file of opened) syscall_raw('close', file)
-  }
-}
+/** `posix_spawn` (`spawn.mjs`, shared with the Emscripten programs' host) */
+const spawn = (...args) => spawnShared(spawnMemory, spawnSignals, isCloexec, ...args)
 
 /** `wait4`: the kernel answers `pid * 65536 + status`, Linux's status word */
 function wait4(pid, statusPtr, options, rusagePtr) {

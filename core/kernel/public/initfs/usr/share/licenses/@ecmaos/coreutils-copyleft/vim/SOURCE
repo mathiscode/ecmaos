@@ -9,8 +9,8 @@ Upstream source
     from https://github.com/vim/vim/archive/refs/tags/v9.1.0.tar.gz
 
 Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
-  wasm/vim/libc-gaps.c
-    new file, linked into the program: a termcap stub, the xattr calls musl lacks, and the signal entry point the host calls
+  core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)
+    builds libecmaos, linked into the program: processes for system(), the kernel's signals run through Vim's handlers, timers, the xattr calls Emscripten lacks, and a termcap that finds no terminal
   wasm/vim/build.sh
     configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified
 

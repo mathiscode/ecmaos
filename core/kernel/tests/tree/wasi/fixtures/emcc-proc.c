@@ -1,5 +1,6 @@
-/* Processes and signals on WALI's musl: posix_spawn through the host, wait, exec, and signal delivery. The program
- * starts copies of itself in the roles named by argv[1]; with no role it runs the checks and prints what it found. */
+/* Processes and signals: posix_spawn through the host, wait, exec, and signal delivery. Built with emcc and libecmaos
+ * (emcc-proc.wasm) and on WALI's musl (wali-proc.wasm), and run with the same assertions. The program starts copies of
+ * itself in the roles named by argv[1]; with no role it runs the checks and prints what it found. */
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -200,6 +201,6 @@ int main(int argc, char **argv) {
   unsigned left = sleep(5);
   alarm(1);
   pause();
-  printf("alarm: handled=%d sleep left %u of 5, pause returned\n", alrm, left);
+  printf("alarm: handled=%d sleep cut short=%d, pause returned\n", alrm, left >= 3 && left < 5);
   return 0;
 }
