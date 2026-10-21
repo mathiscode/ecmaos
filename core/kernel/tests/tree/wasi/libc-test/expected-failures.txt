@@ -23,9 +23,6 @@ functional.strtold          WALI's musl formats no long double (SIGABRT); built 
 functional.wordexp          most cases pass; the rest are musl 1.2.3's wordexp and ecmash's eval (positional
                             parameters, quoting inside ${X-...}, syntax errors)
 
-# files
-regression.statvfs          / has 0 blocks: the IndexedDB root does not report its size
-
 # processes and signals
 functional.vfork            vfork: ENOSYS (there is no fork)
 regression.daemon-failure   fork: ENOSYS

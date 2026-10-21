@@ -14,7 +14,7 @@ import { IndexedDB, IndexedDBStore, IndexedDBTransaction } from '@zenfs/dom'
 import { StoreFS } from '@zenfs/core'
 import { VNode } from '@zenfs/core/vfs/vnode.js'
 
-import { checkFileSize, meterChange, meterStart } from '#lib/storage-limits.ts'
+import { checkFileSize, meterChange, meterStart, residentBytes } from '#lib/storage-limits.ts'
 import { chargeQuota } from '#lib/quota.ts'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
@@ -43,6 +43,38 @@ IndexedDBTransaction.prototype.getSync = function (this: IndexedDBTransaction, i
   const record = this.store.cache.get(id)
   return record ? new Uint8Array(record) : undefined
 } as typeof IndexedDBTransaction.prototype.getSync
+
+/**
+ * The size statfs reports for an IndexedDB mount (`df`, `statvfs`): the browser's storage estimate for the origin
+ * (`navigator.storage.estimate()`), the limit a write actually runs into, with what the origin already uses taken off.
+ * The estimate is asynchronous and statfs is not, so the last answer is kept and a new one asked for at most every
+ * `ESTIMATE_MS`. Where there is no estimate (no `navigator.storage`, as under the tests), the store reports
+ * `NO_ESTIMATE_BYTES` with what it holds as used. `@zenfs/dom`'s store reports nothing, which made it 0 blocks.
+ */
+const ESTIMATE_MS = 5000
+const NO_ESTIMATE_BYTES = 2 ** 30
+const BLOCK = 4096
+let estimate: { quota: number, usage: number } | undefined
+let estimatedAt = -Infinity
+
+function refreshEstimate(): void {
+  const now = Date.now()
+  if (now - estimatedAt < ESTIMATE_MS) return
+  estimatedAt = now
+  globalThis.navigator?.storage?.estimate?.().then(({ quota, usage }) => {
+    if (quota) estimate = { quota, usage: usage ?? 0 }
+  }, () => {})
+}
+refreshEstimate()
+
+;(IndexedDBStore.prototype as unknown as { usage(): { totalSpace: number, freeSpace: number } }).usage = function (this: IndexedDBStore) {
+  refreshEstimate()
+  const total = estimate?.quota ?? NO_ESTIMATE_BYTES
+  const used = estimate?.usage ?? residentBytes({ cache: this.cache })
+  // whole blocks, as statfs counts them
+  const totalSpace = Math.floor(total / BLOCK) * BLOCK
+  return { totalSpace, freeSpace: Math.max(0, Math.floor((total - used) / BLOCK) * BLOCK) }
+}
 
 /**
  * Two guards on writes to the IndexedDB root, for one machine per tab (`lib/machine-lock.ts`). `fenceRootStore` makes
