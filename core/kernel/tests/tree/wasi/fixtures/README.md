@@ -100,3 +100,7 @@ processes and the kernel's signals. `wali.build.sh` builds the same source on WA
 bash -c 'source ../../../../../utils/wasm/lib/ecmaos.sh && build_ecmaos "$(mktemp -d)" &&
   emcc emcc-proc.c -O1 -sSTANDALONE_WASM=0 $ECMAOS_LDFLAGS $ECMAOS_LIB -o emcc-proc.js' && rm emcc-proc.js
 ```
+
+musl's libc-test, its functional and regression tests built on WALI's musl into one program, is in `../libc-test/`
+(`build.sh` rebuilds it from a pinned commit; `expected-failures.txt` lists what fails today and why), and
+`../libc-test.test.ts` runs it.
