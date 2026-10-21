@@ -78,8 +78,10 @@ mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp o
 (C++ exceptions, the standard library and `std::filesystem`), `wali-uncaught.cpp` (an exception nothing catches) and
 `wali-proc.c` (posix_spawn with file actions, pipes and close-on-exec, waitpid, execve, system and popen, and signal
 handlers, masks and inheritance) and `wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
-epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout); the last two start copies of themselves in the
-roles named by their first argument.
+epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout) and `wali-shared.c` (a shared file mapping in
+step with the file across processes, and unmapped in part); the last three start copies of themselves in the roles
+named by their first argument. `wali-mmap.wasm` is `emcc-mmap.c` built on WALI, and `emcc-mmap.test.ts` runs both
+builds with the same assertions.
 `../wali.test.ts` runs them. `wali.build.sh` rebuilds them all with the pinned toolchain; the first run builds the
 sysroot (`utils/check-wali.sh`, a minute or two):
 

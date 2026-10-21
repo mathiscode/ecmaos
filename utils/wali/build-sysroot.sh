@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Builds the WALI sysroot into $1: WALI's musl, compiler-rt's builtins and libc++, libc++abi and libunwind, all for
-# wasm32-linux-muslwali with WebAssembly exception handling (C++ exceptions and setjmp/longjmp) and threads, from the
-# sources pinned in utils/wali-version and the patches in utils/wali/patches. Run by utils/check-wali.sh when the
-# sysroot it wants is not there; nothing here is committed. Needs clang and wasm-ld of the pinned LLVM major,
-# llvm-ar, llvm-ranlib, cmake, ninja, make, curl and xz.
+# Builds the WALI sysroot into $1: WALI's musl, the Linux UAPI headers, compiler-rt's builtins and libc++, libc++abi
+# and libunwind, all for wasm32-linux-muslwali with WebAssembly exception handling (C++ exceptions and
+# setjmp/longjmp) and threads, from the sources pinned in utils/wali-version and the patches in utils/wali/patches.
+# Run by utils/check-wali.sh when the sysroot it wants is not there; nothing here is committed. Needs clang and
+# wasm-ld of the pinned LLVM major, llvm-ar, llvm-ranlib, cmake, ninja, make, curl and xz.
 #
 #   utils/wali/build-sysroot.sh <dir> <wasm-ld>
 set -euo pipefail
@@ -58,6 +58,13 @@ EOF
 make -s -C "$WORK/musl" -j"$JOBS" install-libs install-headers \
   CFLAGS="--target=$TARGET $FEATURES -fwasm-exceptions -mllvm -wasm-enable-sjlj -pthread" > "$WORK/musl.log" 2>&1 \
   || { tail -30 "$WORK/musl.log" >&2; exit 1; }
+
+echo "wali: Linux UAPI headers $KERNEL_HEADERS_VERSION" >&2
+fetch "https://github.com/sabotage-linux/kernel-headers/releases/download/v$KERNEL_HEADERS_VERSION/linux-headers-$KERNEL_HEADERS_VERSION.tar.xz" "$KERNEL_HEADERS_SHA256" headers.tar.xz
+mkdir "$WORK/headers"
+tar xJf "$WORK/headers.tar.xz" -C "$WORK/headers" --strip-components=1
+# x86_64's: this target has its structures (a 64-bit kernel long) with 32-bit pointers, which the headers take as x32
+make -s -C "$WORK/headers" ARCH=x86_64 prefix="$STAGE" install
 
 echo "wali: LLVM $LLVM_VERSION runtimes" >&2
 fetch "https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-project-$LLVM_VERSION.src.tar.xz" "$LLVM_SHA256" llvm.tar.xz

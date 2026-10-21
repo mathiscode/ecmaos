@@ -6,10 +6,11 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
- * A real `emcc` build maps an unlinked temp file and a framebuffer. The shim has no way to share pages with the kernel, so
- * a mapping is a copy kept in step at syscalls (`wasi-preview1.mjs`, "mmap, by copying at syscalls").
+ * One program, built with `emcc` and on WALI's musl (`fixtures/wali.build.sh`), maps an unlinked temp file and a
+ * framebuffer. Neither host can share pages with the kernel, so a mapping is a copy kept in step at syscalls
+ * (`wasi-preview1.mjs`, "mmap, by copying at syscalls", and `wali-host.mjs`, "shared file mappings").
  */
-describe('mmap in an emcc program', () => {
+describe.each(['emcc-mmap', 'wali-mmap'])('mmap in %s', program => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -19,12 +20,12 @@ describe('mmap in an emcc program', () => {
 
   it('shares a temp file between the pointer and the descriptor, and draws into a framebuffer through a map', async () => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
-    const bytes = readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/emcc-mmap.wasm`)
-    await kernel.filesystem.fs.writeFile('/tmp/emcc-mmap', new Uint8Array(bytes), { mode: 0o755 })
+    const bytes = readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/${program}.wasm`)
+    await kernel.filesystem.fs.writeFile(`/tmp/${program}`, new Uint8Array(bytes), { mode: 0o755 })
     const framebuffer = kernel.framebuffers.create({ width: 8, height: 4, title: 'mmap' })
 
-    const code = await kernel.shell.execute(`FB=${framebuffer.path} /tmp/emcc-mmap > /tmp/emcc-mmap.out 2>&1`)
-    const out = await kernel.filesystem.fs.readFile('/tmp/emcc-mmap.out', 'utf8')
+    const code = await kernel.shell.execute(`FB=${framebuffer.path} /tmp/${program} > /tmp/${program}.out 2>&1`)
+    const out = await kernel.filesystem.fs.readFile(`/tmp/${program}.out`, 'utf8')
     expect({ code, out }).toEqual({ code: 0, out: expect.stringContaining('all ok') })
     expect(out).not.toContain('FAIL')
     expect(out).toContain('8x4 32bpp stride 32 len 128')
@@ -36,7 +37,7 @@ describe('mmap in an emcc program', () => {
 
   it('shows pixels drawn through a map by a program that only sleeps afterwards', async () => {
     const framebuffer = kernel.framebuffers.create({ width: 8, height: 4, title: 'mmap nosync' })
-    const code = await kernel.shell.execute(`NOSYNC=1 FB=${framebuffer.path} /tmp/emcc-mmap > /tmp/emcc-mmap2.out 2>&1`)
+    const code = await kernel.shell.execute(`NOSYNC=1 FB=${framebuffer.path} /tmp/${program} > /tmp/${program}2.out 2>&1`)
     expect(code).toBe(0)
     expect(framebuffer.pixels.every((byte, index) => byte === (index % 4 === 2 ? 200 : 0))).toBe(true)
   })

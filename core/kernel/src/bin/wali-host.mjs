@@ -10,7 +10,7 @@
  * - the `*at` calls relative to a real directory descriptor, resolved through `/proc/self/fd/N`
  * - `getdents64` from a position kept per descriptor (the kernel lists the whole directory each time)
  * - `mmap`, `munmap` and `mremap` over a free list at the top of linear memory, with private file mappings filled
- *   from the file
+ *   from the file, and shared mappings of files and devices kept in step with them at calls (`msync` too)
  * - processes: `posix_spawn` (`__ecmaos_spawn`, from the sysroot's musl patch), `wait4` and `execve` on the kernel's
  *   process calls, and the job-control ids
  * - signals: dispositions, the mask, pending signals, and handlers run when an import returns, with `EINTR` or a
@@ -27,7 +27,7 @@ import { syscall_raw, returned, pending, on_signal, off_signal } from '@zenfs/li
 import { getdents } from '@zenfs/linux/uapi/fs'
 import { environ, getpid } from '@zenfs/linux/uapi/process'
 
-const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENOTDIR = 20, EINVAL = 22, EPIPE = 32, ENOSYS = 38
+const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, ENOTDIR = 20, EINVAL = 22, EPIPE = 32, ENOSYS = 38
 const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
@@ -211,6 +211,64 @@ function fcntl(fd, cmd, arg) {
   }
 }
 
+/**
+ * The ioctls the kernel's devices answer with bytes or take bytes for: `EVIOC*` (an input device), `FBIO*` (a
+ * framebuffer) and the GL devices' (`tree/lib/gl.ts`). The kernel leaves the answer in the return region and gives its
+ * length; a request that sets something carries the bytes it points to. Also the controlling terminal's, on the
+ * kernel's process calls. @returns the result, or undefined for a request that is not one of these
+ */
+const TIOCSCTTY = 0x540e, TIOCNOTTY = 0x5422, TIOCGSID = 0x5429
+const FBIOPUT_VSCREENINFO = 0x4601, FBIO_SETCURSOR = 0x46f0, FBIO_SETWINSTATE = 0x46f2, FBIO_SETCLIPBOARD = 0x46f3, FBIO_SETCURSORIMAGE = 0x46f6
+/** How many bytes a setting request's argument is */
+const IOCTL_ARGUMENT_SIZE = { [FBIOPUT_VSCREENINFO]: 160, [FBIO_SETCURSOR]: 64, [FBIO_SETWINSTATE]: 4, [FBIO_SETCLIPBOARD]: 4096, [FBIO_SETCURSORIMAGE]: 16 + 64 * 64 * 4 }
+
+const FBIOGET_FSCREENINFO = 0x4602
+
+/**
+ * `struct fb_fix_screeninfo` has `unsigned long` fields, which are 8 bytes here: the kernel's answer (4-byte longs, as
+ * the Emscripten programs have them) is moved into this target's layout, field by field
+ */
+function fixScreenInfo(ptr, length) {
+  const answer = new DataView(returned.buffer, returned.byteOffset, length)
+  const out = new Uint8Array(80)
+  const dv = new DataView(out.buffer)
+  out.set(returned.subarray(0, 16))
+  dv.setBigUint64(16, BigInt(answer.getUint32(16, true)), true) // smem_start
+  for (const [from, to] of [[20, 24], [24, 28], [28, 32], [32, 36], [44, 48], [56, 68]]) dv.setUint32(to, answer.getUint32(from, true), true)
+  for (const [from, to] of [[36, 40], [38, 42], [40, 44], [60, 72], [62, 74], [64, 76]]) dv.setUint16(to, answer.getUint16(from, true), true)
+  dv.setBigUint64(56, BigInt(answer.getUint32(48, true)), true) // mmio_start
+  dv.setUint32(64, answer.getUint32(52, true), true) // mmio_len
+  bytes().set(out, ptr)
+}
+
+function deviceIoctl(fd, request, ptr) {
+  if (request === TIOCSCTTY) return syscall_raw('proc_ctty', 0, fd, ptr)
+  if (request === TIOCNOTTY) return syscall_raw('proc_ctty', 1, fd, 0)
+  if (request === TIOCGSID) {
+    const sid = syscall_raw('proc_ctty', 2, fd, 0)
+    if (sid < 0) return sid
+    if (ptr) view().setInt32(ptr, sid, true)
+    return 0
+  }
+  const type = (request >>> 8) & 0xff
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47) return undefined
+  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : 0)
+  const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
+  const length = syscall_raw('ioctl', fd, request, argument)
+  if (length < 0) return length
+  if (request === FBIOGET_FSCREENINFO && ptr) {
+    fixScreenInfo(ptr, length)
+    return 0
+  }
+  if (length > 0 && ptr) {
+    // a request that names its size (`_IOC_SIZE`) gets no more than that
+    const named = (request >>> 16) & 0x3fff
+    give(ptr, named || length)
+  }
+  // `fbdev` and GL requests give 0; an event device's give the length of what it answered
+  return type === 0x46 || type === 0x47 ? 0 : length
+}
+
 // --- memory mappings ---
 
 /**
@@ -274,11 +332,15 @@ function fill(fd, start, length, offset) {
   return 0
 }
 
-function mmap(addr, length, _prot, flags, fd, offset) {
+function mmap(addr, length, prot, flags, fd, offset) {
   if (!length) return -EINVAL
   if (flags & MAP_FIXED) return -ENOSYS
-  // MAP_SHARED of a file is a later step: a private copy would silently lose writes
-  if ((flags & MAP_SHARED) && !(flags & MAP_ANONYMOUS)) return -ENOSYS
+  const shared = (flags & MAP_SHARED) && !(flags & MAP_ANONYMOUS)
+  let kind
+  if (shared) {
+    kind = fileKind(fd)
+    if (kind < 0) return kind
+  }
   const size = roundUp(length, PAGE)
   const start = allocate(size)
   if (start < 0) return start
@@ -289,10 +351,21 @@ function mmap(addr, length, _prot, flags, fd, offset) {
       return result
     }
   }
+  if (shared) {
+    const own = syscall_raw('dup', fd)
+    if (own < 0) {
+      release(start, size)
+      return own
+    }
+    // the mapping's own descriptor, which a child or a new image does not get
+    opened(own, O_RDWR, true)
+    const mapping = { ptr: start, length, prot, file: { fd: own, refs: 1 }, offset, shadow: bytes().slice(start, start + length), regular: kind === S_IFREG }
+    mappings.set(start, mapping)
+  }
   return start
 }
 
-function mremap(addr, oldLength, newLength, flags) {
+function resize(addr, oldLength, newLength, flags) {
   const before = roundUp(oldLength, PAGE), after = roundUp(newLength, PAGE)
   if (after <= before) {
     if (after < before) release(addr + after, before - after)
@@ -321,6 +394,201 @@ function mremap(addr, oldLength, newLength, flags) {
   bytes().copyWithin(moved, addr, addr + before)
   release(addr, before)
   return moved
+}
+
+/**
+ * `mremap`: a shared mapping is written out first and follows its pages, taking what the file holds for any it grows
+ * by
+ */
+function mremap(addr, oldLength, newLength, flags) {
+  const mapping = mappings.get(addr)
+  if (mapping) flushMapping(mapping)
+  const moved = resize(addr, oldLength, newLength, flags)
+  if (!mapping || moved < 0) return moved
+  mappings.delete(addr)
+  const shadow = new Uint8Array(newLength)
+  shadow.set(mapping.shadow.subarray(0, Math.min(mapping.length, newLength)))
+  if (newLength > mapping.length) {
+    fill(mapping.file.fd, moved + mapping.length, newLength - mapping.length, mapping.offset + mapping.length)
+    shadow.set(bytes().subarray(moved + mapping.length, moved + newLength), mapping.length)
+  }
+  mappings.set(moved, { ...mapping, ptr: moved, length: newLength, shadow })
+  return moved
+}
+
+// --- shared file mappings ---
+
+/**
+ * Linear memory is the program's alone, so a shared mapping of a file or a device (a framebuffer) cannot be the
+ * object's own pages. It is a region filled from the object with a copy of what was filled (the shadow), kept in step
+ * at the calls where the object could be seen or changed by someone else: pages the program changed (memory differs
+ * from the shadow) are written to the object before them, and, after a call that waits or reads, pages another writer
+ * changed (the object differs from the shadow while memory still equals it) are brought in. A program that draws into
+ * a mapped framebuffer and makes no call is seen when it next sleeps, polls, writes, reads the clock, or exits. This is
+ * what `wasi-preview1.mjs` does for the Emscripten programs.
+ */
+const PROT_WRITE = 2
+const MS_INVALIDATE = 2
+const S_IFREG = 0o100000, S_IFCHR = 0o020000
+/** address -> { ptr, length, prot, file: { fd, refs } (its own descriptor), offset, shadow, regular, stamp } */
+const mappings = new Map()
+
+/** A descriptor's file type, for what may be mapped shared: a regular file or a character device */
+function fileKind(fd) {
+  if (syscall_raw('fstat', fd) < 0) return -EBADF
+  const mode = new DataView(returned.buffer, returned.byteOffset).getUint32(24, true) & S_IFMT
+  return mode === S_IFREG || mode === S_IFCHR ? mode : -ENODEV
+}
+
+/** What the object holds under a mapping, read fresh */
+function readBacking(mapping) {
+  const into = new Uint8Array(mapping.length)
+  for (let done = 0; done < mapping.length;) {
+    const count = syscall_raw('read', mapping.file.fd, Math.min(mapping.length - done, 1 << 20), mapping.offset + done)
+    if (count <= 0) break
+    into.set(returned.subarray(0, count), done)
+    done += count
+  }
+  return into
+}
+
+/** Whether `a[aAt, aAt + n)` and `b[bAt, bAt + n)` differ; whole words while both are aligned, which they are for a page */
+function differ(a, aAt, b, bAt, n) {
+  let i = 0
+  if (((a.byteOffset + aAt) | (b.byteOffset + bAt)) % 4 === 0) {
+    const a32 = new Uint32Array(a.buffer, a.byteOffset + aAt, n >> 2)
+    const b32 = new Uint32Array(b.buffer, b.byteOffset + bAt, n >> 2)
+    for (; i < a32.length; i++) if (a32[i] !== b32[i]) return true
+    i <<= 2
+  }
+  for (; i < n; i++) if (a[aAt + i] !== b[bAt + i]) return true
+  return false
+}
+
+/** A regular file's size, modification and change times, as `struct stat` has them, and its modification time in ms */
+function stampOf(fd) {
+  if (syscall_raw('fstat', fd) < 0) return undefined
+  const dv = new DataView(returned.buffer, returned.byteOffset)
+  const mtime = Number(dv.getBigInt64(88, true)) * 1000 + Number(dv.getBigInt64(96, true)) / 1e6
+  return { key: `${dv.getBigInt64(48, true)}:${mtime}:${dv.getBigInt64(104, true)}:${dv.getBigInt64(112, true)}`, size: Number(dv.getBigInt64(48, true)), mtime }
+}
+
+/** Writes the pages of a mapping the program changed to its object */
+function flushMapping(mapping) {
+  if (!(mapping.prot & PROT_WRITE)) return
+  const memory = bytes()
+  // a regular file keeps its size: bytes past its end are not written (a file does not grow by being mapped)
+  const limit = mapping.regular ? Math.max(0, Math.min(mapping.length, (stampOf(mapping.file.fd)?.size ?? 0) - mapping.offset)) : mapping.length
+  let runStart = -1
+  const flushRun = end => {
+    if (runStart < 0) return
+    const stop = Math.min(end, limit)
+    if (stop > runStart) {
+      const data = memory.slice(mapping.ptr + runStart, mapping.ptr + stop)
+      syscall_raw('write', mapping.file.fd, data, mapping.offset + runStart)
+      mapping.shadow.set(data, runStart)
+    }
+    runStart = -1
+  }
+  for (let at = 0; at < mapping.length; at += PAGE) {
+    const end = Math.min(at + PAGE, mapping.length)
+    if (!differ(memory, mapping.ptr + at, mapping.shadow, at, end - at)) flushRun(at)
+    else if (runStart < 0) runStart = at
+  }
+  flushRun(mapping.length)
+}
+
+/** Brings in the pages another writer changed and the program has not */
+function refreshMapping(mapping) {
+  const memory = bytes()
+  // A regular file whose size and times are as when last read, and were stamped before this millisecond, was not
+  // written since (a write at this millisecond could still share the stamp, so that is read in full)
+  if (mapping.regular) {
+    const stamp = stampOf(mapping.file.fd)
+    if (stamp && stamp.key === mapping.stamp && Date.now() > stamp.mtime + 1) return
+    mapping.stamp = stamp?.key
+  }
+  const fresh = readBacking(mapping)
+  for (let at = 0; at < mapping.length; at += PAGE) {
+    const end = Math.min(at + PAGE, mapping.length)
+    if (!differ(fresh, at, mapping.shadow, at, end - at)) continue
+    if (!differ(memory, mapping.ptr + at, mapping.shadow, at, end - at)) {
+      memory.set(fresh.subarray(at, end), mapping.ptr + at)
+      mapping.shadow.set(fresh.subarray(at, end), at)
+    }
+  }
+}
+
+const overlapping = (addr, length) => [...mappings.values()].filter(m => m.ptr < addr + length && addr < m.ptr + m.length)
+
+function msync(addr, length, flags) {
+  if (addr % PAGE) return -EINVAL
+  for (const mapping of overlapping(addr, length)) {
+    flushMapping(mapping)
+    if (flags & MS_INVALIDATE) refreshMapping(mapping)
+  }
+  return 0
+}
+
+/** `munmap`: the pages are written out first; what is left of a mapping unmapped in part stays mapped */
+function munmap(addr, length) {
+  if (addr % PAGE) return -EINVAL
+  const end = addr + roundUp(length, PAGE)
+  for (const mapping of overlapping(addr, end - addr)) {
+    flushMapping(mapping)
+    mappings.delete(mapping.ptr)
+    mapping.file.refs--
+    const pieces = [[mapping.ptr, Math.min(addr, mapping.ptr + mapping.length)], [Math.max(end, mapping.ptr), mapping.ptr + mapping.length]]
+    for (const [from, to] of pieces) {
+      if (to <= from) continue
+      const at = from - mapping.ptr
+      mapping.file.refs++
+      mappings.set(from, { ...mapping, ptr: from, length: to - from, offset: mapping.offset + at, shadow: mapping.shadow.slice(at, to - mapping.ptr) })
+    }
+    if (!mapping.file.refs) {
+      syscall_raw('close', mapping.file.fd)
+      forget(mapping.file.fd)
+    }
+  }
+  release(addr, end - addr)
+  return 0
+}
+
+const flushAll = () => { for (const mapping of mappings.values()) flushMapping(mapping) }
+const refreshAll = () => { for (const mapping of mappings.values()) refreshMapping(mapping) }
+
+/** Calls before which the program's changes are written out: another process could look at the object next */
+const FLUSH_BEFORE = new Set(['SYS_write', 'SYS_writev', 'SYS_pwrite64', 'SYS_pwritev', 'SYS_fsync', 'SYS_fdatasync', 'SYS_close',
+  'SYS_ioctl', 'SYS_ftruncate', 'SYS_fallocate', 'SYS_sendto', 'SYS_sendmsg', 'SYS_kill', 'SYS_execve', '__ecmaos_spawn',
+  'SYS_exit', 'SYS_exit_group', '__proc_exit'])
+/** Calls that wait or read: changes go out before them, and other writers' come in after */
+const REFRESH_AFTER = new Set(['SYS_read', 'SYS_readv', 'SYS_pread64', 'SYS_preadv', 'SYS_poll', 'SYS_ppoll', 'SYS_select',
+  'SYS_pselect6', 'SYS_epoll_wait', 'SYS_epoll_pwait', 'SYS_recvfrom', 'SYS_recvmsg', 'SYS_nanosleep', 'SYS_clock_nanosleep',
+  'SYS_wait4', 'SYS_pause', 'SYS_rt_sigsuspend', 'SYS_futex'])
+/** The clock is how a program that calls nothing else paces its frames, so reading it writes out at most every 16 ms */
+const FLUSH_THROTTLED = new Set(['SYS_clock_gettime', 'SYS_gettimeofday'])
+let lastClockFlush = 0
+
+/** An import with the shared mappings kept in step around it */
+function mapped(name, call) {
+  const before = FLUSH_BEFORE.has(name) || REFRESH_AFTER.has(name), after = REFRESH_AFTER.has(name), throttled = FLUSH_THROTTLED.has(name)
+  if (!before && !throttled) return call
+  return (...args) => {
+    if (!mappings.size) return call(...args)
+    if (before) flushAll()
+    else {
+      const now = Date.now()
+      if (now - lastClockFlush >= 16) {
+        lastClockFlush = now
+        flushAll()
+      }
+    }
+    try {
+      return call(...args)
+    } finally {
+      if (after) refreshAll()
+    }
+  }
 }
 
 // --- signals ---
@@ -1107,6 +1375,8 @@ const calls = {
         return 0n
       }
     }
+    const device = deviceIoctl(fd, request >>> 0, ptr)
+    if (device !== undefined) return big(device)
     const size = IOCTL_ANSWER_SIZE[request]
     if (size === undefined) return original.SYS_ioctl(fd, request, ptr)
     const value = syscall_raw('ioctl', fd, request, undefined)
@@ -1253,11 +1523,8 @@ const calls = {
   SYS_epoll_pwait: (epfd, events, max, timeout, sigmask) => big(epollWait(epfd, events, max, timeout, sigmask)),
 
   SYS_mmap: (addr, length, prot, flags, fd, offset) => big(mmap(addr, length, prot, flags, fd, num(offset))),
-  SYS_munmap: (addr, length) => {
-    if (addr % PAGE) return big(-EINVAL)
-    release(addr, roundUp(length, PAGE))
-    return 0n
-  },
+  SYS_munmap: (addr, length) => big(munmap(addr, length)),
+  SYS_msync: (addr, length, flags) => big(msync(addr, length, flags)),
   SYS_mremap: (addr, oldLength, newLength, flags) => big(mremap(addr, oldLength, newLength, flags)),
   SYS_mprotect: () => 0n,
   SYS_madvise: () => 0n
@@ -1289,7 +1556,8 @@ export function install(wali) {
   }
   Object.assign(wali, calls)
   for (const [name, call] of Object.entries(wali)) {
-    if (typeof call === 'function' && name !== '__proc_exit') wali[name] = delivering(name, call)
+    if (typeof call !== 'function') continue
+    wali[name] = name === '__proc_exit' ? mapped(name, call) : delivering(name, mapped(name, call))
   }
   inheritSignals()
 }

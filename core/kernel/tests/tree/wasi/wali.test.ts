@@ -118,6 +118,14 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('keeps a shared file mapping in step with the file across processes', async () => {
+    expect(await run('wali-shared')).toEqual({
+      code: 0,
+      err: '',
+      out: 'child read: from shell\nparent sees: from child\nafter munmap: third page\npipe: refused\n'
+    })
+  }, 60_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)
