@@ -94,6 +94,11 @@ const instantiateCore = (source, imports) => {
           )
         }
 
+        // The runner waits on what the init generator yields only when it is `instanceof Promise`; zone.js (OpenTelemetry's
+        // context manager) replaces the global Promise, the browser's promises are not instances of it, and jco never
+        // loaded. Any thenable is waited on instead (src/tree/wasi/preview2.ts does the same to the code jco generates).
+        modified = modified.replace(/while \(!\(value instanceof Promise\) && !done\);/g, `while (!(value && typeof value.then === 'function') && !done);`)
+
         if (modified !== code) {
           return { code: modified, map: null }
         }
@@ -156,7 +161,13 @@ export default defineConfig({
       'vite-plugin-node-polyfills/shim/global': 'vite-plugin-node-polyfills/shims/global',
       'vite-plugin-node-polyfills/shim/process': 'vite-plugin-node-polyfills/shims/process',
       // Stub node:fs/promises for browser builds (jco library tries to import it)
-      'node:fs/promises': path.resolve(import.meta.dirname, 'src/stubs/node-fs-promises.ts')
+      'node:fs/promises': path.resolve(import.meta.dirname, 'src/stubs/node-fs-promises.ts'),
+      // preview2-shim's `node` build is WASI on the host's own filesystem and stdio; a component is a guest of the kernel,
+      // so the tests on Node get the browser build the site has (the Node host aliases it the same way)
+      ...Object.fromEntries(['cli', 'clocks', 'filesystem', 'io', 'random', 'sockets'].map(name => [
+        `@bytecodealliance/preview2-shim/${name}`,
+        path.join(import.meta.dirname, `node_modules/@bytecodealliance/preview2-shim/dist/browser/${name}.js`)
+      ]))
     },
     dedupe: ['vite-plugin-node-polyfills']
   },
@@ -219,6 +230,9 @@ export default defineConfig({
     // Each test file boots a kernel and spawns a worker per program, so a run is CPU-bound. One fork per core made
     // full runs fail on timing-sensitive tests; 4 forks is stable and no slower.
     maxWorkers: 4,
+    // A file's beforeAll boots a kernel: a second or two alone, but past vitest's 10s default now and then in a full run
+    // (text-commands-batch2 and quota did); most files gave their own 30s or more already
+    hookTimeout: 60_000,
     deps: {
       optimizer: {
         client: {

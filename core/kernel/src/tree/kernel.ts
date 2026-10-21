@@ -1891,6 +1891,10 @@ export class Kernel implements IKernel {
       if (shouldUnlisten) {
         terminal.listen()
       }
+      // A stream it was handed (pipe, redirect) is closed so the far end sees EOF and a file redirect writes what it
+      // holds; the terminal's shared streams are left open
+      if (options.stdout && options.stdout !== terminal?.stdout) await options.stdout.close().catch(() => {})
+      if (options.stderr && options.stderr !== terminal?.stderr) await options.stderr.close().catch(() => {})
     }
   }
 

@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config'
 /**
  * The site in a real browser: the built kernel (`pnpm build` first) served by `vite preview`, booted in headless
  * Chromium by Playwright, and driven from the keyboard. What jsdom and the Node project cannot check: WinBox windows,
- * a canvas the page draws, and WebGL2.
+ * a canvas the page draws, WebGL2, and a WASI Preview 2 component on the browser's JSPI and jco's browser build.
  *
  *   pnpm --filter @ecmaos/kernel build && pnpm --filter @ecmaos/kernel test:e2e
  *

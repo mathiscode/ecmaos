@@ -94,3 +94,40 @@ jobs:
 
       - name: Run the kernel tests on Node, without a DOM
         run: pnpm --filter @ecmaos/kernel test:node
+
+  browser:
+    name: the site in headless Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Seed kernel .env from template
+        run: cp core/kernel/.env.template core/kernel/.env
+
+      - name: Build the site and what it depends on
+        run: pnpm turbo run build --filter=@ecmaos/kernel...
+
+      - name: Chromium for Playwright
+        run: pnpm --filter @ecmaos/kernel exec playwright install --with-deps chromium
+
+      # Boots the built site from an empty profile, types at the prompt, runs a WASI Preview 2 component, and shows,
+      # clicks and closes an OpenGL ES window
+      - name: Test in the browser
+        run: pnpm --filter @ecmaos/kernel test:e2e
+
+      - name: Screenshots of the failed steps
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-screenshots
+          path: core/kernel/test-results/
+          if-no-files-found: ignore

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -80,6 +80,16 @@ describe('the site in a real browser', () => {
     await type('echo typed at the keyboard > /tmp/typed.txt')
     await until(async () => (await read('/tmp/typed.txt')) !== '', 10_000, '/tmp/typed.txt')
     expect(await read('/tmp/typed.txt')).toBe('typed at the keyboard\n')
+  })
+
+  it('runs a WASI Preview 2 component', async () => {
+    const bytes = readFileSync(path.join(root, 'tests/tree/wasi/fixtures/p2-echo.wasm')).toString('base64')
+    await page.evaluate(bytes => ecmaos.fs.writeFile('/tmp/p2-echo.wasm', Uint8Array.from(atob(bytes), c => c.charCodeAt(0)), { mode: 0o755 }), bytes)
+    await page.evaluate(() => ecmaos.fs.writeFile('/tmp/p2.in', 'from stdin\n'))
+    await type('/tmp/p2-echo.wasm one two < /tmp/p2.in > /tmp/p2.out 2> /tmp/p2.err')
+    await until(async () => (await read('/tmp/p2.err')) !== '', 30_000, 'the component to finish')
+    expect(await read('/tmp/p2.out')).toBe('one\ntwo\nfrom stdin\n')
+    expect(await read('/tmp/p2.err')).toBe('p2-echo: done\n')
   })
 
   it('shows an OpenGL ES program in a window, drawn by the browser\'s WebGL2', async () => {

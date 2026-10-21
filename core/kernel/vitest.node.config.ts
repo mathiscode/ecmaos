@@ -40,7 +40,9 @@ export const DomBound: Record<string, string> = {
   'tests/tree/fb-input.test.ts': 'the input node of a framebuffer window',
   'tests/tree/wasi/emcc-mmap.test.ts': 'draws into a framebuffer window through a map',
   'tests/tree/popups.test.ts': 'windows in browser popups',
-  'tests/tree/screen-view.test.ts': 'draws a remote machine\'s windows in the page'
+  'tests/tree/screen-view.test.ts': 'draws a remote machine\'s windows in the page',
+  // zone.js, which OpenTelemetry loads only in a browser, breaks MessagePort dispatch in Node
+  'tests/tree/wasi/preview2-zone.test.ts': 'loads zone.js, as OpenTelemetry does in a page'
 }
 
 /** `document.createElement(...)` and `document.body.appendChild(...)` in a test become calls on the stand-in page (see `tests/setup-node.ts`) */

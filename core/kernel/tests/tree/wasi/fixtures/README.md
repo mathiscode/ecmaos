@@ -62,3 +62,12 @@ Emscripten has no `memfd_create` (the link fails), so the program uses `mkstemp`
 `wl-shm.wasm` and `wl-lib.wasm` are two Wayland test clients for `wlcomp` (`../../wayland.test.ts`): `wl-shm.c` speaks the wire protocol by hand, `wl-lib.c` is written against libwayland-client. `wl-lib.build.sh` rebuilds the second (it builds libwayland-client first, through `core/utils/wasm/lib/wayland.sh`, and needs the host `wayland-scanner`).
 
 `sdl-win.wasm` is a small SDL 3 program (`sdl-win.c`) on SDL's Wayland video driver, run against `wlcomp` by the same test: a window surface, pointer, key and text events, resize, close. `sdl-win.build.sh` rebuilds it, and SDL itself first (`core/utils/wasm/lib/sdl.sh`, a few minutes; it needs `cmake`, `ninja`, `pkg-config`, `bison` and the host `wayland-scanner`). The same script is how any SDL 3 program gets built for ecmaOS.
+
+`p2-echo.wasm` is a WASI Preview 2 component: `p2-echo.wat`, assembled and wrapped in the
+`wasi_snapshot_preview1` command adapter by the jco the kernel already depends on, so no other toolchain is needed.
+It writes its arguments one per line, copies stdin to stdout, says `p2-echo: done` on stderr and exits with the
+number of arguments. Rebuild it from `core/kernel` with:
+
+```sh
+node tests/tree/wasi/fixtures/p2-echo.build.mjs
+```
