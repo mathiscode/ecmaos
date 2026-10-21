@@ -229,7 +229,7 @@ globalThis.ecmaosSyscalls = {
   dropControllingTty: fd => syscall_async('proc_ctty', 1, fd, 0),
   ttySession: fd => syscall_async('proc_ctty', 2, fd, 0),
   spawn: (command, argv, options = {}) =>
-    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, setsid: options.setsid, tty: options.tty, credentials: options.credentials, trace: options.trace })),
+    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, tty: options.tty, credentials: options.credentials, trace: options.trace })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

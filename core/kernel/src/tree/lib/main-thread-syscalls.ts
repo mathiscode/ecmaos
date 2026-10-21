@@ -2055,7 +2055,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, exactFds?: boolean, signals?: SignalState, pgid?: number, setsid?: boolean, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, exactFds?: boolean, signals?: SignalState, pgid?: number, foreground?: boolean, setsid?: boolean, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
     const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     // Starting a program as someone else is `setuid` and `exec` in one: only a root process may, and it
@@ -2074,7 +2074,7 @@ export function installMainThreadSyscalls(): void {
       const { fd, ...traceOptions } = options.trace
       trace = createTracer(traceOptions, traceSink(proc, fd))
     }
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, exactFds: options.exactFds, signals: options.signals, pgid: options.pgid, setsid: options.setsid, terminal, credentials, trace })
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, exactFds: options.exactFds, signals: options.signals, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, terminal, credentials, trace })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.

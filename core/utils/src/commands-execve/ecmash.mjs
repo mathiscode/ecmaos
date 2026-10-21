@@ -814,8 +814,13 @@ class Shell {
     let target = program
     // An executable text file with no `#!` line is a shell script, as in bash (the kernel runs one the same way)
     if (isTextWithoutShebang(program)) { target = '/bin/ecmash'; argv = ['ecmash', name.includes('/') ? name : program, ...args.slice(1)] }
+    // Each pipeline is a group of its own. With job control (an interactive shell) a foreground one is given the
+    // terminal as its first program starts; without it (`sh -c`, a script) a foreground pipeline stays in this
+    // shell's group, which is in front of the terminal when the shell is, as in a POSIX sh.
+    const group = this.interactive ? { pgid: options.pgid, foreground: !options.background && options.pgid === 0 }
+      : options.background ? { pgid: options.pgid } : {}
     try {
-      pid = await spawn(target, argv, { env, fds: childFds, cwd: getcwd(), pgid: options.pgid })
+      pid = await spawn(target, argv, { env, fds: childFds, cwd: getcwd(), ...group })
     } finally {
       // The child holds its own references now.
       await applied.release()

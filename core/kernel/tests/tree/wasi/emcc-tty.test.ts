@@ -54,4 +54,24 @@ describe('a program on a real terminal', () => {
     expect(out).toContain('isatty=1')
     expect(out).toMatch(/size=\d+x\d+ idle=0 poll=1 key=x/)
   })
+
+  // An interactive /bin/sh gives each foreground job the terminal as it starts; `sh -c` (no job control) leaves its
+  // command in its own group, which is in front. Either way the program reads its key rather than stopping on SIGTTIN.
+  it.each([['an interactive shell', '/bin/sh', '/tmp/wali-tty > /tmp/sh-tty.out\r'], ['sh -c', "sh -c '/tmp/wali-tty > /tmp/sh-tty.out'", '']])('runs under %s', async (_, command, typed) => {
+    const { readFileSync } = process.getBuiltinModule('node:fs')
+    await kernel.filesystem.fs.writeFile('/tmp/wali-tty', new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/wali-rawtty.wasm`)), { mode: 0o755 })
+    const tty = kernel.terminal.zfsTty!
+    const done = kernel.shell.execute(command)
+    if (typed) {
+      await waitFor(() => kernel.terminal.ttyInputAttached && (tty.termios.lflag & lflags.ICANON) === 0, 20000)
+      kernel.terminal.input(typed, true)
+    }
+    await waitFor(() => tty.foreground?.comm === 'wali-tty' && (tty.termios.lflag & lflags.ICANON) === 0, 20000)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    kernel.terminal.input('x', true)
+    await waitFor(() => tty.foreground?.comm !== 'wali-tty', 20000)
+    if (typed) kernel.terminal.input('exit\r', true)
+    expect(await done).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/sh-tty.out', 'utf8')).toMatch(/size=\d+x\d+ idle=0 poll=1 key=x/)
+  }, 60000)
 })

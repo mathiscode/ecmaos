@@ -421,6 +421,12 @@ export interface SpawnOptions {
   signals?: SignalState
   pgid?: number
   /**
+   * Put the child's group in front of its terminal as it starts, as glibc's `POSIX_SPAWN_TCSETPGROUP` does: a shell
+   * doing job control gives its foreground job the terminal this way, before the program can read it (a `tcsetpgrp`
+   * after the spawn would come too late for a program that reads at once, which would stop on `SIGTTIN`).
+   */
+  foreground?: boolean
+  /**
    * Start the child as the leader of a new session. With a `terminal` it is also given that terminal as its
    * controlling terminal, as `login` and `getty` do.
    */
@@ -517,11 +523,12 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
     }
     if (options.signals) setSignalState(child, options.signals)
     // `execve` puts the program in front of its terminal; a child started in a group or session of its own is not
-    // (Linux's exec never changes the foreground): whoever does job control moves it there with `tcsetpgrp`
+    // (Linux's exec never changes the foreground): whoever does job control moves it there with `tcsetpgrp`, or asks
+    // for it with `foreground`
     const ownGroup = options.pgid !== undefined || options.setsid
     const front = child.tty?.foreground
     await execveWhenFree(child, command, argv, env)
-    if (ownGroup && child.tty && child.tty.foreground === child) child.tty.foreground = front
+    if (ownGroup && !options.foreground && child.tty && child.tty.foreground === child) child.tty.foreground = front
     if (options.terminal?.zfsTty) {
       const tty = options.terminal.zfsTty
       const previous = tty.foreground
