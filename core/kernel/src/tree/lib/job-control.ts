@@ -256,10 +256,21 @@ export async function waitpid(caller: Process, pid: number, flags: number | bool
       }
     }
     if (nohang) return 0
+    // A signal the caller catches ends the wait with EINTR, and nothing is reaped: the kernel woke the thread with
+    // EINTR as it raised the signal, so a child reaped now would be lost to it. One that ended meanwhile (it is often
+    // its SIGCHLD that woke the caller) is still there for the caller's next wait.
+    const interrupts = caller.thread?.interrupts
+    let stopInterrupt: (() => void) | undefined
+    const interrupted = new Promise<void>(resolve => { stopInterrupt = caller.sigwait.wait_with(resolve) })
     // `stopped` is a plain flag with no event behind it, so a wait that watches for stops has to poll.
     const exits = children.map(async child => { await child.exited })
-    if (untraced) await Promise.race([...exits, new Promise(resolve => setTimeout(resolve, 25))])
-    else await Promise.race(exits)
+    try {
+      if (untraced) await Promise.race([...exits, interrupted, new Promise(resolve => setTimeout(resolve, 25))])
+      else await Promise.race([...exits, interrupted])
+    } finally {
+      stopInterrupt?.()
+    }
+    if (caller.thread && caller.thread.interrupts !== interrupts) throw fail(Errno.EINTR, 'Interrupted system call')
   }
 }
 
@@ -281,6 +292,10 @@ export interface SpawnOptions {
   env?: Record<string, string>
   /** child fd -> caller fd: the `dup2` file actions of `posix_spawn` */
   fds?: Record<string, number>
+  /** `fds` is the child's whole table: it gets nothing else, not even the caller's 0 to 2 (`posix_spawn` closing one) */
+  exactFds?: boolean
+  /** The signals the child starts with ignored and blocked, as sigsets of signals 1 to 31 (see {@link signalStateOf}) */
+  signals?: SignalState
   pgid?: number
   /**
    * Start the child as the leader of a new session. With a `terminal` it is also given that terminal as its
@@ -299,6 +314,31 @@ export interface SpawnOptions {
   terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
   /** Record the child's system calls (`strace`) */
   trace?: Tracer
+}
+
+/**
+ * What a program's signals look like across `exec`: the ones it ignores stay ignored and its mask stays as it was
+ * (a handler cannot survive, the code it named is gone). Each is a sigset of signals 1 to 31, bit `sig - 1`. A WALI
+ * program hands them to the child it spawns (`proc_spawn`'s `signals`) or to the image it becomes
+ * (`proc_set_sigstate`), and the program reads them when it starts (`proc_sigstate`).
+ */
+export interface SignalState {
+  ignored: number
+  blocked: number
+}
+
+const signalStates = new Map<number, SignalState>()
+
+/** The signal state a process was started or exec'ed with; nothing ignored or blocked if it was not given one */
+export function signalStateOf(pid: number): SignalState {
+  return signalStates.get(pid) ?? { ignored: 0, blocked: 0 }
+}
+
+/** Records the signal state the process keeps across its next `exec`, for as long as it lives */
+export function setSignalState(proc: Process, state: SignalState): void {
+  const known = signalStates.has(proc.pid)
+  signalStates.set(proc.pid, { ignored: state.ignored | 0, blocked: state.blocked | 0 })
+  if (!known) void proc.exited.then(() => signalStates.delete(proc.pid))
 }
 
 /**
@@ -336,6 +376,9 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       for (const fd of [0, 1, 2]) if (child.context.descriptors.has(fd)) fs.closeSync.call(child.context, fd)
       for (let i = 0; i < 3; i++) fs.openSync.call(child.context, `/dev/${options.terminal.zfsTty.name}`, 'r+')
     }
+    if (options.exactFds) {
+      for (const fd of [...child.context.descriptors.keys()]) fs.closeSync.call(child.context, fd)
+    }
     for (const [target, source] of Object.entries(options.fds ?? {})) {
       const handle = parent.context.descriptors.get(source)
       if (!handle) throw fail(Errno.EBADF, `Bad file descriptor: ${source}`)
@@ -349,6 +392,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       setTty(child, null)
       void child.exited.then(() => forgetGroup(child.pid))
     }
+    if (options.signals) setSignalState(child, options.signals)
     await execveWhenFree(child, command, argv, env)
     if (options.terminal?.zfsTty) {
       const tty = options.terminal.zfsTty

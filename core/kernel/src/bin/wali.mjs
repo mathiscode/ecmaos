@@ -23,7 +23,7 @@ function runWali(source) {
   const instantiate = WebAssembly.instantiate
   WebAssembly.instantiate = async (...args) => {
     const instance = await instantiate(...args)
-    attach(instance.exports.memory)
+    attach(instance)
     return instance
   }
   return run(source)

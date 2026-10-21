@@ -1,0 +1,278 @@
+ecmaOS: posix_spawn hands the whole request to the host (__ecmaos_spawn), which starts the child as a new process:
+there is no fork to run musl's child code in. File actions keep their order; posix_spawnp searches PATH first.
+
+diff --git i/src/process/posix_spawn.c w/src/process/posix_spawn.c
+index 69f1728..e656ee8 100644
+--- i/src/process/posix_spawn.c
++++ w/src/process/posix_spawn.c
+@@ -1,214 +1,79 @@
++/* ecmaOS: there is no fork here, so the child is not this process run on another stack (musl's __clone with
++ * CLONE_VFORK) but a new process the host starts: the file actions, flags and signal sets are handed over whole, in
++ * the order the file actions were added, and the host replays them against a copy of this process's descriptor table
++ * (core/kernel/src/bin/wali-host.mjs). posix_spawnp searches PATH here, as execvpe would in the child. */
+ #define _GNU_SOURCE
+ #include <spawn.h>
+-#include <sched.h>
+-#include <unistd.h>
++#include <errno.h>
++#include <limits.h>
+ #include <signal.h>
+-#include <fcntl.h>
+-#include <sys/wait.h>
+-#include "syscall.h"
+-#include "lock.h"
+-#include "pthread_impl.h"
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
+ #include "fdop.h"
+ 
+-struct args {
+-	int p[2];
+-	sigset_t oldmask;
++/* One file action: its FDOP_* command and operands. 24 bytes, read by the host. */
++struct spawn_op {
++	int cmd, fd, srcfd, oflag, mode;
+ 	const char *path;
+-	const posix_spawn_file_actions_t *fa;
+-	const posix_spawnattr_t *restrict attr;
+-	char *const *argv, *const *envp;
+ };
+ 
+-static int __sys_dup2(int old, int new)
++long __ecmaos_spawn(const char *, char *const *, char *const *, const struct spawn_op *, int, int, int,
++	const sigset_t *, const sigset_t *) __attribute__((__import_module__("wali"), __import_name__("__ecmaos_spawn")));
++
++extern char **__environ;
++
++/* The file posix_spawnp's search finds for `file`: the first entry of PATH it is executable in */
++static int search(const char *file, char *buf)
+ {
+-#ifdef SYS_dup2
+-	return __syscall_SYS_dup2(old, new);
+-#else
+-	return __syscall_SYS_dup3(old, new, 0);
+-#endif
+-}
+-
+-static int child(void *args_vp)
+-{
+-	int i, ret;
+-	struct sigaction sa = {0};
+-	struct args *args = args_vp;
+-	int p = args->p[1];
+-	const posix_spawn_file_actions_t *fa = args->fa;
+-	const posix_spawnattr_t *restrict attr = args->attr;
+-	sigset_t hset;
+-
+-	close(args->p[0]);
+-
+-	/* All signal dispositions must be either SIG_DFL or SIG_IGN
+-	 * before signals are unblocked. Otherwise a signal handler
+-	 * from the parent might get run in the child while sharing
+-	 * memory, with unpredictable and dangerous results. To
+-	 * reduce overhead, sigaction has tracked for us which signals
+-	 * potentially have a signal handler. */
+-	__get_handler_set(&hset);
+-	for (i=1; i<_NSIG; i++) {
+-		if ((attr->__flags & POSIX_SPAWN_SETSIGDEF)
+-		     && sigismember(&attr->__def, i)) {
+-			sa.sa_handler = SIG_DFL;
+-		} else if (sigismember(&hset, i)) {
+-			if (i-32<3U) {
+-				sa.sa_handler = SIG_IGN;
+-			} else {
+-				__libc_sigaction(i, 0, &sa);
+-				if (sa.sa_handler==SIG_IGN) continue;
+-				sa.sa_handler = SIG_DFL;
+-			}
+-		} else {
+-			continue;
++	const char *path = getenv("PATH");
++	size_t length = strnlen(file, NAME_MAX+1);
++	int denied = 0;
++	if (!path) path = "/usr/local/bin:/bin:/usr/bin";
++	if (length > NAME_MAX) return ENAMETOOLONG;
++	for (const char *p = path, *z; ; p = z + 1) {
++		z = strchrnul(p, ':');
++		size_t dir = z - p;
++		if (dir + length + 2 <= PATH_MAX) {
++			memcpy(buf, p, dir);
++			buf[dir] = '/';
++			memcpy(buf + dir + (dir > 0), file, length + 1);
++			if (!access(buf, X_OK)) return 0;
++			if (errno == EACCES) denied = 1;
+ 		}
+-		__libc_sigaction(i, &sa, 0);
++		if (!*z) break;
+ 	}
+-
+-	if (attr->__flags & POSIX_SPAWN_SETSID)
+-		if ((ret=__syscall_SYS_setsid()) < 0)
+-			goto fail;
+-
+-	if (attr->__flags & POSIX_SPAWN_SETPGROUP)
+-		if ((ret=__syscall_SYS_setpgid(0, attr->__pgrp)))
+-			goto fail;
+-
+-	/* Use syscalls directly because the library functions attempt
+-	 * to do a multi-threaded synchronized id-change, which would
+-	 * trash the parent's state. */
+-	if (attr->__flags & POSIX_SPAWN_RESETIDS)
+-		if ((ret=__syscall_SYS_setgid(__syscall_SYS_getgid())) ||
+-		    (ret=__syscall_SYS_setuid(__syscall_SYS_getuid())) )
+-			goto fail;
+-
+-	if (fa && fa->__actions) {
+-		struct fdop *op;
+-		int fd;
+-		for (op = fa->__actions; op->next; op = op->next);
+-		for (; op; op = op->prev) {
+-			/* It's possible that a file operation would clobber
+-			 * the pipe fd used for synchronizing with the
+-			 * parent. To avoid that, we dup the pipe onto
+-			 * an unoccupied fd. */
+-			if (op->fd == p) {
+-				ret = __syscall_SYS_dup(p);
+-				if (ret < 0) goto fail;
+-				__syscall_SYS_close(p);
+-				p = ret;
+-			}
+-			switch(op->cmd) {
+-			case FDOP_CLOSE:
+-				__syscall_SYS_close(op->fd);
+-				break;
+-			case FDOP_DUP2:
+-				fd = op->srcfd;
+-				if (fd == p) {
+-					ret = -EBADF;
+-					goto fail;
+-				}
+-				if (fd != op->fd) {
+-					if ((ret=__sys_dup2(fd, op->fd))<0)
+-						goto fail;
+-				} else {
+-					ret = __syscall_SYS_fcntl(fd, F_GETFD, 0);
+-					ret = __syscall_SYS_fcntl(fd, F_SETFD,
+-					                ret & ~FD_CLOEXEC);
+-					if (ret<0)
+-						goto fail;
+-				}
+-				break;
+-			case FDOP_OPEN:
+-				fd = __sys_open(op->path, op->oflag, op->mode);
+-				if ((ret=fd) < 0) goto fail;
+-				if (fd != op->fd) {
+-					if ((ret=__sys_dup2(fd, op->fd))<0)
+-						goto fail;
+-					__syscall_SYS_close(fd);
+-				}
+-				break;
+-			case FDOP_CHDIR:
+-				ret = __syscall_SYS_chdir(op->path);
+-				if (ret<0) goto fail;
+-				break;
+-			case FDOP_FCHDIR:
+-				ret = __syscall_SYS_fchdir(op->fd);
+-				if (ret<0) goto fail;
+-				break;
+-			}
+-		}
+-	}
+-
+-	/* Close-on-exec flag may have been lost if we moved the pipe
+-	 * to a different fd. We don't use F_DUPFD_CLOEXEC above because
+-	 * it would fail on older kernels and atomicity is not needed --
+-	 * in this process there are no threads or signal handlers. */
+-	__syscall_SYS_fcntl(p, F_SETFD, FD_CLOEXEC);
+-
+-	pthread_sigmask(SIG_SETMASK, (attr->__flags & POSIX_SPAWN_SETSIGMASK)
+-		? &attr->__mask : &args->oldmask, 0);
+-
+-	int (*exec)(const char *, char *const *, char *const *) =
+-		attr->__fn ? (int (*)())attr->__fn : execve;
+-
+-	exec(args->path, args->argv, args->envp);
+-	ret = -errno;
+-
+-fail:
+-	/* Since sizeof errno < PIPE_BUF, the write is atomic. */
+-	ret = -ret;
+-	if (ret) while (__syscall_SYS_write(p, &ret, sizeof ret) < 0);
+-	_exit(127);
++	return denied ? EACCES : ENOENT;
+ }
+ 
+-
+ int posix_spawn(pid_t *restrict res, const char *restrict path,
+ 	const posix_spawn_file_actions_t *fa,
+ 	const posix_spawnattr_t *restrict attr,
+ 	char *const argv[restrict], char *const envp[restrict])
+ {
+-	pid_t pid;
+-	char stack[1024+PATH_MAX];
+-	int ec=0, cs;
+-	struct args args;
++	static const posix_spawnattr_t none;
++	const posix_spawnattr_t *a = attr ? attr : &none;
++	char found[PATH_MAX];
++	struct spawn_op *ops = 0;
++	struct fdop *op;
++	int count = 0, ec;
+ 
+-	pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cs);
+-
+-	args.path = path;
+-	args.fa = fa;
+-	args.attr = attr ? attr : &(const posix_spawnattr_t){0};
+-	args.argv = argv;
+-	args.envp = envp;
+-	pthread_sigmask(SIG_BLOCK, SIGALL_SET, &args.oldmask);
+-
+-	/* The lock guards both against seeing a SIGABRT disposition change
+-	 * by abort and against leaking the pipe fd to fork-without-exec. */
+-	LOCK(__abort_lock);
+-
+-	if (pipe2(args.p, O_CLOEXEC)) {
+-		UNLOCK(__abort_lock);
+-		ec = errno;
+-		goto fail;
++	if (a->__fn && !strchr(path, '/')) {
++		if (!*path) return ENOENT;
++		if ((ec = search(path, found))) return ec;
++		path = found;
+ 	}
+ 
+-	pid = __clone(child, stack+sizeof stack,
+-		CLONE_VM|CLONE_VFORK|SIGCHLD, &args);
+-	close(args.p[1]);
+-	UNLOCK(__abort_lock);
++	/* the list's head is the action added last, and each is applied in the order it was added */
++	if (fa) for (op = fa->__actions; op; op = op->next) count++;
++	if (count && !(ops = malloc(count * sizeof *ops))) return ENOMEM;
++	int i = count;
++	if (fa) for (op = fa->__actions; op; op = op->next)
++		ops[--i] = (struct spawn_op){ op->cmd, op->fd, op->srcfd, op->oflag, op->mode, op->path };
+ 
+-	if (pid > 0) {
+-		if (read(args.p[0], &ec, sizeof ec) != sizeof ec) ec = 0;
+-		else waitpid(pid, &(int){0}, 0);
+-	} else {
+-		ec = -pid;
+-	}
+-
+-	close(args.p[0]);
+-
+-	if (!ec && res) *res = pid;
+-
+-fail:
+-	pthread_sigmask(SIG_SETMASK, &args.oldmask, 0);
+-	pthread_setcancelstate(cs, 0);
+-
+-	return ec;
++	long pid = __ecmaos_spawn(path, argv, envp ? envp : __environ, ops, count, a->__flags, a->__pgrp, &a->__def, &a->__mask);
++	free(ops);
++	if (pid < 0) return -pid;
++	if (res) *res = pid;
++	return 0;
+ }

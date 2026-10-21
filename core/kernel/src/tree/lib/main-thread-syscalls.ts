@@ -33,7 +33,8 @@ import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
 import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
-import { dropControllingTty, getpgid, getsid, killpg, mayKill, setControllingTty, setpgid, setsid, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
+import { dropControllingTty, getpgid, getsid, killpg, mayKill, setControllingTty, setpgid, setSignalState, setsid, signalStateOf, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
+import type { SignalState } from './job-control.ts'
 import { umaskOf, setUmask } from './umask-store.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
@@ -95,6 +96,8 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_spawn(command: string, argvJson: string, cwd: string, optionsJson?: string): number
     trace_attach(pid: number, optionsJson: string): number
     proc_waitpid(pid: number, flags: number): number
+    proc_sigstate(which: number): number
+    proc_set_sigstate(ignored: number, blocked: number): number
     proc_setpgid(pid: number, pgid: number): number
     proc_getpgid(pid: number): number
     proc_killpg(pgid: number, signal: number): number
@@ -1754,7 +1757,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const argv = JSON.parse(argvJson) as string[]
-    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, pgid?: number, setsid?: boolean, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
+    const options = optionsJson ? JSON.parse(optionsJson) as { env?: Record<string, string>, fds?: Record<string, number>, exactFds?: boolean, signals?: SignalState, pgid?: number, setsid?: boolean, tty?: number, credentials?: { uid: number, gid: number, groups?: number[] }, trace?: TraceOptions & { fd: number } } : {}
     const terminal = options.tty === undefined ? undefined : (await kernel.shellForTty(options.tty).catch(() => undefined))?.terminal
     if (options.tty !== undefined && !terminal) throw Object.assign(new Error('No such terminal'), { errno: Errno.ENXIO })
     // Starting a program as someone else is `setuid` and `exec` in one: only a root process may, and it
@@ -1773,7 +1776,7 @@ export function installMainThreadSyscalls(): void {
       const { fd, ...traceOptions } = options.trace
       trace = createTracer(traceOptions, traceSink(proc, fd))
     }
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, pgid: options.pgid, setsid: options.setsid, terminal, credentials, trace })
+    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, exactFds: options.exactFds, signals: options.signals, pgid: options.pgid, setsid: options.setsid, terminal, credentials, trace })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.
@@ -1806,6 +1809,16 @@ export function installMainThreadSyscalls(): void {
   })
 
   define_syscall('proc_waitpid', async (proc: Process, pid: number, flags: number) => waitpid(proc, pid, flags))
+  // The signals a program was started with ignored (`which` 0) and blocked (1), and the ones it keeps across its own
+  // `execve`: see `SignalState` in job-control.ts
+  define_syscall('proc_sigstate', (proc: Process, which: number) => {
+    const state = signalStateOf(proc.pid)
+    return which === 1 ? state.blocked : state.ignored
+  })
+  define_syscall('proc_set_sigstate', (proc: Process, ignored: number, blocked: number) => {
+    setSignalState(proc, { ignored, blocked })
+    return 0
+  })
   define_syscall('proc_setpgid', (proc: Process, pid: number, pgid: number) => setpgid(proc, pid, pgid))
   define_syscall('proc_getpgid', (proc: Process, pid: number) => {
     const target = pid === 0 ? proc : processes.get(pid)
