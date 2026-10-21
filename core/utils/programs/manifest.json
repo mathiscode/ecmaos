@@ -1,7 +1,8 @@
 {
   "package": "@ecmaos/coreutils",
   "toolchain": {
-    "emscripten": "6.0.9"
+    "emscripten": "6.0.9",
+    "wali": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8"
   },
   "programs": {
     "bc": {
@@ -91,8 +92,9 @@
       "license": "0BSD",
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
-      "size": 62112,
-      "sha256": "7b977ba51d7ec80332476017760a8771f249b19e5e27186ac0474093c09960c5"
+      "toolchain": "wali",
+      "size": 68194,
+      "sha256": "c7351ed8b0df46bfbfc561948f8b3804dc23a8c1e67df74173f0da91c4cd66c7"
     },
     "ncdu": {
       "file": "ncdu.wasm",

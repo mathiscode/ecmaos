@@ -7,10 +7,27 @@
  * thread in `Kernel.executeWasm`.
  */
 
-import { ready, exit } from '@zenfs/linux/uapi/process'
+import { ready, exit, getpid } from '@zenfs/linux/uapi/process'
+import { syscall_raw } from '@zenfs/linux/uapi/base'
 import { open, read, write, close } from '@zenfs/linux/uapi/fs'
-import { run } from '@zenfs/linux/uapi/wali'
+import { run, wali } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasi-preview1.mjs'
+import { install, attach } from './wali-host.mjs'
+
+/**
+ * A WALI module runs on the dependency's table with ecmaOS's calls added (`wali-host.mjs`). `run()` keeps the
+ * instance to itself, so its memory is picked up here as the module is instantiated; this worker runs one program.
+ */
+function runWali(source) {
+  install(wali)
+  const instantiate = WebAssembly.instantiate
+  WebAssembly.instantiate = async (...args) => {
+    const instance = await instantiate(...args)
+    attach(instance.exports.memory)
+    return instance
+  }
+  return run(source)
+}
 
 /** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
 async function readWholeFile(path) {
@@ -49,9 +66,16 @@ try {
   // `wasi-preview1.mjs`; anything else is WALI.
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
-  const code = isPreview1 ? await runPreview1(source) : await run(source)
+  const code = isPreview1 ? await runPreview1(source) : await runWali(source)
   exit(code)
 } catch (error) {
+  // An exception nothing caught (a C++ throw, or a longjmp with no setjmp) leaves the module as a WebAssembly
+  // exception rather than reaching std::terminate, which would abort: say so and end the same way, by SIGABRT.
+  if (error instanceof WebAssembly.Exception) {
+    try { write(2, new TextEncoder().encode('terminating due to an uncaught exception\n'), -1) } catch { /* no stderr */ }
+    syscall_raw('kill', getpid(), 6 /* SIGABRT */)
+    exit(134)
+  }
   console.error(error)
   // a trap or an uncaught throw ends the program: say so on its stderr, which the console above does not show the user
   try { write(2, new TextEncoder().encode(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`), -1) } catch { /* no stderr */ }

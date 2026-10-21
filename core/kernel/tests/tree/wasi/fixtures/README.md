@@ -71,3 +71,14 @@ number of arguments. Rebuild it from `core/kernel` with:
 ```sh
 node tests/tree/wasi/fixtures/p2-echo.build.mjs
 ```
+
+`wali-*.wasm` are built on WALI's musl, the C library ecmaOS is moving its programs to: `wali-libc.c` (arguments,
+environment, Linux errno numbers, `*at` calls against a directory descriptor, readdir and rewinddir, a private file
+mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp on wasm exceptions), `wali-cxx.cpp`
+(C++ exceptions, the standard library and `std::filesystem`) and `wali-uncaught.cpp` (an exception nothing catches).
+`../wali.test.ts` runs them. `wali.build.sh` rebuilds them all with the pinned toolchain; the first run builds the
+sysroot (`utils/check-wali.sh`, a minute or two):
+
+```sh
+tests/tree/wasi/fixtures/wali.build.sh
+```

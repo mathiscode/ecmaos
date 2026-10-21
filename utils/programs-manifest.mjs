@@ -46,6 +46,14 @@ for (const [name, program] of Object.entries(manifest.programs)) {
 
 const pin = readFileSync(path.join(import.meta.dirname, 'emscripten-version'), 'utf8').trim()
 if (manifest.toolchain?.emscripten !== pin) problems.push(`toolchain.emscripten is ${manifest.toolchain?.emscripten}, utils/emscripten-version pins ${pin}`)
+// A program built on WALI's musl says so (`"toolchain": "wali"`); the package then names the pin in utils/wali-version
+const wali = Object.fromEntries([...readFileSync(path.join(import.meta.dirname, 'wali-version'), 'utf8').matchAll(/^(\w+)=(\S+)$/gm)].map(([, key, value]) => [key, value]))
+const waliPin = `musl ${wali.MUSL_COMMIT}, LLVM ${wali.LLVM_VERSION}`
+const waliPrograms = Object.entries(manifest.programs).filter(([, program]) => program.toolchain === 'wali')
+if (waliPrograms.length && manifest.toolchain?.wali !== waliPin) problems.push(`toolchain.wali is ${manifest.toolchain?.wali}, utils/wali-version pins ${waliPin}`)
+for (const [name, program] of Object.entries(manifest.programs)) {
+  if (program.toolchain !== undefined && program.toolchain !== 'wali') problems.push(`${name}: toolchain is ${program.toolchain}; a program names one only when it is wali`)
+}
 for (const [name, program] of Object.entries(manifest.programs)) {
   const texts = path.join(process.cwd(), 'licenses', name)
   if (!existsSync(texts) || readdirSync(texts).length === 0) problems.push(`${name}: no license text in licenses/${name}/`)

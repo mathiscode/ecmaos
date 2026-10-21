@@ -15,7 +15,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `zstd` | 1.5.7 | BSD-3-Clause (dual-licensed with GPL-2.0; used under BSD) | `zstd/LICENSE` |
 | `mandoc` | 1.14.6 | ISC (with some BSD-2-Clause and BSD-3-Clause files, listed in the text); zlib from emscripten is the zlib license | `mandoc/LICENSE`, `mandoc/zlib-LICENSE` |
 | `qjs` | 0.17.0 | MIT | `qjs/LICENSE` |
-| `patch` | toybox 0.8.12 | 0BSD | `patch/LICENSE` |
+| `patch` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `patch/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |
 | `micropython` | 1.29.0 | MIT; the frozen micropython-lib modules are MIT or, where derived from CPython, the Python License | `micropython/LICENSE`, `micropython/LICENSE-micropython-lib` |
@@ -28,9 +28,10 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `sdlgl` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgl/` |
 | `sdlgears` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgears/` |
 
-Every program also contains musl libc and compiler-rt, from Emscripten: see `runtime/`.
+Every program also contains musl libc and compiler-rt, from Emscripten or, for `patch`, from WALI's musl and LLVM:
+see `runtime/`.
 
 Copyleft programs (GNU make, GNU nano, tree, Vim, ed, lz4, doom) are in `@ecmaos/coreutils-copyleft`, not here.
 
 The build scripts are in `wasm/<name>/build.sh`; `programs/manifest.json` records each program's version, license, size
-and sha256, and the toolchain is pinned by `utils/emscripten-version` in the repository.
+and sha256, and the toolchains are pinned by `utils/emscripten-version` and `utils/wali-version` in the repository.

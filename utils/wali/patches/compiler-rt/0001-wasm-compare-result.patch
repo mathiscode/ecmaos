@@ -1,0 +1,18 @@
+ecmaOS: the soft-float comparisons (__getf2 and the rest) return int on wasm. WALI's musl has a 64-bit long, so
+compiler-rt's usual `long` made them return i64 while the wasm backend calls them for i32, and wasm-ld replaced
+every call with a trap.
+
+diff --git i/compiler-rt/lib/builtins/fp_compare_impl.inc w/compiler-rt/lib/builtins/fp_compare_impl.inc
+index f883338..435474f 100644
+--- i/compiler-rt/lib/builtins/fp_compare_impl.inc
++++ w/compiler-rt/lib/builtins/fp_compare_impl.inc
+@@ -18,6 +18,9 @@ typedef int CMP_RESULT;
+ #elif __SIZEOF_POINTER__ == 8 && __SIZEOF_LONG__ == 4
+ // LLP64 ABIs use long long instead of long.
+ typedef long long CMP_RESULT;
++#elif defined(__wasm__)
++// The wasm backend calls these returning i32 whatever `long` is (WALI's musl has a 64-bit long).
++typedef int CMP_RESULT;
+ #elif __AVR__
+ // AVR uses a single byte for the return value.
+ typedef char CMP_RESULT;

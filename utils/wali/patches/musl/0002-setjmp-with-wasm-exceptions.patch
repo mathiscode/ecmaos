@@ -1,0 +1,133 @@
+ecmaOS: setjmp and longjmp on WebAssembly exception handling. The compiler (-fwasm-exceptions -mllvm
+-wasm-enable-sjlj) lowers them to __wasm_setjmp, __wasm_setjmp_test and __wasm_longjmp, which this adds; the
+header stops declaring them as host imports. sigsetjmp saves the signal mask before calling setjmp and siglongjmp
+restores it.
+
+diff --git c/include/setjmp.h i/include/setjmp.h
+index 48b37b8..da64760 100644
+--- c/include/setjmp.h
++++ i/include/setjmp.h
+@@ -21,39 +21,27 @@ typedef struct __jmp_buf_tag {
+ #define __setjmp_attr
+ #endif
+ 
++/* ecmaOS: setjmp and longjmp are lowered by the compiler (wasm exception handling, -mllvm -wasm-enable-sjlj) to
++ * calls into src/setjmp/wasm32/rt.c, so they are plain declarations here rather than host imports. The other names
++ * are the same jump: sigsetjmp saves the signal mask in the buffer first, and siglongjmp puts it back. */
++int setjmp (jmp_buf) __setjmp_attr;
++_Noreturn void longjmp (jmp_buf, int);
++
+ #if defined(_POSIX_SOURCE) || defined(_POSIX_C_SOURCE) \
+  || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
+  || defined(_BSD_SOURCE)
+ typedef jmp_buf sigjmp_buf;
+-int sigsetjmp (sigjmp_buf, int) __setjmp_attr __attribute((
+-  __import_module__("wali"),
+-  __import_name__("sigsetjmp")
+-));
++void __sigsetjmp_save (sigjmp_buf, int);
++#define sigsetjmp(buf, save) (__sigsetjmp_save((buf), (save)), setjmp(buf))
+ _Noreturn void siglongjmp (sigjmp_buf, int);
+ #endif
+ 
+ #if defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
+  || defined(_BSD_SOURCE)
+-int _setjmp (jmp_buf) __setjmp_attr __attribute((
+-  __import_module__("wali"),
+-  __import_name__("_setjmp")
+-));
+-_Noreturn void _longjmp (jmp_buf, int) __attribute((
+-  __import_module__("wali"),
+-  __import_name__("_longjmp")
+-));
++#define _setjmp(buf) setjmp(buf)
++#define _longjmp(buf, val) longjmp((buf), (val))
+ #endif
+ 
+-int setjmp (jmp_buf) __setjmp_attr __attribute((
+-  __import_module__("wali"),
+-  __import_name__("setjmp")
+-));
+-
+-_Noreturn void longjmp (jmp_buf, int) __attribute((
+-  __import_module__("wali"),
+-  __import_name__("longjmp")
+-));
+-
+ #define setjmp setjmp
+ 
+ #undef __setjmp_attr
+diff --git c/src/setjmp/wasm32/rt.c i/src/setjmp/wasm32/rt.c
+new file mode 100644
+index 0000000..eccaa6b
+--- /dev/null
++++ i/src/setjmp/wasm32/rt.c
+@@ -0,0 +1,37 @@
++/* ecmaOS: the runtime half of WebAssembly setjmp/longjmp. With -fwasm-exceptions and -mllvm -wasm-enable-sjlj the
++ * compiler turns each setjmp() into __wasm_setjmp(), each place a longjmp() may land into __wasm_setjmp_test(), and
++ * longjmp() into __wasm_longjmp(), which throws the __c_longjmp exception the function that called setjmp catches.
++ * The jmp_buf holds which call of which function set it (so a stale buffer is not taken for a live one) and the
++ * value to return. */
++#include <setjmp.h>
++#include <stdint.h>
++
++struct wasm_jmp {
++	void *invocation;
++	uint32_t label;
++	struct { void *env; int val; } arg;
++};
++
++_Static_assert(sizeof(struct wasm_jmp) <= sizeof(__jmp_buf), "jmp_buf too small");
++
++void __wasm_setjmp(void *env, uint32_t label, void *invocation)
++{
++	struct wasm_jmp *jb = env;
++	if (!label || !invocation) __builtin_trap();
++	jb->invocation = invocation;
++	jb->label = label;
++}
++
++uint32_t __wasm_setjmp_test(void *env, void *invocation)
++{
++	struct wasm_jmp *jb = env;
++	return jb->invocation == invocation ? jb->label : 0;
++}
++
++_Noreturn void __wasm_longjmp(void *env, int val)
++{
++	struct wasm_jmp *jb = env;
++	jb->arg.env = env;
++	jb->arg.val = val ? val : 1;
++	__builtin_wasm_throw(1, &jb->arg);
++}
+diff --git c/src/signal/wasm32/siglongjmp.c i/src/signal/wasm32/siglongjmp.c
+new file mode 100644
+index 0000000..f4abb56
+--- /dev/null
++++ i/src/signal/wasm32/siglongjmp.c
+@@ -0,0 +1,9 @@
++/* ecmaOS: puts back the mask sigsetjmp saved, then jumps. */
++#include <setjmp.h>
++#include <signal.h>
++
++_Noreturn void siglongjmp(sigjmp_buf buf, int ret)
++{
++	if (buf->__fl) pthread_sigmask(SIG_SETMASK, (sigset_t *)buf->__ss, 0);
++	longjmp(buf, ret);
++}
+diff --git c/src/signal/wasm32/sigsetjmp.c i/src/signal/wasm32/sigsetjmp.c
+new file mode 100644
+index 0000000..c8184c4
+--- /dev/null
++++ i/src/signal/wasm32/sigsetjmp.c
+@@ -0,0 +1,10 @@
++/* ecmaOS: sigsetjmp is a macro (include/setjmp.h) that saves the mask here and then calls setjmp, since a function
++ * that returns twice cannot be wrapped. */
++#include <setjmp.h>
++#include <signal.h>
++
++void __sigsetjmp_save(sigjmp_buf buf, int save)
++{
++	buf->__fl = save;
++	if (save) pthread_sigmask(SIG_SETMASK, 0, (sigset_t *)buf->__ss);
++}

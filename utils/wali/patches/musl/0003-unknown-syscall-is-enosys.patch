@@ -1,0 +1,31 @@
+ecmaOS: syscall() with a number this port has no import for fails with ENOSYS and says nothing, as Linux does.
+It printed a line on standard output, into whatever the program was writing there.
+
+diff --git i/arch/wasm32/syscall_var.h w/arch/wasm32/syscall_var.h
+index 22d8816..e69d1bc 100644
+--- i/arch/wasm32/syscall_var.h
++++ w/arch/wasm32/syscall_var.h
+@@ -149,10 +149,8 @@ static long __syscall_vargs(long n, va_list ap) {
+ 		CASE_SYSCALL (getrandom, va_arg(ap, void*),va_arg(ap, unsigned int),va_arg(ap, int));
+ 		CASE_SYSCALL (statx, va_arg(ap, int),va_arg(ap, void*),va_arg(ap, int),va_arg(ap, unsigned int),va_arg(ap, void*));
+ 		CASE_SYSCALL (faccessat2, va_arg(ap, int),va_arg(ap, void*),va_arg(ap, int),va_arg(ap, int));
+-    default: {
+-      printf("Invalid syscall var call -- NR %d\n",  n);
++    default:
+       return -ENOSYS;
+-    }
+   }
+ }
+ 
+@@ -300,10 +298,8 @@ static long __syscall_var(long n, long a1, long a2, long a3, long a4, long a5, l
+ 		CASE_SYSCALL (getrandom, (void*)a1,(unsigned int)a2,(int)a3);
+ 		CASE_SYSCALL (statx, (int)a1,(char*)a2,(int)a3,(unsigned int)a4,(void*)a5);
+ 		CASE_SYSCALL (faccessat2, (int)a1,(char*)a2,(int)a3,(int)a4);
+-    default: {
+-      printf("Invalid syscall var call -- NR %d\n",  n);
++    default:
+       return -ENOSYS;
+-    }
+   }
+ }
+ 

@@ -111,11 +111,32 @@ export class Wasm implements IWasm {
   }
 
   /**
-   * Whether a module can run as a worker process under `/bin/wali`: a core module importing only
+   * Whether a module was built against WALI's musl (`utils/check-wali.sh`): a core module whose every import is from
+   * `wali` (the Linux syscalls and the startup calls) and that exports its memory and `_start`.
+   */
+  async isWali(wasmBytes: Uint8Array): Promise<boolean> {
+    if (wasmBytes.length < 8 || wasmBytes[0] !== 0x00 || wasmBytes[1] !== 0x61 || wasmBytes[2] !== 0x73 || wasmBytes[3] !== 0x6d) return false
+    if (wasmBytes[4] !== 0x01) return false
+    try {
+      const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
+      const module = await WebAssembly.compile(buffer)
+      const imports = WebAssembly.Module.imports(module)
+      const exports = WebAssembly.Module.exports(module)
+      return imports.length > 0 && imports.every(entry => entry.module === 'wali') &&
+        exports.some(entry => entry.name === 'memory' && entry.kind === 'memory') &&
+        exports.some(entry => entry.name === '_start' && entry.kind === 'function')
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Whether a module can run as a worker process under `/bin/wali`: a WALI module, a core module importing only
    * `wasi_snapshot_preview1`, or an `emcc` build importing only names in `IMPLEMENTED_SYSCALLS`, with exported or
    * imported memory. Asyncify is fine.
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
+    if (await this.isWali(wasmBytes)) return true
     if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
     try {
       const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
