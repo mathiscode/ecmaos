@@ -8,7 +8,7 @@
  */
 
 import { binfmts, define_syscall, kill as zenfsKill, processes, Process as ZenFSProcess, syscalls, thread_of, type BinFmt, type Process } from '@zenfs/linux'
-import { attach, createSocket, describe, receive, send, shutdown, socketAt, sweepSockets, whenPending } from './socket-files.ts'
+import { attach, createSocket, deliverDatagram, describe, receive, receiveDatagram, send, sendDatagram, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
 import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
@@ -19,9 +19,9 @@ import { listMounts, mountFilesystem, type MountRequest } from './mount-backends
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
-import { bindUdpPort, udpPortAt } from './udp-ports.ts'
+import { bindUdpPort, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
 import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
-import { canonicalIp, isIPv6, isLoopbackIp } from './ip.ts'
+import { canonicalIp, formatIp, isIPv6, isLoopbackIp } from './ip.ts'
 import { heldInMemory, totalHeld } from './memory-usage.ts'
 import { quotaLimit, quotaLimits, quotaUsage } from './quota.ts'
 import { currentStorageLimits } from './storage-limits.ts'
@@ -140,7 +140,10 @@ declare module '@zenfs/linux/uapi/abi' {
     scm_send(conn: number, dir: string, offset: number, length: number, items: string, path: string): number
     scm_take(conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string): number
     scm_cred(conn: number, dir: string, path: string): number
-    sock_open(flags: number): number
+    sock_open(flags: number, datagram?: number): number
+    sock_peer(fd: number, addr: string, port: number): number
+    sock_sendto(fd: number, data: Uint8Array, family: number, addr: string, port: number, flags: number): number
+    sock_recvfrom(fd: number, count: number, flags: number): number
     sock_bind(fd: number, family: string, addr: string, port: number): number
     sock_listen(fd: number, backlog: number): number
     sock_accept(fd: number, flags: number): number
@@ -1197,12 +1200,117 @@ export function installMainThreadSyscalls(): void {
   // more than a number go in the region.
   const socketErrno = (name: string) => Object.assign(new Error(name), { errno: Errno[name as keyof typeof Errno] ?? Errno.EIO })
 
-  define_syscall('sock_open', (proc: Process, flags: number) => createSocket(proc, flags).fd)
+  /** `socket(2)`: a stream socket, or with `datagram` a UDP one, which has a queue of datagrams in place of pipes */
+  define_syscall('sock_open', (proc: Process, flags: number, datagram?: number) => {
+    const made = createSocket(proc, flags)
+    if (datagram) made.socket.datagrams = { queue: [] }
+    return made.fd
+  })
+
+  /**
+   * Gives a datagram socket a UDP port (`port`, or an ephemeral one for 0) on this machine's address `addr` (empty for
+   * any): what is sent to the port waits in the socket's queue, and what the socket sends goes out from it, to another
+   * program's port or through the gateway. @returns the port
+   */
+  const bindDatagram = (proc: Process, socket: Socket, addr: string, port: number): number => {
+    const kernel = kernelOf(proc)
+    if (socket.info.bound) throw socketErrno('EINVAL')
+    if (addr && !isLoopbackHost(addr)) throw socketErrno('EADDRNOTAVAIL')
+    const bound = bindUdpPort(port, { open: (host, to) => openGatewayFlow(kernel, host, to, 'udp') })
+    if (!bound) throw socketErrno('EADDRINUSE')
+    const writer = bound.tx.getWriter()
+    const reader = bound.rx.getReader()
+    socket.datagrams!.send = (to, toPort, data) => { void writer.write(frameOf(to, toPort, data)).catch(() => { /* the port closed */ }) }
+    // each chunk the port gives is one framed datagram
+    void (async () => {
+      for (;;) {
+        const { value, done } = await reader.read().catch(() => ({ value: undefined, done: true }))
+        if (done || !value) return
+        const size = (value[0]! << 8) | value[1]!
+        deliverDatagram(socket, { addr: formatIp(value.subarray(2, 18)), port: (value[18]! << 8) | value[19]!, data: value.slice(FrameHeader, FrameHeader + size) })
+      }
+    })()
+    socket.cleanup.push(() => { void reader.cancel().catch(() => {}); void writer.close().catch(() => {}); bound.close() })
+    socket.info.bound = `udp:${bound.port}`
+    socket.info.local = { addr: addr || (socket.info.family === 2 ? '0.0.0.0' : '::'), port: bound.port }
+    return bound.port
+  }
+
+  /** "Any" as a destination is this machine */
+  const anyToLoopback = (addr: string) => addr === '0.0.0.0' ? '127.0.0.1' : addr === '::' ? '::1' : addr
+
+  /** A datagram to an address beyond this machine needs a route there: without a gateway it fails at once */
+  const routeTo = (proc: Process, addr: string) => {
+    if (!isLoopbackHost(addr) && !gatewayLink(kernelOf(proc))) throw socketErrno('ENETUNREACH')
+  }
+
+  /**
+   * `connect(2)` on a datagram socket: fixes its peer (where `send` goes, and the only sender it hears), giving it a
+   * port first if it has none, as Linux does. An empty `addr` (`AF_UNSPEC`) undoes it.
+   */
+  define_syscall('sock_peer', (proc: Process, fd: number, addr: string, port: number) => {
+    const { socket } = socketAt(proc, fd)
+    if (!socket.datagrams) throw socketErrno('EINVAL')
+    if (!addr) { delete socket.info.peer; return 0 }
+    routeTo(proc, addr)
+    if (!socket.info.bound) bindDatagram(proc, socket, '', 0)
+    socket.info.peer = { addr: anyToLoopback(addr), port }
+    return 0
+  })
+
+  /**
+   * `sendto(2)` with an address (`family` is its `sa_family`). A stream has its peer already, so the address is not
+   * looked at. An IPv6 datagram socket sends to an IPv4 address too, unless it is IPv6-only, as on Linux.
+   */
+  define_syscall('sock_sendto', (proc: Process, fd: number, data: Uint8Array, family: number, addr: string, port: number, flags: number) => {
+    const { socket } = socketAt(proc, fd)
+    if (!socket.datagrams) return send(proc, fd, data, flags)
+    if (family !== socket.info.family) {
+      if (socket.info.family !== 10 || family !== 2) throw socketErrno('EAFNOSUPPORT')
+      if (socket.info.v6only) throw socketErrno('ENETUNREACH')
+    }
+    const to = { addr: anyToLoopback(addr), port }
+    routeTo(proc, to.addr)
+    if (!socket.info.bound) bindDatagram(proc, socket, '', 0)
+    return sendDatagram(socket, to, data)
+  })
+
+  /** The bytes before what `sock_recvfrom` received: its full length (4), sender's port (2, big-endian), whether it was a datagram (1), the socket's family (1), and the sender's address (16, an IPv4 one mapped) */
+  const RecvfromHeader = 24
+
+  /**
+   * `recvfrom(2)` with room for the sender's address. A datagram socket gives its next datagram and who sent it; a
+   * stream gives what `recv` would, with no address (its peer is fixed). The region gets `RecvfromHeader`, then as
+   * much as `count` lets.
+   */
+  define_syscall('sock_recvfrom', async (proc: Process, fd: number, count: number, flags: number) => {
+    const { socket } = socketAt(proc, fd)
+    const { region } = thread_of(proc)
+    const answer = new DataView(region.buffer, region.byteOffset)
+    region.fill(0, 0, RecvfromHeader)
+    if (!socket.datagrams) {
+      const length = await receive(proc, fd, Math.min(count, region.byteLength - RecvfromHeader), flags)
+      region.copyWithin(RecvfromHeader, 0, length)
+      region.fill(0, 0, RecvfromHeader)
+      answer.setUint32(0, length, true)
+      return thread_of(proc).filled(RecvfromHeader + length)
+    }
+    const datagram = await receiveDatagram(proc, fd, flags)
+    const length = Math.max(0, Math.min(datagram.data.byteLength, count, region.byteLength - RecvfromHeader))
+    answer.setUint32(0, datagram.data.byteLength, true)
+    answer.setUint16(4, datagram.port, false)
+    region[6] = 1
+    region[7] = socket.info.family as number
+    region.set(frameOf(datagram.addr, 0, new Uint8Array()).subarray(2, 18), 8)
+    region.set(datagram.data.subarray(0, length), RecvfromHeader)
+    return thread_of(proc).filled(RecvfromHeader + length)
+  })
 
   /** `bind(2)`: claims the address for the socket, whose connections then land in the kernel's table. @returns the port */
   define_syscall('sock_bind', (proc: Process, fd: number, family: string, addr: string, port: number) => {
     sweepSockets()
     const { socket } = socketAt(proc, fd)
+    if (socket.datagrams) return bindDatagram(proc, socket, addr, port)
     if (socket.listening || socket.connected || socket.info.bound) throw socketErrno('EINVAL')
     const claimed = claimAddress(family, addr, port, kernelOf(proc).pipeProcess)
     if ('error' in claimed) throw socketErrno(claimed.error)

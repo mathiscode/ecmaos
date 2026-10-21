@@ -1062,12 +1062,12 @@ function sleep(ms, remainPtr, clock) {
 // --- sockets ---
 
 const AF_UNSPEC = 0, AF_UNIX = 1, AF_INET = 2, AF_INET6 = 10
-const SOCK_STREAM = 1, SOCK_TYPE_MASK = 0xf, SOCK_NONBLOCK = 0x800, SOCK_CLOEXEC = 0x80000
-const MSG_PEEK = 0x2, MSG_DONTWAIT = 0x40, MSG_WAITALL = 0x100
+const SOCK_STREAM = 1, SOCK_DGRAM = 2, SOCK_TYPE_MASK = 0xf, SOCK_NONBLOCK = 0x800, SOCK_CLOEXEC = 0x80000
+const MSG_PEEK = 0x2, MSG_TRUNC = 0x20, MSG_DONTWAIT = 0x40, MSG_WAITALL = 0x100
 const SOL_SOCKET = 1, SO_TYPE = 3, SO_ERROR = 4, SO_SNDBUF = 7, SO_RCVBUF = 8, SO_ACCEPTCONN = 30, SO_PROTOCOL = 38, SO_DOMAIN = 39
-const IPPROTO_TCP = 6, IPPROTO_IPV6 = 41, IPV6_V6ONLY = 26
+const IPPROTO_TCP = 6, IPPROTO_UDP = 17, IPPROTO_IPV6 = 41, IPV6_V6ONLY = 26
 /** `struct msghdr` with a 64-bit `long`: name 0, namelen 4, iov 8, iovlen 12, control 20, controllen 24, flags 32 */
-const MSG_IOV = 8, MSG_IOVLEN = 12, MSG_CONTROLLEN = 24, MSG_FLAGS = 32
+const MSG_NAMELEN = 4, MSG_IOV = 8, MSG_IOVLEN = 12, MSG_CONTROLLEN = 24, MSG_FLAGS = 32
 
 /** What the kernel knows of a socket and what this host recorded about it, or a negative errno (ENOTSOCK) */
 function socketInfo(fd) {
@@ -1108,7 +1108,11 @@ function readSockaddr(ptr, length) {
   return family === AF_UNSPEC ? { family } : -EAFNOSUPPORT
 }
 
-/** Writes an address as the family's `struct sockaddr`, as much as `*lengthPtr` has room for, and its full length there */
+/**
+ * Writes an address as the family's `struct sockaddr`, as much as `*lengthPtr` has room for, and its full length there.
+ * `raw` is the address's 16 bytes, as a datagram's sender comes (an IPv4 one mapped); without it, an IPv6 address
+ * other than a mapped IPv4 one is `::1`, the only one a connection's peer here has.
+ */
 function writeSockaddr(ptr, lengthPtr, family, address = {}) {
   if (!ptr || !lengthPtr) return
   let data
@@ -1121,7 +1125,8 @@ function writeSockaddr(ptr, lengthPtr, family, address = {}) {
     data[2] = (address.port ?? 0) >> 8
     data[3] = (address.port ?? 0) & 0xff
     const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address.addr ?? '')
-    if (family === AF_INET) data.set(v4 ? v4.slice(1).map(Number) : [127, 0, 0, 1], 4)
+    if (address.raw) data.set(family === AF_INET ? address.raw.subarray(12) : address.raw, family === AF_INET ? 4 : 8)
+    else if (family === AF_INET) data.set(v4 ? v4.slice(1).map(Number) : [127, 0, 0, 1], 4)
     else if (v4) data.set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, ...v4.slice(1).map(Number)], 8)
     else data[23] = 1 // ::1, the only IPv6 address a peer here has
   }
@@ -1148,19 +1153,24 @@ const claimFamily = info => info.family === AF_UNIX ? 'unix' : info.family === A
 
 function socket(domain, type) {
   if (domain !== AF_UNIX && domain !== AF_INET && domain !== AF_INET6) return -EAFNOSUPPORT
-  // datagram sockets are not here yet
-  if ((type & SOCK_TYPE_MASK) !== SOCK_STREAM) return -ESOCKTNOSUPPORT
-  const fd = syscall_raw('sock_open', type & SOCK_NONBLOCK)
+  // streams of every family, and UDP (the kernel's datagram sockets); Unix datagram sockets are not here yet
+  const kind = type & SOCK_TYPE_MASK
+  if (kind !== SOCK_STREAM && !(kind === SOCK_DGRAM && domain !== AF_UNIX)) return -ESOCKTNOSUPPORT
+  const fd = syscall_raw('sock_open', type & SOCK_NONBLOCK, kind === SOCK_DGRAM ? 1 : 0)
   if (fd < 0) return fd
   opened(fd, O_RDWR | (type & SOCK_NONBLOCK), (type & SOCK_CLOEXEC) !== 0)
   if (withinLimit(fd) < 0) return -EMFILE
-  remember(fd, { family: domain, type: SOCK_STREAM })
+  remember(fd, { family: domain, type: kind })
   return fd
 }
+
+/** An IPv6 stream socket's `bind` and `connect` take a `sockaddr_in6`'s length whatever the family; Linux checks that first */
+const shortForSix = (info, length) => info.family === AF_INET6 && info.type === SOCK_STREAM && length < 24
 
 function bind(fd, ptr, length) {
   const info = socketInfo(fd)
   if (typeof info === 'number') return info
+  if (shortForSix(info, length)) return -EINVAL
   const address = readSockaddr(ptr, length)
   if (typeof address === 'number') return address
   if (address.family !== info.family) return -EAFNOSUPPORT
@@ -1198,9 +1208,13 @@ function accept(fd, ptr, lengthPtr, flags) {
 function connect(fd, ptr, length) {
   const info = socketInfo(fd)
   if (typeof info === 'number') return info
+  if (shortForSix(info, length)) return -EINVAL
   const address = readSockaddr(ptr, length)
   if (typeof address === 'number') return address
+  // a datagram socket's peer is where its sends go and the only one it hears; AF_UNSPEC undoes it
+  if (info.type === SOCK_DGRAM && address.family === AF_UNSPEC) return syscall_raw('sock_peer', fd, '', 0)
   if (address.family !== info.family && !(info.family === AF_INET6 && address.family === AF_INET)) return -EAFNOSUPPORT
+  if (info.type === SOCK_DGRAM) return syscall_raw('sock_peer', fd, address.addr, address.port)
   const key = listenerKey(address)
   const value = key ? syscall_raw('sock_connect', fd, key) : syscall_raw('sock_connect_out', fd, address.addr, address.port)
   if (value < 0) return value
@@ -1220,6 +1234,42 @@ function socketName(fd, ptr, lengthPtr, which) {
 /** `send` of one buffer: the kernel waits for room unless the socket or `flags` says not to */
 function sendBytes(fd, data, flags) {
   return syscall_raw('sock_send', fd, data, flags & MSG_DONTWAIT)
+}
+
+/** `sendto` with an address: a datagram goes there; a stream has its peer already, and the address is not looked at */
+function sendTo(fd, data, flags, addrPtr, addrLength) {
+  if (!addrPtr) return sendBytes(fd, data, flags)
+  const address = readSockaddr(addrPtr, addrLength)
+  if (typeof address === 'number') return address
+  if (address.family === AF_UNIX) return sendBytes(fd, data, flags)
+  return syscall_raw('sock_sendto', fd, data, address.family, address.addr ?? '', address.port ?? 0, flags & MSG_DONTWAIT)
+}
+
+/** What the kernel puts before what `sock_recvfrom` received (`main-thread-syscalls.ts`) */
+const RECVFROM_HEADER = 24
+
+/**
+ * `recvfrom` into one buffer with room for the sender (`addrPtr`, `*lengthPtr` long). A datagram socket's next datagram
+ * comes with who sent it; a stream's peer is fixed, so it gets no address. @returns `{ count, full }`, `full` being a
+ * datagram's whole length (more than `count` when it was cut), or a negative errno
+ */
+function receiveFrom(fd, ptr, length, flags, addrPtr, lengthPtr) {
+  const value = syscall_raw('sock_recvfrom', fd, length, flags & (MSG_PEEK | MSG_DONTWAIT))
+  if (value < 0) return value
+  const answer = new DataView(returned.buffer, returned.byteOffset)
+  const count = value - RECVFROM_HEADER
+  bytes().set(returned.subarray(RECVFROM_HEADER, value), ptr)
+  if (!returned[6]) {
+    if (lengthPtr) view().setUint32(lengthPtr, 0, true)
+    if ((flags & MSG_WAITALL) && count && count < length) {
+      const more = receiveInto(fd, ptr + count, length - count, flags)
+      return { count: more < 0 ? count : count + more, full: 0 }
+    }
+    return { count, full: count }
+  }
+  const raw = returned.slice(8, 24)
+  writeSockaddr(addrPtr, lengthPtr, returned[7], { addr: ipv6Text(raw, 0), raw, port: answer.getUint16(4, false) })
+  return { count, full: answer.getUint32(0, true) }
 }
 
 /** `recv` into one buffer; `MSG_WAITALL` keeps reading until it is full or the stream ends */
@@ -1249,7 +1299,7 @@ function sendmsg(fd, msgPtr, flags) {
   const data = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0))
   let at = 0
   for (const part of parts) { data.set(part, at); at += part.byteLength }
-  return sendBytes(fd, data, flags)
+  return sendTo(fd, data, flags, view().getUint32(msgPtr, true), view().getUint32(msgPtr + MSG_NAMELEN, true))
 }
 
 function recvmsg(fd, msgPtr, flags) {
@@ -1258,8 +1308,19 @@ function recvmsg(fd, msgPtr, flags) {
   const scratch = allocate(roundUp(Math.max(total, 1), PAGE))
   if (scratch < 0) return scratch
   try {
-    const count = receiveInto(fd, scratch, total, flags)
-    if (count < 0) return count
+    // the sender's name and a cut datagram (MSG_TRUNC) need the kernel's recvfrom; a plain read does not
+    const namePtr = view().getUint32(msgPtr, true)
+    let count, full
+    if (namePtr || (flags & MSG_TRUNC)) {
+      const got = receiveFrom(fd, scratch, total, flags, namePtr, namePtr ? msgPtr + MSG_NAMELEN : 0)
+      if (typeof got === 'number') return got
+      count = got.count
+      full = got.full
+    } else {
+      count = receiveInto(fd, scratch, total, flags)
+      if (count < 0) return count
+      full = count
+    }
     let at = 0
     for (const [ptr, length] of buffers) {
       const part = Math.min(length, count - at)
@@ -1268,10 +1329,10 @@ function recvmsg(fd, msgPtr, flags) {
       at += part
     }
     const dv = view()
-    dv.setUint32(msgPtr + 4, 0, true) // no sender address on a stream
+    if (!namePtr) dv.setUint32(msgPtr + MSG_NAMELEN, 0, true)
     dv.setUint32(msgPtr + MSG_CONTROLLEN, 0, true)
-    dv.setInt32(msgPtr + MSG_FLAGS, 0, true)
-    return count
+    dv.setInt32(msgPtr + MSG_FLAGS, full > count ? MSG_TRUNC : 0, true)
+    return flags & MSG_TRUNC ? full : count
   } finally {
     release(scratch, roundUp(Math.max(total, 1), PAGE))
   }
@@ -1283,7 +1344,7 @@ function getsockopt(fd, level, name, valuePtr, lengthPtr) {
   let value
   if (level === SOL_SOCKET) {
     value = { [SO_TYPE]: info.type, [SO_ERROR]: 0, [SO_DOMAIN]: info.family, [SO_ACCEPTCONN]: info.listening ? 1 : 0,
-      [SO_PROTOCOL]: info.family === AF_UNIX ? 0 : IPPROTO_TCP, [SO_SNDBUF]: 65536, [SO_RCVBUF]: 65536 }[name] ?? 0
+      [SO_PROTOCOL]: info.family === AF_UNIX ? 0 : info.type === SOCK_DGRAM ? IPPROTO_UDP : IPPROTO_TCP, [SO_SNDBUF]: 65536, [SO_RCVBUF]: 65536 }[name] ?? 0
   } else if (level === IPPROTO_IPV6 && name === IPV6_V6ONLY) value = info.v6only ? 1 : 0
   else if (level === IPPROTO_TCP) value = 0
   else return -ENOPROTOOPT
@@ -1669,12 +1730,12 @@ const calls = {
   SYS_getsockname: (fd, ptr, lengthPtr) => big(socketName(fd, ptr, lengthPtr, 'local')),
   SYS_getpeername: (fd, ptr, lengthPtr) => big(socketName(fd, ptr, lengthPtr, 'peer')),
   SYS_shutdown: (fd, how) => big(syscall_raw('sock_shutdown', fd, how)),
-  // a stream has its peer already, so the address of `sendto` is not needed and `recvfrom` gives none
-  SYS_sendto: (fd, ptr, length, flags) => big(sendBytes(fd, bytes().slice(ptr, ptr + length), flags)),
-  SYS_recvfrom: (fd, ptr, length, flags, _addr, lengthPtr) => {
-    const value = receiveInto(fd, ptr, length, flags)
-    if (value >= 0 && lengthPtr) view().setUint32(lengthPtr, 0, true)
-    return big(value)
+  SYS_sendto: (fd, ptr, length, flags, addrPtr, addrLength) => big(sendTo(fd, bytes().slice(ptr, ptr + length), flags, addrPtr, addrLength)),
+  // the kernel's recvfrom only when there is a sender to name or a datagram's full length to tell
+  SYS_recvfrom: (fd, ptr, length, flags, addrPtr, lengthPtr) => {
+    if (!addrPtr && !(flags & MSG_TRUNC)) return big(receiveInto(fd, ptr, length, flags))
+    const got = receiveFrom(fd, ptr, length, flags, addrPtr, lengthPtr)
+    return big(typeof got === 'number' ? got : flags & MSG_TRUNC ? got.full : got.count)
   },
   SYS_sendmsg: (fd, msg, flags) => big(sendmsg(fd, msg, flags)),
   SYS_recvmsg: (fd, msg, flags) => big(recvmsg(fd, msg, flags)),

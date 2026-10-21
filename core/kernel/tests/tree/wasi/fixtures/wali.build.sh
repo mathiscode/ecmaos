@@ -8,6 +8,8 @@ source "$(dirname "$0")/../../../../../../utils/check-wali.sh"
 cd "$(dirname "$0")"
 for source in wali-*.c; do "$WALI_CC" -O2 "$source" -o "${source%.c}.wasm"; done
 for source in wali-*.cpp; do "$WALI_CXX" -O2 "$source" -o "${source%.cpp}.wasm"; done
-for source in emcc-mmap.c emcc-proc.c; do name=${source#emcc-}; "$WALI_CC" -O2 "$source" -o "wali-${name%.c}.wasm"; done
+for source in emcc-errno.c emcc-readdir.c emcc-inet6.c emcc-udp-msg.c emcc-mmap.c emcc-proc.c; do name=${source#emcc-}; "$WALI_CC" -O2 "$source" -o "wali-${name%.c}.wasm"; done
+# (wali-tty.wasm is the pty fixture, wali-tty.c)
+"$WALI_CC" -O2 emcc-tty.c -o wali-rawtty.wasm
 ls -l wali-*.wasm
 echo "built with $WALI_TOOLCHAIN"

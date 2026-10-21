@@ -5,6 +5,15 @@
 
 export const DEFAULT_HOSTS = '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n'
 
+/**
+ * `/etc/services`: the names of well-known ports, `NAME PORT/PROTOCOL [ALIAS...]`, which a C library reads for
+ * `getservbyname` and `getnameinfo` (musl's does; an emscripten program has the same names built into its host)
+ */
+export const DEFAULT_SERVICES = [
+  ['ftp', 21], ['ssh', 22], ['telnet', 23], ['smtp', 25], ['domain', 53], ['http', 80], ['pop3', 110], ['ntp', 123],
+  ['imap', 143], ['https', 443], ['imaps', 993], ['pop3s', 995]
+].map(([name, port]) => `${name}\t${port}/tcp\n${name}\t${port}/udp\n`).join('')
+
 const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/
 
 /** Whether `text` is a dotted-quad IPv4 address (each part 0 to 255) */

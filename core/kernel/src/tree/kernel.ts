@@ -45,7 +45,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { appendText } from '#lib/append-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
-import { DEFAULT_HOSTS } from '#lib/hosts.ts'
+import { DEFAULT_HOSTS, DEFAULT_SERVICES } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
 import { displayAddress } from '#lib/display-client.ts'
@@ -606,6 +606,10 @@ export class Kernel implements IKernel {
 
       if (!(await this.filesystem.fs.exists('/etc/hosts'))) {
         await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
+      }
+
+      if (!(await this.filesystem.fs.exists('/etc/services'))) {
+        await this.filesystem.fs.writeFile('/etc/services', DEFAULT_SERVICES, { mode: 0o644 })
       }
 
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {

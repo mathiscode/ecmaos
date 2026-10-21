@@ -7,6 +7,10 @@
  * programs, `node`) just the same. The pipes' ends a socket uses are held in the kernel's own table (`holder`), where
  * the pipe file system counts them as open, and its reads, writes and polls go to them. When the last descriptor for
  * the socket closes, anywhere, they are closed too, and the other end sees the end of the stream.
+ *
+ * A datagram socket has no pipes: what arrives for it waits in a queue of whole datagrams, each with its sender, and
+ * what it sends goes to the UDP port it holds (`udp-ports.ts`), which carries it to another program's port or out
+ * through the gateway.
  */
 
 import { EPOLLIN, EPOLLOUT, processes, thread_of, wait_event, WaitQueue, type Process } from '@zenfs/linux'
@@ -44,7 +48,22 @@ export interface Socket {
   wake: WaitQueue
   /** What else goes with the socket: its address, a gateway flow */
   cleanup: Array<() => void>
+  /** A datagram socket's side: set when it is opened as one */
+  datagrams?: Datagrams
 }
+
+/** One datagram and who sent it */
+export interface Datagram { addr: string, port: number, data: Uint8Array }
+
+export interface Datagrams {
+  /** What came in, oldest first, not read yet */
+  queue: Datagram[]
+  /** Sends one datagram from the socket's port; there once the socket has one */
+  send?: (addr: string, port: number, data: Uint8Array) => void
+}
+
+/** How many datagrams wait to be read before more are dropped, as a full receive buffer drops them */
+const DatagramQueueLimit = 256
 
 const fail = (errno: Errno, message: string) => Object.assign(new Error(message), { errno })
 
@@ -113,6 +132,8 @@ const opposite = (path: string) => path.endsWith('.w') ? `${path.slice(0, -1)}r`
 
 /** What a socket is ready for */
 function readiness(socket: Socket): number {
+  // a datagram can always be sent (one with no room on the way is dropped, not waited for)
+  if (socket.datagrams) return EPOLLOUT | (socket.datagrams.queue.length ? EPOLLIN : 0)
   if (socket.listening) return socket.pending?.() ? EPOLLIN : 0
   // a call on a socket that is not connected fails at once with ENOTCONN, so there is nothing to wait for
   if (!socket.connected) return EPOLLIN | EPOLLOUT | EPOLLHUP
@@ -141,12 +162,21 @@ function queueOf(socket: Socket): WaitQueue {
 const socketOps = {
   read(file: { path: string }, buffer: Uint8Array, start: number, end: number): number {
     const socket = socketOfFile(file)
+    if (socket.datagrams) {
+      // one datagram per read, cut to the room there is
+      const next = socket.datagrams.queue.shift()
+      if (!next) throw fail(Errno.EAGAIN, 'Resource temporarily unavailable')
+      const length = Math.min(next.data.byteLength, end - start)
+      buffer.set(next.data.subarray(0, length), start)
+      return length
+    }
     if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
     const rx = endOf(socket, socket.rx)
     return rx ? pipefs.read_device(rx.file, buffer, start, end) : 0
   },
   write(file: { path: string }, buffer: Uint8Array): number {
     const socket = socketOfFile(file)
+    if (socket.datagrams) return sendDatagram(socket, undefined, buffer)
     if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
     const tx = endOf(socket, socket.tx)
     if (!tx) throw fail(Errno.EPIPE, 'Broken pipe')
@@ -204,6 +234,13 @@ export function shutdown(socket: Socket, how: number): void {
 /** `recv(2)` with its flags: `MSG_PEEK` leaves the data where it is, `MSG_DONTWAIT` does not wait for any */
 export async function receive(proc: Process, fd: number, count: number, flags: number): Promise<number> {
   const { socket, handle } = socketAt(proc, fd)
+  if (socket.datagrams) {
+    const { data } = await receiveDatagram(proc, fd, flags)
+    const { region } = thread_of(proc)
+    const length = Math.min(data.byteLength, count, region.byteLength)
+    region.set(data.subarray(0, length))
+    return thread_of(proc).filled(length)
+  }
   if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
   const ready = () => {
     const rx = endOf(socket, socket.rx)
@@ -227,6 +264,7 @@ export async function receive(proc: Process, fd: number, count: number, flags: n
 /** `send(2)` with `MSG_DONTWAIT`: a full pipe is EAGAIN rather than a wait */
 export async function send(proc: Process, fd: number, data: Uint8Array, flags: number): Promise<number> {
   const { socket, handle } = socketAt(proc, fd)
+  if (socket.datagrams) return sendDatagram(socket, undefined, data)
   if (!socket.connected) throw fail(Errno.ENOTCONN, 'Socket is not connected')
   const ready = () => !!(readiness(socket) & EPOLLOUT)
   if (!ready()) {
@@ -234,6 +272,52 @@ export async function send(proc: Process, fd: number, data: Uint8Array, flags: n
     await wait_event(queueOf(socket), ready, proc)
   }
   return socketOps.write({ path: handle.internalPath }, data)
+}
+
+/** The largest datagram: what a UDP length field holds, less the UDP and IPv4 headers */
+const MaxDatagram = 65507
+
+/** The address a datagram socket's peer was fixed at by `connect`, if it was */
+const peerOf = (socket: Socket) => socket.info.peer as { addr: string, port: number } | undefined
+
+/**
+ * Sends one datagram from a datagram socket to `to`, or to its peer when `to` is undefined. The socket has a port by
+ * now (the caller binds one first). @returns the bytes sent
+ */
+export function sendDatagram(socket: Socket, to: { addr: string, port: number } | undefined, data: Uint8Array): number {
+  const target = to ?? peerOf(socket)
+  if (!target) throw fail(Errno.EDESTADDRREQ, 'Destination address required')
+  if (data.byteLength > MaxDatagram) throw fail(Errno.EMSGSIZE, 'Message too long')
+  if (!socket.datagrams?.send) throw fail(Errno.EDESTADDRREQ, 'Destination address required')
+  socket.datagrams.send(target.addr, target.port, data.slice())
+  return data.byteLength
+}
+
+/**
+ * A datagram that arrived for a socket: kept unless the queue is full or the socket's peer is fixed and it is not the
+ * sender (a connected UDP socket hears only from its peer). Loopback addresses match one another, as the sender of a
+ * datagram from this machine is named by the address it was sent to.
+ */
+export function deliverDatagram(socket: Socket, datagram: Datagram): void {
+  const datagrams = socket.datagrams
+  if (!datagrams || datagrams.queue.length >= DatagramQueueLimit) return
+  const peer = peerOf(socket)
+  const loopback = (addr: string) => addr === '127.0.0.1' || addr === '::1'
+  if (peer && (peer.port !== datagram.port || (peer.addr !== datagram.addr && !(loopback(peer.addr) && loopback(datagram.addr))))) return
+  datagrams.queue.push(datagram)
+  socket.wake.wake_up()
+}
+
+/** `recvfrom(2)` on a datagram socket: the next datagram, waiting for one unless told not to; `MSG_PEEK` leaves it */
+export async function receiveDatagram(proc: Process, fd: number, flags: number): Promise<Datagram> {
+  const { socket, handle } = socketAt(proc, fd)
+  const datagrams = socket.datagrams
+  if (!datagrams) throw fail(Errno.EINVAL, 'Invalid argument')
+  if (!datagrams.queue.length) {
+    if ((handle.flag & O_NONBLOCK) || (flags & MSG_DONTWAIT)) throw fail(Errno.EAGAIN, 'Resource temporarily unavailable')
+    await wait_event(queueOf(socket), () => datagrams.queue.length > 0, proc)
+  }
+  return (flags & MSG_PEEK ? datagrams.queue[0] : datagrams.queue.shift())!
 }
 
 /** Waits for a listening socket to have a connection waiting, unless it is non-blocking */
@@ -271,6 +355,8 @@ export function sweepSockets(): void {
 
 /** A socket's information with what the kernel knows of it, for `getsockname`, `getpeername` and `FIONREAD` */
 export function describe(socket: Socket): SocketInfo {
+  // what FIONREAD tells: for a datagram socket, the size of the next datagram
+  if (socket.datagrams) return { ...socket.info, connected: !!peerOf(socket), listening: false, readable: socket.datagrams.queue[0]?.data.byteLength ?? 0 }
   const rx = endOf(socket, socket.rx)
   return { ...socket.info, connected: socket.connected, listening: !!socket.listening, readable: rx?.end.pipe.readable ?? 0 }
 }

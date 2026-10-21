@@ -13,9 +13,6 @@ regression.pthread-robust-detach  robust mutexes are ENOSYS
 regression.pthread_create-oom     times out
 regression.raise-race       pthread_kill is EINVAL; times out
 
-# datagram sockets
-functional.socket           socket(AF_INET, SOCK_DGRAM): ESOCKTNOSUPPORT
-
 # formatting and parsing
 functional.strptime         %F, %s and %z are not parsed (musl has them only after 1.2.5)
 functional.strtod           hexadecimal floats past 53 bits are not rounded to nearest
