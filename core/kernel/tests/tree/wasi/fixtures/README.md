@@ -77,7 +77,9 @@ environment, Linux errno numbers, `*at` calls against a directory descriptor, re
 mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp on wasm exceptions), `wali-cxx.cpp`
 (C++ exceptions, the standard library and `std::filesystem`), `wali-uncaught.cpp` (an exception nothing catches) and
 `wali-proc.c` (posix_spawn with file actions, pipes and close-on-exec, waitpid, execve, system and popen, and signal
-handlers, masks and inheritance; it starts copies of itself in the roles named by its first argument).
+handlers, masks and inheritance) and `wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
+epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout); the last two start copies of themselves in the
+roles named by their first argument.
 `../wali.test.ts` runs them. `wali.build.sh` rebuilds them all with the pinned toolchain; the first run builds the
 sysroot (`utils/check-wali.sh`, a minute or two):
 

@@ -130,16 +130,21 @@ const ARGS: Record<string, Kind[]> = {
   execve: ['path', 'argv', 'env'], wait: ['pid'], kill: ['pid', 'signal'], sigaction: ['signal', 'skip'],
   proc_spawn: ['path', 'argv', 'path'], proc_wait: ['pid'], proc_waitpid: ['pid', 'hex'], proc_kill: ['pid', 'signal'],
   proc_killpg: ['pid', 'signal'], proc_setpgid: ['pid', 'pid'], proc_getpgid: ['pid'], proc_tcsetpgrp: ['pid'],
-  proc_sigstate: ['int'], proc_set_sigstate: ['hex', 'hex']
+  proc_sigstate: ['int'], proc_set_sigstate: ['hex', 'hex'],
+  sock_open: ['hex'], sock_bind: ['fd', 'path', 'path', 'int'], sock_listen: ['fd', 'int'], sock_accept: ['fd', 'hex'],
+  sock_connect: ['fd', 'path'], sock_connect_out: ['fd', 'path', 'int'], sock_pair: ['hex'], sock_shutdown: ['fd', 'int'],
+  sock_info: ['fd'], sock_set: ['fd', 'path'], sock_recv: ['fd', 'count', 'hex'], sock_send: ['fd', 'data', 'hex'],
+  fd_getfl: ['fd'], fd_setfl: ['fd', 'hex']
 }
 
 /** Sets of calls, as `strace -e trace=SET` names them */
 const SETS: Record<string, string[]> = {
   file: ['open', 'stat', 'lstat', 'statfs', 'mkdir', 'rmdir', 'unlink', 'rename', 'link', 'symlink', 'readlink', 'realpath', 'truncate', 'chmod', 'chown', 'access', 'chdir', 'getxattr', 'setxattr', 'removexattr', 'listxattr', 'execve', 'utimes'],
-  desc: ['open', 'close', 'read', 'write', 'lseek', 'ftruncate', 'fsync', 'fdatasync', 'dup', 'dup2', 'ioctl', 'poll', 'pipe', 'fstat', 'fstatfs', 'getdents', 'fchmod', 'fchown', 'futimes'],
+  desc: ['open', 'close', 'read', 'write', 'lseek', 'ftruncate', 'fsync', 'fdatasync', 'dup', 'dup2', 'ioctl', 'poll', 'pipe', 'fstat', 'fstatfs', 'getdents', 'fchmod', 'fchown', 'futimes', 'fd_getfl', 'fd_setfl'],
   process: ['spawn', 'execve', 'exit', 'wait', 'kill', 'proc_spawn', 'proc_wait', 'proc_waitpid', 'proc_kill', 'proc_killpg', 'proc_setpgid', 'proc_getpgid', 'proc_tcsetpgrp'],
   signal: ['kill', 'sigaction', 'proc_kill', 'proc_killpg', 'proc_sigstate', 'proc_set_sigstate'],
-  network: ['net_bind', 'net_listen', 'net_connect', 'net_accept', 'sockets_create', 'sockets_connect', 'sockets_close', 'sockets_list']
+  network: ['net_bind', 'net_listen', 'net_connect', 'net_accept', 'sockets_create', 'sockets_connect', 'sockets_close', 'sockets_list',
+    'sock_open', 'sock_bind', 'sock_listen', 'sock_accept', 'sock_connect', 'sock_connect_out', 'sock_pair', 'sock_shutdown', 'sock_recv', 'sock_send']
 }
 
 /** Whether the options let this call through */

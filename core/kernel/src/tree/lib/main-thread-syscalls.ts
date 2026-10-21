@@ -7,7 +7,9 @@
  * larger results are written to a scratch file.
  */
 
-import { binfmts, define_syscall, kill as zenfsKill, processes, type BinFmt, type Process } from '@zenfs/linux'
+import { binfmts, define_syscall, kill as zenfsKill, processes, Process as ZenFSProcess, syscalls, thread_of, type BinFmt, type Process } from '@zenfs/linux'
+import { attach, createSocket, describe, receive, send, shutdown, socketAt, sweepSockets, whenPending } from './socket-files.ts'
+import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
 import { boundContexts, fs, mounts } from '@zenfs/core'
@@ -135,6 +137,20 @@ declare module '@zenfs/linux/uapi/abi' {
     scm_send(conn: number, dir: string, offset: number, length: number, items: string, path: string): number
     scm_take(conn: number, dir: string, rx: number, max: number, room: number, hint: number, path: string): number
     scm_cred(conn: number, dir: string, path: string): number
+    sock_open(flags: number): number
+    sock_bind(fd: number, family: string, addr: string, port: number): number
+    sock_listen(fd: number, backlog: number): number
+    sock_accept(fd: number, flags: number): number
+    sock_connect(fd: number, key: string): number
+    sock_connect_out(fd: number, host: string, port: number): number
+    sock_pair(flags: number): number
+    sock_shutdown(fd: number, how: number): number
+    sock_info(fd: number): number
+    sock_set(fd: number, info: string): number
+    sock_recv(fd: number, count: number, flags: number): number
+    sock_send(fd: number, data: Uint8Array, flags: number): number
+    fd_getfl(fd: number): number
+    fd_setfl(fd: number, flags: number): number
   }
 }
 
@@ -276,6 +292,8 @@ interface LoopbackListener {
    * `peerAddr` is the address a client on this machine connected from, when it is known (`::1` for an IPv6 client)
    */
   queue: Array<{ fd: number, writeFd: number, peerKey: string, peerAddr?: string, conn?: number }>
+  /** Wakes a socket file listening here (`socket-files.ts`) when a connection joins the queue */
+  wake?: () => void
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
 
@@ -380,6 +398,38 @@ function traceSink(proc: Process, fd: number): (text: string) => Promise<void> {
       }
     }
   }
+}
+
+/**
+ * Claims a loopback address for a listener whose connections land in `serverProc`'s table. `family`: `'unix'`,
+ * `'inet'` (IPv4), `'inet6'` (IPv6 only) or `'inet46'` (an IPv6 socket that also takes IPv4, which is what `bind(::)`
+ * is unless `IPV6_V6ONLY` is set). An IPv4 port and an IPv6-only port are separate names (`inet:` and `inet6:`); a
+ * dual-stack one holds both, so a connection of either family reaches it and neither family can bind the same port
+ * again. `addr` is the path for `unix`; `port: 0` picks the next ephemeral port, as on Linux. `release` gives the
+ * address up again.
+ */
+function claimAddress(family: string, addr: string, port: number, serverProc: Process):
+  { listener: LoopbackListener, key: string, port: number, release: () => void } | { error: string } {
+  let keys: string[]
+  let assigned = port
+  if (family === 'unix') {
+    keys = [`unix:${addr}`]
+  } else if (family === 'inet' || family === 'inet6' || family === 'inet46') {
+    if (addr && !isLoopbackHost(addr)) return { error: 'EADDRNOTAVAIL' }
+    const keysFor = (candidate: number) => [
+      ...(family === 'inet6' ? [] : [`inet:127.0.0.1:${candidate}`]),
+      ...(family === 'inet' ? [] : [`inet6:${candidate}`])
+    ]
+    if (!assigned) { do assigned = nextEphemeralPort++; while (keysFor(assigned).some(key => loopbackListeners.has(key))) }
+    keys = keysFor(assigned)
+  } else {
+    return { error: 'EAFNOSUPPORT' }
+  }
+  if (keys.some(key => loopbackListeners.has(key))) return { error: 'EADDRINUSE' }
+  const listener: LoopbackListener = { key: keys[0]!, serverProc, listening: false, queue: [] }
+  for (const key of keys) loopbackListeners.set(key, listener)
+  const release = () => { for (const key of keys) if (loopbackListeners.get(key) === listener) loopbackListeners.delete(key) }
+  return { listener, key: keys[0]!, port: assigned, release }
 }
 
 export function installMainThreadSyscalls(): void {
@@ -853,55 +903,15 @@ export function installMainThreadSyscalls(): void {
     return text.length
   })
 
-  /** `family`: `'unix'`, `'inet'` (IPv4), `'inet6'` (IPv6 only) or `'inet46'` (an IPv6 socket that also takes IPv4, which is what
-   * `bind(::)` is unless `IPV6_V6ONLY` is set). An IPv4 port and an IPv6-only port are separate names (`inet:` and
-   * `inet6:`); a dual-stack
-   * one holds both, so a connection of either family reaches it and neither family can bind the same port again.
-   * `addr`/`port` are
-   * `''`/`0` for `unix` (the socket's own path is `addr`, unused). `port: 0` picks the next ephemeral port, same
-   * meaning as real
-   * Linux. Writes `{ ok, key, port? }` or `{ error }` to `path`, the same convention every `sockets_*` syscall above
-   * already uses. */
+  /** Binds a loopback address (see `claimAddress`) for a program holding its sockets as pipes. Writes `{ ok, key, port? }`
+   * or `{ error }` to `path`, the same convention every `sockets_*` syscall above already uses. */
   define_syscall('net_bind', async (proc: Process, family: string, addr: string, port: number, path: string) => {
     const kernel = kernelOf(proc)
-    let text: string
-
     // A dead server must not leave its address permanently squatted - the next bind to the same
     // address (very common: restart the same local dev server) has to see it as free again.
-    const register = (keys: string[]) => {
-      const listener: LoopbackListener = { key: keys[0]!, serverProc: proc, listening: false, queue: [] }
-      for (const key of keys) loopbackListeners.set(key, listener)
-      void proc.exited.then(() => { for (const key of keys) if (loopbackListeners.get(key) === listener) loopbackListeners.delete(key) })
-    }
-
-    if (family === 'unix') {
-      const key = `unix:${addr}`
-      if (loopbackListeners.has(key)) text = JSON.stringify({ error: 'EADDRINUSE' })
-      else {
-        register([key])
-        text = JSON.stringify({ ok: true, key })
-      }
-    } else if (family === 'inet' || family === 'inet6' || family === 'inet46') {
-      if (addr && !isLoopbackHost(addr)) {
-        text = JSON.stringify({ error: 'EADDRNOTAVAIL' })
-      } else {
-        const keysFor = (assigned: number) => [
-          ...(family === 'inet6' ? [] : [`inet:127.0.0.1:${assigned}`]),
-          ...(family === 'inet' ? [] : [`inet6:${assigned}`])
-        ]
-        let assigned = port
-        if (!assigned) { do assigned = nextEphemeralPort++; while (keysFor(assigned).some(key => loopbackListeners.has(key))) }
-        const keys = keysFor(assigned)
-        if (keys.some(key => loopbackListeners.has(key))) text = JSON.stringify({ error: 'EADDRINUSE' })
-        else {
-          register(keys)
-          text = JSON.stringify({ ok: true, key: keys[0], port: assigned })
-        }
-      }
-    } else {
-      text = JSON.stringify({ error: 'EAFNOSUPPORT' })
-    }
-
+    const claimed = claimAddress(family, addr, port, proc)
+    if ('listener' in claimed) void proc.exited.then(claimed.release)
+    const text = JSON.stringify('error' in claimed ? claimed : { ok: true, key: claimed.key, ...(family === 'unix' ? {} : { port: claimed.port }) })
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
@@ -917,6 +927,7 @@ export function installMainThreadSyscalls(): void {
     const rxEnd = kernel.attachStream(serverProc, 'read', streams.rx)
     const txEnd = kernel.attachStream(serverProc, 'write', streams.tx)
     listener.queue.push({ fd: rxEnd.fd, writeFd: txEnd.fd, peerKey: `remote:${peer}` })
+    listener.wake?.()
     // what the program wrote just before exiting is still on its way out: stop reading, let the writing side drain,
     // then end the flow
     void serverProc.exited.then(() => { rxEnd.stop(); void txEnd.done.then(ended) })
@@ -1005,6 +1016,7 @@ export function installMainThreadSyscalls(): void {
       const toClient = kernel.linkProcesses(listener.serverProc, proc) // server writes -> client reads
       const conn = openConnection({ c: proc, s: listener.serverProc })
       listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn })
+      listener.wake?.()
       text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd, conn })
     }
 
@@ -1172,6 +1184,156 @@ export function installMainThreadSyscalls(): void {
     await writeScratch(kernel, proc, path, text)
     return text.length
   })
+
+  // Sockets that are files (`socket-files.ts`), for programs whose C library makes the socket calls: one descriptor
+  // per socket, its connection's pipe ends held in the kernel's table. Errors are thrown as errno; answers that are
+  // more than a number go in the region.
+  const socketErrno = (name: string) => Object.assign(new Error(name), { errno: Errno[name as keyof typeof Errno] ?? Errno.EIO })
+
+  define_syscall('sock_open', (proc: Process, flags: number) => createSocket(proc, flags).fd)
+
+  /** `bind(2)`: claims the address for the socket, whose connections then land in the kernel's table. @returns the port */
+  define_syscall('sock_bind', (proc: Process, fd: number, family: string, addr: string, port: number) => {
+    sweepSockets()
+    const { socket } = socketAt(proc, fd)
+    if (socket.listening || socket.connected || socket.info.bound) throw socketErrno('EINVAL')
+    const claimed = claimAddress(family, addr, port, kernelOf(proc).pipeProcess)
+    if ('error' in claimed) throw socketErrno(claimed.error)
+    claimed.listener.wake = () => socket.wake.wake_up()
+    socket.pending = () => claimed.listener.queue.length
+    socket.cleanup.push(() => {
+      claimed.release()
+      // connections no one will accept: their ends are in the kernel's table, and the clients see them closed
+      const table = kernelOf(proc).pipeProcess.context.descriptors
+      for (const entry of claimed.listener.queue.splice(0)) {
+        for (const end of [entry.fd, entry.writeFd]) { const handle = table.get(end); table.delete(end); try { handle?.closeSync() } catch { /* already closed */ } }
+      }
+    })
+    socket.info.bound = claimed.key
+    return claimed.port
+  })
+
+  define_syscall('sock_listen', (proc: Process, fd: number) => {
+    const { socket } = socketAt(proc, fd)
+    const key = socket.info.bound as string | undefined
+    const listener = key ? loopbackListeners.get(key) : undefined
+    if (!listener || socket.connected) throw socketErrno('EINVAL')
+    listener.listening = true
+    socket.listening = key
+    socket.wake.wake_up()
+    return 0
+  })
+
+  /** `accept4(2)`: waits for a connection unless the socket is non-blocking; `flags` may hold `SOCK_NONBLOCK` */
+  define_syscall('sock_accept', async (proc: Process, fd: number, flags: number) => {
+    const { socket, handle } = socketAt(proc, fd)
+    const listener = socket.listening ? loopbackListeners.get(socket.listening) : undefined
+    if (!listener) throw socketErrno('EINVAL')
+    await whenPending(proc, socket, handle)
+    const next = listener.queue.shift()
+    if (!next) throw socketErrno('EAGAIN')
+    const made = createSocket(proc, flags, { ...socket.info, bound: undefined, local: socket.info.local, peer: { addr: next.peerAddr, key: next.peerKey } })
+    attach(made.socket, listener.serverProc, next.fd, next.writeFd)
+    return made.fd
+  })
+
+  /** `connect(2)` to a loopback listener: the listener's queue gets the server's ends, as `net_connect` gives them */
+  define_syscall('sock_connect', (proc: Process, fd: number, key: string) => {
+    sweepSockets()
+    const kernel = kernelOf(proc)
+    const { socket } = socketAt(proc, fd)
+    if (socket.connected) throw socketErrno('EISCONN')
+    if (socket.listening) throw socketErrno('EINVAL')
+    const listener = loopbackListeners.get(key)
+    if (!listener?.listening) throw socketErrno('ECONNREFUSED')
+    const holder = kernel.pipeProcess
+    const toServer = kernel.linkProcesses(holder, listener.serverProc)
+    const toClient = kernel.linkProcesses(listener.serverProc, holder)
+    const conn = openConnection({ c: proc, s: listener.serverProc })
+    listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn })
+    listener.wake?.()
+    attach(socket, holder, toClient.readerFd, toServer.writerFd)
+    return 0
+  })
+
+  /** `connect(2)` to an address beyond this machine, through the gateway (`net_connect_out`'s flow) */
+  define_syscall('sock_connect_out', async (proc: Process, fd: number, host: string, port: number) => {
+    const kernel = kernelOf(proc)
+    const { socket } = socketAt(proc, fd)
+    if (socket.connected) throw socketErrno('EISCONN')
+    if (!gatewayLink(kernel)) throw socketErrno('ENETUNREACH')
+    let flow: Awaited<ReturnType<typeof openGatewayFlow>>
+    try {
+      flow = await openGatewayFlow(kernel, host, port, 'tcp')
+    } catch (error) {
+      throw socketErrno(error instanceof GatewayFailure ? error.errno : 'ECONNREFUSED')
+    }
+    const holder = kernel.pipeProcess
+    const rxEnd = kernel.attachStream(holder, 'read', flow.rx)
+    const txEnd = kernel.attachStream(holder, 'write', flow.tx)
+    // what the program wrote last is still on its way out: stop reading, let the writing side drain, then end the flow
+    socket.cleanup.push(() => { rxEnd.stop(); void txEnd.done.then(() => flow.close()) })
+    socket.info.peer = { addr: flow.address, port }
+    attach(socket, holder, rxEnd.fd, txEnd.fd)
+    return 0
+  })
+
+  /** `socketpair(2)`: two connected sockets, their descriptors in the region as `pipe` gives its two */
+  define_syscall('sock_pair', (proc: Process, flags: number) => {
+    const holder = kernelOf(proc).pipeProcess
+    const [aToB, bToA] = [createPipe(holder.context), createPipe(holder.context)]
+    const a = createSocket(proc, flags, { family: 'unix' }), b = createSocket(proc, flags, { family: 'unix' })
+    attach(a.socket, holder, bToA[0], aToB[1])
+    attach(b.socket, holder, aToB[0], bToA[1])
+    const { region } = thread_of(proc)
+    const answer = new DataView(region.buffer, region.byteOffset)
+    answer.setInt32(0, a.fd, true)
+    answer.setInt32(4, b.fd, true)
+    thread_of(proc).filled(8)
+    return 0
+  })
+
+  define_syscall('sock_shutdown', (proc: Process, fd: number, how: number) => {
+    shutdown(socketAt(proc, fd).socket, how)
+    return 0
+  })
+
+  /** What the socket's library recorded about it and what the kernel knows (connected, listening, bytes to read), as JSON in the region */
+  define_syscall('sock_info', (proc: Process, fd: number) => thread_of(proc).put(new TextEncoder().encode(JSON.stringify(describe(socketAt(proc, fd).socket)))))
+  /** Merges what the socket's library wants kept about it (family, type, options), which every descriptor for it shares */
+  define_syscall('sock_set', (proc: Process, fd: number, info: string) => {
+    Object.assign(socketAt(proc, fd).socket.info, JSON.parse(info))
+    return 0
+  })
+  define_syscall('sock_recv', (proc: Process, fd: number, count: number, flags: number) => receive(proc, fd, count, flags))
+  define_syscall('sock_send', (proc: Process, fd: number, data: Uint8Array, flags: number) => send(proc, fd, data, flags))
+
+  // The status flags of an open file, which every descriptor for it shares: `O_NONBLOCK` decides whether a read of a
+  // pipe or socket waits. `fcntl(F_SETFL)` changes only the ones Linux lets it.
+  const SetflMask = 0o2000 /* O_APPEND */ | 0o4000 /* O_NONBLOCK */ | 0o20000 /* O_ASYNC */ | 0o40000 /* O_DIRECT */ | 0o1000000 /* O_NOATIME */
+  const openFile = (proc: Process, fd: number) => {
+    const handle = proc.context.descriptors.get(fd) as unknown as { flag: number } | undefined
+    if (!handle) throw socketErrno('EBADF')
+    return handle
+  }
+  define_syscall('fd_getfl', (proc: Process, fd: number) => openFile(proc, fd).flag)
+  define_syscall('fd_setfl', (proc: Process, fd: number, flags: number) => {
+    const handle = openFile(proc, fd)
+    handle.flag = (handle.flag & ~SetflMask) | (flags & SetflMask)
+    return 0
+  })
+
+  for (const name of ['close', 'dup2', 'dup3'] as const) {
+    const original = syscalls.get(name as never) as ((proc: Process, ...args: unknown[]) => unknown) | undefined
+    if (!original) continue
+    syscalls.set(name as never, (async (proc: Process, ...args: unknown[]) => {
+      try { return await original(proc, ...args) } finally { sweepSockets() }
+    }) as never)
+  }
+  const exit = ZenFSProcess.prototype.exit
+  ZenFSProcess.prototype.exit = function (this: Process, ...args: Parameters<typeof exit>) {
+    try { return exit.apply(this, args) } finally { sweepSockets() }
+  }
 
   // `users_lookup`: resolves usernames and uids against `kernel.users` and writes `{ uid, gid, groups, username }`
   // entries to `path`; no hashes or keys. `mode: 'self'` resolves the caller's own uid, gid and groups, since there

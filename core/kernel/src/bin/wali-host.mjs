@@ -14,7 +14,11 @@
  * - processes: `posix_spawn` (`__ecmaos_spawn`, from the sysroot's musl patch), `wait4` and `execve` on the kernel's
  *   process calls, and the job-control ids
  * - signals: dispositions, the mask, pending signals, and handlers run when an import returns, with `EINTR` or a
- *   restart (`SA_RESTART`) for a call they interrupted; `sleep` and the clocks
+ *   restart (`SA_RESTART`) for a call they interrupted, and `SIGPIPE` for a write nothing will read; `sleep` and the
+ *   clocks
+ * - sockets: stream sockets on the kernel's socket files (`tree/lib/socket-files.ts`), so a socket is one descriptor
+ *   the kernel reads, writes and polls; `AF_UNIX`, and `AF_INET`/`AF_INET6` on loopback or through the gateway
+ * - `epoll`, over the kernel's `poll`
  *
  * Numbers are Linux's: WALI's musl is Linux musl, so `errno` values and structures need no translation.
  */
@@ -23,9 +27,10 @@ import { syscall_raw, returned, pending, on_signal, off_signal } from '@zenfs/li
 import { getdents } from '@zenfs/linux/uapi/fs'
 import { environ, getpid } from '@zenfs/linux/uapi/process'
 
-const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, ENOTDIR = 20, EINVAL = 22, ENOSYS = 38
+const ENOENT = 2, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENOTDIR = 20, EINVAL = 22, EPIPE = 32, ENOSYS = 38
+const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
-const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_CLOEXEC = 0x80000
+const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
 const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030
 const F_GETLK = 5, F_SETLK = 6, F_SETLKW = 7
 const FD_CLOEXEC = 1
@@ -33,7 +38,7 @@ const FD_CLOEXEC = 1
 const SETFL_MASK = 0x400 /* O_APPEND */ | 0x800 /* O_NONBLOCK */ | 0x2000 /* O_ASYNC */ | 0x4000 /* O_DIRECT */ | 0x40000 /* O_NOATIME */
 const MAP_SHARED = 0x01, MAP_FIXED = 0x10, MAP_ANONYMOUS = 0x20
 const MREMAP_MAYMOVE = 1
-const TCGETS = 0x5401, TIOCGWINSZ = 0x5413
+const TCGETS = 0x5401, TIOCGWINSZ = 0x5413, FIONREAD = 0x541b
 /** What an ioctl that answers with a structure copies back: `struct termios` and `struct winsize` */
 const IOCTL_ANSWER_SIZE = { [TCGETS]: 60, [TIOCGWINSZ]: 8 }
 /** `struct stat` on this target: musl's x86_64 layout */
@@ -186,14 +191,13 @@ function fcntl(fd, cmd, arg) {
       if (syscall_raw('fstat', fd) < 0) return -EBADF
       fds.set(fd, { ...entryOf(fd), cloexec: (arg & FD_CLOEXEC) !== 0 })
       return 0
-    case F_GETFL:
-      return syscall_raw('fstat', fd) < 0 ? -EBADF : entryOf(fd).flags
-    case F_SETFL: {
-      if (syscall_raw('fstat', fd) < 0) return -EBADF
-      const current = entryOf(fd)
-      fds.set(fd, { ...current, flags: (current.flags & ~SETFL_MASK) | (arg & SETFL_MASK) })
-      return 0
+    // the status flags belong to the open file, which the kernel keeps: O_NONBLOCK there decides whether a read waits
+    case F_GETFL: {
+      const flags = syscall_raw('fd_getfl', fd)
+      return flags < 0 ? flags : flags & (O_ACCMODE | SETFL_MASK)
     }
+    case F_SETFL:
+      return syscall_raw('fd_setfl', fd, arg)
     // Locks are advisory and every process here shares one kernel, which keeps none: taking one succeeds and asking
     // finds none held. Two processes writing the same file at once are not kept apart.
     case F_SETLK:
@@ -486,6 +490,10 @@ const NEVER_RESTARTED = new Set(['SYS_poll', 'SYS_ppoll', 'SYS_select', 'SYS_pse
 const OWN_DELIVERY = new Set(['SYS_rt_sigsuspend', 'SYS_pause'])
 /** Signal-sending calls: an EINTR means the signal reached this process too, after the call did its work */
 const SENDS_SIGNALS = new Set(['SYS_kill', 'SYS_tkill', 'SYS_tgkill'])
+/** Calls whose EPIPE raises SIGPIPE, as Linux's pipes and sockets do; for the sends, unless `MSG_NOSIGNAL` (the flags are their argument at this index) */
+const WRITES = new Map([['SYS_write', -1], ['SYS_writev', -1], ['SYS_pwrite64', -1], ['SYS_pwritev', -1], ['SYS_sendfile', -1], ['SYS_sendto', 3], ['SYS_sendmsg', 2]])
+const MSG_NOSIGNAL = 0x4000
+const SIGPIPE = 13
 
 /**
  * Every import, wrapped: signals are delivered when it returns. One the kernel woke with EINTR is resumed when no
@@ -498,6 +506,10 @@ function delivering(name, call) {
     for (;;) {
       const before = arrivals
       const result = call(...args)
+      if (result === -BigInt(EPIPE) && WRITES.has(name)) {
+        const flagsAt = WRITES.get(name)
+        if (flagsAt < 0 || !(args[flagsAt] & MSG_NOSIGNAL)) raiseHere(SIGPIPE)
+      }
       const interrupted = result === -BigInt(EINTR)
       const { handled, restart } = deliver()
       if (!interrupted || OWN_DELIVERY.has(name)) return result
@@ -688,6 +700,343 @@ function sleep(ms, remainPtr, clock) {
   return 0
 }
 
+// --- sockets ---
+
+const AF_UNSPEC = 0, AF_UNIX = 1, AF_INET = 2, AF_INET6 = 10
+const SOCK_STREAM = 1, SOCK_TYPE_MASK = 0xf, SOCK_NONBLOCK = 0x800, SOCK_CLOEXEC = 0x80000
+const MSG_PEEK = 0x2, MSG_DONTWAIT = 0x40, MSG_WAITALL = 0x100
+const SOL_SOCKET = 1, SO_TYPE = 3, SO_ERROR = 4, SO_SNDBUF = 7, SO_RCVBUF = 8, SO_ACCEPTCONN = 30, SO_PROTOCOL = 38, SO_DOMAIN = 39
+const IPPROTO_TCP = 6, IPPROTO_IPV6 = 41, IPV6_V6ONLY = 26
+/** `struct msghdr` with a 64-bit `long`: name 0, namelen 4, iov 8, iovlen 12, control 20, controllen 24, flags 32 */
+const MSG_IOV = 8, MSG_IOVLEN = 12, MSG_CONTROLLEN = 24, MSG_FLAGS = 32
+
+/** What the kernel knows of a socket and what this host recorded about it, or a negative errno (ENOTSOCK) */
+function socketInfo(fd) {
+  const length = syscall_raw('sock_info', fd)
+  return length < 0 ? length : JSON.parse(decoder.decode(returned.slice(0, length)))
+}
+
+const remember = (fd, info) => syscall_raw('sock_set', fd, JSON.stringify(info))
+
+const ipv4Text = (all, at) => `${all[at]}.${all[at + 1]}.${all[at + 2]}.${all[at + 3]}`
+
+function ipv6Text(all, at) {
+  const words = []
+  for (let i = 0; i < 8; i++) words.push((all[at + i * 2] << 8) | all[at + i * 2 + 1])
+  // an IPv4 address mapped into IPv6 is shown as the IPv4 one
+  if (words.slice(0, 5).every(word => !word) && words[5] === 0xffff) return ipv4Text(all, at + 12)
+  return words.map(word => word.toString(16)).join(':').replace(/(^|:)0(:0)+(:|$)/, '::').replace(/:{3,}/, '::')
+}
+
+/**
+ * A `struct sockaddr` as `{ family, path }` or `{ family, addr, port }`. A Unix path is made absolute, as the kernel
+ * names listeners; an abstract one (a leading NUL) is `@name`.
+ */
+function readSockaddr(ptr, length) {
+  if (!ptr || length < 2) return -EINVAL
+  const all = bytes()
+  const family = view().getUint16(ptr, true)
+  if (family === AF_UNIX) {
+    const raw = all.slice(ptr + 2, ptr + length)
+    if (raw[0] === 0) return { family, path: `@${decoder.decode(raw.subarray(1)).replace(/\0+$/, '')}` }
+    const end = raw.indexOf(0)
+    const path = decoder.decode(end < 0 ? raw : raw.subarray(0, end))
+    return path ? { family, path: absolute(path, getcwd()) } : -EINVAL
+  }
+  const port = (all[ptr + 2] << 8) | all[ptr + 3]
+  if (family === AF_INET && length >= 16) return { family, addr: ipv4Text(all, ptr + 4), port }
+  if (family === AF_INET6 && length >= 24) return { family, addr: ipv6Text(all, ptr + 8), port }
+  return family === AF_UNSPEC ? { family } : -EAFNOSUPPORT
+}
+
+/** Writes an address as the family's `struct sockaddr`, as much as `*lengthPtr` has room for, and its full length there */
+function writeSockaddr(ptr, lengthPtr, family, address = {}) {
+  if (!ptr || !lengthPtr) return
+  let data
+  if (family === AF_UNIX) {
+    const path = address.path ? encoder.encode(address.path.startsWith('@') ? `\0${address.path.slice(1)}` : address.path) : new Uint8Array()
+    data = new Uint8Array(2 + path.byteLength + (path.byteLength && path[0] ? 1 : 0))
+    data.set(path, 2)
+  } else {
+    data = new Uint8Array(family === AF_INET6 ? 28 : 16)
+    data[2] = (address.port ?? 0) >> 8
+    data[3] = (address.port ?? 0) & 0xff
+    const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(address.addr ?? '')
+    if (family === AF_INET) data.set(v4 ? v4.slice(1).map(Number) : [127, 0, 0, 1], 4)
+    else if (v4) data.set([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, ...v4.slice(1).map(Number)], 8)
+    else data[23] = 1 // ::1, the only IPv6 address a peer here has
+  }
+  new DataView(data.buffer).setUint16(0, family, true)
+  const room = view().getUint32(lengthPtr, true)
+  bytes().set(data.subarray(0, Math.min(room, data.byteLength)), ptr)
+  view().setUint32(lengthPtr, data.byteLength, true)
+}
+
+const isLoopback4 = addr => /^127\./.test(addr) || addr === '0.0.0.0'
+const isLoopback6 = addr => addr === '::1' || addr === '::'
+
+/** The listener's name a connection to an address reaches, or undefined for one beyond this machine */
+function listenerKey(address) {
+  if (address.family === AF_UNIX) return `unix:${address.path}`
+  if (address.family === AF_INET && isLoopback4(address.addr)) return `inet:127.0.0.1:${address.port}`
+  if (address.family === AF_INET6 && /^\d+\./.test(address.addr) && isLoopback4(address.addr)) return `inet:127.0.0.1:${address.port}`
+  if (address.family === AF_INET6 && isLoopback6(address.addr)) return `inet6:${address.port}`
+  return undefined
+}
+
+/** The family name the kernel claims an address under: an IPv6 socket takes IPv4 too unless `IPV6_V6ONLY` */
+const claimFamily = info => info.family === AF_UNIX ? 'unix' : info.family === AF_INET ? 'inet' : info.v6only ? 'inet6' : 'inet46'
+
+function socket(domain, type) {
+  if (domain !== AF_UNIX && domain !== AF_INET && domain !== AF_INET6) return -EAFNOSUPPORT
+  // datagram sockets are not here yet
+  if ((type & SOCK_TYPE_MASK) !== SOCK_STREAM) return -ESOCKTNOSUPPORT
+  const fd = syscall_raw('sock_open', type & SOCK_NONBLOCK)
+  if (fd < 0) return fd
+  opened(fd, O_RDWR | (type & SOCK_NONBLOCK), (type & SOCK_CLOEXEC) !== 0)
+  remember(fd, { family: domain, type: SOCK_STREAM })
+  return fd
+}
+
+function bind(fd, ptr, length) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  const address = readSockaddr(ptr, length)
+  if (typeof address === 'number') return address
+  if (address.family !== info.family) return -EAFNOSUPPORT
+  const port = syscall_raw('sock_bind', fd, claimFamily(info), address.path ?? address.addr, address.port ?? 0)
+  if (port < 0) return port
+  remember(fd, { local: address.family === AF_UNIX ? { path: address.path } : { addr: address.addr, port } })
+  return 0
+}
+
+function listen(fd, backlog) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  // an Internet socket listening without a bind gets an ephemeral port, as on Linux
+  if (!info.bound && info.family !== AF_UNIX) {
+    const port = syscall_raw('sock_bind', fd, claimFamily(info), '', 0)
+    if (port < 0) return port
+    remember(fd, { local: { addr: info.family === AF_INET ? '0.0.0.0' : '::', port } })
+  }
+  return syscall_raw('sock_listen', fd, backlog)
+}
+
+function accept(fd, ptr, lengthPtr, flags) {
+  if (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) return -EINVAL
+  const made = syscall_raw('sock_accept', fd, flags & SOCK_NONBLOCK)
+  if (made < 0) return made
+  opened(made, O_RDWR | (flags & SOCK_NONBLOCK), (flags & SOCK_CLOEXEC) !== 0)
+  if (ptr) {
+    const info = socketInfo(made)
+    writeSockaddr(ptr, lengthPtr, info.family, info.peer)
+  }
+  return made
+}
+
+function connect(fd, ptr, length) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  const address = readSockaddr(ptr, length)
+  if (typeof address === 'number') return address
+  if (address.family !== info.family && !(info.family === AF_INET6 && address.family === AF_INET)) return -EAFNOSUPPORT
+  const key = listenerKey(address)
+  const value = key ? syscall_raw('sock_connect', fd, key) : syscall_raw('sock_connect_out', fd, address.addr, address.port)
+  if (value < 0) return value
+  remember(fd, { peer: address.family === AF_UNIX ? { path: address.path } : { addr: address.addr, port: address.port } })
+  return 0
+}
+
+function socketName(fd, ptr, lengthPtr, which) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  if (which === 'peer' && !info.connected) return -ENOTCONN
+  const fallback = info.family === AF_INET6 ? { addr: '::', port: 0 } : { addr: '0.0.0.0', port: 0 }
+  writeSockaddr(ptr, lengthPtr, info.family, info[which] ?? (info.family === AF_UNIX ? {} : fallback))
+  return 0
+}
+
+/** `send` of one buffer: the kernel waits for room unless the socket or `flags` says not to */
+function sendBytes(fd, data, flags) {
+  return syscall_raw('sock_send', fd, data, flags & MSG_DONTWAIT)
+}
+
+/** `recv` into one buffer; `MSG_WAITALL` keeps reading until it is full or the stream ends */
+function receiveInto(fd, ptr, length, flags) {
+  let done = 0
+  do {
+    const count = syscall_raw('sock_recv', fd, length - done, flags & (MSG_PEEK | MSG_DONTWAIT))
+    if (count < 0) return done ? done : count
+    bytes().set(returned.subarray(0, count), ptr + done)
+    done += count
+    if (!count || (flags & MSG_PEEK)) break
+  } while ((flags & MSG_WAITALL) && done < length)
+  return done
+}
+
+/** The buffers a `struct msghdr`'s iovec array names, as `[ptr, length]` */
+function iovecs(msgPtr) {
+  const dv = view()
+  const iov = dv.getUint32(msgPtr + MSG_IOV, true), count = dv.getInt32(msgPtr + MSG_IOVLEN, true)
+  return Array.from({ length: count }, (_, i) => [dv.getUint32(iov + i * 8, true), dv.getUint32(iov + i * 8 + 4, true)])
+}
+
+function sendmsg(fd, msgPtr, flags) {
+  // passing descriptors and credentials (SCM_RIGHTS, SCM_CREDENTIALS) is not here yet
+  if (view().getUint32(msgPtr + MSG_CONTROLLEN, true)) return -EOPNOTSUPP
+  const parts = iovecs(msgPtr).map(([ptr, length]) => bytes().slice(ptr, ptr + length))
+  const data = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0))
+  let at = 0
+  for (const part of parts) { data.set(part, at); at += part.byteLength }
+  return sendBytes(fd, data, flags)
+}
+
+function recvmsg(fd, msgPtr, flags) {
+  const buffers = iovecs(msgPtr)
+  const total = buffers.reduce((sum, [, length]) => sum + length, 0)
+  const scratch = allocate(roundUp(Math.max(total, 1), PAGE))
+  if (scratch < 0) return scratch
+  try {
+    const count = receiveInto(fd, scratch, total, flags)
+    if (count < 0) return count
+    let at = 0
+    for (const [ptr, length] of buffers) {
+      const part = Math.min(length, count - at)
+      if (part <= 0) break
+      bytes().copyWithin(ptr, scratch + at, scratch + at + part)
+      at += part
+    }
+    const dv = view()
+    dv.setUint32(msgPtr + 4, 0, true) // no sender address on a stream
+    dv.setUint32(msgPtr + MSG_CONTROLLEN, 0, true)
+    dv.setInt32(msgPtr + MSG_FLAGS, 0, true)
+    return count
+  } finally {
+    release(scratch, roundUp(Math.max(total, 1), PAGE))
+  }
+}
+
+function getsockopt(fd, level, name, valuePtr, lengthPtr) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  let value
+  if (level === SOL_SOCKET) {
+    value = { [SO_TYPE]: info.type, [SO_ERROR]: 0, [SO_DOMAIN]: info.family, [SO_ACCEPTCONN]: info.listening ? 1 : 0,
+      [SO_PROTOCOL]: info.family === AF_UNIX ? 0 : IPPROTO_TCP, [SO_SNDBUF]: 65536, [SO_RCVBUF]: 65536 }[name] ?? 0
+  } else if (level === IPPROTO_IPV6 && name === IPV6_V6ONLY) value = info.v6only ? 1 : 0
+  else if (level === IPPROTO_TCP) value = 0
+  else return -ENOPROTOOPT
+  if (valuePtr && lengthPtr && view().getUint32(lengthPtr, true) >= 4) {
+    view().setInt32(valuePtr, value, true)
+    view().setUint32(lengthPtr, 4, true)
+  }
+  return 0
+}
+
+/** Options are taken and kept where they mean something here (`IPV6_V6ONLY`); the rest change nothing on a loopback stream */
+function setsockopt(fd, level, name, valuePtr, length) {
+  const info = socketInfo(fd)
+  if (typeof info === 'number') return info
+  if (level === IPPROTO_IPV6 && name === IPV6_V6ONLY && valuePtr && length >= 4) remember(fd, { v6only: view().getInt32(valuePtr, true) !== 0 })
+  return 0
+}
+
+function socketpair(domain, type, svPtr) {
+  if (domain !== AF_UNIX) return -EOPNOTSUPP
+  if ((type & SOCK_TYPE_MASK) !== SOCK_STREAM) return -ESOCKTNOSUPPORT
+  const value = syscall_raw('sock_pair', type & SOCK_NONBLOCK)
+  if (value < 0) return value
+  const answer = new DataView(returned.buffer, returned.byteOffset)
+  const pair = [answer.getInt32(0, true), answer.getInt32(4, true)]
+  pair.forEach((fd, i) => {
+    opened(fd, O_RDWR | (type & SOCK_NONBLOCK), (type & SOCK_CLOEXEC) !== 0)
+    remember(fd, { family: AF_UNIX, type: SOCK_STREAM, local: {}, peer: {} })
+    view().setInt32(svPtr + i * 4, fd, true)
+  })
+  return 0
+}
+
+// --- epoll ---
+
+const EPOLL_CTL_ADD = 1, EPOLL_CTL_DEL = 2, EPOLL_CTL_MOD = 3
+const EPOLLERR = 0x8, EPOLLHUP = 0x10, EPOLLONESHOT = 1 << 30
+/** `struct epoll_event`, packed: events (4), data (8) */
+const EPOLL_EVENT_SIZE = 12
+
+/**
+ * An epoll instance is a descriptor (of `/dev/null`, so the number is the kernel's and closes like any other) and its
+ * interest list, kept here and asked of the kernel's `poll` each wait. An edge-triggered entry is reported as a
+ * level-triggered one would be: a program that reads until EAGAIN, as edge-triggered ones must, sees the same events.
+ */
+const epolls = new Map()
+
+function epollCreate(flags) {
+  if (flags & ~O_CLOEXEC) return -EINVAL
+  const fd = syscall_raw('open', '/dev/null', O_RDONLY, 0)
+  if (fd < 0) return fd
+  opened(fd, O_RDONLY, (flags & O_CLOEXEC) !== 0)
+  epolls.set(fd, new Map())
+  return fd
+}
+
+function epollCtl(epfd, op, fd, eventPtr) {
+  const interest = epolls.get(epfd)
+  if (!interest) return syscall_raw('fstat', epfd) < 0 ? -EBADF : -EINVAL
+  if (syscall_raw('fstat', fd) < 0) return -EBADF
+  if (fd === epfd) return -EINVAL
+  const dv = view()
+  switch (op) {
+    case EPOLL_CTL_ADD:
+      if (interest.has(fd)) return -EEXIST
+      interest.set(fd, { events: dv.getUint32(eventPtr, true), data: dv.getBigUint64(eventPtr + 4, true) })
+      return 0
+    case EPOLL_CTL_MOD:
+      if (!interest.has(fd)) return -ENOENT
+      interest.set(fd, { events: dv.getUint32(eventPtr, true), data: dv.getBigUint64(eventPtr + 4, true) })
+      return 0
+    case EPOLL_CTL_DEL:
+      return interest.delete(fd) ? 0 : -ENOENT
+    default:
+      return -EINVAL
+  }
+}
+
+function epollWait(epfd, eventsPtr, max, timeout, sigmaskPtr) {
+  const interest = epolls.get(epfd)
+  if (!interest) return -EINVAL
+  if (max <= 0) return -EINVAL
+  // a descriptor closed since it was added leaves the list, as its last close takes it out of Linux's
+  const entries = [...interest].filter(([fd]) => fds.has(fd) || syscall_raw('fstat', fd) >= 0 || !interest.delete(fd))
+    .filter(([, entry]) => !entry.disabled)
+  const saved = mask
+  if (sigmaskPtr) {
+    mask = view().getBigUint64(sigmaskPtr, true) & ~UNBLOCKABLE
+    routeAll()
+  }
+  try {
+    const value = syscall_raw('poll', entries.map(([fd, entry]) => ({ fd, events: (entry.events & 0xffff) | EPOLLERR | EPOLLHUP })), timeout)
+    if (value <= 0) return value
+    const answer = new DataView(returned.buffer, returned.byteOffset)
+    const dv = view()
+    let count = 0
+    for (let i = 0; i < entries.length && count < max; i++) {
+      const revents = answer.getUint16(i * 2, true)
+      if (!revents) continue
+      const [, entry] = entries[i]
+      dv.setUint32(eventsPtr + count * EPOLL_EVENT_SIZE, revents, true)
+      dv.setBigUint64(eventsPtr + count * EPOLL_EVENT_SIZE + 4, entry.data, true)
+      if (entry.events & EPOLLONESHOT) entry.disabled = true
+      count++
+    }
+    return count
+  } finally {
+    if (sigmaskPtr) {
+      mask = saved
+      routeAll()
+    }
+  }
+}
+
 // --- the table ---
 
 /** What ecmaOS adds to or replaces in the `wali` table */
@@ -703,7 +1052,10 @@ const calls = {
   SYS_openat: (dirfd, path, flags, mode) => at(dirfd, path, resolved => opened(syscall_raw('open', resolved, flags, mode), flags)),
   SYS_close: fd => {
     const value = syscall_raw('close', fd)
-    if (value >= 0) forget(fd)
+    if (value >= 0) {
+      forget(fd)
+      epolls.delete(fd)
+    }
     return big(value)
   },
   // `struct linux_dirent64`: ino (8), off (8), reclen (2), type (1), the name and its NUL, padded to 8
@@ -747,6 +1099,14 @@ const calls = {
   SYS_fcntl: (fd, cmd, arg) => big(fcntl(fd, cmd, num(arg))),
   // the dependency copies everything the kernel answered to the pointer, past the end of the structure
   SYS_ioctl: (fd, request, ptr) => {
+    // how much a socket has to read; the kernel's ioctl does not know sockets
+    if (request === FIONREAD) {
+      const info = socketInfo(fd)
+      if (typeof info !== 'number') {
+        if (ptr) view().setInt32(ptr, info.readable, true)
+        return 0n
+      }
+    }
     const size = IOCTL_ANSWER_SIZE[request]
     if (size === undefined) return original.SYS_ioctl(fd, request, ptr)
     const value = syscall_raw('ioctl', fd, request, undefined)
@@ -863,6 +1223,34 @@ const calls = {
     // returns the error itself rather than -1 and errno
     return big(-sleep(flags & TIMER_ABSTIME ? request - now(clock) : request, flags & TIMER_ABSTIME ? 0 : remainPtr, clock))
   },
+
+  SYS_socket: (domain, type) => big(socket(domain, type)),
+  SYS_socketpair: (domain, type, _protocol, sv) => big(socketpair(domain, type, sv)),
+  SYS_bind: (fd, ptr, length) => big(bind(fd, ptr, length)),
+  SYS_listen: (fd, backlog) => big(listen(fd, backlog)),
+  SYS_accept: (fd, ptr, lengthPtr) => big(accept(fd, ptr, lengthPtr, 0)),
+  SYS_accept4: (fd, ptr, lengthPtr, flags) => big(accept(fd, ptr, lengthPtr, flags)),
+  SYS_connect: (fd, ptr, length) => big(connect(fd, ptr, length)),
+  SYS_getsockname: (fd, ptr, lengthPtr) => big(socketName(fd, ptr, lengthPtr, 'local')),
+  SYS_getpeername: (fd, ptr, lengthPtr) => big(socketName(fd, ptr, lengthPtr, 'peer')),
+  SYS_shutdown: (fd, how) => big(syscall_raw('sock_shutdown', fd, how)),
+  // a stream has its peer already, so the address of `sendto` is not needed and `recvfrom` gives none
+  SYS_sendto: (fd, ptr, length, flags) => big(sendBytes(fd, bytes().slice(ptr, ptr + length), flags)),
+  SYS_recvfrom: (fd, ptr, length, flags, _addr, lengthPtr) => {
+    const value = receiveInto(fd, ptr, length, flags)
+    if (value >= 0 && lengthPtr) view().setUint32(lengthPtr, 0, true)
+    return big(value)
+  },
+  SYS_sendmsg: (fd, msg, flags) => big(sendmsg(fd, msg, flags)),
+  SYS_recvmsg: (fd, msg, flags) => big(recvmsg(fd, msg, flags)),
+  SYS_getsockopt: (fd, level, name, value, lengthPtr) => big(getsockopt(fd, level, name, value, lengthPtr)),
+  SYS_setsockopt: (fd, level, name, value, length) => big(setsockopt(fd, level, name, value, length)),
+
+  SYS_epoll_create: size => big(size <= 0 ? -EINVAL : epollCreate(0)),
+  SYS_epoll_create1: flags => big(epollCreate(flags)),
+  SYS_epoll_ctl: (epfd, op, fd, event) => big(epollCtl(epfd, op, fd, event)),
+  SYS_epoll_wait: (epfd, events, max, timeout) => big(epollWait(epfd, events, max, timeout, 0)),
+  SYS_epoll_pwait: (epfd, events, max, timeout, sigmask) => big(epollWait(epfd, events, max, timeout, sigmask)),
 
   SYS_mmap: (addr, length, prot, flags, fd, offset) => big(mmap(addr, length, prot, flags, fd, num(offset))),
   SYS_munmap: (addr, length) => {

@@ -269,7 +269,8 @@ export class Kernel implements IKernel {
   }
 
   private _pipeProcess?: InstanceType<typeof ZenFSProcess>
-  private get pipeProcess(): InstanceType<typeof ZenFSProcess> {
+  /** The kernel's own process, whose table holds the pipe ends no program does: bridges, and sockets' connections */
+  get pipeProcess(): InstanceType<typeof ZenFSProcess> {
     if (!this._pipeProcess) {
       this._pipeProcess = new ZenFSProcess({ console: '/dev/null' })
       this.init.adopt(this._pipeProcess)

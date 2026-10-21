@@ -98,6 +98,26 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('talks over sockets: pairs, AF_UNIX and loopback TCP between processes, poll, epoll and SIGPIPE', async () => {
+    expect(await run('wali-net')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'socketpair: ping pong peek=ping fionread=4 eof=0 sock=1',
+        'unix reply: HELLO OVER THE SOCKET',
+        'unix: bind=0 listen=0 poll=1 revents=1 exit=0',
+        'tcp reply: HELLO OVER THE SOCKET',
+        'tcp: port>0=1 peer=127.0.0.1 family=2 exit=0',
+        'nonblock: accept=-1 EAGAIN recv=-1 EAGAIN pipe=-1 EAGAIN getfl=1',
+        'epoll: add=0 before=0 after=1 events=1 data=1234567890 again=1',
+        'inherited: said through an inherited socket',
+        'sigpipe: write=-1 EPIPE child signaled=1 sig=13',
+        'refused: -1 ECONNREFUSED',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)
