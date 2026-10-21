@@ -11,7 +11,7 @@ unxz, xzcat, lzma, unlzma, lzcat
 
 ## Description
 
-XZ Utils 5.8.4. `unxz`, `xzcat`, `lzma`, `unlzma` and `lzcat` are links to it. Compresses to `.xz` (or `.lzma`), removing the input unless `-k` is given. Single-threaded: `-T` is accepted and does nothing. The `xzdiff`/`xzgrep` family of scripts is not included.
+XZ Utils 5.8.4. `unxz`, `xzcat`, `lzma`, `unlzma` and `lzcat` are links to it. Compresses to `.xz` (or `.lzma`), removing the input unless `-k` is given. `-T N` compresses on N threads, splitting the input into blocks. The `xzdiff`/`xzgrep` family of scripts is not included.
 
 ## Examples
 

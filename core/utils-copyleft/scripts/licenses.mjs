@@ -31,7 +31,9 @@ for (const [name, program] of Object.entries(manifest.programs)) {
     '',
     'The changes were made in 2026; the repository history dates each one.',
     '',
-    `Toolchain: Emscripten ${manifest.toolchain.emscripten} (utils/emscripten-version in the repository pins it).`,
+    program.toolchain === 'wali'
+      ? `Toolchain: WALI's musl and the LLVM runtimes (${manifest.toolchain.wali}), with the patches in utils/wali/patches;\nutils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them.`
+      : `Toolchain: Emscripten ${manifest.toolchain.emscripten} (utils/emscripten-version in the repository pins it).`,
     '',
     'Where to get it',
     `  - /sources/${program.sources[0].archive} on the site that served this program, and the other archives listed above in the same place`,

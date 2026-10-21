@@ -5,13 +5,13 @@
 ## Synopsis
 
 ```
-zstd [-cdkf#] [--rm] [-o FILE] [FILE]...
+zstd [-cdkf#] [-T N] [--rm] [-o FILE] [FILE]...
 unzstd, zstdcat
 ```
 
 ## Description
 
-Zstandard 1.5.7. `unzstd` and `zstdcat` are links to it. Unlike `gzip` and `xz`, zstd keeps its input unless `--rm` is given. Single-threaded: `-T` is accepted and ignored. Levels 1 to 19 (`--ultra` for 20 to 22), dictionaries and `.zst` files; the zlib, xz and lz4 file formats are not built in.
+Zstandard 1.5.7. `unzstd` and `zstdcat` are links to it. Unlike `gzip` and `xz`, zstd keeps its input unless `--rm` is given. `-T N` compresses on N threads. Levels 1 to 19 (`--ultra` for 20 to 22), dictionaries and `.zst` files; the zlib, xz and lz4 file formats are not built in.
 
 ## Examples
 

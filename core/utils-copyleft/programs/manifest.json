@@ -1,7 +1,8 @@
 {
   "package": "@ecmaos/coreutils-copyleft",
   "toolchain": {
-    "emscripten": "6.0.9"
+    "emscripten": "6.0.9",
+    "wali": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8"
   },
   "programs": {
     "make": {
@@ -154,7 +155,7 @@
       "file": "lz4.wasm",
       "version": "1.10.0",
       "license": "GPL-2.0-or-later AND BSD-2-Clause",
-      "description": "lz4, and unlz4 and lz4cat (links to it); single-threaded",
+      "description": "lz4, and unlz4 and lz4cat (links to it)",
       "homepage": "https://lz4.org",
       "sources": [
         {
@@ -169,11 +170,12 @@
       "modifications": [
         {
           "file": "wasm/lz4/build.sh",
-          "what": "compile and link flags only (single-threaded); the source is unmodified"
+          "what": "compile and link flags only (with threads); the source is unmodified"
         }
       ],
-      "size": 176950,
-      "sha256": "62169fd453c18b338fae8e9d0d29e4f7611ec9a4eb7acf26064da6d800683d55"
+      "toolchain": "wali",
+      "size": 203463,
+      "sha256": "ac1becebfa4858ab1155ec0e3507f992a1c661a6df266f2efe780cbb537dc730"
     },
     "doom": {
       "file": "doom.wasm",

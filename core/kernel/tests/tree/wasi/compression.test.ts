@@ -5,7 +5,7 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
-/** `/bin/bzip2`, `xz`, `zstd` and `lz4` are C programs built to WebAssembly (`core/utils/wasm/*`), each with links for the other names. */
+/** `/bin/bzip2`, `xz`, `zstd` and `lz4` are C programs built to WebAssembly (`core/utils/wasm/*`; all but lz4 on WALI), each with links for the other names. */
 describe('bzip2, xz, zstd and lz4', () => {
   let kernel: Kernel
 
@@ -47,6 +47,20 @@ describe('bzip2, xz, zstd and lz4', () => {
       const bad = await run(`${tool} -dc /tmp/z.txt`)
       expect(bad.code).not.toBe(0)
       expect(bad.err).not.toBe('')
+    }, 60000)
+  }
+
+  // xz, zstd and lz4 are built with threads (core/utils/wasm/xz, core/utils/wasm/zstd, core/utils-copyleft/wasm/lz4): -T
+  // compresses on that many workers
+  for (const [tool, threads, said] of [['xz', '-T2 --block-size=65536', 'Using up to 2 threads'], ['zstd', '-T2 -B65536', 'Compressing with 2 worker threads'], ['lz4', '-T2 -B4', 'Using 2 threads for compression']] as const) {
+    it(`${tool} compresses on two threads and the result decompresses`, async () => {
+      const fs = kernel.filesystem.fs
+      const original = Array.from({ length: 6000 }, (_, i) => `line ${i} ${(i * 7919) % 104729}\n`).join('')
+      await fs.writeFile(`/tmp/t-${tool}.txt`, original)
+      expect(await kernel.shell.execute(`${tool} ${threads} -vv -c /tmp/t-${tool}.txt > /tmp/t-${tool}.packed 2> /tmp/t-${tool}.err`)).toBe(0)
+      expect(await fs.readFile(`/tmp/t-${tool}.err`, 'utf8')).toContain(said)
+      expect((await fs.readFile(`/tmp/t-${tool}.packed`)).length).toBeLessThan(original.length * 0.6)
+      expect((await run(`${tool} -dc /tmp/t-${tool}.packed | cmp - /tmp/t-${tool}.txt && echo same`)).out.trim()).toBe('same')
     }, 60000)
   }
 

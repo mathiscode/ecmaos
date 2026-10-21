@@ -20,8 +20,9 @@
       "license": "MIT",
       "description": "brotli, the compressor and decompressor",
       "homepage": "https://github.com/google/brotli",
-      "size": 736634,
-      "sha256": "d548d974ed3a26c6dff95006e099b2cb78411b985eaa3f9847b48ef48747054e"
+      "toolchain": "wali",
+      "size": 802148,
+      "sha256": "358b2dc83a62060ebb6d28f959a8b2285028702e394effb7deba88468b68c0ec"
     },
     "jq": {
       "file": "jq.wasm",
@@ -56,26 +57,29 @@
       "license": "bzip2-1.0.8",
       "description": "bzip2, and bunzip2 and bzcat (links to it)",
       "homepage": "https://sourceware.org/bzip2/",
-      "size": 109438,
-      "sha256": "7361501bf63e8ad14fe699730c73cc8b01af83391424cad2444b71eda1aa1052"
+      "toolchain": "wali",
+      "size": 121338,
+      "sha256": "d68532a580128b4df8f49d39791f7be0204ff4002082c57c0984220dbf11dac5"
     },
     "xz": {
       "file": "xz.wasm",
       "version": "5.8.4",
       "license": "0BSD",
-      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it); single-threaded",
+      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)",
       "homepage": "https://tukaani.org/xz/",
-      "size": 209316,
-      "sha256": "ed290c7e18751f1dfd505dbc03ec27bb8699aec19dfc2ad8b9dd6b87b951d219"
+      "toolchain": "wali",
+      "size": 246742,
+      "sha256": "fcad795d21c09ac4938bb5a9dd68f3256c044370418ebaac753547c26c57d316"
     },
     "zstd": {
       "file": "zstd.wasm",
       "version": "1.5.7",
       "license": "BSD-3-Clause",
-      "description": "zstd, and unzstd and zstdcat (links to it); single-threaded",
+      "description": "zstd, and unzstd and zstdcat (links to it)",
       "homepage": "https://facebook.github.io/zstd/",
-      "size": 659930,
-      "sha256": "d9d54cd6cd42f11539ebaaccbdeb8b2ac74cfab28471ec27265f6edc4adad4ea"
+      "toolchain": "wali",
+      "size": 724994,
+      "sha256": "9e3f03cbbc32f55a21082ef8af637e10458291a21dec43f4647c46bd733004dc"
     },
     "qjs": {
       "file": "qjs.wasm",
