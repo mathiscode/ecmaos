@@ -73,6 +73,7 @@
       "license": "GPL-2.0-or-later",
       "description": "tree, the directory lister",
       "homepage": "https://oldmanprogrammer.net/source.php?dir=projects/tree",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "tree",
@@ -83,12 +84,12 @@
           "sha256": "5caddcbca805131ff590b126d3218019882e4ca10bc9eb490bba51c05b9b3b75"
         }
       ],
-      "size": 84142,
-      "sha256": "0e57c8e9e5f854f654d2d795d69ca0b7c6add308996587cd9161e7cbd31a7f83",
+      "size": 110630,
+      "sha256": "e1dccf16abbf6b86643481358f3e867181e89f63c45ab3735d993fc6e6ad9054",
       "modifications": [
         {
           "file": "wasm/tree/build.sh",
-          "what": "compile and link flags only; the source is unmodified"
+          "what": "compile and link flags, and the counts (size_t and ssize_t) are printed with %zd where the source has %ld, which on WALI is wider"
         }
       ]
     },
@@ -132,6 +133,7 @@
       "license": "GPL-2.0-or-later",
       "description": "GNU ed, the line editor",
       "homepage": "https://www.gnu.org/software/ed/",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "ed",
@@ -148,8 +150,8 @@
           "what": "compile and link flags only; the source is unmodified. The archive is Debian's gzip copy of upstream's ed-1.22.5.tar.lz, since upstream publishes only lzip"
         }
       ],
-      "size": 100383,
-      "sha256": "44b6539f0e33025ba7d0776659c7bf350a1df2e8e7ec78dd8036b53798dc31f9"
+      "size": 133868,
+      "sha256": "74f31db20ef03f0195e04f10f58102e2ae118942fbf074220732a35b17d54562"
     },
     "lz4": {
       "file": "lz4.wasm",

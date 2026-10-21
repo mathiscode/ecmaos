@@ -11,8 +11,9 @@
       "license": "BSD-2-Clause",
       "description": "bc, and dc (the same binary under another name)",
       "homepage": "https://git.gavinhoward.com/gavin/bc",
-      "size": 265180,
-      "sha256": "bd6d4b2a7cdf160f3965a4f4a5033af0a798d05a1afd8f92847f285acd23bfb7"
+      "toolchain": "wali",
+      "size": 275391,
+      "sha256": "6ca918f99534063607e4c04afc6b8ac8561138a2dfc547a6acbbe9bf42b8fbe7"
     },
     "brotli": {
       "file": "brotli.wasm",
@@ -30,8 +31,9 @@
       "license": "MIT AND BSD-2-Clause AND ICU",
       "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
       "homepage": "https://jqlang.org",
-      "size": 929331,
-      "sha256": "21ef4f65bc6cb1c295360e8311121033838d9d97f1466e879a19ea9521971404"
+      "toolchain": "wali",
+      "size": 969079,
+      "sha256": "c9d4628f4a286ccc19c813368e02fd26486177cd524d284f723e1f67bade3049"
     },
     "lua": {
       "file": "lua.wasm",
@@ -39,8 +41,9 @@
       "license": "MIT",
       "description": "The Lua 5.4 interpreter",
       "homepage": "https://www.lua.org",
-      "size": 268813,
-      "sha256": "6a7b7dab6b65bf5c129d368f4ff87d08d83e40ddd12d69a8f1773bffca5d08e6"
+      "toolchain": "wali",
+      "size": 288467,
+      "sha256": "b867ed94e90623fd7fc9d1e30cfe708583b676dc58c312191cffcc7efe0d148f"
     },
     "sqlite3": {
       "file": "sqlite3.wasm",
@@ -48,8 +51,9 @@
       "license": "blessing AND BSD-2-Clause",
       "description": "The SQLite command-line shell, with linenoise for line editing",
       "homepage": "https://sqlite.org",
-      "size": 1568779,
-      "sha256": "db2a96d5822bf29a8a8ff44099f2cffc442c8975270f4f4808ad44e8856f5f81"
+      "toolchain": "wali",
+      "size": 1619594,
+      "sha256": "9331f41617add67495bea99b5ac64470c0464aeff2462e8182ffa99f3b9369e8"
     },
     "bzip2": {
       "file": "bzip2.wasm",
@@ -104,10 +108,11 @@
       "file": "ncdu.wasm",
       "version": "1.22",
       "license": "MIT AND X11",
-      "description": "ncdu, the disk usage browser, with ncurses; `b` (spawn a shell) does not work",
+      "description": "ncdu, the disk usage browser, with ncurses",
       "homepage": "https://dev.yorhel.nl/ncdu",
-      "size": 252050,
-      "sha256": "b39c6bf892488a0e460a72ff04ca3a5ef8ba30e6aa847f61e9277c8d3c6d3c69"
+      "toolchain": "wali",
+      "size": 280083,
+      "sha256": "4a33088b06097f98137dd108de5173f92a5364d652267943fc207fe6b1e28c52"
     },
     "mg": {
       "file": "mg.wasm",

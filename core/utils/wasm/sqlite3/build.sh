@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Rebuilds programs/sqlite3.wasm: the SQLite command-line shell for ecmaOS, with emscripten.
+# Rebuilds programs/sqlite3.wasm: the SQLite command-line shell for ecmaOS, on WALI's musl (`utils/check-wali.sh`),
+# run by /bin/wali.
 #
-# Needs `emcc` (emscripten 6) and `unzip`. The result is committed, so only run this to change it.
-# It is built like the other emcc programs (see ../vim/build.sh): `-sSTANDALONE_WASM=0`, so the module
-# imports the real `env.__syscall_*` calls that `core/kernel/src/bin/wasi-preview1.mjs` answers.
+# Needs `unzip`. The result is committed, so only run this to change it.
 #
 #  - Single-threaded and with no loadable extensions (no `dlopen`), which is also what keeps the module small.
 #  - FTS5, JSON, math functions and the `dbstat` virtual table are compiled in.
-#  - No mmap (`SQLITE_MAX_MMAP_SIZE=0`): the shim has no `mmap`, and SQLite reads and writes the file itself.
+#  - No mmap (`SQLITE_MAX_MMAP_SIZE=0`): a shared mapping here is a copy kept in step at system calls, so SQLite
+#    reads and writes the file itself.
 #  - Line editing and history come from linenoise (BSD, pinned below): the terminal is in cooked mode, which would
 #    echo an arrow key as raw escape bytes. History is kept in ~/.sqlite_history, as the real shell does.
 set -euo pipefail
-"$(dirname "$0")/../../../../utils/check-emcc.sh"
+source "$(dirname "$0")/../../../../utils/check-wali.sh"
 
 VERSION=3530400
 YEAR=2026
@@ -34,10 +34,11 @@ tar xzf linenoise.tar.gz
 cd "sqlite-amalgamation-$VERSION"
 cp ../linenoise-$LINENOISE/linenoise.[ch] .
 
-emcc -O2 -Wno-implicit-const-int-float-conversion \
+"$WALI_CC" -O2 -Wno-implicit-const-int-float-conversion \
   -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_MATH_FUNCTIONS \
-  -DSQLITE_ENABLE_DBSTAT_VTAB -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_DQS=0 -DHAVE_USLEEP=0 -DSQLITE_MAX_MMAP_SIZE=0 -DHAVE_LINENOISE=1 \
-  shell.c sqlite3.c linenoise.c -o sqlite3 \
-  -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=16777216 -sEXPORTED_FUNCTIONS=_main,_fflush
+  -DSQLITE_ENABLE_DBSTAT_VTAB -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_DQS=0 -DHAVE_USLEEP=1 -DSQLITE_MAX_MMAP_SIZE=0 -DHAVE_LINENOISE=1 \
+  shell.c sqlite3.c linenoise.c -o sqlite3.wasm -lm \
+  > build.log 2>&1 || { tail -30 build.log >&2; exit 1; }
 cp sqlite3.wasm "$OUT"
 ls -l "$OUT"
+echo "built with $WALI_TOOLCHAIN"

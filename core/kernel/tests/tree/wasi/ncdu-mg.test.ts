@@ -104,6 +104,22 @@ describe('ncdu and mg', () => {
     expect(await done).toBe(0)
   }, 90000)
 
+  // `b` runs SHELL with system(), which starts it with posix_spawn (core/utils/wasm/ncdu/build.sh)
+  it('ncdu spawns a shell in the directory shown, and comes back when it exits', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/dsh/inner', { recursive: true })
+    const done = kernel.shell.execute('ncdu /tmp/dsh')
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await waitFor(() => screenText().includes('Total disk usage'))
+    const press = async (keys: string) => { kernel.terminal.input(keys, true); await new Promise(resolve => setTimeout(resolve, 600)) }
+    await press('b')
+    await press('echo "in $(pwd) at level $NCDU_LEVEL"\r')
+    await waitFor(() => screenText().includes('in /tmp/dsh at level 1'))
+    await press('exit\r')
+    await waitFor(() => screenText().includes('Total disk usage'))
+    await press('q')
+    expect(await done).toBe(0)
+  }, 90000)
+
   /** Starts mg on `file` in the foreground and waits for its screen; `press` types keys and gives mg time to redraw */
   const startMg = async (file: string) => {
     const done = kernel.shell.execute(`mg ${file}`)
