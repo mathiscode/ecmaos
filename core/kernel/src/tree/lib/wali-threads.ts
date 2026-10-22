@@ -28,6 +28,8 @@ const threads = new WeakMap<ProcessType, Set<ProcessType>>()
 const ownContexts = new WeakMap<ProcessType, ProcessType['context']>()
 
 export const leaderOf = (proc: ProcessType) => leaders.get(proc) ?? proc
+/** A process's threads other than its leader */
+export const threadsOf = (leader: ProcessType): Iterable<ProcessType> => threads.get(leader) ?? []
 
 /** What upstream keeps read-only or protected, which a thread needs set: its context, and the worker it posts to */
 type Settable = { context: ProcessType['context'] }
@@ -61,6 +63,9 @@ export function installThreads(): void {
     ownContexts.set(thread, own)
     ;(thread as Settable).context = Object.create(leader.context, { id: { value: own.id } }) as ProcessType['context']
     thread.caps = leader.caps
+    // the signals the program handles are the process's, so a thread has them from its start, before its half of the
+    // host says so itself (a signal sent it at once would otherwise take its default action)
+    for (const signal of leader.caught) thread.catch_signal(signal)
     leaders.set(thread, leader)
     let siblings = threads.get(leader)
     if (!siblings) threads.set(leader, (siblings = new Set()))

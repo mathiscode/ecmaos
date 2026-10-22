@@ -10,7 +10,8 @@
 #   WALI_TOOLCHAIN      a line naming what built the binary, for its source offer
 #
 # The sysroot lives in $ECMAOS_WALI_HOME (default ~/.cache/ecmaos/wali), in a directory named for a hash of the pins,
-# the patches and the build script, so changing any of them builds a new one. clang must be the pinned LLVM major;
+# the patches, the build script and the signal checks wali-cc adds to each program (wali/signal-checks.mjs, run with
+# node), so changing any of them builds a new one. clang must be the pinned LLVM major;
 # `ECMAOS_WALI_ANY=1` builds with another one anyway. wasm-ld is $WALI_LD, else the first on PATH, else emscripten's.
 
 _wali_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -23,7 +24,7 @@ if [ "${_wali_clang%%.*}" != "$_wali_major" ] && [ -z "${ECMAOS_WALI_ANY:-}" ]; 
   echo "clang ${_wali_clang:-not found}: WALI programs are built with LLVM $_wali_major (utils/wali-version). Set ECMAOS_WALI_ANY=1 to build with this one anyway." >&2
   return 1 2>/dev/null || exit 1
 fi
-for _wali_tool in llvm-ar llvm-ranlib cmake ninja make curl xz patch; do
+for _wali_tool in llvm-ar llvm-ranlib cmake ninja make curl xz patch node; do
   command -v "$_wali_tool" > /dev/null || { echo "check-wali: $_wali_tool not found" >&2; return 1 2>/dev/null || exit 1; }
 done
 
@@ -39,7 +40,7 @@ if [ -z "$_wali_ld" ]; then
 fi
 _wali_ld_version=$("$_wali_ld" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
 
-_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
+_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir/wali/signal-checks.mjs" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
 WALI_SYSROOT=${ECMAOS_WALI_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/ecmaos/wali}/$_wali_key
 if [ ! -x "$WALI_SYSROOT/bin/wali-cc" ]; then
   mkdir -p "$(dirname "$WALI_SYSROOT")"

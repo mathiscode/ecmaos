@@ -79,9 +79,10 @@ mapping, descriptor flags and allocation), `wali-setjmp.c` (setjmp and longjmp o
 `wali-net.c` (socketpair, AF_UNIX and loopback TCP between processes, poll,
 epoll, non-blocking calls, SIGPIPE, and a socket as a child's stdout) `wali-shared.c` (a shared file mapping in
 step with the file across processes, and unmapped in part), `wali-tty.c` (a pty, stopping and continuing, and
-reading the terminal from the background) and `wali-thread.c` (mutexes, condition variables, thread-local storage,
-malloc from many threads at once, detached threads, and exit() from a thread); the last four start copies of themselves in the roles
-named by their first argument. `wali-mmap.wasm` is `emcc-mmap.c` built on WALI, and `emcc-mmap.test.ts` runs both
+reading the terminal from the background), `wali-thread.c` (mutexes, condition variables, thread-local storage,
+malloc from many threads at once, detached threads, and exit() from a thread) and `wali-busy.c` (signals to a program
+computing in a loop: a handler mid-loop, a leaf function's locals left alone, and a process stopped in a loop); the
+last five start copies of themselves in the roles named by their first argument. `wali-mmap.wasm` is `emcc-mmap.c` built on WALI, and `emcc-mmap.test.ts` runs both
 builds with the same assertions; so are `wali-errno.wasm` and `wali-readdir.wasm` (`emcc-errno.test.ts`),
 `wali-rawtty.wasm` from `emcc-tty.c` (`emcc-tty.test.ts`), `wali-inet6.wasm` (`emcc-inet6.test.ts`),
 `wali-udp-msg.wasm` (`emcc-udp-msg.test.ts`), `wali-scm.wasm` and `wali-scm-peer.wasm` (`emcc-scm.test.ts`), and `wali-proc.wasm` and `emcc-proc.c`, below.

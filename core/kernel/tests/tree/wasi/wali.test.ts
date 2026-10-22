@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { processes } from '@zenfs/linux'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -21,6 +22,14 @@ describe('WALI programs', () => {
     })
     await kernel.boot()
   })
+
+  const waitFor = async (check: () => boolean, timeoutMs = 20000) => {
+    const start = Date.now()
+    while (!check()) {
+      if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  }
 
   const run = async (fixture: string, command = `/tmp/${fixture}`) => {
     const { readFileSync } = process.getBuiltinModule('node:fs')
@@ -141,6 +150,48 @@ describe('WALI programs', () => {
       ].join('\n')
     })
   }, 120_000)
+
+  it('gets its signals while computing: a handler runs mid-loop, and a stopped process stays stopped', async () => {
+    // the child stopped while computing goes to wait in a syscall, which the kernel holds, rather than computing on
+    // (before its parent sends it the signal whose handler would end its loop)
+    const stoppedChild = () => [...processes.values()].find(proc => proc.argv[1] === 'spin' && proc.stopped && proc.code === undefined)
+    const waiting = (async () => {
+      await waitFor(() => !!stoppedChild())
+      const control = (stoppedChild()!.thread as unknown as { control: { status: Int32Array } }).control
+      // 0: the page's status while its thread waits on a syscall (upstream's `SyscallStatus.Pending`)
+      await waitFor(() => Atomics.load(control.status, 0) === 0, 200)
+      return true
+    })().catch(() => false)
+    expect(await run('wali-busy')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'alarm while computing: fired=1',
+        'leaf: locals intact=1',
+        'child computing: ready=1 exit=7',
+        'stopped computing: stopped=1 held=1 exit=7',
+        ''
+      ].join('\n')
+    })
+    expect(await waiting).toBe(true)
+  }, 60_000)
+
+  it('has real-time signals: queued, between threads, waited for, and ending a process that does not handle one', async () => {
+    expect(await run('wali-rtsig')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'range: SIGRTMIN=35 SIGRTMAX=64',
+        'raise: delivered=1000 failed=0',
+        'queued while blocked: real-time=5 SIGUSR1=1',
+        'pthread_kill to a thread computing: delivered=100 failed=0',
+        'sigwaitinfo: 3 3 signo=3, then timed out=1',
+        'sigqueue: delivered=1',
+        'unhandled: signaled=1 by=5',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
 
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })

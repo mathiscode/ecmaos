@@ -15,6 +15,7 @@ import type { Credentials } from '@zenfs/core'
 import { Errno } from 'kerium'
 import { execveWhenFree } from './execve-retry.ts'
 import { ttyPathOf } from './pty.ts'
+import { noticeStop } from './wali-signals.ts'
 import { setuidCredentials } from './process-credentials.ts'
 import { finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { Tracer } from './syscall-trace.ts'
@@ -304,6 +305,7 @@ export function installStops(): void {
     const result = kill.call(this, signal)
     if (!wasStopped && this.stopped) {
       stopSignals.set(this, number ?? SIGTSTP)
+      noticeStop(this)
       const parent = this.parent
       if (parent && parent.code === undefined) try { parent.kill(SIGCHLD) } catch { /* nobody is listening */ }
     }

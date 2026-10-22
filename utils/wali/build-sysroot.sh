@@ -114,7 +114,9 @@ ninja -C "$WORK/cxx" install >> "$WORK/cxx.log" 2>&1 || { tail -30 "$WORK/cxx.lo
 
 # What a build passes as CC and CXX: one command each, so configure scripts and makefiles can take them as they are.
 # The link flags are left off a compile (-c, -S, -E) and the code generation option off a link of objects alone,
-# where clang would warn that they went unused.
+# where clang would warn that they went unused. A program they link gets a signal check in each loop
+# (signal-checks.mjs, kept beside them).
+cp "$(dirname "$0")/signal-checks.mjs" "$STAGE/bin/signal-checks.mjs"
 for tool in cc c++; do
   driver=clang; extra=""
   [ "$tool" = c++ ] && driver=clang++ && extra="-stdlib=libc++"
@@ -126,13 +128,20 @@ for tool in cc c++; do
 # stack (wasm-ld's default, 64 KiB, overflows below address 0 in programs written for Linux)
 link="-Wl,--shared-memory -Xlinker --import-memory=wali,memory -Wl,--export-memory -Wl,--export-table -Wl,--max-memory=2147483648 -Wl,-z,stack-size=8388608"
 sjlj=
+out=a.out
+next=
 for arg in "\$@"; do
+  [ -n "\$next" ] && out=\$arg && next=
   case "\$arg" in
     -c|-S|-E|-M|-MM) link= ;;
     -x|*.c|*.cc|*.cpp|*.cxx|*.C|*.c++|*.i|*.ii|-) sjlj="$SJLJ" ;;
+    -o) next=1 ;;
+    -o*) out=\${arg#-o} ;;
   esac
 done
-exec $driver $DRIVER $extra \$sjlj "\$@" \$link
+$driver $DRIVER $extra \$sjlj "\$@" \$link || exit
+# each loop of the program looks for signals now and then, so they reach it while it computes
+[ -z "\$link" ] || [ ! -f "\$out" ] || node "$STAGE/bin/signal-checks.mjs" "\$out"
 EOF
   # the paths in it are the staging directory's until it is moved into place
   sed -i "s#$STAGE#$OUT#g" "$STAGE/bin/wali-$tool"

@@ -14,7 +14,8 @@
  * - processes: `posix_spawn` (`__ecmaos_spawn`, from the sysroot's musl patch), `wait4` and `execve` on the kernel's
  *   process calls, and the job-control ids
  * - signals: dispositions, the mask, pending signals, and handlers run when an import returns, with `EINTR` or a
- *   restart (`SA_RESTART`) for a call they interrupted, and `SIGPIPE` for a write nothing will read; `sleep` and the
+ *   restart (`SA_RESTART`) for a call they interrupted, and `SIGPIPE` for a write nothing will read; a program off
+ *   computing calls in from its loops when the kernel has set its signal word (`__ecmaos_poll`); `sleep` and the
  *   clocks
  * - sockets: stream sockets on the kernel's socket files (`tree/lib/socket-files.ts`), so a socket is one descriptor
  *   the kernel reads, writes and polls; `AF_UNIX`, and `AF_INET`/`AF_INET6` on loopback or through the gateway
@@ -712,6 +713,8 @@ const SIGKILL = 9, SIGSTOP = 19
 const DEFAULT_IGNORED = new Set([17 /* SIGCHLD */, 18 /* SIGCONT */, 23 /* SIGURG */, 28 /* SIGWINCH */])
 /** The signals the kernel raises on a thread: the standard ones, 1 to 31 */
 const KERNEL_SIGNALS = 31
+/** The real-time signals, which the kernel queues for the thread, every one sent delivered (`tree/lib/wali-signals.ts`) */
+const SIGRTMIN = 32, SIGRTMAX = 64
 const bit = signal => 1n << BigInt(signal - 1)
 const UNBLOCKABLE = bit(SIGKILL) | bit(SIGSTOP)
 
@@ -742,17 +745,36 @@ function setAction(signal, action) {
   seenVersion = Atomics.add(state.words, VERSION, 1) + 1
 }
 let seenVersion = 0
+/** Where the process's signal word is, in the program's memory (`attach`), for a program whose loops read one */
+let signalWord = 0
 let mask = 0n
 /** Raised and not yet delivered, as a sigset */
 let raised = 0n
 /** How many signals have been raised, so a call can tell whether one arrived while it ran */
 let arrivals = 0
+/** How many of each real-time signal are raised: they queue, where a standard one sent again merges */
+const queued = new Map()
 /** The signals the kernel hands to this process rather than taking its default action for */
 const routed = new Set()
 
 function record(signal) {
   raised |= bit(signal)
+  if (signal >= SIGRTMIN) queued.set(signal, (queued.get(signal) ?? 0) + 1)
   arrivals++
+}
+
+/** Takes one of a raised signal for delivery: the last of a real-time one, or a standard one */
+function take(signal) {
+  const count = queued.get(signal) ?? 0
+  if (count > 1) return queued.set(signal, count - 1)
+  queued.delete(signal)
+  raised &= ~bit(signal)
+}
+
+/** Drops a raised signal, every one of it queued (one that comes to be ignored) */
+function drop(signal) {
+  queued.delete(signal)
+  raised &= ~bit(signal)
 }
 
 /**
@@ -760,6 +782,7 @@ function record(signal) {
  * knows no mask); otherwise the kernel takes its default action, terminating or stopping the process itself.
  */
 function route(signal) {
+  if (signal >= SIGRTMIN) return publishRealTime()
   if (signal === SIGKILL || signal === SIGSTOP) return
   const wanted = actionOf(signal).handler !== SIG_DFL || (mask & bit(signal)) !== 0n
   if (wanted && !routed.has(signal)) {
@@ -773,7 +796,21 @@ function route(signal) {
 
 function routeAll() {
   for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) route(signal)
+  publishRealTime()
 }
+
+/** The real-time signals the kernel queues for this thread rather than ending the process: those it routes, as above */
+let realTime = -1n
+function publishRealTime() {
+  let set = 0n
+  for (let signal = SIGRTMIN; signal <= SIGRTMAX; signal++) {
+    if (actionOf(signal).handler !== SIG_DFL || (mask & bit(signal)) !== 0n) set |= 1n << BigInt(signal - SIGRTMIN)
+  }
+  if (set === realTime) return
+  realTime = set
+  syscall_raw('proc_rt_sigstate', Number(set & 0xffffffffn), Number(set >> 32n))
+}
+const takesRealTime = signal => ((realTime >> BigInt(signal - SIGRTMIN)) & 1n) !== 0n
 
 /**
  * Tells the kernel which signals are ignored and blocked now: what an exec keeps, and what decides whether reading the
@@ -787,7 +824,11 @@ function publish() {
   syscall_raw('proc_set_sigstate', ignored, blocked)
 }
 
-/** Signals the kernel raised while the program was computing, which the next syscall would otherwise clear */
+/**
+ * Signals the kernel raised while the program was computing, which the next syscall would otherwise clear. A program
+ * with a signal word (`attach`) has them cleared from the page at once, by a syscall, or the next import would take
+ * them again (and the word, which stays set while a thread has some, would keep the others' loops calling in)
+ */
 function collect() {
   // another thread changed a disposition
   const version = Atomics.load(state.words, VERSION)
@@ -800,6 +841,18 @@ function collect() {
   for (let signal = 1; signal <= KERNEL_SIGNALS; signal++) {
     if ((bits & (1 << signal)) && routed.has(signal)) record(signal)
   }
+  // bit 0 marks real-time signals queued in the kernel
+  if (signalWord || (bits & 1)) takeQueued()
+}
+
+/**
+ * Takes this thread's real-time signals off the kernel's queue, which also clears its page and has the kernel look
+ * again at the signal word. A page's bit 0 is cleared, unread, by a syscall it arrives during (which the dependency
+ * delivers the standard signals of), so the queue is also looked at after a call that a signal interrupted
+ */
+function takeQueued() {
+  const count = syscall_raw('proc_signal_poll')
+  for (let i = 0; i < count; i++) record(returned[i])
 }
 
 /** The ignored signals and the mask as the kernel keeps them across an exec: sigsets of signals 1 to 31 */
@@ -866,13 +919,13 @@ function deliver() {
     if (!ready) return { handled, restart }
     let signal = 1
     while (!(ready & bit(signal))) signal++
-    raised &= ~bit(signal)
+    take(signal)
     const action = actionOf(signal)
     if (action.handler === SIG_IGN) continue
     if (action.handler === SIG_DFL) {
       if (DEFAULT_IGNORED.has(signal)) continue
       route(signal)
-      syscall_raw('kill', getpid(), signal)
+      syscall_raw(signal >= SIGRTMIN ? 'proc_kill' : 'kill', getpid(), signal)
       continue
     }
     handled++
@@ -890,7 +943,8 @@ function deliver() {
 /** A signal this process sends itself: delivered before the call that sent it returns, as `raise` promises */
 function raiseHere(signal) {
   if (!signal) return 0
-  if (!routed.has(signal)) return syscall_raw('kill', getpid(), signal)
+  if (signal >= SIGRTMIN && !takesRealTime(signal)) return syscall_raw('proc_kill', getpid(), signal)
+  if (signal < SIGRTMIN && !routed.has(signal)) return syscall_raw('kill', getpid(), signal)
   record(signal)
   return 0
 }
@@ -900,7 +954,7 @@ function waitForHandler() {
   for (;;) {
     collect()
     if (deliver().handled) return -EINTR
-    syscall_raw('poll', [], -1)
+    if (syscall_raw('poll', [], -1) === -EINTR) takeQueued()
   }
 }
 
@@ -932,6 +986,7 @@ function delivering(name, call) {
         if (flagsAt < 0 || !(args[flagsAt] & MSG_NOSIGNAL)) raiseHere(SIGPIPE)
       }
       const interrupted = result === -BigInt(EINTR)
+      if (interrupted) takeQueued()
       const { handled, restart } = deliver()
       if (!interrupted || OWN_DELIVERY.has(name)) return result
       if (SENDS_SIGNALS.has(name)) return 0n
@@ -965,6 +1020,7 @@ function wait4(pid, statusPtr, options, rusagePtr) {
   let value = syscall_raw('proc_waitpid', target, flags)
   // the SIGCHLD raised as a child ends wakes the wait with EINTR; Linux returns that child, which is ready by then
   if (value === -EINTR && !(flags & WNOHANG)) {
+    takeQueued()
     const ready = syscall_raw('proc_waitpid', target, flags | WNOHANG)
     if (ready > 0) value = ready
   }
@@ -1759,8 +1815,8 @@ const calls = {
     if (oldPtr) writeAction(oldPtr, actionOf(signal))
     if (next) {
       setAction(signal, next)
-      if (next.handler === SIG_IGN) raised &= ~bit(signal)
-      if (signal <= KERNEL_SIGNALS) route(signal)
+      if (next.handler === SIG_IGN) drop(signal)
+      route(signal)
       publish()
     }
     return 0n
@@ -1779,6 +1835,14 @@ const calls = {
     }
     if (oldPtr) view().setBigUint64(oldPtr, previous, true)
     return 0n
+  },
+  // what the program's loops call when the kernel set the process's signal word (utils/wali/signal-checks.mjs), so a
+  // program off computing still gets its signals: they are delivered as this returns, as for any import. The kernel
+  // clears the word in the call once no thread has signals waiting, and holds the call while the process is stopped,
+  // which it waits out here
+  __ecmaos_poll: () => {
+    collect()
+    takeQueued()
   },
   SYS_rt_sigpending: ptr => {
     if (!ptr) return big(-EFAULT)
@@ -1807,6 +1871,33 @@ const calls = {
   // one thread per process: a thread id is the pid
   SYS_tkill: (tid, signal) => tid === getpid() ? big(raiseHere(signal)) : calls.SYS_kill(tid, signal),
   SYS_tgkill: (tgid, tid, signal) => tid === getpid() ? big(raiseHere(signal)) : calls.SYS_kill(tid, signal),
+  // `sigqueue`: the signal is sent; the value with it does not go along
+  SYS_rt_sigqueueinfo: (pid, signal) => calls.SYS_kill(pid, signal),
+  SYS_rt_tgsigqueueinfo: (tgid, tid, signal) => calls.SYS_tgkill(tgid, tid, signal),
+  // `sigwaitinfo` and `sigtimedwait`: takes one of the set's signals from those raised, waiting for one (the set is
+  // blocked, so the kernel hands them over rather than acting on them); a signal with a handler ends the wait (EINTR)
+  SYS_rt_sigtimedwait: (setPtr, infoPtr, timeoutPtr) => {
+    const set = view().getBigUint64(setPtr, true) & ~UNBLOCKABLE
+    const deadline = timeoutPtr ? performance.now() + readTimespec(timeoutPtr) : Infinity
+    for (;;) {
+      collect()
+      const ready = raised & set
+      if (ready) {
+        let signal = 1
+        while (!(ready & bit(signal))) signal++
+        take(signal)
+        if (infoPtr) {
+          bytes().fill(0, infoPtr, infoPtr + 128)
+          view().setInt32(infoPtr, signal, true)
+        }
+        return big(signal)
+      }
+      if (raised & ~mask) return big(-EINTR)
+      const left = deadline - performance.now()
+      if (left <= 0) return big(-EAGAIN)
+      if (syscall_raw('poll', [], left === Infinity ? -1 : Math.ceil(left)) === -EINTR) takeQueued()
+    }
+  },
 
   SYS_clock_gettime: (clock, ptr) => {
     if (ptr) writeTimespec(ptr, now(clock))
@@ -1915,4 +2006,10 @@ export function attach(instance) {
   memory = instance.exports.memory
   table = instance.exports.__indirect_function_table
   if (!thread) Atomics.store(state.addresses, TOP, roundUp(memory.buffer.byteLength, PAGE))
+  // the word the program's loops read, which the kernel sets as it raises a signal on one of its threads, or stops it
+  const word = instance.exports.__ecmaos_signal_word
+  if (word) {
+    signalWord = word.value
+    syscall_raw('proc_signal_word', memory.buffer, signalWord)
+  }
 }
