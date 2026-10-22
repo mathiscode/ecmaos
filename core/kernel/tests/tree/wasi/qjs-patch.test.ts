@@ -39,6 +39,36 @@ describe('qjs and patch', () => {
     expect((await run(`qjs -e 'import("qjs:std").then(s => s.exit(7))'`)).code).toBe(7)
   }, 60000)
 
+  // os.exec starts the program with posix_spawn where it would fork (core/utils/wasm/quickjs/build.sh)
+  it('qjs runs a program with os.exec, into a pipe and in another directory', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/qx', { recursive: true })
+    await kernel.filesystem.fs.writeFile('/tmp/qx.mjs', [
+      `import * as os from 'qjs:os'`,
+      `import * as std from 'qjs:std'`,
+      `const [r, w] = os.pipe()`,
+      `const status = os.exec(['sh', '-c', 'echo "in $(pwd)"; exit 3'], { stdout: w, cwd: '/tmp/qx' })`,
+      `os.close(w)`,
+      `const out = std.fdopen(r, 'r').readAsString()`,
+      `console.log(status, out.trim(), os.exec(['/bin/no-such-program']))`
+    ].join('\n'))
+    expect(await run('qjs /tmp/qx.mjs')).toEqual({ code: 0, out: '3 in /tmp/qx 127\n', err: '' })
+  }, 60000)
+
+  it('qjs runs an os.Worker and passes messages both ways', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/qw-worker.mjs', [
+      `import * as os from 'qjs:os'`,
+      `const parent = os.Worker.parent`,
+      `parent.onmessage = e => { parent.postMessage({ sum: e.data.reduce((a, b) => a + b, 0) }); parent.onmessage = null }`
+    ].join('\n'))
+    await kernel.filesystem.fs.writeFile('/tmp/qw.mjs', [
+      `import * as os from 'qjs:os'`,
+      `const worker = new os.Worker('/tmp/qw-worker.mjs')`,
+      `worker.onmessage = e => { console.log('sum', e.data.sum); worker.onmessage = null }`,
+      `worker.postMessage([1, 2, 3, 4])`
+    ].join('\n'))
+    expect(await run('qjs /tmp/qw.mjs')).toEqual({ code: 0, out: 'sum 10\n', err: '' })
+  }, 60000)
+
   it('patch applies a unified diff, and -R undoes it', async () => {
     const fs = kernel.filesystem.fs
     await fs.mkdir('/tmp/pt', { recursive: true })

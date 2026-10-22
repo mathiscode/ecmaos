@@ -91,8 +91,9 @@
       "license": "MIT",
       "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
       "homepage": "https://quickjs-ng.github.io/quickjs/",
-      "size": 1092482,
-      "sha256": "b9adf770e8a32d5fe49e9ae0fe6130c9318215a4a2848af34506d713960a7cd2"
+      "toolchain": "wali",
+      "size": 1121774,
+      "sha256": "ad9fa1ff0f22dd9c93bc83d944d99d6917a81b327bec380ac4b5bae805a6b05d"
     },
     "patch": {
       "file": "patch.wasm",
@@ -139,8 +140,9 @@
       "license": "ISC AND Zlib",
       "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
       "homepage": "https://mandoc.bsd.lv",
-      "size": 547142,
-      "sha256": "97a122619ae98e71a0571a6f67caf114514435debf66619de57e2baa2e13b956"
+      "toolchain": "wali",
+      "size": 598481,
+      "sha256": "6c5cdf5c8d8a12de386ab05e7d577abb4ae7d8da6b1d261b40e9ea42aa21aa07"
     },
     "wlcomp": {
       "file": "wlcomp.wasm",

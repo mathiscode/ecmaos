@@ -40,6 +40,7 @@
       "license": "GPL-3.0-or-later AND X11",
       "description": "GNU nano, with ncurses",
       "homepage": "https://www.nano-editor.org",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "nano",
@@ -58,12 +59,12 @@
           "sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
         }
       ],
-      "size": 570454,
-      "sha256": "283e364c6cac3a312793cc4474135601c699d60b3ff050d4b2c04cb0852050a2",
+      "size": 644484,
+      "sha256": "d2eb90856916995f5f1f11a3f334b04ef197982e75b3cdede2df01ff2546060f",
       "modifications": [
         {
           "file": "wasm/nano/build.sh",
-          "what": "the build; patches src/nano.c so TERM=xterm.js (or unset) falls back to xterm-256color, and builds ncurses with built-in terminfo entries"
+          "what": "the build; patches src/nano.c so TERM=xterm.js (or unset) falls back to xterm-256color and a SHELL that is not a path falls back to /bin/sh, and src/files.c and src/text.c so an executed command, the formatter and the linter are started with posix_spawn where nano forks, and the text a command filters is sent from a thread where a forked process sent it; builds ncurses with built-in terminfo entries"
         }
       ]
     },

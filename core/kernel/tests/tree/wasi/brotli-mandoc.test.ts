@@ -69,4 +69,12 @@ describe('brotli and mandoc', () => {
     const lint = await run('mandoc -T lint /tmp/bad.1')
     expect(lint.err + lint.out).toMatch(/unknown|invalid|bad|skipping|date/i)
   }, 60000)
+
+  it('mandoc reads a gzipped page (zlib)', async () => {
+    const { gzipSync } = process.getBuiltinModule('node:zlib')
+    await kernel.filesystem.fs.writeFile('/tmp/z.1.gz', new Uint8Array(gzipSync(page)))
+    const text = await run('mandoc -T ascii /tmp/z.1.gz')
+    expect(text.code).toBe(0)
+    expect(unbold(text.out)).toMatch(/testpage\s+- a page for the test/i)
+  }, 60000)
 })

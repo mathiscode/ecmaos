@@ -18,6 +18,10 @@ exits, `^W` searches, `^\` replaces, `^K` and `^U` cut and paste a line, `^G` sh
 `M-U` and `M-E` undo and redo, `M-A` starts a selection. Options such as `-l` (line numbers), `-m` (mouse),
 `-i` (auto-indent), `-w` (no wrapping) and `-S` (smooth scrolling) work as usual.
 
+`^T` runs a shell command (with `/bin/sh`) and inserts what it prints; a command that starts with `|` filters the
+buffer, or the selection, through it. A `formatter` or `linter` that a syntax names runs from there too: `^T` `^O`
+formats the buffer, `^T` `^Y` lints the file and steps through what the linter reported.
+
 It reads `/etc/nanorc` and `~/.nanorc` when they exist; none is shipped, so there is no syntax highlighting until
 you add `syntax` lines or `include` files of your own. Spell checking (`-s`) and the file browser are not built in.
 

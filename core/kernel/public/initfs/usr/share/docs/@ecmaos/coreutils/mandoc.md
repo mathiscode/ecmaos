@@ -24,4 +24,4 @@ mandoc -T lint page.1
 
 ## License
 
-ISC, with a few BSD-2-Clause and BSD-3-Clause files (listed in the license text); zlib from emscripten is under the zlib license. The texts are in `/usr/share/licenses/@ecmaos/coreutils/mandoc/`.
+ISC, with a few BSD-2-Clause and BSD-3-Clause files (listed in the license text); zlib 1.3.1, built with it, is under the zlib license. The texts are in `/usr/share/licenses/@ecmaos/coreutils/mandoc/`.
