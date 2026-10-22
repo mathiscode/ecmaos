@@ -32,8 +32,8 @@
       "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
       "homepage": "https://jqlang.org",
       "toolchain": "wali",
-      "size": 986306,
-      "sha256": "9a8b881824b5fea453aa62105f9bc03c79b006af8553bdcc3d4d89551ac532a9"
+      "size": 986117,
+      "sha256": "116238c3890b580b53c354e6ee8a062f6d18b221acad85bf04d44455bc8949cd"
     },
     "lua": {
       "file": "lua.wasm",
@@ -42,8 +42,8 @@
       "description": "The Lua 5.4 interpreter",
       "homepage": "https://www.lua.org",
       "toolchain": "wali",
-      "size": 299611,
-      "sha256": "ae8babffd9e45a28e84ae577da99a54bbd492e47ff30291a0c2d15f2d6cc39a6"
+      "size": 299186,
+      "sha256": "aa091ff62b174999c193db38419d5d2e0787c68e9fd332f02797a8f85ea14f73"
     },
     "sqlite3": {
       "file": "sqlite3.wasm",
@@ -52,8 +52,8 @@
       "description": "The SQLite command-line shell, with linenoise for line editing",
       "homepage": "https://sqlite.org",
       "toolchain": "wali",
-      "size": 1686169,
-      "sha256": "c8b9244eab42b2196be84c8e7fdad78c587263c147ea12c3c8a41530b6e91416"
+      "size": 1686002,
+      "sha256": "59e47971e2d7dfdab70169b17088894da80debcebc3f740b28cfc7143791728b"
     },
     "bzip2": {
       "file": "bzip2.wasm",
@@ -112,8 +112,8 @@
       "description": "ncdu, the disk usage browser, with ncurses",
       "homepage": "https://dev.yorhel.nl/ncdu",
       "toolchain": "wali",
-      "size": 290332,
-      "sha256": "31903974d5b425305c1ec062510e1181c3f369dc27dd4f7816d303461665c866"
+      "size": 290397,
+      "sha256": "d7320b4521522d293823fc373397c8546863b45a626391ceffd9fdf22e2b14fb"
     },
     "mg": {
       "file": "mg.wasm",
@@ -122,8 +122,8 @@
       "description": "mg, a small Emacs-style editor, with ncurses",
       "homepage": "https://github.com/hboetes/mg",
       "toolchain": "wali",
-      "size": 342521,
-      "sha256": "a8fc49b62ba0c54605f9248a68629e7bdb872a7e9d5acc4c03d5c6ab042ef03b"
+      "size": 342598,
+      "sha256": "360893b3e29c5c0fd9da3c469b69e6b25813282d16f4f5a78784fe057883f924"
     },
     "micropython": {
       "file": "micropython.wasm",
@@ -142,8 +142,8 @@
       "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
       "homepage": "https://mandoc.bsd.lv",
       "toolchain": "wali",
-      "size": 597517,
-      "sha256": "49e8da2c51c546983ad43984034d8bed22f796ee7d21f160d484875ffd6b699d"
+      "size": 597201,
+      "sha256": "c9c5bf4a4fee71ccde09685292d6995a2760e9dd812d6553a2c4be1a0ce8b4a6"
     },
     "wlcomp": {
       "file": "wlcomp.wasm",

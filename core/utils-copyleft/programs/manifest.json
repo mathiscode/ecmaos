@@ -56,8 +56,8 @@
           "sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
         }
       ],
-      "size": 666909,
-      "sha256": "d6a1cf41bb60a62af4680d23e78cadf7269cc7f2090d6e8fd3ceac2bc19e3293",
+      "size": 667235,
+      "sha256": "1772327f7b68eec0ebcd1ab0fd539b135eba804ddd7eb738838cf8dc28ddaaf1",
       "modifications": [
         {
           "file": "wasm/nano/build.sh",
