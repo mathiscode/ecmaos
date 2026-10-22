@@ -11,8 +11,11 @@
  * the host maps the descriptor shared, as it maps any file (kept in step at calls, `wali-host.mjs`); the open file is
  * the attachment, so it ends where the mapping's descriptor is closed: at `shmdt`, `munmap`, exec or exit. A segment
  * removed while attached goes when its last attachment does.
+ *
+ * `/proc/sysvipc/msg`, `sem` and `shm` list them as Linux's do, which `ipcs` reads.
  */
 import { define_syscall, thread_of, WaitQueue, wait_event_any, type Process } from '@zenfs/linux'
+import { ProcDir, proc_root } from '@zenfs/linux/fs/procfs'
 import { InMemory, type Credentials } from '@zenfs/core'
 import { Handle, toFD } from '@zenfs/core/vfs/file'
 import { cacheOf } from '@zenfs/core/vfs/vcache'
@@ -559,10 +562,34 @@ function attach(proc: Process, id: number, flags: number): number {
   return toFD(new Attachment(proc, segment, readOnly ? O_RDONLY : O_RDWR), proc.context)
 }
 
+/** printf's `%<width>d` and `%-<width>d` for the procfs lines */
+const right = (value: number | string, width: number) => String(value).padStart(width)
+const octal = (mode: number) => right((mode & 0o7777).toString(8), 4)
+
+/** The lines of `/proc/sysvipc/<kind>`: Linux's headings and columns (ipc/msg.c, sem.c and shm.c, 64-bit) */
+function procLines(kind: Kind): string {
+  const owner = (entry: Entry) => [entry.perm.uid, entry.perm.gid, entry.perm.cuid, entry.perm.cgid].map(n => right(n, 5)).join(' ')
+  const head = (entry: Entry) => `${right(entry.perm.key | 0, 10)} ${right(entry.id, 10)}  ${octal(entry.perm.mode)}`
+  if (kind === 'msg') {
+    return '       key      msqid perms      cbytes       qnum lspid lrpid   uid   gid  cuid  cgid      stime      rtime      ctime\n' +
+      queues.live.map(q => `${head(q)}  ${right(q.bytes, 10)} ${right(q.messages.length, 10)} ${right(q.lspid, 5)} ${right(q.lrpid, 5)} ${owner(q)} ${right(q.stime, 10)} ${right(q.rtime, 10)} ${right(q.ctime, 10)}\n`).join('')
+  }
+  if (kind === 'sem') {
+    return '       key      semid perms      nsems   uid   gid  cuid  cgid      otime      ctime\n' +
+      semaphores.live.map(set => `${head(set)} ${right(set.values.length, 10)} ${owner(set)} ${right(set.otime, 10)} ${right(set.ctime, 10)}\n`).join('')
+  }
+  return '       key      shmid perms                  size  cpid  lpid nattch   uid   gid  cuid  cgid      atime      dtime      ctime                   rss                  swap\n' +
+    segments.live.map(m => {
+      const rss = Math.ceil(m.size / 4096) * 4096
+      return `${head(m)} ${right(m.size, 21)} ${right(m.cpid, 5)} ${right(m.lpid, 5)}  ${right(m.nattch, 5)} ${owner(m)} ${right(m.atime, 10)} ${right(m.dtime, 10)} ${right(m.ctime, 10)} ${right(rss, 21)} ${right(0, 21)}\n`
+    }).join('')
+}
+
 let installed = false
 export function installSysvIpc(): void {
   if (installed) return
   installed = true
+  proc_root.children.set('sysvipc', new ProcDir(Object.fromEntries((['msg', 'sem', 'shm'] as Kind[]).map(kind => [kind, { mode: 0o444, show: () => procLines(kind) }]))))
   define_syscall('ipc_get', (proc: Process, kind: Kind, key: number, size: number, flags: number) => get(proc, kind, key, size, flags))
   define_syscall('ipc_ctl', (proc: Process, kind: Kind, id: number, cmd: number, arg: unknown) => control(proc, kind, id, cmd, arg))
   define_syscall('msg_send', (proc: Process, id: number, type: number, data: Uint8Array, flags: number) => send(proc, id, type, data, flags))
