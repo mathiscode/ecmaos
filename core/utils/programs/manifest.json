@@ -33,7 +33,7 @@
       "homepage": "https://jqlang.org",
       "toolchain": "wali",
       "size": 969079,
-      "sha256": "c9d4628f4a286ccc19c813368e02fd26486177cd524d284f723e1f67bade3049"
+      "sha256": "c1927d022eb65103603df9740c4a9bcafacdd28a6712fad0d7effb712c98aa15"
     },
     "lua": {
       "file": "lua.wasm",
@@ -102,8 +102,8 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 68357,
-      "sha256": "12b12e65bb307a3476f4686892b2ffda46302d0730eecac1c3d73439e3d549c9"
+      "size": 69350,
+      "sha256": "d69440c050e13ad6350de9b9c4d0f1838e6ef14db78352e2f47f62d7b6cca121"
     },
     "ncdu": {
       "file": "ncdu.wasm",
@@ -122,8 +122,8 @@
       "description": "mg, a small Emacs-style editor, with ncurses",
       "homepage": "https://github.com/hboetes/mg",
       "toolchain": "wali",
-      "size": 321545,
-      "sha256": "4f0a596150734a0074f2ca11698f598dba91f40e82644d53a9a1821d9699adb0"
+      "size": 325632,
+      "sha256": "fb0a9a89664ab8a44ee04204e83ea1625182784699fff028b6db045e449efd89"
     },
     "micropython": {
       "file": "micropython.wasm",
