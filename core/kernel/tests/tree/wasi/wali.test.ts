@@ -243,6 +243,26 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('has System V IPC between processes: message queues, semaphores and shared memory', async () => {
+    expect(await run('wali-ipc')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'msgget: id>=0=1 excl=File exists same=1 missing=No such file or directory',
+        'queue: qnum=3 cbytes=14 lspid=1 mode=600',
+        'type 2: two, lowest to 3: one, not 1: three (3)',
+        'short: Argument list too long, cut=4 a lo, empty: No message of desired type',
+        'echo: FROM THE PARENT exit=0',
+        'signal: Interrupted system call, removed while waiting: exit=7, then: Invalid argument',
+        'semaphores: together=Resource temporarily unavailable second=5 waiting=1 down: exit=0 value=0 pid=1',
+        'undo: exit=0 values=0,5 timed out=Resource temporarily unavailable nsems=2',
+        'shm: child read: hello from the parent, exit=0 segsz=10000 nattch=1 cpid=1',
+        'removed: attached=2 still mapped, dest=1, new id=1, after detach: Invalid argument, shmdt again: Invalid argument',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

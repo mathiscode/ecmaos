@@ -1,10 +1,10 @@
 # The libc-test tests (libc-test.wasm, build.sh) that fail on ecmaOS today, one per line with why. ../libc-test.test.ts
 # fails when a test not listed here fails, and when one listed here passes: take it off the list then.
 
-# System V IPC is not in the kernel
-functional.ipc_msg          msgget: ENOSYS
-functional.ipc_sem          semget: ENOSYS
-functional.ipc_shm          shmget: ENOSYS
+# System V IPC: what each does before it forks passes (its child's half is ../fixtures/wali-ipc.c's, by posix_spawn)
+functional.ipc_msg          fork: ENOSYS
+functional.ipc_sem          fork: ENOSYS
+functional.ipc_shm          fork: ENOSYS
 
 # threads
 regression.pthread_create-oom     times out

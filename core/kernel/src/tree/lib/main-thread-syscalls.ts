@@ -33,6 +33,7 @@ import { installBusyRetry } from './busy-retry.ts'
 import { installNotDirectory } from './not-directory.ts'
 import { installThreads, leaderOf } from './wali-threads.ts'
 import { installWaliSignals } from './wali-signals.ts'
+import { installSysvIpc } from './sysv-ipc.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -468,6 +469,7 @@ export function installMainThreadSyscalls(): void {
   installGroupExit()
   installThreads()
   installWaliSignals()
+  installSysvIpc()
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
     let inode: NonNullable<typeof handle>['inode']

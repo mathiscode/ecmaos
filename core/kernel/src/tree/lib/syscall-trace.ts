@@ -134,7 +134,9 @@ const ARGS: Record<string, Kind[]> = {
   sock_open: ['hex'], sock_bind: ['fd', 'path', 'path', 'int'], sock_listen: ['fd', 'int'], sock_accept: ['fd', 'hex'],
   sock_connect: ['fd', 'path'], sock_connect_out: ['fd', 'path', 'int'], sock_pair: ['hex'], sock_shutdown: ['fd', 'int'],
   sock_info: ['fd'], sock_set: ['fd', 'path'], sock_recv: ['fd', 'count', 'hex'], sock_send: ['fd', 'data', 'hex'],
-  fd_getfl: ['fd'], fd_setfl: ['fd', 'hex']
+  fd_getfl: ['fd'], fd_setfl: ['fd', 'hex'],
+  ipc_get: ['path', 'hex', 'int', 'oct'], ipc_ctl: ['path', 'int', 'int'], msg_send: ['int', 'int', 'data', 'oct'],
+  msg_receive: ['int', 'count', 'int', 'oct'], sem_op: ['int', 'skip', 'int'], sem_count: ['int'], shm_attach: ['int', 'oct']
 }
 
 /** Sets of calls, as `strace -e trace=SET` names them */
@@ -144,7 +146,8 @@ const SETS: Record<string, string[]> = {
   process: ['spawn', 'execve', 'exit', 'wait', 'kill', 'proc_spawn', 'proc_wait', 'proc_waitpid', 'proc_kill', 'proc_killpg', 'proc_setpgid', 'proc_getpgid', 'proc_tcsetpgrp'],
   signal: ['kill', 'sigaction', 'proc_kill', 'proc_killpg', 'proc_sigstate', 'proc_set_sigstate'],
   network: ['net_bind', 'net_listen', 'net_connect', 'net_accept', 'sockets_create', 'sockets_connect', 'sockets_close', 'sockets_list',
-    'sock_open', 'sock_bind', 'sock_listen', 'sock_accept', 'sock_connect', 'sock_connect_out', 'sock_pair', 'sock_shutdown', 'sock_recv', 'sock_send']
+    'sock_open', 'sock_bind', 'sock_listen', 'sock_accept', 'sock_connect', 'sock_connect_out', 'sock_pair', 'sock_shutdown', 'sock_recv', 'sock_send'],
+  ipc: ['ipc_get', 'ipc_ctl', 'msg_send', 'msg_receive', 'sem_op', 'sem_count', 'shm_attach']
 }
 
 /** Whether the options let this call through */

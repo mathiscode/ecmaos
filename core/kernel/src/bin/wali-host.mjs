@@ -20,6 +20,7 @@
  * - sockets: stream sockets on the kernel's socket files (`tree/lib/socket-files.ts`), so a socket is one descriptor
  *   the kernel reads, writes and polls; `AF_UNIX`, and `AF_INET`/`AF_INET6` on loopback or through the gateway
  * - `epoll`, over the kernel's `poll`
+ * - System V IPC, on the kernel's queues, semaphores and segments (`tree/lib/sysv-ipc.ts`), a segment mapped as a file
  * - threads' locks: the futexes, the priority-inheritance ones (`FUTEX_LOCK_PI`) among them, and the robust list a
  *   thread's process-shared robust locks are given up from when it ends (`set_robust_list`)
  *
@@ -667,6 +668,7 @@ function munmap(addr, length) {
     }
   }
   release(addr, end - addr)
+  for (const at of attachments.keys()) if (at >= addr && at < end) attachments.delete(at)
   return 0
 }
 
@@ -680,7 +682,7 @@ const FLUSH_BEFORE = new Set(['SYS_write', 'SYS_writev', 'SYS_pwrite64', 'SYS_pw
 /** Calls that wait or read: changes go out before them, and other writers' come in after */
 const REFRESH_AFTER = new Set(['SYS_read', 'SYS_readv', 'SYS_pread64', 'SYS_preadv', 'SYS_poll', 'SYS_ppoll', 'SYS_select',
   'SYS_pselect6', 'SYS_epoll_wait', 'SYS_epoll_pwait', 'SYS_recvfrom', 'SYS_recvmsg', 'SYS_nanosleep', 'SYS_clock_nanosleep',
-  'SYS_wait4', 'SYS_pause', 'SYS_rt_sigsuspend', 'SYS_futex'])
+  'SYS_wait4', 'SYS_pause', 'SYS_rt_sigsuspend', 'SYS_futex', 'SYS_semop', 'SYS_semtimedop', 'SYS_msgsnd', 'SYS_msgrcv', 'SYS_shmdt'])
 /** The clock is how a program that calls nothing else paces its frames, so reading it writes out at most every 16 ms */
 const FLUSH_THROTTLED = new Set(['SYS_clock_gettime', 'SYS_gettimeofday'])
 let lastClockFlush = 0
@@ -1017,7 +1019,7 @@ function waitForHandler() {
 
 /** Calls whose interruption is reported even when the handler asked for restarts, as Linux does for these */
 const NEVER_RESTARTED = new Set(['SYS_poll', 'SYS_ppoll', 'SYS_select', 'SYS_pselect6', 'SYS_nanosleep', 'SYS_clock_nanosleep',
-  'SYS_epoll_wait', 'SYS_epoll_pwait', 'SYS_rt_sigtimedwait'])
+  'SYS_epoll_wait', 'SYS_epoll_pwait', 'SYS_rt_sigtimedwait', 'SYS_msgsnd', 'SYS_msgrcv', 'SYS_semop', 'SYS_semtimedop'])
 /** Calls that deliver for themselves and return EINTR on purpose */
 const OWN_DELIVERY = new Set(['SYS_rt_sigsuspend', 'SYS_pause'])
 /** Signal-sending calls: an EINTR means the signal reached this process too, after the call did its work */
@@ -1689,6 +1691,117 @@ function epollWait(epfd, eventsPtr, max, timeout, sigmaskPtr) {
   }
 }
 
+// --- System V IPC ---
+
+/**
+ * Message queues, semaphore sets and shared memory segments are the kernel's (`tree/lib/sysv-ipc.ts`); here their C
+ * structures are read and laid out. A segment is attached by mapping the descriptor the kernel opens for it shared, as a
+ * file is (see above), so another process's changes come in at the calls a program synchronizes with (a semaphore, a
+ * message, a futex, a read) and its own go out before them. It is placed where the allocator has room: `shmat` at an
+ * address of the program's choosing is not there, as `MAP_FIXED` is not.
+ */
+const IPC_64 = 0x100
+const IPC_SET = 1, IPC_INFO = 3, SHM_INFO = 14, GETALL = 13, SETALL = 17
+const SHM_RDONLY = 0o10000
+const PROT_READ = 1
+/** Each `*_STAT` structure: its size, and after its `struct ipc_perm` (48 bytes) each field's offset and width */
+const IPC_STAT_LAYOUT = {
+  msg: [120, { stime: [48, 8], rtime: [56, 8], ctime: [64, 8], cbytes: [72, 8], qnum: [80, 8], qbytes: [88, 8], lspid: [96, 4], lrpid: [100, 4] }],
+  sem: [88, { otime: [48, 8], ctime: [56, 8], nsems: [64, 2] }],
+  shm: [112, { segsz: [48, 4], atime: [56, 8], dtime: [64, 8], ctime: [72, 8], cpid: [80, 4], lpid: [84, 4], nattch: [88, 8] }]
+}
+const ints = names => Object.fromEntries(names.map((name, i) => [name, [i * 4, 4]]))
+/** `struct msginfo` and `struct seminfo` are ints; `struct shminfo` is longs, and `struct shm_info` longs after an int */
+const IPC_INFO_LAYOUT = {
+  msg: [32, ints(['msgpool', 'msgmap', 'msgmax', 'msgmnb', 'msgmni', 'msgssz', 'msgtql', 'msgseg'])],
+  sem: [40, ints(['semmap', 'semmni', 'semmns', 'semmnu', 'semmsl', 'semopm', 'semume', 'semusz', 'semvmx', 'semaem'])],
+  shm: [72, { shmmax: [0, 8], shmmin: [8, 8], shmmni: [16, 8], shmseg: [24, 8], shmall: [32, 8] }],
+  shmUsage: [48, { used_ids: [0, 4], shm_tot: [8, 8], shm_rss: [16, 8], shm_swp: [24, 8], swap_attempts: [32, 8], swap_successes: [40, 8] }]
+}
+/** Each attached segment's address, and its size */
+const attachments = new Map()
+
+/** Lays out what the kernel answered (JSON in the region) as a C structure at `ptr` */
+function layOut(ptr, [size, fields], answer) {
+  bytes().fill(0, ptr, ptr + size)
+  const dv = view()
+  if (answer.perm) {
+    const { key, uid, gid, cuid, cgid, mode, seq } = answer.perm
+    dv.setInt32(ptr, key, true)
+    for (const [at, value] of [[4, uid], [8, gid], [12, cuid], [16, cgid], [20, mode], [24, seq]]) dv.setUint32(ptr + at, value, true)
+  }
+  for (const [name, [at, width]] of Object.entries(fields)) {
+    const value = answer[name] ?? 0
+    if (width === 8) dv.setBigInt64(ptr + at, BigInt(value), true)
+    else if (width === 4) dv.setInt32(ptr + at, value, true)
+    else dv.setUint16(ptr + at, value, true)
+  }
+}
+
+const ipcAnswer = () => JSON.parse(decoder.decode(returned.slice()))
+
+/** `msgctl`, `semctl` and `shmctl`; `arg` is semctl's fourth argument (a value or a pointer) or the others' buffer */
+function ipcControl(kind, id, cmd, arg, num = 0) {
+  cmd &= ~IPC_64
+  const dv = view()
+  let given = kind === 'sem' ? [num, arg] : undefined
+  if (cmd === IPC_SET) {
+    given = { uid: dv.getUint32(arg + 4, true), gid: dv.getUint32(arg + 8, true), mode: dv.getUint32(arg + 20, true) }
+    if (kind === 'msg') given.qbytes = Number(dv.getBigUint64(arg + 88, true))
+  } else if (kind === 'sem' && cmd === SETALL) {
+    const count = syscall_raw('sem_count', id)
+    if (count < 0) return count
+    given = Array.from({ length: count }, (_, i) => dv.getUint16(arg + i * 2, true))
+  }
+  const result = syscall_raw('ipc_ctl', kind, id, cmd, given)
+  if (result < 0 || !returned.byteLength) return result
+  const answer = ipcAnswer()
+  if (kind === 'sem' && cmd === GETALL) answer.forEach((value, i) => view().setUint16(arg + i * 2, value, true))
+  else if (cmd === IPC_INFO || answer.perm === undefined) layOut(arg, IPC_INFO_LAYOUT[kind === 'shm' && cmd === SHM_INFO ? 'shmUsage' : kind], answer)
+  else layOut(arg, IPC_STAT_LAYOUT[kind], answer)
+  return result
+}
+
+/** `msgrcv`: the message's type (a `long`) and text go to `struct msgbuf` */
+function msgReceive(id, ptr, size, type, flags) {
+  const length = syscall_raw('msg_receive', id, size, Number(type), flags)
+  if (length < 0) return length
+  bytes().set(returned.subarray(0, 8 + length), ptr)
+  return length
+}
+
+/** `semop` and `semtimedop`: `struct sembuf` is a semaphore's number, the change and the flags, two bytes each */
+function semop(id, ptr, count, timeoutPtr) {
+  const dv = view(), ops = []
+  for (let i = 0; i < count; i++) ops.push(dv.getUint16(ptr + i * 6, true), dv.getInt16(ptr + i * 6 + 2, true), dv.getUint16(ptr + i * 6 + 4, true))
+  let timeout = -1
+  if (timeoutPtr) {
+    const nanoseconds = Number(dv.getBigInt64(timeoutPtr + 8, true))
+    timeout = readTimespec(timeoutPtr)
+    if (timeout < 0 || nanoseconds < 0 || nanoseconds >= 1e9) return -EINVAL
+  }
+  return syscall_raw('sem_op', id, ops, timeout)
+}
+
+/** `shmat`: the segment's descriptor, mapped shared and then closed (the mapping keeps its own) */
+function shmat(id, addr, flags) {
+  if (addr) return -EINVAL
+  const fd = syscall_raw('shm_attach', id, flags)
+  if (fd < 0) return fd
+  syscall_raw('fstat', fd)
+  const size = Number(new DataView(returned.buffer, returned.byteOffset).getBigInt64(48, true))
+  const at = mmap(0, size, PROT_READ | (flags & SHM_RDONLY ? 0 : PROT_WRITE), MAP_SHARED, fd, 0)
+  syscall_raw('close', fd)
+  if (at >= 0) attachments.set(at, size)
+  return at
+}
+
+function shmdt(addr) {
+  const size = attachments.get(addr)
+  if (size === undefined) return -EINVAL
+  return munmap(addr, size)
+}
+
 // --- threads ---
 
 const FUTEX_WAIT = 0, FUTEX_WAKE = 1, FUTEX_REQUEUE = 3, FUTEX_CMP_REQUEUE = 4, FUTEX_LOCK_PI = 6, FUTEX_UNLOCK_PI = 7, FUTEX_TRYLOCK_PI = 8
@@ -2145,6 +2258,19 @@ const calls = {
     view().setUint32(lengthPtr, ROBUST_LIST_SIZE, true)
     return 0n
   },
+
+  SYS_msgget: (key, flags) => big(syscall_raw('ipc_get', 'msg', key, 0, flags)),
+  SYS_msgsnd: (id, ptr, size, flags) => big(syscall_raw('msg_send', id, Number(view().getBigInt64(ptr, true)), bytes().slice(ptr + 8, ptr + 8 + size), flags)),
+  SYS_msgrcv: (id, ptr, size, type, flags) => big(msgReceive(id, ptr, size, type, flags)),
+  SYS_msgctl: (id, cmd, ptr) => big(ipcControl('msg', id, cmd, ptr)),
+  SYS_semget: (key, count, flags) => big(syscall_raw('ipc_get', 'sem', key, count, flags)),
+  SYS_semop: (id, ptr, count) => big(semop(id, ptr, count, 0)),
+  SYS_semtimedop: (id, ptr, count, timeoutPtr) => big(semop(id, ptr, count, timeoutPtr)),
+  SYS_semctl: (id, num, cmd, arg) => big(ipcControl('sem', id, cmd, arg, num)),
+  SYS_shmget: (key, size, flags) => big(syscall_raw('ipc_get', 'shm', key, size, flags)),
+  SYS_shmat: (id, addr, flags) => big(shmat(id, addr, flags)),
+  SYS_shmdt: addr => big(shmdt(addr)),
+  SYS_shmctl: (id, cmd, ptr) => big(ipcControl('shm', id, cmd, ptr)),
 
   SYS_mmap: (addr, length, prot, flags, fd, offset) => big(mmap(addr, length, prot, flags, fd, num(offset))),
   SYS_munmap: (addr, length) => big(munmap(addr, length)),
