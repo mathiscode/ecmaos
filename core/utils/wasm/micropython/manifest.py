@@ -2,7 +2,8 @@
 # What is frozen into /bin/micropython: asyncio from the MicroPython tree, and pure-Python modules from micropython-lib
 # (lib/micropython-lib in the release tarball). textwrap is not among them: it compiles regexes with lookahead and
 # lookbehind at import, which MicroPython's re does not support, so it cannot even be imported. Left out on purpose: mip and ssl (the stock manifest freezes them; both
-# need sockets), threading, and anything else that cannot work here.
+# need sockets), threading (micropython-lib's has no join and no Lock; the built-in _thread has what it lacks), and
+# anything else that cannot work here.
 
 include("$(MPY_DIR)/extmod/asyncio")
 

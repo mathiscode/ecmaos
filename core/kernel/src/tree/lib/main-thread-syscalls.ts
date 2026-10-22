@@ -216,14 +216,15 @@ function ttyNumberOf(kernel: Kernel, proc: Process): number | undefined {
   return undefined
 }
 
+/** A WALI program's thread answers to its process's kernel and shell */
 function kernelOf(proc: Process): Kernel {
-  const kernel = kernelOfProcess.get(proc)
+  const kernel = kernelOfProcess.get(proc) ?? kernelOfProcess.get(leaderOf(proc))
   if (!kernel) throw Object.assign(new Error('No kernel registered for this process'), { errno: Errno.ENOSYS })
   return kernel
 }
 
 function shellOf(proc: Process): Shell | undefined {
-  return shellOfProcess.get(proc)
+  return shellOfProcess.get(proc) ?? shellOfProcess.get(leaderOf(proc))
 }
 
 /** The errno an error carries, else EIO */

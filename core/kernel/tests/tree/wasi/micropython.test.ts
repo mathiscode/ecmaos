@@ -83,6 +83,43 @@ for rnd in range(25):
 print(total)
 `
 
+/** Four threads allocating at once, and one holding strings only in its locals while it sleeps. A collection on any of
+ * them stops the others with a real-time signal (`pthread_kill`), each scanning its own stack from its handler; the
+ * computing ones take it at a loop's signal check, the sleeping one in its sleep. CPython prints the same list. */
+const THREADS = `
+import _thread, time
+
+lock = _thread.allocate_lock()
+results = {}
+
+def work(k):
+    total = 0
+    for rnd in range(30):
+        recs = [{"id": i, "s": "v%d-%d" % (k, i), "l": [i, str(i) * 3]} for i in range(100)]
+        recs.sort(key=lambda r: (r["s"], r["l"][1]))
+        total += sum(len(r["s"]) + len(r["l"][1]) for r in recs)
+        s = ",".join(r["s"] for r in recs if r["id"] % 3)
+        total += len(s) + s.count(str(k)) * (k + 1)
+    with lock:
+        results[k] = total
+
+def sleeper():
+    keep = ["held-%d" % i for i in range(200)]
+    time.sleep(1)
+    with lock:
+        results[9] = sum(len(x) for x in keep)
+
+_thread.start_new_thread(sleeper, ())
+for k in range(4):
+    _thread.start_new_thread(work, (k,))
+while True:
+    with lock:
+        if len(results) == 5:
+            break
+    time.sleep(0.01)
+print(sorted(results.items()))
+`
+
 describe('micropython', () => {
   let kernel: Kernel
 
@@ -215,6 +252,15 @@ describe('micropython', () => {
     await kernel.filesystem.fs.writeFile('/tmp/mp-stress.py', STRESS)
     for (const heap of ['256k', '512k', '2m']) {
       expect(await run(`micropython -X heapsize=${heap} /tmp/mp-stress.py`), `heap ${heap}`).toEqual({ code: 0, out: '1445180\n', err: '' })
+    }
+  }, 120000)
+
+  it('runs threads, collecting garbage while they compute and sleep: the same results as CPython', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/mp-threads.py', THREADS)
+    for (const heap of ['256k', '2m']) {
+      expect(await run(`micropython -X heapsize=${heap} /tmp/mp-threads.py`), `heap ${heap}`).toEqual({
+        code: 0, out: '[(0, 45630), (1, 48270), (2, 50670), (3, 52830), (9, 1490)]\n', err: ''
+      })
     }
   }, 120000)
 

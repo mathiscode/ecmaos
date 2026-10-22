@@ -132,8 +132,8 @@
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
       "toolchain": "wali",
-      "size": 715135,
-      "sha256": "bcd594cf18667ef3ce1aad087c5afefc11cc5fe3161e0833393d9fd100e8e230"
+      "size": 738994,
+      "sha256": "058c5152c7bbedc2c4ee78fcfd35c9cc5fc7e6f791c3b866f8360c8d04b2f5ab"
     },
     "mandoc": {
       "file": "mandoc.wasm",
