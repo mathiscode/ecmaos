@@ -263,6 +263,14 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('gives anonymous mappings back cleared, and clears none that nothing could write', async () => {
+    expect(await run('wali-anon')).toEqual({
+      code: 0,
+      err: '',
+      out: 'written: same=1 zeroes=1\nafter mprotect: 0 same=1 zeroes=1\nprobe: found=1 quick=1\n'
+    })
+  }, 30_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

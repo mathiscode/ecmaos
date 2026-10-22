@@ -1,6 +1,8 @@
 ecmaOS: the environment comes in through imports, one NAME=value string at a time the way argv does
 (__cl_get_envc, __cl_get_env_len, __cl_copy_env; see core/kernel/src/bin/wali-host.mjs), not through a file
-the host writes to /tmp and never removes.
+the host writes to /tmp and never removes. They go into one mapping that environ points at, as it points into the
+stack on Linux, rather than through malloc and putenv, which grew a heap array by realloc from NULL for each: a
+program that brings its own malloc sees none of libc's before main.
 
 diff --git c/arch/wasm32/init_env.h i/arch/wasm32/init_env.h
 index 408029b..89880fb 100644
@@ -31,13 +33,13 @@ diff --git c/src/env/initenv.c i/src/env/initenv.c
 index 180cd6f..406ed40 100644
 --- c/src/env/initenv.c
 +++ i/src/env/initenv.c
-@@ -1,89 +1,15 @@
+@@ -1,89 +1,25 @@
  #include "init_env.h"
- #include <stdlib.h>
+-#include <stdlib.h>
 -#include <fcntl.h>
 -#include <unistd.h>
 -#include <sys/stat.h>
--#include <sys/mman.h>
+ #include <sys/mman.h>
 -#include <string.h>
 -
 -#define FSIZE 1000
@@ -107,9 +109,13 @@ index 180cd6f..406ed40 100644
 -  }
 -  return 0;
 -}
++#include <unistd.h>
  
 +/* ecmaOS: the host hands over each NAME=value string the way it hands over argv, so nothing is written to a file
-+ * (WALI's host writes the environment to /tmp and leaves it there). */
++ * (WALI's host writes the environment to /tmp and leaves it there). They go into one mapping, the array and the
++ * strings after it, which environ then points at, as it points into the stack on Linux: putenv and setenv copy it
++ * away from there the first time they change it, and nothing of the program's malloc is used before main (a program
++ * may bring its own, and one putenv each grew the array by realloc from NULL). */
  int init_env() {
 -  char filename[FSIZE];
 -  if (!filename) {
@@ -120,12 +126,18 @@ index 180cd6f..406ed40 100644
 -  if (found) {
 -    return read_envfile(filename);
 +  int envc = __cl_get_envc();
++  size_t size = (envc + 1) * sizeof(char *);
++  for (int i = 0; i < envc; i++) size += __cl_get_env_len(i) + 1;
++  char **env = mmap(0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  if (env == MAP_FAILED) return WALI_ENV_MALLOC_FAIL;
++  char *at = (char *)(env + envc + 1);
 +  for (int i = 0; i < envc; i++) {
-+    char *entry = malloc(__cl_get_env_len(i) + 1);
-+    if (!entry) return WALI_ENV_MALLOC_FAIL;
-+    __cl_copy_env(entry, i);
-+    if (putenv(entry)) return WALI_ENV_READ_FAIL;
++    env[i] = at;
++    __cl_copy_env(at, i);
++    at += __cl_get_env_len(i) + 1;
    }
++  env[envc] = 0;
++  __environ = env;
    return 0;
  }
 -

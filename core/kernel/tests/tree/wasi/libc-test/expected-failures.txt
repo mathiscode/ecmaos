@@ -7,7 +7,6 @@ functional.ipc_sem          fork: ENOSYS
 functional.ipc_shm          fork: ENOSYS
 
 # threads
-regression.pthread_create-oom     times out
 
 # formatting and parsing
 functional.strptime         %F, %s and %z are not parsed (musl has them only after 1.2.5)
@@ -24,7 +23,3 @@ regression.pthread_exit-dtor  fork: ENOSYS
 regression.raise-race       fork: ENOSYS, in its handler (its 1000 raises and 100 pthread_kills all arrive)
 
 # memory and limits
-regression.malloc-brk-fail  times out
-regression.malloc-oom       times out
-regression.setenv-oom       times out
-regression.flockfile-list   "0 is not an allocated pointer"

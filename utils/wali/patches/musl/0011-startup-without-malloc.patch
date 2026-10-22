@@ -1,0 +1,85 @@
+ecmaOS: argv is copied in once at startup, into one mapping that holds the array and the strings, as it lies on the
+stack on Linux, and __progname_full is argv[0] itself. WALI's startup took argv, each of its strings and a copy of
+argv[0] from malloc before main, which a program that brings its own malloc saw (libc-test's flockfile-list lays its
+blocks end to end from an aligned start, so libc's odd-sized ones left its FILEs unaligned, and their atomic lock
+trapped).
+
+--- i/src/startup/__main_void.c
++++ w/src/startup/__main_void.c
+@@ -1,19 +1,39 @@
+ #include <stdlib.h>
+ #include <stdio.h>
++#include <sys/mman.h>
+ #include "init_env.h"
+ #include "atomic.h"
+ 
+ extern void __wasm_init_tp(void);
+ 
++/* ecmaOS: argv is copied in once, into one mapping, the array and the strings after it, as it lies on the stack on
++ * Linux: nothing of the program's malloc is used before main (a program may bring its own, which libc-test's
++ * flockfile-list does, laying its blocks end to end where the first was aligned). */
++static char **startup_argv;
++static int init_argv(void) {
++  int argc = __cl_get_argc();
++  size_t size = (argc + 1) * sizeof(char *);
++  for (int i = 0; i < argc; i++) size += __cl_get_argv_len(i) + 1;
++  char **argv = mmap(0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++  if (argv == MAP_FAILED) return WALI_STARTUP_FAIL;
++  char *at = (char *)(argv + argc + 1);
++  for (int i = 0; i < argc; i++) {
++    argv[i] = at;
++    __cl_copy_argv(at, i);
++    at += __cl_get_argv_len(i) + 1;
++  }
++  argv[argc] = 0;
++  startup_argv = argv;
++  return 0;
++}
++
+ /* ecmaOS: __progname and __progname_full (program_invocation_short_name and program_invocation_name, what err()
+  * and warn() name the program by) from argv[0], as __init_libc sets them; WALI's _start does not go through
+  * __libc_start_main */
+ extern char *__progname, *__progname_full;
+ static void init_progname(void) {
+-  if (__cl_get_argc() < 1) return;
+-  char *pn = calloc(__cl_get_argv_len(0) + 1, 1);
++  char *pn = startup_argv[0];
+   if (!pn) return;
+-  __cl_copy_argv(pn, 0);
+   __progname = __progname_full = pn;
+   for (char *p = pn; *p; p++) if (*p == '/') __progname = p + 1;
+ }
+@@ -37,6 +57,10 @@
+   if (r) {
+     return r;
+   }
++  r = init_argv();
++  if (r) {
++    return r;
++  }
+   init_progname();
+   return 0;
+ }
+@@ -56,19 +80,7 @@
+ /* Main void if not defined by clang (i.e, if the argument main is used) */
+ __attribute__((__weak__, nodebug))
+ int __main_void(void) {
+-  int argc = __cl_get_argc();
+-  char **argv = (char**) malloc((argc+1) * sizeof(char*));
+-  if (argv == NULL) {
+-    return 1;
+-  }
+-  for (int i = 0; i < argc; i++) {
+-    int argv_len = __cl_get_argv_len(i);
+-    argv[i] = (char *) malloc(argv_len+1);
+-    if (argv[i] == NULL) {
+-      return 1;
+-    }
+-    __cl_copy_argv(argv[i], i);
+-  }
+-  argv[argc] = NULL;
+-  return __main_argc_argv(argc, argv);
++  int argc = 0;
++  while (startup_argv[argc]) argc++;
++  return __main_argc_argv(argc, startup_argv);
+ }

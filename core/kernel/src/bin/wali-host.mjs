@@ -64,17 +64,18 @@ const bytes = () => new Uint8Array(memory.buffer)
 /**
  * What the process's threads share, in one SharedArrayBuffer the first thread makes and each new one is given: the
  * allocator's lock, top and free ranges, a version for the signal dispositions, a close-on-exec bit per descriptor,
- * the dispositions themselves, the futexes' wake counters (see `futex`) and the resource limits. Everything else here (the mask, pending signals, epoll instances, directory
+ * the dispositions themselves, the futexes' wake counters (see `futex`), the resource limits and the sealed ranges (see
+ * `releaseRange`). Everything else here (the mask, pending signals, epoll instances, directory
  * positions, shared mappings) is the thread's own.
  */
-const LOCK = 0, VERSION = 1, TOP = 2, FREE_COUNT = 3, HEADER_WORDS = 16
-const MAX_RANGES = 16384, MAX_FDS = 65536, SIGNALS = 65, FUTEX_BUCKETS = 256, RESOURCES = 16
+const LOCK = 0, VERSION = 1, TOP = 2, FREE_COUNT = 3, SEALED_COUNT = 4, HEADER_WORDS = 16
+const MAX_RANGES = 16384, MAX_SEALED = 1024, MAX_FDS = 65536, SIGNALS = 65, FUTEX_BUCKETS = 256, RESOURCES = 16
 const RLIMIT_NOFILE = 7, RLIM_INFINITY = 0xffffffffffffffffn
 function sharedState(buffer) {
   const rangesAt = HEADER_WORDS, cloexecAt = rangesAt + MAX_RANGES * 2, actionsAt = cloexecAt + MAX_FDS / 32
-  const wakesAt = actionsAt + SIGNALS * 6, limitsAt = wakesAt + FUTEX_BUCKETS
+  const wakesAt = actionsAt + SIGNALS * 6, limitsAt = wakesAt + FUTEX_BUCKETS, sealedAt = limitsAt + RESOURCES * 4
   const fresh = !buffer
-  buffer ??= new SharedArrayBuffer((limitsAt + RESOURCES * 4) * 4)
+  buffer ??= new SharedArrayBuffer((sealedAt + MAX_SEALED * 2) * 4)
   const limits = new BigUint64Array(buffer, limitsAt * 4, RESOURCES * 2)
   if (fresh) {
     // each resource's soft and hard limit: none, but for descriptors, which have Linux's usual 1024 and a hard
@@ -89,6 +90,7 @@ function sharedState(buffer) {
     words: new Int32Array(buffer),
     addresses: new Uint32Array(buffer),
     ranges: new Uint32Array(buffer, rangesAt * 4, MAX_RANGES * 2),
+    sealed: new Uint32Array(buffer, sealedAt * 4, MAX_SEALED * 2),
     cloexec: new Int32Array(buffer, cloexecAt * 4, MAX_FDS / 32),
     actions: new Uint32Array(buffer, actionsAt * 4, SIGNALS * 6),
     wakes: new Int32Array(buffer, wakesAt * 4, FUTEX_BUCKETS)
@@ -357,15 +359,41 @@ function deviceIoctl(fd, request, ptr) {
 /**
  * Mappings live above the memory the module came up with. Freed ranges are kept, merged with their neighbours, and
  * used again first-fit; the memory only grows when nothing free is big enough. Lengths are in musl's 4 KiB pages.
- * (One process, one thread: a threaded process will need this state where every thread can reach it.)
+ * What is free is zeroes, as is all above the top, so a new mapping needs no clearing.
  */
-/** The free ranges and the top, loaded from the shared state while the allocator's lock is held (see `locked`) */
+/** The free ranges, the top and the sealed ranges, loaded from the shared state while the allocator's lock is held (see `locked`) */
 let free = []
 let top = 0
+let sealed = []
+
+/** Takes [start, end) out of a list of ranges, returning the parts of it the list had */
+function cut(list, start, end) {
+  const taken = []
+  for (let i = 0; i < list.length;) {
+    const range = list[i], to = range.start + range.length
+    if (to <= start || range.start >= end) { i++; continue }
+    taken.push({ start: Math.max(start, range.start), length: Math.min(end, to) - Math.max(start, range.start) })
+    const rest = [{ start: range.start, length: start - range.start }, { start: end, length: to - end }].filter(piece => piece.length > 0)
+    list.splice(i, 1, ...rest)
+    i += rest.length
+  }
+  return taken
+}
 
 const roundUp = (n, to) => Math.ceil(n / to) * to
 
+/**
+ * A released range is cleared, but for the parts still sealed: an anonymous mapping made PROT_NONE and never given
+ * access by mprotect, which nothing can have written (libc-test's vmfill maps and unmaps gigabytes of them while it
+ * finds out how much there is, and clearing those again each time took seconds).
+ */
 function releaseRange(start, length) {
+  const kept = cut(sealed, start, start + length)
+  let at = start
+  for (const range of [...kept, { start: start + length, length: 0 }]) {
+    if (range.start > at) bytes().fill(0, at, range.start)
+    at = range.start + range.length
+  }
   free.push({ start, length })
   free.sort((a, b) => a.start - b.start)
   for (let i = 0; i < free.length - 1;) {
@@ -388,13 +416,9 @@ function allocateRange(length) {
     const start = range.start
     if (range.length === length) free.splice(index, 1)
     else Object.assign(range, { start: start + length, length: range.length - length })
-    bytes().fill(0, start, start + length)
     return start
   }
   const start = top
-  // what lies above the top was used before and given back (the top comes down when its last range is freed), and a
-  // new mapping is zeroes
-  bytes().fill(0, start, Math.min(start + length, memory.buffer.byteLength))
   const needed = start + length - memory.buffer.byteLength
   if (needed > 0) {
     try {
@@ -431,6 +455,7 @@ function locked(change) {
     top = Atomics.load(state.addresses, TOP)
     const count = Atomics.load(state.addresses, FREE_COUNT)
     free = Array.from({ length: count }, (_, i) => ({ start: state.ranges[i * 2], length: state.ranges[i * 2 + 1] }))
+    sealed = Array.from({ length: Atomics.load(state.addresses, SEALED_COUNT) }, (_, i) => ({ start: state.sealed[i * 2], length: state.sealed[i * 2 + 1] }))
   }
   try {
     return change()
@@ -439,6 +464,10 @@ function locked(change) {
       if (free.length > MAX_RANGES) free.splice(0, free.length - MAX_RANGES) // the lowest ranges, kept by nothing, are lost
       free.forEach((range, i) => { state.ranges[i * 2] = range.start; state.ranges[i * 2 + 1] = range.length })
       Atomics.store(state.addresses, FREE_COUNT, free.length)
+      // a range forgotten is only cleared when released, as any other is
+      if (sealed.length > MAX_SEALED) sealed.splice(0, sealed.length - MAX_SEALED)
+      sealed.forEach((range, i) => { state.sealed[i * 2] = range.start; state.sealed[i * 2 + 1] = range.length })
+      Atomics.store(state.addresses, SEALED_COUNT, sealed.length)
       Atomics.store(state.addresses, TOP, top)
       Atomics.store(state.words, LOCK, 0)
       Atomics.notify(state.words, LOCK, 1)
@@ -459,7 +488,11 @@ function mmap(addr, length, prot, flags, fd, offset) {
     if (kind < 0) return kind
   }
   const size = roundUp(length, PAGE)
-  const start = allocate(size)
+  const start = locked(() => {
+    const at = allocateRange(size)
+    if (at >= 0 && prot === PROT_NONE && (flags & MAP_ANONYMOUS)) sealed.push({ start: at, length: size })
+    return at
+  })
   if (start < 0) return start
   if (!(flags & MAP_ANONYMOUS)) {
     const result = fill(fd, start, length, offset)
@@ -492,7 +525,6 @@ function resizeRange(addr, oldLength, newLength, flags) {
   const next = free.findIndex(range => range.start === addr + before)
   if (next >= 0 && free[next].length >= after - before) {
     const range = free[next]
-    bytes().fill(0, range.start, range.start + after - before)
     if (range.length === after - before) free.splice(next, 1)
     else Object.assign(range, { start: range.start + after - before, length: range.length - (after - before) })
     return addr
@@ -544,7 +576,7 @@ function mremap(addr, oldLength, newLength, flags) {
  * a mapped framebuffer and makes no call is seen when it next sleeps, polls, writes, reads the clock, or exits. This is
  * what `wasi-preview1.mjs` does for the Emscripten programs.
  */
-const PROT_WRITE = 2
+const PROT_NONE = 0, PROT_WRITE = 2
 const MS_INVALIDATE = 2
 const S_IFMT = 0o170000, S_IFREG = 0o100000, S_IFCHR = 0o020000
 /** address -> { ptr, length, prot, file: { fd, refs } (its own descriptor), offset, shadow, regular, stamp } */
@@ -644,6 +676,13 @@ function msync(addr, length, flags) {
     flushMapping(mapping)
     if (flags & MS_INVALIDATE) refreshMapping(mapping)
   }
+  return 0
+}
+
+/** `mprotect`: only unseals (see `releaseRange`); the memory is not protected */
+function mprotect(addr, length, prot) {
+  if (addr % PAGE) return -EINVAL
+  if (prot !== PROT_NONE) locked(() => cut(sealed, addr, addr + roundUp(length, PAGE)))
   return 0
 }
 
@@ -2276,7 +2315,7 @@ const calls = {
   SYS_munmap: (addr, length) => big(munmap(addr, length)),
   SYS_msync: (addr, length, flags) => big(msync(addr, length, flags)),
   SYS_mremap: (addr, oldLength, newLength, flags) => big(mremap(addr, oldLength, newLength, flags)),
-  SYS_mprotect: () => 0n,
+  SYS_mprotect: (addr, length, prot) => big(mprotect(addr, length, prot)),
   SYS_madvise: () => 0n
 }
 
