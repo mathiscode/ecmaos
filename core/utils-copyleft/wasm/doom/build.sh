@@ -7,11 +7,11 @@
 # xkbcommon.sh in the repository; wasm/lib/ in that npm package), from the archives pinned here in programs/manifest.json.
 # The engine is software rendered; no game data is included (see the doom manual page for where to get a WAD).
 #
-# Needs `emcc` (emscripten 6), cmake, ninja, pkg-config, bison and the host `wayland-scanner`; SDL takes a few
-# minutes to build. The result is committed, so only run this to change it. Built like the other emcc programs (see
-# core/utils/wasm/wlcomp/build.sh). No music: the engine's music module does nothing.
+# Built on WALI's musl (`utils/check-wali.sh`), with the libraries built the same way, and run by /bin/wali. Needs
+# cmake, ninja, pkg-config, bison and the host `wayland-scanner`. The result is committed, so only run this to change
+# it. No music: the engine's music module does nothing.
 set -euo pipefail
-"$(dirname "$0")/../../../../utils/check-emcc.sh"
+source "$(dirname "$0")/../../../../utils/check-wali.sh"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SOURCES="$HERE/../../scripts/sources.mjs"
@@ -34,9 +34,9 @@ if [ -f "$WORK/prefix/lib/libSDL3.a" ] && [ -n "${DOOM_WORK:-}" ]; then
   SDL_INC="-I$WORK/prefix/include"; SDL_LIB="-L$WORK/prefix/lib -lSDL3"
   SDL_DEPS_LIB="-L$WORK/prefix/lib -lwayland-cursor -lwayland-egl -lwayland-client -lxkbcommon"
 else
-  build_wayland "$WORK"
-  build_xkbcommon "$WORK"
-  build_sdl "$WORK"
+  build_wayland "$WORK" wali
+  build_xkbcommon "$WORK" wali
+  build_sdl "$WORK" wali
 fi
 
 [ -d "$WORK/doomgeneric-$COMMIT" ] || ( cd "$WORK" && tar xzf "$DOOMGENERIC_ARCHIVE" )
@@ -45,8 +45,8 @@ SRC=$WORK/doomgeneric-$COMMIT/doomgeneric
 ENGINE_SOURCES=$(cd "$SRC" && ls *.c | grep -v -e '^doomgeneric_' -e '^i_allegro' -e '^i_sdlmusic\.c$' -e '^i_sdlsound\.c$' -e '^icon\.c$' | sed "s|^|$SRC/|")
 # i_sound.c includes SDL_mixer.h when sound is on; doomsound.c is the sound module instead, so the header is empty
 mkdir -p "$WORK/stub" && : > "$WORK/stub/SDL_mixer.h"
-emcc $ENGINE_SOURCES "$HERE/doomecma.c" "$HERE/doomsound.c" -I"$SRC" -I"$WORK/stub" -DFEATURE_SOUND $SDL_INC -O2 -w -fwasm-exceptions -sSUPPORT_LONGJMP=wasm -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE \
-  -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=33554432 ${DOOM_EXTRA:-} \
-  $SDL_LIB $SDL_DEPS_LIB -o "$WORK/doom.js"
+"$WALI_CC" $ENGINE_SOURCES "$HERE/doomecma.c" "$HERE/doomsound.c" -I"$SRC" -I"$WORK/stub" -DFEATURE_SOUND $SDL_INC -O2 -w -DNORMALUNIX -DLINUX -D_DEFAULT_SOURCE \
+  ${DOOM_EXTRA:-} $SDL_LIB $SDL_DEPS_LIB -o "$WORK/doom.wasm"
 cp "$WORK/doom.wasm" "$OUT"
 ls -l "$OUT"
+echo "built with $WALI_TOOLCHAIN"

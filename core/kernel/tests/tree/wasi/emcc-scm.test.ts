@@ -78,3 +78,28 @@ describe.each(['emcc', 'wali'])('the %s build passing descriptors over local soc
     expect(await kernel.filesystem.fs.readFile(`/tmp/${abi}-scm-peer-file`, 'utf8')).toBe('written by the receiver')
   }, 60_000)
 })
+
+/**
+ * Between the two builds: an emcc program's descriptors travel beside the stream and a WALI program's in its socket's
+ * pipe, so the kernel hands them across (a WALI Wayland client and the emcc compositor pass the keymap and wl_shm pools)
+ */
+describe.each([['emcc', 'wali'], ['wali', 'emcc']])('a descriptor from a %s program to a %s one', (sender, receiver) => {
+  let kernel: Kernel
+
+  beforeAll(async () => {
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
+    await kernel.boot()
+    const { readFileSync } = process.getBuiltinModule('node:fs')
+    for (const abi of new Set([sender, receiver])) {
+      await kernel.filesystem.fs.writeFile(`/tmp/${abi}-scm-peer`, new Uint8Array(readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/${abi}-scm-peer.wasm`)), { mode: 0o755 })
+    }
+  })
+
+  it('is received, and the receiver writes through it', async () => {
+    await kernel.shell.execute(`/tmp/${receiver}-scm-peer serve /tmp/x.sock > /tmp/serve.out 2>&1 &`)
+    for (let i = 0; i < 50 && !(await kernel.filesystem.fs.readFile('/tmp/serve.out', 'utf8')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+    expect(await kernel.shell.execute(`/tmp/${sender}-scm-peer send /tmp/x.sock /tmp/peer-file > /tmp/send.out 2>&1`)).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/send.out', 'utf8')).toContain('answer done')
+    expect(await kernel.filesystem.fs.readFile('/tmp/peer-file', 'utf8')).toBe('written by the receiver')
+  }, 60_000)
+})

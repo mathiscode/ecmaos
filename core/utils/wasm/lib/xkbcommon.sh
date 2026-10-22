@@ -4,14 +4,16 @@
 # as a static library into "$1/prefix", without meson (the library is a list of C files and one bison grammar; the
 # host needs `bison`). No xkb data files are installed: a keymap comes from text a program holds, such as the one a
 # Wayland compositor sends (`xkb_keymap_new_from_buffer`), and `xkb_keymap_new_from_names` finds nothing to include.
-# Sets XKBCOMMON_INC and XKBCOMMON_LIB for the caller.
+# Sets XKBCOMMON_INC and XKBCOMMON_LIB for the caller. With `wali` as the second argument it is built on WALI's musl
+# (the caller has sourced utils/check-wali.sh) instead of with emcc.
 set -euo pipefail
 
 XKBCOMMON=1.13.2
 XKBCOMMON_SHA256=acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528
 
 build_xkbcommon() {
-  local work=$1
+  local work=$1 cc=emcc ar=emar cflags=-fwasm-exceptions
+  if [ "${2:-}" = wali ]; then cc=$WALI_CC ar=$WALI_AR cflags=; fi
   command -v bison > /dev/null || { echo "xkbcommon: needs the host bison" >&2; exit 1; }
   ( cd "$work"
     if [ -n "${XKBCOMMON_ARCHIVE:-}" ]; then cp "$XKBCOMMON_ARCHIVE" xkbcommon.tar.gz   # an archive already fetched (a copyleft build's sources/)
@@ -45,13 +47,13 @@ CONFIG
     sed -i 's/log_err(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE,/log_dbg(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE,/' src/compose/table.c
     grep -q 'log_dbg(ctx, XKB_ERROR_INVALID_COMPOSE_LOCALE' src/compose/table.c || { echo "xkbcommon: the compose log patch did not apply" >&2; exit 1; }
     bison --defines=gen/parser.h -o gen/parser.c -p _xkbcommon_ src/xkbcomp/parser.y
-    CFLAGS="-O2 -fwasm-exceptions -std=gnu11 -D_GNU_SOURCE -DHAVE_CONFIG_H -DENABLE_PRIVATE_APIS -Igen -I. -Isrc -Iinclude -Isrc/xkbcomp -Isrc/compose"
+    CFLAGS="-O2 $cflags -std=gnu11 -D_GNU_SOURCE -DHAVE_CONFIG_H -DENABLE_PRIVATE_APIS -Igen -I. -Isrc -Iinclude -Isrc/xkbcomp -Isrc/compose"
     for f in src/*.c src/xkbcomp/*.c src/compose/*.c gen/parser.c; do
       case $f in src/registry.c|src/compose/dump.c) continue ;; esac
       out=gen/$(echo "${f%.c}" | tr / _).o
-      emcc $CFLAGS -c "$f" -o "$out" > "$out.log" 2>&1 || { tail -30 "$out.log" >&2; exit 1; }
+      $cc $CFLAGS -c "$f" -o "$out" > "$out.log" 2>&1 || { tail -30 "$out.log" >&2; exit 1; }
     done
-    emar rcs "$work/prefix/lib/libxkbcommon.a" gen/*.o
+    $ar rcs "$work/prefix/lib/libxkbcommon.a" gen/*.o
     cp include/xkbcommon/xkbcommon.h include/xkbcommon/xkbcommon-compat.h include/xkbcommon/xkbcommon-compose.h include/xkbcommon/xkbcommon-keysyms.h include/xkbcommon/xkbcommon-names.h "$work/prefix/include/xkbcommon/"
     mkdir -p "$work/prefix/lib/pkgconfig"
     printf 'Name: xkbcommon\nDescription: xkbcommon\nVersion: %s\nRequires:\nLibs: -L%s -lxkbcommon\nCflags: -I%s\n' \

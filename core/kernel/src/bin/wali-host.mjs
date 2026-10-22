@@ -589,6 +589,41 @@ function fileKind(fd) {
   return mode === S_IFREG || mode === S_IFCHR ? mode : -ENODEV
 }
 
+const O_CREAT = 0o100, O_EXCL = 0o200
+const MFD_CLOEXEC = 1, MFD_ALLOW_SEALING = 2, MFD_NOEXEC_SEAL = 8, MFD_EXEC = 0x10
+const FALLOC_FL_KEEP_SIZE = 1
+
+/**
+ * `memfd_create`: a file in memory that has no name, which a program sizes, maps and hands to another (a Wayland
+ * client's wl_shm pool). It is a file made in /dev/shm and unlinked at once; seals are not kept.
+ */
+function memfdCreate(flags) {
+  if (flags & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_NOEXEC_SEAL | MFD_EXEC)) return -EINVAL
+  for (;;) {
+    const path = `/dev/shm/.memfd-${getpid()}-${Math.random().toString(36).slice(2)}`
+    const fd = syscall_raw('open', path, O_RDWR | O_CREAT | O_EXCL, 0o600)
+    if (fd === -EEXIST) continue
+    if (fd < 0) return fd
+    syscall_raw('unlink', path)
+    return withinLimit(opened(fd, O_RDWR, (flags & MFD_CLOEXEC) !== 0))
+  }
+}
+
+/**
+ * `fallocate` with mode 0 or `FALLOC_FL_KEEP_SIZE`: the file has room for the range, so it grows to its end if it is
+ * shorter (the other modes punch, collapse or zero ranges, which the file systems here do not)
+ */
+function fallocate(fd, mode, offset, length) {
+  if (offset < 0 || length <= 0) return -EINVAL
+  if (mode & ~FALLOC_FL_KEEP_SIZE) return -EOPNOTSUPP
+  const kind = fileKind(fd)
+  if (kind < 0 && kind !== -ENODEV) return kind
+  if (kind !== S_IFREG) return -ENODEV
+  const size = stampOf(fd)?.size ?? 0
+  if ((mode & FALLOC_FL_KEEP_SIZE) || size >= offset + length) return 0
+  return syscall_raw('ftruncate', fd, offset + length)
+}
+
 /** What the object holds under a mapping, read fresh */
 function readBacking(mapping) {
   const into = new Uint8Array(mapping.length)
@@ -2015,6 +2050,8 @@ const calls = {
 
   SYS_open: (path, flags, mode) => big(withinLimit(opened(syscall_raw('open', readString(path), flags, mode), flags))),
   SYS_openat: (dirfd, path, flags, mode) => at(dirfd, path, resolved => withinLimit(opened(syscall_raw('open', resolved, flags, mode), flags))),
+  SYS_memfd_create: (_name, flags) => big(memfdCreate(num(flags))),
+  SYS_fallocate: (fd, mode, offset, length) => big(fallocate(fd, num(mode), num(offset), num(length))),
   SYS_close: fd => {
     const value = syscall_raw('close', fd)
     if (value >= 0) {

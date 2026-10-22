@@ -5,14 +5,16 @@
 # the one place libwayland needs it (calling a listener with a message's arguments) becomes a switch on the argument
 # count, which is exact here because every Wayland argument is one 32-bit word on wasm32.
 # Sets WAYLAND_INC and WAYLAND_LIB for the caller. `wayland_protocol NAME XML` writes NAME-client-protocol.h and
-# NAME-protocol.c into "$1/protocols" (for xdg-shell and the like).
+# NAME-protocol.c into "$1/protocols" (for xdg-shell and the like). With `wali` as the second argument it is built on
+# WALI's musl (the caller has sourced utils/check-wali.sh) instead of with emcc.
 set -euo pipefail
 
 WAYLAND=1.26.0
 WAYLAND_SHA256=64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3
 
 build_wayland() {
-  local work=$1
+  local work=$1 cc=emcc ar=emar cflags=-fwasm-exceptions
+  if [ "${2:-}" = wali ]; then cc=$WALI_CC ar=$WALI_AR cflags=; fi
   command -v wayland-scanner > /dev/null || { echo "wayland: needs the host wayland-scanner" >&2; exit 1; }
   ( cd "$work"
     if [ -n "${WAYLAND_ARCHIVE:-}" ]; then cp "$WAYLAND_ARCHIVE" wayland.tar.xz   # an archive already fetched (a copyleft build's sources/)
@@ -104,23 +106,23 @@ s = s[:start] + new + s[end:]
 open(p, 'w').write(s)
 PY
 
-    CFLAGS="-O2 -fwasm-exceptions -DHAVE_CONFIG_H -I. -Igen -I$S"
+    CFLAGS="-O2 $cflags -DHAVE_CONFIG_H -I. -Igen -I$S"
     for f in connection wayland-client wayland-os wayland-util; do
-      emcc $CFLAGS -c "$S/$f.c" -o "gen/$f.o" > "gen/$f.log" 2>&1 || { tail -30 "gen/$f.log" >&2; exit 1; }
+      $cc $CFLAGS -c "$S/$f.c" -o "gen/$f.o" > "gen/$f.log" 2>&1 || { tail -30 "gen/$f.log" >&2; exit 1; }
     done
-    emcc $CFLAGS -I"$S" -c gen/wayland-protocol.c -o gen/wayland-protocol.o
-    emar rcs "$work/prefix/lib/libwayland-client.a" gen/*.o
+    $cc $CFLAGS -I"$S" -c gen/wayland-protocol.c -o gen/wayland-protocol.o
+    $ar rcs "$work/prefix/lib/libwayland-client.a" gen/*.o
     cp "$S/wayland-client.h" "$S/wayland-client-core.h" "$S/wayland-util.h" gen/wayland-client-protocol.h gen/wayland-version.h "$work/prefix/include/"
 
     # libwayland-cursor (cursor themes; with no theme files it hands out no cursors) and libwayland-egl (the window
     # object EGL surfaces are made from), for toolkits that link both. They need nothing beyond the client library.
     mkdir -p gen/cursor gen/egl
     for f in wayland-cursor os-compatibility xcursor; do
-      emcc $CFLAGS -I"$S/../cursor" -c "$S/../cursor/$f.c" -o "gen/cursor/$f.o" > "gen/cursor/$f.log" 2>&1 || { tail -30 "gen/cursor/$f.log" >&2; exit 1; }
+      $cc $CFLAGS -I"$S/../cursor" -c "$S/../cursor/$f.c" -o "gen/cursor/$f.o" > "gen/cursor/$f.log" 2>&1 || { tail -30 "gen/cursor/$f.log" >&2; exit 1; }
     done
-    emar rcs "$work/prefix/lib/libwayland-cursor.a" gen/cursor/*.o
-    emcc $CFLAGS -I"$S/../egl" -c "$S/../egl/wayland-egl.c" -o gen/egl/wayland-egl.o
-    emar rcs "$work/prefix/lib/libwayland-egl.a" gen/egl/*.o
+    $ar rcs "$work/prefix/lib/libwayland-cursor.a" gen/cursor/*.o
+    $cc $CFLAGS -I"$S/../egl" -c "$S/../egl/wayland-egl.c" -o gen/egl/wayland-egl.o
+    $ar rcs "$work/prefix/lib/libwayland-egl.a" gen/egl/*.o
     cp "$S/../cursor/wayland-cursor.h" "$S/../egl/wayland-egl.h" "$S/../egl/wayland-egl-core.h" "$S/../egl/wayland-egl-backend.h" "$work/prefix/include/"
     # pkg-config files, for builds that look the libraries up that way (SDL); `egl` is only named, nothing links it
     mkdir -p "$work/prefix/lib/pkgconfig"

@@ -30,14 +30,12 @@ carries an `SPDX-License-Identifier`. `vim` is also linked with a termcap from `
 `programs/manifest.json` pins the upstream archive of every program (URL and sha256). `node scripts/sources.mjs all`
 downloads them into `sources/`, which is what `npm pack` ships and what a deployment serves at `/sources/`, so the
 source offered is the source the binary was built from. `licenses/<program>/SOURCE` is the written offer for each
-program: the upstream archive, what ecmaOS changed, and the toolchain (`utils/wali-version` in the repository, or
-`utils/emscripten-version` for `doom`).
+program: the upstream archive, what ecmaOS changed, and the toolchain (`utils/wali-version` in the repository).
 
 ## Rebuilding
 
-`wasm/<name>/build.sh` rebuilds one program and writes `programs/<name>.wasm`: on WALI's musl (`utils/check-wali.sh`
-builds the pinned sysroot the first time; it wants the pinned clang unless `ECMAOS_WALI_ANY=1`), or, for `doom`, with
-Emscripten (the pinned version; the script refuses another unless `ECMAOS_EMCC_ANY=1`). Then `node ../../utils/programs-manifest.mjs` refreshes the
+`wasm/<name>/build.sh` rebuilds one program and writes `programs/<name>.wasm` on WALI's musl (`utils/check-wali.sh`
+builds the pinned sysroot the first time; it wants the pinned clang unless `ECMAOS_WALI_ANY=1`). Then `node ../../utils/programs-manifest.mjs` refreshes the
 manifest's sizes and hashes. `wasm/vim/runtime.sh` packs the subset of Vim's runtime that ships into
 `programs/vim-runtime.tar.gz` (Vim-licensed files, so they travel with `vim` and not with the kernel's initfs). It is
 listed under `vim.runtime` in the manifest, and the kernel unpacks it to `/usr/share/vim/vim91` beside the program.

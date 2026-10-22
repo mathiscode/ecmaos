@@ -8,7 +8,7 @@
  */
 
 import { binfmts, define_syscall, kill as zenfsKill, processes, Process as ZenFSProcess, syscalls, thread_of, type BinFmt, type Process } from '@zenfs/linux'
-import { attach, createSocket, deliverDatagram, describe, receive, receiveDatagram, receiveRights, send, sendDatagram, sendRights, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
+import { attach, countWritten, createSocket, deliverDatagram, describe, receive, receiveDatagram, receiveRights, rightsFromPeer, send, sendDatagram, sendRights, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
 import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
@@ -328,7 +328,14 @@ interface PeerCredentials { pid: number, uid: number, gid: number }
 type Held = { ref(): unknown, closeSync(): void }
 type ScmItem = ({ t: 'fd', handle: Held } | { t: 'sock', read?: Held, write?: Held, meta: Record<string, unknown> }) & { unhold?: Array<() => void> }
 interface ScmEntry { offset: number, length: number, items: ScmItem[] }
-interface LocalConnection { ends: Record<string, Process> }
+interface LocalConnection {
+  ends: Record<string, Process>
+  /**
+   * The ends that are socket files (a WALI program's), whose descriptors go in their pipes; an emcc program's go in
+   * `scmQueues`, so between the two kinds they are handed across (`rightsToEmcc`, `rightsFromPeer`)
+   */
+  files?: Record<string, Socket>
+}
 const localConnections = new Map<number, LocalConnection>()
 const scmQueues = new Map<string, ScmEntry[]>()
 let nextConnection = 1
@@ -372,6 +379,28 @@ function openConnection(ends: Record<string, Process>): number {
   return id
 }
 let nextEphemeralPort = 49152
+
+/**
+ * A socket file at end `dir` of connection `conn` whose other end is an emcc program: the descriptors it sends are
+ * queued where that program's `recvmsg` looks for them (`scm_take`), at their offset in the stream.
+ */
+function rightsToEmcc(kernel: Kernel, socket: Socket, conn: number, dir: string): void {
+  countWritten(socket)
+  socket.rightsToPeer = (handles, offset, length) => {
+    const key = `${conn}${dir}`
+    const queue = scmQueues.get(key) ?? []
+    const items: ScmItem[] = handles.map(one => {
+      const handle = one.ref() as unknown as Held
+      return { t: 'fd' as const, handle, unhold: [holdInFlight(kernel.pipeProcess, handle)] }
+    })
+    if (queue.length === 0) {
+      const peer = localConnections.get(conn)?.ends[otherEnd(dir)]
+      if (peer) void peer.exited.then(() => { for (const entry of scmQueues.get(key) ?? []) releaseItems(entry.items); scmQueues.delete(key) })
+    }
+    queue.push({ offset, length, items })
+    scmQueues.set(key, queue)
+  }
+}
 
 /** Normalizes an `AF_INET`/`AF_INET6` bind/connect target; anything not loopback is rejected by
  * the caller before this is even consulted - see `net_bind`/`net_connect`'s own checks. */
@@ -1072,8 +1101,15 @@ export function installMainThreadSyscalls(): void {
     const queue = scmQueues.get(key) ?? []
     const held = queue.reduce((sum, entry) => sum + entry.items.length, 0)
     const lookup = (fd: number) => proc.context.descriptors.get(fd) as unknown as Held | undefined
+    const file = connection?.files?.[otherEnd(dir)]
     if (!connection || connection.ends[dir] !== proc) text = JSON.stringify({ error: 'ENOTCONN' })
     else if (list.some(item => item.t === 'fd' ? !lookup(item.fd) : !lookup(item.readFd) || !lookup(item.writeFd))) text = JSON.stringify({ error: 'EBADF' })
+    // to a WALI program, whose sockets are files: the descriptors go in its pipe (an emcc socket, a pair of pipe ends, is not one it could take)
+    else if (file && list.some(item => item.t !== 'fd')) text = JSON.stringify({ error: 'EINVAL' })
+    else if (file) {
+      rightsFromPeer(file, list.map(item => lookup((item as { fd: number }).fd)!.ref() as never), length, kernel.pipeProcess)
+      text = JSON.stringify({ ok: true })
+    }
     else if (held + list.length > MaxInFlight) text = JSON.stringify({ error: 'ENOBUFS' })
     else {
       const items: ScmItem[] = list.map(item => {
@@ -1373,6 +1409,21 @@ export function installMainThreadSyscalls(): void {
     if (!next) throw socketErrno('EAGAIN')
     const made = createSocket(proc, flags, { ...socket.info, bound: undefined, local: socket.info.local, peer: { addr: next.peerAddr, key: next.peerKey }, peercred: next.cred })
     attach(made.socket, listener.serverProc, next.fd, next.writeFd)
+    const connection = next.conn === undefined ? undefined : localConnections.get(next.conn)
+    if (connection) {
+      connection.files = { ...connection.files, s: made.socket }
+      // a client that is not a socket file is an emcc program
+      if (!connection.files.c) {
+        rightsToEmcc(kernelOf(proc), made.socket, next.conn!, 's')
+        // what it sent before it was accepted
+        for (const entry of scmQueues.get(`${next.conn}c`) ?? []) {
+          for (const item of entry.items) unholdItem(item)
+          const handles = entry.items.flatMap(item => item.t === 'fd' ? [item.handle] : (releaseItems([item]), []))
+          rightsFromPeer(made.socket, handles as never, entry.length, kernelOf(proc).pipeProcess, entry.offset)
+        }
+        scmQueues.delete(`${next.conn}c`)
+      }
+    }
     return made.fd
   })
 
@@ -1394,6 +1445,9 @@ export function installMainThreadSyscalls(): void {
     // the client's peer is whoever listened
     socket.info.peercred = credentialsOf(listener.owner ?? listener.serverProc)
     attach(socket, holder, toClient.readerFd, toServer.writerFd)
+    localConnections.get(conn)!.files = { c: socket }
+    // a listener that is not a socket file is an emcc program's
+    if (!listener.owner) rightsToEmcc(kernel, socket, conn, 'c')
     return 0
   })
 

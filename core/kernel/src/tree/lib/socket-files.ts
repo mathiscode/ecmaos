@@ -55,6 +55,11 @@ export interface Socket {
   cleanup: Array<() => void>
   /** A datagram socket's side: set when it is opened as one */
   datagrams?: Datagrams
+  /**
+   * Set when the other end is an emcc program, whose descriptors travel beside the stream rather than in its pipe
+   * (`scm_send`, `scm_take`): takes the descriptors sent with the `length` bytes `offset` bytes into the stream
+   */
+  rightsToPeer?: (handles: Handle[], offset: number, length: number) => void
 }
 
 /** One datagram and who sent it */
@@ -358,6 +363,12 @@ export async function sendRights(proc: Process, fd: number, data: Uint8Array, fd
   const tx = endOf(socket, socket.tx)
   if (!tx) throw fail(Errno.EPIPE, 'Broken pipe')
   const pipe = tx.end.pipe
+  if (socket.rightsToPeer) {
+    const offset = written.get(pipe) ?? 0
+    const length = socketOps.write({ path: handle.internalPath }, data)
+    if (length) socket.rightsToPeer(handles as Handle[], offset, length)
+    return length
+  }
   const state = ancillary.get(pipe) ?? { taken: 0, rights: [] }
   if (state.rights.reduce((sum, rights) => sum + rights.held.length, 0) + handles.length > MaxInFlight) throw fail(Errno.ETOOMANYREFS, 'Too many references')
   const offset = state.taken + pipe.readable
@@ -371,6 +382,48 @@ export async function sendRights(proc: Process, fd: number, data: Uint8Array, fd
   state.rights.push({ offset, length, held })
   ancillary.set(pipe, state)
   return length
+}
+
+/** How much has gone into each pipe that counts it (`countWritten`) */
+const written = new WeakMap<PipeEnd['pipe'], number>()
+
+/**
+ * Has a connected socket count what it writes, from now on, for a peer that names its descriptors by where they are
+ * in the stream (an emcc program: `rightsToPeer`). The pipe is the connection's own, so nothing was written to it
+ * before.
+ */
+export function countWritten(socket: Socket): void {
+  const pipe = endOf(socket, socket.tx)?.end.pipe as (PipeEnd['pipe'] & { put(data: Uint8Array): number }) | undefined
+  if (!pipe || written.has(pipe)) return
+  written.set(pipe, 0)
+  const put = pipe.put.bind(pipe)
+  pipe.put = data => {
+    const length = put(data)
+    written.set(pipe, (written.get(pipe) ?? 0) + length)
+    return length
+  }
+}
+
+/**
+ * Descriptors an emcc program sends to this socket (`scm_send`), with `length` bytes it is about to write (or that
+ * start `offset` bytes into the stream, when none of it has been read): they go with those bytes as `sendRights` would
+ * put them, held in `holder`'s table until received.
+ */
+export function rightsFromPeer(socket: Socket, handles: Handle[], length: number, holder: Process, offset?: number): void {
+  const pipe = endOf(socket, socket.rx)?.end.pipe
+  if (!pipe) {
+    for (const one of handles) { try { one.closeSync() } catch { /* already closed */ } }
+    return
+  }
+  const state = ancillary.get(pipe) ?? { taken: 0, rights: [] }
+  const held = handles.map(one => {
+    const key = nextInFlight++
+    ;(holder.context.descriptors as unknown as Table).set(key, one)
+    return { holder, key }
+  })
+  state.rights.push({ offset: offset ?? state.taken + pipe.readable, length, held })
+  state.rights.sort((a, b) => a.offset - b.offset)
+  ancillary.set(pipe, state)
 }
 
 /** What comes before the data `receiveRights` puts in the region: the count of descriptors (4), flags (4: 1 when some were cut, 2 when credentials follow), the sender's pid, uid and gid (12), then the descriptors (4 each) */

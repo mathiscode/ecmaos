@@ -3,7 +3,9 @@
 # Sourced by the build scripts of programs that use SDL: builds SDL 3.4.18 (zlib license) as a static library into
 # "$1/prefix", with its Wayland video driver (build_wayland and build_xkbcommon must have run for the same "$1": the
 # driver wants libwayland-client, -cursor, -egl and libxkbcommon, found through the pkg-config files they leave).
-# Sets SDL_INC and SDL_LIB for the caller; link with $SDL_LIB $SDL_DEPS_LIB.
+# Sets SDL_INC and SDL_LIB for the caller; link with $SDL_LIB $SDL_DEPS_LIB. With `wali` as the second argument it is
+# built on WALI's musl (the caller has sourced utils/check-wali.sh, and built libwayland and libxkbcommon the same way)
+# instead of with emcc: CMake takes it for Linux, and it is still built without threads.
 #
 # SDL treats Emscripten as the browser canvas (its own video, audio and timer code that calls into JavaScript). Here
 # the target is a Unix program on a Wayland compositor, so these changes are made to the source:
@@ -17,7 +19,7 @@
 #     callback thread: SDL_PumpEvents (so SDL_PollEvent and SDL_WaitEvent) keeps the device about 100 ms ahead of
 #     the clock, and a program that does not poll events for a while is silent for that while;
 #   - the clipboard tells its own offers from other programs' by process id, which is 42 for every Emscripten program;
-#     the id gets the clock mixed in;
+#     the id gets the clock mixed in (with emcc only);
 #   - joysticks are a driver of their own (src/joystick/ecmaos): it reads the pads the browser has from /dev/js0 to
 #     /dev/js3 (Linux's joystick API). A pad shows up once a button has been pressed on it; the browser's "standard"
 #     pads get the SDL gamepad mapping, with the triggers as buttons;
@@ -31,7 +33,7 @@ SDL=3.4.18
 SDL_SHA256=9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
 
 build_sdl() {
-  local work=$1
+  local work=$1 mode=${2:-}
   command -v cmake > /dev/null || { echo "sdl: needs the host cmake" >&2; exit 1; }
   command -v ninja > /dev/null || { echo "sdl: needs the host ninja" >&2; exit 1; }
   command -v pkg-config > /dev/null || { echo "sdl: needs the host pkg-config" >&2; exit 1; }
@@ -55,8 +57,10 @@ build_sdl() {
     sed -i 's/^extern AudioBootStrap DUMMYAUDIO_bootstrap;$/&\nextern AudioBootStrap ECMAOSAUDIO_bootstrap;/' src/audio/SDL_sysaudio.h
     sed -i 's/^static void SDL_PumpEventsInternal(bool push_sentinel)$/extern void ECMAOS_PumpAudio(void);\n&/; s/^    \/\/ Free any temporary memory from old events$/    ECMAOS_PumpAudio();\n&/' src/events/SDL_events.c
     grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_audio.c && grep -q ECMAOSAUDIO_bootstrap src/audio/SDL_sysaudio.h && grep -q ECMAOS_PumpAudio src/events/SDL_events.c && grep -q SDL_AUDIO_DRIVER_ECMAOS CMakeLists.txt || { echo "sdl: the audio patch did not apply" >&2; exit 1; }
-    sed -i 's/^        Uint64 pid = (Uint64)getpid();$/        Uint64 pid = (Uint64)getpid() ^ (SDL_GetPerformanceCounter() << 8);   \/\* ecmaOS: getpid() is 42 in every program \*\//' src/video/wayland/SDL_waylandevents.c
-    grep -q "getpid() is 42" src/video/wayland/SDL_waylandevents.c || { echo "sdl: the clipboard id patch did not apply" >&2; exit 1; }
+    if [ "$mode" != wali ]; then
+      sed -i 's/^        Uint64 pid = (Uint64)getpid();$/        Uint64 pid = (Uint64)getpid() ^ (SDL_GetPerformanceCounter() << 8);   \/\* ecmaOS: getpid() is 42 in every program \*\//' src/video/wayland/SDL_waylandevents.c
+      grep -q "getpid() is 42" src/video/wayland/SDL_waylandevents.c || { echo "sdl: the clipboard id patch did not apply" >&2; exit 1; }
+    fi
     sed -i 's/^if(NOT HAVE_SDL_JOYSTICK)$/if(SDL_ECMAOS AND SDL_JOYSTICK)\n  set(SDL_JOYSTICK_ECMAOS 1)\n  sdl_glob_sources(\n    "${SDL3_SOURCE_DIR}\/src\/joystick\/ecmaos\/*.c"\n  )\n  set(HAVE_SDL_JOYSTICK TRUE)\nendif()\n&/' CMakeLists.txt
     sed -i 's/^#ifdef SDL_JOYSTICK_EMSCRIPTEN$/#ifdef SDL_JOYSTICK_ECMAOS\n    \&SDL_ECMAOS_JoystickDriver,\n#endif\n&/' src/joystick/SDL_joystick.c
     sed -i 's/^extern SDL_JoystickDriver SDL_ANDROID_JoystickDriver;$/&\nextern SDL_JoystickDriver SDL_ECMAOS_JoystickDriver;/' src/joystick/SDL_sysjoystick.h
@@ -840,8 +844,16 @@ SOURCE
   )
   mkdir -p "$work/sdl-build"
   ( cd "$work/sdl-build"
-    PKG_CONFIG_PATH="$work/prefix/lib/pkgconfig" emcmake cmake "../SDL3-$SDL" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
-      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="-fwasm-exceptions -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_JOYSTICK_ECMAOS=1 -DSDL_VIDEO_STATIC_ANGLE=1" \
+    local configure=(env PKG_CONFIG_PATH="$work/prefix/lib/pkgconfig" emcmake cmake) cflags=-fwasm-exceptions
+    if [ "$mode" = wali ]; then
+      # a Linux cross build, which finds its libraries only in the prefix (none of the host's)
+      printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_SYSTEM_PROCESSOR wasm32)\nset(CMAKE_C_COMPILER %s)\nset(CMAKE_AR %s)\nset(CMAKE_RANLIB %s)\nset(CMAKE_FIND_ROOT_PATH %s %s)\nset(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\nset(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\nset(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\n' \
+        "$WALI_CC" "$(command -v "$WALI_AR")" "$(command -v "$WALI_RANLIB")" "$WALI_SYSROOT" "$work/prefix" > wali.cmake
+      configure=(env PKG_CONFIG_LIBDIR="$work/prefix/lib/pkgconfig" PKG_CONFIG_PATH= cmake -DCMAKE_TOOLCHAIN_FILE="$PWD/wali.cmake" -DSDL_THREADS=OFF -DSDL_HIDAPI=OFF)
+      cflags=
+    fi
+    "${configure[@]}" "../SDL3-$SDL" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
+      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="$cflags -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_JOYSTICK_ECMAOS=1 -DSDL_VIDEO_STATIC_ANGLE=1" \
       -DSDL_ECMAOS=ON -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_DOCS=OFF \
       -DSDL_WAYLAND=ON -DSDL_WAYLAND_SHARED=OFF -DSDL_WAYLAND_LIBDECOR=OFF \
       -DSDL_X11=OFF -DSDL_KMSDRM=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=ON -DSDL_VULKAN=OFF \

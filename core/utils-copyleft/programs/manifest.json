@@ -184,6 +184,7 @@
       "license": "GPL-2.0-or-later AND Zlib AND MIT",
       "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)",
       "homepage": "https://github.com/ozkl/doomgeneric",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "doomgeneric",
@@ -218,8 +219,8 @@
           "sha256": "acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528"
         }
       ],
-      "size": 2138262,
-      "sha256": "738c1ee84e29d6a5e48be2aa408d779140eab7bcd4841cd8a714a6deb860bef2",
+      "size": 2268321,
+      "sha256": "6af8b19741da3d3071a2daafaa94f0f737bf996232c7b9293e8824932d0fa12a",
       "modifications": [
         {
           "file": "wasm/doom/build.sh",

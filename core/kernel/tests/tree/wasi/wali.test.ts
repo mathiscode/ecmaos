@@ -271,6 +271,25 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
+  it('makes a file with no name (memfd_create), grows it with fallocate, and hands it on mapped', async () => {
+    expect(await run('wali-memfd')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'memfd: fd>=0=1 cloexec=1 size=0',
+        'bad flags: Invalid argument',
+        'fallocate: 0 size=8192',
+        'keep size: 0 size=8192',
+        'within: 0 size=8192',
+        'punch: Not supported',
+        'pipe: No such device',
+        'child: through the mapping',
+        'exit=0',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)
