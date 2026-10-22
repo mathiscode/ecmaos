@@ -12,8 +12,8 @@
       "description": "bc, and dc (the same binary under another name)",
       "homepage": "https://git.gavinhoward.com/gavin/bc",
       "toolchain": "wali",
-      "size": 281507,
-      "sha256": "cf0c98437195109c36a1d73a39590c32f378e801380a64bca332d830693fe331"
+      "size": 281041,
+      "sha256": "61731d1ca6a41f80c5e66bc35a5e3e7634f39e4d4798f9cbdfd3fd4d84dece74"
     },
     "brotli": {
       "file": "brotli.wasm",
@@ -22,8 +22,8 @@
       "description": "brotli, the compressor and decompressor",
       "homepage": "https://github.com/google/brotli",
       "toolchain": "wali",
-      "size": 824644,
-      "sha256": "d7eb76ccbc65b041b0eff3746bace3ad89c757104e360f6306ddc3e82cee1b0a"
+      "size": 823226,
+      "sha256": "b572af24c460312e63bdc49373aa7b7d8653e3fe01a09b12b1513e253b3ea893"
     },
     "jq": {
       "file": "jq.wasm",
@@ -62,8 +62,8 @@
       "description": "bzip2, and bunzip2 and bzcat (links to it)",
       "homepage": "https://sourceware.org/bzip2/",
       "toolchain": "wali",
-      "size": 128565,
-      "sha256": "770d7b5a97a8c28e77f6b7e8d3846672c913eea003c89271291987ae3a1548f5"
+      "size": 127156,
+      "sha256": "d8f3c3a715a5ba7a54a27efbba818d56021a8214f60e32d48926a28a82356383"
     },
     "xz": {
       "file": "xz.wasm",
@@ -72,8 +72,8 @@
       "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)",
       "homepage": "https://tukaani.org/xz/",
       "toolchain": "wali",
-      "size": 254790,
-      "sha256": "3160b9d13477ac0545ec50005a5e4172feb54cb5336416919d1bdb6b1737c203"
+      "size": 254610,
+      "sha256": "49e977801af66d3256bfcd89387990f8509a7487bb8e726247bbd9ed7cd36876"
     },
     "zstd": {
       "file": "zstd.wasm",
@@ -82,8 +82,8 @@
       "description": "zstd, and unzstd and zstdcat (links to it)",
       "homepage": "https://facebook.github.io/zstd/",
       "toolchain": "wali",
-      "size": 758448,
-      "sha256": "68519727c5c4936e68ceab524727098d1bced588b2056bf22a84bd161a9ca0be"
+      "size": 758267,
+      "sha256": "7222f8133a56737ed8bbcb5ede85714bfd2d66277cde82037cf249be8c07c0cd"
     },
     "qjs": {
       "file": "qjs.wasm",
@@ -102,8 +102,8 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 72912,
-      "sha256": "791be3ef8c42a1b18849f2f4bdab8faec49bc45f83d3af2d03f530703e71d9dc"
+      "size": 72372,
+      "sha256": "744b5f28ca7f8f059b41302d4a7ca40e343a9dc09794b14c4d9798ba0ccffe68"
     },
     "ncdu": {
       "file": "ncdu.wasm",

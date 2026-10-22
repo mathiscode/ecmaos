@@ -82,8 +82,8 @@
           "sha256": "5caddcbca805131ff590b126d3218019882e4ca10bc9eb490bba51c05b9b3b75"
         }
       ],
-      "size": 115837,
-      "sha256": "42029814db2c79a785450113f1b4dc77bf139f3cc416aab24dc882e7326b7d54",
+      "size": 115652,
+      "sha256": "5d6dc17ed24f256b841e50e3f1309f6fc08d412592c5a2068751a0330c727e95",
       "modifications": [
         {
           "file": "wasm/tree/build.sh",
@@ -149,8 +149,8 @@
           "what": "compile and link flags only; the source is unmodified. The archive is Debian's gzip copy of upstream's ed-1.22.5.tar.lz, since upstream publishes only lzip"
         }
       ],
-      "size": 140238,
-      "sha256": "c070af51ae4b8ccc4704e4f5f1591e60e44213ca84cf4bb246e57fdfd41fb327"
+      "size": 140067,
+      "sha256": "99a267c87268b151ad9334ff0abc6ae9f16615dea62d189ba1e21d0bd2daa299"
     },
     "lz4": {
       "file": "lz4.wasm",
@@ -175,8 +175,8 @@
         }
       ],
       "toolchain": "wali",
-      "size": 212547,
-      "sha256": "2584a076b6c1a3969231df70e758d9e0f8d398e2474ab3924ac5d2280f8a4b8b"
+      "size": 212365,
+      "sha256": "ddbdf0dd5b968a2709e35f1e17cc3d90d75f539d94e6e8d923200a9c7ee1c752"
     },
     "doom": {
       "file": "doom.wasm",
