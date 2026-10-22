@@ -11,12 +11,11 @@ Upstream source
 Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
   wasm/make/build.sh
     the build: configures make to start its jobs with posix_spawn and to wait for jobserver tokens without pselect; the make source is unmodified
-  core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)
-    builds libecmaos, linked into the program: posix_spawn, waitpid, execve and kill on the kernel's processes, the kernel's signals run through the program's handlers, and the sleeps and timers
 
 The changes were made in 2026; the repository history dates each one.
 
-Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them.
 
 Where to get it
   - /sources/make-4.4.1.tar.gz on the site that served this program, and the other archives listed above in the same place

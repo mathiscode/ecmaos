@@ -11,6 +11,7 @@
       "license": "GPL-3.0-or-later",
       "description": "GNU make, with parallel jobs (-j)",
       "homepage": "https://www.gnu.org/software/make/",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "make",
@@ -21,16 +22,12 @@
           "sha256": "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
         }
       ],
-      "size": 226897,
-      "sha256": "ef039d44d3dff1911109943332b68bfcbf9f04e77e55ca78e7c313dffe2e8157",
+      "size": 242118,
+      "sha256": "37d3fe449b81abdd6469011ab370c2d3981adbea364e10c3e5eae11e290ef66c",
       "modifications": [
         {
           "file": "wasm/make/build.sh",
           "what": "the build: configures make to start its jobs with posix_spawn and to wait for jobserver tokens without pselect; the make source is unmodified"
-        },
-        {
-          "file": "core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)",
-          "what": "builds libecmaos, linked into the program: posix_spawn, waitpid, execve and kill on the kernel's processes, the kernel's signals run through the program's handlers, and the sleeps and timers"
         }
       ]
     },
@@ -100,6 +97,7 @@
       "license": "Vim",
       "description": "Vim, the modal text editor (the `normal` feature set)",
       "homepage": "https://www.vim.org",
+      "toolchain": "wali",
       "sources": [
         {
           "name": "vim",
@@ -110,16 +108,16 @@
           "sha256": "ddb435f6e386c53799a3025bdc5a3533beac735a0ee596cb27ada97366a1c725"
         }
       ],
-      "size": 2551572,
-      "sha256": "b90b1e977383679406f3d52b3a62bce0fe335c77caeb2b41fc2ac2f1f4a80055",
+      "size": 3151880,
+      "sha256": "b20ea5ee55e32ce94d9d65801199621218740bf30810d130f8e4524b997bcd9c",
       "modifications": [
         {
-          "file": "core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)",
-          "what": "builds libecmaos, linked into the program: processes for system(), the kernel's signals run through Vim's handlers, timers, the xattr calls Emscripten lacks, and a termcap that finds no terminal"
+          "file": "core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)",
+          "what": "linked into the program: a termcap that finds no terminal, so Vim uses its builtin terminal entries"
         },
         {
           "file": "wasm/vim/build.sh",
-          "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified"
+          "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included); the Vim source is unmodified"
         }
       ],
       "runtime": {

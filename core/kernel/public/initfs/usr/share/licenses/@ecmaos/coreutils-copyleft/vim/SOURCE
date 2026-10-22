@@ -9,14 +9,15 @@ Upstream source
     from https://github.com/vim/vim/archive/refs/tags/v9.1.0.tar.gz
 
 Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
-  core/utils/wasm/lib/ecmaos.sh (in the repository; wasm/lib/ecmaos.sh and wasm/lib/ecmaos/ in the npm package @ecmaos/coreutils)
-    builds libecmaos, linked into the program: processes for system(), the kernel's signals run through Vim's handlers, timers, the xattr calls Emscripten lacks, and a termcap that finds no terminal
+  core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)
+    linked into the program: a termcap that finds no terminal, so Vim uses its builtin terminal entries
   wasm/vim/build.sh
-    configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY); the Vim source is unmodified
+    configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included); the Vim source is unmodified
 
 The changes were made in 2026; the repository history dates each one.
 
-Toolchain: Emscripten 6.0.9 (utils/emscripten-version in the repository pins it).
+Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them.
 
 Where to get it
   - /sources/vim-9.1.0.tar.gz on the site that served this program, and the other archives listed above in the same place
