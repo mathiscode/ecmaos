@@ -290,6 +290,21 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
+  it('takes only the lower half of fcntl\'s argument, which musl reads as a long the caller did not fill', async () => {
+    expect(await run('wali-fcntl')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'dupfd: above=1 cloexec=1',
+        'upper half set: dupfd=40',
+        'upper half set: getlk=0 unlocked=1',
+        'at the limit: Invalid argument',
+        'negative: Invalid argument',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

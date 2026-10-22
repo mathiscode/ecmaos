@@ -3,11 +3,11 @@
 # Rebuilds programs/sdlclip.wasm: a window that shows the clipboard and drops for ecmaOS (sdlclip.c, written for this project), linked with SDL 3 on its
 # Wayland driver (see ../lib/sdl.sh, ../lib/wayland.sh and ../lib/xkbcommon.sh).
 #
-# Needs `emcc` (emscripten 6), cmake, ninja, pkg-config, bison and the host `wayland-scanner`; SDL takes a few
-# minutes to build. The result is committed, so only run this to change it. Built like the other emcc programs (see
-# ../wlcomp/build.sh).
+# Built on WALI's musl (`utils/check-wali.sh`), with the libraries built the same way, and run by /bin/wali. Needs
+# cmake, ninja, pkg-config, bison and the host `wayland-scanner`; SDL takes a few minutes to build. The result is
+# committed, so only run this to change it.
 set -euo pipefail
-"$(dirname "$0")/../../../../utils/check-emcc.sh"
+source "$(dirname "$0")/../../../../utils/check-wali.sh"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 source "$HERE/../lib/wayland.sh"
@@ -17,10 +17,10 @@ OUT=$HERE/../../programs/sdlclip.wasm
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-build_wayland "$WORK"
-build_xkbcommon "$WORK"
-build_sdl "$WORK"
-emcc "$HERE/sdlclip.c" $SDL_INC -O2 -Wall -fwasm-exceptions -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=4194304 \
-  $SDL_LIB $SDL_DEPS_LIB -o "$WORK/sdlclip.js"
+build_wayland "$WORK" wali
+build_xkbcommon "$WORK" wali
+build_sdl "$WORK" wali
+"$WALI_CC" "$HERE/sdlclip.c" $SDL_INC -O2 -Wall $SDL_LIB $SDL_DEPS_LIB -o "$WORK/sdlclip.wasm"
 cp "$WORK/sdlclip.wasm" "$OUT"
 ls -l "$OUT"
+echo "built with $WALI_TOOLCHAIN"

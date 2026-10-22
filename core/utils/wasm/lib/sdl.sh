@@ -865,6 +865,8 @@ SOURCE
     ninja install > install.log 2>&1 || { tail -20 install.log >&2; exit 1; }
   )
   SDL_INC="-I$work/prefix/include"
+  # WALI's sysroot has no GLES2 headers (Emscripten's has), so SDL_opengles2.h takes the ones SDL ships
+  if [ "$mode" = wali ]; then SDL_INC="$SDL_INC -DSDL_USE_BUILTIN_OPENGL_DEFINITIONS"; fi
   SDL_LIB="-L$work/prefix/lib -lSDL3"
   SDL_DEPS_LIB="-L$work/prefix/lib -lwayland-cursor -lwayland-egl -lwayland-client -lxkbcommon"
 }

@@ -246,6 +246,7 @@ function fcntl(fd, cmd, arg) {
     case F_DUPFD_CLOEXEC: {
       // the kernel's dup takes the lowest free number; one at or above `arg` is found by trying the next ones
       const want = Math.max(0, arg)
+      if (want >= descriptorLimit()) return -EINVAL
       let copy = syscall_raw('dup', fd)
       const held = []
       while (copy >= 0 && copy < want) {
@@ -2100,7 +2101,9 @@ const calls = {
     const value = syscall_raw('dup2', from, to)
     return big(value < 0 ? value : opened(value, 0, (flags & O_CLOEXEC) !== 0))
   },
-  SYS_fcntl: (fd, cmd, arg) => big(fcntl(fd, cmd, num(arg))),
+  // musl reads the argument as an `unsigned long`, 8 bytes here, where the caller passed an int or a pointer (4 bytes):
+  // the upper half is whatever lies beyond it on the stack, and every fcntl argument fits in the lower
+  SYS_fcntl: (fd, cmd, arg) => big(fcntl(fd, cmd, Number(BigInt.asUintN(32, BigInt(arg))))),
   // the dependency copies everything the kernel answered to the pointer, past the end of the structure
   SYS_ioctl: (fd, request, ptr) => {
     // how much a socket has to read; the kernel's ioctl does not know sockets

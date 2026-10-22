@@ -1,7 +1,6 @@
 # What every program here links in
 
-The desktop demos (`wldemo`, `wlcomp` and the SDL programs) are built with Emscripten, which links its C library and
-support code into the binary:
+The Wayland compositor `wlcomp` is built with Emscripten, which links its C library and support code into the binary:
 
 | Component | License | File |
 |---|---|---|
