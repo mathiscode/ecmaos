@@ -8,11 +8,6 @@ functional.ipc_shm          fork: ENOSYS
 
 # threads
 
-# formatting and parsing
-functional.wordexp          musl's wordexp (as upstream: WRDE_NOCMD's scan takes { and } as bad characters, no
-                            WRDE_UNDEF) and ecmash's eval (no syntax error for ( or $(, quoting inside ${X-...});
-                            and a shell for each of its cases takes it past the ten seconds
-
 # processes and signals
 functional.vfork            vfork: ENOSYS (there is no fork)
 regression.daemon-failure   fork: ENOSYS

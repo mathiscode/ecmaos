@@ -2,10 +2,10 @@
  * The libc-test subset as one program: every test's main is linked in under a name of its own (build.sh renames them
  * and writes tests.h, the table of them), and the program is the test its name says (`functional.argv` is
  * src/functional/argv.c), so a test that runs argv[0] again runs itself. Run as `libc-test run DIR NAME...`, it links
- * each name in DIR to itself, starts it with posix_spawn, gives it ten seconds (SIGKILL after that) and prints one line
- * per test, `PASS name` or `FAIL name: why`, with what a failing test wrote indented under it, as libc-test's own
- * runtest reports. With no name it runs them all. A test that is a program of its own (build.sh says which) is run
- * from DIR as it is. */
+ * each name in DIR to itself, starts it with posix_spawn, gives it ten seconds (wordexp five minutes; SIGKILL after
+ * that) and prints one line per test, `PASS name` or `FAIL name: why`, with what a failing test wrote indented under
+ * it, as libc-test's own runtest reports. With no name it runs them all. A test that is a program of its own
+ * (build.sh says which) is run from DIR as it is. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -31,6 +31,11 @@ struct test {
 
 #define COUNT (sizeof tests / sizeof *tests)
 #define TIMEOUT_MS 10000
+
+/* wordexp starts a shell for each of its two hundred cases, which takes a JavaScript worker each here */
+static long long timeout_ms(const char *name) {
+	return strcmp(name, "functional.wordexp") ? TIMEOUT_MS : 300000;
+}
 
 static long long now_ms(void) {
 	struct timespec ts;
@@ -66,7 +71,7 @@ static int run(const char *self, const char *dir, const char *name, char *out, s
 		snprintf(out, room, "posix_spawn: %s\n", strerror(error));
 		return -2;
 	}
-	long long deadline = now_ms() + TIMEOUT_MS;
+	long long deadline = now_ms() + timeout_ms(name);
 	int timed_out = 0, open_end = 1;
 	for (;;) {
 		if (open_end) {

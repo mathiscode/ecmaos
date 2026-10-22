@@ -1,0 +1,285 @@
+wordexp's WRDE_NOCMD check reads the words as the shell will (musl's scans for characters, so it took a { or } in
+${x-{}, a ( in $((...)) or a quoted one for an operator, and missed a command substitution in $(( ) ...)): quotes,
+${...} words, quoted as the expansion is except a pattern's, $((...)), $'...', comments and line continuations.
+WRDE_UNDEF is set -u, and the shell parses the words before it expands them, writing a marker in between, so a
+syntax error (no marker) is told from an expansion that failed (no words after it), WRDE_BADVAL with WRDE_UNDEF.
+
+diff --git i/src/misc/wordexp.c w/src/misc/wordexp.c
+index 2864ea4..4637b45 100644
+--- i/src/misc/wordexp.c
++++ w/src/misc/wordexp.c
+@@ -10,6 +10,7 @@
+ #include <errno.h>
+ #include <spawn.h>
+ #include <fcntl.h>
++#include <ctype.h>
+ #include "pthread_impl.h"
+ 
+ extern char **__environ;
+@@ -26,11 +27,179 @@ static char *getword(FILE *f)
+ 	return getdelim(&s, (size_t [1]){0}, 0, f) < 0 ? 0 : s;
+ }
+ 
++/* ecmaOS: WRDE_NOCMD's check reads the words as the shell will: quotes, ${...} words (whose quoting follows the
++ * expansion's, except a pattern's, read unquoted), $((...)) (a command substitution after all when its parentheses
++ * close as `) ...`), $'...', comments and line continuations. A command substitution is WRDE_CMDSUB, an unquoted
++ * operator character WRDE_BADCHAR, and what never closes WRDE_SYNTAX. */
++enum { TOP, DQ, BRACE, BRACE_DQ, ARITH };
++
++static const char *nocmd_dollar(const char *s, int ctx, int *err);
++
++static const char *nocmd_squote(const char *s, int *err)
++{
++	const char *end = strchr(s+1, '\'');
++	if (!end) *err = WRDE_SYNTAX;
++	return end ? end+1 : 0;
++}
++
++static const char *nocmd_dquote(const char *s, int *err)
++{
++	for (s++; *s != '"'; ) switch (*s) {
++	case 0:
++		*err = WRDE_SYNTAX;
++		return 0;
++	case '\\':
++		if (!s[1]) return *err = WRDE_SYNTAX, (char *)0;
++		s += 2;
++		break;
++	case '`':
++		return *err = WRDE_CMDSUB, (char *)0;
++	case '$':
++		if (!(s = nocmd_dollar(s, DQ, err))) return 0;
++		break;
++	default:
++		s++;
++	}
++	return s+1;
++}
++
++static const char *nocmd_brace(const char *s, int dq, int *err)
++{
++	/* the word of ${name#word} and ${name%word} is a pattern, read unquoted inside double quotes too */
++	const char *p = s + (*s == '#' && s[1] != '}');
++	if (isalpha(*p) || *p == '_') while (isalnum(*p) || *p == '_') p++;
++	else if (isdigit(*p)) while (isdigit(*p)) p++;
++	else if (*p && strchr("@*#?-$!", *p)) p++;
++	if (*p == '#' || *p == '%') dq = 0;
++
++	while (*s != '}') switch (*s) {
++	case 0:
++		return *err = WRDE_SYNTAX, (char *)0;
++	case '\\':
++		if (!s[1]) return *err = WRDE_SYNTAX, (char *)0;
++		s += 2;
++		break;
++	case '\'':
++		if (dq) { s++; break; }
++		if (!(s = nocmd_squote(s, err))) return 0;
++		break;
++	case '"':
++		if (!(s = nocmd_dquote(s, err))) return 0;
++		break;
++	case '`':
++		return *err = WRDE_CMDSUB, (char *)0;
++	case '$':
++		if (!(s = nocmd_dollar(s, dq ? BRACE_DQ : BRACE, err))) return 0;
++		break;
++	default:
++		s++;
++	}
++	return s+1;
++}
++
++static const char *nocmd_arith(const char *s, int *err)
++{
++	size_t depth = 0;
++	for (;;) switch (*s) {
++	case 0:
++	case '#':
++	case '"':
++	case '\'':
++	case '\\':
++		return *err = WRDE_SYNTAX, (char *)0;
++	case '(':
++		depth++;
++		s++;
++		break;
++	case ')':
++		if (depth) { depth--; s++; break; }
++		if (s[1] == ')') return s+2;
++		/* $( (...) ...): a command substitution beginning with a subshell */
++		return *err = WRDE_CMDSUB, (char *)0;
++	case '`':
++		return *err = WRDE_CMDSUB, (char *)0;
++	case '{':
++	case '}':
++		return *err = WRDE_BADCHAR, (char *)0;
++	case '$':
++		if (!(s = nocmd_dollar(s, ARITH, err))) return 0;
++		break;
++	default:
++		s++;
++	}
++}
++
++static const char *nocmd_dollar(const char *s, int ctx, int *err)
++{
++	switch (s[1]) {
++	case '(':
++		if (s[2] == '(') return nocmd_arith(s+3, err);
++		return *err = WRDE_CMDSUB, (char *)0;
++	case '{':
++		return nocmd_brace(s+2, ctx == DQ || ctx == BRACE_DQ, err);
++	case '\'':
++		/* $'...' quotes at the top; in double quotes it is a dollar sign; in ${...} and $((...)) shells differ */
++		if (ctx == DQ) return s+1;
++		if (ctx != TOP) return *err = WRDE_SYNTAX, (char *)0;
++		for (s += 2; *s != '\''; s++) {
++			if (!*s || (*s == '\\' && !*++s)) return *err = WRDE_SYNTAX, (char *)0;
++		}
++		return s+1;
++	}
++	return s+1;
++}
++
++static int nocmd(const char *s)
++{
++	int err = 0, start = 1;
++	while (*s) {
++		if (*s == '\\' && s[1] == '\n') { s += 2; continue; }
++		if (*s == '#' && start) {
++			while (*s && *s != '\n') s++;
++			continue;
++		}
++		start = 0;
++		switch (*s) {
++		case ' ':
++		case '\t':
++			start = 1;
++			s++;
++			break;
++		case '\\':
++			s += 1 + !!s[1];
++			break;
++		case '\'':
++			if (!(s = nocmd_squote(s, &err))) return err;
++			break;
++		case '"':
++			if (!(s = nocmd_dquote(s, &err))) return err;
++			break;
++		case '$':
++			if (!(s = nocmd_dollar(s, TOP, &err))) return err;
++			break;
++		case '`':
++			return WRDE_CMDSUB;
++		case '\n':
++		case '|':
++		case '&':
++		case ';':
++		case '<':
++		case '>':
++		case '(':
++		case ')':
++		case '{':
++		case '}':
++			return WRDE_BADCHAR;
++		default:
++			s++;
++		}
++	}
++	return 0;
++}
++
+ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ {
+ 	size_t i, l;
+-	int sq=0, dq=0;
+-	size_t np=0;
+ 	char *w, **tmp;
+ 	int err = 0;
+ 	FILE *f;
+@@ -41,46 +210,9 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 
+ 	if (flags & WRDE_REUSE) wordfree(we);
+ 
+-	if (flags & WRDE_NOCMD) for (i=0; s[i]; i++) switch (s[i]) {
+-	case '\\':
+-		if (!sq && !s[++i]) return WRDE_SYNTAX;
+-		break;
+-	case '\'':
+-		if (!dq) sq^=1;
+-		break;
+-	case '"':
+-		if (!sq) dq^=1;
+-		break;
+-	case '(':
+-		if (np) {
+-			np++;
+-			break;
+-		}
+-	case ')':
+-		if (np) {
+-			np--;
+-			break;
+-		}
+-	case '\n':
+-	case '|':
+-	case '&':
+-	case ';':
+-	case '<':
+-	case '>':
+-	case '{':
+-	case '}':
+-		if (!(sq|dq|np)) return WRDE_BADCHAR;
+-		break;
+-	case '$':
+-		if (sq) break;
+-		if (s[i+1]=='(' && s[i+2]=='(') {
+-			i += 2;
+-			np += 2;
+-			break;
+-		} else if (s[i+1] != '(') break;
+-	case '`':
+-		if (sq) break;
+-		return WRDE_CMDSUB;
++	if (flags & WRDE_NOCMD) {
++		err = nocmd(s);
++		if (err) return err;
+ 	}
+ 
+ 	if (flags & WRDE_APPEND) {
+@@ -108,8 +240,13 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 	posix_spawn_file_actions_adddup2(&fa, p[1], 1);
+ 	if (!(flags & WRDE_SHOWERR))
+ 		posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
++	/* ecmaOS: the words are parsed first, in a branch never taken, and a marker written once they parse, so a
++	 * syntax error (no marker) is told from a failed expansion (no words after it), which with WRDE_UNDEF is set -u's
++	 * WRDE_BADVAL */
+ 	int spawned = posix_spawn(&pid, "/bin/sh", &fa, 0, (char *[]){ "sh", "-c",
+-		"eval \"set --;printf %s\\\\\\\\0 x $1\"",
++		(flags & WRDE_UNDEF)
++		? "eval \"if false; then : $1\nfi\" || exit; printf %s\\\\0 p; set -u; eval \"set --;printf %s\\\\\\\\0 x $1\""
++		: "eval \"if false; then : $1\nfi\" || exit; printf %s\\\\0 p; eval \"set --;printf %s\\\\\\\\0 x $1\"",
+ 		"sh", (char *)s, 0 }, __environ);
+ 	posix_spawn_file_actions_destroy(&fa);
+ 	if (spawned) {
+@@ -129,11 +266,14 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 
+ 	l = wv ? i+1 : 0;
+ 
+-	free(getword(f));
+-	if (feof(f)) {
+-		fclose(f);
+-		reap(pid);
+-		return WRDE_SYNTAX;
++	/* the words parsed: "p"; they expanded: "x" */
++	for (int marker = 0; marker < 2; marker++) {
++		free(getword(f));
++		if (feof(f)) {
++			fclose(f);
++			reap(pid);
++			return marker && (flags & WRDE_UNDEF) ? WRDE_BADVAL : WRDE_SYNTAX;
++		}
+ 	}
+ 
+ 	while ((w = getword(f))) {
