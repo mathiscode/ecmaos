@@ -131,8 +131,9 @@
       "license": "MIT",
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
-      "size": 631549,
-      "sha256": "3e44b841c86c176644768b0c6629afbe6d7a5486532ffc04d36d5d5c9b7c1e20"
+      "toolchain": "wali",
+      "size": 637347,
+      "sha256": "c0e35c94161f9d6f4b9be2f042efb3b47f372be0f0a8d576d8b7b5d945c1aa34"
     },
     "mandoc": {
       "file": "mandoc.wasm",
