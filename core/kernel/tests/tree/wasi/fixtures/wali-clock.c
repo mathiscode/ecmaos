@@ -20,17 +20,20 @@ int main(void) {
   } while (ms(t) - ms(start) < 50);
   printf("realtime: fine=%d backwards=%d\n", fine > readings / 2, backwards);
 
-  // within a millisecond of each other, gettimeofday reading microseconds
+  // gettimeofday reads microseconds, between the clock read before it and the one after (less the part of a
+  // microsecond it leaves off)
   struct timeval tv;
   int micro = 0;
   for (int i = 0; i < 1000; i++) {
     gettimeofday(&tv, NULL);
     if (tv.tv_usec % 1000) micro++;
   }
-  clock_gettime(CLOCK_REALTIME, &t);
+  struct timespec before, after;
+  clock_gettime(CLOCK_REALTIME, &before);
   gettimeofday(&tv, NULL);
-  double gap = tv.tv_sec * 1e3 + tv.tv_usec / 1e3 - ms(t);
-  printf("gettimeofday: micro=%d agrees=%d\n", micro > 500, gap >= 0 && gap < 1);
+  clock_gettime(CLOCK_REALTIME, &after);
+  double at = tv.tv_sec * 1e3 + tv.tv_usec / 1e3;
+  printf("gettimeofday: micro=%d agrees=%d\n", micro > 500, at > ms(before) - 0.001 && at <= ms(after));
 
   time_t now = time(NULL);
   clock_gettime(CLOCK_REALTIME, &t);

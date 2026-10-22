@@ -193,6 +193,24 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('runs a handler on the alternate signal stack (sigaltstack)', async () => {
+    expect(await run('wali-altstack')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'at first: disabled=1',
+        'set: 0',
+        'SA_ONSTACK: on=1 flags=1 change=Operation not permitted nested on=1',
+        'without: on=0',
+        'SS_AUTODISARM: on=1 in handler disabled=1 after=1',
+        'siglongjmp: on=1 off after=1',
+        'new thread: disabled=1',
+        'checks: small=Out of memory bad flags=Invalid argument disabled=1',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('reads the wall clock finer than a millisecond, never going back', async () => {
     expect(await run('wali-clock')).toEqual({
       code: 0,

@@ -10,7 +10,8 @@
  * the address as `__ecmaos_signal_word`, for the host).
  *
  * The stack pointer (global 0, as wasm-ld lays a program out) is lowered by 128 bytes around the call: LLVM lets a
- * leaf function keep up to that much below it without moving it (a red zone), which a handler would overwrite.
+ * leaf function keep up to that much below it without moving it (a red zone), which a handler would overwrite. The
+ * program exports it as `__ecmaos_stack_pointer`, so the host can run a handler on an alternate stack (`sigaltstack`).
  *
  * The program is rewritten in place, in binary: the import is added after the others, so every function the program
  * defines moves up one, and each reference to one (calls, `ref.func`, the element segments, exports, start, the name
@@ -23,7 +24,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 const RED_ZONE = 128, WORD = 8
 /** The main thread's stack, which wali-cc puts first in memory, so global 0, the stack pointer, starts at its size */
 const STACK_SIZE = 8388608
-const POLL_MODULE = 'wali', POLL_NAME = '__ecmaos_poll', WORD_EXPORT = '__ecmaos_signal_word'
+const POLL_MODULE = 'wali', POLL_NAME = '__ecmaos_poll', WORD_EXPORT = '__ecmaos_signal_word', STACK_POINTER_EXPORT = '__ecmaos_stack_pointer'
 
 // --- encoding ---
 
@@ -270,16 +271,17 @@ const hints = []
   bodies.push([...u32(checkBody.length), ...checkBody])
 }
 
-/** The exports, renumbered, and the word's global for the host */
+/** The exports, renumbered, and for the host the word's global and the stack pointer (a handler's alternate stack) */
 function exportsRenumbered(body) {
   const r = new Reader(body), out = []
   const n = r.u32()
-  out.push(...u32(n + 1))
+  out.push(...u32(n + 2))
   for (let i = n; i--;) {
     const field = r.name(), kind = r.byte(), index = r.u32()
     out.push(...name(field), kind, ...u32(kind === 0 ? fn(index) : index))
   }
   out.push(...name(WORD_EXPORT), 3, ...u32(word))
+  out.push(...name(STACK_POINTER_EXPORT), 3, 0)
   return out
 }
 

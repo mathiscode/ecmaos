@@ -25,7 +25,6 @@ regression.daemon-failure   fork: ENOSYS
 regression.fflush-exit      fork: ENOSYS
 regression.pthread_exit-dtor  fork: ENOSYS
 regression.raise-race       fork: ENOSYS, in its handler (its 1000 raises and 100 pthread_kills all arrive)
-regression.sigaltstack      sigaltstack: ENOSYS
 
 # memory and limits
 regression.malloc-brk-fail  times out

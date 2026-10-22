@@ -15,8 +15,8 @@
  *   process calls, and the job-control ids
  * - signals: dispositions, the mask, pending signals, and handlers run when an import returns, with `EINTR` or a
  *   restart (`SA_RESTART`) for a call they interrupted, and `SIGPIPE` for a write nothing will read; a program off
- *   computing calls in from its loops when the kernel has set its signal word (`__ecmaos_poll`); `sleep` and the
- *   clocks
+ *   computing calls in from its loops when the kernel has set its signal word (`__ecmaos_poll`); the alternate signal
+ *   stack (`sigaltstack`); `sleep` and the clocks
  * - sockets: stream sockets on the kernel's socket files (`tree/lib/socket-files.ts`), so a socket is one descriptor
  *   the kernel reads, writes and polls; `AF_UNIX`, and `AF_INET`/`AF_INET6` on loopback or through the gateway
  * - `epoll`, over the kernel's `poll`
@@ -54,6 +54,8 @@ const decoder = new TextDecoder()
 let memory
 /** The module's function table, through which a signal handler is called */
 let table
+/** This thread's stack pointer, which the program exports (`utils/wali/signal-checks.mjs`) for `SA_ONSTACK` */
+let stackPointer
 const bytes = () => new Uint8Array(memory.buffer)
 
 /**
@@ -707,7 +709,7 @@ function mapped(name, call) {
 
 /** This port's SIG_DFL and SIG_IGN: a table index can be any small number, so ignoring is -2, as a u32 */
 const SIG_DFL = 0, SIG_IGN = 0xfffffffe
-const SA_RESTART = 0x10000000n, SA_NODEFER = 0x40000000n, SA_RESETHAND = 0x80000000n
+const SA_ONSTACK = 0x08000000n, SA_RESTART = 0x10000000n, SA_NODEFER = 0x40000000n, SA_RESETHAND = 0x80000000n
 const SIGKILL = 9, SIGSTOP = 19
 /** Signals whose default action is to do nothing */
 const DEFAULT_IGNORED = new Set([17 /* SIGCHLD */, 18 /* SIGCONT */, 23 /* SIGURG */, 28 /* SIGWINCH */])
@@ -934,10 +936,63 @@ function deliver() {
     mask = (mask | action.mask | (action.flags & SA_NODEFER ? 0n : bit(signal))) & ~UNBLOCKABLE
     if (action.flags & SA_RESETHAND) setAction(signal, defaultAction)
     routeAll()
+    const left = action.flags & SA_ONSTACK ? toAltStack() : undefined
     table.get(action.handler)(signal, siginfoFor(signal), 0)
+    left?.()
     mask = saved
     routeAll()
   }
+}
+
+const SS_ONSTACK = 1, SS_DISABLE = 2, SS_AUTODISARM = 0x80000000, MINSIGSTKSZ = 2048
+/**
+ * This thread's alternate signal stack (`sigaltstack`), where a handler with `SA_ONSTACK` runs: its stack pointer is
+ * moved to the top of it for the call, unless it is there already. A thread starts with none, as on Linux. A program
+ * built before its stack pointer was exported runs such a handler where it is
+ */
+let altStack = { sp: 0, size: 0, flags: SS_DISABLE }
+function onAltStack() {
+  const sp = stackPointer ? stackPointer.value >>> 0 : 0
+  return !!sp && altStack.flags !== SS_DISABLE && sp > altStack.sp && sp <= altStack.sp + altStack.size
+}
+
+/**
+ * Moves the stack pointer to the alternate stack, if there is one to move to
+ * @returns what puts it back when the handler returns (one that leaves by `siglongjmp` has its stack pointer restored
+ * where it lands), with the stack itself, which `SS_AUTODISARM` took away for the handler
+ */
+function toAltStack() {
+  if (!stackPointer || altStack.flags === SS_DISABLE || onAltStack()) return undefined
+  const saved = stackPointer.value, stack = altStack
+  stackPointer.value = (stack.sp + stack.size) & ~15
+  if (stack.flags & SS_AUTODISARM) altStack = { sp: 0, size: 0, flags: SS_DISABLE }
+  return () => {
+    stackPointer.value = saved
+    altStack = stack
+  }
+}
+
+/**
+ * `sigaltstack`: a `stack_t` is the stack's address, its flags and its size, a word each. The one in use cannot be
+ * changed from a handler running on it
+ */
+function sigaltstack(ssPtr, oldPtr) {
+  const dv = view(), previous = altStack, on = onAltStack()
+  if (ssPtr) {
+    const sp = dv.getUint32(ssPtr, true), flags = dv.getUint32(ssPtr + 4, true), size = dv.getUint32(ssPtr + 8, true)
+    const mode = flags & ~SS_AUTODISARM
+    if (mode !== 0 && mode !== SS_DISABLE && mode !== SS_ONSTACK) return -EINVAL
+    if (on) return -EPERM
+    if (mode === SS_DISABLE) altStack = { sp: 0, size: 0, flags: SS_DISABLE }
+    else if (size < MINSIGSTKSZ) return -ENOMEM
+    else altStack = { sp, size, flags: flags & SS_AUTODISARM }
+  }
+  if (oldPtr) {
+    dv.setUint32(oldPtr, previous.sp, true)
+    dv.setUint32(oldPtr + 4, (on ? SS_ONSTACK : 0) | previous.flags, true)
+    dv.setUint32(oldPtr + 8, previous.size, true)
+  }
+  return 0
 }
 
 /** A signal this process sends itself: delivered before the call that sent it returns, as `raise` promises */
@@ -1837,6 +1892,7 @@ const calls = {
     }
     return 0n
   },
+  SYS_sigaltstack: (ssPtr, oldPtr) => big(sigaltstack(ssPtr, oldPtr)),
   SYS_rt_sigprocmask: (how, setPtr, oldPtr) => {
     const previous = mask
     if (setPtr) {
@@ -2034,6 +2090,7 @@ export function install(wali, start) {
 export function attach(instance) {
   memory = instance.exports.memory
   table = instance.exports.__indirect_function_table
+  stackPointer = instance.exports.__ecmaos_stack_pointer
   if (!thread) Atomics.store(state.addresses, TOP, roundUp(memory.buffer.byteLength, PAGE))
   // the word the program's loops read, which the kernel sets as it raises a signal on one of its threads, or stops it
   const word = instance.exports.__ecmaos_signal_word
