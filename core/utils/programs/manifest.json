@@ -151,8 +151,9 @@
       "license": "MIT OR Apache-2.0",
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
-      "size": 147735,
-      "sha256": "5e864daf2d1b8b72e1371ed4842a9fe7d65b0d1b594e62dd546cb9e1a3efcea6"
+      "toolchain": "wali",
+      "size": 150456,
+      "sha256": "5fc8f03c228147ab4c801ba2ab57ba6bcf577ca0948a1f80cf6a9565083b0a36"
     },
     "wldemo": {
       "file": "wldemo.wasm",

@@ -1,6 +1,8 @@
 /* scm-peer serve SOCKET: accepts one connection, receives a descriptor with SCM_RIGHTS, writes "written by the receiver" to it, and answers "done".
- * scm-peer send SOCKET FILE: connects, opens FILE for writing, sends the descriptor, closes its own copy and waits for the answer.
+ * scm-peer send SOCKET FILE: connects, opens FILE for writing, sends the descriptor, closes its own copy and waits for the
+ * answer, which it takes with recvmsg (as a Wayland client reads), then says which process SO_PEERCRED names.
  * Two programs: the descriptor has to cross from one process's table into the other's. */
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -50,8 +52,15 @@ int main(int argc, char **argv) {
   memcpy(CMSG_DATA(h), &file, sizeof file);
   if (sendmsg(c, &m, 0) < 0) { printf("sendmsg failed\n"); return 3; }
   close(file);
-  char answer[8] = {0};
-  read(c, answer, sizeof answer - 1);
+  char answer[8] = {0}, room[CMSG_SPACE(sizeof(int))];
+  struct iovec in = { answer, sizeof answer - 1 };
+  struct msghdr r;
+  memset(&r, 0, sizeof r);
+  r.msg_iov = &in; r.msg_iovlen = 1; r.msg_control = room; r.msg_controllen = sizeof room;
+  if (recvmsg(c, &r, 0) < 0) { printf("recvmsg failed\n"); return 4; }
   printf("answer %s\n", answer);
+  struct ucred peer;
+  socklen_t size = sizeof peer;
+  if (getsockopt(c, SOL_SOCKET, SO_PEERCRED, &peer, &size) == 0) printf("peer pid %d\n", (int)peer.pid);
   return 0;
 }

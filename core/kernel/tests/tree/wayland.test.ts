@@ -206,6 +206,8 @@ describe('the Wayland compositor', () => {
     kernel.windows.reportInput(id, { k: 'key', code: 'ArrowUp', down: false })
     kernel.windows.reportInput(id, { k: 'key', code: 'Escape', down: true })
     expect(await client).toBe(0)
+    // SDL releases the seat as it quits (wl_seat.release, which has no arguments), which the compositor takes
+    expect(await read('/tmp/sdlsnake.out')).not.toContain('error')
     await until(() => kernel.framebuffers.list().length === 0)
   }, 60_000)
 

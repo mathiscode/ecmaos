@@ -1076,7 +1076,7 @@ export function installMainThreadSyscalls(): void {
     } else {
       const toServer = kernel.linkProcesses(proc, listener.serverProc) // client writes -> server reads
       const toClient = kernel.linkProcesses(listener.serverProc, proc) // server writes -> client reads
-      const conn = openConnection({ c: proc, s: listener.serverProc })
+      const conn = openConnection({ c: proc, s: listener.owner ?? listener.serverProc })
       listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn })
       listener.wake?.()
       text = JSON.stringify({ fd: toClient.readerFd, writeFd: toServer.writerFd, conn })
@@ -1439,7 +1439,7 @@ export function installMainThreadSyscalls(): void {
     const holder = kernel.pipeProcess
     const toServer = kernel.linkProcesses(holder, listener.serverProc)
     const toClient = kernel.linkProcesses(listener.serverProc, holder)
-    const conn = openConnection({ c: proc, s: listener.serverProc })
+    const conn = openConnection({ c: proc, s: listener.owner ?? listener.serverProc })
     listener.queue.push({ fd: toServer.readerFd, writeFd: toClient.writerFd, peerKey: `client:${proc.pid}`, peerAddr: key.startsWith('inet6:') ? '::1' : key.startsWith('inet:') ? '127.0.0.1' : undefined, conn, cred: credentialsOf(proc) })
     listener.wake?.()
     // the client's peer is whoever listened

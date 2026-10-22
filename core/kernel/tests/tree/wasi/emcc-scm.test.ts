@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest'
+import { processes } from '@zenfs/linux'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -95,11 +96,13 @@ describe.each([['emcc', 'wali'], ['wali', 'emcc']])('a descriptor from a %s prog
     }
   })
 
-  it('is received, and the receiver writes through it', async () => {
+  it('is received, and the receiver writes through it; the sender takes the answer with recvmsg, and SO_PEERCRED names the receiver', async () => {
     await kernel.shell.execute(`/tmp/${receiver}-scm-peer serve /tmp/x.sock > /tmp/serve.out 2>&1 &`)
     for (let i = 0; i < 50 && !(await kernel.filesystem.fs.readFile('/tmp/serve.out', 'utf8')).includes('listening'); i++) await new Promise(resolve => setTimeout(resolve, 100))
+    // the kernel's number for it (an Emscripten program built without libecmaos has 42 for its own)
+    const pid = [...processes.values()].find(proc => proc.argv.includes('serve') && proc.code === undefined)!.pid
     expect(await kernel.shell.execute(`/tmp/${sender}-scm-peer send /tmp/x.sock /tmp/peer-file > /tmp/send.out 2>&1`)).toBe(0)
-    expect(await kernel.filesystem.fs.readFile('/tmp/send.out', 'utf8')).toContain('answer done')
+    expect(await kernel.filesystem.fs.readFile('/tmp/send.out', 'utf8')).toBe(`answer done\npeer pid ${pid}\n`)
     expect(await kernel.filesystem.fs.readFile('/tmp/peer-file', 'utf8')).toBe('written by the receiver')
   }, 60_000)
 })

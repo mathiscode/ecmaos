@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Rebuilds programs/wlcomp.wasm: the Wayland compositor for ecmaOS (wlcomp.c, written for this project), with emscripten.
+# Rebuilds programs/wlcomp.wasm: the Wayland compositor for ecmaOS (wlcomp.c, written for this project).
 #
-# Needs `emcc` (emscripten 6). The result is committed, so only run this to change it.
-# Built like the other emcc programs (see ../vim/build.sh): `-sSTANDALONE_WASM=0` so the module imports the real
-# `env.__syscall_*` calls that `core/kernel/src/bin/wasi-preview1.mjs` answers.
+# Built on WALI's musl (`utils/check-wali.sh`) and run by /bin/wali. Needs `xxd`. The result is committed, so only run
+# this to change it.
 set -euo pipefail
-"$(dirname "$0")/../../../../utils/check-emcc.sh"
+source "$(dirname "$0")/../../../../utils/check-wali.sh"
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$HERE/../../programs/wlcomp.wasm
@@ -14,6 +13,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 ( cd "$HERE" && xxd -i keymap-us.xkb ) > "$WORK/keymap-us.h"
-emcc "$HERE/wlcomp.c" -I"$WORK" -O2 -Wall -sSTANDALONE_WASM=0 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=4194304 -o "$WORK/wlcomp.js"
+"$WALI_CC" "$HERE/wlcomp.c" -I"$WORK" -O2 -Wall -o "$WORK/wlcomp.wasm"
 cp "$WORK/wlcomp.wasm" "$OUT"
 ls -l "$OUT"
+echo "built with $WALI_TOOLCHAIN"

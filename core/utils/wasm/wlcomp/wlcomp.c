@@ -725,8 +725,8 @@ static void on_toplevel(struct client *c, uint32_t self, uint32_t opcode, struct
 static void send_keymap(struct client *c, uint32_t id);
 
 static void on_seat(struct client *c, uint32_t self, uint32_t opcode, struct rd *r) {
+  if (opcode == 3) { obj_free(c, self); return; }   /* release, which has no arguments */
   uint32_t id = r_u32(r);
-  if (opcode == 3) { obj_free(c, self); return; }
   if (r->bad) return;
   uint32_t v = c->objs[self].version;
   if (opcode == 0) {
