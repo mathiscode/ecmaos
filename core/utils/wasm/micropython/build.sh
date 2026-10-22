@@ -55,8 +55,9 @@ cd ports/unix
 # Freezing compiles the modules with mpy-cross, which has to run here, so it is built with the host compiler.
 make -C ../../mpy-cross -j"$(nproc)" > mpy-cross.log 2>&1 || { tail -30 mpy-cross.log >&2; exit 1; }
 
-# No threads (the collector stops the other threads with a real-time signal from pthread_kill, which the kernel does not
-# deliver yet), ffi (no dlopen), sockets, tls, btree or filesystems of its own. The frozen modules are in manifest.py.
+# No threads (the collector stops the other threads with a real-time signal from pthread_kill, which WALI programs
+# have now, but threads are not tried here yet), ffi (no dlopen), sockets, tls, btree or filesystems of its own. The
+# frozen modules are in manifest.py.
 make -j"$(nproc)" BUILD=build CC="$WALI_CC" STRIP=true SIZE=true FROZEN_MANIFEST="$HERE/manifest.py" \
   MICROPY_PY_BTREE=0 MICROPY_PY_THREAD=0 MICROPY_PY_FFI=0 MICROPY_PY_SSL=0 MICROPY_PY_SOCKET=0 \
   MICROPY_VFS_FAT=0 MICROPY_VFS_LFS1=0 MICROPY_VFS_LFS2=0 MICROPY_PY_TERMIOS=1 \

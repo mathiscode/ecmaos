@@ -12,8 +12,8 @@
       "description": "bc, and dc (the same binary under another name)",
       "homepage": "https://git.gavinhoward.com/gavin/bc",
       "toolchain": "wali",
-      "size": 275391,
-      "sha256": "6ca918f99534063607e4c04afc6b8ac8561138a2dfc547a6acbbe9bf42b8fbe7"
+      "size": 281507,
+      "sha256": "cf0c98437195109c36a1d73a39590c32f378e801380a64bca332d830693fe331"
     },
     "brotli": {
       "file": "brotli.wasm",
@@ -22,8 +22,8 @@
       "description": "brotli, the compressor and decompressor",
       "homepage": "https://github.com/google/brotli",
       "toolchain": "wali",
-      "size": 802148,
-      "sha256": "358b2dc83a62060ebb6d28f959a8b2285028702e394effb7deba88468b68c0ec"
+      "size": 824644,
+      "sha256": "d7eb76ccbc65b041b0eff3746bace3ad89c757104e360f6306ddc3e82cee1b0a"
     },
     "jq": {
       "file": "jq.wasm",
@@ -32,8 +32,8 @@
       "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
       "homepage": "https://jqlang.org",
       "toolchain": "wali",
-      "size": 969079,
-      "sha256": "c1927d022eb65103603df9740c4a9bcafacdd28a6712fad0d7effb712c98aa15"
+      "size": 986306,
+      "sha256": "9a8b881824b5fea453aa62105f9bc03c79b006af8553bdcc3d4d89551ac532a9"
     },
     "lua": {
       "file": "lua.wasm",
@@ -42,8 +42,8 @@
       "description": "The Lua 5.4 interpreter",
       "homepage": "https://www.lua.org",
       "toolchain": "wali",
-      "size": 288467,
-      "sha256": "b867ed94e90623fd7fc9d1e30cfe708583b676dc58c312191cffcc7efe0d148f"
+      "size": 299611,
+      "sha256": "ae8babffd9e45a28e84ae577da99a54bbd492e47ff30291a0c2d15f2d6cc39a6"
     },
     "sqlite3": {
       "file": "sqlite3.wasm",
@@ -52,8 +52,8 @@
       "description": "The SQLite command-line shell, with linenoise for line editing",
       "homepage": "https://sqlite.org",
       "toolchain": "wali",
-      "size": 1619594,
-      "sha256": "9331f41617add67495bea99b5ac64470c0464aeff2462e8182ffa99f3b9369e8"
+      "size": 1686169,
+      "sha256": "c8b9244eab42b2196be84c8e7fdad78c587263c147ea12c3c8a41530b6e91416"
     },
     "bzip2": {
       "file": "bzip2.wasm",
@@ -62,8 +62,8 @@
       "description": "bzip2, and bunzip2 and bzcat (links to it)",
       "homepage": "https://sourceware.org/bzip2/",
       "toolchain": "wali",
-      "size": 121338,
-      "sha256": "d68532a580128b4df8f49d39791f7be0204ff4002082c57c0984220dbf11dac5"
+      "size": 128565,
+      "sha256": "770d7b5a97a8c28e77f6b7e8d3846672c913eea003c89271291987ae3a1548f5"
     },
     "xz": {
       "file": "xz.wasm",
@@ -72,8 +72,8 @@
       "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)",
       "homepage": "https://tukaani.org/xz/",
       "toolchain": "wali",
-      "size": 246742,
-      "sha256": "fcad795d21c09ac4938bb5a9dd68f3256c044370418ebaac753547c26c57d316"
+      "size": 254790,
+      "sha256": "3160b9d13477ac0545ec50005a5e4172feb54cb5336416919d1bdb6b1737c203"
     },
     "zstd": {
       "file": "zstd.wasm",
@@ -82,8 +82,8 @@
       "description": "zstd, and unzstd and zstdcat (links to it)",
       "homepage": "https://facebook.github.io/zstd/",
       "toolchain": "wali",
-      "size": 724994,
-      "sha256": "9e3f03cbbc32f55a21082ef8af637e10458291a21dec43f4647c46bd733004dc"
+      "size": 758448,
+      "sha256": "68519727c5c4936e68ceab524727098d1bced588b2056bf22a84bd161a9ca0be"
     },
     "qjs": {
       "file": "qjs.wasm",
@@ -92,8 +92,8 @@
       "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
       "homepage": "https://quickjs-ng.github.io/quickjs/",
       "toolchain": "wali",
-      "size": 1121774,
-      "sha256": "ad9fa1ff0f22dd9c93bc83d944d99d6917a81b327bec380ac4b5bae805a6b05d"
+      "size": 1151407,
+      "sha256": "315880d9773859a300caed39e161df18714a4961e6913d1a0fa07107220801df"
     },
     "patch": {
       "file": "patch.wasm",
@@ -102,8 +102,8 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 69350,
-      "sha256": "d69440c050e13ad6350de9b9c4d0f1838e6ef14db78352e2f47f62d7b6cca121"
+      "size": 72912,
+      "sha256": "791be3ef8c42a1b18849f2f4bdab8faec49bc45f83d3af2d03f530703e71d9dc"
     },
     "ncdu": {
       "file": "ncdu.wasm",
@@ -112,8 +112,8 @@
       "description": "ncdu, the disk usage browser, with ncurses",
       "homepage": "https://dev.yorhel.nl/ncdu",
       "toolchain": "wali",
-      "size": 280083,
-      "sha256": "4a33088b06097f98137dd108de5173f92a5364d652267943fc207fe6b1e28c52"
+      "size": 290332,
+      "sha256": "31903974d5b425305c1ec062510e1181c3f369dc27dd4f7816d303461665c866"
     },
     "mg": {
       "file": "mg.wasm",
@@ -122,8 +122,8 @@
       "description": "mg, a small Emacs-style editor, with ncurses",
       "homepage": "https://github.com/hboetes/mg",
       "toolchain": "wali",
-      "size": 325632,
-      "sha256": "fb0a9a89664ab8a44ee04204e83ea1625182784699fff028b6db045e449efd89"
+      "size": 342521,
+      "sha256": "a8fc49b62ba0c54605f9248a68629e7bdb872a7e9d5acc4c03d5c6ab042ef03b"
     },
     "micropython": {
       "file": "micropython.wasm",
@@ -132,8 +132,8 @@
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
       "toolchain": "wali",
-      "size": 637347,
-      "sha256": "c0e35c94161f9d6f4b9be2f042efb3b47f372be0f0a8d576d8b7b5d945c1aa34"
+      "size": 715135,
+      "sha256": "bcd594cf18667ef3ce1aad087c5afefc11cc5fe3161e0833393d9fd100e8e230"
     },
     "mandoc": {
       "file": "mandoc.wasm",
@@ -142,8 +142,8 @@
       "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
       "homepage": "https://mandoc.bsd.lv",
       "toolchain": "wali",
-      "size": 598481,
-      "sha256": "6c5cdf5c8d8a12de386ab05e7d577abb4ae7d8da6b1d261b40e9ea42aa21aa07"
+      "size": 597517,
+      "sha256": "49e8da2c51c546983ad43984034d8bed22f796ee7d21f160d484875ffd6b699d"
     },
     "wlcomp": {
       "file": "wlcomp.wasm",

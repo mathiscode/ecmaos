@@ -15,7 +15,8 @@ Changes and build scripts (in wasm/ of the package, and in the repository under 
 The changes were made in 2026; the repository history dates each one.
 
 Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
-utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them.
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them. Its compiler then
+puts a signal check in each loop of the linked program (utils/wali/signal-checks.mjs).
 
 Where to get it
   - /sources/lz4-1.10.0.tar.gz on the site that served this program, and the other archives listed above in the same place
