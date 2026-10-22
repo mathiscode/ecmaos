@@ -15,7 +15,14 @@ export class ArithmeticError extends Error {}
  * Integers only (decimal, `0x`, leading-`0` octal), bitwise on 64 bits. `assign` lets `x++` and `x+=2` write back.
  */
 function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name: string, value: string) => void): number {
-  const tokens = expr.match(/0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=,]/g) ?? []
+  // What is not a number, a name or an operator ends the expression, as in bash (`$`, a quote, `#` outside `base#n`):
+  // the expression has been expanded already, so a `$` left in it is not a variable
+  const lexeme = /\s*(?:(\d+#[0-9A-Za-z@_]+|0[xX][0-9a-fA-F]+|\d+|[A-Za-z_][A-Za-z0-9_]*|<<=|>>=|\*\*|\+\+|--|&&|\|\||==|!=|<=|>=|<<|>>|[-+*/%&|^]=|[-+*/%()<>!~?:&|^=,])|(\S))/y
+  const tokens: string[] = []
+  for (let found = lexeme.exec(expr); found; found = lexeme.exec(expr)) {
+    if (found[2] !== undefined) throw new ArithmeticError(`syntax error: invalid arithmetic operator (error token is "${expr.slice(found.index + found[0].length - 1)}")`)
+    tokens.push(found[1] as string)
+  }
   let pos = 0
 
   const peek = () => tokens[pos]
@@ -31,6 +38,19 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
   const write = (name: string, value: number) => { assign?.(name, String(value)) }
 
   const number = (token: string): number => {
+    const based = /^(\d+)#(.+)$/.exec(token)
+    if (based) {
+      // bash's base#digits, bases 2 to 64: 0-9, a-z, A-Z, @, _ (letters of either case alike up to base 36)
+      const base = Number(based[1])
+      if (base < 2 || base > 64) throw new ArithmeticError(`invalid arithmetic base (error token is "${token}")`)
+      let value = 0
+      for (const digit of based[2] as string) {
+        const at = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@_'.indexOf(base <= 36 ? digit.toLowerCase() : digit)
+        if (at < 0 || at >= base) throw new ArithmeticError(`value too great for base (error token is "${token}")`)
+        value = value * base + at
+      }
+      return value
+    }
     if (/^0[xX]/.test(token)) return parseInt(token, 16)
     if (/^0\d/.test(token)) return parseInt(token, 8)
     return Number(token)

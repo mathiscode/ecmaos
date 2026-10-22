@@ -89,6 +89,12 @@ describe('needsMoreInput: open quotes', () => {
     expect(needsMoreInput("echo hi # don't")).toBe(false)
     expect(needsMoreInput('echo \\"')).toBe(false)
   })
+  it('asks for more after a backslash that ends the line, and not after an escaped one or one in a comment', () => {
+    expect(needsMoreInput('echo a \\')).toBe(true)
+    expect(needsMoreInput('echo a \\\nb')).toBe(false)
+    expect(needsMoreInput('echo a\\\\')).toBe(false)
+    expect(needsMoreInput('echo a # b \\')).toBe(false)
+  })
   it('a lone quote in a completed here-document body is not an open quote', () => {
     expect(needsMoreInput("cat <<EOF\ndon't\nEOF")).toBe(false)
   })

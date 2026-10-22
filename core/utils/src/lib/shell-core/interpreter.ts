@@ -4,10 +4,11 @@
  * `break`/`continue`/`return`/`exit` unwinding. Running a pipeline stays with each host ({@link InterpreterHost}).
  */
 
-import { parseRunnable, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
-import { parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
+import { ControlFlowParseError, parseRunnable, type PipelineStatement, type SelectStatement, type Statement } from '../control-flow-parser.js'
+import { ParseError, parseScript, type Command, type Pipeline, type Script, type ScriptStage } from '../shell-parser.js'
 import { ArithmeticError } from '../expand-variables.js'
 import { GlobNoMatchError, UnboundVariableError } from '../word-expansion.js'
+import { parseArrayAssignment } from './prepare.js'
 import { formatSelectMenu } from './select-menu.js'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from './signals.js'
 import type { ShellState } from './state.js'
@@ -111,7 +112,7 @@ export class Interpreter {
    * run, and the {@link ControlFlowParseError} is thrown after them.
    */
   async runText(text: string): Promise<number> {
-    const { statements, failure } = parseRunnable(text)
+    const { statements, failure } = parsedAhead(parseRunnable(text))
     const status = await this.runStatements(statements)
     if (failure) throw failure
     return status
@@ -526,7 +527,7 @@ export class Interpreter {
    * the shell that sourced it.
    */
   async runSourced(text: string, positional?: string[], file?: string): Promise<number> {
-    const { statements, failure } = parseRunnable(text)
+    const { statements, failure } = parsedAhead(parseRunnable(text))
     const restoreParameters = positional ? this.host.enterParameters(positional) : undefined
     this.catchers.return++
     if (file !== undefined) this.state.pushSourceFrame(file)
@@ -570,6 +571,64 @@ export class Interpreter {
     this.host.setStatus(code)
     return code
   }
+}
+
+/** A line's syntax error, if it has one: parsed as {@link Interpreter.runLine} parses it, array assignments aside. */
+function lineError(line: string): ParseError | undefined {
+  const prepared = rewriteArithmeticCommands(line)
+  if (!prepared.trim() || parseArrayAssignment(prepared)) return undefined
+  try {
+    parseScript(prepared)
+  } catch (error) {
+    if (error instanceof ParseError) return error
+    throw error
+  }
+  return undefined
+}
+
+/** The first syntax error in the lines a compound statement holds, its conditions included. */
+function compoundError(statement: Statement): ParseError | undefined {
+  const inBody = (body: Statement[]) => {
+    for (const inner of body) {
+      const error = inner.type === 'simple' ? lineError(inner.line) : compoundError(inner)
+      if (error) return error
+    }
+    return undefined
+  }
+  switch (statement.type) {
+    case 'simple': return lineError(statement.line)
+    case 'if':
+      for (const branch of statement.branches) {
+        const error = lineError(branch.condition) ?? inBody(branch.body)
+        if (error) return error
+      }
+      return statement.elseBody ? inBody(statement.elseBody) : undefined
+    case 'while': return lineError(statement.condition) ?? inBody(statement.body)
+    case 'case': {
+      for (const clause of statement.clauses) {
+        const error = inBody(clause.body)
+        if (error) return error
+      }
+      return undefined
+    }
+    case 'pipeline': return inBody(statement.stages)
+    case 'andor': return inBody([statement.first, ...statement.rest.map(next => next.statement)])
+    default: return inBody(statement.body)
+  }
+}
+
+/**
+ * A script's statements checked as bash checks them: a compound command is parsed whole before any of it runs, so a
+ * line in it that does not parse (`if false; then echo ); fi`) is a syntax error before the compound starts, where
+ * its lines would otherwise be parsed only when reached. A plain line at the top is still parsed as it is reached.
+ */
+function parsedAhead({ statements, failure }: ReturnType<typeof parseRunnable>): ReturnType<typeof parseRunnable> {
+  for (const [index, statement] of statements.entries()) {
+    if (statement.type === 'simple') continue
+    const error = compoundError(statement)
+    if (error) return { statements: statements.slice(0, index), failure: new ControlFlowParseError(error.message) }
+  }
+  return { statements, failure }
 }
 
 /**

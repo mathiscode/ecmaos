@@ -152,6 +152,22 @@ describe('Interpreter: functions', () => {
   })
 })
 
+describe('Interpreter: syntax errors in compound commands', () => {
+  it('finds one before running any of the compound, its branch taken or not, after the lines before it ran', async () => {
+    const host = new FakeHost()
+    await expect(host.run('echo before\nif false; then echo ); fi\necho after')).rejects.toThrow("unexpected token `)'")
+    expect(host.out).toEqual(['before'])
+    await expect(new FakeHost().run('while false; do echo $(; done')).rejects.toThrow()
+    await expect(new FakeHost().run('f() { echo x (; }')).rejects.toThrow()
+  })
+
+  it('leaves an array assignment and (( )) in a compound alone', async () => {
+    // (each host runs an array assignment itself, before parsing; this one has none, so the branch is not taken)
+    const { out } = await run('if false; then a=( 1 2 ); fi; if true; then (( x = 1 )); echo ok; fi')
+    expect(out).toBe('ok')
+  })
+})
+
 describe('Interpreter: subshells and sourcing', () => {
   it('exit in a subshell ends only the subshell', async () => {
     const { out, status } = await run('(exit 3); status; echo after')

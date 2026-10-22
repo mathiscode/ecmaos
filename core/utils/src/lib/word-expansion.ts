@@ -10,7 +10,7 @@ import { evaluateArithmeticExpression } from './expand-variables.js'
 import { expandBraces } from './brace-expansion.js'
 import { globRegExp, globToRegExpSource, hasGlobCharacters, type GlobOptions } from './glob.js'
 import type { WordPart } from './shell-parser.js'
-import { decodeAnsiC, scanExpansionEnd } from './shell-parser.js'
+import { decodeAnsiC, parseParameterWord, scanExpansionEnd } from './shell-parser.js'
 
 /** An array's keys: numeric order for an indexed array, insertion order for an associative one. */
 function orderedKeys(array: Map<number | string, string>): Array<number | string> {
@@ -61,8 +61,12 @@ interface Chunk {
   glob: boolean
 }
 
-/** What one `$...` expansion produced: a single value, or (for `$@`/`${a[@]}`) one per element. */
-type Expanded = { values: string[], multi: boolean }
+/**
+ * What one `$...` expansion produced: a single value, or (for `$@`/`${a[@]}`) one per element. A `${name-word}` that
+ * took its word has it as `chunks` too, so each part splits and globs as it was quoted in the word (`${x-"a b"}` is
+ * one field, `${x-a b}` two), and `keep` when a quoted part makes it a field even if empty.
+ */
+type Expanded = { values: string[], multi: boolean, chunks?: Chunk[], keep?: boolean }
 
 /** What `$IFS` means when it has never been set. Set-but-empty is a different thing: no splitting. */
 export const DEFAULT_IFS = ' \t\n'
@@ -187,7 +191,7 @@ class Expander {
 
 
   /** The value-transforming parameter operators. Applied to each element when the target is a list. */
-  private async transform(name: string, subscript: string | undefined, operator: string, rest: string): Promise<Expanded> {
+  private async transform(name: string, subscript: string | undefined, operator: string, rest: string, quoted: boolean): Promise<Expanded> {
     const isList = subscript === '@' || subscript === '*' || name === '@' || name === '*'
     const multi = subscript === '@' || (subscript === undefined && name === '@')
     let values: string[]
@@ -217,7 +221,7 @@ class Expander {
     }
 
     if (operator === '#' || operator === '##' || operator === '%' || operator === '%%') {
-      const pattern = globRegExp(await this.expandText(rest, 'double'), this.patternOptions())
+      const pattern = globRegExp(await this.patternText(rest), this.patternOptions())
       const trim = (text: string): string => {
         const prefix = operator[0] === '#'
         const longest = operator.length === 2
@@ -245,8 +249,8 @@ class Expander {
         if (body[i] === '\\') { i++; continue }
         if (body[i] === '/') { slash = i; break }
       }
-      const patternText = await this.expandText(slash === -1 ? body : body.slice(0, slash), 'double')
-      const replacement = slash === -1 ? '' : await this.expandText(body.slice(slash + 1), 'double')
+      const patternText = await this.patternText(slash === -1 ? body : body.slice(0, slash))
+      const replacement = slash === -1 ? '' : (await this.wordChunks(body.slice(slash + 1), quoted)).text
       if (patternText === '') return finish(values)
       const pattern = globRegExp(patternText, this.patternOptions())
       // An unescaped `&` stands for the text that matched; `\&` is a literal one.
@@ -292,7 +296,7 @@ class Expander {
     // ^ ^^ , ,,: case conversion, of every character matching the optional pattern
     const upper = operator[0] === '^'
     const all = operator.length === 2
-    const only = rest ? globRegExp(await this.expandText(rest, 'double'), this.patternOptions()) : undefined
+    const only = rest ? globRegExp(await this.patternText(rest), this.patternOptions()) : undefined
     const convert = (text: string): string => {
       let done = false
       return Array.from(text).map(char => {
@@ -304,8 +308,25 @@ class Expander {
     return finish(values.map(convert))
   }
 
-  /** `${...}`'s body: `#name`, `name[i]`, `name[@]`, `name:-word` and friends. */
-  private async parameter(body: string): Promise<Expanded> {
+  /**
+   * A pattern word (`${x#word}`, `${x/word/}`): read as an unquoted word even inside double quotes, as POSIX has it,
+   * so a quoted part matches itself and an unquoted one is a pattern.
+   */
+  private async patternText(word: string): Promise<string> {
+    return (await this.fields(parseParameterWord(word, false), { split: false, glob: false, tilde: true, pattern: 'glob' }))[0] ?? ''
+  }
+
+  /** A `${name-word}` word's expansion: its text, the chunks it is made of, and whether a quoted part keeps it a field. */
+  private async wordChunks(word: string, quoted: boolean): Promise<{ text: string, chunks: Chunk[], keep: boolean }> {
+    const { fields, keep } = await this.chunkFields(parseParameterWord(word, quoted), { tilde: !quoted })
+    // all of an unquoted expansion's result is split, its literal text too (a globbable chunk is an unquoted one)
+    const chunks = fields.flatMap((field, n) => n ? [{ text: ' ', split: true, glob: false }, ...field] : field)
+      .map(chunk => chunk.glob ? { ...chunk, split: true } : chunk)
+    return { text: chunks.map(c => c.text).join(''), chunks, keep: keep.some(Boolean) }
+  }
+
+  /** `${...}`'s body: `#name`, `name[i]`, `name[@]`, `name:-word` and friends. `quoted`: it is inside double quotes. */
+  private async parameter(body: string, quoted: boolean): Promise<Expanded> {
     // ${#...}: length
     if (body.startsWith('#') && body.length > 1) {
       const rest = body.slice(1)
@@ -333,7 +354,7 @@ class Expander {
 
     // ${name:off:len}, ${name#pat}, ${name%pat}, ${name/pat/rep}, ${name^^}: operators that transform the value
     const modified = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*])(?:\[([^\]]*)\])?(:(?![-+=?])|##?|%%?|\/|\^\^?|,,?|@(?=[A-Za-z]$))([\s\S]*)$/.exec(body)
-    if (modified) return await this.transform(modified[1] as string, modified[2], modified[3] as string, modified[4] as string)
+    if (modified) return await this.transform(modified[1] as string, modified[2], modified[3] as string, modified[4] as string, quoted)
 
     const match = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])(?:\[([^\]]*)\])?(:?[-+=?])?([\s\S]*)$/.exec(body)
     if (!match) throw new Error(`\${${body}}: bad substitution`)
@@ -364,30 +385,35 @@ class Expander {
 
     const colon = operator.startsWith(':')
     const unset = value === undefined || (colon && value === '')
-    const expandedWord = async () => this.expandText(word, 'double')
+    const expandedWord = async (): Promise<Expanded> => {
+      const { text, chunks, keep } = await this.wordChunks(word, quoted)
+      return { values: [text], multi: false, chunks, keep }
+    }
     switch (operator.replace(':', '')) {
-      case '-': return unset ? { values: [await expandedWord()], multi: false } : result
-      case '+': return unset ? { values: [''], multi: false } : { values: [await expandedWord()], multi: false }
+      case '-': return unset ? await expandedWord() : result
+      case '+': return unset ? { values: [''], multi: false } : await expandedWord()
       case '=': {
         if (!unset) return result
-        const assigned = await expandedWord()
+        // the variable takes the word's text; the expansion is then the variable's value, split as an expansion is
+        const assigned = (await this.wordChunks(word, quoted)).text
         this.ctx.assign(name, assigned)
         return { values: [assigned], multi: false }
       }
       case '?': {
         if (!unset) return result
-        throw new UnboundVariableError(`${name}: ${word ? await expandedWord() : 'parameter null or not set'}`)
+        throw new UnboundVariableError(`${name}: ${word ? (await this.wordChunks(word, quoted)).text : 'parameter null or not set'}`)
       }
     }
     return result
   }
 
-  /** Expands one `$...`/backtick span at the start of `text`. Returns what it produced and its length. */
-  private async dollar(text: string): Promise<{ expanded: Expanded, length: number } | undefined> {
+  /** Expands one `$...`/backtick span at the start of `text` (`quoted`: inside double quotes). Returns what it produced and its length. */
+  private async dollar(text: string, quoted: boolean): Promise<{ expanded: Expanded, length: number } | undefined> {
     if (text.startsWith('$((')) {
       const end = scanExpansionEnd(text, 0)
       if (end > 0 && text[end - 2] === ')') {
-        const expression = await this.expandText(text.slice(3, end - 2), 'double')
+        // as bash reads it: not split or globbed, but a ${...} in it quotes as an unquoted one does (${x%'}'})
+        const expression = (await this.fields([{ text: text.slice(3, end - 2), quoting: 'unquoted' }], { split: false, glob: false, tilde: false })).join(' ')
         return { expanded: { values: [String(evaluateArithmeticExpression(expression, n => this.ctx.lookup(n), (n, v) => this.ctx.assign(n, v)))], multi: false }, length: end }
       }
     }
@@ -399,8 +425,8 @@ class Expander {
       }
     }
     if (text.startsWith('${')) {
-      const end = scanExpansionEnd(text, 0)
-      if (end > 0) return { expanded: await this.parameter(text.slice(2, end - 1)), length: end }
+      const end = scanExpansionEnd(text, 0, quoted)
+      if (end > 0) return { expanded: await this.parameter(text.slice(2, end - 1), quoted), length: end }
     }
     const simple = /^\$([A-Za-z_][A-Za-z0-9_]*|[0-9@*#?$!-])/.exec(text)
     if (simple) {
@@ -423,6 +449,27 @@ class Expander {
    * off wholesale (assignments, `[[ ]]`, here-strings keep one field and never glob).
    */
   async fields(parts: WordPart[], options: { split: boolean, glob: boolean, tilde: boolean, pattern?: 'glob' | 'regex' }): Promise<string[]> {
+    const { fields, keep, producedNothing } = await this.chunkFields(parts, options)
+
+    // A bare "$@" / "${a[@]}" with no elements is no word at all, not an empty one.
+    if (producedNothing && fields.length === 1 && (fields[0] as Chunk[]).every(c => c.text === '')) return []
+
+    // [[ ]]'s right-hand side: one string where only unquoted text keeps its special meaning.
+    if (options.pattern) {
+      const escape = options.pattern === 'glob'
+        ? (t: string) => t.replace(/[*?[\]\\]/g, '\\$&')
+        : (t: string) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+      return [fields.map(chunks => chunks.map(c => c.glob ? c.text : escape(c.text)).join('')).join(' ')]
+    }
+
+    return await this.splitAndGlob(fields, keep, options)
+  }
+
+  /**
+   * A word's parts expanded into runs of text, each knowing whether it may be split and globbed, in fields (more
+   * than one only where `"$@"` made them); `keep`: a field that is one even if empty, for a quoted part in it.
+   */
+  private async chunkFields(parts: WordPart[], options: { tilde: boolean }): Promise<{ fields: Chunk[][], keep: boolean[], producedNothing: boolean }> {
     const fields: Chunk[][] = [[]]
     /** Whether a field holds anything that must survive even if empty ("" or a quoted expansion) */
     const keep: boolean[] = [false]
@@ -472,11 +519,14 @@ class Expander {
       while (i < text.length) {
         const c = text[i] as string
         if (c === '$' || c === '`') {
-          const result = await this.dollar(text.slice(i))
+          const result = await this.dollar(text.slice(i), quoted)
           if (result) {
             flushLiteral()
-            const { values, multi } = result.expanded
-            if (multi) {
+            const { values, multi, chunks } = result.expanded
+            if (chunks) {
+              for (const chunk of chunks) add({ text: chunk.text, split: chunk.split && !quoted, glob: chunk.glob && !quoted })
+              if (result.expanded.keep) keep[keep.length - 1] = true
+            } else if (multi) {
               if (values.length === 0 && quoted) producedNothing = true
               values.forEach((value, n) => {
                 if (n > 0) newField()
@@ -495,18 +545,11 @@ class Expander {
       }
       flushLiteral()
     }
+    return { fields, keep, producedNothing }
+  }
 
-    // A bare "$@" / "${a[@]}" with no elements is no word at all, not an empty one.
-    if (producedNothing && fields.length === 1 && (fields[0] as Chunk[]).every(c => c.text === '')) return []
-
-    // [[ ]]'s right-hand side: one string where only unquoted text keeps its special meaning.
-    if (options.pattern) {
-      const escape = options.pattern === 'glob'
-        ? (t: string) => t.replace(/[*?[\]\\]/g, '\\$&')
-        : (t: string) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
-      return [fields.map(chunks => chunks.map(c => c.glob ? c.text : escape(c.text)).join('')).join(' ')]
-    }
-
+  /** Splits a word's fields at `$IFS` where an expansion may be split, and globs them where they may be globbed. */
+  private async splitAndGlob(fields: Chunk[][], keep: boolean[], options: { split: boolean, glob: boolean }): Promise<string[]> {
     // Word splitting: only expansion results that were unquoted, and only at `$IFS` characters.
     // `$IFS` unset means the default; set-but-empty means no splitting at all, which is what makes
     // `while IFS= read -r line` preserve a line's own whitespace.

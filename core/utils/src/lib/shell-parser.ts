@@ -108,9 +108,9 @@ const HEREDOC_MARK = '\u0000'
 /**
  * Index just past the expansion (`$(...)`, `$((...))`, `${...}`) or backtick span starting at
  * `start`, honoring nesting and quotes inside it; `-1` if `start` doesn't open one or it never
- * closes.
+ * closes. `inDouble`: the expansion is inside double quotes, where a `${...}` word's `'` quotes nothing.
  */
-export function scanExpansionEnd(text: string, start: number): number {
+export function scanExpansionEnd(text: string, start: number, inDouble = false): number {
   if (text[start] === '`') {
     let j = start + 1
     while (j < text.length && text[j] !== '`') j += text[j] === '\\' ? 2 : 1
@@ -120,14 +120,22 @@ export function scanExpansionEnd(text: string, start: number): number {
   if (text[start] !== '$') return -1
   const open = text[start + 1]
   if (open !== '(' && open !== '{') return -1
-  const close = open === '(' ? ')' : '}'
+  const brace = open === '{'
+  const arithmetic = !brace && text[start + 2] === '('
+  // A command substitution's words, as far as finding its end needs them: `case ... in` makes a pattern's `)` close
+  // nothing until `esac` (each open one holds the depth it began at), and `#` at a word's start comments out the line
+  const cases: number[] = []
+  let pendingCase = 0
+  const wordStart = (j: number) => j === start + 2 || /[\s;&|()]/.test(text[j - 1] as string)
+  const keyword = (j: number, word: string) => wordStart(j) && text.startsWith(word, j) && !/[\w]/.test(text[j + word.length] ?? '')
 
   let depth = 0
   let j = start + 1
   while (j < text.length) {
     const c = text[j] as string
     if (c === '\\') { j += 2; continue }
-    if (c === "'" && open === '(') {
+    // inside "${...}" a single quote is just a character
+    if (c === "'" && !(brace && inDouble)) {
       const end = text.indexOf("'", j + 1)
       if (end === -1) return -1
       j = end + 1
@@ -137,7 +145,7 @@ export function scanExpansionEnd(text: string, start: number): number {
       let k = j + 1
       while (k < text.length && text[k] !== '"') {
         if (text[k] === '\\') { k += 2; continue }
-        const inner = text[k] === '$' || text[k] === '`' ? scanExpansionEnd(text, k) : -1
+        const inner = text[k] === '$' || text[k] === '`' ? scanExpansionEnd(text, k, true) : -1
         k = inner > 0 ? inner : k + 1
       }
       if (k >= text.length) return -1
@@ -145,13 +153,32 @@ export function scanExpansionEnd(text: string, start: number): number {
       continue
     }
     if (c === '`' || (c === '$' && (text[j + 1] === '(' || text[j + 1] === '{') && j !== start)) {
-      const end = scanExpansionEnd(text, j)
+      // an expansion in a ${...} word is quoted as that word is; a command substitution starts afresh
+      const end = scanExpansionEnd(text, j, brace && inDouble)
       if (end === -1) return -1
       j = end
       continue
     }
-    if (c === open) depth++
-    else if (c === close) {
+    if (brace) {
+      // `{` does not nest: only another `${`, skipped whole above, has a `}` of its own
+      if (c === '}') return j + 1
+      j++
+      continue
+    }
+    if (!arithmetic) {
+      if (c === '#' && wordStart(j)) {
+        const end = text.indexOf('\n', j)
+        if (end === -1) return -1
+        j = end
+        continue
+      }
+      if (keyword(j, 'case')) { pendingCase++; j += 4; continue }
+      if (pendingCase && keyword(j, 'in')) { pendingCase--; cases.push(depth); j += 2; continue }
+      if (cases.length && keyword(j, 'esac')) { cases.pop(); j += 4; continue }
+      if (c === ')' && cases.length && cases[cases.length - 1] === depth) { j++; continue }
+    }
+    if (c === '(') depth++
+    else if (c === ')') {
       depth--
       if (depth === 0) return j + 1
     }
@@ -203,6 +230,12 @@ function readWord(line: string, start: number, isStop: (i: number) => boolean): 
   // An extended pattern (`@(a|b)`, `!(x)`, `*(y)`) is one word whatever is in its parentheses. Nothing else puts a
   // parenthesis straight after one of those characters, so this does not need to know whether `extglob` is on.
   const extglobOpen = (j: number) => line[j] === '(' && j > start && '?*+@!'.includes(line[j - 1] as string)
+  // a `$(`, `${` or backquote that never closes; a `$` before anything else is just a dollar sign
+  const unterminated = (j: number) => {
+    if (line[j] === '`') throw new ParseError('Unterminated backquote')
+    if (line[j + 1] === '(') throw new ParseError("Unterminated '$('")
+    if (line[j + 1] === '{') throw new ParseError("Unterminated '${'")
+  }
 
   let i = start
   while (i < line.length && (!isStop(i) || extglobOpen(i))) {
@@ -263,8 +296,9 @@ function readWord(line: string, start: number, isStop: (i: number) => boolean): 
           continue
         }
         if (c === '$' || c === '`') {
-          const end = scanExpansionEnd(line, j)
+          const end = scanExpansionEnd(line, j, true)
           if (end > 0) { text += line.slice(j, end); j = end; continue }
+          unterminated(j)
         }
         text += c
         j++
@@ -283,7 +317,7 @@ function readWord(line: string, start: number, isStop: (i: number) => boolean): 
         i = end
         continue
       }
-      if (char === '`') throw new ParseError('Unterminated backquote')
+      unterminated(i)
     }
 
     push(char, 'unquoted')
@@ -291,6 +325,48 @@ function readWord(line: string, start: number, isStop: (i: number) => boolean): 
   }
 
   return { parts, end: i }
+}
+
+/**
+ * The word of a `${name-word}` (and of `+ = ?`, the patterns and the replacement), as parts to expand. An unquoted
+ * `${...}`'s word is read as any word is; inside double quotes a backslash escapes only `$`, `` ` ``, `"`, `\` and `}`,
+ * a single quote is just a character, and a `"..."` inside is quoted again, as POSIX shells read `"${x-"a"}"`.
+ */
+export function parseParameterWord(word: string, inDouble: boolean): WordPart[] {
+  if (!inDouble) return readWord(word, 0, () => false).parts
+  const parts: WordPart[] = []
+  let text = ''
+  const flush = () => { if (text) { parts.push({ text, quoting: 'double' }); text = '' } }
+  let i = 0
+  while (i < word.length) {
+    const c = word[i] as string
+    if (c === '\\' && i + 1 < word.length && '"\\$`}\n'.includes(word[i + 1] as string)) {
+      flush()
+      if (word[i + 1] !== '\n') parts.push({ text: word[i + 1] as string, quoting: 'escaped' })
+      i += 2
+      continue
+    }
+    if (c === '"') {
+      let end = i + 1
+      while (end < word.length && word[end] !== '"') {
+        if (word[end] === '\\') { end += 2; continue }
+        const inner = word[end] === '$' || word[end] === '`' ? scanExpansionEnd(word, end, true) : -1
+        end = inner > 0 ? inner : end + 1
+      }
+      flush()
+      parts.push(...readWord(word.slice(i, end + 1), 0, () => false).parts)
+      i = end + 1
+      continue
+    }
+    if (c === '$' || c === '`') {
+      const end = scanExpansionEnd(word, i, true)
+      if (end > 0) { text += word.slice(i, end); i = end; continue }
+    }
+    text += c
+    i++
+  }
+  flush()
+  return parts
 }
 
 const isWordBoundary = (line: string, i: number) => {
@@ -476,6 +552,10 @@ class Parser {
       }
 
       if (conditional !== undefined) throw new ParseError(`Unexpected word after ']]': ${token.value}`)
+      // a parenthesis is an operator: one left here (`echo )`, `echo x (`) belongs to no subshell, group or function
+      if (!token.quoted && (token.value === '(' || token.value === ')') && token.parts?.every(part => part.quoting === 'unquoted')) {
+        throw new ParseError(`syntax error near unexpected token \`${token.value}'`)
+      }
 
       this.advance()
       words.push(token.value)
@@ -676,18 +756,44 @@ export function pendingHeredocDelimiter(text: string): string | null {
 
 /** Whether `line` ends inside a quoted string (single, double or `$'...'`), ignoring quotes in a trailing comment. */
 export function hasOpenQuote(line: string): boolean {
+  return quoteState(line).open
+}
+
+/**
+ * Whether `line` ends in a line continuation: a backslash outside quotes and comments, which joins the next line to
+ * it, both gone.
+ */
+export function endsInContinuation(line: string): boolean {
+  return quoteState(line).continued
+}
+
+/** Where `line` ends: inside a quote, or on a backslash that continues it. A whole `$(...)` or `${...}` is skipped. */
+function quoteState(line: string): { open: boolean, continued: boolean } {
   let state: '' | "'" | '"' | '$' = ''
+  // an expansion that closes on this line is passed over whole, its own quotes ("${x-"a"}") included
+  const skip = (i: number, inDouble: boolean) => {
+    const end = line[i + 1] === '{' || line[i + 1] === '(' ? scanExpansionEnd(line, i, inDouble) : -1
+    return end > 0 ? end - 1 : i
+  }
   for (let i = 0; i < line.length; i++) {
     const c = line[i] as string
     if (state === "'") { if (c === "'") state = '' }
     else if (state === '$') { if (c === '\\') i++; else if (c === "'") state = '' }
-    else if (state === '"') { if (c === '\\') i++; else if (c === '"') state = '' }
-    else if (c === '\\') i++
+    else if (state === '"') {
+      if (c === '\\') i++
+      else if (c === '"') state = ''
+      else if (c === '$') i = skip(i, true)
+    }
+    else if (c === '\\') {
+      if (i === line.length - 1) return { open: false, continued: true }
+      i++
+    }
     else if (c === "'") state = line[i - 1] === '$' ? '$' : "'"
     else if (c === '"') state = '"'
+    else if (c === '$') i = skip(i, false)
     else if (c === '#' && (i === 0 || /[\s;|&()]/.test(line[i - 1] as string))) break
   }
-  return state !== ''
+  return { open: state !== '', continued: false }
 }
 
 /**

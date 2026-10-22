@@ -152,7 +152,9 @@ describe('shared builtins: test and [', () => {
     expect(await status('[ ! -e /nope ]')).toBe(0)
     expect(await status('[ -f /f -a -d /d ]')).toBe(0)
     expect(await status('[ -f /nope -o -d /d ]')).toBe(0)
-    expect(await status('[ -n x -a ( -z "" ) ]')).toBe(0)
+    expect(await status('[ -n x -a \\( -z "" \\) ]')).toBe(0)
+    // unescaped, as in any POSIX shell, a parenthesis there is a syntax error
+    await expect(status('[ -n x -a ( -z "" ) ]')).rejects.toThrow("unexpected token `('")
   })
 
   it('needs the closing bracket and a number where one is expected', async () => {

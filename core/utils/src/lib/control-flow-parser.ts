@@ -20,7 +20,7 @@
  * A block's condition line is kept as raw text and goes through `Shell.execute`.
  */
 
-import { foldHeredocs, hasOpenQuote, pendingHeredocDelimiter } from './shell-parser.js'
+import { endsInContinuation, foldHeredocs, hasOpenQuote, pendingHeredocDelimiter, scanExpansionEnd } from './shell-parser.js'
 
 export interface SimpleStatement extends Positioned {
   type: 'simple'
@@ -218,10 +218,14 @@ function preprocessLines(script: string, offset = 0): SourceLine[] {
       }
     }
   }
+  // a line continued by a backslash is joined to the next with neither the backslash nor the newline
+  let continued = false
   script.split('\n').forEach((physical, index) => {
-    const joined = pending ? pending + QUOTED_NEWLINE + physical : physical
+    const joined = pending ? pending + (continued ? '' : QUOTED_NEWLINE) + physical : physical
     const start = pending ? pendingAt : index
+    continued = false
     if (hasOpenQuote(joined)) { pending = joined; pendingAt = start; return }
+    if (endsInContinuation(joined)) { pending = joined.slice(0, -1); pendingAt = start; continued = true; return }
     pending = ''
     handle(joined, start)
   })
@@ -288,9 +292,19 @@ export function splitTopLevel(line: string): string[] {
     }
     if (char === '"') {
       let j = i + 1
-      while (j < line.length && line[j] !== '"') j += line[j] === '\\' && j + 1 < line.length ? 2 : 1
+      while (j < line.length && line[j] !== '"') {
+        if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue }
+        // an expansion inside, whose own quotes ("${x-"a"}") do not end the string
+        const end = line[j] === '$' ? scanExpansionEnd(line, j, true) : -1
+        j = end > 0 ? end : j + 1
+      }
       const stop = Math.min(j + 1, line.length)
       current += line.slice(i, stop); i = stop; commandStart = false; continue
+    }
+    if (char === '$' && line[i + 1] === '{') {
+      // a ${...} whole: a quote in its word is not one of the line's
+      const end = scanExpansionEnd(line, i)
+      if (end > 0) { current += line.slice(i, end); i = end; commandStart = false; continue }
     }
     if (char === '#' && (i === 0 || /\s/.test(line[i - 1] as string))) { current += line.slice(i); i = line.length; continue }
 
@@ -1231,6 +1245,8 @@ export function needsMoreInput(text: string): boolean {
   if (pendingHeredocDelimiter(text) !== null) return true
   // an open quote runs on to the next line, as at a bash prompt (a here-document body may hold a lone quote)
   if (!text.includes('<<') && hasOpenQuote(text)) return true
+  // a backslash at the end continues the line
+  if (endsInContinuation(text)) return true
 
   try {
     parseStatements(text)

@@ -261,6 +261,25 @@ function firstCommand(script: ReturnType<typeof parseScript>): Command {
   return pipeline.commands[0] as Command
 }
 
+describe('syntax errors and where expansions end', () => {
+  it('rejects a parenthesis left as a word, and a $(, ${ or backquote that never closes', () => {
+    for (const line of ['echo )', 'echo x (', 'echo $(', 'echo $(echo', 'echo ${', 'echo "${x"', 'echo "`x"']) {
+      expect(() => parseScript(line), line).toThrow()
+    }
+    // quoted or escaped, a parenthesis is a word
+    expect(commandWords(parseScript("echo ')' \\( \"(\"").stages[0]?.pipeline)).toEqual(['echo', ')', '(', '('])
+  })
+
+  it('reads a case inside $(...) to its esac, whose patterns\' ) close nothing', () => {
+    const line = 'echo $(case $A in a) echo x ;; (b) echo y ;; esac) z'
+    expect(commandWords(parseScript(line).stages[0]?.pipeline)).toEqual(['echo', '$(case $A in a) echo x ;; (b) echo y ;; esac)', 'z'])
+  })
+
+  it('ends a ${...} at its first unquoted }, a bare { included, single quotes quoting only outside double quotes', () => {
+    expect(commandWords(parseScript("echo ${X-{} ${X-'}'} \"${X-'}'\"").stages[0]?.pipeline)).toEqual(['echo', '${X-{}', "${X-'}'}", "${X-'}'"])
+  })
+})
+
 function commandWords(pipeline: Pipeline | undefined): string[] {
   return pipeline?.commands[0]?.words ?? []
 }

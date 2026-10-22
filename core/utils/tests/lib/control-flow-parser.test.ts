@@ -590,3 +590,21 @@ describe('parseRunnable: what bash has run when it finds a syntax error', () => 
     expect(failure?.incomplete).toBe(true)
   })
 })
+
+describe('parseStatements: line continuations', () => {
+  it('joins a line ending in an unquoted backslash to the next, with neither left', () => {
+    expect(parseStatements('echo a \\\nb')).toMatchObject([{ type: 'simple', line: 'echo a b' }])
+    expect(parseStatements('echo x \\\n\\\n#);')).toMatchObject([{ type: 'simple', line: 'echo x #);' }])
+    expect(parseStatements('if true; then echo a \\\n  b; fi')).toMatchObject([{ type: 'if', branches: [{ body: [{ line: 'echo a   b' }] }] }])
+  })
+
+  it('leaves a backslash in quotes, in a comment and an escaped one as they are', () => {
+    expect(parseStatements("echo 'a\\\nb'")).toMatchObject([{ line: "echo 'a\\\nb'" }])
+    expect(parseStatements('echo a # c \\\necho b').map(s => (s as SimpleStatement).line)).toEqual(['echo a # c \\', 'echo b'])
+    expect(parseStatements('echo a\\\\\necho b').map(s => (s as SimpleStatement).line)).toEqual(['echo a\\\\', 'echo b'])
+  })
+
+  it('reads a "..." whose ${...} has quotes of its own as one string', () => {
+    expect(parseStatements('echo "${X-"a;b"}"; echo c').map(s => (s as SimpleStatement).line)).toEqual(['echo "${X-"a;b"}"', 'echo c'])
+  })
+})

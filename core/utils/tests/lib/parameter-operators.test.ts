@@ -137,4 +137,55 @@ describe('arithmetic', () => {
     expect(() => run('1/0')).toThrow(/division by 0 \(error token is "0"\)/)
     expect(() => run('1 2')).toThrow(/unexpected token/)
   })
+
+  it('takes base#digits, and nothing that is not a number, a name or an operator', () => {
+    expect(run('16#ff').value).toBe(255)
+    expect(run('2#101 + 64#_').value).toBe(68)
+    expect(() => run('2#2')).toThrow(/value too great for base/)
+    // expanded already: a dollar sign, a quote or a # left in the expression is an error, not dropped
+    expect(() => run('$((1+1))')).toThrow(/invalid arithmetic operator \(error token is "\$\(\(1\+1\)\)"\)/)
+    expect(() => run('"1"')).toThrow(/invalid arithmetic operator/)
+    expect(() => run('1 + #x')).toThrow(/error token is "#x"/)
+  })
+})
+
+/** The word of `${name-word}` and of the patterns, quoted as POSIX shells quote it (checked against bash 5.3 and dash). */
+describe('parameter words', () => {
+  const shell = () => make({ A: 'a', AB: 'ab', FOO: 'bar baz', NULL: '' })
+
+  it('reads an unquoted expansion\'s word as a word: quotes and backslashes are removed, a bare { is a character', async () => {
+    const s = shell()
+    for (const [word, want] of [['${X-\\\'}', "'"], ['${X-\\}}', '}'], ['${X-{}', '{'], ['${X-\\{}', '{'], ['${X-\\$A}', '$A'],
+      ["${X-'}'}", '}'], ["${X-'}\"'}", '}"'], ["${X-'$'A}", '$A'], ['${X-"\'"}', "'"], ['${X-"$"A}', '$A'], ["${X-${Y-\\'}}", "'"]]) {
+      expect(await s.fields(word as string)).toEqual([want])
+    }
+    // the } in "$"{A} closes the expansion
+    expect(await s.fields('${X-"$"{A}B}')).toEqual(['${AB}'])
+  })
+
+  it('splits what was unquoted in the word and keeps what was quoted together', async () => {
+    const s = shell()
+    expect(await s.fields('${X-a b}')).toEqual(['a', 'b'])
+    expect(await s.fields('${X-"a b"}')).toEqual(['a b'])
+    expect(await s.fields('${X-"$"(echo x)}')).toEqual(['$(echo', 'x)'])
+    expect(await s.fields('${X-x }#${Y-y}')).toEqual(['x', '#y'])
+    expect(await s.fields('${X-""}')).toEqual([''])
+  })
+
+  it('in double quotes, escapes only $ ` " \\ and }, keeps a single quote, and quotes a "..." inside again', async () => {
+    const s = shell()
+    for (const [word, want] of [['"${X-\\\'}"', "\\'"], ['"${X-\\"}"', '"'], ['"${X-\\}}"', '}'], ['"${X-\\{}"', '\\{'], ['"${X-{}"', '{'],
+      ['"${X-\\$A}"', '$A'], ['"${X-"\'"}"', "'"], ["\"${X-${Y-\\'}}\"", "\\'"], ['"${X-"$"(echo x)}"', '$(echo x)'],
+      ["\"${X-'\"'}\"}\"\"'$(echo bad)'\"'\"\\'", "''}'echo bad'\"\\"]]) {
+      expect(await s.fields(word as string)).toEqual([want])
+    }
+  })
+
+  it('reads a pattern\'s word unquoted even inside double quotes', async () => {
+    const s = shell()
+    expect(await s.fields("\"${AB%${X-'b'}}\"")).toEqual(['a'])
+    expect(await s.fields("\"${AB%${X-'$(echo b)'}}\"")).toEqual(['ab'])
+    expect(await s.fields('${AB#$A*}')).toEqual(['b'])
+    expect(await s.fields("${AB%'*'}")).toEqual(['ab'])
+  })
 })
