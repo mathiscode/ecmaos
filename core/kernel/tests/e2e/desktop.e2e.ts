@@ -129,9 +129,27 @@ describe('the site in a real browser', () => {
       return canvas ? [...canvas.getContext('2d')!.getImageData(100, 100, 1, 1).data.subarray(0, 3)].join() : ''
     })
     await until(async () => (await paper()) === '250,250,250', 90_000, 'the paper on the page')
+    // shown at its own size: the window grew by its title bar rather than squeezing the picture
+    expect(await page.evaluate(() => {
+      const box = [...document.querySelectorAll('.winbox')].find(box => box.querySelector('.wb-title')?.textContent === 'sdlpaint')
+      const canvas = box?.querySelector('canvas')
+      return canvas ? [canvas.clientWidth, canvas.clientHeight] : []
+    })).toEqual([200, 150])
     const box = page.locator('.winbox', { has: page.locator('.wb-title', { hasText: 'sdlpaint' }) })
     await box.locator('.wb-close').click()
     await until(() => page.evaluate(() => ecmaos.kernel.windows.list().length === 0), 20_000, 'the window to go')
     expect(await read('/tmp/sdlpaint.out')).toBe('')
+  })
+
+  it('draws with SDL\'s OpenGL ES 2 renderer: a fill, a texture and blending, read back as drawn', async () => {
+    const bytes = readFileSync(path.join(root, 'tests/tree/wasi/fixtures/sdl-render.wasm')).toString('base64')
+    await page.evaluate(bytes => ecmaos.fs.writeFile('/tmp/sdl-render', Uint8Array.from(atob(bytes), c => c.charCodeAt(0)), { mode: 0o755 }), bytes)
+    await page.evaluate(() => ecmaos.terminal.focus())
+    await type('/tmp/sdl-render opengles2 > /tmp/sdl-render.out 2>&1')
+    await until(async () => /passed|failed|BAD|error/.test(await read('/tmp/sdl-render.out')), 90_000, 'sdl-render to finish')
+    const out = await read('/tmp/sdl-render.out')
+    expect(out).toContain('renderer opengles2')
+    expect(out).not.toContain('BAD')
+    expect(out).toContain('passed')
   })
 })

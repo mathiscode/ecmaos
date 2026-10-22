@@ -512,6 +512,18 @@ export class Framebuffers {
     ensureMajor()
 
     const window = this._windows.create({ title: options.title || `Framebuffer ${index}`, width, height, owner: options.owner })
+    // A window's size is its outer box: it grows by its title bar and border, so the picture is shown at its own size
+    // rather than squeezed (a 200 by 150 window showed its pixels in 198 by 114). It stays centred where it was put,
+    // which the window server does not know (it records `center` as 0), so the position is read back from the box.
+    try {
+      const { dom, body } = window
+      const frameWidth = Math.max(0, dom.offsetWidth - body.clientWidth)
+      const frameHeight = Math.max(0, dom.offsetHeight - body.clientHeight)
+      if (frameWidth > 0 || frameHeight > 0) {
+        window.move(Math.max(0, Math.round(dom.offsetLeft - frameWidth / 2)), Math.max(0, Math.round(dom.offsetTop - frameHeight / 2)))
+        window.resize(width + frameWidth, height + frameHeight)
+      }
+    } catch { /* drawn without the DOM: nothing to measure */ }
     const framebuffer = new Framebuffer(index, width, height, windowSink(window, input => this._windows.reportInput(window.id, input), options.resizable === true))
     framebuffer.windowControl = {
       get: () => Math.max(0, WindowStates.indexOf(window.info.state as typeof WindowStates[number])),

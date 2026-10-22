@@ -63,6 +63,8 @@ Emscripten has no `memfd_create` (the link fails), so the program uses `mkstemp`
 
 `sdl-win.wasm` is a small SDL 3 program (`sdl-win.c`) on SDL's Wayland video driver, run against `wlcomp` by the same test: a window surface, pointer, key and text events, resize, close. `sdl-win.build.sh` rebuilds it, and SDL itself first (`core/utils/wasm/lib/sdl.sh`, a few minutes; it needs `cmake`, `ninja`, `pkg-config`, `bison` and the host `wayland-scanner`). The same script is how any SDL 3 program gets built for ecmaOS.
 
+`sdl-render.wasm` (`sdl-render.c`, built on WALI by `sdl-render.build.sh` as the SDL demos are) draws with SDL's 2D renderer, `opengles2` by default or `software`: a clear, a filled rectangle, a texture from a surface and a blended one, read back with `SDL_RenderReadPixels` and printed as `ok` or `BAD`. Only a browser has `/dev/gl`, so `../../../e2e/desktop.e2e.ts` runs it.
+
 `p2-echo.wasm` is a WASI Preview 2 component: `p2-echo.wat`, assembled and wrapped in the
 `wasi_snapshot_preview1` command adapter by the jco the kernel already depends on, so no other toolchain is needed.
 It writes its arguments one per line, copies stdin to stdout, says `p2-echo: done` on stderr and exits with the
