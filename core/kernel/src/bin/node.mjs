@@ -168,8 +168,10 @@ function readWholeFile(path) {
 
 /** Base64-encode into a `data:` URL, which (unlike `blob:`) a bare Node worker_threads Worker can import too. */
 function toDataUrl(bytes) {
+  if (bytes.toBase64) return 'data:text/javascript;base64,' + bytes.toBase64()
+  // A character at a time took 40ms for ecmash's 365KB
   let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
+  for (let i = 0; i < bytes.byteLength; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   return 'data:text/javascript;base64,' + btoa(binary)
 }
 

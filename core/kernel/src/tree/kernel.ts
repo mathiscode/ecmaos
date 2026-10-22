@@ -30,6 +30,7 @@ import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
 import { execveWhenFree as zenfsExecve } from '#lib/execve-retry.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
+import { installWarmThreads } from '#lib/warm-threads.ts'
 import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
@@ -901,6 +902,8 @@ export class Kernel implements IKernel {
       initDriverCore()
       initMemDevices()
       populatePlatformBus()
+      // Programs start on workers made ready ahead of time
+      installWarmThreads()
 
       // Registers the xterm and console drivers (`/dev/xterm<n>`, `/dev/tty`, `/dev/console`); without this, reads
       // and writes on those nodes throw ENXIO. Host stdio probing is off.
