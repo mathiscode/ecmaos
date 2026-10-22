@@ -1,0 +1,39 @@
+musl's own fixes to floatscan (strtod, strtof, strtold and scanf) since 1.2.5: 50979c5b (a hex float read one digit
+too few where LDBL_MANT_DIG is not a multiple of 4, plus one, so 0x1.111111111111281 rounded down and
+0x1.11111111111111 up), dd856098 (a store at index -1 of the mantissa buffer when it wrapped) and 6426a515 (an inexact
+denormal result that rounded up lost its ERANGE).
+
+diff --git i/src/internal/floatscan.c w/src/internal/floatscan.c
+index a0e3332..474b1ff 100644
+--- i/src/internal/floatscan.c
++++ w/src/internal/floatscan.c
+@@ -256,7 +256,7 @@ static long_double_pr_t decfloat(FILE *f, int c, int bits, int emin, int sign, i
+ 
+ 	/* Assemble desired bits into floating point variable */
+ 	for (y=i=0; i<LD_B1B_DIG; i++) {
+-		if ((a+i & MASK)==z) x[(z=(z+1 & MASK))-1] = 0;
++		if ((a+i & MASK)==z) x[z] = 0, z = z+1 & MASK;
+ #if !defined(__wali_printscan_enable_long_double)
+ 		y = 1000000000.0 * y + x[a+i & MASK];
+ #else
+@@ -303,10 +303,9 @@ static long_double_pr_t decfloat(FILE *f, int c, int bits, int emin, int sign, i
+ 
+ 	if ((e2+LDBL_MANT_DIG & INT_MAX) > emax-5) {
+ 		if (fabsl(y) >= 2/LDBL_EPSILON) {
+-			if (denormal && bits==LDBL_MANT_DIG+e2-emin)
+-				denormal = 0;
+ 			y *= 0.5;
+ 			e2++;
++			if (e2+LDBL_MANT_DIG >= -emax+3) denormal = 0;
+ 		}
+ 		if (e2+LDBL_MANT_DIG>emax || (denormal && frac))
+ 			errno = ERANGE;
+@@ -351,7 +350,7 @@ static long_double_pr_t hexfloat(FILE *f, int bits, int emin, int sign, int pok)
+ 			else d = c-'0';
+ 			if (dc<8) {
+ 				x = x*16 + d;
+-			} else if (dc < LDBL_MANT_DIG/4+1) {
++			} else if (dc < (LDBL_MANT_DIG+3)/4+1) {
+ 				y += d*(scale/=16);
+ 			} else if (d && !gottail) {
+ 				y += 0.5*scale;

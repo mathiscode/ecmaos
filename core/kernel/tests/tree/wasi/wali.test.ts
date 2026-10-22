@@ -305,6 +305,24 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
+  it('has long double as IEEE quad in libm, printf, scanf and strtold, with doubles printed as before', async () => {
+    expect(await run('wali-ldbl')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'mant=113 dig=33',
+        'sqrtl(2)=1.4142135623730950488016887242097',
+        'fabsl(-3.5)=3.5',
+        'frexpl(48)=0.75*2^6',
+        'third=0x1.5555555555555555555555555555p-2 0.333333333333333333333333333333333317',
+        'epsilon=1',
+        'scanned=2.5e-4000',
+        'double=0.10000000000000001 1e+300 -2.500000',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

@@ -1,0 +1,169 @@
+strptime as musl has it since 1.2.5 (fced99e9: %F, %g, %G, %s, %u, %V, %z and %Z, which the next POSIX issue adopts;
+0572555d: %Z reads tzname[] under the timezone lock, and not at all before tzset), and, beyond it, %s and %z as glibc
+and the BSDs take them: %s sets the time to the local time of those seconds since the Epoch, where musl only parses
+them, and %z takes Z, +hh and +hh:mm besides +hhmm.
+
+diff --git i/src/time/__tz.c w/src/time/__tz.c
+index c34b3eb..cf45b92 100644
+--- i/src/time/__tz.c
++++ w/src/time/__tz.c
+@@ -437,3 +437,22 @@ const char *__tm_to_tzname(const struct tm *tm)
+ 	UNLOCK(lock);
+ 	return p;
+ }
++
++int __tzname_to_isdst(const char *restrict *s)
++{
++	size_t len;
++	int isdst = -1;
++	LOCK(lock);
++	if (tzname[0] && !strncmp(*s, tzname[0], len = strlen(tzname[0]))) {
++		isdst = 0;
++		*s += len;
++	} else if (tzname[1] && !strncmp(*s, tzname[1], len=strlen(tzname[1]))) {
++		isdst = 1;
++		*s += len;
++	} else {
++		/* FIXME: is this supposed to be an error? */
++		while (isalpha(**s)) ++*s;
++	}
++	UNLOCK(lock);
++	return isdst;
++}
+diff --git i/src/time/strptime.c w/src/time/strptime.c
+index c54a0d8..07b3e8b 100644
+--- i/src/time/strptime.c
++++ w/src/time/strptime.c
+@@ -5,6 +5,8 @@
+ #include <stddef.h>
+ #include <string.h>
+ #include <strings.h>
++#include <limits.h>
++#include "time_impl.h"
+ 
+ char *strptime(const char *restrict s, const char *restrict f, struct tm *restrict tm)
+ {
+@@ -59,6 +61,22 @@ char *strptime(const char *restrict s, const char *restrict f, struct tm *restri
+ 			s = strptime(s, "%m/%d/%y", tm);
+ 			if (!s) return 0;
+ 			break;
++		case 'F':
++			/* Use temp buffer to implement the odd requirement
++			 * that entire field be width-limited but the year
++			 * subfield not itself be limited. */
++			i = 0;
++			char tmp[20];
++			if (*s == '-' || *s == '+') tmp[i++] = *s++;
++			while (*s=='0' && isdigit(s[1])) s++;
++			for (; *s && i<(size_t)w && i+1<sizeof tmp; i++) {
++				tmp[i] = *s++;
++			}
++			tmp[i] = 0;
++			char *p = strptime(tmp, "%12Y-%m-%d", tm);
++			if (!p) return 0;
++			s -= tmp+i-p;
++			break;
+ 		case 'H':
+ 			dest = &tm->tm_hour;
+ 			min = 0;
+@@ -114,6 +132,23 @@ char *strptime(const char *restrict s, const char *restrict f, struct tm *restri
+ 			s = strptime(s, "%H:%M", tm);
+ 			if (!s) return 0;
+ 			break;
++		case 's':
++			/* ecmaOS: the time is the local time of those
++			 * seconds since the Epoch, as glibc and the BSDs
++			 * have it, where musl only parses them. */
++			{
++				long long secs = 0;
++				neg = *s == '-';
++				if (neg) s++;
++				if (!isdigit(*s)) return 0;
++				for (; isdigit(*s); s++) {
++					if (secs > (LLONG_MAX - (*s-'0')) / 10) return 0;
++					secs = secs * 10 + (*s-'0');
++				}
++				time_t t = neg ? -secs : secs;
++				if (t != (neg ? -secs : secs) || !localtime_r(&t, tm)) return 0;
++			}
++			break;
+ 		case 'S':
+ 			dest = &tm->tm_sec;
+ 			min = 0;
+@@ -125,11 +160,30 @@ char *strptime(const char *restrict s, const char *restrict f, struct tm *restri
+ 			break;
+ 		case 'U':
+ 		case 'W':
+-			/* Throw away result, for now. (FIXME?) */
++			/* Throw away result of %U, %V, %W, %g, and %G. Effect
++			 * is unspecified and there is no clear right choice. */
+ 			dest = &dummy;
+ 			min = 0;
+ 			range = 54;
+ 			goto numeric_range;
++		case 'V':
++			dest = &dummy;
++			min = 1;
++			range = 53;
++			goto numeric_range;
++		case 'g':
++			dest = &dummy;
++			w = 2;
++			goto numeric_digits;
++		case 'G':
++			dest = &dummy;
++			if (w<0) w=4;
++			goto numeric_digits;
++		case 'u':
++			dest = &tm->tm_wday;
++			min = 1;
++			range = 7;
++			goto numeric_range;
+ 		case 'w':
+ 			dest = &tm->tm_wday;
+ 			min = 0;
+@@ -154,6 +208,32 @@ char *strptime(const char *restrict s, const char *restrict f, struct tm *restri
+ 			adj = 1900;
+ 			want_century = 0;
+ 			goto numeric_digits;
++		case 'z':
++			/* ecmaOS: Z, +hh and +hh:mm too, as glibc takes
++			 * them, where musl takes only +hhmm. */
++			if (*s == 'Z') {
++				tm->__tm_gmtoff = 0;
++				s++;
++				break;
++			}
++			if (*s == '+') neg = 0;
++			else if (*s == '-') neg = 1;
++			else return 0;
++			if (!isdigit(s[1]) || !isdigit(s[2])) return 0;
++			tm->__tm_gmtoff = (s[1]-'0')*36000+(s[2]-'0')*3600;
++			s += 3;
++			if (*s == ':' && isdigit(s[1]) && isdigit(s[2])) s++;
++			if (isdigit(s[0]) && isdigit(s[1])) {
++				if (s[0] > '5') return 0;
++				tm->__tm_gmtoff += (s[0]-'0')*600 + (s[1]-'0')*60;
++				s += 2;
++			}
++			if (neg) tm->__tm_gmtoff = -tm->__tm_gmtoff;
++			break;
++		case 'Z':
++			i = __tzname_to_isdst(&s);
++			if (i>=0) tm->tm_isdst = i;
++			break;
+ 		case '%':
+ 			if (*s++ != '%') return 0;
+ 			break;
+diff --git i/src/time/time_impl.h w/src/time/time_impl.h
+index f26d800..ffe5050 100644
+--- i/src/time/time_impl.h
++++ w/src/time/time_impl.h
+@@ -5,6 +5,7 @@ hidden int __month_to_secs(int, int);
+ hidden long long __year_to_secs(long long, int *);
+ hidden long long __tm_to_secs(const struct tm *);
+ hidden const char *__tm_to_tzname(const struct tm *);
++hidden int __tzname_to_isdst(const char *restrict *);
+ hidden int __secs_to_tm(long long, struct tm *);
+ hidden void __secs_to_zone(long long, int, int *, long *, long *, const char **);
+ hidden const char *__strftime_fmt_1(char (*)[100], size_t *, int, const struct tm *, locale_t, int);

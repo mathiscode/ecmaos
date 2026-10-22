@@ -9,11 +9,9 @@ functional.ipc_shm          fork: ENOSYS
 # threads
 
 # formatting and parsing
-functional.strptime         %F, %s and %z are not parsed (musl has them only after 1.2.5)
-functional.strtod           hexadecimal floats past 53 bits are not rounded to nearest
-functional.strtold          WALI's musl formats no long double (SIGABRT); built with it, it misformats doubles
-functional.wordexp          most cases pass; the rest are musl 1.2.3's wordexp and ecmash's eval (positional
-                            parameters, quoting inside ${X-...}, syntax errors)
+functional.wordexp          musl's wordexp (as upstream: WRDE_NOCMD's scan takes { and } as bad characters, no
+                            WRDE_UNDEF) and ecmash's eval (no syntax error for ( or $(, quoting inside ${X-...});
+                            and a shell for each of its cases takes it past the ten seconds
 
 # processes and signals
 functional.vfork            vfork: ENOSYS (there is no fork)

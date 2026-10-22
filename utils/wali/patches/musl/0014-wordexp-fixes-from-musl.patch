@@ -1,0 +1,43 @@
+wordexp as musl has it since 1.2.5, on 0007's posix_spawn: the shell's stderr is /dev/null through a file action
+(235f7289), where `2>/dev/null` went in as $2, so expanding $2, $* or $@ gave it as a word; the eval clears the
+positional parameters first (331cf270), so $1 and $# say there are none; and a word is freed when the vector cannot
+grow for it (38e04447).
+
+diff --git i/src/misc/wordexp.c w/src/misc/wordexp.c
+index 8eb2f68..2864ea4 100644
+--- i/src/misc/wordexp.c
++++ w/src/misc/wordexp.c
+@@ -32,7 +32,6 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 	int sq=0, dq=0;
+ 	size_t np=0;
+ 	char *w, **tmp;
+-	char *redir = (flags & WRDE_SHOWERR) ? "" : "2>/dev/null";
+ 	int err = 0;
+ 	FILE *f;
+ 	size_t wc = 0;
+@@ -107,9 +106,11 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 		goto nospace;
+ 	}
+ 	posix_spawn_file_actions_adddup2(&fa, p[1], 1);
++	if (!(flags & WRDE_SHOWERR))
++		posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+ 	int spawned = posix_spawn(&pid, "/bin/sh", &fa, 0, (char *[]){ "sh", "-c",
+-		"eval \"printf %s\\\\\\\\0 x $1 $2\"",
+-		"sh", (char *)s, (char *)redir, 0 }, __environ);
++		"eval \"set --;printf %s\\\\\\\\0 x $1\"",
++		"sh", (char *)s, 0 }, __environ);
+ 	posix_spawn_file_actions_destroy(&fa);
+ 	if (spawned) {
+ 		close(p[0]);
+@@ -139,7 +140,10 @@ static int do_wordexp(const char *s, wordexp_t *we, int flags)
+ 		if (i+1 >= l) {
+ 			l += l/2+10;
+ 			tmp = realloc(wv, l*sizeof(char *));
+-			if (!tmp) break;
++			if (!tmp) {
++				free(w);
++				break;
++			}
+ 			wv = tmp;
+ 		}
+ 		wv[i++] = w;
