@@ -193,6 +193,20 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('reads the wall clock finer than a millisecond, never going back', async () => {
+    expect(await run('wali-clock')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'realtime: fine=1 backwards=0',
+        'gettimeofday: micro=1 agrees=1',
+        'time: agrees=1',
+        'getres: below a millisecond=1',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)

@@ -1052,9 +1052,25 @@ function execve(pathPtr, argvPtr, envpPtr) {
 const CLOCK_REALTIME = 0, CLOCK_REALTIME_COARSE = 5, CLOCK_REALTIME_ALARM = 8, CLOCK_TAI = 11
 const TIMER_ABSTIME = 1
 
+/**
+ * The wall clock in milliseconds, finer than `Date.now()`'s whole ones: the monotonic clock's fraction, kept within the
+ * millisecond `Date.now()` says it is (so it agrees with the kernel's times, and follows the wall clock when it is set
+ * or the two drift apart), never going back while `Date.now()` does not. A program that times a wait by the wall clock
+ * takes a millisecond's tick, which every reading would otherwise cross whole, as no time passing (Vim's `inchar_loop`
+ * did, its wait falling to -1, forever)
+ */
+let realtimeOffset = performance.timeOrigin
+function realtime() {
+  const ms = Date.now(), time = realtimeOffset + performance.now()
+  if (time >= ms && time < ms + 1) return time
+  const kept = time < ms ? ms : ms + 0.999999
+  realtimeOffset += kept - time
+  return kept
+}
+
 /** A clock in milliseconds: the wall clock for the realtime ones, the page's monotonic clock for the rest */
 const now = clock => (clock === CLOCK_REALTIME || clock === CLOCK_REALTIME_COARSE || clock === CLOCK_REALTIME_ALARM || clock === CLOCK_TAI)
-  ? Date.now()
+  ? realtime()
   : performance.now()
 
 const UTIME_NOW = 0x3fffffff, UTIME_OMIT = 0x3ffffffe
@@ -1901,6 +1917,19 @@ const calls = {
 
   SYS_clock_gettime: (clock, ptr) => {
     if (ptr) writeTimespec(ptr, now(clock))
+    return 0n
+  },
+  SYS_gettimeofday: ptr => {
+    if (ptr) {
+      const time = realtime(), seconds = Math.floor(time / 1000), dv = view()
+      dv.setBigInt64(ptr, BigInt(seconds), true)
+      dv.setBigInt64(ptr + 8, BigInt(Math.floor((time - seconds * 1000) * 1000)), true)
+    }
+    return 0n
+  },
+  // a microsecond: the clocks are read finer than a millisecond, though a browser rounds them to a few microseconds
+  SYS_clock_getres: (_clock, ptr) => {
+    if (ptr) writeTimespec(ptr, 0.001)
     return 0n
   },
   SYS_nanosleep: (requestPtr, remainPtr) => big(sleep(readTimespec(requestPtr), remainPtr, 1)),
