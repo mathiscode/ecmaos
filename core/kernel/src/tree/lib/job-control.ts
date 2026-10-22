@@ -121,6 +121,45 @@ export function getsid(proc: Process): number {
   return sessionIds.get(proc.pid) ?? (proc.parent ? getsid(proc.parent) : proc.pid)
 }
 
+/** The processes given their group and session entries by `installGroupExit` when init took them over */
+const adopted = new Set<number>()
+
+/**
+ * Keeps process groups whole when a process exits, as Linux does:
+ *  - its children, which init takes over, stay in the group and session they are in (a process with no entry here is
+ *    in its parent's, which would otherwise become init's);
+ *  - a terminal it was in front of stays with its group while any of the group is alive (upstream hands it to the
+ *    parent, which may be init by then: a `^C` that ends a shell and the subshell it was waiting for at once moved Vim's
+ *    terminal from Vim to init while Vim, which ignored the signal in `system()`, went on).
+ */
+export function installGroupExit(): void {
+  const exit = Process.prototype.exit
+  Process.prototype.exit = function (this: Process, ...args: Parameters<typeof exit>) {
+    for (const child of this.children) {
+      if (child.code !== undefined || groups.has(child.pid)) continue
+      groups.set(child.pid, getpgid(child))
+      if (!sessionIds.has(child.pid)) sessionIds.set(child.pid, getsid(child))
+      adopted.add(child.pid)
+    }
+    const tty = this.tty
+    const front = tty?.foreground === this
+    const pgid = getpgid(this)
+    try {
+      return exit.apply(this, args)
+    } finally {
+      if (front && tty && !(tty.foreground && tty.foreground.code === undefined && getpgid(tty.foreground) === pgid)) {
+        const members = [...processes.values()].filter(proc => proc !== this && proc.code === undefined && getpgid(proc) === pgid)
+        const member = members.find(proc => proc.pid === pgid) ?? members[0]
+        if (member) tty.foreground = member
+      }
+      if (adopted.delete(this.pid)) {
+        groups.delete(this.pid)
+        sessionIds.delete(this.pid)
+      }
+    }
+  }
+}
+
 /** Puts a thread of `leader`'s process (`wali-threads.ts`), which has no parent, in the leader's group and session */
 export function joinThreadGroup(thread: Process, leader: Process): void {
   groups.set(thread.pid, getpgid(leader))

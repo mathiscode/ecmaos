@@ -72,7 +72,7 @@ export const PLACEHOLDER = `#!${PROGRAM_WAITER}\n# ecmaOS: this program is still
  * arguments and ends with its status. If the install fails the placeholder is removed, and a waiting run says so.
  */
 export const programWaiterSource = `// ecmaOS: runs a program that is still being installed once it is (see PLACEHOLDER in the kernel's lib/programs.ts)
-const { argv, env, exit, writeAll, open, read, close, spawn, waitpid, getcwd, O_RDONLY } = globalThis.ecmaosSyscalls
+const { argv, env, exit, writeAll, open, read, close, spawn, waitpid, getcwd, onSignal, O_RDONLY } = globalThis.ecmaosSyscalls
 const path = argv[1]
 const name = path.split('/').pop()
 const mark = new TextEncoder().encode(${JSON.stringify(PLACEHOLDER)})
@@ -99,6 +99,9 @@ for (;;) {
   if (!told && Date.now() - started > 1000) { say('still being installed; it starts when it is ready'); told = true }
   await new Promise(resolve => setTimeout(resolve, 100))
 }
+// as a shell waits for a foreground job: ^C and ^\\ are for the program, which may take them and go on (the handlers
+// are not inherited; the program starts with the default actions)
+for (const signal of [2, 3]) onSignal(signal, () => {})
 const pid = await spawn(path, [path, ...argv.slice(2)], { cwd: getcwd(), env })
 for (;;) {
   try {

@@ -38,7 +38,7 @@ import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
 import { installSharedRandom } from './shared-random.ts'
 import { createTracer, finishTrace, tracerOf, traceProcess, untraceProcess } from './syscall-trace.ts'
 import type { TraceOptions } from './syscall-trace.ts'
-import { dropControllingTty, getpgid, getsid, installStops, killpg, mayKill, setControllingTty, setpgid, setSignalState, setsid, signalStateOf, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
+import { dropControllingTty, getpgid, getsid, installGroupExit, installStops, killpg, mayKill, setControllingTty, setpgid, setSignalState, setsid, signalStateOf, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import type { SignalState } from './job-control.ts'
 import { umaskOf, setUmask } from './umask-store.ts'
 import { managePasskey } from './passkey-manage.ts'
@@ -463,6 +463,7 @@ export function installMainThreadSyscalls(): void {
   installBusyRetry()
   installNotDirectory()
   installStops()
+  installGroupExit()
   installThreads()
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined

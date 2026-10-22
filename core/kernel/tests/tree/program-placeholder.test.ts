@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { processes } from '@zenfs/linux'
+
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { PLACEHOLDER, PROGRAM_WAITER, programWaiterSource } from '#lib/programs.ts'
@@ -39,6 +41,34 @@ describe('a program that is still being installed', () => {
       expect(await fs().readFile('/tmp/soon.out', 'utf-8')).toMatch(/^jq-/)
     }
   }, 60_000)
+
+  // the placeholder waits for the program as a shell waits for a foreground job: a ^C is for the program, which may
+  // take it and go on (Vim does), and the run ends when the program does
+  it('leaves ^C to the program it runs', async () => {
+    await fs().writeFile('/bin/patient', PLACEHOLDER, { mode: 0o755 })
+    const run = kernel.shell.execute('patient > /tmp/patient.out')
+    // a program that takes SIGINT and goes on
+    await land(100, () => fs().writeFile('/bin/patient', [
+      'const { exit, writeAll, onSignal } = globalThis.ecmaosSyscalls',
+      'onSignal(2, () => {})',
+      'writeAll(1, new TextEncoder().encode("started\\n"))',
+      'await new Promise(resolve => setTimeout(resolve, 1500))',
+      'writeAll(1, new TextEncoder().encode("went on\\n"))',
+      'exit(0)'
+    ].join('\n'), { mode: 0o755 }))
+    const deadline = Date.now() + 20_000
+    while (!(await fs().readFile('/tmp/patient.out', 'utf-8').catch(() => '')).includes('started')) {
+      if (Date.now() > deadline) throw new Error('the program did not start')
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    // what the terminal's ^C reaches: the placeholder and the program
+    const waiter = [...processes.values()].find(proc => proc.comm === 'wait-for-program' && proc.code === undefined)!
+    const program = [...waiter.children].find(proc => proc.code === undefined)!
+    waiter.kill(2)
+    program.kill(2)
+    expect(await run).toBe(0)
+    expect(await fs().readFile('/tmp/patient.out', 'utf-8')).toBe('started\nwent on\n')
+  }, 30_000)
 
   it('says so and fails when the install does, as the placeholder is taken away', async () => {
     await fs().writeFile('/bin/never', PLACEHOLDER, { mode: 0o755 })
