@@ -7,9 +7,6 @@ functional.ipc_sem          semget: ENOSYS
 functional.ipc_shm          shmget: ENOSYS
 
 # threads
-functional.pthread_mutex_pi priority inheritance (PTHREAD_PRIO_INHERIT) is ENOSYS
-functional.pthread_robust   robust mutexes are ENOSYS; times out
-regression.pthread-robust-detach  robust mutexes are ENOSYS
 regression.pthread_create-oom     times out
 
 # formatting and parsing

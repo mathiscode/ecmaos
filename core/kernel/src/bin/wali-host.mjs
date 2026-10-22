@@ -20,6 +20,8 @@
  * - sockets: stream sockets on the kernel's socket files (`tree/lib/socket-files.ts`), so a socket is one descriptor
  *   the kernel reads, writes and polls; `AF_UNIX`, and `AF_INET`/`AF_INET6` on loopback or through the gateway
  * - `epoll`, over the kernel's `poll`
+ * - threads' locks: the futexes, the priority-inheritance ones (`FUTEX_LOCK_PI`) among them, and the robust list a
+ *   thread's process-shared robust locks are given up from when it ends (`set_robust_list`)
  *
  * Numbers are Linux's: WALI's musl is Linux musl, so `errno` values and structures need no translation.
  */
@@ -1689,8 +1691,11 @@ function epollWait(epfd, eventsPtr, max, timeout, sigmaskPtr) {
 
 // --- threads ---
 
-const FUTEX_WAIT = 0, FUTEX_WAKE = 1, FUTEX_REQUEUE = 3, FUTEX_CMP_REQUEUE = 4, FUTEX_WAIT_BITSET = 9, FUTEX_WAKE_BITSET = 10, FUTEX_PRIVATE = 128, FUTEX_CLOCK_REALTIME = 256
-const EAGAIN = 11, ETIMEDOUT = 110
+const FUTEX_WAIT = 0, FUTEX_WAKE = 1, FUTEX_REQUEUE = 3, FUTEX_CMP_REQUEUE = 4, FUTEX_LOCK_PI = 6, FUTEX_UNLOCK_PI = 7, FUTEX_TRYLOCK_PI = 8
+const FUTEX_WAIT_BITSET = 9, FUTEX_WAKE_BITSET = 10, FUTEX_PRIVATE = 128, FUTEX_CLOCK_REALTIME = 256
+/** A lock's word under the priority-inheritance and robust protocols: its owner's thread id, and these */
+const FUTEX_WAITERS = 0x80000000 | 0, FUTEX_OWNER_DIED = 0x40000000, FUTEX_TID_MASK = 0x3fffffff
+const EAGAIN = 11, EDEADLK = 35, ETIMEDOUT = 110
 
 /**
  * After a call that ends this thread: the kernel is stopping its worker, and the program must not run on meanwhile
@@ -1717,18 +1722,16 @@ function spawnThread(arg) {
 function futex(ptr, op, value, timeoutPtr, _ptr2, value3) {
   const cmd = op & ~(FUTEX_PRIVATE | FUTEX_CLOCK_REALTIME)
   const words = new Int32Array(memory.buffer)
-  // a wake counts on the address's bucket and wakes every thread waiting there; each checks its own word again, as
-  // after any wake (a requeue wakes them all too)
   const bucket = (ptr >>> 2) % FUTEX_BUCKETS
-  const wake = () => {
-    Atomics.add(state.wakes, bucket, 1)
-    return Atomics.notify(state.wakes, bucket)
-  }
-  if (cmd === FUTEX_WAKE || cmd === FUTEX_WAKE_BITSET) return Math.min(wake(), value)
+  if (cmd === FUTEX_WAKE || cmd === FUTEX_WAKE_BITSET) return Math.min(wakeAll(ptr), value)
   if (cmd === FUTEX_REQUEUE || cmd === FUTEX_CMP_REQUEUE) {
     if (cmd === FUTEX_CMP_REQUEUE && Atomics.load(words, ptr >> 2) !== value3) return -EAGAIN
-    return wake()
+    return wakeAll(ptr)
   }
+  // a priority-inheritance lock's timeout is always a point on the realtime clock
+  if (cmd === FUTEX_LOCK_PI || cmd === FUTEX_TRYLOCK_PI)
+    return lockPi(ptr, cmd === FUTEX_TRYLOCK_PI, timeoutPtr ? performance.now() + readTimespec(timeoutPtr) - now(CLOCK_REALTIME) : Infinity)
+  if (cmd === FUTEX_UNLOCK_PI) return unlockPi(ptr)
   if (cmd !== FUTEX_WAIT && cmd !== FUTEX_WAIT_BITSET) return -ENOSYS
   let deadline = Infinity
   if (timeoutPtr) {
@@ -1747,6 +1750,104 @@ function futex(ptr, op, value, timeoutPtr, _ptr2, value3) {
     collect()
     if (raised & ~mask) return -EINTR
   }
+}
+
+/**
+ * A wake counts on the address's bucket and wakes every thread waiting there; each checks its own word again, as after
+ * any wake (a requeue wakes them all too). @returns how many it woke
+ */
+function wakeAll(ptr) {
+  const bucket = (ptr >>> 2) % FUTEX_BUCKETS
+  Atomics.add(state.wakes, bucket, 1)
+  return Atomics.notify(state.wakes, bucket)
+}
+
+/** Whether the thread `tid` (of any process: a process-shared lock's owner may be another's) has ended */
+const threadEnded = tid => syscall_raw('proc_kill', tid, 0) === -ESRCH
+
+/**
+ * `FUTEX_LOCK_PI` and `FUTEX_TRYLOCK_PI`. There are no priorities here to lend an owner, so what is left is the
+ * protocol: the lock is the caller's when its word has no owner, or when its owner has ended (marked
+ * `FUTEX_OWNER_DIED`, as Linux hands a dead owner's lock on); else the caller marks it `FUTEX_WAITERS`, so the owner's
+ * unlock comes here, and waits. Where Linux would hand the lock to one waiter, the unlock frees it and wakes them all to
+ * take it; one that has waited keeps `FUTEX_WAITERS` on it as it does, for any other. An owner that ends without
+ * unlocking wakes nobody, so a wait looks at whether it lives in slices.
+ */
+function lockPi(ptr, trying, deadline) {
+  const words = new Int32Array(memory.buffer), at = ptr >> 2, tid = getpid()
+  const bucket = (ptr >>> 2) % FUTEX_BUCKETS
+  let waited = false, look = false
+  for (;;) {
+    const seen = Atomics.load(state.wakes, bucket)
+    const word = Atomics.load(words, at), owner = word & FUTEX_TID_MASK
+    if (owner === tid) return -EDEADLK
+    const gone = owner && look && threadEnded(owner)
+    look = false
+    if (!owner || gone) {
+      const taken = tid | (gone ? FUTEX_OWNER_DIED : word & FUTEX_OWNER_DIED) | (waited ? FUTEX_WAITERS : 0)
+      if (Atomics.compareExchange(words, at, word, taken) === word) return 0
+      continue
+    }
+    if (trying) return -EAGAIN
+    if (!(word & FUTEX_WAITERS) && Atomics.compareExchange(words, at, word, word | FUTEX_WAITERS) !== word) continue
+    waited = true
+    const left = deadline - performance.now()
+    if (left <= 0) return -ETIMEDOUT
+    if (Atomics.wait(state.wakes, bucket, seen, Math.min(left, 50)) === 'timed-out') {
+      collect()
+      if (raised & ~mask) return -EINTR
+      look = true
+    }
+  }
+}
+
+/** `FUTEX_UNLOCK_PI`: frees a lock the caller owns, and wakes its waiters to take it */
+function unlockPi(ptr) {
+  const words = new Int32Array(memory.buffer), at = ptr >> 2, tid = getpid()
+  for (let word = Atomics.load(words, at); ;) {
+    if ((word & FUTEX_TID_MASK) !== tid) return -EPERM
+    const was = Atomics.compareExchange(words, at, word, 0)
+    if (was === word) break
+    word = was
+  }
+  wakeAll(ptr)
+  return 0
+}
+
+/**
+ * The thread's robust list (`set_robust_list`): `struct robust_list_head`, whose `head` is a list of the robust locks
+ * it holds, each entry `off` bytes from its lock's word, and `pending` one it is taking or letting go of. musl's
+ * `pthread_exit` gives up what is on it itself; a thread that ends another way has it given up here, as Linux does.
+ * On this target the structure is a pointer, a `long` and a pointer: `head` at 0, `off` at 8, `pending` at 16.
+ */
+let robustList = 0
+const ROBUST_LIST_SIZE = 24, ROBUST_LIST_LIMIT = 2048
+
+/** A dead thread's robust locks: each it owned is marked `FUTEX_OWNER_DIED`, and a waiter woken to take it */
+function releaseRobust() {
+  if (!robustList) return
+  const dv = view(), tid = getpid(), words = new Int32Array(memory.buffer)
+  const off = Number(dv.getBigInt64(robustList + 8, true))
+  const release = entry => {
+    const at = ((entry & ~1) + off) >> 2
+    for (let word = Atomics.load(words, at); (word & FUTEX_TID_MASK) === tid;) {
+      const was = Atomics.compareExchange(words, at, word, (word & FUTEX_WAITERS) | FUTEX_OWNER_DIED)
+      if (was !== word) {
+        word = was
+        continue
+      }
+      if (word & FUTEX_WAITERS) wakeAll((entry & ~1) + off)
+      break
+    }
+  }
+  const pending = dv.getUint32(robustList + 16, true)
+  for (let entry = dv.getUint32(robustList, true), count = 0; entry !== robustList && entry && count < ROBUST_LIST_LIMIT; count++) {
+    const next = dv.getUint32(entry & ~1, true)
+    if (entry !== pending) release(entry)
+    entry = next
+  }
+  if (pending) release(pending)
+  robustList = 0
 }
 
 // --- the table ---
@@ -2032,6 +2133,18 @@ const calls = {
   SYS_getpid: () => big(thread ? thread.tgid : getpid()),
   SYS_gettid: () => big(getpid()),
   SYS_futex: (ptr, op, value, timeout, ptr2, value3) => big(futex(ptr, op, value, timeout, ptr2, value3)),
+  SYS_set_robust_list: (head, length) => {
+    if (length !== ROBUST_LIST_SIZE) return big(-EINVAL)
+    robustList = head
+    return 0n
+  },
+  // another thread's list is in its own half of the host, out of this one's reach
+  SYS_get_robust_list: (tid, headPtr, lengthPtr) => {
+    if (tid && tid !== getpid()) return big(-EPERM)
+    view().setUint32(headPtr, robustList, true)
+    view().setUint32(lengthPtr, ROBUST_LIST_SIZE, true)
+    return 0n
+  },
 
   SYS_mmap: (addr, length, prot, flags, fd, offset) => big(mmap(addr, length, prot, flags, fd, num(offset))),
   SYS_munmap: (addr, length) => big(munmap(addr, length)),
@@ -2054,7 +2167,12 @@ export function install(wali, start) {
     calls.__proc_exit = code => ended(syscall_raw('proc_exit_group', code))
   }
   Object.assign(original, { SYS_ioctl: wali.SYS_ioctl })
-  const { SYS_lseek } = wali
+  const { SYS_lseek, SYS_exit } = wali
+  // a thread's end gives up the robust locks it still holds
+  calls.SYS_exit = code => {
+    releaseRobust()
+    return SYS_exit(code)
+  }
   // `rewinddir` is a seek to 0, which starts the listing again
   calls.SYS_lseek = (fd, offset, whence) => {
     if (offset === 0n && whence === SEEK_SET) positions.delete(fd)

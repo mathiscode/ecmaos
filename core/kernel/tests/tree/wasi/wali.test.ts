@@ -225,6 +225,24 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
+  it('has robust and priority-inheritance mutexes, given up when their owner ends', async () => {
+    const orphaned = 'Previous owner died consistent=0 again=0'
+    expect(await run('wali-robust')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'attributes: robust=0 inherit=0',
+        `robust, pthread_exit: ${orphaned}`,
+        `robust, bare exit: ${orphaned}`,
+        'inherit: counter=80000 trylock held=Resource busy again=0',
+        `robust inherit, pthread_exit: ${orphaned}`,
+        `robust inherit, bare exit: ${orphaned}`,
+        `robust inherit, private, bare exit: ${orphaned}`,
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)
