@@ -22,8 +22,8 @@
           "sha256": "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
         }
       ],
-      "size": 256622,
-      "sha256": "ee88cb8002f668416ce008c7006919806a8bab280137689a02e49b1ebdea98e4",
+      "size": 283285,
+      "sha256": "6acdcc898dffddc729fc9ec86fff6f23de1df513d7d5abcad31abb6371d27902",
       "modifications": [
         {
           "file": "wasm/make/build.sh",
@@ -56,8 +56,8 @@
           "sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
         }
       ],
-      "size": 667235,
-      "sha256": "1772327f7b68eec0ebcd1ab0fd539b135eba804ddd7eb738838cf8dc28ddaaf1",
+      "size": 689817,
+      "sha256": "d7f9773e38b270df80a45921883f1a102505079541c3cd794a6fcd122c47b1a7",
       "modifications": [
         {
           "file": "wasm/nano/build.sh",
@@ -82,8 +82,8 @@
           "sha256": "5caddcbca805131ff590b126d3218019882e4ca10bc9eb490bba51c05b9b3b75"
         }
       ],
-      "size": 115652,
-      "sha256": "5d6dc17ed24f256b841e50e3f1309f6fc08d412592c5a2068751a0330c727e95",
+      "size": 131039,
+      "sha256": "557423710745f78031affefa0485b70e7fb6da817671adffa4def16ac94c5fa9",
       "modifications": [
         {
           "file": "wasm/tree/build.sh",
@@ -108,8 +108,8 @@
           "sha256": "ddb435f6e386c53799a3025bdc5a3533beac735a0ee596cb27ada97366a1c725"
         }
       ],
-      "size": 3108815,
-      "sha256": "7b38d5a66d0465553fdc142b47dbb98924847d315dcb12241e4d889d6ce360c4",
+      "size": 3139596,
+      "sha256": "a59d49fb1dd97d50657d74d2fc22a35b900312c0ee848b091c197effbc43dc2e",
       "modifications": [
         {
           "file": "core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)",
@@ -149,8 +149,8 @@
           "what": "compile and link flags only; the source is unmodified. The archive is Debian's gzip copy of upstream's ed-1.22.5.tar.lz, since upstream publishes only lzip"
         }
       ],
-      "size": 140067,
-      "sha256": "99a267c87268b151ad9334ff0abc6ae9f16615dea62d189ba1e21d0bd2daa299"
+      "size": 155443,
+      "sha256": "55c3f58ccfd39d58bb90fbf3d244272e2b87d2fc5b030464e57d4b68b46ed25f"
     },
     "lz4": {
       "file": "lz4.wasm",
@@ -175,8 +175,8 @@
         }
       ],
       "toolchain": "wali",
-      "size": 212365,
-      "sha256": "ddbdf0dd5b968a2709e35f1e17cc3d90d75f539d94e6e8d923200a9c7ee1c752"
+      "size": 226492,
+      "sha256": "8536740f26374da8baa279cae0177b7d5dc104a703ece9d381e202a00ab6e14c"
     },
     "doom": {
       "file": "doom.wasm",
@@ -219,8 +219,8 @@
           "sha256": "acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528"
         }
       ],
-      "size": 2268129,
-      "sha256": "dc3b08fef5764a9c0d5d663c355e0f3fae20b56471a68293224711342aae65bb",
+      "size": 2294676,
+      "sha256": "eb667dc9f3985b7661b687052635b2737c70c4f9cc555d1db9659b313d3d3bcf",
       "modifications": [
         {
           "file": "wasm/doom/build.sh",
