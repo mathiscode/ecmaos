@@ -77,6 +77,18 @@ describe('evaluateArithmeticExpression', () => {
   it('throws on division by zero', () => {
     expect(() => evaluateArithmeticExpression('1 / 0', lookup)).toThrow()
   })
+
+  it('takes parentheses nested 700 deep (libc-test wordexp nests hundreds; a browser worker has a small stack)', () => {
+    expect(evaluateArithmeticExpression(`${'('.repeat(700)}1+2*3${')'.repeat(700)}`, lookup)).toBe(7)
+  })
+
+  it('keeps C precedence and left grouping across the binary operators', () => {
+    expect(evaluateArithmeticExpression('1 | 2 ^ 3 & 4 == 4 < 5 << 1 + 2 * 3', lookup)).toBe(1 | (2 ^ (3 & Number(4 === Number(4 < (5 << (1 + 2 * 3)))))))
+    expect(evaluateArithmeticExpression('10 - 3 - 2', lookup)).toBe(5)
+    expect(evaluateArithmeticExpression('64 / 4 / 2 % 5', lookup)).toBe(3)
+    expect(evaluateArithmeticExpression('0 || 2 && 3', lookup)).toBe(1)
+    expect(evaluateArithmeticExpression('1 ? 2 : 3 + 4', lookup)).toBe(2)
+  })
 })
 
 describe('expandArithmetic', () => {

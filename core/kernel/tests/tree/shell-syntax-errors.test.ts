@@ -27,6 +27,12 @@ describe('syntax errors', () => {
     expect(kernel.shell.env.get('?')).toBe('2')
   })
 
+  it('a syntax error in a branch not taken is found before the compound command runs', async () => {
+    await kernel.shell.execute('unset SYN_RAN')
+    await expect(kernel.shell.execute('if false; then echo a ); fi; SYN_RAN=1')).resolves.toBe(2)
+    expect(kernel.shell.env.get('SYN_RAN')).toBeUndefined()
+  })
+
   it('the shell carries on with the next line', async () => {
     await kernel.shell.execute('echo "abc')
     await expect(kernel.shell.execute('true')).resolves.toBe(0)

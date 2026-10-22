@@ -34,7 +34,7 @@ import { startupFiles } from '@ecmaos/coreutils/lib/shell-core/startup-files'
 import { promptCommands } from '@ecmaos/coreutils/lib/shell-core/prompt-command'
 import { isControlFlowSignal } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { signalNameOf } from '@ecmaos/coreutils/lib/shell-core/signal-table'
-import { Interpreter, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
+import { Interpreter, parsedAhead, type InterpreterHost } from '@ecmaos/coreutils/lib/shell-core/interpreter'
 import { applyArrayAssignment, parseArrayAssignment, splitAssignments, type Assignment } from '@ecmaos/coreutils/lib/shell-core/prepare'
 import { expandWordFieldsBraced, expandWordString, expandHeredocBody, UnboundVariableError, type ExpansionContext } from '@ecmaos/coreutils/lib/word-expansion'
 import { globPaths, globRegExp, hasGlobCharacters, type GlobOptions } from '@ecmaos/coreutils/lib/glob'
@@ -1670,7 +1670,12 @@ export class Shell implements IShell {
     }
 
     if (statements.length !== 1 || statements[0]?.type !== 'simple') {
-      return this.executeStatements(statements)
+      // A compound command is parsed whole before any of it runs, as a script's is (`if false; then echo ); fi`)
+      const { statements: runnable, failure } = parsedAhead({ statements })
+      const status = await this.executeStatements(runnable)
+      if (!failure) return status
+      await this.terminalBuiltinIO().writelnErr(controlFlowMessage(failure))
+      return this.reportExit(2)
     }
 
     // Runs the parsed line, which has heredoc bodies folded into it, not the raw text.

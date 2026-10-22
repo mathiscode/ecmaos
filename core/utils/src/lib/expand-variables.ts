@@ -9,6 +9,12 @@ export type VariableLookup = (name: string) => string | undefined
 
 export class ArithmeticError extends Error {}
 
+/** How tightly each binary operator binds, `||` loosest; a `Map`, since a name such as `constructor` is a token too */
+const PRECEDENCE = new Map([
+  ['||', 1], ['&&', 2], ['|', 3], ['^', 4], ['&', 5], ['==', 6], ['!=', 6],
+  ['<', 7], ['>', 7], ['<=', 7], ['>=', 7], ['<<', 8], ['>>', 8], ['+', 9], ['-', 9], ['*', 10], ['/', 10], ['%', 10]
+])
+
 /**
  * A recursive-descent evaluator for `$((...))` in C precedence: assignment operators, `?:`, `||`, `&&`, `|`, `^`,
  * `&`, equality, comparison, shifts, `+ -`, `* / %`, `**` (right associative), unary `+ - ! ~`, and `++`/`--`.
@@ -94,7 +100,7 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
   }
 
   function parseTernary(): number {
-    const condition = parseOr()
+    const condition = parseBinary(1)
     if (peek() !== '?') return condition
     next()
     const yes = parseAssignment()
@@ -103,83 +109,33 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
     return condition ? yes : no
   }
 
-  function parseOr(): number {
-    let left = parseAnd()
-    while (peek() === '||') { next(); const right = parseAnd(); left = (left || right) ? 1 : 0 }
-    return left
-  }
-
-  function parseAnd(): number {
-    let left = parseBitOr()
-    while (peek() === '&&') { next(); const right = parseBitOr(); left = (left && right) ? 1 : 0 }
-    return left
-  }
-
-  function parseBitOr(): number {
-    let left = parseBitXor()
-    while (peek() === '|') { next(); left = bitwise('|', left, parseBitXor()) }
-    return left
-  }
-
-  function parseBitXor(): number {
-    let left = parseBitAnd()
-    while (peek() === '^') { next(); left = bitwise('^', left, parseBitAnd()) }
-    return left
-  }
-
-  function parseBitAnd(): number {
-    let left = parseEquality()
-    while (peek() === '&') { next(); left = bitwise('&', left, parseEquality()) }
-    return left
-  }
-
-  function parseEquality(): number {
-    let left = parseComparison()
-    while (peek() === '==' || peek() === '!=') {
-      const op = next()
-      const right = parseComparison()
-      left = (op === '==' ? left === right : left !== right) ? 1 : 0
+  const binary = (op: string, left: number, right: number): number => {
+    switch (op) {
+      case '||': return (left || right) ? 1 : 0
+      case '&&': return (left && right) ? 1 : 0
+      case '==': return left === right ? 1 : 0
+      case '!=': return left !== right ? 1 : 0
+      case '<': return left < right ? 1 : 0
+      case '>': return left > right ? 1 : 0
+      case '<=': return left <= right ? 1 : 0
+      case '>=': return left >= right ? 1 : 0
+      default: return apply(op, left, right)
     }
-    return left
   }
 
-  function parseComparison(): number {
-    let left = parseShift()
-    while (['<', '>', '<=', '>='].includes(peek() ?? '')) {
-      const op = next() as string
-      const right = parseShift()
-      switch (op) {
-        case '<': left = left < right ? 1 : 0; break
-        case '>': left = left > right ? 1 : 0; break
-        case '<=': left = left <= right ? 1 : 0; break
-        case '>=': left = left >= right ? 1 : 0; break
-      }
-    }
-    return left
-  }
-
-  function parseShift(): number {
-    let left = parseAdditive()
-    while (peek() === '<<' || peek() === '>>') { const op = next() as string; left = bitwise(op, left, parseAdditive()) }
-    return left
-  }
-
-  function parseAdditive(): number {
-    let left = parseMultiplicative()
-    while (peek() === '+' || peek() === '-') {
-      const op = next() as string
-      left = apply(op, left, parseMultiplicative())
-    }
-    return left
-  }
-
-  function parseMultiplicative(): number {
+  /**
+   * The binary operators from `||` up to `* / %`, all grouping to the left, by precedence climbing: one call per
+   * operand rather than one per level, so `((((...))))` nests as deep again before the stack runs out.
+   */
+  function parseBinary(min: number): number {
     let left = parsePower()
-    while (peek() === '*' || peek() === '/' || peek() === '%') {
-      const op = next() as string
-      left = apply(op, left, parsePower())
+    for (;;) {
+      const op = peek()
+      const precedence = op === undefined ? undefined : PRECEDENCE.get(op)
+      if (precedence === undefined || precedence < min) return left
+      next()
+      left = binary(op as string, left, parseBinary(precedence + 1))
     }
-    return left
   }
 
   /** `**` binds tighter than `* /` and looser than unary, and groups to the right. */
@@ -205,17 +161,6 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
       write(name, value)
       return value
     }
-    return parsePostfix()
-  }
-
-  function parsePostfix(): number {
-    if (isName(peek()) && (tokens[pos + 1] === '++' || tokens[pos + 1] === '--')) {
-      const name = next() as string
-      const op = next()
-      const value = read(name)
-      write(name, value + (op === '++' ? 1 : -1))
-      return value
-    }
     return parsePrimary()
   }
 
@@ -227,6 +172,14 @@ function evaluateArithmetic(expr: string, lookup: VariableLookup, assign?: (name
   }
 
   function parsePrimary(): number {
+    // `x++` and `x--`: the value before
+    if (isName(peek()) && (tokens[pos + 1] === '++' || tokens[pos + 1] === '--')) {
+      const name = next() as string
+      const op = next()
+      const value = read(name)
+      write(name, value + (op === '++' ? 1 : -1))
+      return value
+    }
     const token = next()
     if (token === undefined) throw new ArithmeticError('unexpected end of expression')
     if (token === '(') {

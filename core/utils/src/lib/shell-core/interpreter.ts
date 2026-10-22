@@ -622,7 +622,7 @@ function compoundError(statement: Statement): ParseError | undefined {
  * line in it that does not parse (`if false; then echo ); fi`) is a syntax error before the compound starts, where
  * its lines would otherwise be parsed only when reached. A plain line at the top is still parsed as it is reached.
  */
-function parsedAhead({ statements, failure }: ReturnType<typeof parseRunnable>): ReturnType<typeof parseRunnable> {
+export function parsedAhead({ statements, failure }: ReturnType<typeof parseRunnable>): ReturnType<typeof parseRunnable> {
   for (const [index, statement] of statements.entries()) {
     if (statement.type === 'simple') continue
     const error = compoundError(statement)
