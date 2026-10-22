@@ -125,7 +125,7 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
-  it('runs threads on one memory: mutexes, condition variables, TLS, malloc from many at once, detached threads and exit()', async () => {
+  it('runs threads on one memory: mutexes, condition variables, TLS, malloc from many at once, detached threads, and exit() or a trap in a thread', async () => {
     expect(await run('wali-thread')).toEqual({
       code: 0,
       err: '',
@@ -136,6 +136,7 @@ describe('WALI programs', () => {
         'detached: 5 threads wrote',
         'ids: same pid=1 other tid=1',
         'exit from a thread: exit=9',
+        'trap in a thread: exit=1',
         ''
       ].join('\n')
     })

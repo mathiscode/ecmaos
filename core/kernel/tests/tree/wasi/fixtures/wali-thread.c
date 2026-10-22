@@ -1,5 +1,5 @@
 /* Threads on WALI's musl: mutexes, condition variables, thread-local storage, malloc from many threads at once,
- * detached threads, the process and thread ids, and exit() from a thread ending the process. The program starts a
+ * detached threads, the process and thread ids, and exit() or a trap in a thread ending the process. The program starts a
  * copy of itself in the role named by argv[1]; with no role it runs the checks and prints what it found. */
 #define _GNU_SOURCE
 #include <pthread.h>
@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 extern char **environ;
 
@@ -80,10 +81,16 @@ static void *leave(void *arg) {
   exit(9);
 }
 
+static void *fault(void *arg) {
+  (void)arg;
+  usleep(20000);
+  __builtin_trap();
+}
+
 int main(int argc, char **argv) {
-  if (argc > 1 && !strcmp(argv[1], "exit")) {       /* a thread calls exit() while the first waits for it */
+  if (argc > 1 && (!strcmp(argv[1], "exit") || !strcmp(argv[1], "trap"))) { /* while the first thread waits */
     pthread_t t;
-    pthread_create(&t, 0, leave, 0);
+    pthread_create(&t, 0, !strcmp(argv[1], "exit") ? leave : fault, 0);
     pthread_join(t, 0);
     return 0;
   }
@@ -140,5 +147,13 @@ int main(int argc, char **argv) {
   posix_spawn(&pid, argv[0], 0, 0, (char *[]){ argv[0], "exit", 0 }, environ);
   waitpid(pid, &status, 0);
   printf("exit from a thread: exit=%d\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+
+  /* the trap's message goes to the child's stderr, which is put away here */
+  posix_spawn_file_actions_t quiet;
+  posix_spawn_file_actions_init(&quiet);
+  posix_spawn_file_actions_addopen(&quiet, 2, "/dev/null", O_WRONLY, 0);
+  posix_spawn(&pid, argv[0], &quiet, 0, (char *[]){ argv[0], "trap", 0 }, environ);
+  waitpid(pid, &status, 0);
+  printf("trap in a thread: exit=%d\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
   return 0;
 }

@@ -34,7 +34,10 @@ ln -s "$LD" "$STAGE/bin/wasm-ld"
 ln -s "$(clang -print-resource-dir)/include" "$STAGE/resource/include"
 
 FEATURES="-mcpu=generic -matomics -mbulk-memory -mexception-handling"
-DRIVER="--target=$TARGET --sysroot=$STAGE -resource-dir=$STAGE/resource -B$STAGE/bin $FEATURES -fwasm-exceptions -pthread"
+# lrint and lround return a long, which is 8 bytes on this target; LLVM's WebAssembly backend calls them as the
+# wasm32 ABI has them (a 4-byte long) where it lowers the builtins, which wasm-ld then cannot link, so they stay calls
+NOLONG="-fno-builtin-lrint -fno-builtin-lrintf -fno-builtin-lrintl -fno-builtin-lround -fno-builtin-lroundf -fno-builtin-lroundl"
+DRIVER="--target=$TARGET --sysroot=$STAGE -resource-dir=$STAGE/resource -B$STAGE/bin $FEATURES $NOLONG -fwasm-exceptions -pthread"
 # setjmp/longjmp on wasm exceptions is a code generation option, so only a command that compiles takes it
 SJLJ="-mllvm -wasm-enable-sjlj"
 FLAGS="$DRIVER $SJLJ"

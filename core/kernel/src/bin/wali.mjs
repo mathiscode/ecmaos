@@ -104,6 +104,10 @@ async function readWholeFile(path) {
 }
 
 const init = await ready
+let start
+
+/** Ends the program with `code`: all of it, from any thread, as a fault does (a thread's own exit ends only it) */
+const fail = code => start ? syscall_raw('proc_exit_group', code) : exit(code)
 
 try {
   const source = await readWholeFile(init.exe)
@@ -111,7 +115,7 @@ try {
   // `wasi-preview1.mjs`; anything else is WALI.
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
-  const start = init.env?.__WALI_THREAD__ ? await threadStart.promise : undefined
+  start = init.env?.__WALI_THREAD__ ? await threadStart.promise : undefined
   const code = isPreview1 ? await runPreview1(source) : await runWali(source, start)
   exit(code)
 } catch (error) {
@@ -119,11 +123,11 @@ try {
   // exception rather than reaching std::terminate, which would abort: say so and end the same way, by SIGABRT.
   if (error instanceof WebAssembly.Exception) {
     try { write(2, new TextEncoder().encode('terminating due to an uncaught exception\n'), -1) } catch { /* no stderr */ }
-    syscall_raw('kill', getpid(), 6 /* SIGABRT */)
-    exit(134)
+    syscall_raw('kill', start ? start.tgid : getpid(), 6 /* SIGABRT */)
+    fail(134)
   }
   console.error(error)
   // a trap or an uncaught throw ends the program: say so on its stderr, which the console above does not show the user
   try { write(2, new TextEncoder().encode(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`), -1) } catch { /* no stderr */ }
-  exit(1)
+  fail(1)
 }
