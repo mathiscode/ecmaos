@@ -1,6 +1,7 @@
 # What every program here links in
 
-Most `.wasm` files are built with Emscripten, which links its C library and support code into the binary:
+The desktop demos (`wldemo`, `wlcomp` and the SDL programs) are built with Emscripten, which links its C library and
+support code into the binary:
 
 | Component | License | File |
 |---|---|---|
@@ -8,7 +9,7 @@ Most `.wasm` files are built with Emscripten, which links its C library and supp
 | LLVM compiler-rt (builtins) | Apache-2.0 with LLVM exceptions | `llvm-LICENSE.TXT` |
 | dlmalloc, Emscripten's `malloc` | Public domain / CC0, by Doug Lea | (no license text; the source says it is released to the public domain, <http://creativecommons.org/publicdomain/zero/1.0/>) |
 
-A program whose entry in `programs/manifest.json` says `"toolchain": "wali"` is built on WALI's musl instead
+The other programs, whose entries in `programs/manifest.json` say `"toolchain": "wali"`, are built on WALI's musl
 (`utils/check-wali.sh` in the repository), which links:
 
 | Component | License | File |

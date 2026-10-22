@@ -28,8 +28,8 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `sdlgl` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgl/` |
 | `sdlgears` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgears/` |
 
-Every program also contains musl libc and compiler-rt, from Emscripten or, for `patch`, from WALI's musl and LLVM:
-see `runtime/`.
+Every program also contains musl libc and compiler-rt: WALI's musl and LLVM's, or Emscripten's for the desktop
+demos. See `runtime/`.
 
 Copyleft programs (GNU make, GNU nano, tree, Vim, ed, lz4, doom) are in `@ecmaos/coreutils-copyleft`, not here.
 
