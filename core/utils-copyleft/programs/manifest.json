@@ -22,8 +22,8 @@
           "sha256": "dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
         }
       ],
-      "size": 256311,
-      "sha256": "1f78e3880ab5d2ecc0af81d889defc5d2e07b96f3c53c5d73563b52809009f20",
+      "size": 256622,
+      "sha256": "ee88cb8002f668416ce008c7006919806a8bab280137689a02e49b1ebdea98e4",
       "modifications": [
         {
           "file": "wasm/make/build.sh",
@@ -108,8 +108,8 @@
           "sha256": "ddb435f6e386c53799a3025bdc5a3533beac735a0ee596cb27ada97366a1c725"
         }
       ],
-      "size": 3108551,
-      "sha256": "5c693c68c80e31d13d77cb0dc2bcb68219f87c5d1794b8dbb66fac4622a674fc",
+      "size": 3108815,
+      "sha256": "7b38d5a66d0465553fdc142b47dbb98924847d315dcb12241e4d889d6ce360c4",
       "modifications": [
         {
           "file": "core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)",

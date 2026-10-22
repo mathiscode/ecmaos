@@ -92,8 +92,8 @@
       "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
       "homepage": "https://quickjs-ng.github.io/quickjs/",
       "toolchain": "wali",
-      "size": 1151407,
-      "sha256": "315880d9773859a300caed39e161df18714a4961e6913d1a0fa07107220801df"
+      "size": 1151652,
+      "sha256": "8315df38faa12037a247f167d98a97d8735a342790d195aa156bcb50e9fc959a"
     },
     "patch": {
       "file": "patch.wasm",
@@ -132,8 +132,8 @@
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
       "toolchain": "wali",
-      "size": 738994,
-      "sha256": "058c5152c7bbedc2c4ee78fcfd35c9cc5fc7e6f791c3b866f8360c8d04b2f5ab"
+      "size": 739428,
+      "sha256": "c6f3fd9fa7cf550e87c6e03ba633c40937006709a062b2d7661d352d11c3fed7"
     },
     "mandoc": {
       "file": "mandoc.wasm",
