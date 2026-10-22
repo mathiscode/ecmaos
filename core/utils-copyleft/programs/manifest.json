@@ -108,8 +108,8 @@
           "sha256": "ddb435f6e386c53799a3025bdc5a3533beac735a0ee596cb27ada97366a1c725"
         }
       ],
-      "size": 3108528,
-      "sha256": "04fc696a258a6f1935ba247d58b3ff5a494365867e2a0f4269cbc97a36215c2a",
+      "size": 3108551,
+      "sha256": "5c693c68c80e31d13d77cb0dc2bcb68219f87c5d1794b8dbb66fac4622a674fc",
       "modifications": [
         {
           "file": "core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)",
@@ -117,7 +117,7 @@
         },
         {
           "file": "wasm/vim/build.sh",
-          "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included); the Vim source is unmodified"
+          "what": "configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included), and one line of src/ui.c changed: inchar_loop's wait for a key stops at zero instead of waiting forever when the time already passed is taken off a wait of none"
         }
       ],
       "runtime": {

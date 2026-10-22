@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Rebuilds programs/vim.wasm: Vim for ecmaOS, on WALI's musl (`utils/check-wali.sh`), run by /bin/wali.
 #
-# The result is committed, so only run this to change it. The Vim source is unmodified.
+# The result is committed, so only run this to change it. One line of the Vim source is changed (below).
 #
 # What differs from a stock build, and why:
 #  - the termcap is libecmaos-termcap.a (`core/utils/wasm/lib/ecmaos/termcap.c`), which never finds a terminal: there
@@ -18,6 +18,11 @@
 #  - `SYS_VIMRC_FILE=/etc/vimrc`: Vim reads its system vimrc from `$VIM`, which is not set here.
 #  - `MODIFIED_BY=ecmaOS`: this is a modified Vim (ecmaOS's termcap is linked in), and the Vim license (II.3) requires
 #    `:version` and the intro screen to say so; this define is what makes them print "Modified by ecmaOS".
+#  - ui.c's `inchar_loop`, asked to look for a key without waiting, takes the time since it started off that wait and
+#    waits forever when the result is below zero. On Linux the clock rarely moves a millisecond in between; here it
+#    reads in whole milliseconds, so a look for a key often became a wait for one, and Vim stopped at its start, at
+#    `:q` or before a `:!` command until a key came. The wait now stops at zero. The change is asserted below, so a
+#    release that moves the line fails the build.
 #  - `VIM_DEFAULTS_FILE=/etc/vimrc`: with no ~/.vimrc Vim sources `$VIMRUNTIME/defaults.vim`, which is
 #    not shipped and would end every start with E1187. The vimrc guards against loading twice.
 #  - configure cannot run its test programs here, so the answers they would give on Linux are passed in (vim_cv_*).
@@ -39,6 +44,10 @@ mkdir ecmaos
 "$WALI_AR" rcs ecmaos/libecmaos-termcap.a ecmaos/termcap.o
 
 cd "vim-$VERSION/src"
+old='	    wait_time -= elapsed_time;'
+[ "$(grep -cxF -- "$old" ui.c)" = 1 ] || { echo "vim: expected exactly one '$old' in ui.c" >&2; exit 1; }
+sed -i 's/^\t    wait_time -= elapsed_time;$/\t    wait_time = wait_time > elapsed_time ? wait_time - elapsed_time : 0;/' ui.c
+grep -qxF '	    wait_time = wait_time > elapsed_time ? wait_time - elapsed_time : 0;' ui.c || { echo "vim: the ui.c change did not apply" >&2; exit 1; }
 CC="$WALI_CC" LDFLAGS="-L$WORK/ecmaos" ./configure --host=wasm32-unknown-linux-musl --prefix=/usr --with-features=normal \
   --disable-gui --without-x --disable-nls --disable-selinux --disable-acl --disable-gpm --disable-sysmouse --disable-netbeans \
   --disable-channel --with-tlib=ecmaos-termcap vim_cv_toupper_broken=no vim_cv_terminfo=no vim_cv_tgetent=zero \

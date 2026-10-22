@@ -86,6 +86,27 @@ describe(`vim (${group[0]})`, () => {
     await new Promise(resolve => setTimeout(resolve, 300))
   }
 
+  /** Waits until Vim waits for a key: blocked in one call for a while, with nothing typed left for it to read */
+  const vimWaiting = () => {
+    let call: number | undefined, since = 0
+    return waitFor(() => {
+      const vim = [...processes.values()].find(proc => proc.comm === 'vim' && proc.code === undefined)
+      const page = (vim?.thread as unknown as { control?: { id: number, status: Int32Array } } | undefined)?.control
+      if (!page) return true
+      const ldisc = kernel.terminal.zfsTty?.ldisc as unknown as { buffer: number[], line: number[] }
+      // 0 is the page's status while its call waits (`SyscallStatus.Pending`)
+      if (Atomics.load(page.status, 0) !== 0 || ldisc.buffer.length || ldisc.line.length) {
+        call = undefined
+        return false
+      }
+      if (page.id !== call) {
+        call = page.id
+        since = Date.now()
+      }
+      return Date.now() - since >= 150
+    }, 90000)
+  }
+
   const edit = async (command: string, keys: string) => {
     const done = kernel.shell.execute(command)
     await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
@@ -129,8 +150,15 @@ describe(`vim (${group[0]})`, () => {
   }, 120000)
 
   test('takes ^C as a key (leaves insert mode) instead of being killed by it', async () => {
-    const code = await edit('vim /tmp/ctrlc.txt', 'ifoo\x03:wq\r')
-    expect(code).toBe(0)
+    const done = kernel.shell.execute('vim /tmp/ctrlc.txt')
+    await waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+    await screenReady()
+    await typeKeys('ifoo\x03')
+    // Vim throws away what was typed ahead of a ^C once it reads it, as at any terminal, so the rest waits for it
+    await waitFor(() => !screenLines().some(line => line.includes('-- INSERT --')), 90000)
+    await vimWaiting()
+    await typeKeys(':wq\r')
+    expect(await done).toBe(0)
     expect(await kernel.filesystem.fs.readFile('/tmp/ctrlc.txt', 'utf8')).toBe('foo\n')
   }, 120000)
 

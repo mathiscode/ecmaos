@@ -12,7 +12,7 @@ Changes and build scripts (in wasm/ of the package, and in the repository under 
   core/utils/wasm/lib/ecmaos/termcap.c (in the repository; wasm/lib/ecmaos/termcap.c in the npm package @ecmaos/coreutils)
     linked into the program: a termcap that finds no terminal, so Vim uses its builtin terminal entries
   wasm/vim/build.sh
-    configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included); the Vim source is unmodified
+    configure flags and defines (SYS_VIMRC_FILE, VIM_DEFAULTS_FILE, USE_SYSTEM, MODIFIED_BY, and <sys/wait.h> included), and one line of src/ui.c changed: inchar_loop's wait for a key stops at zero instead of waiting forever when the time already passed is taken off a wait of none
 
 The changes were made in 2026; the repository history dates each one.
 
