@@ -219,8 +219,8 @@
           "sha256": "acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528"
         }
       ],
-      "size": 2268321,
-      "sha256": "6af8b19741da3d3071a2daafaa94f0f737bf996232c7b9293e8824932d0fa12a",
+      "size": 2268129,
+      "sha256": "dc3b08fef5764a9c0d5d663c355e0f3fae20b56471a68293224711342aae65bb",
       "modifications": [
         {
           "file": "wasm/doom/build.sh",

@@ -12,7 +12,8 @@
 #   - SDL_PLATFORM_EMSCRIPTEN is not defined, and CMake takes the Unix branch (no calls into the page);
 #   - the Wayland driver gets a software window surface, which SDL's own driver lacks (it presents only through
 #     OpenGL, Vulkan or a hardware render driver): SDL_GetWindowSurface and the software renderer draw into memory,
-#     and SDL_UpdateWindowSurface copies it into a wl_shm buffer and commits it;
+#     and SDL_UpdateWindowSurface copies it into a wl_shm buffer and commits it (SDL does not make the surface a texture
+#     of its OpenGL ES renderer instead, as it would on Linux);
 #   - the failed start of the cursor animation thread (SDL is built without threads) is logged at debug level;
 #   - audio is a driver of its own (src/audio/ecmaos): it writes interleaved signed 16 bit stereo at 48000 Hz to
 #     /dev/dsp1 and SDL converts whatever the program asks for. SDL is built without threads, so the driver has no
@@ -51,6 +52,10 @@ build_sdl() {
     sed -i 's/^    device->SuspendScreenSaver = Wayland_SuspendScreenSaver;$/&\n    device->CreateWindowFramebuffer = Wayland_CreateWindowFramebuffer;\n    device->UpdateWindowFramebuffer = Wayland_UpdateWindowFramebuffer;\n    device->DestroyWindowFramebuffer = Wayland_DestroyWindowFramebuffer;/' src/video/wayland/SDL_waylandvideo.c
     sed -i '0,/^#include "SDL_waylandvideo.h"$/s//&\n#include "SDL_waylandframebuffer.h"/' src/video/wayland/SDL_waylandvideo.c
     grep -q SDL_waylandframebuffer.h src/video/wayland/SDL_waylandvideo.c && grep -q Wayland_CreateWindowFramebuffer src/video/wayland/SDL_waylandvideo.c || { echo "sdl: the video device patch did not apply" >&2; exit 1; }
+    # the window surface stays in memory: SDL would otherwise make it a texture of its OpenGL ES renderer, which here is a
+    # round trip through the browser's WebGL for each frame
+    sed -i 's|^#if defined(SDL_PLATFORM_WIN32) \|\| defined(SDL_PLATFORM_WINGDK) // GDI BitBlt() is way faster|        if (_this->CreateWindowFramebuffer \&\& SDL_strcmp(_this->name, "wayland") == 0) {\n            attempt_texture_framebuffer = false;   // ecmaOS: a wl_shm buffer, not a texture\n        }\n&|' src/video/SDL_video.c
+    grep -q "ecmaOS: a wl_shm buffer, not a texture" src/video/SDL_video.c || { echo "sdl: the window surface patch did not apply" >&2; exit 1; }
     grep -q "SDL_ECMAOS" CMakeLists.txt || { echo "sdl: the CMake patch did not apply" >&2; exit 1; }
     sed -i 's/^  if(SDL_DUMMYAUDIO)$/  if(SDL_ECMAOS)\n    set(SDL_AUDIO_DRIVER_ECMAOS 1)\n    sdl_glob_sources(\n      "${SDL3_SOURCE_DIR}\/src\/audio\/ecmaos\/*.c"\n      "${SDL3_SOURCE_DIR}\/src\/audio\/ecmaos\/*.h"\n    )\n    set(HAVE_SDL_AUDIO TRUE)\n  endif()\n&/' CMakeLists.txt
     sed -i 's/^#ifdef SDL_AUDIO_DRIVER_DISK$/#ifdef SDL_AUDIO_DRIVER_ECMAOS\n    \&ECMAOSAUDIO_bootstrap,\n#endif\n&/' src/audio/SDL_audio.c

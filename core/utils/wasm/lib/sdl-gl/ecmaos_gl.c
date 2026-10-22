@@ -620,13 +620,31 @@ static bool query_info(Context *c, uint32_t info[4])
 
 // - GLES2 calls that are answered here ----------------------------------------------------------------------
 
+// an error made here, not by the browser, which glGetError gives first
+static GLenum local_error = GL_NO_ERROR;
+
 GL_APICALL GLenum GL_APIENTRY glGetError(void)
 {
+    if (local_error != GL_NO_ERROR) {
+        const GLenum error = local_error;
+        local_error = GL_NO_ERROR;
+        return error;
+    }
     uint32_t info[4] = { 0, 0, 0, 0 };
     if (!current || !query_info(current, info)) {
         return GL_NO_ERROR;
     }
     return (GLenum)info[3];
+}
+
+// WebGL takes no shader binaries, so there is no format one could be in (GL_NUM_SHADER_BINARY_FORMATS is 0), and
+// GLES2 has every call fail with GL_INVALID_ENUM; SDL's renderer looks it up with the rest and does not call it
+GL_APICALL void GL_APIENTRY glShaderBinary(GLsizei count, const GLuint *shaders, GLenum format, const void *binary, GLsizei length)
+{
+    (void)count; (void)shaders; (void)format; (void)binary; (void)length;
+    if (local_error == GL_NO_ERROR) {
+        local_error = GL_INVALID_ENUM;
+    }
 }
 
 GL_APICALL void GL_APIENTRY glFlush(void)
@@ -1233,6 +1251,7 @@ EGLAPI __eglMustCastToProperFunctionPointerType EGLAPIENTRY eglGetProcAddress(co
 {
     static const struct { const char *name; void *function; } own[] = {
         { "glGetError", (void *)glGetError },
+        { "glShaderBinary", (void *)glShaderBinary },
         { "glFlush", (void *)glFlush },
         { "glFinish", (void *)glFinish },
         { "glGetString", (void *)glGetString },

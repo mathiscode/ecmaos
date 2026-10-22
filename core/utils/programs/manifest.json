@@ -172,8 +172,8 @@
       "description": "sdlsnake, Snake with sound on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer, M mutes (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1898218,
-      "sha256": "614162b5d64d4a0d5feb928b18cfcb044fb2cd1c795afe15f6186ee53b032d59"
+      "size": 1898346,
+      "sha256": "fc01b6157d93b1ecfaa11822d901162036d9ba5eec2f50560dd8541f89fc3229"
     },
     "sdlpaint": {
       "file": "sdlpaint.wasm",
@@ -182,8 +182,8 @@
       "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a brush-sized ring pointer over the picture (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1897372,
-      "sha256": "98b74de25cae22ad0ba7f8f8e3e6df4ac5531855360c04d56e43faa77c74220e"
+      "size": 1897500,
+      "sha256": "cc083fbd54b05c9a68a0e34515fe3c27ed9915820080afb8ba45d89150636627"
     },
     "sdlclip": {
       "file": "sdlclip.wasm",
@@ -192,8 +192,8 @@
       "description": "sdlclip, shows the clipboard and what is dropped on its window, on SDL 3 through its Wayland driver: C copies a line, V reads the clipboard (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1896377,
-      "sha256": "aff38744f5eb432e9dc069b1780299276e85d0a7720c654ae26ed3f40cec03c7"
+      "size": 1896505,
+      "sha256": "db5ad6a6f6deeea431ea8b527821af19a11086685cad68d76e4f2d39f9ad8e1e"
     },
     "sdlpad": {
       "file": "sdlpad.wasm",
@@ -202,8 +202,8 @@
       "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/js0 to /dev/js3 (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1897042,
-      "sha256": "2bfdd8431a46085657adafbb64a7e4ef27b3d570d62b036fca43298166281cd4"
+      "size": 1897170,
+      "sha256": "a3e07c0dc99e6411e036c7ab92ec677b4f1cecaf5adc7ffcce165f9dec693a4a"
     },
     "sdlgl": {
       "file": "sdlgl.wasm",
@@ -212,8 +212,8 @@
       "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1896734,
-      "sha256": "4cde7918c9ccdc844fc85f3b1476e0782bbd8ca8c0fbcd934cc72bed1460fd60"
+      "size": 1896862,
+      "sha256": "a26af26dd29ababedf3b82dbdf96bfdd6f8c90f422a5f40f8dc2bab9f4f54700"
     },
     "sdlgears": {
       "file": "sdlgears.wasm",
@@ -222,8 +222,8 @@
       "description": "sdlgears, three meshing gears in OpenGL ES on SDL 3, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1902533,
-      "sha256": "510754d62bbd31a6d7d6ba8005a4a7792f8f8f1b35b6e1bdff7185193a8c414a"
+      "size": 1902661,
+      "sha256": "b7273a032c8c5e33ec5e7816a7829665995ac0f5f3bbd8c40c07343a0e10f28a"
     }
   }
 }
