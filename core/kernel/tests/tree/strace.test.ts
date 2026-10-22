@@ -109,6 +109,17 @@ describe('strace', () => {
     expect(withFollow.err).toMatch(/write\(1, "inner\\n"/)
   }, 60000)
 
+  it('stops tracing when nothing reads the trace any more, and the program goes on to start its children', async () => {
+    // the trace fills `head`'s lines, which leaves a program that has not written yet (its output is buffered) to
+    // start its children with the pipe's write end as their stdout, and later to fail its writes as Linux's would
+    const { readFileSync } = process.getBuiltinModule('node:fs')
+    const bytes = readFileSync(`${process.cwd()}/tests/tree/wasi/fixtures/wali-ipc.wasm`)
+    await kernel.filesystem.fs.writeFile('/tmp/wali-ipc', new Uint8Array(bytes), { mode: 0o755 })
+    const result = await sh('strace -e trace=ipc /tmp/wali-ipc 2>&1 | head -12')
+    expect(result.out.trimEnd().split('\n')).toHaveLength(12)
+    expect(result.out).toMatch(/^ipc_get\("msg"/m)
+  }, 60000)
+
   it('reports a command that is not there', async () => {
     const result = await sh('strace no-such-command')
     expect(result.code).toBe(1)

@@ -12,7 +12,7 @@ import { attach, createSocket, deliverDatagram, describe, receive, receiveDatagr
 import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
-import { boundContexts, fs, mounts } from '@zenfs/core'
+import { boundContexts, mounts } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
@@ -409,11 +409,15 @@ let installed = false
 function traceSink(proc: Process, fd: number): (text: string) => Promise<void> {
   if (!proc.context.descriptors.has(fd)) throw Object.assign(new Error('Bad file descriptor'), { errno: Errno.EBADF })
   const encoder = new TextEncoder()
-  const write = fs.writeSync as unknown as (this: unknown, fd: number, buffer: Uint8Array, offset: number, length: number) => number
+  // the kernel's own `write`, as the program would make it: a pipe or a terminal is written as the device it is, which
+  // waits while a pipe is full and fails with EPIPE once nothing reads it (that ends the trace). Written through the
+  // file's cache instead, the lines would sit there and fail at whatever closes a descriptor for the pipe next, a
+  // `posix_spawn` handing the traced program's stdout to a child among them.
+  const write = syscalls.get('write') as unknown as (proc: Process, fd: number, data: Uint8Array, position: number) => Promise<number>
   return async text => {
     const bytes = encoder.encode(text)
     for (let at = 0; at < bytes.byteLength;) {
-      try { at += write.call(proc.context, fd, bytes, at, bytes.byteLength - at) } catch (error) {
+      try { at += await write(proc, fd, bytes.subarray(at), -1) } catch (error) {
         // a full pipe: wait for the reader, as the program writing it would
         if ((error as { code?: string }).code !== 'EAGAIN') throw error
         await new Promise(resolve => setTimeout(resolve, 5))
