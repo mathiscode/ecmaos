@@ -478,7 +478,7 @@ export class Kernel implements IKernel {
     await Promise.all([this.telemetry.init(), this.dom.init(), windowRenderer.init()])
     this.windows.registerRenderer(windowRenderer)
     // the keyboard goes back to the terminal when the last window closes; the page has nothing focused then
-    if (globalThis.document) this.windows.on('close', () => setTimeout(() => { if (this.windows.list().length === 0) this.terminal.focus() }, 0))
+    if (globalThis.document) this.windows.on('close', () => setTimeout(() => { if (this.windows.list().length === 0) (this._shells.get(this._activeTty)?.terminal ?? this.terminal).focus() }, 0))
     // an opt-in seamless mode: with `ecmaos:windows:popups` set to `1` in local storage, new windows are browser popups
     if (globalThis.document) this.windows.registerRenderer(new PopupRenderer(windowRenderer, { enabled: () => this.host.storage.local.getItem('ecmaos:windows:popups') === '1' }))
     // A host that shows windows itself (Node) is registered after the page's renderer, so it wins for the kinds it supports

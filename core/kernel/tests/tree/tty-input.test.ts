@@ -244,6 +244,24 @@ describe('TTY line discipline input for foreground worker programs', () => {
     }
   })
 
+  it('the keyboard goes to the terminal on screen, not the first one, when the last window closes', async () => {
+    const internals = kernel as unknown as { _activeTty: number, _shells: Map<number, unknown> }
+    const focus = vi.fn()
+    internals._shells.set(5, { terminal: { focus } })
+    internals._activeTty = 5
+    const win = kernel.windows.create({ title: 'focus-test-5' })
+    const first = vi.spyOn(kernel.terminal, 'focus')
+    try {
+      kernel.windows.close(win.id)
+      await waitFor(() => focus.mock.calls.length > 0)
+      expect(first).not.toHaveBeenCalled()
+    } finally {
+      first.mockRestore()
+      internals._activeTty = 0
+      internals._shells.delete(5)
+    }
+  })
+
   describe('less (real execve program on the raw TTY)', () => {
     const lflag = () => kernel.terminal.zfsTty!.termios.lflag
     let screen = ''
