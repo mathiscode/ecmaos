@@ -23,7 +23,8 @@ describe('TTY line discipline input for foreground worker programs', () => {
   let kernel: Kernel
 
   const type = (data: string) => kernel.terminal.input(data, true)
-  const foregroundReady = () => waitFor(() => kernel.shell.foregroundJob?.processes.length === 1 && kernel.terminal.ttyInputAttached)
+  // a stage joins the job when its process spawns: a pipeline is ready once every stage has
+  const foregroundReady = (stages = 1) => waitFor(() => kernel.shell.foregroundJob?.processes.length === stages && kernel.terminal.ttyInputAttached)
 
   beforeAll(async () => {
     kernel = new Kernel({
@@ -256,7 +257,7 @@ describe('TTY line discipline input for foreground worker programs', () => {
       captureScreen()
       try {
         const done = kernel.shell.execute('cat /tmp/less-b.txt | less')
-        await foregroundReady()
+        await foregroundReady(2)
         await rawReached()
         await waitFor(() => screen.includes('line 1') && screen.includes('/ 200'))
         type('q')
@@ -270,7 +271,7 @@ describe('TTY line discipline input for foreground worker programs', () => {
     it('a pipeline stage finishing does not cook the terminal under a later stage still in raw mode', async () => {
       await kernel.filesystem.fs.writeFile('/tmp/less-e.txt', numbered)
       const done = kernel.shell.execute('cat /tmp/less-e.txt | less')
-      await foregroundReady()
+      await foregroundReady(2)
       await rawReached()
       // cat has long since exited; less must still be in raw mode, still reading keys
       await new Promise(resolve => setTimeout(resolve, 300))
