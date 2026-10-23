@@ -2017,7 +2017,10 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       let credSpace = 0
       if ((flags & MSG_DONTWAIT || sock.nonblock) && !sock.dgram && sock.connected && pollFds([{ fd: sock.readFd, events: POLLIN }], 0)[0] === 0) throw { code: 'EAGAIN' }
       if (sock.conn && !sock.dgram) {
-        credSpace = sock.passcred && controlLen >= cmsgAlign(CMSG_HEADER + 12) ? cmsgAlign(CMSG_HEADER + 12) : 0
+        // a message's descriptors are queued with its data: wait for the data, or a receive that started first would
+        // look for them before they were sent and return the data without them
+        if (sock.connected) pollFds([{ fd: sock.readFd, events: POLLIN }], -1)
+        credSpace =sock.passcred && controlLen >= cmsgAlign(CMSG_HEADER + 12) ? cmsgAlign(CMSG_HEADER + 12) : 0
         const room = Math.max(Math.floor((controlLen - credSpace - CMSG_HEADER) / 4), 0)
         took = callMainThread('scm_take', sock.conn, sock.dir === 'c' ? 's' : 'c', sock.rxCount ?? 0, wanted, room, 3)
         if (took.limit !== null && took.limit !== undefined) wanted = Math.min(wanted, took.limit)

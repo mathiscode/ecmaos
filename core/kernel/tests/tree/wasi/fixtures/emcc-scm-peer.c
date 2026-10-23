@@ -50,6 +50,8 @@ int main(int argc, char **argv) {
   struct cmsghdr *h = CMSG_FIRSTHDR(&m);
   h->cmsg_level = SOL_SOCKET; h->cmsg_type = SCM_RIGHTS; h->cmsg_len = CMSG_LEN(sizeof(int));
   memcpy(CMSG_DATA(h), &file, sizeof file);
+  /* the server is waiting in recvmsg before the message (and its descriptor) is sent */
+  usleep(200000);
   if (sendmsg(c, &m, 0) < 0) { printf("sendmsg failed\n"); return 3; }
   close(file);
   char answer[8] = {0}, room[CMSG_SPACE(sizeof(int))];
