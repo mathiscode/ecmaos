@@ -55,6 +55,13 @@ describe('observability commands', () => {
     expect((await run('dmesg')).out).toBe('2026-01-01 00:00:00 [INFO] one\n2026-01-01 00:00:01 [WARN] two\n2026-01-01 00:00:02 [INFO] three\n')
     expect((await run('dmesg -l warn')).out).toBe('2026-01-01 00:00:01 [WARN] two\n')
     expect((await run('dmesg -n 1')).out).toBe('2026-01-01 00:00:02 [INFO] three\n')
+    // a rotated log's older half comes first
+    await kernel.filesystem.fs.writeFile('/var/log/kernel.log.1', '2025-12-31 23:59:59 [INFO] zero\n\n')
+    try {
+      expect((await run('dmesg -n 4')).out).toBe('2025-12-31 23:59:59 [INFO] zero\n2026-01-01 00:00:00 [INFO] one\n2026-01-01 00:00:01 [WARN] two\n2026-01-01 00:00:02 [INFO] three\n')
+    } finally {
+      await kernel.filesystem.fs.unlink('/var/log/kernel.log.1')
+    }
   })
 
   it('lscpu reports the logical processors and the byte order', async () => {

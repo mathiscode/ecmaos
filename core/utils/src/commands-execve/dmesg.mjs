@@ -1,4 +1,4 @@
-/** Print the kernel's log, read from `/var/log/kernel.log`. */
+/** Print the kernel's log, read from `/var/log/kernel.log.1` (what the log held before it last grew past its limit) and `/var/log/kernel.log`. */
 
 import { readTextFile } from './lib/fs-text.mjs'
 
@@ -13,7 +13,8 @@ Print the kernel log, oldest first.
   -n, --last=COUNT  only the last COUNT lines
   --help            display this help and exit
 
-The log is /var/log/kernel.log; each line is a time, a level in brackets and the message.`
+The log is /var/log/kernel.log, after /var/log/kernel.log.1 when the log has been
+rotated; each line is a time, a level in brackets and the message.`
 
 function main() {
   const args = argv.slice(1)
@@ -36,6 +37,8 @@ function main() {
     err('dmesg: cannot read /var/log/kernel.log')
     return 1
   }
+  // the older half, there once the log has grown past its limit
+  try { text = readTextFile('/var/log/kernel.log.1') + text } catch { /* not rotated yet */ }
 
   let lines = text.split('\n').filter(line => line.trim() !== '')
   if (levels) lines = lines.filter(line => levels.has((/\[(\w+)\]/.exec(line)?.[1] ?? '').toLowerCase()))
