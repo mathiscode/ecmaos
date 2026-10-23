@@ -224,6 +224,9 @@ export interface Terminal extends XTerm {
   /** Stop listening for input */
   unlisten(): void
 
+  /** Whether the terminal is listening for input */
+  readonly listening: boolean
+
   /**
    * Reads a line of input.
    * @param prompt - the prompt

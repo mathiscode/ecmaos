@@ -1,27 +1,19 @@
 /* Inspired by https://codepen.io/yaclive/pen/EayLYO */
 
-import type { Terminal, Timer } from '@ecmaos/types'
+import type { Terminal } from '@ecmaos/types'
+import { openScreensaver } from '#lib/screensaver.ts'
+
+export { exitScreensaver as exit } from '#lib/screensaver.ts'
 
 export default async function ({ terminal }: { terminal: Terminal }) {
-  if (document.getElementById('screensaver')) return false
-
-  const canvas = document.createElement('canvas')
-  canvas.id = 'screensaver'
-  canvas.width = globalThis.innerWidth
-  canvas.height = globalThis.innerHeight
-  canvas.style.position = 'absolute'
-  canvas.style.top = '0'
-  canvas.style.left = '0'
-  canvas.style.zIndex = Number.MAX_SAFE_INTEGER.toString()
-
-  document.body.appendChild(canvas)
-  const ctx = canvas.getContext('2d')
+  const saver = openScreensaver(terminal)
+  if (!saver) return false
+  const { canvas, ctx } = saver
 
   const fontSize = 14
   const columns = Math.floor(canvas.width / fontSize)
   const drops = Array(columns).fill(1)
   const chars = '01~!#$%^&*()_+=-[]{}\\|;:",./<>?ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ'.split('')
-  if (!ctx) return false
   ctx.font = ctx.font.replace(/\d+px/, `${fontSize}px`)
 
   const animatrix = () => {
@@ -38,16 +30,5 @@ export default async function ({ terminal }: { terminal: Terminal }) {
     }
   }
 
-  terminal.unlisten()
-  const interval = setInterval(animatrix, 33)
-  document.addEventListener('click', () => exit(interval, canvas, terminal))
-  document.addEventListener('mousemove', () => exit(interval, canvas, terminal))
-  document.addEventListener('keydown', () => exit(interval, canvas, terminal))
-}
-
-export async function exit (interval: Timer, canvas: HTMLCanvasElement, terminal: Terminal) {
-  clearInterval(interval)
-  canvas.remove()
-  terminal.listen()
-  // terminal.focus()
+  saver.animate(animatrix)
 }

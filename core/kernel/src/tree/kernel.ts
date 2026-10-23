@@ -44,7 +44,7 @@ import { Auth } from '#auth.ts'
 import { Components } from '#components.ts'
 import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
-import { appendText } from '#lib/append-file.ts'
+import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS, DEFAULT_SERVICES } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
@@ -230,6 +230,8 @@ export class Kernel implements IKernel {
   private _machineLock?: MachineLock
   /** Other tabs showing this machine's ttys (see `lib/remote-display.ts`) */
   private _displays?: DisplayOwner
+  /** `/var/log/kernel.log`, written by the log's transport */
+  private _logFile?: LogFile
   private _guestId?: string
   /** Web Components manager */
   public readonly components: Components
@@ -866,8 +868,8 @@ export class Kernel implements IKernel {
         }
       }
 
-      // Log to /var/log/kernel.log
-      let writingLog = false
+      // Log to /var/log/kernel.log, through the filesystem the kernel writes through: root's, whoever is logged in
+      const logFile = this._logFile = new LogFile(this.filesystem.fs, '/var/log/kernel.log')
       this.log.attachTransport((logObj) => {
         if (!logObj._meta) return
         const formattedDate = new Date(logObj._meta.date).toLocaleString(this.memory.config.get('locale') as string || 'en-US', {
@@ -881,18 +883,7 @@ export class Kernel implements IKernel {
           hour12: false
         }).replace(',', '')
 
-        // the filesystem the kernel writes through is root's, whoever is logged in; a line logged while this one is
-        // being
-        // handed over is dropped, so a failure to write cannot log again without end
-        if (writingLog) return
-        writingLog = true
-        try {
-          void appendText(this.filesystem.fs, '/var/log/kernel.log',
-            `${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`
-          ).catch(() => { /* the log is the one place this error cannot go */ })
-        } finally {
-          writingLog = false
-        }
+        logFile.write(`${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`)
       })
 
       // Load core kernel features
@@ -2174,6 +2165,7 @@ export class Kernel implements IKernel {
   async stop(mode: 'reboot' | 'halt' | 'poweroff') {
     if (mode === 'reboot') return this.reboot()
     this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
+    await this._logFile?.flush()
     await rootWritesSettled()
     await this.shutdown()
     if (mode === 'poweroff' && !this.host.platform.exit) {
@@ -2199,6 +2191,7 @@ export class Kernel implements IKernel {
    */
   async reboot() {
     this.log.warn(this.i18n.ns.common('Rebooting'))
+    await this._logFile?.flush()
     await rootWritesSettled()
     await this.shutdown()
     await this.host.platform.restart()

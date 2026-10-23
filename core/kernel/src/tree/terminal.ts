@@ -948,6 +948,10 @@ export class Terminal extends XTerm implements ITerminal {
     })
   }
 
+  get listening() {
+    return this._keyListener !== undefined || this._mobileInputListener != null
+  }
+
   unlisten() {
     try { this._keyListener?.dispose() } catch { /* already disposed */ }
     try { this._mobileInputListener?.dispose() } catch { /* already disposed */ }

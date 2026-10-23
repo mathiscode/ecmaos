@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { appendText } from '#lib/append-file.ts'
+import { LogFile } from '#lib/log-file.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
@@ -41,6 +42,28 @@ describe('appending on the root filesystem', () => {
   it('appendText keeps records and serializes concurrent callers', async () => {
     await Promise.all(['a', 'b', 'c', 'd'].map(x => appendText(fs(), '/root/append-c', `${x}\n`)))
     expect((await fs().readFile('/root/append-c', 'utf-8')).split('\n').filter(Boolean).sort()).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('the kernel log writes its lines together and moves a full file to .1', async () => {
+    const log = new LogFile(fs(), '/root/append-log', { maxBytes: 20, delayMs: 60_000 })
+    log.write('one\n')
+    log.write('two\n')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(await fs().exists('/root/append-log')).toBe(false)
+    await log.flush()
+    expect(await fs().readFile('/root/append-log', 'utf-8')).toBe('one\ntwo\n')
+    log.write('three\nfour\n')
+    await log.flush()
+    log.write('five\n')
+    log.write('six\n')
+    await log.flush()
+    // 19 bytes and 9 more is past 20: the file becomes .1
+    expect(await fs().readFile('/root/append-log.1', 'utf-8')).toBe('one\ntwo\nthree\nfour\n')
+    expect(await fs().readFile('/root/append-log', 'utf-8')).toBe('five\nsix\n')
+    // and a .1 already there is replaced
+    log.write('seven-eight-nine-ten\n')
+    await log.flush()
+    expect(await fs().readFile('/root/append-log.1', 'utf-8')).toBe('five\nsix\n')
   })
 
   it('shell history survives more than one command on disk', async () => {
