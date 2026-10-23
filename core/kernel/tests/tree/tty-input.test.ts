@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -205,6 +205,43 @@ describe('TTY line discipline input for foreground worker programs', () => {
     expect(kernel.terminal.ttyInputAttached).toBe(false)
 
     job.processes[0]!.kill(9)
+  })
+
+  it('^Z on a pipeline draws one prompt, not one for each stage that stopped', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/tty-stop2.js', 'await new Promise(r => setTimeout(r, 5000))', { mode: 0o755 })
+    let screen = ''
+    const original = kernel.terminal.write.bind(kernel.terminal)
+    kernel.terminal.write = ((data: string | Uint8Array, callback?: () => void) => {
+      screen += typeof data === 'string' ? data : new TextDecoder().decode(data)
+      return original(data, callback)
+    }) as typeof kernel.terminal.write
+    try {
+      void kernel.shell.execute('/tmp/tty-stop2.js | /tmp/tty-stop2.js')
+      await foregroundReady(2)
+      const job = kernel.shell.foregroundJob!
+      type('\x1a')
+      await waitFor(() => job.status === 'stopped')
+      await new Promise(resolve => setTimeout(resolve, 300))
+
+      const prompt = kernel.terminal.prompt()
+      expect(screen.split('Stopped').length - 1).toBe(1)
+      expect(screen.split(prompt).length - 1).toBe(1)
+      for (const process of job.processes) process.kill(9)
+    } finally {
+      kernel.terminal.write = original
+    }
+  })
+
+  it('the terminal takes the keyboard back when the last window closes', async () => {
+    const win = kernel.windows.create({ title: 'focus-test' })
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    const focused = vi.spyOn(kernel.terminal, 'focus')
+    try {
+      kernel.windows.close(win.id)
+      await waitFor(() => focused.mock.calls.length > 0)
+    } finally {
+      focused.mockRestore()
+    }
   })
 
   describe('less (real execve program on the raw TTY)', () => {

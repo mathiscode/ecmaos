@@ -1358,7 +1358,9 @@ export class Terminal extends XTerm implements ITerminal {
 
   foregroundStopped() {
     const job = this._shell?.foregroundJob
-    if (job && job.status !== 'stopped') {
+    // each process of a pipeline reports its own stop; the job's first one has already given the prompt back
+    if (job?.status === 'stopped') return
+    if (job) {
       for (const process of job.processes) process.setForeground?.(false)
       job.status = 'stopped'
       this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
