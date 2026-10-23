@@ -24,13 +24,19 @@ static int configured, closed, want_w, want_h;
 static uint32_t config_serial;
 static struct xdg_surface *xsurface;
 
+/* the seat's listener goes on as it is bound: its capabilities can come in with the first roundtrip's answer, and an
+ * event that finds no listener is dropped */
+static const struct wl_seat_listener seat_listener;
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name, const char *iface, uint32_t version) {
   (void)data;
   printf("global %u %s\n", name, iface);
   if (!strcmp(iface, "wl_compositor")) compositor = wl_registry_bind(reg, name, &wl_compositor_interface, 4);
   else if (!strcmp(iface, "wl_shm")) shm = wl_registry_bind(reg, name, &wl_shm_interface, 1);
   else if (!strcmp(iface, "xdg_wm_base")) wm_base = wl_registry_bind(reg, name, &xdg_wm_base_interface, 2);
-  else if (!strcmp(iface, "wl_seat")) seat = wl_registry_bind(reg, name, &wl_seat_interface, version < 5 ? version : 5);
+  else if (!strcmp(iface, "wl_seat")) {
+    seat = wl_registry_bind(reg, name, &wl_seat_interface, version < 5 ? version : 5);
+    wl_seat_add_listener(seat, &seat_listener, NULL);
+  }
 }
 static void registry_remove(void *data, struct wl_registry *reg, uint32_t name) { (void)data; (void)reg; (void)name; }
 static const struct wl_registry_listener registry_listener = { registry_global, registry_remove };
@@ -147,7 +153,7 @@ int main(int argc, char **argv) {
   wl_display_roundtrip(display);
   if (!compositor || !shm || !wm_base) { printf("missing globals\n"); return 1; }
   xdg_wm_base_add_listener(wm_base, &wm_listener, NULL);
-  if (seat) { wl_seat_add_listener(seat, &seat_listener, NULL); wl_display_roundtrip(display); }
+  if (seat) wl_display_roundtrip(display);
 
   surface = wl_compositor_create_surface(compositor);
   xsurface = xdg_wm_base_get_xdg_surface(wm_base, surface);

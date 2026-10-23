@@ -163,7 +163,7 @@
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
       "size": 375377,
-      "sha256": "68bf552a73e62b9a9a3a10ff6028ce46b9c9232e5c274ff25e062af3df98b502"
+      "sha256": "d2b05dd77b62db8d2cb21c33051a92f78f7fbeb58a8b6b2944266169ebd9fbb1"
     },
     "sdlsnake": {
       "file": "sdlsnake.wasm",
