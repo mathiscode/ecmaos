@@ -161,6 +161,10 @@ async function runOnce(args) {
 }
 
 async function main() {
+  if (argv[1] === '--help' || argv[1] === '-h') {
+    write(1, new TextEncoder().encode('Usage: crond\n       crond --run USER COMMAND\nThe cron daemon, started by /boot/init; --run runs one job as USER now and exits with its status.\n'))
+    return exit(0)
+  }
   if (argv[1] === '--run') return exit(await runOnce(argv.slice(2)))
 
   const runAsUsers = await custom('credentials_supported') === 1

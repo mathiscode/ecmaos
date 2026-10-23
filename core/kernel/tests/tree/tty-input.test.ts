@@ -432,4 +432,30 @@ describe('TTY line discipline input for foreground worker programs', () => {
       expect(kernel.terminal.zfsTty!.termios.lflag & 0o2).toBe(0o2)
     })
   })
+
+  it('a key that reaches both the line discipline and the key queue is not run again at the prompt', async () => {
+    await kernel.filesystem.fs.rm('/tmp/tty-twice.out', { force: true })
+    await kernel.filesystem.fs.rm('/tmp/tty-stray', { force: true })
+    const queueKey = (kernel.terminal as unknown as { queueKey(e: { key: string, domEvent: unknown }): Promise<void> }).queueKey
+    const key = (k: string, name = k) => queueKey({ key: k, domEvent: { key: name, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {} } })
+    await kernel.filesystem.fs.writeFile('/tmp/tty-twice.js', `
+      const { read, writeAll } = globalThis.ecmaosSyscalls
+      const buffer = new Uint8Array(64)
+      const n = read(0, buffer, -1)
+      writeAll(1, new TextEncoder().encode(new TextDecoder().decode(buffer.subarray(0, n))))
+    `, { mode: 0o755 })
+    for (const char of '/tmp/tty-twice.js > /tmp/tty-twice.out') await key(char)
+    void key('\r', 'Enter')
+    await foregroundReady()
+    // xterm hands a typed key to onData (the line discipline) and to onKey (the queue)
+    for (const char of 'echo stray > /tmp/tty-stray\r') {
+      type(char)
+      void key(char, char === '\r' ? 'Enter' : char)
+    }
+    await waitFor(() => !kernel.terminal.ttyInputAttached)
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    expect(await kernel.filesystem.fs.readFile('/tmp/tty-twice.out', 'utf8')).toBe('echo stray > /tmp/tty-stray\n')
+    expect(await kernel.filesystem.fs.exists('/tmp/tty-stray')).toBe(false)
+  })
 })

@@ -70,6 +70,9 @@ describe('cron jobs run as their owner', () => {
   it('--run gives the status of the job, and refuses an unknown user', async () => {
     expect(await kernel.shell.execute('crond --run root "exit 3"')).toBe(3)
     expect(await kernel.shell.execute('crond --run nobody-here id 2> /dev/null')).toBe(1)
+    // --help prints usage and exits, instead of starting a second daemon
+    expect(await kernel.shell.execute('crond --help > /tmp/crond-help')).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/crond-help', 'utf-8')).toContain('Usage: crond')
   }, 60000)
 
   it('a job has no terminal', async () => {

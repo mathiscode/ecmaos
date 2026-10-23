@@ -314,6 +314,9 @@ export class Terminal extends XTerm implements ITerminal {
       if (domEvent.key === 'c') this._keysEpoch++
       return this.keyHandler(event)
     }
+    // a program reading the terminal gets these through the line discipline (`attachInput`); waiting behind its Enter
+    // would run them again at the prompt when it ends
+    if (this._ttyInput) return this.keyHandler(event)
     const epoch = this._keysEpoch
     this._keys = this._keys
       .then(() => {

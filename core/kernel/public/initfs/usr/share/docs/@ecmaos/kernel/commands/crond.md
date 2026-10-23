@@ -7,6 +7,7 @@
 ```
 crond
 crond --run USER COMMAND
+crond --help
 ```
 
 Started automatically from `/boot/init` as a backgrounded process; not normally invoked by hand.
