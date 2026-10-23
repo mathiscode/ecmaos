@@ -13,7 +13,7 @@ import { syscall_raw } from '@zenfs/linux/uapi/base'
 import { open, read, write, close } from '@zenfs/linux/uapi/fs'
 import { run, wali } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasi-preview1.mjs'
-import { install, attach } from './wali-host.mjs'
+import { install, attach, drive } from './wali-host.mjs'
 
 /**
  * The limits of the memory a module imports (`wali.memory`, which the toolchain links it to import so each thread's
@@ -46,7 +46,10 @@ function memoryLimits(bytes) {
   return undefined
 }
 
-/** A thread of a WALI process (`proc_thread`) is told which, after it starts: the memory, the shared state and its argument */
+/**
+ * A thread of a WALI process (`proc_thread`) is told which, after it starts: the memory, the shared state and its argument.
+ * A fork's child (`proc_fork`) is told its copies of them and `fork`, where to rewind to.
+ */
 const threadStart = Promise.withResolvers()
 receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(message) })
 
@@ -65,7 +68,11 @@ function runWali(source, start) {
   WebAssembly.instantiate = async (...args) => {
     const instance = await instantiate(...args)
     attach(instance)
-    if (!start) return instance
+    // a program built with Asyncify can fork, which `drive()` carries out; a thread is not one that does
+    if (!start || start.fork) {
+      const _start = drive(instance, limits, start?.fork)
+      return _start ? { exports: Object.assign(Object.create(null), instance.exports, { _start }) } : instance
+    }
     const exports = Object.assign(Object.create(null), instance.exports, {
       _start: () => instance.exports.__wasm_thread_start_libc(getpid(), start.arg)
     })
@@ -115,7 +122,7 @@ try {
   // `wasi-preview1.mjs`; anything else is WALI.
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
-  start = init.env?.__WALI_THREAD__ ? await threadStart.promise : undefined
+  start = init.env?.__WALI_THREAD__ || init.env?.__WALI_FORK__ ? await threadStart.promise : undefined
   const code = isPreview1 ? await runPreview1(source) : await runWali(source, start)
   exit(code)
 } catch (error) {

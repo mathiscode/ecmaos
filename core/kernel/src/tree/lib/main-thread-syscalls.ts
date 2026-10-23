@@ -2147,6 +2147,24 @@ export function installMainThreadSyscalls(): void {
     return child.pid
   })
 
+  // `fork(2)` for a WALI program built with Asyncify (`wali-host.mjs`): a child with a copy of the caller's descriptor
+  // table (the open files shared, as on Linux), directory and credentials, running the same program on the copy of the
+  // memory the caller made, which rewinds into the call. The caller gives its signal state; the handlers it has are the
+  // child's too, from the start.
+  define_syscall('proc_fork', async (proc: Process, exe: string, _interpreter: string, memory: WebAssembly.Memory, shared: SharedArrayBuffer, optionsJson: string) => {
+    const kernel = kernelOf(proc)
+    const shell = shellOf(proc)
+    const options = JSON.parse(optionsJson) as { buffer: number, sp: number, globals: Array<[string, number | string]>, mask: string, signals: SignalState }
+    const fds = Object.fromEntries([...proc.context.descriptors.keys()].map(fd => [fd, fd]))
+    const child = await spawnWithFds(proc, exe, proc.argv, { ...proc.env, __WALI_FORK__: '1' }, {
+      cwd: proc.context.pwd, fds, exactFds: true, signals: options.signals, credentials: { ...proc.context.credentials }
+    })
+    registerProcessKernel(child, kernel, shell)
+    for (const signal of proc.caught) child.catch_signal(signal)
+    ;(child.thread as unknown as { host?: { post(message: unknown): void } }).host?.post({ $: 'wali-thread', memory, shared, fork: { buffer: options.buffer, sp: options.sp, globals: options.globals, mask: options.mask } })
+    return child.pid
+  })
+
   // `strace -p`: record the calls of a process that is already running. Root may trace anything but init's own
   // business is its own; anyone else only their own user's processes.
   define_syscall('trace_attach', async (proc: Process, pid: number, optionsJson: string) => {

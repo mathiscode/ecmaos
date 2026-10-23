@@ -326,4 +326,23 @@ describe('WALI programs', () => {
   it('ends by SIGABRT when an exception is not caught', async () => {
     expect(await run('wali-uncaught')).toEqual({ code: 134, err: 'terminating due to an uncaught exception\n', out: '' })
   }, 30_000)
+
+  it('forks: the call returns twice, and the child has the locals, the memory and the descriptors', async () => {
+    expect(await run('wali-fork')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'start',
+        'child local=8 heap=heap differs=1 exit=5 signaled=0 pid-ok=1 local=7',
+        'file=child;parent;',
+        'nested=43',
+        'setjmp=53',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
+  it('forks inside a try block: the child throws and catches, the parent leaves the block as it would', async () => {
+    expect(await run('wali-fork-cxx')).toEqual({ code: 0, err: 'inside', out: 'child exit=21\nparent caught parent, destroyed=1\n' })
+  }, 60_000)
 })

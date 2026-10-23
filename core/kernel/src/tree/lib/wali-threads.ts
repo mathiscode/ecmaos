@@ -17,6 +17,7 @@ import { joinThreadGroup } from './job-control.ts'
 declare module '@zenfs/linux/uapi/abi' {
   interface Syscalls {
     proc_thread(exe: string, interpreter: string, memory: WebAssembly.Memory, shared: SharedArrayBuffer, arg: number): number
+    proc_fork(exe: string, interpreter: string, memory: WebAssembly.Memory, shared: SharedArrayBuffer, options: string): number
     proc_exit_group(code: number): number
   }
 }

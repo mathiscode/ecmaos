@@ -2164,7 +2164,8 @@ const calls = {
   __ecmaos_spawn: (path, argv, envp, ops, count, flags, pgrp, defaults, sigmask) => big(spawn(path, argv, envp, ops, count, flags, pgrp, defaults, sigmask)),
   SYS_wait4: (pid, status, options, rusage) => big(wait4(pid, status, options, rusage)),
   SYS_execve: (path, argv, envp) => big(execve(path, argv, envp)),
-  // there is no fork: posix_spawn (and system and popen, which use it) start programs
+  // fork is `forkCall`, for a program built with Asyncify; any other has none, and posix_spawn (and system and popen,
+  // which use it) start programs
   SYS_fork: () => big(-ENOSYS),
   SYS_vfork: () => big(-ENOSYS),
   SYS_setpgid: (pid, pgid) => big(syscall_raw('proc_setpgid', pid, pgid)),
@@ -2364,7 +2365,8 @@ const calls = {
 const original = {}
 
 export function install(wali, start) {
-  thread = start && { tgid: start.tgid, tid: getpid() }
+  forked = !!start?.fork
+  thread = start && !forked && { tgid: start.tgid, tid: getpid() }
   state = sharedState(start?.shared)
   if (thread) {
     // exit() in any thread ends the process, and its threads with it
@@ -2402,6 +2404,8 @@ export function install(wali, start) {
     if (typeof call !== 'function') continue
     wali[name] = name === '__proc_exit' ? mapped(name, call) : delivering(name, mapped(name, call))
   }
+  // not wrapped: no handler may run between the call that starts the unwind and the stack being gone
+  wali.SYS_fork = forkCall
   // a new thread takes the process's dispositions as they are; its mask comes from pthread_create
   if (thread) {
     seenVersion = Atomics.load(state.words, VERSION)
@@ -2414,11 +2418,100 @@ export function attach(instance) {
   memory = instance.exports.memory
   table = instance.exports.__indirect_function_table
   stackPointer = instance.exports.__ecmaos_stack_pointer
-  if (!thread) Atomics.store(state.addresses, TOP, roundUp(memory.buffer.byteLength, PAGE))
+  if (!thread && !forked) Atomics.store(state.addresses, TOP, roundUp(memory.buffer.byteLength, PAGE))
   // the word the program's loops read, which the kernel sets as it raises a signal on one of its threads, or stops it
   const word = instance.exports.__ecmaos_signal_word
   if (word) {
     signalWord = word.value
     syscall_raw('proc_signal_word', memory.buffer, signalWord)
+  }
+}
+
+// --- fork ---
+
+/**
+ * `fork` on a program built with Asyncify (`asyncify-imports` naming `wali.SYS_fork`): the call returns twice, once in
+ * each process. The wasm stack cannot be copied, so the call starts an unwind, which saves the frames into a buffer in
+ * linear memory and returns out of `_start`; `drive()` then copies the memory, the host's shared state and the stack
+ * pointer to a new process (`proc_fork`), and rewinds this one and the child into the call, which returns the child's
+ * pid in the first and 0 in the other. Only the calling thread exists in the child. What the kernel does not carry
+ * over: shared file mappings.
+ */
+const ASYNCIFY_UNWINDING = 1, ASYNCIFY_REWINDING = 2
+const FORK_BUFFER = 256 * 1024
+/** The instance's exports, once `drive()` has them: a program without Asyncify cannot fork */
+let asyncify
+/** The most pages the program's memory may grow to, which the child's copy is given too */
+let memoryMaximum
+/** The program's other mutable globals (its thread pointer, above all), exported by `utils/wali/signal-checks.mjs` as `__ecmaos_global_<n>` */
+let programGlobals = []
+/** Where the unwind saves the frames, in the program's memory (so a copy of it has them) */
+let forkBuffer = 0
+let forkResult = 0
+/** Whether this process is a fork's child */
+let forked = false
+
+function forkCall() {
+  if (!asyncify) return big(-ENOSYS)
+  if (asyncify.asyncify_get_state() === ASYNCIFY_REWINDING) {
+    asyncify.asyncify_stop_rewind()
+    return big(forkResult)
+  }
+  if (!forkBuffer) {
+    const at = allocate(FORK_BUFFER)
+    if (at < 0) return big(-ENOMEM)
+    forkBuffer = at
+  }
+  view().setUint32(forkBuffer, forkBuffer + 8, true)
+  view().setUint32(forkBuffer + 4, forkBuffer + FORK_BUFFER, true)
+  asyncify.asyncify_start_unwind(forkBuffer)
+  return 0n
+}
+
+/** The child's copy of the memory and of what the threads share, handed to the kernel with what else it needs to start */
+function startChild() {
+  const copy = new WebAssembly.Memory({ initial: memory.buffer.byteLength / WASM_PAGE, maximum: memoryMaximum, shared: true })
+  new Uint8Array(copy.buffer).set(bytes())
+  const shared = new SharedArrayBuffer(state.buffer.byteLength)
+  new Uint8Array(shared).set(new Uint8Array(state.buffer))
+  const options = {
+    buffer: forkBuffer,
+    sp: stackPointer.value,
+    // an i64 goes as text: JSON has no such number
+    globals: programGlobals.map(([name, global]) => [name, typeof global.value === 'bigint' ? `${global.value}n` : global.value]),
+    mask: String(mask),
+    signals: { ignored: ignoredSet(), blocked: kernelSet(mask) }
+  }
+  return syscall_raw('proc_fork', init.exe, init.interpreter, copy, shared, JSON.stringify(options))
+}
+
+/**
+ * Replaces `_start` of a program built with Asyncify by one that carries out its forks: each time the program unwinds
+ * for one, the child is started and the program rewound to return from the call. In the child (`fork`, from the
+ * kernel), the first thing is a rewind into the call. @returns the new `_start`, or undefined for a program without Asyncify
+ */
+export function drive(instance, limits, fork) {
+  const exports = instance.exports
+  if (typeof exports.asyncify_start_unwind !== 'function') return undefined
+  asyncify = exports
+  memoryMaximum = limits?.maximum
+  programGlobals = Object.entries(exports).filter(([name]) => name.startsWith('__ecmaos_global_'))
+  return () => {
+    if (fork) {
+      stackPointer.value = fork.sp
+      for (const [name, value] of fork.globals) exports[name].value = typeof value === 'string' ? BigInt(value.slice(0, -1)) : value
+      mask = BigInt(fork.mask)
+      routeAll()
+      forkBuffer = fork.buffer
+      forkResult = 0
+      exports.asyncify_start_rewind(forkBuffer)
+    }
+    for (;;) {
+      exports._start()
+      if (exports.asyncify_get_state() !== ASYNCIFY_UNWINDING) return
+      exports.asyncify_stop_unwind()
+      forkResult = startChild()
+      exports.asyncify_start_rewind(forkBuffer)
+    }
   }
 }

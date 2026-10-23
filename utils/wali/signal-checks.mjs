@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 const RED_ZONE = 128, WORD = 8
 /** The main thread's stack, which wali-cc puts first in memory, so global 0, the stack pointer, starts at its size */
 const STACK_SIZE = 8388608
-const POLL_MODULE = 'wali', POLL_NAME = '__ecmaos_poll', WORD_EXPORT = '__ecmaos_signal_word', STACK_POINTER_EXPORT = '__ecmaos_stack_pointer'
+const POLL_MODULE = 'wali', POLL_NAME = '__ecmaos_poll', WORD_EXPORT = '__ecmaos_signal_word', STACK_POINTER_EXPORT = '__ecmaos_stack_pointer', GLOBAL_EXPORT = '__ecmaos_global_'
 
 // --- encoding ---
 
@@ -275,13 +275,17 @@ const hints = []
 function exportsRenumbered(body) {
   const r = new Reader(body), out = []
   const n = r.u32()
-  out.push(...u32(n + 2))
+  // the other mutable globals (the thread pointer of the TLS above all), which a forked child starts with the values its
+  // parent has (the host copies them, `bin/wali-host.mjs` `drive`)
+  const state = globals.map((g, index) => g[1] === 1 && index !== 0 ? index : -1).filter(index => index >= 0)
+  out.push(...u32(n + 2 + state.length))
   for (let i = n; i--;) {
     const field = r.name(), kind = r.byte(), index = r.u32()
     out.push(...name(field), kind, ...u32(kind === 0 ? fn(index) : index))
   }
   out.push(...name(WORD_EXPORT), 3, ...u32(word))
   out.push(...name(STACK_POINTER_EXPORT), 3, 0)
+  for (const index of state) out.push(...name(`${GLOBAL_EXPORT}${index}`), 3, ...u32(index))
   return out
 }
 
