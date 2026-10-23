@@ -70,7 +70,7 @@ const bytes = () => new Uint8Array(memory.buffer)
  */
 const LOCK = 0, VERSION = 1, TOP = 2, FREE_COUNT = 3, SEALED_COUNT = 4, HEADER_WORDS = 16
 const MAX_RANGES = 16384, MAX_SEALED = 1024, MAX_FDS = 65536, SIGNALS = 65, FUTEX_BUCKETS = 256, RESOURCES = 16
-const RLIMIT_NOFILE = 7, RLIM_INFINITY = 0xffffffffffffffffn
+const RLIMIT_NPROC = 6, RLIMIT_NOFILE = 7, RLIM_INFINITY = 0xffffffffffffffffn
 function sharedState(buffer) {
   const rangesAt = HEADER_WORDS, cloexecAt = rangesAt + MAX_RANGES * 2, actionsAt = cloexecAt + MAX_FDS / 32
   const wakesAt = actionsAt + SIGNALS * 6, limitsAt = wakesAt + FUTEX_BUCKETS, sealedAt = limitsAt + RESOURCES * 4
@@ -2453,6 +2453,8 @@ let forked = false
 
 function forkCall() {
   if (!asyncify) return big(-ENOSYS)
+  // no count of the user's processes is kept here to hold against the limit; a limit of none at all is what can be told
+  if (asyncify.asyncify_get_state() !== ASYNCIFY_REWINDING && Atomics.load(state.limits, RLIMIT_NPROC * 2) === 0n) return big(-EAGAIN)
   if (asyncify.asyncify_get_state() === ASYNCIFY_REWINDING) {
     asyncify.asyncify_stop_rewind()
     return big(forkResult)

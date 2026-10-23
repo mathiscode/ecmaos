@@ -1,18 +1,13 @@
 # The libc-test tests (libc-test.wasm, build.sh) that fail on ecmaOS today, one per line with why. ../libc-test.test.ts
 # fails when a test not listed here fails, and when one listed here passes: take it off the list then.
 
-# System V IPC: what each does before it forks passes (its child's half is ../fixtures/wali-ipc.c's, by posix_spawn)
-functional.ipc_msg          fork: ENOSYS
-functional.ipc_sem          fork: ENOSYS
-functional.ipc_shm          fork: ENOSYS
+
+# file locks
+functional.fcntl            fcntl F_SETLK takes no lock and F_GETLK finds none (the host keeps no record locks), so the forked child's two checks fail
 
 # threads
 
 # processes and signals
-functional.vfork            vfork: ENOSYS (there is no fork)
-regression.daemon-failure   fork: ENOSYS
-regression.fflush-exit      fork: ENOSYS
-regression.pthread_exit-dtor  fork: ENOSYS
-regression.raise-race       fork: ENOSYS, in its handler (its 1000 raises and 100 pthread_kills all arrive)
+regression.raise-race       fork in a signal handler: JavaScript frames lie between _start and the call, which Asyncify cannot unwind (its 1000 raises and 100 pthread_kills all arrive)
 
 # memory and limits

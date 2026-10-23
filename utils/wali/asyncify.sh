@@ -8,6 +8,8 @@
 # The features are named one by one: --all-features also turns on encodings the engines do not read.
 # Usage: asyncify.sh <program.wasm>
 set -euo pipefail
+# a program that never links fork has nothing to unwind
+grep -aq SYS_fork "$1" || exit 0
 command -v wasm-opt > /dev/null || { echo "asyncify: wasm-opt (binaryen) not found" >&2; exit 1; }
 wasm-opt "$1" --asyncify --pass-arg=asyncify-imports@wali.SYS_fork -O2 \
   --enable-threads --enable-bulk-memory --enable-sign-ext --enable-mutable-globals --enable-nontrapping-float-to-int \
