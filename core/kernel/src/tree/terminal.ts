@@ -222,8 +222,13 @@ export class Terminal extends XTerm implements ITerminal {
   private _ttyInput: IDisposable | undefined
   private _ttyInputHolders = 0
   private _readlineActive = 0
-  /** Typed while a command ran and not read by it; replayed into the line editor after the next prompt */
-  private _typeahead = ''
+  /**
+   * Keys waiting for the one before to be handled: xterm does not wait for `keyHandler`, so a line typed while the
+   * previous one was starting ran beside it, or lost its first keys when the prompt was redrawn
+   */
+  private _keys: Promise<void> = Promise.resolve()
+  /** Bumped by `^C`, which throws away the keys waiting, as a terminal's interrupt does */
+  private _keysEpoch = 0
   private _ttySavedTermios: TTY['termios'] | undefined
   /**
    * The active hardware-accelerated renderer, once loaded in `mount()`. `undefined` when running
@@ -276,7 +281,7 @@ export class Terminal extends XTerm implements ITerminal {
       // `^C` and `^Z` have already thrown the queue away; what is left was typed for whoever reads next
       const ldisc = tty.ldisc as unknown as { buffer: number[], line: number[] }
       const queued = [...ldisc.buffer, ...ldisc.line]
-      if (queued.length) this._typeahead += new TextDecoder().decode(new Uint8Array(queued))
+      if (queued.length) this.queueText(new TextDecoder().decode(new Uint8Array(queued)))
       tty.ldisc.flush()
       if (this._ttySavedTermios) tty.set_termios(this._ttySavedTermios)
       this._ttySavedTermios = undefined
@@ -296,12 +301,30 @@ export class Terminal extends XTerm implements ITerminal {
     fit.fit()
   }
 
-  /** Feeds text typed while a command ran to the line editor, key by key, as if it had been typed at the prompt */
-  private async replayTypeahead(text: string): Promise<void> {
+  /**
+   * Hands a key to `keyHandler` once the keys before it are handled, and resolves when it is; a line's Enter is handled
+   * when its command has finished, so what is typed meanwhile waits for the next prompt. `^C` and `^Z` go straight
+   * through.
+   */
+  private queueKey = (event: { key: string, domEvent: KeyboardEvent }): Promise<void> => {
+    const { domEvent } = event
+    if (domEvent.ctrlKey && !domEvent.altKey && !domEvent.metaKey && (domEvent.key === 'c' || domEvent.key === 'z')) {
+      if (domEvent.key === 'c') this._keysEpoch++
+      return this.keyHandler(event)
+    }
+    const epoch = this._keysEpoch
+    this._keys = this._keys
+      .then(() => epoch === this._keysEpoch ? this.keyHandler(event) : undefined)
+      .catch(error => console.error('terminal: a key failed:', error))
+    return this._keys
+  }
+
+  /** Feeds text typed while a program ran, and not read by it, to the line editor after the keys already waiting */
+  private queueText(text: string) {
     for (const char of text) {
       const key = char === '\n' || char === '\r' ? 'Enter' : char
       const domEvent = { key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {}, stopPropagation() {} } as unknown as KeyboardEvent
-      await this.keyHandler({ key: key === 'Enter' ? '\r' : char, domEvent })
+      this.queueKey({ key: key === 'Enter' ? '\r' : char, domEvent })
     }
   }
 
@@ -516,7 +539,7 @@ export class Terminal extends XTerm implements ITerminal {
     })
 
     this._shortcutListener = this.onKey(this.shortcutKeyHandler.bind(this))
-    if (!this._isMobile) this._keyListener = this.onKey(this.keyHandler.bind(this))
+    if (!this._isMobile) this._keyListener = this.onKey(this.queueKey)
 
     // A shell may not exist yet (Kernel.createShell constructs Terminal first, the same way
     // Kernel's own constructor does) - attachShell() does this same setup once a real one is
@@ -781,7 +804,7 @@ export class Terminal extends XTerm implements ITerminal {
         this.element.addEventListener('keydown', this._ttySwitchHandler, true)
       }
       
-      this._keyListener = this.onKey(this.keyHandler.bind(this))
+      this._keyListener = this.onKey(this.queueKey)
     }
     
     this.events.dispatch<TerminalListenEvent>(TerminalEvents.LISTEN, { terminal: this })
@@ -827,7 +850,7 @@ export class Terminal extends XTerm implements ITerminal {
             cancelable: true
           })
           Object.defineProperty(fakeEvent, 'target', { value: mobileInput, enumerable: true })
-          this.keyHandler({ key: char, domEvent: fakeEvent as KeyboardEvent })
+          this.queueKey({ key: char, domEvent: fakeEvent as KeyboardEvent })
         }
       } else if (diff < 0) {
         const backspaceEvent = new KeyboardEvent('keydown', {
@@ -837,7 +860,7 @@ export class Terminal extends XTerm implements ITerminal {
           cancelable: true
         })
         Object.defineProperty(backspaceEvent, 'target', { value: mobileInput, enumerable: true })
-        this.keyHandler({ key: '\b', domEvent: backspaceEvent as KeyboardEvent })
+        this.queueKey({ key: '\b', domEvent: backspaceEvent as KeyboardEvent })
       }
       
       lastValue = currentValue
@@ -858,7 +881,7 @@ export class Terminal extends XTerm implements ITerminal {
         })
         Object.defineProperty(enterEvent, 'target', { value: mobileInput, enumerable: true })
         
-        await this.keyHandler({ key: '\r', domEvent: enterEvent as KeyboardEvent })
+        await this.queueKey({ key: '\r', domEvent: enterEvent as KeyboardEvent })
         
         setTimeout(() => {
           mobileInput.value = ''
@@ -880,7 +903,7 @@ export class Terminal extends XTerm implements ITerminal {
         })
         Object.defineProperty(fakeEvent, 'target', { value: mobileInput, enumerable: true })
         
-        await this.keyHandler({ key: e.key, domEvent: fakeEvent as KeyboardEvent })
+        await this.queueKey({ key: e.key, domEvent: fakeEvent as KeyboardEvent })
         
         setTimeout(() => {
           mobileInput.value = this._cmd
@@ -906,7 +929,7 @@ export class Terminal extends XTerm implements ITerminal {
         })
         Object.defineProperty(fakeEvent, 'target', { value: mobileInput, enumerable: true })
         
-        await this.keyHandler({ key: e.key, domEvent: fakeEvent as KeyboardEvent })
+        await this.queueKey({ key: e.key, domEvent: fakeEvent as KeyboardEvent })
       }
     }
     
@@ -944,7 +967,7 @@ export class Terminal extends XTerm implements ITerminal {
         cancelable: true
       })
       Object.defineProperty(fakeEvent, 'target', { value: mobileInput, enumerable: true })
-      this.keyHandler({ key, domEvent: fakeEvent })
+      this.queueKey({ key, domEvent: fakeEvent })
     })
   }
 
@@ -1567,7 +1590,6 @@ export class Terminal extends XTerm implements ITerminal {
           this._commandNumber++
 
           const epoch = this._stopEpoch
-          this._typeahead = ''
           try {
             this.events.dispatch<TerminalExecuteEvent>(TerminalEvents.EXECUTE, { terminal: this, command: cmdToExecute })
             await this._shell.execute(cmdToExecute)
@@ -1582,9 +1604,6 @@ export class Terminal extends XTerm implements ITerminal {
               if (this._keyListener === undefined) this.listen()
               this._editor.reset()
               await this.drawPrompt(this.promptLead())
-              const typeahead = this._typeahead
-              this._typeahead = ''
-              if (typeahead) await this.replayTypeahead(typeahead)
             }
           }
         } else {

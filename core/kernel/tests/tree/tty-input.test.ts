@@ -66,7 +66,8 @@ describe('TTY line discipline input for foreground worker programs', () => {
     await kernel.filesystem.fs.writeFile('/tmp/tty-busy.js', 'await new Promise(r => setTimeout(r, 400))', { mode: 0o755 })
     await kernel.filesystem.fs.rm('/tmp/tty-ahead.out', { force: true })
 
-    const key = (k: string, name = k) => (kernel.terminal as unknown as { keyHandler(e: { key: string, domEvent: unknown }): Promise<void> }).keyHandler({ key: k, domEvent: { key: name, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {} } })
+    // as the key listeners do: a key waits for the one before, so the Enter's prompt is drawn before typeahead is replayed
+    const key = (k: string, name = k) => (kernel.terminal as unknown as { queueKey(e: { key: string, domEvent: unknown }): Promise<void> }).queueKey({ key: k, domEvent: { key: name, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, preventDefault() {} } })
     for (const char of '/tmp/tty-busy.js') await key(char)
     void key('\r', 'Enter')
     await foregroundReady()
