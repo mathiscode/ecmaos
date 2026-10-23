@@ -77,6 +77,15 @@ describe('WindowServer', () => {
     expect(win.info.state).toBe('normal')
   })
 
+  it('records where the renderer put a new window, so a centred one keeps its place when resized', () => {
+    const { server, renderer } = setup()
+    renderer.create = (info: WindowInfo) => ({ geometry: { ...info.geometry, x: 300, y: 200 } })
+    const win = server.create({ id: 'a', x: 'center', y: 'center', width: 400, height: 250 })
+    expect(win.info.geometry).toEqual({ x: 300, y: 200, width: 400, height: 250 })
+    win.resize(420, 280)
+    expect(renderer.updates.at(-1)?.geometry).toEqual({ x: 300, y: 200, width: 420, height: 280 })
+  })
+
   it('updates title and geometry and tells the renderer', () => {
     const { server, renderer } = setup()
     const win = server.create({ id: 'a' })

@@ -198,6 +198,7 @@ export class WindowServer implements Windows {
     if (drawn) {
       entry.body = drawn.body
       entry.dom = drawn.dom
+      if (drawn.geometry) info.geometry = { ...drawn.geometry }
     }
 
     this._entries.set(id, entry)

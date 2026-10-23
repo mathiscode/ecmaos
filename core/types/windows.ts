@@ -125,8 +125,11 @@ export interface WindowRenderer {
   supports(kind: WindowKind): boolean
   /** Receives the callbacks used to report user actions */
   attach(reports: WindowReports): void
-  /** Draws a new window and returns the renderer's content element for DOM renderers */
-  create(info: WindowInfo, options: WindowOptions): { body?: HTMLElement, dom?: HTMLElement } | void
+  /**
+   * Draws a new window and returns the renderer's content element for DOM renderers, and the geometry it gave the window
+   * when that is not `info.geometry` (a window asked to be centred, or put outside the work area)
+   */
+  create(info: WindowInfo, options: WindowOptions): { body?: HTMLElement, dom?: HTMLElement, geometry?: WindowGeometry } | void
   update(info: WindowInfo): void
   close(id: WindowId): void
   /** Shows `content` in a window drawn without the DOM; absent on renderers that mount elements */

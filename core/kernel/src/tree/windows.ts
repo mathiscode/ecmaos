@@ -133,7 +133,8 @@ export class WinBoxRenderer implements WindowRenderer {
 
     const box = new WinBoxCtor(params) as WinBoxState
     this._boxes.set(id, box)
-    return { body: box.body as HTMLElement, dom: box.dom as HTMLElement }
+    // where WinBox put it: a centred window was recorded at 0, 0
+    return { body: box.body as HTMLElement, dom: box.dom as HTMLElement, geometry: { x: box.x, y: box.y, width: box.width, height: box.height } }
   }
 
   update(info: WindowInfo) {
