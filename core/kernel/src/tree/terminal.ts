@@ -229,6 +229,8 @@ export class Terminal extends XTerm implements ITerminal {
   private _keys: Promise<void> = Promise.resolve()
   /** Bumped by `^C`, which throws away the keys waiting, as a terminal's interrupt does */
   private _keysEpoch = 0
+  /** Resolvers of the keys being handled; `^Z` calls them, since a stopped command's Enter never finishes */
+  private _keysStopped = new Set<() => void>()
   private _ttySavedTermios: TTY['termios'] | undefined
   /**
    * The active hardware-accelerated renderer, once loaded in `mount()`. `undefined` when running
@@ -278,7 +280,7 @@ export class Terminal extends XTerm implements ITerminal {
       if (--this._ttyInputHolders > 0) return
       this._ttyInput?.dispose()
       this._ttyInput = undefined
-      // `^C` and `^Z` have already thrown the queue away; what is left was typed for whoever reads next
+      // `^C` has already thrown the queue away, and `^Z` has released it; what is left was typed for whoever reads next
       const ldisc = tty.ldisc as unknown as { buffer: number[], line: number[] }
       const queued = [...ldisc.buffer, ...ldisc.line]
       if (queued.length) this.queueText(new TextDecoder().decode(new Uint8Array(queued)))
@@ -314,7 +316,11 @@ export class Terminal extends XTerm implements ITerminal {
     }
     const epoch = this._keysEpoch
     this._keys = this._keys
-      .then(() => epoch === this._keysEpoch ? this.keyHandler(event) : undefined)
+      .then(() => {
+        if (epoch !== this._keysEpoch) return
+        const stopped = new Promise<void>(resolve => this._keysStopped.add(resolve))
+        return Promise.race([this.keyHandler(event), stopped])
+      })
       .catch(error => console.error('terminal: a key failed:', error))
     return this._keys
   }
@@ -1358,6 +1364,10 @@ export class Terminal extends XTerm implements ITerminal {
       this.write(`\n[${job.id}]+  Stopped                 ${job.commandLine}\n`)
       this._stopEpoch++
     }
+
+    // a stopped command has given the prompt back, so the Enter that ran it is handled and the keys behind it go on
+    for (const release of this._keysStopped) release()
+    this._keysStopped.clear()
 
     this._editor.reset()
     this.unlisten()

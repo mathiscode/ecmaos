@@ -63,4 +63,17 @@ describe('Terminal typeahead', () => {
     type('echo kept >> /tmp/ta-c\n')
     expect(await settle('/tmp/ta-c', 1)).toBe('kept\n')
   }, 20_000)
+
+  it('takes lines typed after ^Z, while the stopped command is still stopped', async () => {
+    type('/bin/sleep 30\n')
+    await new Promise(resolve => setTimeout(resolve, 500))
+    const input = (kernel.terminal as unknown as { _mobileInputElement: HTMLInputElement })._mobileInputElement
+    // the touch input does not forward ^Z, so it goes in as the listeners hand it over
+    void (kernel.terminal as unknown as { queueKey(e: unknown): Promise<void> })
+      .queueKey({ key: '\x1a', domEvent: new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }) })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    type('echo after >> /tmp/ta-d\n')
+    expect(await settle('/tmp/ta-d', 1)).toBe('after\n')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }))
+  }, 20_000)
 })
