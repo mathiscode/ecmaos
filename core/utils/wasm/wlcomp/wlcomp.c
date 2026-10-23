@@ -999,7 +999,14 @@ static void send_selection(struct client *c) {
   if (!offer) return;
   ev(c, c->ddev, 0, "u", offer);
   if (sel.text) { ev(c, offer, 0, "s", text_mimes[0]); ev(c, offer, 0, "s", text_mimes[1]); }
-  else { struct dsource *d = src->data; for (int i = 0; i < d->nmimes; i++) ev(c, offer, 0, "s", d->mimes[i]); }
+  else {
+    /* SDL offers its device's id under its own type so it can tell its own copy from another's; a client that sees it
+     * asks the source for the id and gives the copy up if it takes over 14ms to come, which it can when the system is
+     * busy. Only the client that made the copy is shown it: the others cannot be its owner. */
+    struct dsource *d = src->data;
+    for (int i = 0; i < d->nmimes; i++)
+      if (c == sel.client || strcmp(d->mimes[i], "application/x-sdl3-source-id") != 0) ev(c, offer, 0, "s", d->mimes[i]);
+  }
   ev(c, c->ddev, 5, "u", offer);
 }
 

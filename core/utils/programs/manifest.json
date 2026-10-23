@@ -152,8 +152,8 @@
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 176927,
-      "sha256": "165b948f5b78aeed3e4dee4bbae180b92ee5086cc88ec89c0fd73de2692a55ce"
+      "size": 177013,
+      "sha256": "e540923e7ede81da293914864dabcb2158a47dd4f387e70541fdf00c80076138"
     },
     "wldemo": {
       "file": "wldemo.wasm",
