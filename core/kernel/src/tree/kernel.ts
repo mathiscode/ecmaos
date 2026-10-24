@@ -22,6 +22,7 @@ import semver from 'semver'
 import { bindContext, boundContexts, Credentials, fs as zenfsFs } from '@zenfs/core'
 import { char_dev, current as zenfsCurrent, Device, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
+import { UsbRegistry } from '#lib/usb-bus.ts'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
 import { char_dev_init as initMemDevices } from '@zenfs/linux/drivers/char/mem'
 import { of_platform_populate as populatePlatformBus } from '@zenfs/linux/drivers/of/device_tree'
@@ -215,6 +216,12 @@ export interface KernelSession {
 
 /** The buses made for programs to read, once per process (sysfs is shared by every kernel in it) */
 const emptyBuses = new Map<string, BusType>()
+let usbDevices: UsbRegistry | undefined
+/** What `/sys/bus/usb/devices` holds; it is made with the bus, so a package that reports before boot reaches it is not lost */
+const usbRegistry = () => {
+  if (!emptyBuses.has('usb')) emptyBuses.set('usb', new BusType('usb'))
+  return (usbDevices ??= new UsbRegistry(emptyBuses.get('usb')!))
+}
 
 export class Kernel implements IKernel {
   /** Unique identifier for this kernel instance */
@@ -357,7 +364,7 @@ export class Kernel implements IKernel {
 
   /** The cross-cutting primitives a subsystem or driver may depend on, with no back-reference to the Kernel itself */
   get context(): KernelContext {
-    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n, devices: this.hotplug }
+    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n, devices: this.hotplug, usb: { sync: (source, devices) => usbRegistry().sync(source, devices) } }
   }
 
   constructor(_options: KernelOptions = DefaultKernelOptions) {
@@ -621,6 +628,7 @@ export class Kernel implements IKernel {
 
       // A Linux machine has the usb and pci buses even with nothing on them; lsusb and lspci read /sys/bus/<name>/devices
     for (const name of ['usb', 'pci']) if (!emptyBuses.has(name)) emptyBuses.set(name, new BusType(name))
+    usbRegistry()
     // OpenSSL's default places (python3's ssl, and anything else built on it) hold the CA bundle the initfs ships
       await this.filesystem.fs.mkdir('/etc/ssl/certs', { recursive: true, mode: 0o755 }).catch(() => {})
       for (const link of ['/etc/ssl/cert.pem', '/etc/ssl/certs/ca-certificates.crt']) {

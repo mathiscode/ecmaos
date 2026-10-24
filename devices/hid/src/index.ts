@@ -174,6 +174,8 @@ export async function syncHid(ctx: KernelContext | undefined = watching): Promis
   if (!ctx || typeof navigator === 'undefined' || !('hid' in navigator)) return
   try {
     const devices = await navigator.hid.getDevices()
+    // a device the browser has allowed is plugged in, so it is on the USB bus (WebHID does not say whether it is Bluetooth)
+    ctx.usb.sync(pkg.name, devices.map(device => ({ vendor: device.vendorId, product: device.productId, name: device.productName || undefined })))
     ops ??= sessionOperations({
       async open(minor) {
         const devices = await navigator.hid.getDevices()

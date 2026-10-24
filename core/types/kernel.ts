@@ -48,6 +48,19 @@ import type {
  * The primitives every subsystem may depend on, with no back-reference to the Kernel. A subsystem that needs another
  * declares a narrow `deps` interface (typically a `Pick<>` of that sibling) instead of growing this type.
  */
+export interface KernelUsbDevice {
+  /** `idVendor` */
+  vendor: number
+  /** `idProduct` */
+  product: number
+  /** `bcdDevice`, when the browser says */
+  version?: number
+  manufacturer?: string
+  /** The product name */
+  name?: string
+  serial?: string
+}
+
 export interface KernelContext {
   /** Unique identifier for this kernel instance */
   readonly id: string
@@ -65,6 +78,12 @@ export interface KernelContext {
   readonly devices: {
     /** Gives `driver` (a device of package `pkg`) its node; the function returned takes it away, and a file still open on it gets `ENODEV` */
     add(pkg: string, driver: KernelCharDevice): () => void
+  }
+
+  /** The USB devices a package holds, for `/sys/bus/usb/devices` (and so `lsusb`) */
+  readonly usb: {
+    /** Says which devices `source` (a package's name) holds now; the whole list each time. A device two sources hold is one entry */
+    sync(source: string, devices: KernelUsbDevice[]): void
   }
 }
 

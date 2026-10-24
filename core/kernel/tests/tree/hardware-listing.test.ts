@@ -66,6 +66,36 @@ describe('lsblk, lsusb and lspci', () => {
     expect((await run('lsblk --bogus')).code).toBe(1)
   }, 60000)
 
+  it('lsusb lists the devices the packages hold, a device two of them hold once, and drops one that goes', async () => {
+    const { usb } = kernel.context
+    usb.sync('serial', [{ vendor: 0x2341, product: 0x43 }])
+    expect((await run('lsusb')).out).toBe('Bus 001 Device 001: ID 2341:0043  \n')
+
+    // the same board as an HID device with its name, and a WebUSB device with a serial number
+    usb.sync('hid', [{ vendor: 0x2341, product: 0x43, name: 'Uno' }, { vendor: 0x046d, product: 0xc52b }])
+    usb.sync('usb', [{ vendor: 0x2341, product: 0x43, manufacturer: 'Arduino SA', name: 'Uno', serial: 'ABC123', version: 0x100 }])
+    const listing = (await run('lsusb')).out.replace(/\n$/, '').split('\n')
+    expect(listing).toEqual(['Bus 001 Device 001: ID 2341:0043  ', 'Bus 001 Device 002: ID 046d:c52b  '])
+
+    const fs = kernel.filesystem.fs
+    expect(await fs.readdir('/sys/bus/usb/devices')).toEqual(['1-1', '1-2'])
+    const read = (file: string) => fs.readFile(`/sys/bus/usb/devices/1-1/${file}`, 'utf8')
+    expect(await read('idVendor')).toBe('2341\n')
+    expect(await read('idProduct')).toBe('0043\n')
+    expect(await read('manufacturer')).toBe('Arduino SA\n')
+    expect(await read('product')).toBe('Uno\n')
+    expect(await read('serial')).toBe('ABC123\n')
+    expect(await read('uevent')).toContain('PRODUCT=2341/43/100')
+
+    // the first device goes: the other keeps its number
+    usb.sync('serial', [])
+    usb.sync('hid', [{ vendor: 0x046d, product: 0xc52b }])
+    usb.sync('usb', [])
+    expect((await run('lsusb')).out).toBe('Bus 001 Device 002: ID 046d:c52b  \n')
+    usb.sync('hid', [])
+    expect((await run('lsusb')).out).toBe('')
+  }, 60000)
+
   it('has the usb and pci buses, and lsusb and lspci list nothing on them', async () => {
     expect(await kernel.filesystem.fs.readdir('/sys/bus/usb/devices')).toEqual([])
     expect(await kernel.filesystem.fs.readdir('/sys/bus/pci/devices')).toEqual([])

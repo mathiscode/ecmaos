@@ -131,6 +131,8 @@ Commands:
   }
 }
 
+let watching = false
+
 /** `/sys/class/usb` */
 const usb_class = new Class('usb')
 
@@ -155,6 +157,20 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
   const drivers: KernelCharDevice[] = [{ name: 'usb', major: 180, minor: 0, class: usb_class, ops: controlOperations }]
   if (typeof navigator === 'undefined' || !navigator.usb) return drivers
   const devices = await navigator.usb.getDevices()
+  const report = async () => ctx.usb.sync('usb', (await navigator.usb.getDevices()).map(device => ({
+    vendor: device.vendorId,
+    product: device.productId,
+    version: (device.deviceVersionMajor << 8) | (device.deviceVersionMinor << 4) | device.deviceVersionSubminor,
+    manufacturer: device.manufacturerName || undefined,
+    name: device.productName || undefined,
+    serial: device.serialNumber || undefined
+  })))
+  await report()
+  if (!watching) {
+    watching = true
+    navigator.usb.addEventListener('connect', () => { void report() })
+    navigator.usb.addEventListener('disconnect', () => { void report() })
+  }
   const ops = usbOperations(ctx.log)
   const numbers = await minors.assign(devices.map(usbKey))
   numbers.forEach(minor => drivers.push({ name: `usb${minor - 1}`, major: 180, minor, class: usb_class, ops }))

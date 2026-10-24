@@ -121,6 +121,15 @@ interface Line {
 
 const lines = new Map<TTY, Line>()
 let log: KernelContext['log'] | undefined
+let usb: KernelContext['usb'] | undefined
+
+/** Tells the kernel which USB devices the ports are (a Bluetooth port has no ids and is not one), for /sys/bus/usb */
+function reportUsb() {
+  usb?.sync('serial', [...lines.values()].filter(line => !line.hungUp).flatMap(line => {
+    const { usbVendorId, usbProductId } = line.port.getInfo()
+    return usbVendorId === undefined ? [] : [{ vendor: usbVendorId, product: usbProductId ?? 0 }]
+  }))
+}
 
 const lineOf = (tty: TTY) => {
   const line = lines.get(tty)
@@ -375,6 +384,7 @@ export function attachPort(port: SerialPort): string {
   lines.set(tty, line)
   tty.register()
   void linkById(line, others).catch(() => { /* the name in /dev is enough */ })
+  reportUsb()
   const { usbVendorId, usbProductId } = port.getInfo()
   const ids = usbVendorId === undefined ? '' : ` (${hex(usbVendorId)}:${hex(usbProductId ?? 0)})`
   if (kind === 'cdc_acm') log?.info(`cdc_acm: ${tty.name}: USB ACM device${ids}`)
@@ -399,6 +409,7 @@ function hangUp(line: Line) {
   try { line.tty.unregister() } catch { /* already gone */ }
   if (line.byId) void fs.promises.unlink(`/dev/serial/by-id/${line.byId}`).catch(() => {})
   log?.info(`serial: ${line.tty.name}: disconnected`)
+  reportUsb()
   // whatever the line is the controlling terminal of is told, as `tty_hangup` does
   line.tty.signal(Signal.HUP)
   line.tty.wake_read()
@@ -414,6 +425,7 @@ export function detachPort(port: SerialPort): void {
 /** The drivers, with a line for each port the browser has already granted; told to the kernel once per realm */
 export async function serialTerminals(ctx: KernelContext): Promise<TTYDriver[]> {
   log = ctx.log
+  usb = ctx.usb
   const drivers = [acmDriver, usbSerialDriver, rfcommDriver]
   if (typeof navigator === 'undefined' || !navigator.serial) return drivers
   for (const port of await navigator.serial.getPorts()) attachPort(port)

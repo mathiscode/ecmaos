@@ -57,12 +57,17 @@ describe('a serial port as /dev/ttyACM0', () => {
   })
 
   const fs = () => kernel.filesystem.fs
+  const lsusb = async () => { await kernel.shell.execute('lsusb > /tmp/lsusb.out'); return (await fs().readFile('/tmp/lsusb.out', 'utf8')).trim() }
 
   it('is there at boot, with a name under /dev/serial/by-id that stays with the device', async () => {
     const stat = await fs().stat('/dev/ttyACM0') as unknown as { rdev: number | bigint }
     expect(Number(BigInt(stat.rdev) >> 20n)).toBe(166)
     expect(await fs().readlink('/dev/serial/by-id/usb-2341_0043-if00')).toBe('../../ttyACM0')
     expect(await fs().exists('/dev/ttyS0')).toBe(false)
+  })
+
+  it('is a device on the USB bus, as lsusb shows', async () => {
+    expect(await lsusb()).toBe('Bus 001 Device 001: ID 2341:0043')
   })
 
   it('a program opens it, sets it raw at 115200, and talks to the device', async () => {
@@ -181,6 +186,7 @@ describe('a serial port as /dev/ttyACM0', () => {
     await proc.exited
     expect(await fs().exists('/dev/ttyACM0')).toBe(false)
     expect(await fs().exists('/dev/serial/by-id/usb-2341_0043-if00')).toBe(false)
+    expect(await lsusb()).toBe('')
     pty.close()
   }, 60000)
 })
