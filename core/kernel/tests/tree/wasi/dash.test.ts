@@ -67,4 +67,11 @@ describe('dash', () => {
     expect(await run('cat <<EOF | tr a-z A-Z | tee /tmp/dash-tee\nline a\nline b\nEOF\ncat /tmp/dash-tee | wc -l | tr -d " "\n'))
       .toEqual({ code: 0, out: 'LINE A\nLINE B\n2\n', err: '' })
   }, 30000)
+
+  // dash runs a builtin through a pointer, and Asyncify is told that call reaches fork (wasm/dash/build.sh); these are the
+  // builtins that run commands, and the other places that do
+  it('forks under eval, a sourced file, a function, a trap and a command prefix', async () => {
+    expect(await run('eval \'echo e | tr e E\'\necho \'echo s | tr s S\' > /tmp/dash-src\n. /tmp/dash-src\nf() { (echo f | tr f F); echo "$(echo g)"; }\nf\ncommand echo c | tr c C\ntrap \'echo t | tr t T\' EXIT\nexec 3>&1\nx=$(eval \'(echo n)\')\necho "$x"\n'))
+      .toEqual({ code: 0, out: 'E\nS\nF\ng\nC\nn\nT\n', err: '' })
+  }, 30000)
 })

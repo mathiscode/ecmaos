@@ -12,6 +12,13 @@
 #   ECMAOS_WALI_ASYNCIFY_ARGS     more Binaryen options for the pass, such as --pass-arg=asyncify-removelist@name,... to
 #                                 keep the functions that cannot reach fork out of it (`asyncify-ignore-indirect` is
 #                                 not one to add alone: a fork reached through a function pointer then traps)
+#   ECMAOS_WALI_ASYNCIFY_INDIRECT the functions (comma separated) whose calls through a pointer can reach fork, such as
+#                                 dash's evalbltin, which runs a builtin. Asyncify then rewrites only the functions that
+#                                 can reach fork by direct calls and these (asyncify-reach.mjs), where it would take every
+#                                 call through a pointer for one that does: dash grows by 12% where it grows by half, and
+#                                 its shell loop is 10% slower where it is 65%. It needs the program's function names, which
+#                                 wasm-ld leaves out of a program linked with -O2 (link without it), and a function it
+#                                 misses is one whose fork traps in the child
 #
 # The features are named one by one: --all-features also turns on encodings the engines do not read.
 # Usage: asyncify.sh <program.wasm>
@@ -21,8 +28,15 @@ grep -aq asyncify_start_unwind "$1" && exit 0
 [ -z "${ECMAOS_WALI_NO_ASYNCIFY:-}" ] || exit 0
 command -v wasm-opt > /dev/null || { echo "asyncify: $1 links fork, which needs wasm-opt (Binaryen, see utils/wali-version); ECMAOS_WALI_NO_ASYNCIFY=1 builds it without" >&2; exit 1; }
 before=$(stat -c %s "$1")
+only=
+strip=
+if [ -n "${ECMAOS_WALI_ASYNCIFY_INDIRECT:-}" ]; then
+  only=--pass-arg=asyncify-onlylist@$(node "$(dirname "$0")/asyncify-reach.mjs" "$1" "$ECMAOS_WALI_ASYNCIFY_INDIRECT")
+  # the names were only for the list
+  strip=--strip-debug
+fi
 # shellcheck disable=SC2086
-wasm-opt "$1" --asyncify --pass-arg=asyncify-imports@wali.SYS_fork ${ECMAOS_WALI_ASYNCIFY_ARGS:-} -O2 \
+wasm-opt "$1" --asyncify --pass-arg=asyncify-imports@wali.SYS_fork $only ${ECMAOS_WALI_ASYNCIFY_ARGS:-} -O2 $strip \
   --enable-threads --enable-bulk-memory --enable-sign-ext --enable-mutable-globals --enable-nontrapping-float-to-int \
   --enable-multivalue --enable-reference-types --enable-exception-handling -o "$1"
 echo "wali: $(basename "$1") links fork, so Asyncify rewrote it ($before to $(stat -c %s "$1") bytes, and its functions that can reach fork run slower)" >&2

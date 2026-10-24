@@ -32,8 +32,8 @@
       "description": "dash, the Debian Almquist shell (a POSIX sh); it forks, so it is built with Asyncify",
       "homepage": "http://gondor.apana.org.au/~herbert/dash/",
       "toolchain": "wali",
-      "size": 268250,
-      "sha256": "d6e16c9ea49ebe1334036b47b106ca5122aeab14d039e5b9e2d0af7148211703"
+      "size": 199788,
+      "sha256": "0d045edeb16992e486aba937589543d9372a74fdafc53454264cc1989ec826a2"
     },
     "jq": {
       "file": "jq.wasm",

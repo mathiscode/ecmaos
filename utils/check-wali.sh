@@ -50,7 +50,7 @@ if [ -z "$_wali_ld" ]; then
 fi
 _wali_ld_version=$("$_wali_ld" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
 
-_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir/wali/signal-checks.mjs" "$_wali_dir/wali/asyncify.sh" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
+_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir/wali/signal-checks.mjs" "$_wali_dir/wali/asyncify.sh" "$_wali_dir/wali/asyncify-reach.mjs" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
 WALI_SYSROOT=${ECMAOS_WALI_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/ecmaos/wali}/$_wali_key
 if [ ! -x "$WALI_SYSROOT/bin/wali-cc" ]; then
   mkdir -p "$(dirname "$WALI_SYSROOT")"

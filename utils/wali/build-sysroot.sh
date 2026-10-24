@@ -118,6 +118,7 @@ ninja -C "$WORK/cxx" install >> "$WORK/cxx.log" 2>&1 || { tail -30 "$WORK/cxx.lo
 # (signal-checks.mjs, kept beside them), and one that links fork is made able to (asyncify.sh).
 cp "$(dirname "$0")/signal-checks.mjs" "$STAGE/bin/signal-checks.mjs"
 cp "$(dirname "$0")/asyncify.sh" "$STAGE/bin/asyncify.sh"
+cp "$(dirname "$0")/asyncify-reach.mjs" "$STAGE/bin/asyncify-reach.mjs"
 for tool in cc c++; do
   driver=clang; extra=""
   [ "$tool" = c++ ] && driver=clang++ && extra="-stdlib=libc++"
