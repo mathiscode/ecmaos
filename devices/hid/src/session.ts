@@ -2,12 +2,13 @@
 
 /**
  * A WebHID device as a device session. Each input report is one read chunk: the report id (0 when the device has none)
- * then the report's data. A write is the same shape, sent as an output report. Controls: `get-feature`, `set-feature`
- * and `collections`.
+ * then the report's data. A write is the same shape, sent as an output report. Controls: `get-feature`, `set-feature`,
+ * `collections` and `descriptor` (a report descriptor written from the collections).
  */
 
 import { Feed, SessionError } from '@ecmaos-devices/session'
 import type { DeviceSession, Plain } from '@ecmaos-devices/session'
+import { reportDescriptor } from './descriptor.js'
 
 export type HidDeviceSession = DeviceSession
 export { SessionError as HidError }
@@ -57,6 +58,7 @@ export async function openHidSession(device: HIDDevice): Promise<HidDeviceSessio
           await device.sendFeatureReport(args[0], args[1] as Uint8Array<ArrayBuffer>)
           return null
         }
+        case 'descriptor': return reportDescriptor(device.collections)
         case 'collections': return JSON.parse(JSON.stringify(device.collections)) as Plain
         default: throw new HidError('ENOSYS', `no such operation: ${op.slice(0, 32)}`)
       }

@@ -125,6 +125,20 @@ export interface SessionNodeOptions {
    * default 3000 ms
    */
   idleMs?: number
+  /**
+   * Each chunk the device produces is a whole message (a HID report): a read gives one and no more, and what does not fit in
+   * the caller's buffer is dropped, as a datagram's is. Without it, reads run chunks together as a stream.
+   */
+  packets?: boolean
+  /**
+   * Requests the node answers with `ioctl`, for a device whose driver has controls a program reaches by number (hidraw's
+   * `HIDIOCGFEATURE`). `accepts` says which numbers are the driver's; `run` answers one against the open session (waiting for
+   * it, if it is still opening), with the bytes to give back or a count, or a promise of either.
+   */
+  ioctl?: {
+    accepts(request: number): boolean
+    run(session: DeviceSession, request: number, arg: unknown, minor: number): unknown
+  }
 }
 
 /** What an open `/dev` node is: the session, opened when the node is, and the bytes it has produced that nobody has read yet */
@@ -137,8 +151,11 @@ interface Link {
   queue: WaitQueue
   /** The device has ended (unplugged, closed) or could not be opened */
   ended: boolean
+  /** Settles once the session is open (or could not be) */
+  opened: Promise<void>
   /** The session has nothing to read (a write-only device), so a read gives the end of the file while writes still go through */
   unreadable?: boolean
+  settle?: () => void
   failure?: string
   /** The errno the failure came with (a `SessionError`'s code), when it names one */
   failureCode?: string
@@ -176,6 +193,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
       const session = await options.open(minor)
       if (links.get(minor) !== link) { void Promise.resolve(session.close()).catch(() => {}); return }
       link.session = session
+      link.settle?.()
       link.queue.wake_up()
       if (!session.read) { link.unreadable = true; link.queue.wake_up(); return }
       for (;;) {
@@ -190,6 +208,7 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
     } finally {
       // A session that is only written to has not ended because it has nothing to read
       if (!link.unreadable || link.failure) link.ended = true
+      link.settle?.()
       link.queue.wake_up()
     }
   }
@@ -215,7 +234,10 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
   }
 
   const create = (minor: number) => {
-    const found: Link = { chunks: [], size: 0, pending: 0, queue: new WaitQueue(), ended: false, references: 0, touched: Date.now() }
+    let settle!: () => void
+    const opened = new Promise<void>(resolve => { settle = resolve })
+    const found: Link = { chunks: [], size: 0, pending: 0, queue: new WaitQueue(), ended: false, references: 0, touched: Date.now(), opened }
+    found.settle = settle
     links.set(minor, found)
     void start(minor, found)
     return found
@@ -254,8 +276,9 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
         const count = Math.min(chunk.length, end - start - done)
         buffer.set(chunk.subarray(0, count), start + done)
         done += count
-        if (count === chunk.length) found.chunks.shift()
+        if (count === chunk.length || options.packets) found.chunks.shift()
         else found.chunks[0] = chunk.subarray(count)
+        if (options.packets) { found.size -= chunk.length - count; break }
       }
       found.size -= done
       return done
@@ -285,8 +308,27 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
       if (found.ended || (found.session?.write && found.pending < maxPending)) events |= EPOLLOUT
       return events
     },
-    poll_wait: file => links.get(file.devt.minor)?.queue
+    poll_wait: file => links.get(file.devt.minor)?.queue,
+    ...(options.ioctl && { ioctl: sessionIoctl(options.ioctl, file => link(file)) })
   }
+}
+
+/** The `ioctl` table of a session node: any request the driver `accepts` is run against the node's session once it is open */
+function sessionIoctl(driver: NonNullable<SessionNodeOptions['ioctl']>, linkOf: (file: { devt: { minor: number } }) => Link): FileOperations['ioctl'] {
+  return new Proxy({}, {
+    get: (_target, key) => {
+      const request = Number(key)
+      if (!Number.isInteger(request) || !driver.accepts(request >>> 0)) return undefined
+      return async (_context: unknown, file: { devt: { minor: number } }, arg?: unknown) => {
+        const found = linkOf(file)
+        await found.opened
+        if (found.ended && !found.session) throw withErrno((found.failureCode ?? 'ENODEV') as Parameters<typeof withErrno>[0], found.failure)
+        if (!found.session || found.ended) throw withErrno('ENODEV')
+        return await driver.run(found.session, request >>> 0, arg, file.devt.minor)
+      }
+    },
+    has: (_target, key) => Number.isInteger(Number(key)) && driver.accepts(Number(key) >>> 0)
+  }) as FileOperations['ioctl']
 }
 
 /**

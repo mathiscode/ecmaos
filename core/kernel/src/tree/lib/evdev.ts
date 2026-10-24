@@ -8,7 +8,7 @@
 
 import { Class, Device, EPOLLIN, EPOLLOUT, syscalls, thread_of, WaitQueue } from '@zenfs/linux'
 import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
-import { ioctlSync } from '@zenfs/core/vfs/ioctl'
+import { ioctl as ioctlAsync, ioctlSync } from '@zenfs/core/vfs/ioctl'
 import { withErrno } from 'kerium'
 import { registerMinor } from './dynamic-minors.ts'
 import { destroyGlContextsOf, setGlCaller } from './gl.ts'
@@ -331,6 +331,7 @@ const FbType = 0x46 // 'F'
 const GlType = 0x47 // 'G': the GL devices (see gl.ts)
 const RtcType = 0x70 // 'p': the real-time clock (see rtc.ts)
 const JoystickType = 0x6a // 'j': the joystick API's nodes (see gamepads.ts)
+const HidType = 0x48 // 'H': hidraw (see devices/hid), whose reports come from the browser and are waited for
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -475,13 +476,18 @@ export function installEvdevIoctl() {
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
-    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType && type !== JoystickType) return original(proc, fd, request, arg)
+    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType && type !== JoystickType && type !== HidType) return original(proc, fd, request, arg)
     if (type === GlType) {
       setGlCaller(proc.pid)
       if (!glWatched.has(proc.pid)) {
         glWatched.add(proc.pid)
         void proc.exited.then(() => { glWatched.delete(proc.pid); destroyGlContextsOf(proc.pid) })
       }
+    }
+    // a feature report is asked of the device and comes back later: the syscall answers when it has
+    if (type === HidType) {
+      return (ioctlAsync as unknown as (this: unknown, ...args: unknown[]) => Promise<unknown>).call(proc.context, fd, request, arg)
+        .then(value => value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0)
     }
     let value: unknown
     try { value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg) } finally { setGlCaller(undefined) }

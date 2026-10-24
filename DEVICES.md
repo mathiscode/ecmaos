@@ -93,7 +93,7 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 227 | 128 | `glctl` | Asks for a GL context before a program has one |
 | 0 (dynamic) | 0 | `serial` | WebSerial's control node; the ports are `ttyACM<n>`, `ttyUSB<n>` and `rfcomm<n>` above |
 | 0 (dynamic) | 0, 1+n | `bluetooth`, `ble<n>` | One per paired Bluetooth LE device, which has no node on Linux; the number stays with the device |
-| 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID; major 13 belongs to `input` |
+| 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID. `hidraw<n>` takes Linux's `HIDIOCGRAWINFO`, `GRAWNAME`, `GRAWPHYS`, `GRDESCSIZE`, `GRDESC` and `GFEATURE`/`SFEATURE`; a read gives one report (with its id in front only if the device numbers its reports), a write one output report. A browser keeps the device's report descriptor, so `GRDESC` gives one written from the parsed collections (the same reports, not the same bytes) |
 | 0 (dynamic) | 0 | `gamepad` | The control node; the pads are `input/event<34+n>` and `input/js<n>` above |
 | 0 (dynamic) | 0, 1+n | `sensors`, `sensor-<kind>` | One per Generic Sensor class the browser has |
 | 0 (dynamic) | 0 | `rtc0` | The real-time clock, dynamic as Linux's rtc class is; `/dev/rtc` links to it (core, not a package) |

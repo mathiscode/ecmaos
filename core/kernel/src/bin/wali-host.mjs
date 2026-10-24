@@ -405,18 +405,26 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70) return undefined
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48) return undefined
   const writes = ((request >>> 30) & 1) === 1
   // an event device's or the RTC's request that writes (`EVIOCSFF`, `RTC_SET_TIME`) hands over the structure its number
   // names the size of; `EVIOCRMFF` and `EVIOCGRAB` take their int as it is
   if (request === EVIOCRMFF || request === EVIOCGRAB) return syscall_raw('ioctl', fd, request, ptr)
-  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : (type === 0x45 || type === 0x70) && writes ? (request >>> 16) & 0x3fff : 0)
+  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : (type === 0x45 || type === 0x70 || type === 0x48) && writes ? (request >>> 16) & 0x3fff : 0)
   const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
   const length = syscall_raw('ioctl', fd, request, argument)
   if (length < 0) return length
   if (request === FBIOGET_FSCREENINFO && ptr) {
     fixScreenInfo(ptr, length)
     return 0
+  }
+  // hidraw: `HIDIOCSFEATURE` answers with the count it sent, and the rest with the bytes they read (`GFEATURE`, the name, the
+  // descriptor), whose length is the return value for the ones that name a length
+  if (type === 0x48) {
+    const number = request & 0xff
+    if (number === 6) return length
+    if (length > 0 && ptr) give(ptr, ((request >>> 16) & 0x3fff) || length)
+    return number >= 4 && number !== 6 ? length : 0
   }
   if (length > 0 && ptr) {
     // a request that names its size (`_IOC_SIZE`) gets no more than that

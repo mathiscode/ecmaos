@@ -185,6 +185,16 @@
       "size": 177013,
       "sha256": "e540923e7ede81da293914864dabcb2158a47dd4f387e70541fdf00c80076138"
     },
+    "hidinfo": {
+      "file": "hidinfo.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "toolchain": "wali",
+      "size": 47983,
+      "sha256": "8de7d7bc85de0d179be265d04610ca923e829f5981f7495910bd9ac37e3ea424"
+    },
     "wldemo": {
       "file": "wldemo.wasm",
       "version": "0.1.0",
@@ -229,7 +239,7 @@
       "file": "sdlpad.wasm",
       "version": "0.1.0",
       "license": "MIT OR Apache-2.0",
-      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/js0 to /dev/js3 (needs wlcomp running)",
+      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/input/event<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
       "size": 1919638,

@@ -6,9 +6,13 @@ import { fs } from '@zenfs/core'
 import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+import { usesReportIds } from './descriptor.js'
+import { hidrawIoctl, hidrawRequest } from './hidraw.js'
 import { openHidSession } from './session.js'
 
 export { openHidSession, HidError } from './session.js'
+export { reportDescriptor, usesReportIds } from './descriptor.js'
+export { hidrawIoctl, hidrawRequest } from './hidraw.js'
 export type { HidDeviceSession } from './session.js'
 
 export const pkg = {
@@ -170,8 +174,14 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
         const devices = await navigator.hid.getDevices()
         const device = devices[await minors.find(devices.map(hidKey), minor)]
         if (!device) throw new Error('no such device')
-        return await openHidSession(device)
+        const session = await openHidSession(device)
+        if (usesReportIds(device.collections)) return session
+        // a node reads a device with unnumbered reports as Linux's hidraw does: the data alone, with no id in front
+        const read = session.read!
+        return { ...session, read: async () => (await read())?.subarray(1) }
       },
+      packets: true,
+      ioctl: { accepts: hidrawRequest, run: (session, request, arg) => hidrawIoctl(session, request, arg) },
       onError: error => ctx.log.warn(`hid: ${error.message}`)
     })
     const numbers = await minors.assign(devices.map(hidKey))
