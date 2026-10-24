@@ -346,7 +346,7 @@ async function whenContinued(proc: Process): Promise<void> {
 
 const SIGTTIN = 21, SIGTTOU = 22
 const TOSTOP = 0o400
-const TCSETS = 0x5402, TCSETSW = 0x5403, TCSETSF = 0x5404, TIOCSPGRP = 0x5410
+const TCSETS = 0x5402, TCSETSW = 0x5403, TCSETSF = 0x5404, TIOCGPGRP = 0x540f, TIOCSPGRP = 0x5410
 
 /**
  * A process in the background of its controlling terminal (its group is not the foreground's) that reads from it gets
@@ -391,6 +391,27 @@ function installBackgroundChecks(): void {
   wrap('ioctl', async (proc, [fd, request]) => {
     if (request === TCSETS || request === TCSETSW || request === TCSETSF || request === TIOCSPGRP) await backgroundCheck(proc, fd, SIGTTOU, true)
   })
+
+  // The terminal holds a process (upstream's `tty.foreground`), where `tcgetpgrp` and `tcsetpgrp` speak of a group: the
+  // group of that process is what is asked for, and a group is put in front by a live member of it (its leader may
+  // have gone). A shell that does job control takes the terminal for its job's group and gives it back to its own, and
+  // finds out whether it has the terminal by comparing the two.
+  const ioctl = syscalls.get('ioctl' as never) as ((proc: Process, ...args: unknown[]) => Promise<unknown> | unknown) | undefined
+  if (ioctl) {
+    syscalls.set('ioctl' as never, (async (proc: Process, ...args: unknown[]) => {
+      const [, request, argument] = args
+      if (request === TIOCSPGRP && typeof argument === 'number' && !processes.get(argument)) {
+        const member = [...processes.values()].find(candidate => candidate.code === undefined && getpgid(candidate) === argument)
+        if (member) args[2] = member.pid
+      }
+      const value = await ioctl(proc, ...args)
+      if (request === TIOCGPGRP && typeof value === 'number' && value > 0) {
+        const front = processes.get(value)
+        if (front) return getpgid(front)
+      }
+      return value
+    }) as never)
+  }
 }
 
 /** `waitpid(2)`: `pid` -1 for any child; `nohang` returns 0 rather than waiting. */

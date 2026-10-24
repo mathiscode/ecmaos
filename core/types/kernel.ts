@@ -350,6 +350,11 @@ export interface KernelExecuteOptions {
   drainStdout?: boolean
   stderr?: WritableStream<Uint8Array>
   /**
+   * Whether `stderr` is the terminal itself (no `2>` or `2>&1` on the command), so the program is left its descriptor 2 on
+   * the console and `isatty(2)` holds, as it does on Linux. `stderr` is then only for what is not a process.
+   */
+  stderrIsTTY?: boolean
+  /**
    * Called synchronously once a `@zenfs/linux` `Process` exists for this stage (`Kernel.executeViaExecve`), before
    * completion is awaited, so the shell's job table can signal it for `^C`, `^Z`, `fg` and `bg`.
    */

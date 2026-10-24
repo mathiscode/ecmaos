@@ -1153,6 +1153,8 @@ export class Shell implements IShell {
       stdinIsTTY: boolean
       stdout: WritableStream<Uint8Array>
       stdoutIsTTY: boolean
+      /** Whether stderr is the terminal: no redirection of descriptor 2 */
+      stderrIsTTY: boolean
       /**
        * Whether stdout has a final destination (file or terminal), so the kernel drains it before reporting the exit
        * code. Only the last stage qualifies.
@@ -1267,9 +1269,10 @@ export class Shell implements IShell {
 
       const { stdout, stderr } = await this.buildOutputStreams(redirections, isLastCommand, pipeWritable)
       const stdoutIsTTY = isLastCommand && this._heldStdout.length === 0 && !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 1)
+      const stderrIsTTY = !redirections.some(r => (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&') && r.fd === 2)
       // Traced as written, not as resolved: bash's xtrace shows `+ echo hi`, not `+ /bin/echo hi`.
       await this.trace([command.words[0] ?? '', ...args])
-      const fds = { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr, inputPipe }
+      const fds = { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout: isLastCommand, stderr, stderrIsTTY, inputPipe }
       if (command.compound) {
         const statement = command.compound
         stages.push({ kind: 'compound', run: () => this.interpreter.runStage(statement), ...fds })
@@ -1292,7 +1295,7 @@ export class Shell implements IShell {
     }
 
     const runStage = async (stage: typeof stages[number]): Promise<number> => {
-      const { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr } = stage
+      const { args, stdin, stdinFile, openStdin, stdinSource, stdinLeftover, stdinIsTTY, stdout, stdoutIsTTY, drainStdout, stderr, stderrIsTTY } = stage
 
       if (stage.kind === 'compound') {
         // What the stage was wired to has to reach the commands inside it: a pipe on its stdout is
@@ -1368,6 +1371,7 @@ export class Shell implements IShell {
         stdoutIsTTY,
         drainStdout,
         stderr,
+        stderrIsTTY,
         onProcess: job ? (process => { job.processes.push(process); this.shareTerminalSignals(job, process) }) : undefined,
         foreground: job ? !job.background : true
       })

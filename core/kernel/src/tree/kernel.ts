@@ -1442,7 +1442,9 @@ export class Kernel implements IKernel {
       if (stdoutBridged) bridge(1, options.stdout as WritableStream<Uint8Array>, options.drainStdout === true)
       // Descriptors that go to the same place (`> f 2>&1`, `&> f`) share one pipe so their output stays ordered.
       // Bridging one stream twice would fail, since `.getWriter()` throws on a locked stream.
-      if (options.stderr) {
+      // A descriptor 2 that is the terminal stays the console's, so the program's isatty(2) holds (bash's prompt and
+      // readline write to it, and a progress bar draws only on a terminal); a shell builtin's stderr is still painted.
+      if (options.stderr && !options.stderrIsTTY) {
         if (stdoutBridged && sharesDestination(options.stdout, options.stderr)) {
           // a second descriptor on the open file, so closing one (`dup2` over fd 2) leaves the other open
           const shared = proc.context.descriptors.get(1)

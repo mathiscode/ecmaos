@@ -2209,11 +2209,17 @@ export function installMainThreadSyscalls(): void {
   // it made before the exec (bash makes the `<(...)` of `cat < <(...)` in the child, ahead of the exec) would
   // interrupt a read of the new program, which has no handler to ask for it to be restarted.
   const execveSyscall = syscalls.get('execve') as unknown as (proc: Process, ...args: unknown[]) => Promise<void | number | bigint>
+  // Nor does a program's exec change what its terminal is in front of, as Linux's does not: upstream puts the new
+  // program in front, which would take the terminal from a shell that started a background job (its child, in a group of
+  // its own, execs the job) and make the shell a background process of its own terminal.
   syscalls.set('execve', async (proc: Process, ...args: unknown[]) => {
     const caught = [...proc.caught]
+    const front = proc.tty?.foreground
     for (const signal of caught) proc.uncatch_signal(signal)
     try {
-      return await execveSyscall(proc, ...args)
+      const result = await execveSyscall(proc, ...args)
+      if (proc.tty && front && front !== proc && front.code === undefined && proc.tty.foreground === proc) proc.tty.foreground = front
+      return result
     } catch (error) {
       for (const signal of caught) proc.catch_signal(signal)
       throw error
