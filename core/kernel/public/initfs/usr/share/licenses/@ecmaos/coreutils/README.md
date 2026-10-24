@@ -26,6 +26,8 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `sysctl` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `sysctl/LICENSE` |
 | `lsmod` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `lsmod/LICENSE` |
 | `pidof` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `pidof/LICENSE` |
+| `lsusb` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `lsusb/LICENSE` |
+| `lspci` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `lspci/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
 | `tmux` | 3.5a | ISC; libevent is BSD-3-Clause and ncurses is X11 | `tmux/COPYING`, `tmux/libevent-LICENSE`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |

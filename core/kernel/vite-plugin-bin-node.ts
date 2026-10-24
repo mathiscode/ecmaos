@@ -92,7 +92,7 @@ export const migratedCommands = [
   'id', 'groups',
   'chown',
   'zip', 'unzip', 'git', 'less', 'man',
-  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'fsck', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'strace', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput', 'visudo', 'dmesg', 'lscpu', 'fastfetch', 'wall', 'write', 'ss', 'w', 'ip'
+  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'fsck', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'strace', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput', 'visudo', 'dmesg', 'lscpu', 'fastfetch', 'wall', 'write', 'ss', 'w', 'ip', 'lsblk'
 ] as const
 
 /**

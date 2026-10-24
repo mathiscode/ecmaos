@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Rebuilds programs/<command>.wasm for each toybox (0BSD) command named, by default `patch`, `microcom`, `hwclock` and the
-# readers of /proc (`ps`, `lsof`, `vmstat`, `netstat`, `sysctl`, `lsmod`, `pidof`), for ecmaOS, on WALI's musl
+# readers of /proc and /sys (`ps`, `lsof`, `vmstat`, `netstat`, `sysctl`, `lsmod`, `pidof`, `lsusb`, `lspci`), for ecmaOS, on WALI's musl
 # (`utils/check-wali.sh`), run by /bin/wali. The GNU patch is GPL; this is the permissive one. `microcom` is the serial
 # console (`microcom -s 115200 /dev/ttyACM0`), `hwclock` reads /dev/rtc0. Toybox builds one command on its own with
 # scripts/single.sh; it targets Linux, which WALI's musl is, so it builds as it is. One source change: toybox calls its
 # exit handlers through `void (*)(int)` but declares `tempfile_handler(void)`, which a native ABI tolerates and
 # WebAssembly traps on, so it is given the parameter.
 #
-#   build.sh                  patch, microcom, hwclock, ps, lsof, vmstat, netstat, sysctl, lsmod and pidof
+#   build.sh                  patch, microcom, hwclock, ps, lsof, vmstat, netstat, sysctl, lsmod, pidof, lsusb and lspci
 #   build.sh microcom         just the commands named
 set -euo pipefail
 source "$(dirname "$0")/../../../../utils/check-wali.sh"
@@ -17,7 +17,7 @@ VERSION=0.8.12
 SHA256=ad88a921133ae2231d9f2df875ec0bd42af4429145caea7d7db9e02208a6fd2e
 HERE=$(cd "$(dirname "$0")" && pwd)
 COMMANDS=("$@")
-[ ${#COMMANDS[@]} -gt 0 ] || COMMANDS=(patch microcom hwclock ps lsof vmstat netstat sysctl lsmod pidof)
+[ ${#COMMANDS[@]} -gt 0 ] || COMMANDS=(patch microcom hwclock ps lsof vmstat netstat sysctl lsmod pidof lsusb lspci)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 

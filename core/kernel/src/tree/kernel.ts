@@ -213,6 +213,9 @@ export interface KernelSession {
   close(): Promise<void>
 }
 
+/** The buses made for programs to read, once per process (sysfs is shared by every kernel in it) */
+const emptyBuses = new Map<string, BusType>()
+
 export class Kernel implements IKernel {
   /** Unique identifier for this kernel instance */
   public readonly id: string = crypto.randomUUID()
@@ -616,7 +619,9 @@ export class Kernel implements IKernel {
         await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
       }
 
-      // OpenSSL's default places (python3's ssl, and anything else built on it) hold the CA bundle the initfs ships
+      // A Linux machine has the usb and pci buses even with nothing on them; lsusb and lspci read /sys/bus/<name>/devices
+    for (const name of ['usb', 'pci']) if (!emptyBuses.has(name)) emptyBuses.set(name, new BusType(name))
+    // OpenSSL's default places (python3's ssl, and anything else built on it) hold the CA bundle the initfs ships
       await this.filesystem.fs.mkdir('/etc/ssl/certs', { recursive: true, mode: 0o755 }).catch(() => {})
       for (const link of ['/etc/ssl/cert.pem', '/etc/ssl/certs/ca-certificates.crt']) {
         if (!(await this.filesystem.fs.exists(link))) await this.filesystem.fs.symlink('/usr/share/ca-certificates/ca-bundle.crt', link).catch(() => {})

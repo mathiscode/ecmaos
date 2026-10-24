@@ -379,6 +379,26 @@
         "size": 6461082,
         "sha256": "50ca3fc1b9d4c6ec49fb4ed0675179fea7b10614b17b92d0ec72bff39798aed5"
       }
+    },
+    "lsusb": {
+      "file": "lsusb.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "lsusb, from toybox: lists the USB devices in /sys/bus/usb/devices",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 135294,
+      "sha256": "96f1048ed3ff0399ff6ec2d5b5cc7285efa763380d3cfe7d8c7331d6e002c278"
+    },
+    "lspci": {
+      "file": "lspci.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 139980,
+      "sha256": "3d87d4751cfc9d84662be4fd3953ea3740130ed88497ea9c3950ba6766e7c37d"
     }
   }
 }
