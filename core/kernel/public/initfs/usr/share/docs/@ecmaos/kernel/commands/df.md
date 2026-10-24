@@ -23,4 +23,4 @@ This reports browser-level storage quota/usage, not per-filesystem-backend disk 
 
 ## See also
 
-`@ecmaos/coreutils/free`, `@ecmaos/kernel/commands/ps`
+`@ecmaos/coreutils/free`, `@ecmaos/coreutils/ps`

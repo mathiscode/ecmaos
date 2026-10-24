@@ -25,4 +25,4 @@ Reports the amount of memory the browser makes available, read from `/proc/memin
 
 ## See also
 
-`@ecmaos/kernel/commands/ps`, `@ecmaos/kernel/commands/df`
+`@ecmaos/coreutils/ps`, `@ecmaos/kernel/commands/df`

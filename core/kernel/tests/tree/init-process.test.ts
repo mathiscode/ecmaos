@@ -13,17 +13,27 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  */
 describe('/sbin/init as pid 1', () => {
   let kernel: Kernel
-  let n = 0
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  /** The process table as `/proc` lists it, the way `ps` reads it: a context with no program is labelled `[kernel]` */
   const ps = async () => {
-    const file = `/tmp/init-process-ps-${n++}.out`
-    await kernel.shell.execute(`ps > ${file}`)
-    const text = await kernel.filesystem.fs.readFile(file, 'utf-8')
-    return text.split('\n').slice(1).filter(Boolean).map(line => {
-      const [pid, ppid, uid, ...command] = line.trim().split(/\s+/)
-      return { pid: Number(pid), ppid: Number(ppid), uid: Number(uid), command: command.join(' ') }
-    })
+    const fs = kernel.filesystem.fs
+    const rows: Array<{ pid: number, ppid: number, uid: number, command: string }> = []
+    for (const name of await fs.readdir('/proc')) {
+      if (!/^\d+$/.test(name)) continue
+      try {
+        const status = await fs.readFile(`/proc/${name}/status`, 'utf-8')
+        const comm = (await fs.readFile(`/proc/${name}/comm`, 'utf-8')).trim()
+        const hasImage = (await fs.readlink(`/proc/${name}/exe`).catch(() => '')) !== '' || (await fs.readFile(`/proc/${name}/cmdline`, 'utf-8')) !== ''
+        rows.push({
+          pid: Number(name),
+          ppid: Number(/^PPid:\s+(\d+)/m.exec(status)?.[1] ?? 0),
+          uid: Number(/^Uid:\s+(\d+)/m.exec(status)?.[1] ?? 0),
+          command: hasImage ? comm : '[kernel]'
+        })
+      } catch { /* gone */ }
+    }
+    return rows.sort((a, b) => a.pid - b.pid)
   }
   const until = async (check: () => Promise<boolean>, ms = 10_000) => {
     const end = Date.now() + ms

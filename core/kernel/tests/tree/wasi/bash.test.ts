@@ -90,6 +90,6 @@ describe('bash', () => {
 
   it('forks under a prompt, PROMPT_COMMAND, compgen and a coproc in a function', async () => {
     expect(await run('PS1=\'$(echo p)\\$ \'; echo "${PS1@P}"\nPROMPT_COMMAND=\'echo $(echo pc)\'; eval "$PROMPT_COMMAND"\ncompgen -W "$(echo aa ab b)" -- a | tr a-z A-Z\n(set -e; false; echo no); echo status=$?\n echo "$(echo "$(echo nest)")"\nxargs -n1 echo < <(echo xa xb)\n'))
-      .toEqual({ code: 0, out: 'p$ \npc\nAA\nAB\nstatus=1\nnest\nxa\nxb\n', err: '' })
+      .toEqual({ code: 0, out: 'p# \npc\nAA\nAB\nstatus=1\nnest\nxa\nxb\n', err: '' })
   }, 30000)
 })

@@ -604,6 +604,22 @@ function allocateRange(length) {
   return start
 }
 
+/** The text of a small file the kernel makes up (`/proc/meminfo`), or '' when it cannot be read */
+function readSmall(path) {
+  const fd = syscall_raw('open', path, O_RDONLY, 0)
+  if (fd < 0) return ''
+  const decoder = new TextDecoder()
+  let text = ''
+  for (let done = 0;;) {
+    const count = syscall_raw('read', fd, 1 << 16, done)
+    if (count <= 0) break
+    text += decoder.decode(returned.subarray(0, count), { stream: true })
+    done += count
+  }
+  syscall_raw('close', fd)
+  return text
+}
+
 /** Fills a private mapping of a file with what the file holds there */
 function fill(fd, start, length, offset) {
   for (let done = 0; done < length;) {
@@ -2529,6 +2545,23 @@ const calls = {
     }
   },
 
+  // `sysinfo(2)`: uptime, the load averages, memory and the process count, read from /proc as `free` and `uptime` read it.
+  // A browser that does not say how much memory the machine has (only Chrome does) reads as 1 GiB: a program divides by it
+  // (`ps` for %MEM), and nothing here is resident that a total would change
+  SYS_sysinfo: ptr => {
+    const meminfo = Object.fromEntries([...readSmall('/proc/meminfo').matchAll(/^(\w+):\s+(\d+) kB$/gm)].map(([, key, kb]) => [key, Number(kb) * 1024]))
+    const load = readSmall('/proc/loadavg').split(' ')
+    const total = meminfo.MemTotal || 1 << 30
+    const dv = view()
+    new Uint8Array(dv.buffer, dv.byteOffset + ptr, 112).fill(0)
+    dv.setBigInt64(ptr, BigInt(Math.floor(Number(readSmall('/proc/uptime').split(' ')[0]) || 0)), true)
+    for (let i = 0; i < 3; i++) dv.setBigUint64(ptr + 8 + i * 8, BigInt(Math.round((Number(load[i]) || 0) * 65536)), true)
+    dv.setBigUint64(ptr + 32, BigInt(total), true)
+    dv.setBigUint64(ptr + 40, BigInt(Math.min(meminfo.MemFree ?? total, total)), true)
+    dv.setUint16(ptr + 80, Number(load[3]?.split('/')[1]) || 1, true)
+    dv.setUint32(ptr + 104, 1, true)
+    return 0n
+  },
   SYS_clock_gettime: (clock, ptr) => {
     if (ptr) writeTimespec(ptr, now(clock))
     return 0n

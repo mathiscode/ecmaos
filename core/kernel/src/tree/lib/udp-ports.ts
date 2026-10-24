@@ -28,6 +28,9 @@ const ports = new Map<number, UdpPort>()
 /** The bound socket holding `port`, if any */
 export function udpPortAt(port: number): UdpPort | undefined { return ports.get(port) }
 
+/** Every bound port with its socket, for `/proc/net/udp` */
+export function boundUdpPorts(): Array<[number, UdpPort]> { return [...ports] }
+
 /** `0` picks the next free ephemeral port; a taken port returns `undefined` */
 export function bindUdpPort(port: number, deps: UdpDeps): UdpPort | undefined {
   let chosen = port

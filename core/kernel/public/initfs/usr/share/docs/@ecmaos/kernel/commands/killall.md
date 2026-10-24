@@ -20,4 +20,4 @@ Sends a signal to every real process whose command name matches `NAME` (`SIGTERM
 
 ## See also
 
-`@ecmaos/kernel/commands/kill`, `@ecmaos/kernel/commands/ps`
+`@ecmaos/kernel/commands/kill`, `@ecmaos/coreutils/ps`

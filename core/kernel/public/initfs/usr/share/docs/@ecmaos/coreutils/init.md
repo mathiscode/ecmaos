@@ -40,4 +40,4 @@ The `reboot`, `halt` and `poweroff` commands send these signals. The keyboard sh
 
 ## See also
 
-`@ecmaos/coreutils/inittab`, `@ecmaos/kernel/commands/reboot`, `@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/kernel/commands/ps`
+`@ecmaos/coreutils/inittab`, `@ecmaos/kernel/commands/reboot`, `@ecmaos/kernel/commands/halt`, `@ecmaos/kernel/commands/poweroff`, `@ecmaos/coreutils/ps`

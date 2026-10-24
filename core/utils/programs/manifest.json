@@ -112,8 +112,8 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 87381,
-      "sha256": "ba239f6620f9bb2c47d1eff2d82398467c8d90f228f848b85c792cd4d87e4904"
+      "size": 122098,
+      "sha256": "5d94a1fd918af84b78192d5df9dd37be2fbaae1d02c4e4ebcc263dc513b8b266"
     },
     "microcom": {
       "file": "microcom.wasm",
@@ -122,8 +122,8 @@
       "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 73775,
-      "sha256": "1638b0c4fff3ae416499ef37a9d7b8a76a469c04ce559046b6894fb659076440"
+      "size": 74622,
+      "sha256": "f72fe23ca0469c48852a3e63ec4eb16182d77a5a8352d67f4ebd2d1cd1338ad5"
     },
     "hwclock": {
       "file": "hwclock.wasm",
@@ -132,8 +132,78 @@
       "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 83779,
-      "sha256": "82dd79cb6bcdaf5aa00ab694b2c77df87467ff3439d70d6e786e0daa185db60f"
+      "size": 84626,
+      "sha256": "bc1a72429cdd4b75ac728e0cff57f272cb9fb918d083dda0b456deb2a6734289"
+    },
+    "ps": {
+      "file": "ps.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "ps, from toybox: lists processes (ps -ef, ps aux, -o columns), read from /proc",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 137626,
+      "sha256": "58675d71845f5d4f1ed6d3b5639cd09afbb867ec6d028c6608ba970995e52cd6"
+    },
+    "lsof": {
+      "file": "lsof.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "lsof, from toybox: lists the files, sockets and pipes processes have open",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 104465,
+      "sha256": "652e2f9a18a5c25dee0a7af39c4f97aad5c6eb7fac06fb64f6be0b68140a677f"
+    },
+    "vmstat": {
+      "file": "vmstat.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "vmstat, from toybox: reports memory, processes and CPU time from /proc",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 93116,
+      "sha256": "4d41ed05d04efec766c845e02b5dbdaab29c3452d1427cc1795407b7221c56ab"
+    },
+    "netstat": {
+      "file": "netstat.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "netstat, from toybox: lists listening and open sockets from /proc/net",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 127838,
+      "sha256": "df37d12752411cd59aad1aa1ad0e86481b0221c9e50a568fd71098f3160091b0"
+    },
+    "sysctl": {
+      "file": "sysctl.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "sysctl, from toybox: reads and sets kernel parameters in /proc/sys",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 78778,
+      "sha256": "7dd8a5bfab2d17b14c61428a138ea0c34403fbe0d743972172120cb154cbc8f7"
+    },
+    "lsmod": {
+      "file": "lsmod.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "lsmod, from toybox: lists the loaded kernel modules",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 56171,
+      "sha256": "01004e6f9f27c580194a33d94a1f9f1c023c616cd4d1c71e4293f2644c6d38d5"
+    },
+    "pidof": {
+      "file": "pidof.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "pidof, from toybox: finds the process ids of a program by name",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 73921,
+      "sha256": "5be24f86a89b529a5b2e4d74e1370407cfc281fd97b054142b1ecdd335a11bda"
     },
     "ncdu": {
       "file": "ncdu.wasm",

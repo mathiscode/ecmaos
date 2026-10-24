@@ -25,4 +25,4 @@ Runs COMMAND again and again, clearing the screen between runs and showing a hea
 
 ## See also
 
-`@ecmaos/kernel/commands/ps`
+`@ecmaos/coreutils/ps`

@@ -23,4 +23,4 @@ In short: process-to-process on this machine → real POSIX sockets, loopback on
 
 ## See also
 
-`nc`, `@ecmaos/kernel/commands/ps`, the root README's Sockets and Known gaps sections
+`nc`, `@ecmaos/coreutils/ps`, the root README's Sockets and Known gaps sections

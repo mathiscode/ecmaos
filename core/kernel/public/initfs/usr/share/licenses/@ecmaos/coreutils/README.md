@@ -19,6 +19,13 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `patch` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `patch/LICENSE` |
 | `microcom` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `microcom/LICENSE` |
 | `hwclock` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `hwclock/LICENSE` |
+| `ps` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `ps/LICENSE` |
+| `lsof` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `lsof/LICENSE` |
+| `vmstat` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `vmstat/LICENSE` |
+| `netstat` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `netstat/LICENSE` |
+| `sysctl` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `sysctl/LICENSE` |
+| `lsmod` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `lsmod/LICENSE` |
+| `pidof` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `pidof/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
 | `tmux` | 3.5a | ISC; libevent is BSD-3-Clause and ncurses is X11 | `tmux/COPYING`, `tmux/libevent-LICENSE`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |

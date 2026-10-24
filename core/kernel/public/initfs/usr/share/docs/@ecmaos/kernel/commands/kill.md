@@ -26,4 +26,4 @@ A main-thread, non-asyncify WASM module cannot be preempted even by a real signa
 
 ## See also
 
-`@ecmaos/kernel/commands/killall`, `@ecmaos/kernel/commands/ps`
+`@ecmaos/kernel/commands/killall`, `@ecmaos/coreutils/ps`

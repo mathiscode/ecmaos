@@ -13,14 +13,15 @@ import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
 import { boundContexts, mounts } from '@zenfs/core'
-import { S_IFSOCK } from '@zenfs/core/constants'
+import { O_DIRECTORY, S_IFSOCK } from '@zenfs/core/constants'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
-import { bindUdpPort, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
+import { bindUdpPort, boundUdpPorts, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
+import { setNetSource, socketInode } from './proc-extras.ts'
 import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp } from './ip.ts'
 import { heldInMemory, totalHeld } from './memory-usage.ts'
@@ -108,6 +109,10 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_waitpid(pid: number, flags: number): number
     proc_sigstate(which: number): number
     proc_set_sigstate(ignored: number, blocked: number): number
+    proc_setids(group: number, how: number, a: number, b: number, c: number): number
+    proc_getids(group: number): number
+    proc_getgroups(): number
+    proc_setgroups(ids: Uint8Array): number
     proc_setpgid(pid: number, pgid: number): number
     proc_getpgid(pid: number): number
     proc_killpg(pgid: number, signal: number): number
@@ -318,6 +323,33 @@ interface LoopbackListener {
   wake?: () => void
 }
 const loopbackListeners = new Map<string, LoopbackListener>()
+
+/** What `/proc/net` lists: each listener once, whatever number of names (IPv4 and IPv6) it holds */
+setNetSource({
+  tcp: () => {
+    const seen = new Set<LoopbackListener>()
+    const out: Array<{ family: 'inet' | 'inet6' | 'inet46', port: number, uid: number, inode: number }> = []
+    for (const [key, listener] of loopbackListeners) {
+      if (!listener.listening || seen.has(listener) || key.startsWith('unix:')) continue
+      seen.add(listener)
+      const names = [...loopbackListeners].filter(([, other]) => other === listener).map(([name]) => name)
+      const v4 = names.some(name => name.startsWith('inet:'))
+      const v6 = names.some(name => name.startsWith('inet6:'))
+      const port = Number(key.slice(key.lastIndexOf(':') + 1))
+      out.push({ family: v4 && v6 ? 'inet46' : v6 ? 'inet6' : 'inet', port, uid: (listener.owner ?? listener.serverProc).context.credentials.euid, inode: socketInode(listener) })
+    }
+    return out
+  },
+  udp: () => boundUdpPorts().map(([port, socket]) => ({ family: 'inet46' as const, port, uid: 0, inode: socketInode(socket) })),
+  unix: () => {
+    const out: Array<{ path: string, listening: boolean, uid: number, inode: number }> = []
+    for (const [key, listener] of loopbackListeners) {
+      if (!key.startsWith('unix:')) continue
+      out.push({ path: key.slice(5), listening: listener.listening, uid: (listener.owner ?? listener.serverProc).context.credentials.euid, inode: socketInode(listener) })
+    }
+    return out
+  }
+})
 
 /** `struct ucred`: who is at the other end of a local connection (`SO_PEERCRED`, `SCM_CREDENTIALS`) */
 interface PeerCredentials { pid: number, uid: number, gid: number }
@@ -1539,15 +1571,24 @@ export function installMainThreadSyscalls(): void {
   // writes and wrong for the rest, so a file opened to read and append keeps its own position, and its writes go to the end.
   const openSyscall = syscalls.get('open') as unknown as (proc: Process, ...args: unknown[]) => number | Promise<number>
   syscalls.set('open', (async (proc: Process, path: string, flags: number, mode: number) => {
-    const fd = await openSyscall(proc, path, flags, mode)
+    // a directory opens read-only without `O_DIRECTORY` too (toybox's `ps` and `lsof` open `/proc` so, then read it with
+    // getdents); only a write or create is refused, with EISDIR
+    let fd: number
+    try {
+      fd = await openSyscall(proc, path, flags, mode)
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EISDIR' || (flags & 3) !== 0 || (flags & 0o100) /* O_CREAT */) throw error
+      fd = await openSyscall(proc, path, flags | O_DIRECTORY, mode)
+    }
     if ((flags & 0o2000) && (flags & 3) === 2) {
-      type Writer = (this: unknown, buffer: Uint8Array, offset?: number, length?: number, position?: number) => unknown
-      const handle = proc.context.descriptors.get(fd) as unknown as { _position: number, inode: { size: number }, writeSync: Writer, write: Writer } | undefined
+      type Handle = { _position: number, inode: { size: number }, writeSync: Writer, write: Writer }
+      type Writer = (this: Handle, buffer: Uint8Array, offset?: number, length?: number, position?: number) => unknown
+      const handle = proc.context.descriptors.get(fd) as unknown as Handle | undefined
       if (handle && typeof handle._position === 'number') {
         Object.defineProperty(handle, 'position', { get() { return this._position }, set(value: number) { this._position = value }, configurable: true })
         for (const name of ['writeSync', 'write'] as const) {
           const original = handle[name]
-          handle[name] = function (this: typeof handle, buffer, offset, length) { return original.call(this, buffer, offset, length, this.inode.size) }
+          handle[name] = function (this: Handle, buffer, offset, length) { return original.call(this, buffer, offset, length, this.inode.size) }
         }
       }
     }
@@ -2267,7 +2308,7 @@ export function installMainThreadSyscalls(): void {
     const [real, effective, saved] = group ? ['gid', 'egid', 'sgid'] as const : ['uid', 'euid', 'suid'] as const
     const next = changeIds(
       { real: credentials[real], effective: credentials[effective], saved: credentials[saved] },
-      credentials.euid === 0, (['id', 're', 'res'] as const)[how], a, b, c
+      credentials.euid === 0, (['id', 're', 'res'] as const)[how] ?? 'id', a, b, c
     )
     if (!next) return -Errno.EPERM
     credentials[real] = next.real

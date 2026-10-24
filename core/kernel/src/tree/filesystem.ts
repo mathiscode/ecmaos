@@ -18,6 +18,7 @@ import { checkFileSize, meterChange, meterStart, residentBytes } from '#lib/stor
 import { chargeQuota } from '#lib/quota.ts'
 import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
+import { registerProcExtras } from '#lib/proc-extras.ts'
 import { init_uts } from '@zenfs/linux/uts'
 import { TarReader } from '@gera2ld/tarjs'
 import pako from 'pako'
@@ -441,6 +442,8 @@ export class Filesystem {
    * `navigator.*` and `performance.memory`; a field that cannot be populated is omitted.
    */
   private registerProcEntries() {
+    registerProcExtras(proc_root)
+
     proc_root.children.set('version', {
       mode: 0o444,
       show: () => `ecmaOS version ${import.meta.env['VERSION'] || '?.?.?'} (@zenfs/linux ${init_uts.release}, @zenfs/core ${zenfsCoreVersion})\n`

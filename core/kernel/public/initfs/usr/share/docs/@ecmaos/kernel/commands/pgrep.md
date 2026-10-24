@@ -32,4 +32,4 @@ Lists the process IDs of the processes whose name matches the regular expression
 
 ## See also
 
-`@ecmaos/kernel/commands/pkill`, `@ecmaos/kernel/commands/ps`, `@ecmaos/kernel/commands/killall`
+`@ecmaos/kernel/commands/pkill`, `@ecmaos/coreutils/ps`, `@ecmaos/kernel/commands/killall`

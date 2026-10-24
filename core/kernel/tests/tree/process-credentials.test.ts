@@ -113,9 +113,9 @@ describe('programs run as the user who started them', () => {
     const before = (await kernel.filesystem.fs.readdir('/tmp')).filter(name => name.startsWith('.')).sort()
     await asAlice(async () => {
       const works = [
-        'df', 'ps', 'ps -e', 'who', 'last', 'uptime', 'free', 'id', 'id alice', 'groups', 'groups alice', 'whoami', 'hostname',
+        'df', 'pgrep .', 'who', 'last', 'uptime', 'free', 'id', 'id alice', 'groups', 'groups alice', 'whoami', 'hostname',
         'uname -a', 'tty', 'date', 'nproc', 'stat /home/alice', 'mktemp', 'mount', 'cp /etc/passwd /tmp/alice-copy',
-        'chsh -s /bin/ecmash', 'echo a | sort | uniq', 'ecmash -c "id; ps | head -2"'
+        'chsh -s /bin/ecmash', 'echo a | sort | uniq', 'ecmash -c "id; pgrep . | head -2"'
       ]
       for (const command of works) expect((await status(command)).code, command).toBe(0)
 
@@ -288,7 +288,7 @@ describe('programs run as the user who started them', () => {
       let alicePid = 0
       await asAlice(async () => {
         await kernel.shell.execute('sleep 60 &')
-        alicePid = Number((await status('ps')).out.split('\n').find(line => line.includes('sleep'))?.trim().split(/\s+/)[0])
+        alicePid = Number((await status('pgrep sleep')).out.trim().split('\n')[0])
         expect(alicePid).toBeGreaterThan(1)
         expect((await status(`kill -0 ${alicePid}`)).code).toBe(0)
       })
