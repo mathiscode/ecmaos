@@ -48,7 +48,8 @@ function memoryLimits(bytes) {
 
 /**
  * A thread of a WALI process (`proc_thread`) is told which, after it starts: the memory, the shared state and its argument.
- * A fork's child (`proc_fork`) is told its copies of them and `fork`, where to rewind to.
+ * A fork's child (`proc_fork`) is told its copies of them and `fork`, where to rewind to (a fork from a thread rewinds
+ * into that thread's function).
  */
 const threadStart = Promise.withResolvers()
 receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(message) })
@@ -68,14 +69,14 @@ function runWali(source, start) {
   WebAssembly.instantiate = async (...args) => {
     const instance = await instantiate(...args)
     attach(instance)
-    // a program built with Asyncify can fork, which `drive()` carries out; a thread is not one that does
+    // a program built with Asyncify can fork, which `drive()` carries out; from a thread too, whose frames start at
+    // the function it runs
     if (!start || start.fork) {
       const _start = drive(instance, limits, start?.fork)
       return _start ? { exports: Object.assign(Object.create(null), instance.exports, { _start }) } : instance
     }
-    const exports = Object.assign(Object.create(null), instance.exports, {
-      _start: () => instance.exports.__wasm_thread_start_libc(getpid(), start.arg)
-    })
+    const entry = () => instance.exports.__wasm_thread_start_libc(getpid(), start.arg)
+    const exports = Object.assign(Object.create(null), instance.exports, { _start: drive(instance, limits, undefined, entry) ?? entry })
     return { exports }
   }
   return run(source)

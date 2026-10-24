@@ -2494,7 +2494,8 @@ export function attach(instance) {
  * each process. The wasm stack cannot be copied, so the call starts an unwind, which saves the frames into a buffer in
  * linear memory and returns out of `_start`; `drive()` then copies the memory, the host's shared state and the stack
  * pointer to a new process (`proc_fork`), and rewinds this one and the child into the call, which returns the child's
- * pid in the first and 0 in the other. Only the calling thread exists in the child. The host's own state goes with it:
+ * pid in the first and 0 in the other. Only the calling thread exists in the child, and it is the child's first, whichever
+ * thread made the call: the child rewinds into the thread's own frames, and ends where they do. The host's own state goes with it:
  * directory positions, epoll interest lists, shared file mappings and SysV attachments (the child has descriptors for
  * them, so the object they stand for is the same one, kept in step by the flushes and refreshes of any two processes
  * that map it), and the alternate signal stack. What a child does not have is Linux's one open file description under
@@ -2514,6 +2515,8 @@ let forkBuffer = 0
 let forkResult = 0
 /** Whether this process is a fork's child */
 let forked = false
+/** Where the calling thread's frames start, `main` for `_start` or `thread` for the function a thread runs */
+let threadEntry = 'main'
 
 function forkCall() {
   if (!asyncify) return big(-ENOSYS)
@@ -2545,6 +2548,7 @@ function startChild() {
   const files = [...new Set([...mappings.values()].map(mapping => mapping.file))]
   const options = {
     buffer: forkBuffer,
+    entry: threadEntry,
     sp: stackPointer.value,
     positions: [...positions],
     // an interest's data is 64 bits: text, as for the globals
@@ -2585,10 +2589,13 @@ function inheritFrom(fork) {
  * for one, the child is started and the program rewound to return from the call. In the child (`fork`, from the
  * kernel), the first thing is a rewind into the call. @returns the new `_start`, or undefined for a program without Asyncify
  */
-export function drive(instance, limits, fork) {
+export function drive(instance, limits, fork, entry) {
   const exports = instance.exports
   if (typeof exports.asyncify_start_unwind !== 'function') return undefined
   asyncify = exports
+  // a thread's frames start at the function the thread runs, not at `_start`; a child of its fork rewinds into the same
+  threadEntry = entry ? 'thread' : fork?.entry === 'thread' ? 'thread' : 'main'
+  const run = threadEntry === 'thread' ? entry ?? (() => exports.__wasm_thread_start_libc(0, 0)) : exports._start
   memoryMaximum = limits?.maximum
   programGlobals = Object.entries(exports).filter(([name]) => name.startsWith('__ecmaos_global_'))
   return () => {
@@ -2603,7 +2610,7 @@ export function drive(instance, limits, fork) {
       exports.asyncify_start_rewind(forkBuffer)
     }
     for (;;) {
-      exports._start()
+      run()
       if (exports.asyncify_get_state() !== ASYNCIFY_UNWINDING) return
       exports.asyncify_stop_unwind()
       forkResult = startChild()

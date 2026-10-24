@@ -394,11 +394,11 @@ function installBackgroundChecks(): void {
 }
 
 /** `waitpid(2)`: `pid` -1 for any child; `nohang` returns 0 rather than waiting. */
-export async function waitpid(caller: Process, pid: number, flags: number | boolean): Promise<number> {
+export async function waitpid(caller: Process, pid: number, flags: number | boolean, parent: Process = caller): Promise<number> {
   const bits = typeof flags === 'boolean' ? (flags ? WNOHANG : 0) : flags
   const nohang = (bits & WNOHANG) !== 0
   const untraced = (bits & WUNTRACED) !== 0
-  const children = [...caller.children].filter(child => pid < 0 || child.pid === pid)
+  const children = [...parent.children].filter(child => pid < 0 || child.pid === pid)
   if (!children.length) throw fail(Errno.ECHILD, 'No such child')
   for (;;) {
     const ready = children.find(child => child.code !== undefined)

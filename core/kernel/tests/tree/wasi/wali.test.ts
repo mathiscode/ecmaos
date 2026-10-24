@@ -358,6 +358,14 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('forks from a thread: the child is the process\'s, has the thread\'s values, and starts threads of its own', async () => {
+    expect(await run('wali-fork-thread')).toEqual({
+      code: 0,
+      err: '',
+      out: 'child tls=22 arg=3 ppid-ok=1 inner=1\nexit=9 reaped=1 joined=5 main-tls=11\n'
+    })
+  }, 60_000)
+
   it('forks inside a try block: the child throws and catches, the parent leaves the block as it would', async () => {
     expect(await run('wali-fork-cxx')).toEqual({ code: 0, err: 'inside', out: 'child exit=21\nparent caught parent, destroyed=1\n' })
   }, 60_000)

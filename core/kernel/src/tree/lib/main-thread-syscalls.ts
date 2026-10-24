@@ -2157,12 +2157,14 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
     const options = JSON.parse(optionsJson) as { signals: SignalState } & Record<string, unknown>
-    const fds = Object.fromEntries([...proc.context.descriptors.keys()].map(fd => [fd, fd]))
-    const child = await spawnWithFds(proc, exe, proc.argv, { ...proc.env, __WALI_FORK__: '1' }, {
-      cwd: proc.context.pwd, fds, exactFds: true, signals: options.signals, credentials: { ...proc.context.credentials }
+    // from a thread, the child is the process's: its parent is the leader, whose descriptors, directory and credentials the thread shares
+    const leader = leaderOf(proc)
+    const fds = Object.fromEntries([...leader.context.descriptors.keys()].map(fd => [fd, fd]))
+    const child = await spawnWithFds(leader, exe, leader.argv, { ...leader.env, __WALI_FORK__: '1' }, {
+      cwd: leader.context.pwd, fds, exactFds: true, signals: options.signals, credentials: { ...leader.context.credentials }
     })
     registerProcessKernel(child, kernel, shell)
-    for (const signal of proc.caught) child.catch_signal(signal)
+    for (const signal of leader.caught) child.catch_signal(signal)
     ;(child.thread as unknown as { host?: { post(message: unknown): void } }).host?.post({ $: 'wali-thread', memory, shared, fork: options })
     return child.pid
   })
@@ -2190,7 +2192,8 @@ export function installMainThreadSyscalls(): void {
     return await proc.wait(pid)
   })
 
-  define_syscall('proc_waitpid', async (proc: Process, pid: number, flags: number) => waitpid(proc, pid, flags))
+  // a child is the process's, not the thread's that made it: any thread may wait for it
+  define_syscall('proc_waitpid', async (proc: Process, pid: number, flags: number) => waitpid(proc, pid, flags, leaderOf(proc)))
   // The signals a program was started with ignored (`which` 0) and blocked (1), and the ones it keeps across its own
   // `execve`: see `SignalState` in job-control.ts
   define_syscall('proc_sigstate', (proc: Process, which: number) => {
