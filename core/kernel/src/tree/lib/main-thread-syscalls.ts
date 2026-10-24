@@ -2204,6 +2204,21 @@ export function installMainThreadSyscalls(): void {
     setSignalState(proc, { ignored, blocked })
     return 0
   })
+  // A new image has no handlers: the signals the old program caught go back to their default action (the ignored ones
+  // stay ignored, above). A forked child that runs a program keeps its parent's until then, and a SIGCHLD for a child
+  // it made before the exec (bash makes the `<(...)` of `cat < <(...)` in the child, ahead of the exec) would
+  // interrupt a read of the new program, which has no handler to ask for it to be restarted.
+  const execveSyscall = syscalls.get('execve') as unknown as (proc: Process, ...args: unknown[]) => Promise<void | number | bigint>
+  syscalls.set('execve', async (proc: Process, ...args: unknown[]) => {
+    const caught = [...proc.caught]
+    for (const signal of caught) proc.uncatch_signal(signal)
+    try {
+      return await execveSyscall(proc, ...args)
+    } catch (error) {
+      for (const signal of caught) proc.catch_signal(signal)
+      throw error
+    }
+  })
   define_syscall('proc_setpgid', (proc: Process, pid: number, pgid: number) => setpgid(proc, pid, pgid))
   define_syscall('proc_getpgid', (proc: Process, pid: number) => {
     const target = pid === 0 ? proc : processes.get(pid)
