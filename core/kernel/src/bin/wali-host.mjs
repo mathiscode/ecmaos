@@ -405,11 +405,20 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48) return undefined
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48 && type !== 0x56) return undefined
   const writes = ((request >>> 30) & 1) === 1
   // an event device's or the RTC's request that writes (`EVIOCSFF`, `RTC_SET_TIME`) hands over the structure its number
   // names the size of; `EVIOCRMFF` and `EVIOCGRAB` take their int as it is
   if (request === EVIOCRMFF || request === EVIOCGRAB) return syscall_raw('ioctl', fd, request, ptr)
+  // video4linux: every request hands over its structure (the size its number names) and gets it back filled in
+  if (type === 0x56) {
+    const named = (request >>> 16) & 0x3fff
+    const argument = ptr && named ? bytes().slice(ptr, ptr + named) : undefined
+    const length = syscall_raw('ioctl', fd, request, argument)
+    if (length < 0) return length
+    if (length > 0 && ptr && ((request >>> 30) & 2)) give(ptr, named)
+    return 0
+  }
   const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : (type === 0x45 || type === 0x70 || type === 0x48) && writes ? (request >>> 16) & 0x3fff : 0)
   const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
   const length = syscall_raw('ioctl', fd, request, argument)

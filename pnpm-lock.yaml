@@ -1007,6 +1007,9 @@ importers:
       '@ecmaos-devices/session':
         specifier: workspace:^
         version: link:../session
+      kerium:
+        specifier: ^1.5.0
+        version: 1.5.0
     devDependencies:
       '@ecmaos/config-typescript':
         specifier: workspace:^

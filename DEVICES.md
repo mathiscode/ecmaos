@@ -7,7 +7,7 @@
 - `@ecmaos-devices/audio`: Audio device for sound playback and recording
 - `@ecmaos-devices/battery`: Battery status and monitoring device
 - `@ecmaos-devices/bluetooth`: Bluetooth device for wireless connectivity
-- `@ecmaos-devices/camera`: Camera device, offered to other machines as a stream of JPEG pictures
+- `@ecmaos-devices/camera`: Camera device: `/dev/video<n>` (V4L2 read I/O), and offered to other machines as a stream of JPEG pictures
 - `@ecmaos-devices/echo`: A minimal loopback device, mainly useful as a reference driver
 - `@ecmaos-devices/gamepad`: Gamepad/controller input device
 - `@ecmaos-devices/geo`: Geolocation device for position data
@@ -81,7 +81,8 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 29 | 0–31 | `fb<N>` | Real Linux framebuffer major. Made at runtime, one per window (`fbwin`, SDL and Wayland programs); not in the package list |
 | 35 | 0 | `midi` | Real Linux MIDI major; the control node |
 | 35 | 1+n | `midi<n>` | One per MIDI port, numbered by position |
-| 81 | 0 | `camera` | Real Linux video4linux major; a command only, offered to other machines with `attach -s` |
+| 81 | n | `video<n>` | Real Linux video4linux major; one per camera the browser lists, in its order. V4L2 read I/O: `QUERYCAP`, `ENUM_FMT` (`YUYV`, `MJPG`), `G/S/TRY_FMT`, `ENUM_FRAMESIZES`/`FRAMEINTERVALS`, `G/S_PARM`, the one input; a read gives one whole frame. No buffers (`REQBUFS` is `EINVAL`) until device `mmap` exists |
+| 0 (dynamic) | 0 | `camera` | The command's control node; a camera is also offered to other machines with `attach -s` |
 | 166 | 0+n | `ttyACM<n>` | Real Linux CDC ACM major; serial ports that are boards (a terminal: `@zenfs/linux` `TTYDriver`) |
 | 180 | 0 | `usb` | Real Linux USB major; the control node |
 | 180 | 1+n | `usb<n>` | One per granted USB device; the number stays with the device (`/var/lib/ecmaos/usb-minors.json`) |

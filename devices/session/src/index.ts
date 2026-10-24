@@ -75,6 +75,9 @@ export class Feed {
     }
   }
 
+  /** Forgets what is queued, for a source whose chunks no longer mean what they did (the camera's format changed) */
+  clear() { this._queue.length = 0 }
+
   /** Ends the feed with an error: what is queued is still taken, then `next` rejects with `error` instead of giving the end of the file */
   fail(error: Error) {
     if (this._ended) return
@@ -138,6 +141,8 @@ export interface SessionNodeOptions {
   ioctl?: {
     accepts(request: number): boolean
     run(session: DeviceSession, request: number, arg: unknown, minor: number): unknown
+    /** Whether `request` changes what the device produces, so what was read ahead is stale (a camera's `VIDIOC_S_FMT`) and is dropped once it has run */
+    flushes?(request: number): boolean
   }
 }
 
@@ -324,7 +329,9 @@ function sessionIoctl(driver: NonNullable<SessionNodeOptions['ioctl']>, linkOf: 
         await found.opened
         if (found.ended && !found.session) throw withErrno((found.failureCode ?? 'ENODEV') as Parameters<typeof withErrno>[0], found.failure)
         if (!found.session || found.ended) throw withErrno('ENODEV')
-        return await driver.run(found.session, request >>> 0, arg, file.devt.minor)
+        const result = await driver.run(found.session, request >>> 0, arg, file.devt.minor)
+        if (driver.flushes?.(request >>> 0)) { found.chunks.length = 0; found.size = 0 }
+        return result
       }
     },
     has: (_target, key) => Number.isInteger(Number(key)) && driver.accepts(Number(key) >>> 0)

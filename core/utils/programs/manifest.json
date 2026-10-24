@@ -195,6 +195,16 @@
       "size": 47983,
       "sha256": "8de7d7bc85de0d179be265d04610ca923e829f5981f7495910bd9ac37e3ea424"
     },
+    "v4l2grab": {
+      "file": "v4l2grab.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "toolchain": "wali",
+      "size": 74418,
+      "sha256": "450f5c9e00c94ecd7dbcc3081160aba5f8141419abb9cc6511b0ecfe9576676c"
+    },
     "wldemo": {
       "file": "wldemo.wasm",
       "version": "0.1.0",

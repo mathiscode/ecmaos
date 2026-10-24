@@ -24,6 +24,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `micropython` | 1.29.0 | MIT; the frozen micropython-lib modules are MIT or, where derived from CPython, the Python License | `micropython/LICENSE`, `micropython/LICENSE-micropython-lib` |
 | `wlcomp` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `wlcomp/LICENSE` |
 | `hidinfo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `hidinfo/LICENSE` |
+| `v4l2grab` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `v4l2grab/LICENSE` |
 | `wldemo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `wldemo/` |
 | `sdlsnake` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlsnake/` |
 | `sdlpaint` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpaint/` |
