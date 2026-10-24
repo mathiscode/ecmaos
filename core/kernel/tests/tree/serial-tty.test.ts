@@ -150,6 +150,31 @@ describe('a serial port as /dev/ttyACM0', () => {
     pty.close()
   }, 60000)
 
+  it('a program that has the port open when it is unplugged reads the end of the file, and a write fails with EIO', async () => {
+    await fs().writeFile('/tmp/hangup.js', `
+      const { open, close, read, write } = globalThis.ecmaosSyscalls
+      const fd = open('/dev/ttyACM0', 2, 0)
+      const buf = new Uint8Array(16)
+      const out = ['first=' + read(fd, buf, -1)]
+      out.push('again=' + read(fd, buf, -1))
+      try { write(fd, new Uint8Array([1])); out.push('wrote') } catch (error) { out.push(String(error.code ?? error.message)) }
+      close(fd)
+      const file = open('/tmp/hangup-result', 1 | 64 | 512, 0o644)
+      write(file, new TextEncoder().encode(out.join('|')))
+      close(file)
+    `, { mode: 0o755 })
+    const running = kernel.shell.execute('/tmp/hangup.js')
+    await until(() => port.opened !== undefined)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    port.unplug()
+    expect(await running).toBe(0)
+    expect(await fs().readFile('/tmp/hangup-result', 'utf-8')).toBe('first=0|again=0|EIO')
+    expect(await fs().exists('/dev/ttyACM0')).toBe(false)
+    // the next one plugged in gets the name again
+    const { attachPort } = await import('@ecmaos-devices/serial')
+    expect(attachPort(port as never)).toBe('ttyACM0')
+  }, 60000)
+
   it('microcom ends when the board is unplugged, and the node goes with it', async () => {
     const { pty, proc } = await microcom()
     port.unplug()

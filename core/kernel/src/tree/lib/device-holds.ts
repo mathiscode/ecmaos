@@ -9,7 +9,7 @@
  * those by opening on first use (see `sessionOperations`).
  */
 
-import { Process, processes, syscalls } from '@zenfs/linux'
+import { DevTmpFS, Process, processes, syscalls } from '@zenfs/linux'
 import type { FileOperations } from '@zenfs/linux'
 
 const S_IFMT = 0o170000
@@ -47,9 +47,19 @@ function openDevices(): Map<string, { major: number, minor: number, path: string
   return found
 }
 
+/**
+ * Nodes taken away (a device unplugged) while a descriptor was still open on them, by their path in devtmpfs, with the inode
+ * they had. `@zenfs/linux` finds a descriptor's device by its path, so without this the descriptor would get `ENOENT`; on
+ * Linux an open file keeps its inode and so its driver, which says what it likes (a hung-up tty the end of the file, an input
+ * device `ENODEV`). Forgotten at the last close, or when a new node takes the path.
+ */
+const unlinked = new Map<string, unknown>()
+
 /** Tells devices their first open and last release, from the descriptors that exist now */
 export function sweepDevices(): void {
   const now = openDevices()
+  const paths = new Set([...now.values()].map(device => device.path))
+  for (const path of unlinked.keys()) if (!paths.has(path)) unlinked.delete(path)
   for (const [key, device] of now) {
     if (held.has(key)) continue
     held.set(key, device)
@@ -64,7 +74,7 @@ export function sweepDevices(): void {
 
 type Handler = (proc: Process, ...args: unknown[]) => number | bigint | void | Promise<number | bigint | void>
 
-/** Wraps `open`, `close`, `dup2`, `dup3` and process exit. Idempotent. */
+/** Wraps `open`, `close`, `dup2`, `dup3` and process exit, and keeps removed nodes reachable from their descriptors. Idempotent. */
 export function installDeviceHolds(): void {
   if (installed) return
   installed = true
@@ -90,6 +100,34 @@ export function installDeviceHolds(): void {
       } catch { /* not a descriptor that can be told apart; the real read says what is wrong */ }
       return await read(proc, fd, ...args)
     }) as never)
+  }
+
+  type Node = { dev_node(): { name: string } }
+  const devtmpfs = DevTmpFS.prototype as unknown as {
+    delete_node(this: DevTmpFS, device: Node): void
+    create_node(this: DevTmpFS, device: Node): void
+    _device(this: DevTmpFS, path: string, inode?: unknown): unknown
+    statSync(this: DevTmpFS, path: string): unknown
+  }
+  const { delete_node, create_node, _device } = devtmpfs
+  devtmpfs.delete_node = function (device) {
+    const path = '/' + device.dev_node().name
+    let inode: unknown
+    try { inode = devtmpfs.statSync.call(this, path) } catch { /* not there */ }
+    delete_node.call(this, device)
+    if (inode !== undefined && [...held.values()].some(open => open.path === path)) unlinked.set(path, inode)
+  }
+  devtmpfs.create_node = function (device) {
+    unlinked.delete('/' + device.dev_node().name)
+    create_node.call(this, device)
+  }
+  devtmpfs._device = function (path, inode) {
+    const kept = inode === undefined ? unlinked.get(path) : undefined
+    if (kept === undefined) return _device.call(this, path, inode)
+    try { return _device.call(this, path) } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') throw error
+      return _device.call(this, path, kept)
+    }
   }
 
   const exit = Process.prototype.exit

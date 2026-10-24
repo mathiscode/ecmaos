@@ -91,6 +91,32 @@
         }
       ]
     },
+    "evtest": {
+      "file": "evtest.wasm",
+      "version": "1.35",
+      "license": "GPL-2.0-or-later",
+      "description": "evtest, which lists the input devices and prints what one reports",
+      "homepage": "https://gitlab.freedesktop.org/libevdev/evtest",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "evtest",
+          "version": "1.35",
+          "license": "GPL-2.0-or-later",
+          "archive": "evtest-evtest-1.35.tar.gz",
+          "url": "https://gitlab.freedesktop.org/libevdev/evtest/-/archive/evtest-1.35/evtest-evtest-1.35.tar.gz",
+          "sha256": "06dfe6b9760b78f3f73aca2120cbcb79339b33e59d5c79a49b4bd5d34844b054"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/evtest/build.sh",
+          "what": "compile and link flags, with the version named on the command line in place of the configure script's config.h; no source changes"
+        }
+      ],
+      "size": 96477,
+      "sha256": "9622eee8d565ee84207b8d4ec224afd617d5d8e15811e50742a97b0bb99e9efd"
+    },
     "vim": {
       "file": "vim.wasm",
       "version": "9.1.0",
@@ -219,8 +245,8 @@
           "sha256": "acc4d5f7c3cbba5f9f8d08d8bdbeede84ecede46792f47929aa9321873385528"
         }
       ],
-      "size": 2294676,
-      "sha256": "eb667dc9f3985b7661b687052635b2737c70c4f9cc555d1db9659b313d3d3bcf",
+      "size": 2290608,
+      "sha256": "893f4866969a2eff203dc2e98b4e4ca2e18e055f5a6aa9a091371b16d6cea4f9",
       "modifications": [
         {
           "file": "wasm/doom/build.sh",

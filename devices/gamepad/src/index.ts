@@ -1,9 +1,8 @@
 import ansi from 'ansi-escape-sequences'
 import { Class } from '@zenfs/linux'
-import { controlOperations, sessionOperations } from '@ecmaos-devices/session'
+import { controlOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
-import { openGamepadSession } from './session.js'
 
 export { openGamepadSession, jsEvent, GamepadError } from './session.js'
 export type { GamepadDeviceSession, GamepadSessionOptions } from './session.js'
@@ -97,22 +96,10 @@ Commands:
 /** `/sys/class/gamepad` */
 const gamepad_class = new Class('gamepad')
 
-/** How many `js<N>` nodes there are: a browser shows at most four pads at once */
-const PadSlots = 4
-
-export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  // Dynamically allocated: real Linux major 13 (input) is now hid's alone, since
-  // char_dev.register claims an entire major and the two can no longer share it informally.
-  const drivers: KernelCharDevice[] = [{
-    name: 'gamepad',
-    major: 0,
-    minor: 0,
-    class: gamepad_class,
-    ops: controlOperations
-  }]
-  if (typeof navigator === 'undefined' || !('getGamepads' in navigator)) return drivers
-  // A pad is only there once a button has been pressed on it, so the nodes are made ahead and open or fail with ENODEV
-  const ops = sessionOperations({ open: async minor => await openGamepadSession(minor - 1), onError: error => ctx.log.warn(`gamepad: ${error.message}`) })
-  for (let index = 0; index < PadSlots; index++) drivers.push({ name: `js${index}`, major: 0, minor: index + 1, class: gamepad_class, ops })
-  return drivers
+/**
+ * `/dev/gamepad`, the control node. The pads themselves are the kernel's, where Linux has them: `/dev/input/event<N>` and
+ * `/dev/input/js<N>`, made when the browser shows a pad. `session.ts` still serves a pad to another machine (`attach -s`).
+ */
+export async function getDrivers(_ctx: KernelContext): Promise<KernelCharDevice[]> {
+  return [{ name: 'gamepad', major: 0, minor: 0, class: gamepad_class, ops: controlOperations }]
 }

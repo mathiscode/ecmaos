@@ -418,8 +418,12 @@ describe('the Wayland compositor', () => {
       await until(() => fb.pixels.some(byte => byte !== 0))
       const none = picture()
 
+      // what a browser does once a button has been pressed on a pad: the kernel makes /dev/input/event<N> for it, and SDL
+      // finds it when it next looks at /dev/input
       plugged = true
-      await until(async () => (await read('/tmp/sdlpad.out')).includes('17 buttons, 4 axes, standard layout'), 30_000)
+      globalThis.dispatchEvent(Object.assign(new Event('gamepadconnected'), { gamepad: pad }))
+      // Linux's controls, not the browser's: 13 buttons, the sticks and the analog triggers as axes, and the d-pad a hat
+      await until(async () => (await read('/tmp/sdlpad.out')).includes('Test Pad, 13 buttons, 6 axes, standard layout'), 30_000)
       await until(() => picture() !== none)
       const idle = picture()
 
@@ -437,6 +441,8 @@ describe('the Wayland compositor', () => {
       await until(() => picture() !== idle && picture() !== held)
 
       pad.connected = false
+      plugged = false
+      globalThis.dispatchEvent(Object.assign(new Event('gamepaddisconnected'), { gamepad: pad }))
       await until(async () => (await read('/tmp/sdlpad.out')).includes('gamepad gone'))
       await until(() => picture() === none)
 

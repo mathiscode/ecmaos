@@ -13,3 +13,9 @@ export function registerMinor(major: number, minor: number, ops: FileOperations)
 }
 
 export const dynamicMinor = (major: number, minor: number): FileOperations | undefined => minors.get(key(major, minor))
+
+/** Whether a node made at runtime on `major` answers ioctl `request`, so the major's dispatcher offers it */
+export function dynamicIoctl(major: number, request: PropertyKey): boolean {
+  for (const [at, ops] of minors) if (at.startsWith(`${major}:`) && ops.ioctl && request in ops.ioctl) return true
+  return false
+}

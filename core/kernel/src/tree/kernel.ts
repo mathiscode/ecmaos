@@ -7,7 +7,7 @@
  *
  */
 
-import { dynamicMinor } from '#lib/dynamic-minors.ts'
+import { dynamicIoctl, dynamicMinor } from '#lib/dynamic-minors.ts'
 import { startSession } from './lib/job-control.ts'
 import { DEFAULT_UMASK, setUmask } from './lib/umask-store.ts'
 import { installSkel, type SkelFs } from './lib/skel.ts'
@@ -2394,9 +2394,10 @@ export class Kernel implements IKernel {
         sync: file => dispatch(file).sync?.(file),
         poll: file => dispatch(file).poll?.(file) ?? 0,
         poll_wait: file => dispatch(file).poll_wait?.(file),
-        // a request is answered by the driver of the node it is made on; one no driver of this major knows is left to the file system
+        // a request is answered by the driver of the node it is made on, a node made at runtime too; one no driver of this
+        // major knows is left to the file system
         ioctl: group.some(({ driver }) => driver.ops.ioctl) ? new Proxy({}, {
-          get: (_target, request) => group.some(({ driver }) => driver.ops.ioctl?.[request as never])
+          get: (_target, request) => group.some(({ driver }) => driver.ops.ioctl?.[request as never]) || dynamicIoctl(major, request)
             ? (context: never, file: Parameters<NonNullable<FileOperations['read']>>[0], ...args: unknown[]) => {
               const handler = dispatch(file).ioctl?.[request as never]
               if (!handler) throw withErrno('ENOTTY')

@@ -367,6 +367,7 @@ function fixScreenInfo(ptr, length) {
 }
 
 const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414
+const EVIOCRMFF = 0x40044581, EVIOCGRAB = 0x40044590
 const TCSBRK = 0x5409, TIOCMGET = 0x5415, TIOCMBIS = 0x5416, TIOCMBIC = 0x5417, TIOCMSET = 0x5418, TCSBRKP = 0x5425
 
 function deviceIoctl(fd, request, ptr) {
@@ -404,9 +405,12 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x70) return undefined
-  // an RTC request that writes (`RTC_SET_TIME`) hands over the structure its number names the size of
-  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : type === 0x70 && (request >>> 30) & 1 ? (request >>> 16) & 0x3fff : 0)
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70) return undefined
+  const writes = ((request >>> 30) & 1) === 1
+  // an event device's or the RTC's request that writes (`EVIOCSFF`, `RTC_SET_TIME`) hands over the structure its number
+  // names the size of; `EVIOCRMFF` and `EVIOCGRAB` take their int as it is
+  if (request === EVIOCRMFF || request === EVIOCGRAB) return syscall_raw('ioctl', fd, request, ptr)
+  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : (type === 0x45 || type === 0x70) && writes ? (request >>> 16) & 0x3fff : 0)
   const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
   const length = syscall_raw('ioctl', fd, request, argument)
   if (length < 0) return length
@@ -419,8 +423,12 @@ function deviceIoctl(fd, request, ptr) {
     const named = (request >>> 16) & 0x3fff
     give(ptr, named || length)
   }
-  // `fbdev`, GL and RTC requests give 0; an event device's give the length of what it answered
-  return type === 0x46 || type === 0x47 || type === 0x70 ? 0 : length
+  // a request that reads a string or bits gives the length of what it answered, as Linux's do: `EVIOCGNAME`, `PHYS`,
+  // `UNIQ`, `PROP`, `MTSLOTS`, `KEY`, `LED`, `SND`, `SW`, `BIT`, and `JSIOCGNAME`; the rest give 0 (`EVIOCGVERSION`, `ID`,
+  // `ABS`; `EVIOCSFF`, which has written the effect's id back into the program's structure)
+  const number = request & 0xff
+  if (type === 0x45) return !writes && ((number >= 0x06 && number <= 0x0a) || (number >= 0x18 && number <= 0x1b) || (number >= 0x20 && number < 0x40)) ? length : 0
+  return type === 0x6a && number === 0x13 ? length : 0
 }
 
 // --- memory mappings ---

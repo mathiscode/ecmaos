@@ -27,7 +27,7 @@
 A driver that talks to browser hardware (`serial`, `midi`, `gamepad`, `hid`, `usb`, `bluetooth`, `battery`, `geo`, `sensors`,
 `audio`, `camera`) has a `session.ts` that opens the hardware as a `DeviceSession` (`@ecmaos-devices/session`): bytes to read,
 bytes to write, controls and events. Two things use it. `sessionOperations` makes a `/dev` node from one (`midi<n>`,
-`js<n>`, `hidraw<n>`, `dsp`, `dsp1`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
+`hidraw<n>`, `dsp`, `dsp1`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
 once and works both ways.
 
 ## Terminals
@@ -71,7 +71,9 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 10 | 183 | `hwrng` | Real Linux misc minor; `hw_random` in sysfs (core, not a package) |
 | 13 | 64 | `input/event0` | Keyboard (core, not a package) |
 | 13 | 65 | `input/event1` | Pointer |
-| 13 | 66+n | `input/event<2+n>` | One per framebuffer window, made with its `fb<N>` |
+| 13 | 0+n | `input/js<n>` | A gamepad's joystick API node (joydev), lowest free number (core, not a package) |
+| 13 | 66+n | `input/event<2+n>` | One per framebuffer window, made with its `fb<N>` (`event2`-`event33`) |
+| 13 | 98+n | `input/event<34+n>` | One per gamepad the browser shows, lowest free number from `event34`, gone with the pad (core) |
 | 14 | 3 | `dsp` | Real Linux OSS-audio major: signed 16-bit mono at 16000 Hz to the speakers |
 | 14 | 4 | `audio` | A whole audio file, decoded and played on close |
 | 14 | 5 | `dspin` | The microphone, in the format of `dsp` |
@@ -92,7 +94,7 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 0 (dynamic) | 0 | `serial` | WebSerial's control node; the ports are `ttyACM<n>`, `ttyUSB<n>` and `rfcomm<n>` above |
 | 0 (dynamic) | 0, 1+n | `bluetooth`, `ble<n>` | One per paired Bluetooth LE device, which has no node on Linux; the number stays with the device |
 | 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID; major 13 belongs to `input` |
-| 0 (dynamic) | 0, 1–4 | `gamepad`, `js0`–`js3` | Gamepads; the nodes are made ahead and open with `ENODEV` until a button is pressed on the pad |
+| 0 (dynamic) | 0 | `gamepad` | The control node; the pads are `input/event<34+n>` and `input/js<n>` above |
 | 0 (dynamic) | 0, 1+n | `sensors`, `sensor-<kind>` | One per Generic Sensor class the browser has |
 | 0 (dynamic) | 0 | `rtc0` | The real-time clock, dynamic as Linux's rtc class is; `/dev/rtc` links to it (core, not a package) |
 | 0 (dynamic) | any | `ecmaos-remote` | Devices attached from another machine (`attach`) |
