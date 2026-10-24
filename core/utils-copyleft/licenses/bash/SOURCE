@@ -1,0 +1,24 @@
+bash 5.3 (GPL-3.0-or-later)
+
+programs/bash.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  bash-5.3.tar.gz  (bash 5.3, GPL-3.0-or-later)
+    sha256 0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+    from https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/bash/build.sh
+    the build: configures with the bundled readline and termcap and without bash's malloc, drops configure's -Wl,--fatal-warnings, and changes shell.c so main takes (argc, argv) as the C library calls it, with the environment from environ; Asyncify rewrites the program, told where its calls through a pointer reach fork
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them. Its compiler then
+puts a signal check in each loop of the linked program (utils/wali/signal-checks.mjs).
+
+Where to get it
+  - /sources/bash-5.3.tar.gz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

@@ -1,6 +1,6 @@
 # @ecmaos/coreutils-copyleft
 
-Copyleft programs for ecmaOS, built to WebAssembly: GNU make, GNU nano (with ncurses), GNU ed, lz4, tree, Vim and Doom. They live apart
+Copyleft programs for ecmaOS, built to WebAssembly: GNU Bash, GNU make, GNU nano (with ncurses), GNU ed, lz4, tree, Vim and Doom. They live apart
 from `@ecmaos/coreutils` (MIT OR Apache-2.0) so that package, and the kernel, carry no copyleft code. The ecmaOS
 site serves these programs as separate files under `/programs/`; nothing in the kernel bundle contains them.
 
@@ -11,6 +11,7 @@ syscalls, arguments and pipes. The programs are never imported as libraries.
 
 | Program | License | Notes |
 |---|---|---|
+| `bash` 5.3 | GPL-3.0-or-later | statically linked with its bundled readline and termcap; forks, so it is built with Asyncify |
 | `make` 4.4.1 | GPL-3.0-or-later | |
 | `nano` 9.2 | GPL-3.0-or-later | statically linked with ncurses 6.5 (X11 license) |
 | `ed` 1.22.5 | GPL-2.0-or-later | |

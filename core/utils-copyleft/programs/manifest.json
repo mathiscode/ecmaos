@@ -5,6 +5,32 @@
     "wali": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8"
   },
   "programs": {
+    "bash": {
+      "file": "bash.wasm",
+      "version": "5.3",
+      "license": "GPL-3.0-or-later",
+      "description": "GNU Bash; it forks, so it is built with Asyncify",
+      "homepage": "https://www.gnu.org/software/bash/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "bash",
+          "version": "5.3",
+          "license": "GPL-3.0-or-later",
+          "archive": "bash-5.3.tar.gz",
+          "url": "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz",
+          "sha256": "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+        }
+      ],
+      "size": 1566913,
+      "sha256": "68632c170258ac74c0cc6e27f6562c1023cf49ca1a91f62805963815a0dbb148",
+      "modifications": [
+        {
+          "file": "wasm/bash/build.sh",
+          "what": "the build: configures with the bundled readline and termcap and without bash's malloc, drops configure's -Wl,--fatal-warnings, and changes shell.c so main takes (argc, argv) as the C library calls it, with the environment from environ; Asyncify rewrites the program, told where its calls through a pointer reach fork"
+        }
+      ]
+    },
     "make": {
       "file": "make.wasm",
       "version": "4.4.1",
