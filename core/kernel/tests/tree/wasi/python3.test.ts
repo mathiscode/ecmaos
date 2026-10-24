@@ -182,4 +182,57 @@ b.send(b"x")
 print(out, got, len(sel.select(1)), re.sub(r"(\\d+)", r"<\\1>", "a1b22"), a.recv(1))
 `)).toEqual({ code: 0, out: "['t'] [1] 1 a<1>b<22> b'x'\n", err: '' })
   }, 60000)
+
+  it('speaks TLS: ssl and hashlib are OpenSSL, and a client verifies a server by its certificate', async () => {
+    const script = `import ssl, socket, threading, hashlib
+CERT = """-----BEGIN CERTIFICATE-----
+MIIBnDCCAUGgAwIBAgIUI9bn6of23cR6lLBBd6mM/Gep4OYwCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTAyNDIxMDMxMloYDzIxMjYwOTMw
+MjEwMzEyWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAAQKx7CG3ovkfsX21/vmpRxLLhK47iJlbz3XkT/dC55QLTj9Dn8GQgeA
+KPxp7ymY2CYqNaeQPYtrhJ91JOujlmR9o28wbTAdBgNVHQ4EFgQURYoEq1UvYKmu
+9uHNCO6qe1Oz+EkwHwYDVR0jBBgwFoAURYoEq1UvYKmu9uHNCO6qe1Oz+EkwDwYD
+VR0TAQH/BAUwAwEB/zAaBgNVHREEEzARgglsb2NhbGhvc3SHBH8AAAEwCgYIKoZI
+zj0EAwIDSQAwRgIhALqbE2k7qd3ylcl5o3RkY6/YTmhQC3Q4OIpJS7WJJYCJAiEA
+z8pbe7sgchyiJdjL3stsO15IrvEka33qVIHEpzEwJdQ=
+-----END CERTIFICATE-----
+"""
+KEY = """-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgeljonefAmA+pyzT0
+ARfRsPTR7nmcKMQl9tlUX87OzEihRANCAAQKx7CG3ovkfsX21/vmpRxLLhK47iJl
+bz3XkT/dC55QLTj9Dn8GQgeAKPxp7ymY2CYqNaeQPYtrhJ91JOujlmR9
+-----END PRIVATE KEY-----
+"""
+open("/tmp/c.pem", "w").write(CERT)
+open("/tmp/k.pem", "w").write(KEY)
+srv = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+srv.load_cert_chain("/tmp/c.pem", "/tmp/k.pem")
+ls = socket.socket(); ls.bind(("127.0.0.1", 0)); ls.listen(1)
+def serve():
+    c, _ = ls.accept()
+    with srv.wrap_socket(c, server_side=True) as t:
+        t.sendall(t.recv(5).upper())
+th = threading.Thread(target=serve); th.start()
+cli = ssl.create_default_context(cafile="/tmp/c.pem")
+with cli.wrap_socket(socket.create_connection(("127.0.0.1", ls.getsockname()[1])), server_hostname="localhost") as t:
+    t.sendall(b"hello")
+    print(t.recv(5), t.version(), flush=True)
+th.join()
+print(ssl.OPENSSL_VERSION.split()[0], hashlib.sha3_256(b"abc").hexdigest()[:8], len(hashlib.pbkdf2_hmac("sha256", b"p", b"s", 1000)))
+`
+    const result = await run(script)
+    expect(result).toEqual({ code: 0, out: "b'HELLO' TLSv1.3\nOpenSSL 3a985da7 32\n", err: '' })
+  }, 120000)
+  it('finds the CA bundle the initfs ships where OpenSSL looks', async () => {
+    // the test kernel does not unpack the initfs, so put the bundle it ships where the unpacked one would be
+    await kernel.filesystem.fs.mkdir('/usr/share/ca-certificates', { recursive: true })
+    const nodeFs = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:fs') }).getBuiltinModule('node:fs')
+    await kernel.filesystem.fs.writeFile('/usr/share/ca-certificates/ca-bundle.crt', nodeFs.readFileSync(`${import.meta.dirname}/../../../public/initfs/usr/share/ca-certificates/ca-bundle.crt`, 'utf8'))
+    expect(await run(`import ssl
+p = ssl.get_default_verify_paths()
+c = ssl.create_default_context()
+c.load_verify_locations(p.openssl_cafile)
+print(p.openssl_cafile, len(c.get_ca_certs()) > 100, c.verify_mode.name, c.check_hostname)
+`)).toEqual({ code: 0, out: '/etc/ssl/cert.pem True CERT_REQUIRED True\n', err: '' })
+  }, 60000)
 })

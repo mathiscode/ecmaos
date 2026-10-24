@@ -30,7 +30,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `tmux` | 3.5a | ISC; libevent is BSD-3-Clause and ncurses is X11 | `tmux/COPYING`, `tmux/libevent-LICENSE`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |
 | `dropbear` | 2026.94 | MIT; parts are BSD-2-Clause, MIT (PuTTY), and public domain (libtomcrypt, libtommath, TweetNaCl); zlib 1.3.2 is the zlib license | `dropbear/LICENSE`, `dropbear/zlib-LICENSE` |
-| `python3` | 3.14.9 | PSF-2.0 (the Python Software Foundation License; the file also lists the licenses of the code bundled in the interpreter); zlib 1.3.2 is the zlib license | `python3/LICENSE`, `python3/zlib-LICENSE` |
+| `python3` | 3.14.9 | PSF-2.0 (the Python Software Foundation License; the file also lists the licenses of the code bundled in the interpreter); zlib 1.3.2 is the zlib license; OpenSSL 3.5.9, built with it for ssl and hashlib, is Apache-2.0; the CA bundle in `/usr/share/ca-certificates` is Mozilla's, MPL-2.0 | `python3/LICENSE`, `python3/zlib-LICENSE`, `python3/openssl-LICENSE` |
 | `micropython` | 1.29.0 | MIT; the frozen micropython-lib modules are MIT or, where derived from CPython, the Python License | `micropython/LICENSE`, `micropython/LICENSE-micropython-lib` |
 | `wlcomp` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `wlcomp/LICENSE` |
 | `hidinfo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `hidinfo/LICENSE` |

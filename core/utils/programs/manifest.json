@@ -372,12 +372,12 @@
       "description": "CPython, with os.fork, subprocess and the standard library; it forks, so it is built with Asyncify",
       "homepage": "https://www.python.org/",
       "toolchain": "wali",
-      "size": 11842038,
-      "sha256": "df10b199be155d737092d352df5fc5d4baa7b82e62fc50ef0c621f4edb0e9918",
+      "size": 17426726,
+      "sha256": "ea816bdfded8a6c482538a543b1b3c209824165fe4d0f4cf13dd17615f1dd7be",
       "runtime": {
         "file": "python3-lib.tar.gz",
-        "size": 6460709,
-        "sha256": "e9d4063d97a3c020cfac0ac278f9a83a901ff20f0d343eb17ed9d85bfc4f7581"
+        "size": 6461082,
+        "sha256": "50ca3fc1b9d4c6ec49fb4ed0675179fea7b10614b17b92d0ec72bff39798aed5"
       }
     }
   }

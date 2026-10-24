@@ -616,6 +616,12 @@ export class Kernel implements IKernel {
         await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
       }
 
+      // OpenSSL's default places (python3's ssl, and anything else built on it) hold the CA bundle the initfs ships
+      await this.filesystem.fs.mkdir('/etc/ssl/certs', { recursive: true, mode: 0o755 }).catch(() => {})
+      for (const link of ['/etc/ssl/cert.pem', '/etc/ssl/certs/ca-certificates.crt']) {
+        if (!(await this.filesystem.fs.exists(link))) await this.filesystem.fs.symlink('/usr/share/ca-certificates/ca-bundle.crt', link).catch(() => {})
+      }
+
       if (!(await this.filesystem.fs.exists('/etc/services'))) {
         await this.filesystem.fs.writeFile('/etc/services', DEFAULT_SERVICES, { mode: 0o644 })
       }

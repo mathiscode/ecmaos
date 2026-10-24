@@ -7,7 +7,7 @@
 #
 # - A cross build runs a Python of the same version on the build machine, which this builds from the same tarball.
 # - Extension modules are linked into the program (there is no dlopen). zlib (../lib/zlib.sh) is in, which gzip, zipfile
-#   and tarfile's compressed modes need. bz2, lzma, zstd, ssl, ctypes, curses, readline, sqlite3 and dbm are left out:
+#   and tarfile's compressed modes need, and so is OpenSSL (../lib/openssl.sh), for ssl and hashlib. bz2, lzma, zstd, ctypes, curses, readline, sqlite3 and dbm are left out:
 #   configure would find the build machine's libraries for some of them, so their headers are told to be absent.
 # - patch-multiprocessing.py: WALI's `long` is 64 bits and its pointers 32, and a semaphore shared by processes cannot
 #   be a word in shared memory (see that file).
@@ -17,6 +17,7 @@
 set -euo pipefail
 source "$(dirname "$0")/../../../../utils/check-wali.sh"
 source "$(dirname "$0")/../lib/zlib.sh"
+source "$(dirname "$0")/../lib/openssl.sh"
 
 VERSION=3.14.9
 SHA256=e02d9ac21cebda6e46435369744a92c65cc7cd8669697694122cf97ffacd1e53
@@ -29,6 +30,7 @@ trap '[ -n "${KEEP:-}" ] || rm -rf "$WORK"' EXIT
 
 cd "$WORK"
 build_zlib "$WORK"
+build_openssl "$WORK"
 curl -fsSL -o python.tar.xz "https://www.python.org/ftp/python/$VERSION/Python-$VERSION.tar.xz"
 echo "$SHA256  python.tar.xz" | sha256sum -c -
 tar xJf python.tar.xz
@@ -52,9 +54,9 @@ EOF
 mkdir wali
 cd wali
 export PKG_CONFIG_LIBDIR=/nonexistent PKG_CONFIG_PATH=
-CONFIG_SITE=$WORK/config.site CC="$WALI_CC" AR="$WALI_AR" RANLIB="$WALI_RANLIB" CFLAGS="-O2 -w" CPPFLAGS="$ZLIB_INC" LDFLAGS="$ZLIB_LIB" \
+CONFIG_SITE=$WORK/config.site CC="$WALI_CC" AR="$WALI_AR" RANLIB="$WALI_RANLIB" CFLAGS="-O2 -w" CPPFLAGS="$ZLIB_INC $OPENSSL_INC" LDFLAGS="$ZLIB_LIB $OPENSSL_LIB" \
   "$SRC/configure" --build="$("$SRC/config.guess")" --host=wasm32-linux-musl --with-build-python="$WORK/host/python" \
-  --prefix=/usr --disable-ipv6 --without-ensurepip --disable-test-modules > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
+  --prefix=/usr --with-openssl="$WORK/prefix" --disable-ipv6 --without-ensurepip --disable-test-modules > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
 make -j"$(nproc)" > make.log 2>&1 || { grep -a "error" make.log | head -20 >&2; exit 1; }
 grep -a "^wali: python " make.log >&2 || true
 make install DESTDIR="$WORK/image" > install.log 2>&1 || { tail -30 install.log >&2; exit 1; }
