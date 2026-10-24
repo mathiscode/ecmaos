@@ -13,11 +13,13 @@ import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
 import { boundContexts, mounts } from '@zenfs/core'
+import { S_IFSOCK } from '@zenfs/core/constants'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
+import { setIds } from './process-credentials.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
 import { bindUdpPort, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
 import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
@@ -111,6 +113,10 @@ declare module '@zenfs/linux/uapi/abi' {
     proc_killpg(pgid: number, signal: number): number
     proc_tcsetpgrp(pid: number): number
     proc_setsid(): number
+    proc_setids(kind: number, op: number, a: number, b: number, c: number): number
+    proc_getid(which: number): number
+    proc_getgroups(index: number): number
+    proc_setgroups(groupsJson: string): number
     proc_getsid(pid: number): number
     proc_ctty(op: number, fd: number, arg: number): number
     proc_wait(pid: number): number
@@ -1368,13 +1374,27 @@ export function installMainThreadSyscalls(): void {
   })
 
   /** `bind(2)`: claims the address for the socket, whose connections then land in the kernel's table. @returns the port */
-  define_syscall('sock_bind', (proc: Process, fd: number, family: string, addr: string, port: number) => {
+  define_syscall('sock_bind', async (proc: Process, fd: number, family: string, addr: string, port: number) => {
     sweepSockets()
     const { socket } = socketAt(proc, fd)
     if (socket.datagrams) return bindDatagram(proc, socket, addr, port)
     if (socket.listening || socket.connected || socket.info.bound) throw socketErrno('EINVAL')
     const claimed = claimAddress(family, addr, port, kernelOf(proc).pipeProcess)
     if ('error' in claimed) throw socketErrno(claimed.error)
+    // a Unix socket with a path is a file there too, as `bind(2)` makes it: a socket node that `stat` and `ls` show, that
+    // `chmod` and `chown` change and `unlink` removes, and that a path already naming something refuses with EADDRINUSE.
+    // Closing the socket leaves the file, as on Linux; the program that made it removes it.
+    if (family === 'unix' && addr.startsWith('/')) {
+      try {
+        const bound = boundContexts.get(proc.context.id)
+        if (!bound) throw socketErrno('EPERM')
+        await (await bound.fs.promises.open(addr, 'wx', S_IFSOCK | (0o777 & ~umaskOf(proc)))).close()
+      } catch (error) {
+        claimed.release()
+        const code = (error as { code?: string }).code
+        throw code === 'EEXIST' ? socketErrno('EADDRINUSE') : error
+      }
+    }
     claimed.listener.wake = () => socket.wake.wake_up()
     socket.pending = () => claimed.listener.queue.length
     socket.cleanup.push(() => {
@@ -2221,6 +2241,21 @@ export function installMainThreadSyscalls(): void {
   // Sessions: `setsid(2)`, `getsid(2)` and the controlling-terminal ioctls. `proc_ctty` takes 0 for `TIOCSCTTY` (arg 1
   // steals), 1 for `TIOCNOTTY` and 2 for `TIOCGSID`; the terminal is the one `fd` is open on.
   define_syscall('proc_setsid', (proc: Process) => setsid(proc))
+  // The ids of a process (`setuid(2)` and the rest, `getresuid(2)`, `getgroups(2)`, `setgroups(2)`). `proc_setids` takes 0 for
+  // the user ids and 1 for the group ids, and the call by `op` as `setIds` has it; -1 is "unchanged". `proc_getid` gives
+  // 0-5 the real, effective and saved user ids and then the group ids, 6 the number of supplementary groups.
+  define_syscall('proc_setids', (proc: Process, kind: number, op: number, a: number, b: number, c: number) =>
+    setIds(proc.context.credentials, kind === 0 ? 'user' : 'group', op, a | 0, b | 0, c | 0) === 0 ? 0 : -Errno.EPERM)
+  define_syscall('proc_getid', (proc: Process, which: number) => {
+    const { uid, euid, suid, gid, egid, sgid, groups } = proc.context.credentials
+    return [uid, euid, suid, gid, egid, sgid, groups.length][which] ?? -Errno.EINVAL
+  })
+  define_syscall('proc_getgroups', (proc: Process, index: number) => proc.context.credentials.groups[index] ?? -Errno.EINVAL)
+  define_syscall('proc_setgroups', (proc: Process, groupsJson: string) => {
+    if (proc.context.credentials.euid !== 0) return -Errno.EPERM
+    proc.context.credentials.groups = (JSON.parse(groupsJson) as number[]).map(Number)
+    return 0
+  })
   define_syscall('proc_getsid', (proc: Process, pid: number) => {
     const target = pid === 0 ? proc : processes.get(pid)
     if (!target || target.code !== undefined) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })

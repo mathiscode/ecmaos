@@ -54,6 +54,9 @@ export function speedOf(cflag: number): number | undefined {
 
 // ioctls, from `<asm-generic/ioctls.h>`
 export const TCSBRK = 0x5409
+export const TIOCEXCL = 0x540c
+export const TIOCNXCL = 0x540d
+export const TIOCGEXCL = 0x80045440
 export const TIOCMGET = 0x5415
 export const TIOCMBIS = 0x5416
 export const TIOCMBIC = 0x5417
@@ -108,6 +111,8 @@ interface Line {
   drained?: () => void
   /** The kernel has told the line `open` and not yet `close`: a program has it open */
   opened: boolean
+  /** `TIOCEXCL` was set and the line is held until its last close. Only recorded: the kernel tells a line of its first open, not of each, so a later open is not refused */
+  exclusive?: boolean
   /** The port was unplugged */
   hungUp: boolean
   /** Why the port could not be opened or failed, until the line is closed */
@@ -261,6 +266,7 @@ class SerialDriver extends TTYDriver {
         close(tty) {
           const line = lineOf(tty)
           line.opened = false
+          line.exclusive = false
           stopSignals(line)
           tty.ldisc.flush()
           enqueue(line, () => close(line))
@@ -291,6 +297,9 @@ class SerialDriver extends TTYDriver {
           })
         },
         ioctl: {
+          [TIOCEXCL]: (_$, tty) => { lineOf(tty).exclusive = true },
+          [TIOCNXCL]: (_$, tty) => { lineOf(tty).exclusive = false },
+          [TIOCGEXCL]: (_$, tty) => lineOf(tty).exclusive ? 1 : 0,
           [TIOCMGET]: (_$, tty) => modemBits(lineOf(tty)),
           [TIOCMSET]: (_$, tty, bits) => setModem(lineOf(tty), pointer(bits)),
           [TIOCMBIS]: (_$, tty, bits) => { const line = lineOf(tty); setModem(line, modemBits(line) | pointer(bits)) },

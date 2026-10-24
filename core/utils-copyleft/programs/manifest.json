@@ -273,6 +273,40 @@
           "what": "builds libxkbcommon as a static library without meson; a missing Compose table is logged at debug level"
         }
       ]
+    },
+    "screen": {
+      "file": "screen.wasm",
+      "version": "5.0.1",
+      "license": "GPL-3.0-or-later AND X11",
+      "description": "GNU screen, with ncurses: terminal multiplexer, and a serial console (screen /dev/ttyACM0 115200)",
+      "homepage": "https://www.gnu.org/software/screen/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "screen",
+          "version": "5.0.1",
+          "license": "GPL-3.0-or-later",
+          "archive": "screen-5.0.1.tar.gz",
+          "url": "https://ftp.gnu.org/gnu/screen/screen-5.0.1.tar.gz",
+          "sha256": "2dae36f4db379ffcd14b691596ba6ec18ac3a9e22bc47ac239789ab58409869d"
+        },
+        {
+          "name": "ncurses",
+          "version": "6.5",
+          "license": "X11",
+          "archive": "ncurses-6.5.tar.gz",
+          "url": "https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz",
+          "sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/screen/build.sh",
+          "what": "the build; patches screen.c so TERM=xterm.js (or unset) falls back to xterm-256color and a SHELL that is not a path falls back to /bin/sh; configured without PAM, utmp or the socket directory (sockets are in ~/.screen), and linked with Asyncify so it can fork; builds ncurses with built-in terminfo entries"
+        }
+      ],
+      "size": 862574,
+      "sha256": "13aa58a339dbadf1ed7a50fcc3afee58cd9cb9f6af956424ee9ac15fcfe32949"
     }
   }
 }

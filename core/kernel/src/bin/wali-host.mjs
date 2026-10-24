@@ -366,13 +366,14 @@ function fixScreenInfo(ptr, length) {
   bytes().set(out, ptr)
 }
 
-const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414
+const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414, TIOCPKT = 0x5420, TIOCGPKT = 0x80045438, TIOCGEXCL = 0x80045440
 const EVIOCRMFF = 0x40044581, EVIOCGRAB = 0x40044590
 const TCSBRK = 0x5409, TIOCMGET = 0x5415, TIOCMBIS = 0x5416, TIOCMBIC = 0x5417, TIOCMSET = 0x5418, TCSBRKP = 0x5425
 
 function deviceIoctl(fd, request, ptr) {
   // a pty master's number and its lock: an int each, through the pointer
-  if (request === TIOCGPTN) {
+  if (request === TIOCPKT) return syscall_raw('ioctl', fd, request, ptr ? view().getInt32(ptr, true) : 0)
+  if (request === TIOCGPTN || request === TIOCGPKT || request === TIOCGEXCL) {
     const number = syscall_raw('ioctl', fd, request, undefined)
     if (number < 0) return number
     if (ptr) view().setInt32(ptr, number, true)
@@ -2334,6 +2335,29 @@ const calls = {
   SYS_getpgrp: () => big(syscall_raw('proc_getpgid', 0)),
   SYS_setsid: () => big(syscall_raw('proc_setsid')),
   SYS_getsid: pid => big(syscall_raw('proc_getsid', pid)),
+
+  // user and group ids: an id of -1 (all ones as an unsigned argument) is left as it is. getuid, geteuid, getgid and getegid
+  // are the dependency's.
+  SYS_setuid: uid => big(syscall_raw('proc_setids', 0, 0, uid | 0, -1, -1)),
+  SYS_setgid: gid => big(syscall_raw('proc_setids', 1, 0, gid | 0, -1, -1)),
+  SYS_setreuid: (ruid, euid) => big(syscall_raw('proc_setids', 0, 1, ruid | 0, euid | 0, -1)),
+  SYS_setregid: (rgid, egid) => big(syscall_raw('proc_setids', 1, 1, rgid | 0, egid | 0, -1)),
+  SYS_setresuid: (ruid, euid, suid) => big(syscall_raw('proc_setids', 0, 2, ruid | 0, euid | 0, suid | 0)),
+  SYS_setresgid: (rgid, egid, sgid) => big(syscall_raw('proc_setids', 1, 2, rgid | 0, egid | 0, sgid | 0)),
+  SYS_getresuid: (rPtr, ePtr, sPtr) => { for (const [i, ptr] of [rPtr, ePtr, sPtr].entries()) view().setUint32(ptr, syscall_raw('proc_getid', i), true); return 0n },
+  SYS_getresgid: (rPtr, ePtr, sPtr) => { for (const [i, ptr] of [rPtr, ePtr, sPtr].entries()) view().setUint32(ptr, syscall_raw('proc_getid', 3 + i), true); return 0n },
+  SYS_getgroups: (size, listPtr) => {
+    const count = syscall_raw('proc_getid', 6)
+    if (size === 0) return big(count)
+    if (size < count) return big(-EINVAL)
+    for (let i = 0; i < count; i++) view().setUint32(listPtr + 4 * i, syscall_raw('proc_getgroups', i), true)
+    return big(count)
+  },
+  SYS_setgroups: (size, listPtr) => {
+    if (size > 65536) return big(-EINVAL)
+    const groups = Array.from({ length: size }, (_, i) => view().getUint32(listPtr + 4 * i, true))
+    return big(syscall_raw('proc_setgroups', JSON.stringify(groups)))
+  },
 
   SYS_rt_sigaction: (signal, actPtr, oldPtr) => {
     if (signal < 1 || signal > 64 || (actPtr && (signal === SIGKILL || signal === SIGSTOP))) return big(-EINVAL)

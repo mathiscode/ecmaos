@@ -75,6 +75,24 @@ describe('pseudo-terminals', () => {
     expect(result).toBe('slaves=0|slave-read="hello\\n"|master-read="hello\\r\\nreply"')
   })
 
+  it('TIOCPKT puts a status byte, 0 for data, in front of what the master reads', async () => {
+    const { result } = await program('packet', `
+      const { readdir } = globalThis.ecmaosSyscalls
+      const master = open('/dev/ptmx', 2, 0)
+      const names = readdir('/dev/pts').filter(n => !n.startsWith('.'))
+      const slave = open('/dev/pts/' + names[0], 2, 0)
+      const buf = new Uint8Array(64)
+      say('plain=' + ioctl(master, 0x80045438))
+      ioctl(master, 0x5420, 1)
+      say('packet=' + ioctl(master, 0x80045438))
+      write(slave, enc.encode('reply'))
+      const n = read(master, buf, -1)
+      say('read=' + JSON.stringify(Array.from(buf.subarray(0, n))))
+      close(slave); close(master)
+    `)
+    expect(result).toBe('plain=0|packet=1|read=[0,114,101,112,108,121]')
+  })
+
   it('closing the master frees the pair and takes its slave away', async () => {
     const { result } = await program('gone', `
       const master = open('/dev/ptmx', 2, 0)

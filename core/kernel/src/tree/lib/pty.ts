@@ -2,7 +2,8 @@
  * Pseudo-terminals: `/dev/ptmx` and `/dev/pts/<n>`. The slave is a `@zenfs/linux` tty whose "hardware" is the master:
  * what the slave writes the master reads, and what is written to the master arrives as typed.
  * Opening `/dev/ptmx` allocates a pair by wrapping the `open` syscall (as `fd-links.ts` does for `/dev/fd`); a pair
- * is freed when the last descriptor on its master closes. The master answers `TIOCGPTN` and `TIOCSPTLCK`.
+ * is freed when the last descriptor on its master closes. The master answers `TIOCGPTN` and `TIOCSPTLCK`, and `TIOCPKT` (packet mode: each
+ * read begins with a status byte, 0 for data; the flow-control and flush notices Linux can also send are not raised).
  * `/dev/tty` resolves to the caller's controlling terminal.
  */
 
@@ -18,6 +19,8 @@ const LINES = 256
 
 export const TIOCGPTN = 0x80045430
 export const TIOCSPTLCK = 0x40045431
+export const TIOCPKT = 0x5420
+export const TIOCGPKT = 0x80045438
 const TIOCGWINSZ = 0x5413
 const TIOCSWINSZ = 0x5414
 const TCGETS = 0x5401
@@ -34,6 +37,8 @@ interface Pair {
   /** Set once the master descriptor exists, so a pair still being opened is not swept up */
   opened: boolean
   locked: boolean
+  /** Packet mode (`TIOCPKT`): a read of the master begins with a status byte */
+  packet: boolean
   /** Kernel code holds the master (`createPty`) instead of a descriptor, so the sweep leaves the pair alone */
   held: boolean
   /** Where the slave's output goes when the kernel holds the master */
@@ -64,6 +69,8 @@ const masters = new CharDevice({
     const pair = pairs.get(file.devt.minor)
     if (!pair) return 0
     let count = 0
+    // a packet begins with its status, which is 0 for data; nothing to read is still nothing
+    if (pair.packet && pair.output.length && start < end) buffer[start + count++] = 0
     while (pair.output.length && start + count < end) {
       const chunk = pair.output[0] as Uint8Array
       const take = Math.min(chunk.length, end - start - count)
@@ -88,6 +95,8 @@ const masters = new CharDevice({
   ioctl: {
     [TIOCGPTN]: (_$, file: DeviceFile) => file.devt.minor,
     [TIOCSPTLCK]: (_$, file: DeviceFile, lock: number) => { const pair = pairs.get(file.devt.minor); if (pair) pair.locked = !!lock },
+    [TIOCPKT]: (_$, file: DeviceFile, on: number) => { const pair = pairs.get(file.devt.minor); if (pair) pair.packet = !!on },
+    [TIOCGPKT]: (_$, file: DeviceFile) => pairs.get(file.devt.minor)?.packet ? 1 : 0,
     [TIOCGWINSZ]: (_$, file: DeviceFile) => pairs.get(file.devt.minor)?.slave.winsize,
     [TIOCSWINSZ]: (_$, file: DeviceFile, size: { rows: number, cols: number }) => {
       const pair = pairs.get(file.devt.minor)
@@ -115,7 +124,7 @@ function allocate(): Pair {
   slave.open()
   const masterDevice = new Device({ name: `pts/.ptm${index}`, class: master_class, dev_t: { major: MASTER_MAJOR, minor: index } })
   masterDevice.register()
-  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true, held: false, listeners: new Set() }
+  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true, packet: false, held: false, listeners: new Set() }
   pairs.set(index, pair)
   return pair
 }
