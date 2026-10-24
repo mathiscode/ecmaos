@@ -38,6 +38,7 @@ const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMP
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
 const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030
 const F_GETLK = 5, F_SETLK = 6, F_SETLKW = 7
+const F_RDLCK = 0, F_WRLCK = 1, F_UNLCK = 2
 const FD_CLOEXEC = 1
 /** What `F_SETFL` may change; the access mode and creation flags are fixed at open */
 const SETFL_MASK = 0x400 /* O_APPEND */ | 0x800 /* O_NONBLOCK */ | 0x2000 /* O_ASYNC */ | 0x4000 /* O_DIRECT */ | 0x40000 /* O_NOATIME */
@@ -240,6 +241,63 @@ function stat(name, ptr, target) {
   return 0
 }
 
+/**
+ * Record locks are the kernel's (`tree/lib/record-locks.ts`), kept for every process by the file's device and inode:
+ * here a `struct flock` is read (its start from the start of the file, the offset or the end of it) and the answer to
+ * `F_GETLK` written. A process that has asked for one gives up its locks on a file where it closes any descriptor for
+ * it, so from then on a close looks the file up first.
+ */
+const LOCK_GET = 0, LOCK_SET = 1, LOCK_SET_WAIT = 2, LOCK_RELEASE = 3
+let locking = false
+
+/** A descriptor's file as the kernel's locks name it, and its size */
+function lockKey(fd) {
+  if (syscall_raw('fstat', fd) < 0) return undefined
+  const dv = new DataView(returned.buffer, returned.byteOffset)
+  return { key: `${dv.getBigUint64(0, true)}:${dv.getBigUint64(8, true)}`, size: Number(dv.getBigInt64(48, true)) }
+}
+
+/** `struct flock`: type (2), whence (2), start (8 at 8), length (8), pid (4) */
+function recordLock(fd, cmd, ptr) {
+  const dv = view()
+  const type = dv.getInt16(ptr, true), whence = dv.getInt16(ptr + 2, true)
+  const offset = Number(dv.getBigInt64(ptr + 8, true)), length = Number(dv.getBigInt64(ptr + 16, true))
+  const file = lockKey(fd)
+  if (!file) return -EBADF
+  if (type !== F_RDLCK && type !== F_WRLCK && type !== F_UNLCK) return -EINVAL
+  // a read lock needs the file open for reading, a write lock for writing
+  const access = syscall_raw('fd_getfl', fd) & O_ACCMODE
+  if (cmd !== F_GETLK && ((type === F_RDLCK && access === O_WRONLY) || (type === F_WRLCK && access === O_RDONLY))) return -EBADF
+  let base
+  if (whence === 0) base = 0
+  else if (whence === 1) base = syscall_raw('lseek', fd, 0, 1)
+  else if (whence === 2) base = file.size
+  else return -EINVAL
+  if (base < 0) return base
+  // a negative length is the range before the start
+  let start = base + offset, end = length === 0 ? Infinity : start + length
+  if (length < 0) [start, end] = [start + length, start]
+  if (start < 0) return -EINVAL
+  const op = cmd === F_GETLK ? LOCK_GET : cmd === F_SETLK ? LOCK_SET : LOCK_SET_WAIT
+  if (type !== F_UNLCK) locking = true
+  const value = syscall_raw('lock_op', op, file.key, type, start, end === Infinity ? -1 : end)
+  if (value < 0 || op !== LOCK_GET) return value
+  const answer = new DataView(returned.buffer, returned.byteOffset)
+  const found = answer.getInt32(0, true)
+  dv.setInt16(ptr, found, true)
+  if (found !== F_UNLCK) {
+    dv.setInt16(ptr + 2, 0, true)
+    dv.setBigInt64(ptr + 8, answer.getBigInt64(8, true), true)
+    dv.setBigInt64(ptr + 16, answer.getBigInt64(16, true), true)
+    dv.setInt32(ptr + 24, answer.getInt32(24, true), true)
+  }
+  return 0
+}
+
+/** What a close of `fd` (or a descriptor replaced by `dup2`) does to the process's record locks: their file's, to give up once it is closed, or undefined */
+const lockedFile = fd => (locking ? lockKey(fd)?.key : undefined)
+const unlockFile = key => { if (key !== undefined) syscall_raw('lock_op', LOCK_RELEASE, key, 0, 0, 0) }
+
 function fcntl(fd, cmd, arg) {
   switch (cmd) {
     case F_DUPFD:
@@ -269,14 +327,10 @@ function fcntl(fd, cmd, arg) {
     }
     case F_SETFL:
       return syscall_raw('fd_setfl', fd, arg)
-    // Locks are advisory and every process here shares one kernel, which keeps none: taking one succeeds and asking
-    // finds none held. Two processes writing the same file at once are not kept apart.
     case F_SETLK:
     case F_SETLKW:
-      return 0
     case F_GETLK:
-      view().setInt16(arg, 2 /* F_UNLCK */, true)
-      return 0
+      return recordLock(fd, cmd, arg)
     default:
       return -EINVAL
   }
@@ -2054,10 +2108,12 @@ const calls = {
   SYS_memfd_create: (_name, flags) => big(memfdCreate(num(flags))),
   SYS_fallocate: (fd, mode, offset, length) => big(fallocate(fd, num(mode), num(offset), num(length))),
   SYS_close: fd => {
+    const key = lockedFile(fd)
     const value = syscall_raw('close', fd)
     if (value >= 0) {
       forget(fd)
       epolls.delete(fd)
+      unlockFile(key)
     }
     return big(value)
   },
@@ -2092,13 +2148,17 @@ const calls = {
   SYS_dup2: (from, to) => {
     if (to >= descriptorLimit()) return big(-EBADF)
     if (from === to) return big(syscall_raw('fstat', from) < 0 ? -EBADF : to)
+    const key = lockedFile(to)
     const value = syscall_raw('dup2', from, to)
+    if (value >= 0) unlockFile(key)
     return big(value < 0 ? value : opened(value, 0, false))
   },
   SYS_dup3: (from, to, flags) => {
     if (from === to || (flags & ~O_CLOEXEC)) return big(-EINVAL)
     if (to >= descriptorLimit()) return big(-EBADF)
+    const key = lockedFile(to)
     const value = syscall_raw('dup2', from, to)
+    if (value >= 0) unlockFile(key)
     return big(value < 0 ? value : opened(value, 0, (flags & O_CLOEXEC) !== 0))
   },
   // musl reads the argument as an `unsigned long`, 8 bytes here, where the caller passed an int or a pointer (4 bytes):
@@ -2434,8 +2494,12 @@ export function attach(instance) {
  * each process. The wasm stack cannot be copied, so the call starts an unwind, which saves the frames into a buffer in
  * linear memory and returns out of `_start`; `drive()` then copies the memory, the host's shared state and the stack
  * pointer to a new process (`proc_fork`), and rewinds this one and the child into the call, which returns the child's
- * pid in the first and 0 in the other. Only the calling thread exists in the child. What the kernel does not carry
- * over: shared file mappings.
+ * pid in the first and 0 in the other. Only the calling thread exists in the child. The host's own state goes with it:
+ * directory positions, epoll interest lists, shared file mappings and SysV attachments (the child has descriptors for
+ * them, so the object they stand for is the same one, kept in step by the flushes and refreshes of any two processes
+ * that map it), and the alternate signal stack. What a child does not have is Linux's one open file description under
+ * a descriptor for these: the position and the interest list are its own copies from then on. The robust list is not
+ * inherited, on Linux either.
  */
 const ASYNCIFY_UNWINDING = 1, ASYNCIFY_REWINDING = 2
 const FORK_BUFFER = 256 * 1024
@@ -2476,15 +2540,44 @@ function startChild() {
   new Uint8Array(copy.buffer).set(bytes())
   const shared = new SharedArrayBuffer(state.buffer.byteLength)
   new Uint8Array(shared).set(new Uint8Array(state.buffer))
+  // the object under each shared mapping is made current, so the child's copy of the memory is what it holds
+  flushAll()
+  const files = [...new Set([...mappings.values()].map(mapping => mapping.file))]
   const options = {
     buffer: forkBuffer,
     sp: stackPointer.value,
+    positions: [...positions],
+    // an interest's data is 64 bits: text, as for the globals
+    epolls: [...epolls].map(([fd, interest]) => [fd, [...interest].map(([watched, entry]) => [watched, entry.events, String(entry.data)])]),
+    mappings: [...mappings.values()].map(({ ptr, length, prot, offset, regular, file }) => ({ ptr, length, prot, offset, regular, file: files.indexOf(file) })),
+    files: files.map(file => file.fd),
+    attachments: [...attachments],
+    altStack,
     // an i64 goes as text: JSON has no such number
     globals: programGlobals.map(([name, global]) => [name, typeof global.value === 'bigint' ? `${global.value}n` : global.value]),
     mask: String(mask),
     signals: { ignored: ignoredSet(), blocked: kernelSet(mask) }
   }
   return syscall_raw('proc_fork', init.exe, init.interpreter, copy, shared, JSON.stringify(options))
+}
+
+/** What a fork's child takes from the host state of the process that made it (see `startChild`) */
+function inheritFrom(fork) {
+  positions.clear()
+  for (const [fd, index] of fork.positions) positions.set(fd, index)
+  epolls.clear()
+  for (const [fd, interest] of fork.epolls) epolls.set(fd, new Map(interest.map(([watched, events, data]) => [watched, { events, data: BigInt(data) }])))
+  // the memory is the flushed parent's, so what each mapping holds now is its shadow
+  const files = fork.files.map(fd => ({ fd, refs: 0 }))
+  mappings.clear()
+  for (const mapping of fork.mappings) {
+    const file = files[mapping.file]
+    file.refs++
+    mappings.set(mapping.ptr, { ...mapping, file, shadow: bytes().slice(mapping.ptr, mapping.ptr + mapping.length) })
+  }
+  attachments.clear()
+  for (const [at, size] of fork.attachments) attachments.set(at, size)
+  altStack = fork.altStack
 }
 
 /**
@@ -2503,6 +2596,7 @@ export function drive(instance, limits, fork) {
       stackPointer.value = fork.sp
       for (const [name, value] of fork.globals) exports[name].value = typeof value === 'string' ? BigInt(value.slice(0, -1)) : value
       mask = BigInt(fork.mask)
+      inheritFrom(fork)
       routeAll()
       forkBuffer = fork.buffer
       forkResult = 0

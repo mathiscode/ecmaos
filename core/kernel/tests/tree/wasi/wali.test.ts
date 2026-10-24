@@ -342,6 +342,22 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('forks with the host\'s own state: the directory read so far, an epoll interest, a shared mapping and the alternate stack', async () => {
+    expect(await run('wali-fork-state')).toEqual({
+      code: 0,
+      err: '',
+      out: ['dir before=3 child-rest=3', 'epoll child=0', 'shared child=0 parent-saw=1', 'altstack child=0', ''].join('\n')
+    })
+  }, 60_000)
+
+  it('keeps record locks between processes: conflicts, F_GETLK, F_SETLKW, release on close and on exit, deadlock', async () => {
+    expect(await run('wali-locks')).toEqual({
+      code: 0,
+      err: '',
+      out: ['conflict=15', 'shared=1', 'hole=7', 'wait=0 waited=1', 'closed=1', 'exited=1', 'deadlock=1 child=0', ''].join('\n')
+    })
+  }, 60_000)
+
   it('forks inside a try block: the child throws and catches, the parent leaves the block as it would', async () => {
     expect(await run('wali-fork-cxx')).toEqual({ code: 0, err: 'inside', out: 'child exit=21\nparent caught parent, destroyed=1\n' })
   }, 60_000)

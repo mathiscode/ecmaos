@@ -34,6 +34,7 @@ import { installNotDirectory } from './not-directory.ts'
 import { installThreads, leaderOf } from './wali-threads.ts'
 import { installWaliSignals } from './wali-signals.ts'
 import { installSysvIpc } from './sysv-ipc.ts'
+import { installRecordLocks } from './record-locks.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -503,6 +504,7 @@ export function installMainThreadSyscalls(): void {
   installThreads()
   installWaliSignals()
   installSysvIpc()
+  installRecordLocks()
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
     let inode: NonNullable<typeof handle>['inode']
@@ -2154,14 +2156,14 @@ export function installMainThreadSyscalls(): void {
   define_syscall('proc_fork', async (proc: Process, exe: string, _interpreter: string, memory: WebAssembly.Memory, shared: SharedArrayBuffer, optionsJson: string) => {
     const kernel = kernelOf(proc)
     const shell = shellOf(proc)
-    const options = JSON.parse(optionsJson) as { buffer: number, sp: number, globals: Array<[string, number | string]>, mask: string, signals: SignalState }
+    const options = JSON.parse(optionsJson) as { signals: SignalState } & Record<string, unknown>
     const fds = Object.fromEntries([...proc.context.descriptors.keys()].map(fd => [fd, fd]))
     const child = await spawnWithFds(proc, exe, proc.argv, { ...proc.env, __WALI_FORK__: '1' }, {
       cwd: proc.context.pwd, fds, exactFds: true, signals: options.signals, credentials: { ...proc.context.credentials }
     })
     registerProcessKernel(child, kernel, shell)
     for (const signal of proc.caught) child.catch_signal(signal)
-    ;(child.thread as unknown as { host?: { post(message: unknown): void } }).host?.post({ $: 'wali-thread', memory, shared, fork: { buffer: options.buffer, sp: options.sp, globals: options.globals, mask: options.mask } })
+    ;(child.thread as unknown as { host?: { post(message: unknown): void } }).host?.post({ $: 'wali-thread', memory, shared, fork: options })
     return child.pid
   })
 

@@ -2,9 +2,6 @@
 # fails when a test not listed here fails, and when one listed here passes: take it off the list then.
 
 
-# file locks
-functional.fcntl            fcntl F_SETLK takes no lock and F_GETLK finds none (the host keeps no record locks), so the forked child's two checks fail
-
 # threads
 
 # processes and signals
