@@ -202,6 +202,10 @@ export function registerProcExtras(root: ProcDir): void {
       entry.children.set('stat', file(() => showPidStat(proc)))
       entry.children.set('statm', file(() => '0 0 0 0 0 0 0\n'))
       entry.children.set('cgroup', file(() => '0::/\n'))
+      // a process is one thread: `task/<pid>` holds what `/proc/<pid>` does (htop reads its stat from there)
+      const main = new ProcDir({})
+      for (const [child, value] of entry.children) main.children.set(child, value)
+      entry.children.set('task', new ProcDir({ [name]: main }))
     }
     return entry
   }

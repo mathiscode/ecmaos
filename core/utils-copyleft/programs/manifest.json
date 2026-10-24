@@ -469,6 +469,40 @@
       ],
       "size": 387637,
       "sha256": "4611c06a831a18f222c1618542fd525725f58dc3f1c5945b33bebcbf4a9a6309"
+    },
+    "htop": {
+      "file": "htop.wasm",
+      "version": "3.5.3",
+      "license": "GPL-2.0-or-later AND X11",
+      "description": "htop, with ncurses: interactive process viewer",
+      "homepage": "https://htop.dev/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "htop",
+          "version": "3.5.3",
+          "license": "GPL-2.0-or-later",
+          "archive": "htop-3.5.3.tar.xz",
+          "url": "https://github.com/htop-dev/htop/releases/download/3.5.3/htop-3.5.3.tar.xz",
+          "sha256": "a8b164386494cb85bb255a415a3f5f80afe7a0c4491da5d113b3a0f951087e65"
+        },
+        {
+          "name": "ncurses",
+          "version": "6.5",
+          "license": "X11",
+          "archive": "ncurses-6.5.tar.gz",
+          "url": "https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz",
+          "sha256": "136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/htop/build.sh",
+          "what": "the build; patches htop.c so TERM=xterm.js (or unset) falls back to xterm-256color; configured without affinity, hwloc, capabilities, delay accounting and sensors; builds ncurses with built-in terminfo entries"
+        }
+      ],
+      "size": 714604,
+      "sha256": "868b74988f4744d0175fa6bc04800ce1cea4202df93288a12fab8193dc2553a2"
     }
   }
 }

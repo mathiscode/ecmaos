@@ -50,6 +50,13 @@ describe('/proc: stat, loadavg, <pid>/stat and net/', () => {
     expect(await text(`/proc/${pid}/statm`).catch(() => 'gone')).toBeDefined()
   })
 
+  it('/proc/<pid>/task/<pid> holds what /proc/<pid> does, since a process is one thread (htop reads its stat there)', async () => {
+    expect(await fs().readdir('/proc/1/task')).toEqual(['1'])
+    expect(await text('/proc/1/task/1/stat')).toBe(await text('/proc/1/stat'))
+    expect(await text('/proc/1/task/1/statm')).toBe('0 0 0 0 0 0 0\n')
+    expect(await text('/proc/1/task/1/comm')).toBe(await text('/proc/1/comm'))
+  })
+
   it('/proc/net has the tables Linux has, empty of sockets before any are open', async () => {
     const names = await fs().readdir('/proc/net')
     expect(names).toEqual(expect.arrayContaining(['tcp', 'tcp6', 'udp', 'udp6', 'unix', 'dev', 'route', 'if_inet6']))
