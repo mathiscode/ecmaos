@@ -133,6 +133,7 @@ export class WinBoxRenderer implements WindowRenderer {
 
     const box = new WinBoxCtor(params) as WinBoxState
     this._boxes.set(id, box)
+    this._focusInside(box)
     // where WinBox put it: a centred window was recorded at 0, 0
     return { body: box.body as HTMLElement, dom: box.dom as HTMLElement, geometry: { x: box.x, y: box.y, width: box.width, height: box.height } }
   }
@@ -162,11 +163,20 @@ export class WinBoxRenderer implements WindowRenderer {
         if (box.width !== width || box.height !== height) box.resize(width, height)
       }
 
-      if (info.focused && !info.hidden) box.focus()
+      if (info.focused && !info.hidden) { box.focus(); this._focusInside(box) }
     } finally {
       this._applying = false
     }
     this._updateBodyClass()
+  }
+
+  /** WinBox raises and styles a focused window but leaves the keyboard where it was; a window that holds nothing focused takes it, so typing goes to the window that just opened */
+  private _focusInside(box: WinBoxState) {
+    const body = box.body as HTMLElement | undefined
+    if (!body || !globalThis.document || body.contains(document.activeElement)) return
+    const target = body.querySelector<HTMLElement>('textarea, input, select, [tabindex]:not([tabindex="-1"]), iframe, canvas[tabindex]')
+    if (!target) body.tabIndex = -1
+    ;(target ?? body).focus({ preventScroll: true })
   }
 
   /** Windows opened from now on keep to the new work area; open ones are moved back inside it */

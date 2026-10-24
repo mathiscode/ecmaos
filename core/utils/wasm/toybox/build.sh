@@ -94,6 +94,21 @@ assert hook in source
 open(path, "w").write(source.replace(hook, fix, 1))
 PATCH
 
+# STIME: toybox cuts the date to start `-3-width` characters from the end of "yyyy-mm-dd hh:mm:ss", which leaves hh:mm:ss
+# for the default width of 5, and a right-justified field on a terminal keeps the right end, so it printed mm:ss. The
+# seconds are cut off first (kept only at the full width of 19), as the comment above that line means.
+python3 - <<'PATCH'
+path = "toys/posix/ps.c"
+source = open(path).read()
+old = """    out = out+strlen(out)-3-abs(field->len);
+    if (out<buf) out = buf;"""
+new = """    if (abs(field->len) < 19) out[16] = 0;
+    out = out+strlen(out)-abs(field->len);
+    if (out<buf) out = buf;"""
+assert source.count(old) == 1
+open(path, "w").write(source.replace(old, new))
+PATCH
+
 for command in "${COMMANDS[@]}"; do
   OUT=$HERE/../../programs/$command.wasm
   CC=$WALI_CC HOSTCC=cc NOSTRIP=1 CFLAGS="-O2" LDOPTIMIZE="-Wl,--gc-sections" \

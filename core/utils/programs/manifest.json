@@ -142,8 +142,8 @@
       "description": "ps, from toybox: lists processes (ps -ef, ps aux, -o columns), read from /proc",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
-      "size": 137626,
-      "sha256": "58675d71845f5d4f1ed6d3b5639cd09afbb867ec6d028c6608ba970995e52cd6"
+      "size": 137675,
+      "sha256": "7a512b4c040cbbef78d2980f480f94493fc1d6b9ec9a0e4b8d85d42c6038aa95"
     },
     "lsof": {
       "file": "lsof.wasm",

@@ -71,6 +71,15 @@ describe('toybox: ps, lsof, vmstat, netstat, sysctl, lsmod, pidof', () => {
     expect(seen).toMatch(/^88:0$/m)
   }, 60000)
 
+  it('ps prints STIME as hh:mm and an elapsed time that is never negative', async () => {
+    const ran = await sh('ps -e -o pid=,stime=,etime=')
+    for (const line of ran.out.trim().split('\n')) {
+      const [, stime, etime] = line.trim().split(/\s+/)
+      expect(stime, line).toMatch(/^\d\d:\d\d$/)
+      expect(etime, line).toMatch(/^\d\d:\d\d$/)
+    }
+  }, 60000)
+
   it('pidof finds a program by name', async () => {
     expect((await sh('pidof init')).out).toBe('1\n')
     expect((await sh('pidof no-such-program')).code).toBe(1)

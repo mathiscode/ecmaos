@@ -56,9 +56,11 @@ export function socketInode(socket: object): number {
   return inode
 }
 
-/** When the page started, in epoch milliseconds: the boot time of the machine */
-const bootEpoch = Date.now() - performance.now()
-const uptime = () => performance.now() / 1000
+/** Seconds since boot, as /proc/uptime counts them (from when procfs loaded); the page's own clock until that is registered */
+let clock = () => performance.now() / 1000
+const uptime = () => clock()
+/** When the machine booted, in epoch milliseconds */
+const bootEpoch = () => Date.now() - uptime() * 1000
 const cores = () => navigator.hardwareConcurrency || 1
 
 /** Linux writes a clock tick count in whole numbers; a time since boot in ticks */
@@ -71,15 +73,15 @@ processes.set = (pid, proc) => {
   if (!started.has(proc)) started.set(proc, uptime())
   return joinTable(pid, proc)
 }
-/** Never later than a tick ago, since `ps` divides by the time a process has run */
-const startOf = (proc: Process) => Math.min(started.get(proc) ?? 0, Math.max(0, uptime() - 1 / Hz))
+/** Never later than a whole second ago: `ps` divides by the time a process has run and takes it from sysinfo's uptime in whole seconds, so a start inside the current second would give a negative ELAPSED */
+const startOf = (proc: Process) => Math.min(started.get(proc) ?? 0, Math.max(0, Math.floor(uptime()) - 1))
 
 function showStat(): string {
   const idle = ticks(uptime())
   const lines = [`cpu  0 0 0 ${idle * cores()} 0 0 0 0 0 0`]
   for (let i = 0; i < cores(); i++) lines.push(`cpu${i} 0 0 0 ${idle} 0 0 0 0 0 0`)
   const live = [...processes.values()].filter(proc => proc.code === undefined)
-  lines.push('intr 0', 'ctxt 0', `btime ${Math.floor(bootEpoch / 1000)}`, `processes ${Math.max(...processes.keys(), 0)}`,
+  lines.push('intr 0', 'ctxt 0', `btime ${Math.floor(bootEpoch() / 1000)}`, `processes ${Math.max(...processes.keys(), 0)}`,
     `procs_running ${Math.min(1, live.length)}`, 'procs_blocked 0')
   return lines.join('\n') + '\n'
 }
@@ -160,6 +162,9 @@ const showInet6 = () => '00000000000000000000000000000001 01 80 10 80       lo\n
 
 /** Adds the entries above to `/proc`. Call once, after procfs is loaded. */
 export function registerProcExtras(root: ProcDir): void {
+  // one clock for everything: the uptime sysinfo reports (read from /proc/uptime) and the start times here must agree
+  const up = root.children.get('uptime') as Entry | undefined
+  if (up) clock = () => Number(up.show().split(' ')[0]) || 0
   root.children.set('stat', file(showStat))
   root.children.set('loadavg', file(showLoadavg))
   // paging and swap counters: the browser pages nothing in or out that the kernel could count
