@@ -92,14 +92,14 @@ export const migratedCommands = [
   'id', 'groups',
   'chown',
   'zip', 'unzip', 'git', 'less', 'man',
-  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'fsck', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'strace', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput', 'visudo', 'dmesg', 'lscpu', 'fastfetch', 'wall', 'write'
+  'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'fsck', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'strace', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput', 'visudo', 'dmesg', 'lscpu', 'fastfetch', 'wall', 'write', 'ss', 'w', 'ip'
 ] as const
 
 /**
  * The kernel commands that ship as `execve` programs. They live in `@ecmaos/kernel` (`src/bin/commands/<name>.mjs`)
  * because they need kernel-only custom syscalls (see `#lib/main-thread-syscalls.ts`).
  */
-export const migratedKernelCommands = ['clear', 'df', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'chage', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install', 'connect', 'share', 'attach', 'gateway', 'quota', 'notify-send', 'xclip', 'say', 'top', 'wmctrl', 'fbwin', 'telinit', 'runlevel', 'ipcs', 'ipcrm'] as const
+export const migratedKernelCommands = ['clear', 'df', 'reboot', 'halt', 'poweroff', 'uninstall', 'tty', 'sockets', 'user', 'umount', 'theme', 'crond', 'cron', 'kill', 'killall', 'pgrep', 'pkill', 'useradd', 'userdel', 'usermod', 'chage', 'groupadd', 'groupdel', 'groupmod', 'gpasswd', 'history', 'format', 'time', 'nc', 'open', 'video', 'play', 'web', 'view', 'mount', 'passkey', 'screensaver-daemon', 'app', 'devcli', 'download', 'load', 'passwd', 'chsh', 'screensaver', 'snake', 'upload', 'install', 'connect', 'share', 'attach', 'gateway', 'quota', 'notify-send', 'xclip', 'say', 'top', 'wmctrl', 'fbwin', 'telinit', 'runlevel', 'ipcs', 'ipcrm', 'host', 'nslookup', 'dig', 'ping'] as const
 
 /** Resolves once: the real, on-disk directory `@ecmaos/coreutils`'s `commands-execve/` sources live in. */
 function coreutilsExecveDir(): string {

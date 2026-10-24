@@ -101,6 +101,12 @@ describe('toybox: ps, lsof, vmstat, netstat, sysctl, lsmod, pidof', () => {
       listing = (await sh('netstat -ltn')).out
     }
     expect(listing).toMatch(/^tcp +0 +0 +127\.0\.0\.1:2424 +0\.0\.0\.0:\* +LISTEN/m)
+    // ss reads the same table
+    const sockets = await sh('ss -ltn')
+    expect(sockets.out.split('\n')[0]).toMatch(/^State +Recv-Q +Send-Q +Local Address:Port +Peer Address:Port/)
+    expect(sockets.out).toMatch(/^LISTEN +0 +4096 +127\.0\.0\.1:2424 +0\.0\.0\.0:\*$/m)
+    expect((await sh('ss -ltn -H')).out.split('\n')[0]).toMatch(/^LISTEN /)
+    expect((await sh('ss -lun')).out).not.toContain(':2424')
     await kernel.shell.execute('pkill dropbear')
   }, 60000)
 })
