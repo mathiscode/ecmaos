@@ -6,6 +6,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | Program | Version | License | Texts |
 |---|---|---|---|
 | `bc` (and `dc`) | 7.0.3 | BSD-2-Clause | `bc/LICENSE.md` |
+| `dash` | 0.5.12 | BSD-3-Clause | `dash/COPYING` |
 | `jq` | 1.8.2 | MIT, with BSD-2-Clause (oniguruma and other parts), the ICU license (decNumber) and David Gay's dtoa license | `jq/COPYING`, `jq/oniguruma-COPYING` |
 | `lua` | 5.4.8 | MIT | `lua/LICENSE` |
 | `sqlite3` | 3.53.4 | public domain; linenoise is BSD-2-Clause | `sqlite3/blessing.txt`, `sqlite3/linenoise-LICENSE` |
