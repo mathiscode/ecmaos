@@ -2,7 +2,7 @@
  * Device types and interfaces
  */
 
-import type { Class, DevT, FileOperations } from '@zenfs/linux'
+import type { Class, DevT, FileOperations, TTYDriver } from '@zenfs/linux'
 import type { Kernel, KernelContext, Shell, Terminal } from './index.ts'
 
 /**
@@ -58,6 +58,20 @@ export interface KernelDevice {
    * @returns Promise resolving to the devices to register
    */
   getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]>
+
+  /**
+   * Terminal drivers this package registers: `@zenfs/linux` `TTYDriver`s, for devices that are terminals on Linux (serial
+   * ports). The kernel registers each one's device numbers and tells it the first open and the last close of a line, as it does
+   * for {@link getDrivers}' devices. The package adds and removes lines itself (`driver.line(n).register()`), as devices come
+   * and go.
+   */
+  getTTYDrivers?(ctx: KernelContext): Promise<TTYDriver[]>
+
+  /**
+   * Called once the majors are registered. A package whose devices come and go lists them here and keeps them up to date
+   * with `ctx.devices.add`, which a driver returned from {@link getDrivers} cannot, as it is fixed at boot.
+   */
+  watch?(ctx: KernelContext): void | Promise<void>
 }
 
 /**

@@ -60,6 +60,12 @@ export interface KernelContext {
 
   /** Internationalization service */
   readonly i18n: I18n
+
+  /** Nodes made and removed at runtime, for devices that come and go */
+  readonly devices: {
+    /** Gives `driver` (a device of package `pkg`) its node; the function returned takes it away, and a file still open on it gets `ENODEV` */
+    add(pkg: string, driver: KernelCharDevice): () => void
+  }
 }
 
 /**

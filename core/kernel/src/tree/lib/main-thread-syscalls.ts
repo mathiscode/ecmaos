@@ -13,6 +13,7 @@ import { createPipe } from './pipe-reaper.ts'
 import { Errno } from 'kerium'
 
 import { boundContexts, mounts } from '@zenfs/core'
+import { S_IFSOCK } from '@zenfs/core/constants'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
@@ -1369,13 +1370,27 @@ export function installMainThreadSyscalls(): void {
   })
 
   /** `bind(2)`: claims the address for the socket, whose connections then land in the kernel's table. @returns the port */
-  define_syscall('sock_bind', (proc: Process, fd: number, family: string, addr: string, port: number) => {
+  define_syscall('sock_bind', async (proc: Process, fd: number, family: string, addr: string, port: number) => {
     sweepSockets()
     const { socket } = socketAt(proc, fd)
     if (socket.datagrams) return bindDatagram(proc, socket, addr, port)
     if (socket.listening || socket.connected || socket.info.bound) throw socketErrno('EINVAL')
     const claimed = claimAddress(family, addr, port, kernelOf(proc).pipeProcess)
     if ('error' in claimed) throw socketErrno(claimed.error)
+    // a Unix socket with a path is a file there too, as `bind(2)` makes it: a socket node that `stat` and `ls` show, that
+    // `chmod` and `chown` change and `unlink` removes, and that a path already naming something refuses with EADDRINUSE.
+    // Closing the socket leaves the file, as on Linux; the program that made it removes it.
+    if (family === 'unix' && addr.startsWith('/')) {
+      try {
+        const bound = boundContexts.get(proc.context.id)
+        if (!bound) throw socketErrno('EPERM')
+        await (await bound.fs.promises.open(addr, 'wx', S_IFSOCK | (0o777 & ~umaskOf(proc)))).close()
+      } catch (error) {
+        claimed.release()
+        const code = (error as { code?: string }).code
+        throw code === 'EEXIST' ? socketErrno('EADDRINUSE') : error
+      }
+    }
     claimed.listener.wake = () => socket.wake.wake_up()
     socket.pending = () => claimed.listener.queue.length
     socket.cleanup.push(() => {

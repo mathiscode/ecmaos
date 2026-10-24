@@ -17,6 +17,8 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `mandoc` | 1.14.6 | ISC (with some BSD-2-Clause and BSD-3-Clause files, listed in the text); zlib 1.3.1, built with it, is the zlib license | `mandoc/LICENSE`, `mandoc/zlib-LICENSE` |
 | `qjs` | 0.17.0 | MIT | `qjs/LICENSE` |
 | `patch` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `patch/LICENSE` |
+| `microcom` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `microcom/LICENSE` |
+| `hwclock` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `hwclock/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
 | `tmux` | 3.5a | ISC; libevent is BSD-3-Clause and ncurses is X11 | `tmux/COPYING`, `tmux/libevent-LICENSE`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |
@@ -24,6 +26,8 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `python3` | 3.14.9 | PSF-2.0 (the Python Software Foundation License; the file also lists the licenses of the code bundled in the interpreter); zlib 1.3.2 is the zlib license | `python3/LICENSE`, `python3/zlib-LICENSE` |
 | `micropython` | 1.29.0 | MIT; the frozen micropython-lib modules are MIT or, where derived from CPython, the Python License | `micropython/LICENSE`, `micropython/LICENSE-micropython-lib` |
 | `wlcomp` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `wlcomp/LICENSE` |
+| `hidinfo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `hidinfo/LICENSE` |
+| `v4l2grab` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `v4l2grab/LICENSE` |
 | `wldemo` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `wldemo/` |
 | `sdlsnake` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlsnake/` |
 | `sdlpaint` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpaint/` |

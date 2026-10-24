@@ -3,7 +3,7 @@ import { bindContext } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
-import { canRunProgramsAsUser } from '#lib/process-credentials.ts'
+import { canRunProgramsAsUser, changeIds } from '#lib/process-credentials.ts'
 
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
@@ -342,4 +342,53 @@ describe('programs run as the user who started them', () => {
       expect(result.out).toMatch(new RegExp(`Uid:\\t${alice.uid}\\t`))
     })
   }, 30000)
+})
+
+describe('setuid(2) and the calls like it', () => {
+  // the credentials form of changeIds: 0 on success, -1 (EPERM) and nothing changed otherwise
+  const setIds = (c: { uid: number, euid: number, suid: number, gid: number, egid: number, sgid: number }, kind: 'user' | 'group', op: number, a: number, b: number, d: number) => {
+    const [r, e, s] = kind === 'user' ? ['uid', 'euid', 'suid'] as const : ['gid', 'egid', 'sgid'] as const
+    const next = changeIds({ real: c[r], effective: c[e], saved: c[s] }, c.euid === 0, (['id', 're', 'res'] as const)[op], a, b, d)
+    if (!next) return -1
+    c[r] = next.real; c[e] = next.effective; c[s] = next.saved
+    return 0
+  }
+  const ids = (uid: number, euid: number, suid: number) => ({ uid, euid, suid, gid: uid, egid: euid, sgid: suid, groups: [] as number[] })
+
+  it('root sets every id with setuid, and drops them for good', () => {
+    const credentials = ids(0, 0, 0)
+    expect(setIds(credentials, 'user', 0, 1000, -1, -1)).toBe(0)
+    expect([credentials.uid, credentials.euid, credentials.suid]).toEqual([1000, 1000, 1000])
+    expect(setIds(credentials, 'user', 0, 0, -1, -1)).toBe(-1)
+  })
+
+  it('another user sets setuid only to a real or saved id, and only the effective id changes', () => {
+    const credentials = ids(1000, 0, 1000)
+    credentials.euid = 1000
+    expect(setIds(credentials, 'user', 0, 1001, -1, -1)).toBe(-1)
+    expect(setIds(credentials, 'user', 0, 1000, -1, -1)).toBe(0)
+    const setuid = ids(1000, 1000, 0)
+    expect(setIds(setuid, 'user', 0, 0, -1, -1)).toBe(0)
+    expect([setuid.uid, setuid.euid, setuid.suid]).toEqual([1000, 0, 0])
+  })
+
+  it('seteuid, as setresuid(-1, e, -1), swaps between the effective and saved ids a setuid program holds', () => {
+    const credentials = ids(1000, 0, 0)
+    expect(setIds(credentials, 'user', 2, -1, 1000, -1)).toBe(0)
+    expect(credentials.euid).toBe(1000)
+    expect(setIds(credentials, 'user', 2, -1, 0, -1)).toBe(0)
+    expect(credentials.euid).toBe(0)
+    // every id is left alone when one is refused
+    const plain = ids(1000, 1000, 1000)
+    expect(setIds(plain, 'user', 2, 1000, 5, 1000)).toBe(-1)
+    expect(plain).toEqual(ids(1000, 1000, 1000))
+  })
+
+  it('setreuid saves the new effective id when the real id is set, and the group ids are separate', () => {
+    const credentials = ids(0, 0, 0)
+    expect(setIds(credentials, 'user', 1, 1000, 1000, -1)).toBe(0)
+    expect([credentials.uid, credentials.euid, credentials.suid]).toEqual([1000, 1000, 1000])
+    expect([credentials.gid, credentials.egid, credentials.sgid]).toEqual([0, 0, 0])
+    expect(setIds(credentials, 'group', 0, 1000, -1, -1)).toBe(-1)
+  })
 })

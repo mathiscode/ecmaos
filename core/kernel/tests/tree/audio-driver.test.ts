@@ -15,9 +15,14 @@ const environment = (decode: (bytes: ArrayBuffer) => Promise<unknown>) => {
 
 describe('audio nodes', () => {
   it('are /dev/audio, /dev/dsp, /dev/dsp1 and /dev/dspin on major 14 with their own minors', async () => {
-    const drivers = await getDrivers({ log: { error: vi.fn() } } as never)
+    const drivers = (await getDrivers({ log: { error: vi.fn() } } as never)).filter(driver => driver.major === 14)
     expect(drivers.map(driver => [driver.name, driver.major, driver.minor])).toEqual([['audio', 14, 4], ['dsp', 14, 3], ['dsp1', 14, 19], ['dspin', 14, 5]])
     expect(new Set(drivers.map(driver => driver.ops)).size).toBe(4)
+  })
+
+  it('are also the card ALSA has: /dev/snd/controlC0, pcmC0D0p and pcmC0D0c on major 116', async () => {
+    const drivers = (await getDrivers({ log: { error: vi.fn() } } as never)).filter(driver => driver.major === 116)
+    expect(drivers.map(driver => [driver.name, driver.minor])).toEqual([['snd!controlC0', 0], ['snd!pcmC0D0p', 16], ['snd!pcmC0D0c', 24]])
   })
 })
 

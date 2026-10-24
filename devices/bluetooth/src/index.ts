@@ -280,14 +280,16 @@ const bluetoothOperations = (log: KernelContext['log']): FileOperations => sessi
   }
 })
 
+// Dynamically allocated: real Linux major 216 is RFCOMM's terminals (`rfcomm<n>`), which the serial package's Bluetooth ports
+// are. A Bluetooth LE device has no node on Linux, so there is no number to reuse.
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const control: KernelCharDevice = { name: 'bluetooth', major: 216, minor: 0, class: bluetooth_class, ops: controlOperations }
+  const control: KernelCharDevice = { name: 'bluetooth', major: 0, minor: 0, class: bluetooth_class, ops: controlOperations }
   if (typeof navigator === 'undefined' || !navigator.bluetooth) return [control]
   const devices = typeof navigator.bluetooth.getDevices === 'function' ? await navigator.bluetooth.getDevices() : []
   // A paired device keeps its node (`ble<N>`) when others are forgotten; the numbers are remembered in /var/lib/ecmaos/ble-minors.json
   const numbers = await minors.assign(devices.map(device => device.id))
   return [
     control,
-    ...numbers.map((minor): KernelCharDevice => ({ name: `ble${minor - 1}`, major: 216, minor, class: bluetooth_class, ops: bluetoothOperations(ctx.log) }))
+    ...numbers.map((minor): KernelCharDevice => ({ name: `ble${minor - 1}`, major: 0, minor, class: bluetooth_class, ops: bluetoothOperations(ctx.log) }))
   ]
 }

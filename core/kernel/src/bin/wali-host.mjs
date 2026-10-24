@@ -33,7 +33,7 @@ import { environ, getpid } from '@zenfs/linux/uapi/process'
 import { absolute, environment_of, getcwd, openDescriptors, spawn as spawnShared } from './spawn.mjs'
 
 const EPERM = 1, ENOENT = 2, ESRCH = 3, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, EINVAL = 22, EMFILE = 24, EPIPE = 32, ENOSYS = 38
-const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
+const EBADFD = 77, ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
 const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030
@@ -375,11 +375,82 @@ function fixScreenInfo(ptr, length) {
   bytes().set(out, ptr)
 }
 
-const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414
+const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414, TIOCPKT = 0x5420, TIOCGPKT = 0x80045438, TIOCGEXCL = 0x80045440
+const EVIOCRMFF = 0x40044581, EVIOCGRAB = 0x40044590
+const TCSBRK = 0x5409, TIOCMGET = 0x5415, TIOCMBIS = 0x5416, TIOCMBIC = 0x5417, TIOCMSET = 0x5418, TCSBRKP = 0x5425
+
+/** The bytes in one frame of a PCM node's stream (ecmaOS's own request on the node), which says how much of the program's memory a transfer is about */
+const SNDRV_PCM_IOCTL_FRAME_BYTES = ((2 << 30) | (4 << 16) | (0x41 << 8) | 0xf0) >>> 0
+/** The most a transfer moves in one call: the answer has to fit in the thread's 1 MiB region */
+const SOUND_CHUNK = 256 * 1024
+
+/**
+ * ALSA's `'A'` (PCM) and `'U'` (control) requests. A request hands over the structure its number names (`_IOC_SIZE`) and gets it
+ * back filled in; two carry a pointer to memory too. `SNDRV_PCM_IOCTL_WRITEI_FRAMES` and `READI_FRAMES` move frames to and from
+ * `snd_xferi.buf` (the frame size is asked of the node, and a transfer is cut into pieces the answer can hold), and
+ * `SNDRV_CTL_IOCTL_ELEM_LIST` fills the array `snd_ctl_elem_list.pids` points to.
+ */
+function soundIoctl(fd, request, ptr) {
+  const type = (request >>> 8) & 0xff
+  const number = request & 0xff
+  const named = (request >>> 16) & 0x3fff
+  if (type === 0x41 && (number === 0x50 || number === 0x51)) {
+    // struct snd_xferi { long result; void *buf; unsigned long frames; }
+    if (!ptr) return -EFAULT
+    const writes = number === 0x50
+    let buf = view().getUint32(ptr + 8, true)
+    let frames = Number(view().getBigUint64(ptr + 16, true))
+    if (frames > 0 && !buf) return -EFAULT
+    const unit = syscall_raw('ioctl', fd, SNDRV_PCM_IOCTL_FRAME_BYTES)
+    if (unit < 0) return unit
+    const frameBytes = new DataView(returned.buffer, returned.byteOffset).getInt32(0, true)
+    if (frameBytes <= 0) return -EBADFD
+    let moved = 0
+    while (moved < frames || (frames === 0 && moved === 0)) {
+      const count = Math.min(frames - moved, Math.max(1, Math.floor(SOUND_CHUNK / frameBytes)))
+      const argument = new Uint8Array(24 + (writes ? count * frameBytes : 0))
+      argument.set(bytes().subarray(ptr, ptr + 24))
+      new DataView(argument.buffer).setBigUint64(16, BigInt(count), true)
+      if (writes) argument.set(bytes().subarray(buf, buf + count * frameBytes), 24)
+      const length = syscall_raw('ioctl', fd, request, argument)
+      if (length < 0) return moved ? finishTransfer(ptr, moved) : length
+      const got = Number(new DataView(returned.buffer, returned.byteOffset).getBigInt64(0, true))
+      if (!writes && length > 24) bytes().set(returned.subarray(24, 24 + Math.min(length - 24, got * frameBytes)), buf)
+      moved += got
+      buf += got * frameBytes
+      if (got < count || count === 0) break
+    }
+    return finishTransfer(ptr, moved)
+  }
+  if (type === 0x55 && number === 0x10) {
+    // struct snd_ctl_elem_list { u32 offset, space, used, count; struct snd_ctl_elem_id *pids; ... }, the ids following the structure in the answer
+    if (!ptr) return -EFAULT
+    const pids = view().getUint32(ptr + 16, true)
+    const space = view().getUint32(ptr + 4, true)
+    const length = syscall_raw('ioctl', fd, request, bytes().slice(ptr, ptr + named))
+    if (length < 0) return length
+    bytes().set(returned.subarray(0, Math.min(named, length)), ptr)
+    if (pids && length > named) bytes().set(returned.subarray(named, Math.min(length, named + space * 64)), pids)
+    return 0
+  }
+  const argument = ptr && named ? bytes().slice(ptr, ptr + named) : undefined
+  const length = syscall_raw('ioctl', fd, request, argument)
+  if (length < 0) return length
+  // an answer is the structure; whatever the request's direction bits say, the node may have changed it
+  if (length > 0 && ptr && named) give(ptr, named)
+  return 0
+}
+
+/** Sets `snd_xferi.result` to the frames moved */
+function finishTransfer(ptr, moved) {
+  view().setBigInt64(ptr, BigInt(moved), true)
+  return 0
+}
 
 function deviceIoctl(fd, request, ptr) {
   // a pty master's number and its lock: an int each, through the pointer
-  if (request === TIOCGPTN) {
+  if (request === TIOCPKT) return syscall_raw('ioctl', fd, request, ptr ? view().getInt32(ptr, true) : 0)
+  if (request === TIOCGPTN || request === TIOCGPKT || request === TIOCGEXCL) {
     const number = syscall_raw('ioctl', fd, request, undefined)
     if (number < 0) return number
     if (ptr) view().setInt32(ptr, number, true)
@@ -391,6 +462,18 @@ function deviceIoctl(fd, request, ptr) {
     if (!ptr) return -EFAULT
     return syscall_raw('ioctl', fd, request, { rows: view().getUint16(ptr, true), cols: view().getUint16(ptr + 2, true) })
   }
+  // a serial port's modem lines, an int through the pointer either way; a break takes its argument as it is
+  if (request === TIOCMGET) {
+    const bits = syscall_raw('ioctl', fd, request, undefined)
+    if (bits < 0) return bits
+    if (ptr) view().setInt32(ptr, bits, true)
+    return 0
+  }
+  if (request === TIOCMSET || request === TIOCMBIS || request === TIOCMBIC) {
+    if (!ptr) return -EFAULT
+    return syscall_raw('ioctl', fd, request, view().getInt32(ptr, true))
+  }
+  if (request === TCSBRK || request === TCSBRKP) return syscall_raw('ioctl', fd, request, ptr)
   if (request === TIOCSCTTY) return syscall_raw('proc_ctty', 0, fd, ptr)
   if (request === TIOCNOTTY) return syscall_raw('proc_ctty', 1, fd, 0)
   if (request === TIOCGSID) {
@@ -400,8 +483,22 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47) return undefined
-  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : 0)
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48 && type !== 0x56 && type !== 0x41 && type !== 0x55) return undefined
+  const writes = ((request >>> 30) & 1) === 1
+  // an event device's or the RTC's request that writes (`EVIOCSFF`, `RTC_SET_TIME`) hands over the structure its number
+  // names the size of; `EVIOCRMFF` and `EVIOCGRAB` take their int as it is
+  if (request === EVIOCRMFF || request === EVIOCGRAB) return syscall_raw('ioctl', fd, request, ptr)
+  if (type === 0x41 || type === 0x55) return soundIoctl(fd, request, ptr)
+  // video4linux: every request hands over its structure (the size its number names) and gets it back filled in
+  if (type === 0x56) {
+    const named = (request >>> 16) & 0x3fff
+    const argument = ptr && named ? bytes().slice(ptr, ptr + named) : undefined
+    const length = syscall_raw('ioctl', fd, request, argument)
+    if (length < 0) return length
+    if (length > 0 && ptr && ((request >>> 30) & 2)) give(ptr, named)
+    return 0
+  }
+  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : (type === 0x45 || type === 0x70 || type === 0x48) && writes ? (request >>> 16) & 0x3fff : 0)
   const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
   const length = syscall_raw('ioctl', fd, request, argument)
   if (length < 0) return length
@@ -409,13 +506,25 @@ function deviceIoctl(fd, request, ptr) {
     fixScreenInfo(ptr, length)
     return 0
   }
+  // hidraw: `HIDIOCSFEATURE` answers with the count it sent, and the rest with the bytes they read (`GFEATURE`, the name, the
+  // descriptor), whose length is the return value for the ones that name a length
+  if (type === 0x48) {
+    const number = request & 0xff
+    if (number === 6) return length
+    if (length > 0 && ptr) give(ptr, ((request >>> 16) & 0x3fff) || length)
+    return number >= 4 && number !== 6 ? length : 0
+  }
   if (length > 0 && ptr) {
     // a request that names its size (`_IOC_SIZE`) gets no more than that
     const named = (request >>> 16) & 0x3fff
     give(ptr, named || length)
   }
-  // `fbdev` and GL requests give 0; an event device's give the length of what it answered
-  return type === 0x46 || type === 0x47 ? 0 : length
+  // a request that reads a string or bits gives the length of what it answered, as Linux's do: `EVIOCGNAME`, `PHYS`,
+  // `UNIQ`, `PROP`, `MTSLOTS`, `KEY`, `LED`, `SND`, `SW`, `BIT`, and `JSIOCGNAME`; the rest give 0 (`EVIOCGVERSION`, `ID`,
+  // `ABS`; `EVIOCSFF`, which has written the effect's id back into the program's structure)
+  const number = request & 0xff
+  if (type === 0x45) return !writes && ((number >= 0x06 && number <= 0x0a) || (number >= 0x18 && number <= 0x1b) || (number >= 0x20 && number < 0x40)) ? length : 0
+  return type === 0x6a && number === 0x13 ? length : 0
 }
 
 // --- memory mappings ---

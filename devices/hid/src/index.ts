@@ -6,9 +6,13 @@ import { fs } from '@zenfs/core'
 import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
+import { usesReportIds } from './descriptor.js'
+import { hidrawIoctl, hidrawRequest } from './hidraw.js'
 import { openHidSession } from './session.js'
 
 export { openHidSession, HidError } from './session.js'
+export { reportDescriptor, usesReportIds } from './descriptor.js'
+export { hidrawIoctl, hidrawRequest } from './hidraw.js'
 export type { HidDeviceSession } from './session.js'
 
 export const pkg = {
@@ -69,6 +73,7 @@ Commands:
         const device = await navigator.hid.requestDevice({
           filters: [] // Accept all devices
         })
+        await syncHid()
         terminal.writeln(`Device requested: ${device[0]?.productName || 'No device selected'}`)
         break
 
@@ -152,32 +157,66 @@ const hid_class = new Class('hid')
 const hidKey = (device: HIDDevice) => `${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}:${device.productName}`
 const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/hid-minors.json'))
 
-export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const drivers: KernelCharDevice[] = [{
-    name: 'hid',
-    major: 0,
-    minor: 64,
-    class: hid_class,
-    ops: controlOperations
-  }]
+export async function getDrivers(): Promise<KernelCharDevice[]> {
+  return [{ name: 'hid', major: 0, minor: 64, class: hid_class, ops: controlOperations }]
+}
 
-  if (typeof navigator === 'undefined' || !('hid' in navigator)) return drivers
+/** The `hidraw<n>` nodes that exist, by minor, with what takes each away */
+const nodes = new Map<number, () => void>()
+let watching: KernelContext | undefined
+let ops: ReturnType<typeof sessionOperations> | undefined
+
+/**
+ * Gives each device the user has allowed a node, in the order the browser lists them, and takes away the nodes of devices that
+ * are gone. Run when the page starts, on the browser's `connect` and `disconnect`, and after `/dev/hid request`.
+ */
+export async function syncHid(ctx: KernelContext | undefined = watching): Promise<void> {
+  if (!ctx || typeof navigator === 'undefined' || !('hid' in navigator)) return
   try {
-    // Devices the user has already allowed (`/dev/hid request`) get a node each, in the order the browser lists them
     const devices = await navigator.hid.getDevices()
-    const ops = sessionOperations({
+    ops ??= sessionOperations({
       async open(minor) {
         const devices = await navigator.hid.getDevices()
         const device = devices[await minors.find(devices.map(hidKey), minor)]
         if (!device) throw new Error('no such device')
-        return await openHidSession(device)
+        const session = await openHidSession(device)
+        if (usesReportIds(device.collections)) return session
+        // a node reads a device with unnumbered reports as Linux's hidraw does: the data alone, with no id in front
+        const read = session.read!
+        return { ...session, read: async () => (await read())?.subarray(1) }
       },
-      onError: error => ctx.log.warn(`hid: ${error.message}`)
+      packets: true,
+      ioctl: { accepts: hidrawRequest, run: (session, request, arg) => hidrawIoctl(session, request, arg) },
+      onError: error => (watching ?? ctx).log.warn(`hid: ${error.message}`)
     })
+    const sessions = ops
     const numbers = await minors.assign(devices.map(hidKey))
-    numbers.forEach(minor => drivers.push({ name: `hidraw${minor - 1}`, major: 0, minor, class: hid_class, ops }))
+    const names = StableMinors.unique(devices.map(hidKey)).map(key => key.split(':').slice(2).join(':'))
+    numbers.forEach((minor, index) => {
+      if (nodes.has(minor)) return
+      const remove = ctx.devices.add(pkg.name, { name: `hidraw${minor - 1}`, major: 0, minor, class: hid_class, ops: sessions })
+      nodes.set(minor, () => { remove(); sessions.hangup(minor) })
+      ctx.log.info(`hid-generic: ${names[index] || 'device'} as /dev/hidraw${minor - 1}`)
+    })
+    for (const [minor, remove] of [...nodes]) {
+      if (numbers.includes(minor)) continue
+      remove()
+      nodes.delete(minor)
+      ctx.log.info(`hid-generic: /dev/hidraw${minor - 1} disconnected`)
+    }
   } catch (error) {
     ctx.log.warn(`hid: cannot list devices: ${error instanceof Error ? error.message : String(error)}`)
   }
-  return drivers
+}
+
+/** Lists the devices already allowed, and follows the browser's `connect` and `disconnect` */
+export async function watch(ctx: KernelContext): Promise<void> {
+  const first = !watching
+  watching = ctx
+  await syncHid(ctx)
+  if (first && typeof navigator !== 'undefined' && 'hid' in navigator) {
+    const sync = () => { void syncHid() }
+    navigator.hid.addEventListener('connect', sync)
+    navigator.hid.addEventListener('disconnect', sync)
+  }
 }

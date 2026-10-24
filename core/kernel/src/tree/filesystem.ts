@@ -284,7 +284,8 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
     '/media': { backend: InMemory, options: { name: 'media' } },
     '/mnt': { backend: InMemory, options: { name: 'mnt' } },
     '/proc': new ProcFS(),
-    '/sys': new SysFS(),
+    // an attribute's size is its text, as /proc's files have, since a read stops at the size and sysfs would say 0
+    '/sys': Object.assign(new SysFS(), { enableFileSize: true }),
     '/tmp': { backend: InMemory, options: { name: 'tmpfs' } }
   },
 }

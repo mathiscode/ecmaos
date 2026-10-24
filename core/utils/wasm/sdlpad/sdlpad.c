@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
- * sdlpad: shows a gamepad, written for ecmaOS on SDL 3 (its Wayland driver and its joystick driver, which reads the
- * browser's pads from /dev/js0 to /dev/js3; see wasm/lib/sdl.sh). A square for each button lights while it is held, a
+ * sdlpad: shows a gamepad, written for ecmaOS on SDL 3 (its Wayland driver and its Linux joystick driver, which reads the
+ * browser's pads from /dev/input/event<N>; see wasm/lib/sdl.sh). A square for each button lights while it is held, a
  * bar for each axis has a marker that moves with the stick. The browser shows a pad only once a button has been
  * pressed on it. A pad with the standard layout also prints the name of each button as it goes down or up. Escape or
  * closing the window quits. Letters and digits are all the font draws.

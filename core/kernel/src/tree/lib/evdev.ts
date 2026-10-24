@@ -1,5 +1,6 @@
 /**
- * Linux input devices: `/dev/input/event0` (keyboard) and `/dev/input/event1` (pointer). What the user does on the screen
+ * Linux input devices: `/dev/input/event0` (keyboard) and `/dev/input/event1` (pointer), a window's own (see
+ * `registerWindowInput`) and the gamepads' (see `gamepads.ts`). What the user does on the screen
  * is fed to the `InputHub`, which turns it into `struct input_event` records (24 bytes: seconds, microseconds, type, code,
  * value) for every node that is open. Like a real evdev client, a node only sees what happens after it was opened, and what
  * nobody reads is dropped from the oldest end instead of growing without bound.
@@ -7,13 +8,13 @@
 
 import { Class, Device, EPOLLIN, EPOLLOUT, syscalls, thread_of, WaitQueue } from '@zenfs/linux'
 import type { DeviceFile, FileOperations, Process } from '@zenfs/linux'
-import { ioctlSync } from '@zenfs/core/vfs/ioctl'
+import { ioctl as ioctlAsync, ioctlSync } from '@zenfs/core/vfs/ioctl'
 import { withErrno } from 'kerium'
 import { registerMinor } from './dynamic-minors.ts'
 import { destroyGlContextsOf, setGlCaller } from './gl.ts'
 import type { KernelCharDevice, KernelDevice, WindowInput } from '@ecmaos/types'
 
-export const EV_SYN = 0, EV_KEY = 1, EV_REL = 2, EV_ABS = 3, EV_MSC = 4
+export const EV_SYN = 0, EV_KEY = 1, EV_REL = 2, EV_ABS = 3, EV_MSC = 4, EV_FF = 0x15
 export const SYN_REPORT = 0
 export const ABS_X = 0, ABS_Y = 1
 export const REL_X = 0, REL_Y = 1, REL_HWHEEL = 6, REL_WHEEL = 8
@@ -73,8 +74,17 @@ export function decodeEvent(bytes: Uint8Array): InputEvent {
   }
 }
 
+/** An absolute axis as `EVIOCGABS` describes it (`struct input_absinfo`) */
+export interface AbsInfo {
+  min: number
+  max: number
+  fuzz?: number
+  flat?: number
+  resolution?: number
+}
+
 /** One input device: what it is called, which event types it has, and the codes of each */
-interface DeviceSpec {
+export interface DeviceSpec {
   name: string
   minor: number
   /** Bits of `EV_*` the device reports */
@@ -83,8 +93,24 @@ interface DeviceSpec {
   codes: Record<number, number[]>
   /** `input_id`: bus (0x06 is virtual), vendor, product, version */
   id: [number, number, number, number]
-  /** The largest value of each absolute axis (`EVIOCGABS`), for a device that has them */
-  abs?: Record<number, number>
+  /** Each absolute axis (`EVIOCGABS`): its range, or just its largest value with 0 the smallest */
+  abs?: Record<number, number | AbsInfo>
+  /** Where an absolute axis is now; 0 when not given */
+  value?(code: number): number
+  /** The keys or buttons that are down now (`EVIOCGKEY`); the keyboard's come from the hub */
+  down?(): number[]
+  /** Force feedback (`EV_FF`): how many effects it holds at once, and what it does with them */
+  ff?: {
+    effects: number
+    /** `EVIOCSFF`: the program's `struct ff_effect`; gives it back with the effect's id filled in */
+    upload(effect: Uint8Array): Uint8Array
+    /** `EVIOCRMFF` */
+    erase(id: number): void
+    /** An `EV_FF` event written to the node: an effect played (`value` times) or stopped (0), or `FF_GAIN` */
+    play(code: number, value: number): void
+  }
+  /** The device is gone (unplugged): reads fail with `ENODEV` */
+  gone?: boolean
 }
 
 const keyboardCodes = [...new Set(Object.values(KeyCodes))].sort((a, b) => a - b)
@@ -104,7 +130,8 @@ export const WindowInputMinor = 66
 export const MSC_POINTER_ENTER = 0x100, MSC_KEYBOARD_FOCUS = 0x101
 /** The browser's clipboard text arrived (fetch it with `FBIO_GETPASTE`) and something was dropped on the window (`FBIO_GETDROP`) */
 export const MSC_PASTE = 0x102, MSC_DROP = 0x103
-const windowSpecs = new Map<number, DeviceSpec>()
+/** The devices made at runtime (windows, gamepads), by minor */
+const specs = new Map<number, DeviceSpec>()
 
 const windowDeviceSpec = (index: number, width: number, height: number): DeviceSpec => ({
   name: `ecmaOS window ${index}`,
@@ -190,6 +217,11 @@ export class InputHub {
     }
     while (client.events.length > QueueLimit) client.events.shift()
     client.queue.wake_up()
+  }
+
+  /** Events of a device made at runtime (a gamepad), with the `SYN_REPORT` that ends them */
+  report(minor: number, events: [type: number, code: number, value: number][], now?: number) {
+    if (events.length) this.emit(minor, events, now)
   }
 
   /** What happened inside a pixel window, as the events of its own device */
@@ -297,6 +329,12 @@ const EvdevType = 0x45 // 'E'
 /** The type of the framebuffer requests (`FBIO*`), which answer with bytes in the same way */
 const FbType = 0x46 // 'F'
 const GlType = 0x47 // 'G': the GL devices (see gl.ts)
+const RtcType = 0x70 // 'p': the real-time clock (see rtc.ts)
+const JoystickType = 0x6a // 'j': the joystick API's nodes (see gamepads.ts)
+const HidType = 0x48 // 'H': hidraw (see devices/hid), whose reports come from the browser and are waited for
+const VideoType = 0x56 // 'V': video4linux (see devices/camera), whose pictures come from the browser
+const SoundPcmType = 0x41 // 'A': ALSA's PCM nodes (see devices/audio), which wait for the sound card's clock
+const SoundControlType = 0x55 // 'U': ALSA's control node
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -315,7 +353,7 @@ const bits = (codes: number[], size: number) => {
  * What an `EVIOC*` request reads back, as the bytes the program's buffer takes (at most `size`); `undefined` for one that
  * is not understood.
  */
-export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Uint8Array | undefined {
+export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number, arg?: unknown): Uint8Array | undefined {
   const { type, number, size, direction } = ioctlFields(request)
   if (type !== EvdevType) return undefined
   if (number === 0x01 && direction === IOC_READ) { // EVIOCGVERSION
@@ -336,16 +374,21 @@ export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Ui
     return out
   }
   if (number === 0x07 || number === 0x08) return new Uint8Array(Math.min(size, 1)) // EVIOCGPHYS, EVIOCGUNIQ: empty strings
+  // EVIOCGPROP (no properties: not a touchpad, not an accelerometer), EVIOCGLED, EVIOCGSND, EVIOCGSW: none set
+  if ((number === 0x09 || number === 0x19 || number === 0x1a || number === 0x1b) && direction === IOC_READ) return new Uint8Array(size)
   if (number === 0x18 && direction === IOC_READ) { // EVIOCGKEY(len): the keys that are down
-    const down = new Set(hub.down)
-    return bits(spec.minor === KeyboardMinor ? [...down] : [], size)
+    return bits(spec.minor === KeyboardMinor ? [...hub.down] : spec.down?.() ?? [], size)
   }
   if (number >= 0x40 && number < 0x80 && direction === IOC_READ && spec.abs) { // EVIOCGABS(abs): struct input_absinfo
-    const max = spec.abs[number - 0x40]
-    if (max === undefined) return undefined
-    const out = new Uint8Array(Math.min(size, 24))
-    new DataView(out.buffer).setInt32(8, max, true) // value, minimum, maximum, fuzz, flat, resolution
-    return out
+    const code = number - 0x40
+    const given = spec.abs[code]
+    if (given === undefined) return undefined
+    const info = typeof given === 'number' ? { min: 0, max: given } : given
+    const out = new Uint8Array(24)
+    const view = new DataView(out.buffer)
+    // value, minimum, maximum, fuzz, flat, resolution
+    ;[spec.value?.(code) ?? 0, info.min, info.max, info.fuzz ?? 0, info.flat ?? 0, info.resolution ?? 0].forEach((value, index) => view.setInt32(index * 4, value, true))
+    return out.subarray(0, Math.min(size, 24))
   }
   if (number >= 0x20 && number < 0x40 && direction === IOC_READ) { // EVIOCGBIT(ev, len)
     const ev = number - 0x20
@@ -353,17 +396,33 @@ export function evdevIoctl(spec: DeviceSpec, hub: InputHub, request: number): Ui
     return bits(spec.codes[ev] ?? [], size)
   }
   if (number === 0x90 && direction === IOC_WRITE) return new Uint8Array(0) // EVIOCGRAB: accepted; one reader at a time anyway
+  if (spec.ff) {
+    if (number === 0x84 && direction === IOC_READ) { // EVIOCGEFFECTS: how many effects can be held
+      const out = new Uint8Array(4)
+      new DataView(out.buffer).setInt32(0, spec.ff.effects, true)
+      return out
+    }
+    if (number === 0x80 && direction === IOC_WRITE) { // EVIOCSFF(struct ff_effect)
+      if (!(arg instanceof Uint8Array) || arg.length < 20) throw withErrno('EINVAL')
+      return spec.ff.upload(arg)
+    }
+    if (number === 0x81 && direction === IOC_WRITE) { // EVIOCRMFF(id): the id itself, not a pointer to it
+      spec.ff.erase(typeof arg === 'number' ? arg : -1)
+      return new Uint8Array(0)
+    }
+  }
   return undefined
 }
 
 // - node ----------------------------------------------------------------------------------------------
 
-function nodeOperations(hub: InputHub): FileOperations {
-  const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor) ?? windowSpecs.get(file.devt.minor)
+export function nodeOperations(hub: InputHub = inputHub): FileOperations {
+  const spec = (file: DeviceFile) => Devices.find(device => device.minor === file.devt.minor) ?? specs.get(file.devt.minor)
   return {
     open: file => { hub.attach(file.devt.minor) },
     release: file => { hub.release(file.devt.minor) },
     read: (file, buffer, start, end) => {
+      if (spec(file)?.gone) throw withErrno('ENODEV')
       const client = hub.client(file.devt.minor) ?? hub.open(file.devt.minor)
       if (end - start < EventSize) throw withErrno('EINVAL')
       let done = 0
@@ -373,16 +432,30 @@ function nodeOperations(hub: InputHub): FileOperations {
       }
       return done
     },
-    write: () => { throw withErrno('EINVAL') },
-    poll: file => (hub.client(file.devt.minor)?.events.length ? EPOLLIN : 0) | EPOLLOUT,
+    // what a program writes is events for the device: only force feedback (`EV_FF`) means anything here
+    // a character device has no position: the file system passes one as `offset`, the write syscall 0
+    write: (file, data) => {
+      const device = spec(file)
+      if (device?.gone) throw withErrno('ENODEV')
+      if (!device?.ff || data.length < EventSize) throw withErrno('EINVAL')
+      let done = 0
+      for (; done + EventSize <= data.length; done += EventSize) {
+        const event = decodeEvent(data.subarray(done, done + EventSize))
+        if (event.type === EV_FF) device.ff.play(event.code, event.value)
+      }
+      return done
+    },
+    // a gone device is readable, so a reader waiting on it wakes to the error
+    poll: file => (hub.client(file.devt.minor)?.events.length || spec(file)?.gone ? EPOLLIN : 0) | EPOLLOUT,
     poll_wait: file => (hub.client(file.devt.minor) ?? hub.open(file.devt.minor)).queue,
     ioctl: new Proxy({}, {
       get: (_target, key) => {
         const request = Number(key)
         if (!Number.isInteger(request) || ioctlFields(request).type !== EvdevType) return undefined
-        return (_context: unknown, file: DeviceFile) => {
+        return (_context: unknown, file: DeviceFile, arg?: unknown) => {
           const device = spec(file)
-          const out = device && evdevIoctl(device, hub, request)
+          if (device?.gone) throw withErrno('ENODEV')
+          const out = device && evdevIoctl(device, hub, request, arg)
           if (!out) throw withErrno('ENOTTY')
           return out
         }
@@ -394,8 +467,8 @@ function nodeOperations(hub: InputHub): FileOperations {
 
 /**
  * A program's `ioctl` can only get a number back; a structure is left in the return region of its thread. `EVIOC*` requests
- * answer with bytes, so the syscall is wrapped to put them there and give their length, as the upstream `ioctl` does for
- * `TIOCGWINSZ` and `TCGETS`. Idempotent.
+ * (and `FBIO*`, `JSIOC*`, the GL devices' and `RTC_*`) answer with bytes, so the syscall is wrapped to put them there and
+ * give their length, as the upstream `ioctl` does for `TIOCGWINSZ` and `TCGETS`. Idempotent.
  */
 const glWatched = new Set<number>()
 let wrapped = false
@@ -406,7 +479,7 @@ export function installEvdevIoctl() {
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
-    if (type !== EvdevType && type !== FbType && type !== GlType) return original(proc, fd, request, arg)
+    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType && type !== JoystickType && type !== HidType && type !== VideoType && type !== SoundPcmType && type !== SoundControlType) return original(proc, fd, request, arg)
     if (type === GlType) {
       setGlCaller(proc.pid)
       if (!glWatched.has(proc.pid)) {
@@ -414,13 +487,60 @@ export function installEvdevIoctl() {
         void proc.exited.then(() => { glWatched.delete(proc.pid); destroyGlContextsOf(proc.pid) })
       }
     }
+    // a feature report is asked of the device and comes back later: the syscall answers when it has
+    if (type === HidType || type === VideoType || type === SoundPcmType || type === SoundControlType) {
+      return (ioctlAsync as unknown as (this: unknown, ...args: unknown[]) => Promise<unknown>).call(proc.context, fd, request, arg)
+        .then(value => value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0)
+    }
     let value: unknown
     try { value = (ioctlSync as unknown as (this: unknown, ...args: unknown[]) => unknown).call(proc.context, fd, request, arg) } finally { setGlCaller(undefined) }
     return value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0
   }) as never)
 }
 
-const input_class = new Class('input')
+export const input_class = new Class('input')
+
+/**
+ * Makes the node of an input device made at runtime, `/dev/input/<name>` on the input major with `spec.minor`, answered by
+ * the event node operations. Returns the function that removes it; whoever still has it open is woken.
+ */
+export function addInputDevice(name: string, spec: DeviceSpec, ops: FileOperations = nodeOperations(inputHub)): () => void {
+  specs.set(spec.minor, spec)
+  let device: Device | undefined
+  try {
+    device = new Device({ name: `input!${name}`, class: input_class, dev_t: { major: InputMajor, minor: spec.minor } })
+    device.register()
+  } catch { device = undefined /* no input major here (a kernel without devices) */ }
+  registerMinor(InputMajor, spec.minor, ops)
+  return () => {
+    // a file still open on it gets ENODEV, as on Linux, until another device takes the minor
+    registerMinor(InputMajor, spec.minor, goneOperations)
+    specs.delete(spec.minor)
+    inputHub.drop(spec.minor)
+    try { device?.unregister() } catch { /* gone */ }
+  }
+}
+
+/** What a file open on an input device that has gone gets: readable, so a waiting reader wakes, and `ENODEV` from anything else */
+const goneQueue = new WaitQueue()
+export const goneOperations: FileOperations = {
+  read: () => { throw withErrno('ENODEV') },
+  write: () => { throw withErrno('ENODEV') },
+  poll: () => EPOLLIN | EPOLLOUT,
+  poll_wait: () => goneQueue,
+  ioctl: new Proxy({}, {
+    get: (_target, key) => inputRequest(key) ? () => { throw withErrno('ENODEV') } : undefined,
+    has: (_target, key) => inputRequest(key)
+  }) as FileOperations['ioctl']
+}
+
+/** An event device's request (`EVIOC*`) or a joystick's (`JSIOC*`) */
+const inputRequest = (key: PropertyKey) => {
+  const request = Number(key)
+  if (!Number.isInteger(request)) return false
+  const type = ioctlFields(request >>> 0).type
+  return type === EvdevType || type === JoystickType
+}
 
 /**
  * Makes the input device of pixel window `index` (`/dev/input/event<2+index>`). Returns the minor, the hub's events for it
@@ -428,15 +548,9 @@ const input_class = new Class('input')
  */
 export function registerWindowInput(index: number, width: number, height: number): { minor: number, remove: () => void, resize: (width: number, height: number) => void } {
   const spec = windowDeviceSpec(index, width, height)
-  windowSpecs.set(spec.minor, spec)
-  let device: Device | undefined
-  try {
-    device = new Device({ name: `input!event${2 + index}`, class: input_class, dev_t: { major: InputMajor, minor: spec.minor } })
-    device.register()
-  } catch { device = undefined /* no input major here (a kernel without devices) */ }
-  const forget = registerMinor(InputMajor, spec.minor, nodeOperations(inputHub))
+  const remove = addInputDevice(`event${2 + index}`, spec)
   const resize = (w: number, h: number) => { spec.abs = { [ABS_X]: Math.max(w - 1, 0), [ABS_Y]: Math.max(h - 1, 0) } }
-  return { minor: spec.minor, resize, remove: () => { forget(); windowSpecs.delete(spec.minor); inputHub.drop(spec.minor); try { device?.unregister() } catch { /* gone */ } } }
+  return { minor: spec.minor, resize, remove }
 }
 
 export const EvdevDevice: KernelDevice = {

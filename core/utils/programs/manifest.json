@@ -115,6 +115,26 @@
       "size": 87381,
       "sha256": "ba239f6620f9bb2c47d1eff2d82398467c8d90f228f848b85c792cd4d87e4904"
     },
+    "microcom": {
+      "file": "microcom.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 73775,
+      "sha256": "1638b0c4fff3ae416499ef37a9d7b8a76a469c04ce559046b6894fb659076440"
+    },
+    "hwclock": {
+      "file": "hwclock.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 83779,
+      "sha256": "82dd79cb6bcdaf5aa00ab694b2c77df87467ff3439d70d6e786e0daa185db60f"
+    },
     "ncdu": {
       "file": "ncdu.wasm",
       "version": "1.22",
@@ -165,6 +185,26 @@
       "size": 177013,
       "sha256": "e540923e7ede81da293914864dabcb2158a47dd4f387e70541fdf00c80076138"
     },
+    "hidinfo": {
+      "file": "hidinfo.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "toolchain": "wali",
+      "size": 47983,
+      "sha256": "8de7d7bc85de0d179be265d04610ca923e829f5981f7495910bd9ac37e3ea424"
+    },
+    "v4l2grab": {
+      "file": "v4l2grab.wasm",
+      "version": "0.1.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "toolchain": "wali",
+      "size": 74418,
+      "sha256": "450f5c9e00c94ecd7dbcc3081160aba5f8141419abb9cc6511b0ecfe9576676c"
+    },
     "wldemo": {
       "file": "wldemo.wasm",
       "version": "0.1.0",
@@ -182,8 +222,8 @@
       "description": "sdlsnake, Snake with sound on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer, M mutes (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1924893,
-      "sha256": "6c1b470cf1457d94e4ec6e055d97b76f449189b58b1263fbd9d367607a1c210f"
+      "size": 1920814,
+      "sha256": "2a80e7bcf95a4b621fb8513f8ff8057de02e1cac0c4e3fea6dd9d68bb97a2a68"
     },
     "sdlpaint": {
       "file": "sdlpaint.wasm",
@@ -192,8 +232,8 @@
       "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a brush-sized ring pointer over the picture (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1924047,
-      "sha256": "3a00b9175077446b2697016be355f7556bb29a1601759376cd89b2ca7284c75b"
+      "size": 1919968,
+      "sha256": "8dc9d9f9ae050885a9838b5e9cca1e6ac8e589329a7f76d6a71ac3aac8090661"
     },
     "sdlclip": {
       "file": "sdlclip.wasm",
@@ -202,18 +242,18 @@
       "description": "sdlclip, shows the clipboard and what is dropped on its window, on SDL 3 through its Wayland driver: C copies a line, V reads the clipboard (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1923052,
-      "sha256": "bd1947735ad7c43bdffdfff042f1de542121f9d4f12b4edc2882c08ca2050d1f"
+      "size": 1918973,
+      "sha256": "b69b470fba2b463fd952ebbc9de2b56ce8133048a2aec30d39916ac4ce9de404"
     },
     "sdlpad": {
       "file": "sdlpad.wasm",
       "version": "0.1.0",
       "license": "MIT OR Apache-2.0",
-      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/js0 to /dev/js3 (needs wlcomp running)",
+      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/input/event<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1923717,
-      "sha256": "d38e7318dae8e1c9a05e54a54d9228c7ac206d96324e8ac5fa55f39a7fe08496"
+      "size": 1919638,
+      "sha256": "41fe9d2db29b6e60c5ae6b39e6ed4f07e983370aa4f63e8c4cd8daa329ae47fd"
     },
     "sdlgl": {
       "file": "sdlgl.wasm",
@@ -222,8 +262,8 @@
       "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1923409,
-      "sha256": "148987580e4849a1245a3647e3831c4dbd150f235147ff081f2108641b198cfc"
+      "size": 1919346,
+      "sha256": "a2bb81349ca2370d50f41accef5683d25ecae97095f6ae311481ce2433de534d"
     },
     "sdlgears": {
       "file": "sdlgears.wasm",
@@ -232,8 +272,8 @@
       "description": "sdlgears, three meshing gears in OpenGL ES on SDL 3, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
-      "size": 1929208,
-      "sha256": "b806120a0ea4a98013b921b01a07f8ea9df43dff63880e9425a0071aeebb9d42"
+      "size": 1925129,
+      "sha256": "5844ce8a750e39fbd11e9c6296a7dc735e5188249a43550d5392401804fed674"
     },
     "tmux": {
       "file": "tmux.wasm",

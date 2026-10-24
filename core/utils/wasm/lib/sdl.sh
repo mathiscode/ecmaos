@@ -21,9 +21,10 @@
 #     the clock, and a program that does not poll events for a while is silent for that while;
 #   - the clipboard tells its own offers from other programs' by process id, which is 42 for every Emscripten program;
 #     the id gets the clock mixed in (with emcc only);
-#   - joysticks are a driver of their own (src/joystick/ecmaos): it reads the pads the browser has from /dev/js0 to
-#     /dev/js3 (Linux's joystick API). A pad shows up once a button has been pressed on it; the browser's "standard"
-#     pads get the SDL gamepad mapping, with the triggers as buttons;
+#   - nothing for joysticks: on WALI they are SDL's own Linux driver, on the kernel's /dev/input/event<N> for each pad
+#     (evdev, with Linux's gamepad codes, so SDL makes its gamepad mapping from them as it does on Linux, triggers
+#     analog). SDL is built without udev and inotify, so it finds pads by rescanning /dev/input when its time changes,
+#     about every 3 seconds; a pad shows up once a button has been pressed on it;
 #   - OpenGL ES is an EGL and GLES2 of our own (sdl-gl/): calls are packed into a command stream that the kernel runs on
 #     the browser's WebGL2 (/dev/gl<N>), and each frame comes back as pixels in a wl_shm buffer (see ecmaos_gl.c);
 #   - nothing else: no desktop OpenGL, no libdecor.
@@ -66,10 +67,6 @@ build_sdl() {
       sed -i 's/^        Uint64 pid = (Uint64)getpid();$/        Uint64 pid = (Uint64)getpid() ^ (SDL_GetPerformanceCounter() << 8);   \/\* ecmaOS: getpid() is 42 in every program \*\//' src/video/wayland/SDL_waylandevents.c
       grep -q "getpid() is 42" src/video/wayland/SDL_waylandevents.c || { echo "sdl: the clipboard id patch did not apply" >&2; exit 1; }
     fi
-    sed -i 's/^if(NOT HAVE_SDL_JOYSTICK)$/if(SDL_ECMAOS AND SDL_JOYSTICK)\n  set(SDL_JOYSTICK_ECMAOS 1)\n  sdl_glob_sources(\n    "${SDL3_SOURCE_DIR}\/src\/joystick\/ecmaos\/*.c"\n  )\n  set(HAVE_SDL_JOYSTICK TRUE)\nendif()\n&/' CMakeLists.txt
-    sed -i 's/^#ifdef SDL_JOYSTICK_EMSCRIPTEN$/#ifdef SDL_JOYSTICK_ECMAOS\n    \&SDL_ECMAOS_JoystickDriver,\n#endif\n&/' src/joystick/SDL_joystick.c
-    sed -i 's/^extern SDL_JoystickDriver SDL_ANDROID_JoystickDriver;$/&\nextern SDL_JoystickDriver SDL_ECMAOS_JoystickDriver;/' src/joystick/SDL_sysjoystick.h
-    grep -q SDL_JOYSTICK_ECMAOS CMakeLists.txt && grep -q SDL_ECMAOS_JoystickDriver src/joystick/SDL_joystick.c && grep -q SDL_ECMAOS_JoystickDriver src/joystick/SDL_sysjoystick.h || { echo "sdl: the joystick patch did not apply" >&2; exit 1; }
     mkdir -p src/audio/ecmaos
     cat > src/audio/ecmaos/SDL_ecmaosaudio.c <<'SOURCE'
 // Audio for ecmaOS (added for it): playback to /dev/dsp1, interleaved signed 16 bit stereo at 48000 Hz, which the
@@ -447,405 +444,6 @@ SOURCE
     node "$SDL_GL_DIR/gen-cmds.mjs" "$SDL_GL_DIR/../../../../kernel/src/tree/lib/gl-commands.json" > src/video/ecmaos/ecmaos_gl_cmds.inc
     sed -i 's/^if(NOT HAVE_SDL_JOYSTICK)$/if(SDL_ECMAOS AND SDL_VIDEO_OPENGL_EGL)\n  sdl_glob_sources("${SDL3_SOURCE_DIR}\/src\/video\/ecmaos\/*.c")\nendif()\n&/' CMakeLists.txt
     grep -q "src/video/ecmaos" CMakeLists.txt || { echo "sdl: the OpenGL ES patch did not apply" >&2; exit 1; }
-    mkdir -p src/joystick/ecmaos
-    cat > src/joystick/ecmaos/SDL_sysjoystick.c <<'SOURCE'
-// Joysticks for ecmaOS (added for it): the pads the browser has, as /dev/js0 to /dev/js3 in the layout of Linux's joystick
-// API (struct js_event: u32 ms, s16 value, u8 type, u8 number; type 1 is a button, 2 an axis, and 0x80 is added to the
-// state the pad was in when the node was opened). The browser shows a pad only once a button has been pressed on it,
-// and the nodes exist ahead, so a node that fails to read is a slot with no pad: SDL_JoystickDetect (run from
-// SDL_PumpEvents) looks at the empty slots about once a second. A pad that reads as the end of the file was unplugged.
-// A pad the browser calls "standard" (17 buttons, 4 axes) gets the mapping of a game console pad, so the SDL gamepad API
-// works on it; its triggers are buttons here (the node reports them as pressed or not), not analog axes.
-#include "SDL_internal.h"
-
-#ifdef SDL_JOYSTICK_ECMAOS
-
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <stdio.h>
-#include <unistd.h>
-
-#include "../SDL_sysjoystick.h"
-#include "../SDL_joystick_c.h"
-
-#define ECMAOS_PADS 4
-#define ECMAOS_PAD_MAX 32
-#define ECMAOS_PAD_PROBE_MS 1000
-#define ECMAOS_PAD_WAIT_MS 400
-
-#define JS_EVENT_BUTTON 0x01
-#define JS_EVENT_AXIS 0x02
-#define JS_EVENT_INIT 0x80
-
-typedef struct ecmaos_pad
-{
-    int fd;               // the node, open while probing and while the pad is there
-    bool present;
-    bool gone;            // read as the end of the file: Detect takes it away
-    bool fresh;           // opened by the program and not yet told what the pad is doing
-    Uint64 probed;        // when the slot was last tried, in SDL_GetTicks time
-    char name[32];
-    SDL_GUID guid;
-    SDL_JoystickID instance;
-    SDL_Joystick *joystick;
-    int nbuttons;
-    int naxes;
-    Uint8 button[ECMAOS_PAD_MAX];
-    Sint16 axis[ECMAOS_PAD_MAX];
-} ecmaos_pad;
-
-static ecmaos_pad ecmaos_pads[ECMAOS_PADS];
-static int ecmaos_count = 0;
-
-// Reads what the node has: calls on_event for each js_event, returns false at the end of the file or on an error
-static bool ECMAOS_ReadPad(ecmaos_pad *pad, bool (*on_event)(ecmaos_pad *, Uint8, Uint8, Sint16, Uint64), Uint64 ts)
-{
-    Uint8 buf[8 * 32];
-    for (int rounds = 0; rounds < 16; rounds++) {
-        struct pollfd pfd = { pad->fd, POLLIN, 0 };
-        if (poll(&pfd, 1, 0) <= 0) {
-            return true;
-        }
-        const ssize_t got = read(pad->fd, buf, sizeof(buf));
-        if (got < 0) {
-            return errno == EAGAIN;
-        }
-        if (got == 0) {
-            return false;
-        }
-        for (ssize_t at = 0; at + 8 <= got; at += 8) {
-            const Sint16 value = (Sint16)(buf[at + 4] | (buf[at + 5] << 8));
-            if (!on_event(pad, buf[at + 6], buf[at + 7], value, ts)) {
-                return true;
-            }
-        }
-    }
-    return true;
-}
-
-static bool ECMAOS_Probe(ecmaos_pad *pad, Uint8 type, Uint8 number, Sint16 value, Uint64 ts)
-{
-    if (number >= ECMAOS_PAD_MAX) {
-        return true;
-    }
-    if ((type & JS_EVENT_BUTTON) && number + 1 > pad->nbuttons) {
-        pad->nbuttons = number + 1;
-    } else if ((type & JS_EVENT_AXIS) && number + 1 > pad->naxes) {
-        pad->naxes = number + 1;
-    }
-    if (type & JS_EVENT_BUTTON) {
-        pad->button[number] = value ? 1 : 0;
-    } else if (type & JS_EVENT_AXIS) {
-        pad->axis[number] = value;
-    }
-    return true;
-}
-
-// Keeps the picture of a pad that nobody has open
-static bool ECMAOS_Track(ecmaos_pad *pad, Uint8 type, Uint8 number, Sint16 value, Uint64 ts)
-{
-    if (number >= ECMAOS_PAD_MAX) {
-        return true;
-    }
-    if ((type & JS_EVENT_BUTTON) && number < pad->nbuttons) {
-        pad->button[number] = value ? 1 : 0;
-    } else if ((type & JS_EVENT_AXIS) && number < pad->naxes) {
-        pad->axis[number] = value;
-    }
-    return true;
-}
-
-// Sends what happens on a pad the program has open
-static bool ECMAOS_Send(ecmaos_pad *pad, Uint8 type, Uint8 number, Sint16 value, Uint64 ts)
-{
-    if (number >= ECMAOS_PAD_MAX || !pad->joystick) {
-        return true;
-    }
-    if ((type & JS_EVENT_BUTTON) && number < pad->nbuttons) {
-        const Uint8 down = value ? 1 : 0;
-        if (pad->button[number] != down) {
-            pad->button[number] = down;
-            SDL_SendJoystickButton(ts, pad->joystick, number, down);
-        }
-    } else if ((type & JS_EVENT_AXIS) && number < pad->naxes) {
-        if (pad->axis[number] != value) {
-            pad->axis[number] = value;
-            SDL_SendJoystickAxis(ts, pad->joystick, number, value);
-        }
-    }
-    return true;
-}
-
-static void ECMAOS_ClosePad(ecmaos_pad *pad)
-{
-    if (pad->fd >= 0) {
-        close(pad->fd);
-    }
-    pad->fd = -1;
-}
-
-static void ECMAOS_AddPad(int slot, ecmaos_pad *pad)
-{
-    SDL_snprintf(pad->name, sizeof(pad->name), "ecmaOS gamepad %d", slot);
-    pad->guid = SDL_CreateJoystickGUIDForName("ecmaOS gamepad");
-    pad->instance = SDL_GetNextObjectID();
-    pad->present = true;
-    pad->gone = false;
-    ecmaos_count++;
-    if (pad->nbuttons >= 16 && pad->naxes == 4) {
-        char guid[33];
-        char mapping[400];
-        SDL_GUIDToString(pad->guid, guid, sizeof(guid));
-        SDL_snprintf(mapping, sizeof(mapping),
-                     "%s,ecmaOS gamepad,a:b0,b:b1,x:b2,y:b3,leftshoulder:b4,rightshoulder:b5,lefttrigger:b6,righttrigger:b7,"
-                     "back:b8,start:b9,leftstick:b10,rightstick:b11,dpup:b12,dpdown:b13,dpleft:b14,dpright:b15%s,"
-                     "leftx:a0,lefty:a1,rightx:a2,righty:a3,",
-                     guid, pad->nbuttons >= 17 ? ",guide:b16" : "");
-        SDL_AddGamepadMapping(mapping);
-    }
-    SDL_PrivateJoystickAdded(pad->instance);
-}
-
-static void ECMAOS_RemovePad(ecmaos_pad *pad)
-{
-    ECMAOS_ClosePad(pad);
-    if (pad->joystick) {
-        pad->joystick->hwdata = NULL;
-    }
-    const SDL_JoystickID instance = pad->instance;
-    pad->present = false;
-    pad->joystick = NULL;
-    ecmaos_count--;
-    SDL_PrivateJoystickRemoved(instance);
-}
-
-static bool ECMAOS_JoystickInit(void)
-{
-    SDL_zeroa(ecmaos_pads);
-    for (int i = 0; i < ECMAOS_PADS; i++) {
-        ecmaos_pads[i].fd = -1;
-    }
-    ecmaos_count = 0;
-    return true;
-}
-
-static ecmaos_pad *ECMAOS_ByIndex(int device_index)
-{
-    for (int i = 0; i < ECMAOS_PADS; i++) {
-        if (ecmaos_pads[i].present && device_index-- == 0) {
-            return &ecmaos_pads[i];
-        }
-    }
-    return NULL;
-}
-
-static int ECMAOS_JoystickGetCount(void)
-{
-    return ecmaos_count;
-}
-
-static void ECMAOS_JoystickDetect(void)
-{
-    const Uint64 now = SDL_GetTicks();
-    for (int i = 0; i < ECMAOS_PADS; i++) {
-        ecmaos_pad *pad = &ecmaos_pads[i];
-        if (pad->present) {
-            if (!pad->joystick && pad->fd >= 0 && !ECMAOS_ReadPad(pad, ECMAOS_Track, 0)) {
-                pad->gone = true;
-            }
-            if (pad->gone) {
-                ECMAOS_RemovePad(pad);
-            }
-            continue;
-        }
-        if (pad->fd >= 0) {
-            // Opened by an earlier call: the node answers with the state of the pad, or fails
-            const bool alive = ECMAOS_ReadPad(pad, ECMAOS_Probe, 0);
-            if (alive && (pad->nbuttons > 0 || pad->naxes > 0)) {
-                ECMAOS_AddPad(i, pad);
-                continue;
-            }
-            if (alive && now - pad->probed < ECMAOS_PAD_WAIT_MS) {
-                continue; // the node is still opening
-            }
-            ECMAOS_ClosePad(pad);
-        }
-        if (pad->probed && now - pad->probed < ECMAOS_PAD_PROBE_MS) {
-            continue;
-        }
-        char path[16];
-        SDL_snprintf(path, sizeof(path), "/dev/js%d", i);
-        pad->probed = now ? now : 1;
-        pad->nbuttons = pad->naxes = 0;
-        SDL_zeroa(pad->button);
-        SDL_zeroa(pad->axis);
-        pad->fd = open(path, O_RDONLY | O_NONBLOCK);
-    }
-}
-
-static bool ECMAOS_JoystickIsDevicePresent(Uint16 vendor_id, Uint16 product_id, Uint16 version, const char *name)
-{
-    return false;
-}
-
-static const char *ECMAOS_JoystickGetDeviceName(int device_index)
-{
-    ecmaos_pad *pad = ECMAOS_ByIndex(device_index);
-    return pad ? pad->name : NULL;
-}
-
-static const char *ECMAOS_JoystickGetDevicePath(int device_index)
-{
-    return NULL;
-}
-
-static int ECMAOS_JoystickGetDeviceSteamVirtualGamepadSlot(int device_index)
-{
-    return -1;
-}
-
-static int ECMAOS_JoystickGetDevicePlayerIndex(int device_index)
-{
-    ecmaos_pad *pad = ECMAOS_ByIndex(device_index);
-    return pad ? (int)(pad - ecmaos_pads) : -1;
-}
-
-static void ECMAOS_JoystickSetDevicePlayerIndex(int device_index, int player_index)
-{
-}
-
-static SDL_GUID ECMAOS_JoystickGetDeviceGUID(int device_index)
-{
-    ecmaos_pad *pad = ECMAOS_ByIndex(device_index);
-    SDL_GUID guid;
-    SDL_zero(guid);
-    return pad ? pad->guid : guid;
-}
-
-static SDL_JoystickID ECMAOS_JoystickGetDeviceInstanceID(int device_index)
-{
-    ecmaos_pad *pad = ECMAOS_ByIndex(device_index);
-    return pad ? pad->instance : 0;
-}
-
-static bool ECMAOS_JoystickOpen(SDL_Joystick *joystick, int device_index)
-{
-    ecmaos_pad *pad = ECMAOS_ByIndex(device_index);
-    if (!pad) {
-        return SDL_SetError("No such device");
-    }
-    if (pad->joystick) {
-        return SDL_SetError("Joystick already opened");
-    }
-    pad->joystick = joystick;
-    pad->fresh = true;
-    joystick->hwdata = (struct joystick_hwdata *)pad;
-    joystick->nbuttons = pad->nbuttons;
-    joystick->naxes = pad->naxes;
-    joystick->nhats = 0;
-    return true;
-}
-
-static bool ECMAOS_JoystickRumble(SDL_Joystick *joystick, Uint16 low_frequency_rumble, Uint16 high_frequency_rumble)
-{
-    return SDL_Unsupported();
-}
-
-static bool ECMAOS_JoystickRumbleTriggers(SDL_Joystick *joystick, Uint16 left_rumble, Uint16 right_rumble)
-{
-    return SDL_Unsupported();
-}
-
-static bool ECMAOS_JoystickSetLED(SDL_Joystick *joystick, Uint8 red, Uint8 green, Uint8 blue)
-{
-    return SDL_Unsupported();
-}
-
-static bool ECMAOS_JoystickSendEffect(SDL_Joystick *joystick, const void *data, int size)
-{
-    return SDL_Unsupported();
-}
-
-static bool ECMAOS_JoystickSetSensorsEnabled(SDL_Joystick *joystick, bool enabled)
-{
-    return SDL_Unsupported();
-}
-
-static void ECMAOS_JoystickUpdate(SDL_Joystick *joystick)
-{
-    ecmaos_pad *pad = (ecmaos_pad *)joystick->hwdata;
-    if (!pad || pad->gone) {
-        return;
-    }
-    const Uint64 ts = SDL_GetTicksNS();
-    if (pad->fresh) {
-        // What the pad was doing before the program opened it
-        pad->fresh = false;
-        for (int i = 0; i < pad->nbuttons; i++) {
-            if (pad->button[i]) {
-                SDL_SendJoystickButton(ts, joystick, i, true);
-            }
-        }
-        for (int i = 0; i < pad->naxes; i++) {
-            if (pad->axis[i]) {
-                SDL_SendJoystickAxis(ts, joystick, i, pad->axis[i]);
-            }
-        }
-    }
-    if (!ECMAOS_ReadPad(pad, ECMAOS_Send, ts)) {
-        pad->gone = true; // Detect takes it away
-    }
-}
-
-static void ECMAOS_JoystickClose(SDL_Joystick *joystick)
-{
-    ecmaos_pad *pad = (ecmaos_pad *)joystick->hwdata;
-    if (pad) {
-        pad->joystick = NULL;
-    }
-}
-
-static void ECMAOS_JoystickQuit(void)
-{
-    for (int i = 0; i < ECMAOS_PADS; i++) {
-        ECMAOS_ClosePad(&ecmaos_pads[i]);
-    }
-    SDL_zeroa(ecmaos_pads);
-    ecmaos_count = 0;
-}
-
-static bool ECMAOS_JoystickGetGamepadMapping(int device_index, SDL_GamepadMapping *out)
-{
-    return false;
-}
-
-SDL_JoystickDriver SDL_ECMAOS_JoystickDriver = {
-    ECMAOS_JoystickInit,
-    ECMAOS_JoystickGetCount,
-    ECMAOS_JoystickDetect,
-    ECMAOS_JoystickIsDevicePresent,
-    ECMAOS_JoystickGetDeviceName,
-    ECMAOS_JoystickGetDevicePath,
-    ECMAOS_JoystickGetDeviceSteamVirtualGamepadSlot,
-    ECMAOS_JoystickGetDevicePlayerIndex,
-    ECMAOS_JoystickSetDevicePlayerIndex,
-    ECMAOS_JoystickGetDeviceGUID,
-    ECMAOS_JoystickGetDeviceInstanceID,
-    ECMAOS_JoystickOpen,
-    ECMAOS_JoystickRumble,
-    ECMAOS_JoystickRumbleTriggers,
-    ECMAOS_JoystickSetLED,
-    ECMAOS_JoystickSendEffect,
-    ECMAOS_JoystickSetSensorsEnabled,
-    ECMAOS_JoystickUpdate,
-    ECMAOS_JoystickClose,
-    ECMAOS_JoystickQuit,
-    ECMAOS_JoystickGetGamepadMapping
-};
-
-#endif // SDL_JOYSTICK_ECMAOS
-SOURCE
   )
   mkdir -p "$work/sdl-build"
   ( cd "$work/sdl-build"
@@ -854,11 +452,13 @@ SOURCE
       # a Linux cross build, which finds its libraries only in the prefix (none of the host's)
       printf 'set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_SYSTEM_PROCESSOR wasm32)\nset(CMAKE_C_COMPILER %s)\nset(CMAKE_AR %s)\nset(CMAKE_RANLIB %s)\nset(CMAKE_FIND_ROOT_PATH %s %s)\nset(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\nset(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\nset(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\n' \
         "$WALI_CC" "$(command -v "$WALI_AR")" "$(command -v "$WALI_RANLIB")" "$WALI_SYSROOT" "$work/prefix" > wali.cmake
-      configure=(env PKG_CONFIG_LIBDIR="$work/prefix/lib/pkgconfig" PKG_CONFIG_PATH= cmake -DCMAKE_TOOLCHAIN_FILE="$PWD/wali.cmake" -DSDL_THREADS=OFF -DSDL_HIDAPI=OFF)
+      # no udev or inotify here: the joystick driver polls /dev/input
+      configure=(env PKG_CONFIG_LIBDIR="$work/prefix/lib/pkgconfig" PKG_CONFIG_PATH= cmake -DCMAKE_TOOLCHAIN_FILE="$PWD/wali.cmake" -DSDL_THREADS=OFF -DSDL_HIDAPI=OFF \
+        -DSDL_LIBUDEV=OFF -DHAVE_INOTIFY_INIT=0 -DHAVE_INOTIFY_INIT1=0)
       cflags=
     fi
     "${configure[@]}" "../SDL3-$SDL" -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel \
-      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="$cflags -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_JOYSTICK_ECMAOS=1 -DSDL_VIDEO_STATIC_ANGLE=1" \
+      -DCMAKE_INSTALL_PREFIX="$work/prefix" -DCMAKE_C_FLAGS="$cflags -DSDL_AUDIO_DRIVER_ECMAOS=1 -DSDL_VIDEO_STATIC_ANGLE=1" \
       -DSDL_ECMAOS=ON -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DSDL_INSTALL_DOCS=OFF \
       -DSDL_WAYLAND=ON -DSDL_WAYLAND_SHARED=OFF -DSDL_WAYLAND_LIBDECOR=OFF \
       -DSDL_X11=OFF -DSDL_KMSDRM=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=ON -DSDL_VULKAN=OFF \
@@ -866,12 +466,20 @@ SOURCE
       -DSDL_DBUS=OFF -DSDL_IBUS=OFF -DSDL_LIBURING=OFF -DSDL_PIPEWIRE=OFF -DSDL_PULSEAUDIO=OFF -DSDL_ALSA=OFF \
       -DSDL_JACK=OFF -DSDL_SNDIO=OFF -DSDL_OSS=OFF > configure.log 2>&1 || { tail -30 configure.log >&2; exit 1; }
     grep -q "Video drivers:.*wayland" configure.log || { echo "sdl: the Wayland driver was not enabled" >&2; tail -30 configure.log >&2; exit 1; }
+    if [ "$mode" = wali ]; then
+      grep -rqs "^#define SDL_JOYSTICK_LINUX 1" . && ! grep -rqs "^#define HAVE_INOTIFY 1" . || { echo "sdl: the Linux joystick driver was not enabled, or inotify was" >&2; exit 1; }
+    fi
     ninja > build.log 2>&1 || { tail -40 build.log >&2; exit 1; }
     ninja install > install.log 2>&1 || { tail -20 install.log >&2; exit 1; }
   )
   SDL_INC="-I$work/prefix/include"
   # WALI's sysroot has no GLES2 headers (Emscripten's has), so SDL_opengles2.h takes the ones SDL ships
-  if [ "$mode" = wali ]; then SDL_INC="$SDL_INC -DSDL_USE_BUILTIN_OPENGL_DEFINITIONS"; fi
+  if [ "$mode" = wali ]; then
+    SDL_INC="$SDL_INC -DSDL_USE_BUILTIN_OPENGL_DEFINITIONS"
+    # SDL links fork only to start a process in the background (SDL_CreateProcess, with vfork), which a program here does
+    # not do, so the program is not rewritten with Asyncify for it (1.6 times the size, and slower); that fork is ENOSYS
+    export ECMAOS_WALI_NO_ASYNCIFY=1
+  fi
   SDL_LIB="-L$work/prefix/lib -lSDL3"
   SDL_DEPS_LIB="-L$work/prefix/lib -lwayland-cursor -lwayland-egl -lwayland-client -lxkbcommon"
 }

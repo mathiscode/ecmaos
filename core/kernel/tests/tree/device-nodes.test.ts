@@ -16,7 +16,6 @@ describe('device nodes of drivers with a dynamic major', () => {
   const driversOf = (name: string) => kernel.devices.get(name)!.drivers
 
   beforeAll(async () => {
-    const pad: KernelDevice = (await import('@ecmaos-devices/gamepad')) as KernelDevice
     const other = await import('@ecmaos-devices/serial')
     const fakeSerial: KernelDevice = {
       ...(other as unknown as KernelDevice),
@@ -27,24 +26,21 @@ describe('device nodes of drivers with a dynamic major', () => {
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
       log: TestLogOptions,
-      devices: { gamepad: pad, serial: fakeSerial }
+      devices: { serial: fakeSerial, bluetooth: (await import('@ecmaos-devices/bluetooth')) as KernelDevice }
     })
-    Object.defineProperty(globalThis.navigator, 'getGamepads', { value: () => [], configurable: true })
     await kernel.boot()
-  })
-
-  it('makes a js<N> node for each pad slot next to the /dev/gamepad entry', async () => {
-    expect(driversOf('gamepad').map(driver => driver.name)).toEqual(['gamepad', 'js0', 'js1', 'js2', 'js3'])
-    for (const name of ['gamepad', 'js0', 'js3']) expect(await kernel.filesystem.fs.exists(`/dev/${name}`)).toBe(true)
   })
 
   it('gives each package its own dynamic major, although both use minor 1', async () => {
     const rdev = async (path: string) => (await kernel.filesystem.fs.stat(path) as unknown as { rdev: number | bigint }).rdev
-    const pad = BigInt(await rdev('/dev/js0'))
+    expect(driversOf('bluetooth').map(driver => driver.name)).toEqual(['bluetooth'])
+    const control = BigInt(await rdev('/dev/bluetooth'))
     const fake = BigInt(await rdev('/dev/ttyFake'))
     // major in the high bits, minor in the low 20
-    expect(pad & 0xfffffn).toBe(1n)
+    expect(control & 0xfffffn).toBe(0n)
     expect(fake & 0xfffffn).toBe(1n)
-    expect(pad >> 20n).not.toBe(fake >> 20n)
+    expect(control >> 20n).not.toBe(fake >> 20n)
+    // the gamepad nodes are not here: pads are /dev/input/event<N> and js<N> (gamepad-input.test.ts)
+    expect(await kernel.filesystem.fs.exists('/dev/js0')).toBe(false)
   })
 })

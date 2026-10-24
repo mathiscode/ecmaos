@@ -7,7 +7,7 @@
  *
  */
 
-import { dynamicMinor } from '#lib/dynamic-minors.ts'
+import { dynamicIoctl, dynamicMinor, goneNodeOperations, registerMinor } from '#lib/dynamic-minors.ts'
 import { startSession } from './lib/job-control.ts'
 import { DEFAULT_UMASK, setUmask } from './lib/umask-store.ts'
 import { installSkel, type SkelFs } from './lib/skel.ts'
@@ -354,7 +354,7 @@ export class Kernel implements IKernel {
 
   /** The cross-cutting primitives a subsystem or driver may depend on, with no back-reference to the Kernel itself */
   get context(): KernelContext {
-    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n }
+    return { id: this.id, log: this.log, events: this.events, i18n: this.i18n, devices: this.hotplug }
   }
 
   constructor(_options: KernelOptions = DefaultKernelOptions) {
@@ -2350,6 +2350,17 @@ export class Kernel implements IKernel {
 
       this.devices.set(device.pkg.name, { device, drivers })
       for (const driver of drivers) allDrivers.push({ device, driver })
+
+      for (const tty of await device.getTTYDrivers?.(this.context).catch(error => {
+        this.log.warn(`device ${device.pkg.name}: no terminals: ${(error as Error).message}`)
+        return []
+      }) ?? []) {
+        // A second kernel in the same realm finds the numbers taken (EBUSY); the driver is the same one
+        try { tty.register() } catch (error) {
+          if ((error as { code?: string }).code !== 'EBUSY') this.log.warn(`terminal driver ${tty.name}: ${(error as Error).message}`)
+        }
+        registerHeldOperations(tty.major, tty.fops)
+      }
     }
 
     // A driver that asks for major 0 wants a dynamic major of its own: every package that did would otherwise share
@@ -2364,69 +2375,127 @@ export class Kernel implements IKernel {
       byMajor.set(key, group)
     }
 
-    for (const [key, group] of byMajor) {
-      const requestedMajor = typeof key === 'number' ? key : 0
-      const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
-        const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
-        if (!entry) {
-          const made = dynamicMinor(file.devt.major, file.devt.minor)
-          if (made) return made
-          throw new Error(`No device registered at minor ${file.devt.minor}`)
-        }
+    for (const [key, group] of byMajor) this.registerMajor(key, group)
 
-        // Manifest `devices` enforcement; see `lib/syscall-policy.ts`. `current` is the calling process. No manifest,
-        // or no `devices` list, is unrestricted.
-        const exe = zenfsCurrent?.exe
-        if (exe) {
-          const manifest = getCachedManifest(exe)
-          const allowed = manifest?.devices
-          if (allowed && !allowed.includes(entry.driver.name) && !allowed.includes(entry.driver.class?.name)) {
-            throw withErrno('EPERM')
+    // Packages that follow their devices (a camera plugged in, a port granted) start watching now the majors are there
+    for (const { device } of this.devices.values()) {
+      try { await device.watch?.(this.context) } catch (error) { this.log.warn(`device ${device.pkg.name}: cannot watch: ${(error as Error).message}`) }
+    }
+  }
+
+  /** Registers one major's drivers (none, for a major a package adds nodes to later) and links its devices into sysfs; returns the major */
+  private registerMajor(key: number | string, group: { device: KernelDevice, driver: KernelCharDevice }[]): number | undefined {
+    const requestedMajor = typeof key === 'number' ? key : 0
+    // Manifest `devices` enforcement; see `lib/syscall-policy.ts`. `current` is the calling process. No manifest,
+    // or no `devices` list, is unrestricted.
+    const enforce = (driver: KernelCharDevice) => {
+      const exe = zenfsCurrent?.exe
+      if (!exe) return
+      const allowed = getCachedManifest(exe)?.devices
+      if (allowed && !allowed.includes(driver.name) && !allowed.includes(driver.class?.name)) throw withErrno('EPERM')
+    }
+    const dispatch = (file: Parameters<NonNullable<FileOperations['read']>>[0]) => {
+      const entry = group.find(({ driver }) => driver.minor === file.devt.minor)
+      if (!entry) {
+        const made = dynamicMinor(file.devt.major, file.devt.minor)
+        if (made) {
+          const driver = this.hotplugDrivers.get(`${file.devt.major}:${file.devt.minor}`)
+          if (driver) enforce(driver)
+          return made
+        }
+        throw new Error(`No device registered at minor ${file.devt.minor}`)
+      }
+      enforce(entry.driver)
+      return entry.driver.ops
+    }
+
+    const ops: FileOperations = {
+      open: file => dispatch(file).open?.(file),
+      release: file => dispatch(file).release?.(file),
+      read: (file, buffer, start, end) => dispatch(file).read?.(file, buffer, start, end),
+      write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
+      sync: file => dispatch(file).sync?.(file),
+      poll: file => dispatch(file).poll?.(file) ?? 0,
+      poll_wait: file => dispatch(file).poll_wait?.(file),
+      // a request is answered by the driver of the node it is made on, a node made at runtime too; one no driver of this
+      // major knows is left to the file system
+      ioctl: new Proxy({}, {
+        get: (_target, request) => group.some(({ driver }) => driver.ops.ioctl?.[request as never]) || dynamicIoctl(major, request)
+          ? (context: never, file: Parameters<NonNullable<FileOperations['read']>>[0], ...args: unknown[]) => {
+            const handler = dispatch(file).ioctl?.[request as never]
+            if (!handler) throw withErrno('ENOTTY')
+            return handler(context, file, ...args)
           }
-        }
+          : undefined
+      }) as FileOperations['ioctl']
+    }
 
-        return entry.driver.ops
-      }
+    // Majors and names are process-global in `@zenfs/linux`, so a second kernel in the same realm gets EBUSY/EEXIST
+    // for the same drivers; these are ignored.
+    let major: number
+    try {
+      major = char_dev.register(requestedMajor, typeof key === 'number' ? `major-${key}` : `ecmaos-${key.slice('dynamic:'.length)}`, ops)
+    } catch (error) {
+      this.log.warn(`Device major ${key} already registered: ${error instanceof Error ? error.message : String(error)}`)
+      return typeof key === 'number' ? key : undefined
+    }
+    this.majors.set(key, major)
+    registerHeldOperations(major, ops)
 
-      const ops: FileOperations = {
-        open: file => dispatch(file).open?.(file),
-        release: file => dispatch(file).release?.(file),
-        read: (file, buffer, start, end) => dispatch(file).read?.(file, buffer, start, end),
-        write: (file, buffer, offset) => dispatch(file).write?.(file, buffer, offset),
-        sync: file => dispatch(file).sync?.(file),
-        poll: file => dispatch(file).poll?.(file) ?? 0,
-        poll_wait: file => dispatch(file).poll_wait?.(file),
-        // a request is answered by the driver of the node it is made on; one no driver of this major knows is left to the file system
-        ioctl: group.some(({ driver }) => driver.ops.ioctl) ? new Proxy({}, {
-          get: (_target, request) => group.some(({ driver }) => driver.ops.ioctl?.[request as never])
-            ? (context: never, file: Parameters<NonNullable<FileOperations['read']>>[0], ...args: unknown[]) => {
-              const handler = dispatch(file).ioctl?.[request as never]
-              if (!handler) throw withErrno('ENOTTY')
-              return handler(context, file, ...args)
-            }
-            : undefined
-        }) as FileOperations['ioctl'] : undefined
-      }
-
-      // Majors and names are process-global in `@zenfs/linux`, so a second kernel in the same realm gets EBUSY/EEXIST
-      // for the same drivers; these are ignored.
-      let major: number
+    // `Device.register()` links a device into `/sys/bus/<name>/devices` from its `bus` field alone, giving each
+    // web-capability device a `/sys/devices` and `/sys/class` entry.
+    for (const { driver } of group) {
       try {
-        major = char_dev.register(requestedMajor, typeof key === 'number' ? `major-${key}` : `ecmaos-${key.slice('dynamic:'.length)}`, ops)
+        new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor }, bus: this._webCapabilityBus }).register()
       } catch (error) {
-        this.log.warn(`Device major ${key} already registered: ${error instanceof Error ? error.message : String(error)}`)
-        continue
+        this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
       }
-      registerHeldOperations(major, ops)
+    }
+    return major
+  }
 
-      // `Device.register()` links a device into `/sys/bus/<name>/devices` from its `bus` field alone, giving each
-      // web-capability device a `/sys/devices` and `/sys/class` entry.
-      for (const { driver } of group) {
+  /** The majors registered, by the number a driver asked for or `dynamic:<package>` */
+  private readonly majors = new Map<number | string, number>()
+  /** The nodes packages made after boot, by `major:minor`, with what takes each away */
+  private readonly hotplugged = new Map<string, () => void>()
+  /** The drivers of those nodes, for the manifest's `devices` list */
+  private readonly hotplugDrivers = new Map<string, KernelCharDevice>()
+
+  /**
+   * Nodes made and removed at runtime, for a package whose devices come and go. `add` gives `driver` its node (the major is
+   * registered if no driver of the package's had it at boot), and the function it returns takes the node away: a file still
+   * open on it gets `ENODEV`, as on Linux, until a device takes the minor again.
+   */
+  get hotplug(): KernelContext['devices'] {
+    return {
+      add: (pkg, driver) => {
+        const key = driver.major || `dynamic:${pkg}`
+        let major = this.majors.get(key)
+        if (major === undefined) major = this.registerMajor(key, [])
+        if (major === undefined) throw new Error(`no major for ${driver.name}`)
+        const made = major
+        const at = `${made}:${driver.minor}`
+        this.hotplugged.get(at)?.()
+        const unregister = registerMinor(made, driver.minor, driver.ops)
+        let device: Device | undefined
         try {
-          new Device({ name: driver.name, class: driver.class, dev_t: { major, minor: driver.minor }, bus: this._webCapabilityBus }).register()
+          device = new Device({ name: driver.name, class: driver.class, dev_t: { major: made, minor: driver.minor }, bus: this._webCapabilityBus })
+          device.register()
         } catch (error) {
+          device = undefined
           this.log.warn(`Device node ${driver.name} already registered: ${error instanceof Error ? error.message : String(error)}`)
         }
+        const remove = () => {
+          if (this.hotplugged.get(at) !== remove) return
+          this.hotplugged.delete(at)
+          this.hotplugDrivers.delete(at)
+          unregister()
+          registerMinor(made, driver.minor, goneNodeOperations)
+          try { device?.unregister() } catch { /* gone */ }
+        }
+        this.hotplugged.set(at, remove)
+        this.hotplugDrivers.set(at, driver)
+        return remove
       }
     }
   }
