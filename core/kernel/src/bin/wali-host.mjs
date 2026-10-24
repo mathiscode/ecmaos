@@ -298,6 +298,15 @@ function recordLock(fd, cmd, ptr) {
 const lockedFile = fd => (locking ? lockKey(fd)?.key : undefined)
 const unlockFile = key => { if (key !== undefined) syscall_raw('lock_op', LOCK_RELEASE, key, 0, 0, 0) }
 
+/** `getresuid` and `getresgid`: the three ids the kernel answers with are stored where the program points */
+function resultIds(group, pointers) {
+  const length = syscall_raw('proc_getids', group)
+  if (length < 0) return length
+  const answer = new DataView(returned.buffer, returned.byteOffset)
+  pointers.forEach((ptr, i) => view().setUint32(ptr, answer.getUint32(i * 4, true), true))
+  return 0
+}
+
 function fcntl(fd, cmd, arg) {
   switch (cmd) {
     case F_DUPFD:
@@ -2297,6 +2306,23 @@ const calls = {
   // which use it) start programs
   SYS_fork: () => big(-ENOSYS),
   SYS_vfork: () => big(-ENOSYS),
+  // the user and group ids (the rules are the kernel's, `changeIds`); an id of -1 is left as it is
+  SYS_setuid: uid => big(syscall_raw('proc_setids', 0, 0, uid, -1, -1)),
+  SYS_setreuid: (ruid, euid) => big(syscall_raw('proc_setids', 0, 1, ruid, euid, -1)),
+  SYS_setresuid: (ruid, euid, suid) => big(syscall_raw('proc_setids', 0, 2, ruid, euid, suid)),
+  SYS_setgid: gid => big(syscall_raw('proc_setids', 1, 0, gid, -1, -1)),
+  SYS_setregid: (rgid, egid) => big(syscall_raw('proc_setids', 1, 1, rgid, egid, -1)),
+  SYS_setresgid: (rgid, egid, sgid) => big(syscall_raw('proc_setids', 1, 2, rgid, egid, sgid)),
+  SYS_getresuid: (ruid, euid, suid) => big(resultIds(0, [ruid, euid, suid])),
+  SYS_getresgid: (rgid, egid, sgid) => big(resultIds(1, [rgid, egid, sgid])),
+  SYS_getgroups: (count, list) => {
+    const length = syscall_raw('proc_getgroups')
+    if (length < 0 || count === 0) return big(length < 0 ? length : length >> 2)
+    if (count < length >> 2) return big(-EINVAL)
+    bytes().set(returned.subarray(0, length), list)
+    return big(length >> 2)
+  },
+  SYS_setgroups: (count, list) => big(count < 0 || count > 65536 ? -EINVAL : syscall_raw('proc_setgroups', bytes().slice(list, list + count * 4))),
   SYS_setpgid: (pid, pgid) => big(syscall_raw('proc_setpgid', pid, pgid)),
   SYS_getpgid: pid => big(syscall_raw('proc_getpgid', pid)),
   SYS_getpgrp: () => big(syscall_raw('proc_getpgid', 0)),

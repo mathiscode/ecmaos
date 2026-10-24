@@ -245,6 +245,16 @@
       "size": 1660330,
       "sha256": "2bb4d402b71194d1c4f905b1d07742f7d4dff387379d4e8e5c08e796c5575e21"
     },
+    "dropbear": {
+      "file": "dropbear.wasm",
+      "version": "2026.94",
+      "license": "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Public-Domain",
+      "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify",
+      "homepage": "https://matt.ucc.asn.au/dropbear/dropbear.html",
+      "toolchain": "wali",
+      "size": 829517,
+      "sha256": "17713bc2e5d7ec3c9156140b9bcc86e9a625c66e4241fdce12d84e6a4c0223bc"
+    },
     "python3": {
       "file": "python3.wasm",
       "version": "3.14.9",

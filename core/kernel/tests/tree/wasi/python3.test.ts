@@ -71,6 +71,49 @@ print(len(z) < 100, zlib.decompress(z) == data, gzip.decompress(open("/tmp/x.gz"
 `)).toEqual({ code: 0, out: 'True True True True True 891568578\n', err: '' })
   }, 60000)
 
+  it('reads what is in a file opened for reading and appending, and appends at the end', async () => {
+    expect(await run(`import os
+open("/tmp/ap.txt", "w").write("one\\n")
+with open("/tmp/ap.txt", "a+") as f:
+    first = f.read()
+    f.seek(0)
+    again = f.read()
+    f.seek(0)
+    f.write("two\\n")
+    f.seek(0)
+    print(repr(first), repr(again), repr(f.read()), f.tell())
+fd = os.open("/tmp/ap.txt", os.O_RDWR | os.O_APPEND)
+print(os.lseek(fd, 0, os.SEEK_SET), os.read(fd, 4), os.write(fd, b"3\\n"), os.lseek(fd, 0, os.SEEK_CUR))
+print(repr(open("/tmp/ap.txt").read()))
+`)).toEqual({ code: 0, out: "'' 'one\\n' 'one\\ntwo\\n' 8\n0 b'one\\n' 2 10\n'one\\ntwo\\n3\\n'\n", err: '' })
+  }, 60000)
+
+  it('changes its user and group ids with the setuid calls, by the rules for root and for others', async () => {
+    expect(await run(`import os
+out = [os.getresuid()]
+os.seteuid(1000)
+out.append(os.getresuid())
+os.seteuid(0)
+os.setresuid(1000, 1000, 0)
+out.append(os.getresuid())
+os.setuid(0)
+out.append(os.geteuid())
+os.setgid(100)
+os.setgroups([100, 200])
+out.append((os.getgid(), os.getegid(), os.getgroups()))
+os.setresuid(1000, 1000, 1000)
+try:
+    os.setuid(0)
+except PermissionError:
+    out.append("EPERM")
+try:
+    os.setgroups([1])
+except PermissionError:
+    out.append("EPERM")
+print(out)
+`)).toEqual({ code: 0, out: "[(0, 0, 0), (0, 1000, 0), (1000, 1000, 0), 0, (100, 100, [100, 200]), 'EPERM', 'EPERM']\n", err: '' })
+  }, 60000)
+
   it('forks with os.fork, and waits for the child and its status', async () => {
     expect(await run(`import os
 r, w = os.pipe()

@@ -23,6 +23,7 @@ import { bindUdpPort, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
 import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp } from './ip.ts'
 import { heldInMemory, totalHeld } from './memory-usage.ts'
+import { changeIds } from './process-credentials.ts'
 import { quotaLimit, quotaLimits, quotaUsage } from './quota.ts'
 import { currentStorageLimits } from './storage-limits.ts'
 import { manageShare, type ShareRequest } from './remote-share.ts'
@@ -1518,6 +1519,25 @@ export function installMainThreadSyscalls(): void {
     if (!handle) throw socketErrno('EBADF')
     return handle
   }
+  // `O_APPEND` moves every write to the end of the file and does nothing to reads or to `lseek` (`a+` reads what is in the
+  // file from the start). The handle of a file opened with it reports the end as its position, which is right for
+  // writes and wrong for the rest, so a file opened to read and append keeps its own position, and its writes go to the end.
+  const openSyscall = syscalls.get('open') as unknown as (proc: Process, ...args: unknown[]) => number | Promise<number>
+  syscalls.set('open', (async (proc: Process, path: string, flags: number, mode: number) => {
+    const fd = await openSyscall(proc, path, flags, mode)
+    if ((flags & 0o2000) && (flags & 3) === 2) {
+      type Writer = (this: unknown, buffer: Uint8Array, offset?: number, length?: number, position?: number) => unknown
+      const handle = proc.context.descriptors.get(fd) as unknown as { _position: number, inode: { size: number }, writeSync: Writer, write: Writer } | undefined
+      if (handle && typeof handle._position === 'number') {
+        Object.defineProperty(handle, 'position', { get() { return this._position }, set(value: number) { this._position = value }, configurable: true })
+        for (const name of ['writeSync', 'write'] as const) {
+          const original = handle[name]
+          handle[name] = function (this: typeof handle, buffer, offset, length) { return original.call(this, buffer, offset, length, this.inode.size) }
+        }
+      }
+    }
+    return fd
+  }) as never)
   define_syscall('fd_getfl', (proc: Process, fd: number) => openFile(proc, fd).flag)
   define_syscall('fd_setfl', (proc: Process, fd: number, flags: number) => {
     const handle = openFile(proc, fd)
@@ -2224,6 +2244,41 @@ export function installMainThreadSyscalls(): void {
       for (const signal of caught) proc.catch_signal(signal)
       throw error
     }
+  })
+  // `setuid(2)`, `setreuid`, `setresuid` and the group calls (`group` is 1 for those): `how` is 0 for setuid(a), 1 for
+  // setreuid(a, b) and 2 for setresuid(a, b, c). Linux's rules are in `changeIds`.
+  define_syscall('proc_setids', (proc: Process, group: number, how: number, a: number, b: number, c: number) => {
+    const credentials = proc.context.credentials
+    const [real, effective, saved] = group ? ['gid', 'egid', 'sgid'] as const : ['uid', 'euid', 'suid'] as const
+    const next = changeIds(
+      { real: credentials[real], effective: credentials[effective], saved: credentials[saved] },
+      credentials.euid === 0, (['id', 're', 'res'] as const)[how], a, b, c
+    )
+    if (!next) return -Errno.EPERM
+    credentials[real] = next.real
+    credentials[effective] = next.effective
+    credentials[saved] = next.saved
+    return 0
+  })
+  const answerWithIds = (proc: Process, ids: readonly number[]) => {
+    const thread = thread_of(proc)
+    const answer = new DataView(thread.region.buffer, thread.region.byteOffset)
+    ids.forEach((id, i) => answer.setUint32(i * 4, id, true))
+    return thread.filled(ids.length * 4)
+  }
+  // `getresuid(2)` and `getresgid(2)` (`group` is 1): the real, effective and saved ids, as three 32-bit numbers; and
+  // `getgroups(2)`: the supplementary groups as 32-bit numbers
+  define_syscall('proc_getids', (proc: Process, group: number) => {
+    const { uid, euid, suid, gid, egid, sgid } = proc.context.credentials
+    return answerWithIds(proc, group ? [gid, egid, sgid] : [uid, euid, suid])
+  })
+  define_syscall('proc_getgroups', (proc: Process) => answerWithIds(proc, proc.context.credentials.groups))
+  // `setgroups(2)`: the supplementary groups, as the bytes of the caller's array of 32-bit ids; only root may
+  define_syscall('proc_setgroups', (proc: Process, ids: Uint8Array) => {
+    if (proc.context.credentials.euid !== 0) return -Errno.EPERM
+    const view = new DataView(ids.buffer, ids.byteOffset, ids.byteLength)
+    proc.context.credentials.groups = Array.from({ length: ids.byteLength >> 2 }, (_, i) => view.getUint32(i * 4, true))
+    return 0
   })
   define_syscall('proc_setpgid', (proc: Process, pid: number, pgid: number) => setpgid(proc, pid, pgid))
   define_syscall('proc_getpgid', (proc: Process, pid: number) => {

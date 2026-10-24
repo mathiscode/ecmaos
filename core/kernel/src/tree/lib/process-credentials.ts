@@ -62,3 +62,34 @@ export function setuidCredentials(fs: { statSync(path: string): { mode: number |
   if (!stats?.isFile() || !(Number(stats.mode) & S_ISUID) || Number(stats.uid) === caller.euid) return undefined
   return { ...credentialsFor(caller), euid: Number(stats.uid), suid: Number(stats.uid) }
 }
+
+/** The ids of one kind (user or group) a process holds: real, effective and saved */
+export interface IdSet { real: number, effective: number, saved: number }
+
+/** An id argument of setuid(2) and its kin: -1 (or the same bits unsigned) leaves it as it is */
+const KEEP = -1
+const kept = (id: number) => id === KEEP || id === 0xFFFFFFFF
+
+/**
+ * What `setuid`, `setreuid` and `setresuid` (and the group calls, which follow the same rules) leave a process's ids as,
+ * or `undefined` when Linux would refuse with EPERM. A caller whose effective user is root may set any id; any other
+ * may only set an id to one it already has (real, effective or saved), and `setuid` then changes only the effective one.
+ * @param how `id` is `setuid(a)`, `re` is `setreuid(a, b)`, `res` is `setresuid(a, b, c)`
+ */
+export function changeIds(current: IdSet, privileged: boolean, how: 'id' | 're' | 'res', a: number, b = KEEP, c = KEEP): IdSet | undefined {
+  const has = (id: number) => id === current.real || id === current.effective || id === current.saved
+  if (how === 'id') {
+    if (kept(a)) return undefined
+    if (privileged) return { real: a, effective: a, saved: a }
+    return a === current.real || a === current.saved ? { ...current, effective: a } : undefined
+  }
+  if (how === 'res') {
+    if (!privileged && [a, b, c].some(id => !kept(id) && !has(id))) return undefined
+    return { real: kept(a) ? current.real : a, effective: kept(b) ? current.effective : b, saved: kept(c) ? current.saved : c }
+  }
+  if (!privileged && ((!kept(a) && a !== current.real && a !== current.effective) || (!kept(b) && !has(b)))) return undefined
+  const next = { real: kept(a) ? current.real : a, effective: kept(b) ? current.effective : b, saved: current.saved }
+  // the saved id follows the effective one when the real one is set, or the effective one becomes something else than the real one was
+  if (!kept(a) || (!kept(b) && b !== current.real)) next.saved = next.effective
+  return next
+}
