@@ -115,6 +115,16 @@
       "size": 87381,
       "sha256": "ba239f6620f9bb2c47d1eff2d82398467c8d90f228f848b85c792cd4d87e4904"
     },
+    "microcom": {
+      "file": "microcom.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 73775,
+      "sha256": "1638b0c4fff3ae416499ef37a9d7b8a76a469c04ce559046b6894fb659076440"
+    },
     "ncdu": {
       "file": "ncdu.wasm",
       "version": "1.22",

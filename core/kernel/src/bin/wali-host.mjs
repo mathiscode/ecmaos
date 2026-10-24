@@ -367,6 +367,7 @@ function fixScreenInfo(ptr, length) {
 }
 
 const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414
+const TCSBRK = 0x5409, TIOCMGET = 0x5415, TIOCMBIS = 0x5416, TIOCMBIC = 0x5417, TIOCMSET = 0x5418, TCSBRKP = 0x5425
 
 function deviceIoctl(fd, request, ptr) {
   // a pty master's number and its lock: an int each, through the pointer
@@ -382,6 +383,18 @@ function deviceIoctl(fd, request, ptr) {
     if (!ptr) return -EFAULT
     return syscall_raw('ioctl', fd, request, { rows: view().getUint16(ptr, true), cols: view().getUint16(ptr + 2, true) })
   }
+  // a serial port's modem lines, an int through the pointer either way; a break takes its argument as it is
+  if (request === TIOCMGET) {
+    const bits = syscall_raw('ioctl', fd, request, undefined)
+    if (bits < 0) return bits
+    if (ptr) view().setInt32(ptr, bits, true)
+    return 0
+  }
+  if (request === TIOCMSET || request === TIOCMBIS || request === TIOCMBIC) {
+    if (!ptr) return -EFAULT
+    return syscall_raw('ioctl', fd, request, view().getInt32(ptr, true))
+  }
+  if (request === TCSBRK || request === TCSBRKP) return syscall_raw('ioctl', fd, request, ptr)
   if (request === TIOCSCTTY) return syscall_raw('proc_ctty', 0, fd, ptr)
   if (request === TIOCNOTTY) return syscall_raw('proc_ctty', 1, fd, 0)
   if (request === TIOCGSID) {

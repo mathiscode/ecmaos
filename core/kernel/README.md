@@ -500,9 +500,10 @@ in = 1
 out = 2
 ```
 
-- **`/dev/hidraw<N>`**, **`/dev/midi<N>`**, **`/dev/js<N>`** and **`/dev/ttyS<N>`** are the HID devices, MIDI ports, gamepads and serial ports the browser has already allowed.
+- **`/dev/hidraw<N>`**, **`/dev/midi<N>`** and **`/dev/js<N>`** are the HID devices, MIDI ports and gamepads the browser has already allowed.
+- **`/dev/ttyACM<N>`**, **`/dev/ttyUSB<N>`** and **`/dev/rfcomm<N>`** are the serial ports: a board that speaks CDC ACM (an Arduino, a Raspberry Pi Pico, an ESP32 with native USB), one behind a USB-serial chip (FTDI, CP210x, CH340, PL2303) and a Bluetooth serial port, named as Linux names them. Each is a terminal, with the line discipline and a `c_cflag` that sets the port's speed, character size, parity, stop bits and flow control (`stty -F /dev/ttyACM0 115200 raw`, `microcom -s 115200 /dev/ttyACM0`). A port gets its node when it is granted (`serial request`) or plugged in, with the lowest free number as on Linux, and loses it when it is unplugged; a program that still has it open reads the end of the file. `/dev/serial/by-id/usb-<vendor>_<product>-if00` is a name that stays with the device.
 
-Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. The number in a `usb<N>`, `ble<N>`, `ttyS<N>` or `hidraw<N>` name stays with its device: each is remembered by what identifies it (ids and serial number, or the Bluetooth device id) in `/var/lib/ecmaos/<driver>-minors.json`. Forgetting a device leaves a gap and the others keep their names; a new device gets a number that was never used. Devices that look the same (no serial number) are told apart by the order the browser lists them in. MIDI ports are numbered by position.
+Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. The number in a `usb<N>`, `ble<N>` or `hidraw<N>` name stays with its device: each is remembered by what identifies it (ids and serial number, or the Bluetooth device id) in `/var/lib/ecmaos/<driver>-minors.json`. Forgetting a device leaves a gap and the others keep their names; a new device gets a number that was never used. Devices that look the same (no serial number) are told apart by the order the browser lists them in. MIDI ports are numbered by position.
 
 ## Code Execution Example
 

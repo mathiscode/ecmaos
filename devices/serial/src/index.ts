@@ -1,18 +1,15 @@
 /// <reference types="w3c-web-serial" />
 
 import { Class } from '@zenfs/linux'
-import type { FileOperations } from '@zenfs/linux'
-import { fs } from '@zenfs/core'
-import { controlOperations, fileMinorStore, sessionOperations, StableMinors } from '@ecmaos-devices/session'
-import type { DeviceSession } from '@ecmaos-devices/session'
+import type { TTYDriver } from '@zenfs/linux'
+import { controlOperations } from '@ecmaos-devices/session'
 import type { KernelCharDevice, KernelContext, KernelDeviceCLIOptions } from '@ecmaos/types'
 
-import { openSerialSession } from './session.js'
+import { attachPort, detachPort, lineName, serialTerminals } from './tty.js'
 
 export { openSerialSession, SerialError } from './session.js'
 export type { SerialDeviceSession, SerialSessionOptions } from './session.js'
-
-const availablePorts = new Set<SerialPort>()
+export { acmDriver, attachPort, detachPort, lineName, rfcommDriver, speedOf, supportedCflag, usbSerialDriver } from './tty.js'
 
 export const pkg = {
   name: 'serial',
@@ -25,8 +22,9 @@ export const pkg = {
   https://developer.mozilla.org/en-US/docs/Web/API/Navigator/serial#browser_compatibility
 
   Usage:
-    serial devices                       List paired serial devices
-    serial request <options>             Request serial device (blank for user choice)
+    serial devices                       List the ports this browser has granted, with their nodes
+    serial request <options>             Ask for a port (blank for the browser's choice); it becomes /dev/ttyACM<n>,
+                                         /dev/ttyUSB<n> (a USB-serial bridge chip) or /dev/rfcomm<n> (Bluetooth)
 
   Options:
     --help                               Print this help message
@@ -52,7 +50,7 @@ export async function cli(options: KernelDeviceCLIOptions) {
       const data = await Promise.all(
         devices.map(async (device, index) => {
           const { usbProductId, usbVendorId } = await device.getInfo()
-          return { index, usbProductId, usbVendorId }
+          return { index, node: lineName(device) ? `/dev/${lineName(device)}` : null, usbProductId, usbVendorId }
         })
       )
       terminal.writeln(JSON.stringify(data, null, 2))
@@ -75,7 +73,7 @@ export async function cli(options: KernelDeviceCLIOptions) {
         const device = await navigator.serial.requestPort({
           filters: Object.keys(filter).length ? [filter] : []
         })
-        terminal.writeln(`Device connected: ${JSON.stringify(await device.getInfo())}`)
+        terminal.writeln(`/dev/${attachPort(device)}: ${JSON.stringify(device.getInfo())}`)
         return 0
       } catch (err) {
         terminal.writeln(`Error: Failed to request device: ${err}`)
@@ -92,46 +90,23 @@ export async function cli(options: KernelDeviceCLIOptions) {
 /** `/sys/class/serial` */
 const serial_class = new Class('serial')
 
-/**
- * A serial port as a file: `sessionOperations` does the buffering and waiting (see there). A node opens its port at 9600; a
- * speed is chosen when the port is offered to another machine.
- */
-/** Web Serial tells a port apart only by its USB ids; ports that look alike are told apart by their order */
-const portKey = (port: SerialPort) => { const { usbVendorId, usbProductId } = port.getInfo(); return `${(usbVendorId ?? 0).toString(16).padStart(4, '0')}:${(usbProductId ?? 0).toString(16).padStart(4, '0')}` }
-const minors = new StableMinors(fileMinorStore(fs as never, '/var/lib/ecmaos/serial-minors.json'))
+let listening = false
 
-const serialOperations = (log: KernelContext['log']): FileOperations => sessionOperations({
-  onError: error => log.warn(`serial: ${error.message}`),
-  async open(minor) {
-    const ports = await navigator.serial.getPorts()
-    const port = ports[await minors.find(ports.map(portKey), minor)]
-    if (!port) throw new Error('no such port')
-    return await openSerialSession(port) as unknown as DeviceSession
-  }
-})
-
-// Dynamically allocated: real Linux major 4 is tty/ttyS, which @zenfs/linux's own xterm_driver
-// (TTYDriver) claims for the console TTYs. WebSerial ports are not that line discipline, so they
-// get their own major rather than colliding with it.
-function createDriver(ctx: KernelContext, name: string, minor: number): KernelCharDevice {
-  return { name, major: 0, minor, class: serial_class, ops: minor === 0 ? controlOperations : serialOperations(ctx.log) }
+/** `/dev/serial`, the control node; the ports are terminals (see `getTTYDrivers`) */
+export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
+  const control: KernelCharDevice = { name: 'serial', major: 0, minor: 0, class: serial_class, ops: controlOperations }
+  if (typeof navigator === 'undefined' || !navigator.serial || listening) return [control]
+  listening = true
+  // A port that is plugged in gets its line, and one that is unplugged hangs its line up
+  navigator.serial.addEventListener('connect', event => {
+    ctx.events.emit('device:connect', event.target)
+    attachPort(event.target as SerialPort)
+  })
+  navigator.serial.addEventListener('disconnect', event => detachPort(event.target as SerialPort))
+  return [control]
 }
 
-export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  if (typeof navigator === 'undefined' || !navigator.serial) return [createDriver(ctx, 'serial', 0)]
-  navigator.serial.addEventListener('connect', async (event) => {
-    ctx.events.emit('device:connect', event.target)
-    if (event.target && !availablePorts.has(event.target as SerialPort)) {
-      availablePorts.add(event.target as SerialPort)
-    }
-
-    ctx.log.debug(`serial: port connected (${availablePorts.size} known)`)
-  })
-
-  const drivers: KernelCharDevice[] = [createDriver(ctx, 'serial', 0)]
-  const ports = await navigator.serial.getPorts()
-  // A port keeps its node (`ttyS<N>`) when others are unplugged for good; the numbers are remembered in /var/lib/ecmaos/serial-minors.json
-  const numbers = await minors.assign(ports.map(portKey))
-  numbers.forEach(minor => drivers.push(createDriver(ctx, `ttyS${minor - 1}`, minor)))
-  return drivers
+/** `ttyACM<n>`, `ttyUSB<n>` and `rfcomm<n>`, with a line for each port already granted */
+export async function getTTYDrivers(ctx: KernelContext): Promise<TTYDriver[]> {
+  return await serialTerminals(ctx)
 }

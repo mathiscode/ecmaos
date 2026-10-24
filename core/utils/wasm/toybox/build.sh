@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Rebuilds programs/patch.wasm: `patch` from toybox (0BSD), for ecmaOS, on WALI's musl (`utils/check-wali.sh`), run by
-# /bin/wali. The GNU patch is GPL; this is the permissive one. Toybox builds one command on its own with
-# scripts/single.sh; it targets Linux, which WALI's musl is, so it builds as it is. One source change: toybox calls
-# its exit handlers through `void (*)(int)` but declares `tempfile_handler(void)`, which a native ABI tolerates and
-# WebAssembly traps on, so it is given the parameter.
+# Rebuilds programs/<command>.wasm for each toybox (0BSD) command named, by default `patch` and `microcom`, for ecmaOS, on
+# WALI's musl (`utils/check-wali.sh`), run by /bin/wali. The GNU patch is GPL; this is the permissive one. `microcom` is
+# the serial console (`microcom -s 115200 /dev/ttyACM0`). Toybox builds one command on its own with scripts/single.sh; it
+# targets Linux, which WALI's musl is, so it builds as it is. One source change: toybox calls its exit handlers through
+# `void (*)(int)` but declares `tempfile_handler(void)`, which a native ABI tolerates and WebAssembly traps on, so it is
+# given the parameter.
+#
+#   build.sh                  patch and microcom
+#   build.sh microcom         just the commands named
 set -euo pipefail
 source "$(dirname "$0")/../../../../utils/check-wali.sh"
 
 VERSION=0.8.12
 SHA256=ad88a921133ae2231d9f2df875ec0bd42af4429145caea7d7db9e02208a6fd2e
 HERE=$(cd "$(dirname "$0")" && pwd)
-OUT=$HERE/../../programs/patch.wasm
+COMMANDS=("$@")
+[ ${#COMMANDS[@]} -gt 0 ] || COMMANDS=(patch microcom)
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
@@ -24,8 +29,11 @@ cd "toybox-$VERSION"
 grep -q '^static void tempfile_handler(void)$' lib/lib.c || { echo "toybox source changed: tempfile_handler not found" >&2; exit 1; }
 sed -i 's/^static void tempfile_handler(void)$/static void tempfile_handler(int sig)/' lib/lib.c
 
-CC=$WALI_CC HOSTCC=cc NOSTRIP=1 CFLAGS="-O2" LDOPTIMIZE="-Wl,--gc-sections" \
-  scripts/single.sh patch > build.log 2>&1 || { tail -30 build.log >&2; exit 1; }
-cp generated/unstripped/patch "$OUT"
-ls -l "$OUT"
+for command in "${COMMANDS[@]}"; do
+  OUT=$HERE/../../programs/$command.wasm
+  CC=$WALI_CC HOSTCC=cc NOSTRIP=1 CFLAGS="-O2" LDOPTIMIZE="-Wl,--gc-sections" \
+    scripts/single.sh "$command" > "build-$command.log" 2>&1 || { tail -30 "build-$command.log" >&2; exit 1; }
+  cp "generated/unstripped/$command" "$OUT"
+  ls -l "$OUT"
+done
 echo "built with $WALI_TOOLCHAIN"

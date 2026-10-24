@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getDrivers as bluetoothDrivers } from '@ecmaos-devices/bluetooth'
-import { getDrivers as serialDrivers } from '@ecmaos-devices/serial'
 import { getDrivers as hidDrivers } from '@ecmaos-devices/hid'
 
 import { fileMinorStore, StableMinors } from '@ecmaos-devices/session'
@@ -79,15 +78,6 @@ describe('nodes of the other drivers', () => {
     expect(nodes(await bluetoothDrivers(ctx), 'bluetooth')).toEqual(['ble0:1', 'ble1:2', 'ble2:3'])
     vi.stubGlobal('navigator', { bluetooth: { getDevices: async () => [{ id: 'p' }, { id: 'r' }] } })
     expect(nodes(await bluetoothDrivers(ctx), 'bluetooth')).toEqual(['ble0:1', 'ble2:3'])
-  })
-
-  it('serial ports keep their ttyS<N>', async () => {
-    const port = (vendor: number) => ({ getInfo: () => ({ usbVendorId: vendor, usbProductId: 1 }) })
-    const api = (ports: unknown[]) => ({ serial: { getPorts: async () => ports, addEventListener() {} } })
-    vi.stubGlobal('navigator', api([port(10), port(11), port(12)]))
-    expect(nodes(await serialDrivers(ctx), 'serial')).toEqual(['ttyS0:1', 'ttyS1:2', 'ttyS2:3'])
-    vi.stubGlobal('navigator', api([port(10), port(12)]))
-    expect(nodes(await serialDrivers(ctx), 'serial')).toEqual(['ttyS0:1', 'ttyS2:3'])
   })
 
   it('hid devices keep their hidraw<N>', async () => {

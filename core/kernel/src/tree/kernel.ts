@@ -2337,6 +2337,17 @@ export class Kernel implements IKernel {
 
       this.devices.set(device.pkg.name, { device, drivers })
       for (const driver of drivers) allDrivers.push({ device, driver })
+
+      for (const tty of await device.getTTYDrivers?.(this.context).catch(error => {
+        this.log.warn(`device ${device.pkg.name}: no terminals: ${(error as Error).message}`)
+        return []
+      }) ?? []) {
+        // A second kernel in the same realm finds the numbers taken (EBUSY); the driver is the same one
+        try { tty.register() } catch (error) {
+          if ((error as { code?: string }).code !== 'EBUSY') this.log.warn(`terminal driver ${tty.name}: ${(error as Error).message}`)
+        }
+        registerHeldOperations(tty.major, tty.fops)
+      }
     }
 
     // A driver that asks for major 0 wants a dynamic major of its own: every package that did would otherwise share

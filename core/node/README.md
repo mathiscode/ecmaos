@@ -176,7 +176,7 @@ attach -s root@127.0.0.1:30022 usbserial serial:0,baud=115200   # from a browser
 ```
 
 `serial:N` is the Nth port the browser has been given (`serial request` asks for one). The port is opened at the speed given,
-`/dev/ttyS<n>` on the browser's own machine works the same way at 9600, and controls (`attach -c NAME signals`,
+`/dev/ttyACM<n>` or `/dev/ttyUSB<n>` on the browser's own machine is the port as a terminal (`stty -F` sets its speed), and controls (`attach -c NAME signals`,
 `set-signals {"dtr":true}`) reach the port's lines. Unplugging the port ends the device on the host.
 
 A device is opened by name, and only the devices the host lists exist: by `--device` (repeatable) or one per line in

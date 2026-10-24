@@ -1306,6 +1306,9 @@ importers:
       ansi-escape-sequences:
         specifier: ^6.2.4
         version: 6.2.4
+      kerium:
+        specifier: ^1.5.0
+        version: 1.5.0
     devDependencies:
       '@ecmaos/config-typescript':
         specifier: workspace:^
@@ -2341,8 +2344,8 @@ packages:
   '@maxim_mazurok/gapi.client.discovery-v1@0.6.20200806':
     resolution: {integrity: sha512-QN6aGmIbLXcJW0SEf8tz9UWCpQTBMy2u4xSuZ04YofzMGknhWwMeUecySLntCZYAEstHzDoSgwxCf5Gb8GqIRQ==}
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261011':
-    resolution: {integrity: sha512-ysPqL+m0TAbTm9yGJQLKhDOJhkC6r0G60pcHpyzS3Pw9w97t1Q1QnBFVjNpAMUPmcfeAy35YKbWwt1NgUat1QA==}
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261012':
+    resolution: {integrity: sha512-pyIFD7bd5Ly1lkpjzT0hxFUsB7ZbzXUCf2LK8BQN0sggFHeGS4CyCoqdyDI8qQFm6Lhdd2DhIjSXLXeFMR+e3Q==}
 
   '@microsoft/api-extractor-model@7.33.12':
     resolution: {integrity: sha512-TdKOYgwf98xLjNW+y3iXIiCf4ZLQbilGAlqkMTTAqqAWfgRXAn9YCSGMsaiB1U7OPRvslUWg6n08EqQPbP93tA==}
@@ -7819,6 +7822,7 @@ packages:
 
   vitest@5.0.2:
     resolution: {integrity: sha512-7MQrx9pDv5aHiUcovIb/70Ys3tgtkUVgCtledvKdCmEO+/1Dicq5ZqoSxOW034m03oqC+oHOKui2dM6qtMLoJg==}
+    version: 5.0.2
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
@@ -8945,7 +8949,7 @@ snapshots:
       '@types/gapi.client.discovery-v1': 0.0.4
     optional: true
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261011':
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261012':
     dependencies:
       '@types/gapi.client': 1.0.8
       '@types/gapi.client.discovery-v1': 0.0.4
@@ -10032,7 +10036,7 @@ snapshots:
 
   '@types/gapi.client.drive-v3@0.0.5':
     dependencies:
-      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20261011
+      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20261012
     optional: true
 
   '@types/gapi.client@1.0.8':

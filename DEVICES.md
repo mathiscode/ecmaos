@@ -26,9 +26,18 @@
 
 A driver that talks to browser hardware (`serial`, `midi`, `gamepad`, `hid`, `usb`, `bluetooth`, `battery`, `geo`, `sensors`,
 `audio`, `camera`) has a `session.ts` that opens the hardware as a `DeviceSession` (`@ecmaos-devices/session`): bytes to read,
-bytes to write, controls and events. Two things use it. `sessionOperations` makes a `/dev` node from one (`ttyS<n>`, `midi<n>`,
+bytes to write, controls and events. Two things use it. `sessionOperations` makes a `/dev` node from one (`midi<n>`,
 `js<n>`, `hidraw<n>`, `dsp`, `dsp1`, `dspin`), and `attach -s` serves one to another machine over a device channel. A driver is written
 once and works both ways.
+
+## Terminals
+
+A device that is a terminal on Linux (a serial port) is not a session node but a `@zenfs/linux` `TTYDriver`, which a package
+returns from `getTTYDrivers(ctx)` next to `getDrivers`. The kernel registers its numbers and tells it the first open and last
+close of each line; the package adds a line (`driver.line(n).register()`) when a device appears and hangs it up when the device
+goes. The line discipline (canonical mode, echo, signals) is the tty layer's, so the driver only moves bytes, applies `c_cflag`
+in `set_termios`, and answers its own ioctls (`TIOCMGET`, `TCSBRK`, ...). `serial` is the one there is: its `session.ts` still
+serves `attach -s`, and its `tty.ts` drives the port behind each line.
 
 ## Major/Minor Number Allocation
 
@@ -70,15 +79,17 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 35 | 0 | `midi` | Real Linux MIDI major; the control node |
 | 35 | 1+n | `midi<n>` | One per MIDI port, numbered by position |
 | 81 | 0 | `camera` | Real Linux video4linux major; a command only, offered to other machines with `attach -s` |
+| 166 | 0+n | `ttyACM<n>` | Real Linux CDC ACM major; serial ports that are boards (a terminal: `@zenfs/linux` `TTYDriver`) |
 | 180 | 0 | `usb` | Real Linux USB major; the control node |
 | 180 | 1+n | `usb<n>` | One per granted USB device; the number stays with the device (`/var/lib/ecmaos/usb-minors.json`) |
+| 188 | 0+n | `ttyUSB<n>` | Real Linux USB-serial major; serial ports behind a bridge chip (FTDI, CP210x, CH340, PL2303) |
 | 195 | 0 | `gpu` (NVIDIA) | Real Linux NVIDIA major |
-| 216 | 0 | `bluetooth` | Real Linux Bluetooth-adapter major; the control node |
-| 216 | 1+n | `ble<n>` | One per paired Bluetooth LE device; the number stays with the device |
+| 216 | 0+n | `rfcomm<n>` | Real Linux RFCOMM major; Bluetooth serial ports |
 | 226 | 0 | `webgl` | Real Linux DRM major, reused loosely |
 | 227 | 0–15 | `gl<N>` | One OpenGL ES context each, drawn by WebGL2 (core, not a package); ecmaOS-assigned, clear of `webgl` |
 | 227 | 128 | `glctl` | Asks for a GL context before a program has one |
-| 0 (dynamic) | 0, 1+n | `serial`, `ttyS<n>` | WebSerial; not major 4, which `xterm_driver` holds |
+| 0 (dynamic) | 0 | `serial` | WebSerial's control node; the ports are `ttyACM<n>`, `ttyUSB<n>` and `rfcomm<n>` above |
+| 0 (dynamic) | 0, 1+n | `bluetooth`, `ble<n>` | One per paired Bluetooth LE device, which has no node on Linux; the number stays with the device |
 | 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID; major 13 belongs to `input` |
 | 0 (dynamic) | 0, 1–4 | `gamepad`, `js0`–`js3` | Gamepads; the nodes are made ahead and open with `ENODEV` until a button is pressed on the pad |
 | 0 (dynamic) | 0, 1+n | `sensors`, `sensor-<kind>` | One per Generic Sensor class the browser has |
