@@ -96,6 +96,7 @@ import { openTerminalWindow, runDetached } from '#lib/terminal-window.ts'
 import type { TerminalWindow } from '#lib/terminal-window.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
+import { bootSplash } from '#lib/splash.ts'
 import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
 
@@ -498,6 +499,7 @@ export class Kernel implements IKernel {
     let t: ReturnType<typeof this.i18n.i18next.getFixedT>
 
     try {
+      bootSplash.step('Starting the kernel')
       this.dom.topbar()
       this.terminal.unlisten()
 
@@ -524,6 +526,7 @@ export class Kernel implements IKernel {
       })
 
       // Configure filesystem first (needed before we can read locale file)
+      bootSplash.step('Mounting the filesystem')
       const configureSpan = tracer.startSpan('kernel.boot.configure', {}, trace.setSpan(context.active(), bootSpan))
       if (this._machineError) this.log.warn(`${this._machineError}; running the default machine`)
       configureStorageLimits(this.options.limits, (resident, threshold) => this.log.warn(`The root filesystem holds ${formatBytes(resident)} in memory (warning at ${formatBytes(threshold)}); large files cost their size in RAM, so a small device may struggle. See the README's known gaps.`))
@@ -694,6 +697,7 @@ export class Kernel implements IKernel {
       }
       i18nResourcesSpan.end()
 
+      bootSplash.step('Setting up the system')
       // Load system-wide locale from /etc/default/locale (must happen before boot messages)
       const localeSpan = tracer.startSpan('kernel.boot.locale', {}, trace.setSpan(context.active(), bootSpan))
       try {
@@ -754,6 +758,7 @@ export class Kernel implements IKernel {
 
       // Show verbose boot messages
       if (!options.silent && this.log) {
+        bootSplash.step('Starting the terminal')
         const figletFont = options.figletFontRandom
           ? DefaultFigletFonts[Math.floor(Math.random() * DefaultFigletFonts.length)]
           : options.figletFont
@@ -827,6 +832,7 @@ export class Kernel implements IKernel {
           }
         }
 
+        bootSplash.hide()
         spinner = this.terminal.spinner('arrow3', chalk.yellow(this.i18n.ns.common('Booting')))
         spinner.start()
 
@@ -1118,6 +1124,8 @@ export class Kernel implements IKernel {
    */
   private showBootFailure(error: unknown, spinner?: { stop(): void }) {
     const detail = error instanceof Error ? error.message : String(error)
+
+    bootSplash.fail(`Boot failed: ${detail}`)
 
     try { spinner?.stop() } catch { /* the spinner may already be gone */ }
     try {
@@ -2169,9 +2177,11 @@ export class Kernel implements IKernel {
   async stop(mode: 'reboot' | 'halt' | 'poweroff') {
     if (mode === 'reboot') return this.reboot()
     this.log.warn(mode === 'halt' ? 'System halted' : 'Power down')
+    bootSplash.show(mode === 'halt' ? 'Halting the system' : 'Powering down')
     await this._logFile?.flush()
     await rootWritesSettled()
     await this.shutdown()
+    bootSplash.show(mode === 'halt' ? 'System halted' : 'Powered off', { final: true })
     if (mode === 'poweroff' && !this.host.platform.exit) {
       try { globalThis.close() } catch { /* not allowed to close this window */ }
     }
@@ -2195,6 +2205,7 @@ export class Kernel implements IKernel {
    */
   async reboot() {
     this.log.warn(this.i18n.ns.common('Rebooting'))
+    bootSplash.show('Rebooting')
     await this._logFile?.flush()
     await rootWritesSettled()
     await this.shutdown()

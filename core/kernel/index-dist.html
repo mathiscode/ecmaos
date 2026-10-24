@@ -106,6 +106,76 @@
     </style>
   </head>
   <body>
+    <!--splash:start-->
+    <style>
+      #splash { position: fixed; inset: 0; z-index: 99999; box-sizing: border-box; overflow: auto; padding: 24px 16px; background: #000; color: #00cc00; font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; opacity: 1; transition: opacity 0.25s ease-out; }
+      #splash.out { opacity: 0; pointer-events: none; }
+      #splash[hidden] { display: none; }
+      #splash pre { margin: 0 0 20px; font: inherit; line-height: 1.15; }
+      #splash .line { white-space: pre-wrap; }
+      #splash .tag { display: inline-block; min-width: 8ch; }
+      #splash .pending .tag { color: #cccc00; animation: splash-blink 1s steps(2, start) infinite; }
+      #splash .fail { color: #ff4444; }
+      #splash .slow { margin-top: 16px; color: #888; }
+      @keyframes splash-blink { to { visibility: hidden; } }
+      @media (max-width: 649px) { #splash pre { display: none; } }
+      @media (prefers-reduced-motion: reduce) { #splash { transition: none; } #splash .pending .tag { animation: none; } }
+    </style>
+    <div id="splash" role="status" aria-live="polite">
+      <pre aria-label="ECMAOS">
+@@@@@@@@   @@@@@@@  @@@@@@@@@@    @@@@@@    @@@@@@    @@@@@@
+@@@@@@@@  @@@@@@@@  @@@@@@@@@@@  @@@@@@@@  @@@@@@@@  @@@@@@@
+@@!       !@@       @@! @@! @@!  @@!  @@@  @@!  @@@  !@@
+!@!       !@!       !@! !@! !@!  !@!  @!@  !@!  @!@  !@!
+@!!!:!    !@!       @!! !!@ @!@  @!@!@!@!  @!@  !@!  !!@@!!
+!!!!!:    !!!       !@!   ! !@!  !!!@!!!!  !@!  !!!   !!@!!!
+!!:       :!!       !!:     !!:  !!:  !!!  !!:  !!!       !:!
+:!:       :!:       :!:     :!:  :!:  !:!  :!:  !:!      !:!
+ :: ::::   ::: :::  :::     ::   ::   :::  ::::: ::  :::: ::
+: :: ::    :: :: :   :      :     :   : :   : :  :   :: : :</pre>
+      <div id="splash-lines"><div class="line pending"><span class="tag">[ .. ]</span> Loading kernel</div></div>
+      <div id="splash-slow" class="slow" hidden>The first load downloads the system; this can take a minute.</div>
+    </div>
+    <script>
+      (function () {
+        var root = document.getElementById('splash'), lines = document.getElementById('splash-lines'), slow = document.getElementById('splash-slow')
+        var last, timer
+        function tag(node, name, label) { node.className = 'line ' + name; node.firstChild.textContent = label }
+        function done(ok) { if (last && last.className.indexOf('pending') >= 0) tag(last, ok ? 'ok' : 'fail', ok ? '[ OK ]' : '[FAIL]') }
+        function add(text, pending) {
+          var line = document.createElement('div'), mark = document.createElement('span')
+          mark.className = 'tag'
+          line.appendChild(mark)
+          line.appendChild(document.createTextNode(' ' + text))
+          tag(line, pending ? 'pending' : 'ok', pending ? '[ .. ]' : '')
+          lines.appendChild(line)
+          last = line
+          return line
+        }
+        function later() { clearTimeout(timer); timer = setTimeout(function () { if (!root.hidden) slow.hidden = false }, 5000) }
+        last = lines.firstChild
+        later()
+        window.ecmaosSplash = {
+          step: function (text) { done(true); add(text, true) },
+          fail: function (text) {
+            if (root.hidden || root.classList.contains('out')) return // the terminal has the screen and reports its own
+            clearTimeout(timer); done(false); add(text, false).className = 'line fail'
+          },
+          show: function (text, options) {
+            clearTimeout(timer); lines.textContent = ''; slow.hidden = true
+            root.classList.remove('out'); root.hidden = false
+            if (options && options.final) add(text, false); else { add(text, true); later() }
+          },
+          hide: function () {
+            clearTimeout(timer)
+            if (root.hidden) return
+            root.classList.add('out')
+            setTimeout(function () { if (root.classList.contains('out')) root.hidden = true }, 300)
+          }
+        }
+      })()
+    </script>
+    <!--splash:end-->
     <div class="seo-hidden" aria-hidden="true">
       <p>@ecmaos/kernel [@xterm/xterm, @zenfs/core]</p>
       <p>Made with ❤️ by <a href="https://github.com/mathiscode">Jay Mathis</a> &lt;code@mathis.network&gt;</p>
