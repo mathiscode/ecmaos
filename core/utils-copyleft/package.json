@@ -1,6 +1,6 @@
 {
   "name": "@ecmaos/coreutils-copyleft",
-  "description": "ecmaOS: copyleft programs built to WebAssembly (GNU make, GNU nano, GNU screen, GNU ed, lz4, tree, evtest, Vim, Doom), with their source",
+  "description": "ecmaOS: copyleft programs built to WebAssembly (GNU make, GNU nano, GNU screen, GNU ed, lz4, tree, evtest, aplay, arecord, amixer, speaker-test, Vim, Doom), with their source",
   "version": "0.1.0",
   "license": "GPL-3.0-or-later AND GPL-2.0-or-later AND X11 AND Vim AND Zlib AND MIT AND (MIT OR Apache-2.0)",
   "homepage": "https://ecmaos.sh",

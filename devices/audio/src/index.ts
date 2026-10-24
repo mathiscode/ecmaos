@@ -1,11 +1,19 @@
 import { Class } from '@zenfs/linux'
+import { withErrno } from 'kerium'
 import { sessionOperations } from '@ecmaos-devices/session'
+import type { DeviceSession } from '@ecmaos-devices/session'
 import type { Kernel, KernelCharDevice, KernelContext, KernelDeviceCLIOptions, Shell } from '@ecmaos/types'
 
+import { ControlStream, controlRequest } from './alsa/control.js'
+import { PcmStream, pcmRequest } from './alsa/pcm.js'
 import { openMicrophoneSession, openPlayerSession, openSpeakerSession } from './session.js'
+import type { AudioEnvironment } from './session.js'
 
 export { openMicrophoneSession, openPlayerSession, openSpeakerSession, toPcm16, fromPcm16 } from './session.js'
 export type { AudioEnvironment, AudioSessionOptions, PlayerOptions } from './session.js'
+export { ControlStream, PcmStream, PcmState, controlRequest, pcmRequest, frameBytesRequest, pcmInfoBytes, toFloats, fromFloats } from './alsa/index.js'
+export { mixer } from './alsa/mixer.js'
+export * as hw from './alsa/hw.js'
 
 export const pkg = {
   name: 'audio',
@@ -148,6 +156,44 @@ async function test(kernel: Kernel, shell: Shell) {
 /** `/sys/class/audio` */
 const audio_class = new Class('audio')
 
+const O_NONBLOCK = 0o4000
+
+/** `/sys/class/sound` */
+const sound_class = new Class('sound')
+
+/**
+ * The card as ALSA has it: `/dev/snd/controlC0` (minor 0), `pcmC0D0p` (16, the speakers) and `pcmC0D0c` (24, the microphone), major
+ * 116. Samples move by ioctl (`WRITEI_FRAMES`, `READI_FRAMES`), so a node cannot be read or written as a file. A PCM node is
+ * used by one descriptor at a time, as a card with one subdevice is: a request on another descriptor while one holds the stream
+ * fails with `EBUSY`.
+ */
+export function alsaDrivers(environment?: AudioEnvironment, onError?: (error: Error) => void): KernelCharDevice[] {
+  const browser = environment ?? { createContext: (rate?: number) => new AudioContext(rate === undefined ? {} : { sampleRate: rate }), getUserMedia: (constraints: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(constraints) } as AudioEnvironment
+  const pcm = (direction: 'playback' | 'capture', minor: number) => {
+    const node = sessionOperations({
+      open: async () => new PcmStream({ direction, environment: browser, minor, onError }) as unknown as DeviceSession,
+      ioctl: { accepts: pcmRequest, run: (session, request, arg, _minor, flags, file) => (session as unknown as PcmStream).ioctl(request, arg, (flags & O_NONBLOCK) !== 0, file) },
+      poll: session => (session as unknown as PcmStream).poll(),
+      pollQueue: session => (session as unknown as PcmStream).queue,
+      onError
+    })
+    // the data moves by ioctl, so the file's own read and write are refused (which also keeps it from being mapped, as a device is mapped by reading it)
+    return Object.assign(node, { read: () => { throw withErrno('ENODEV') }, write: () => { throw withErrno('EBADF') } })
+  }
+  const control = sessionOperations({
+    open: async () => new ControlStream() as unknown as DeviceSession,
+    ioctl: { accepts: controlRequest, run: (session, request, arg) => (session as unknown as ControlStream).ioctl(request, arg) },
+    poll: () => 0,
+    onError
+  })
+  Object.assign(control, { read: () => { throw withErrno('EAGAIN') }, write: () => { throw withErrno('EBADF') } })
+  return [
+    { name: 'snd!controlC0', major: 116, minor: 0, class: sound_class, ops: control },
+    { name: 'snd!pcmC0D0p', major: 116, minor: 16, class: sound_class, ops: pcm('playback', 16) },
+    { name: 'snd!pcmC0D0c', major: 116, minor: 24, class: sound_class, ops: pcm('capture', 24) }
+  ]
+}
+
 // Linux's sound majors: 14 minor 3 is /dev/dsp (mono, 16000 Hz), 19 is /dev/dsp1 (stereo, 48000 Hz; what SDL plays to), 4 is /dev/audio, 5 is /dev/dspin (the microphone, as this system names it).
 // Each node has its own operations, so no minor number decides what a node is.
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
@@ -159,6 +205,7 @@ export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]
     { name: 'audio', major: 14, minor: 4, class: audio_class, ops: player },
     { name: 'dsp', major: 14, minor: 3, class: audio_class, ops: speakers },
     { name: 'dsp1', major: 14, minor: 19, class: audio_class, ops: speakers48 },
-    { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: microphone }
+    { name: 'dspin', major: 14, minor: 5, class: audio_class, ops: microphone },
+    ...alsaDrivers(undefined, error => ctx.log.warn(`alsa: ${error.message}`))
   ]
 }

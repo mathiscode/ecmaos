@@ -4,7 +4,7 @@
 
 > Full list at [https://www.npmjs.com/org/ecmaos-devices](https://www.npmjs.com/org/ecmaos-devices)
 
-- `@ecmaos-devices/audio`: Audio device for sound playback and recording
+- `@ecmaos-devices/audio`: Audio device for sound playback and recording: ALSA's `/dev/snd` (the real `aplay`, `arecord` and `amixer` run on it) and the OSS nodes (`/dev/dsp`, `/dev/dsp1`, `/dev/dspin`, `/dev/audio`)
 - `@ecmaos-devices/battery`: Battery status and monitoring device
 - `@ecmaos-devices/bluetooth`: Bluetooth device for wireless connectivity
 - `@ecmaos-devices/camera`: Camera device: `/dev/video<n>` (V4L2 read I/O), and offered to other machines as a stream of JPEG pictures
@@ -83,6 +83,9 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 35 | 1+n | `midi<n>` | One per MIDI port, numbered by position |
 | 81 | n | `video<n>` | Real Linux video4linux major; one per camera the browser lists, in its order. V4L2 read I/O: `QUERYCAP`, `ENUM_FMT` (`YUYV`, `MJPG`), `G/S/TRY_FMT`, `ENUM_FRAMESIZES`/`FRAMEINTERVALS`, `G/S_PARM`, the one input; a read gives one whole frame. No buffers (`REQBUFS` is `EINVAL`) until device `mmap` exists |
 | 0 (dynamic) | 0 | `camera` | The command's control node; a camera is also offered to other machines with `attach -s` |
+| 116 | 0 | `snd/controlC0` | Real Linux ALSA major; the card's control node (`amixer`): card info, the PCM devices, the mixer's four controls (Master and Capture, volume and switch) |
+| 116 | 16 | `snd/pcmC0D0p` | The speakers as ALSA's PCM playback device: `HW_REFINE`/`HW_PARAMS`/`SW_PARAMS`, `STATUS`, `SYNC_PTR`, `PREPARE`/`START`/`DROP`/`DRAIN`/`PAUSE`, `WRITEI_FRAMES`. Read and write access only (no mmap: alsa-lib falls back to `SYNC_PTR`, and its `mmap_emul` plugin gives a program mapped access); 8/16/24/32-bit integer and 32-bit float samples, 1 to 8 channels, 8000 to 192000 Hz; one user at a time |
+| 116 | 24 | `snd/pcmC0D0c` | The microphone as the PCM capture device (`READI_FRAMES`); same ioctls and formats |
 | 166 | 0+n | `ttyACM<n>` | Real Linux CDC ACM major; serial ports that are boards (a terminal: `@zenfs/linux` `TTYDriver`) |
 | 180 | 0 | `usb` | Real Linux USB major; the control node |
 | 180 | 1+n | `usb<n>` | One per granted USB device; the number stays with the device (`/var/lib/ecmaos/usb-minors.json`) |

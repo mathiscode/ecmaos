@@ -333,6 +333,8 @@ const RtcType = 0x70 // 'p': the real-time clock (see rtc.ts)
 const JoystickType = 0x6a // 'j': the joystick API's nodes (see gamepads.ts)
 const HidType = 0x48 // 'H': hidraw (see devices/hid), whose reports come from the browser and are waited for
 const VideoType = 0x56 // 'V': video4linux (see devices/camera), whose pictures come from the browser
+const SoundPcmType = 0x41 // 'A': ALSA's PCM nodes (see devices/audio), which wait for the sound card's clock
+const SoundControlType = 0x55 // 'U': ALSA's control node
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -477,7 +479,7 @@ export function installEvdevIoctl() {
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
-    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType && type !== JoystickType && type !== HidType && type !== VideoType) return original(proc, fd, request, arg)
+    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType && type !== JoystickType && type !== HidType && type !== VideoType && type !== SoundPcmType && type !== SoundControlType) return original(proc, fd, request, arg)
     if (type === GlType) {
       setGlCaller(proc.pid)
       if (!glWatched.has(proc.pid)) {
@@ -486,7 +488,7 @@ export function installEvdevIoctl() {
       }
     }
     // a feature report is asked of the device and comes back later: the syscall answers when it has
-    if (type === HidType || type === VideoType) {
+    if (type === HidType || type === VideoType || type === SoundPcmType || type === SoundControlType) {
       return (ioctlAsync as unknown as (this: unknown, ...args: unknown[]) => Promise<unknown>).call(proc.context, fd, request, arg)
         .then(value => value instanceof Uint8Array ? thread_of(proc).put(value) : typeof value === 'number' ? value : 0)
     }

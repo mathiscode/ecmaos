@@ -1,0 +1,27 @@
+arecord 1.2.16 (GPL-2.0-or-later AND LGPL-2.1-or-later)
+
+programs/arecord.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  alsa-lib-1.2.16.1.tar.bz2  (alsa-lib 1.2.16.1, LGPL-2.1-or-later)
+    sha256 f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e
+    from https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2
+  alsa-utils-1.2.16.tar.bz2  (alsa-utils 1.2.16, GPL-2.0-or-later)
+    sha256 092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c
+    from https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/alsa-utils/build.sh
+    the build; alsa-lib is a static library without dlopen, the sequencer, rawmidi, hwdep, topology or use-case manager, reading /usr/share/alsa/alsa.conf; include/local.h loses its claim that the linker is GNU ld (WebAssembly's assembler has no .gnu.warning sections) and include/alsa-symbols.h makes the public names of versioned functions as weak aliases instead of .weak and .set directives, which WebAssembly's assembler drops
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them. Its compiler then
+puts a signal check in each loop of the linked program (utils/wali/signal-checks.mjs).
+
+Where to get it
+  - /sources/alsa-lib-1.2.16.1.tar.bz2 on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

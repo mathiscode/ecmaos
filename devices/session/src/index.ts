@@ -136,14 +136,23 @@ export interface SessionNodeOptions {
   /**
    * Requests the node answers with `ioctl`, for a device whose driver has controls a program reaches by number (hidraw's
    * `HIDIOCGFEATURE`). `accepts` says which numbers are the driver's; `run` answers one against the open session (waiting for
-   * it, if it is still opening), with the bytes to give back or a count, or a promise of either.
+   * it, if it is still opening), with the bytes to give back or a count, or a promise of either. `flags` are the open file's
+   * (`O_NONBLOCK` among them), for a request that waits, and `file` is the open file itself (undefined when the caller has no
+   * descriptor, as a call made by path has none): the same object for every request on one descriptor.
    */
   ioctl?: {
     accepts(request: number): boolean
-    run(session: DeviceSession, request: number, arg: unknown, minor: number): unknown
+    run(session: DeviceSession, request: number, arg: unknown, minor: number, flags: number, file?: unknown): unknown
     /** Whether `request` changes what the device produces, so what was read ahead is stale (a camera's `VIDIOC_S_FMT`) and is dropped once it has run */
     flushes?(request: number): boolean
   }
+  /**
+   * Which of `EPOLLIN` and `EPOLLOUT` the open session is ready for, and what to sleep on until that changes, for a device whose
+   * readiness is not its chunks (a sound card is ready for a write when its buffer has room). Without them a node is ready as
+   * its buffers say.
+   */
+  poll?(session: DeviceSession): number
+  pollQueue?(session: DeviceSession): WaitQueue | undefined
 }
 
 /** What an open `/dev` node is: the session, opened when the node is, and the bytes it has produced that nobody has read yet */
@@ -318,12 +327,16 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations &
       const found = links.get(file.devt.minor)
       if (!found) return EPOLLIN | EPOLLOUT
       found.touched = Date.now()
+      if (options.poll && found.session) return options.poll(found.session)
       let events = 0
       if (found.size > 0 || found.ended || found.unreadable) events |= EPOLLIN
       if (found.ended || (found.session?.write && found.pending < maxPending)) events |= EPOLLOUT
       return events
     },
-    poll_wait: file => links.get(file.devt.minor)?.queue,
+    poll_wait: file => {
+      const found = links.get(file.devt.minor)
+      return (found?.session && options.pollQueue?.(found.session)) || found?.queue
+    },
     ...(options.ioctl && { ioctl: sessionIoctl(options.ioctl, file => link(file)) })
   }
 }
@@ -334,12 +347,12 @@ function sessionIoctl(driver: NonNullable<SessionNodeOptions['ioctl']>, linkOf: 
     get: (_target, key) => {
       const request = Number(key)
       if (!Number.isInteger(request) || !driver.accepts(request >>> 0)) return undefined
-      return async (_context: unknown, file: { devt: { minor: number } }, arg?: unknown) => {
+      return async (context: { file?: { flag: number } }, file: { devt: { minor: number } }, arg?: unknown) => {
         const found = linkOf(file)
         await found.opened
         if (found.ended && !found.session) throw withErrno((found.failureCode ?? 'ENODEV') as Parameters<typeof withErrno>[0], found.failure)
         if (!found.session || found.ended) throw withErrno('ENODEV')
-        const result = await driver.run(found.session, request >>> 0, arg, file.devt.minor)
+        const result = await driver.run(found.session, request >>> 0, arg, file.devt.minor, context?.file?.flag ?? 0, context?.file)
         if (driver.flushes?.(request >>> 0)) { found.chunks.length = 0; found.size = 0 }
         return result
       }

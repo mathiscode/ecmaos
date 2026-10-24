@@ -33,7 +33,7 @@ import { environ, getpid } from '@zenfs/linux/uapi/process'
 import { absolute, environment_of, getcwd, openDescriptors, spawn as spawnShared } from './spawn.mjs'
 
 const EPERM = 1, ENOENT = 2, ESRCH = 3, EINTR = 4, EBADF = 9, ENOMEM = 12, EFAULT = 14, EEXIST = 17, ENODEV = 19, EINVAL = 22, EMFILE = 24, EPIPE = 32, ENOSYS = 38
-const ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
+const EBADFD = 77, ENOPROTOOPT = 92, ESOCKTNOSUPPORT = 94, EOPNOTSUPP = 95, EAFNOSUPPORT = 97, ENOTCONN = 107
 const AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100, AT_REMOVEDIR = 0x200, AT_EMPTY_PATH = 0x1000
 const O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2, O_ACCMODE = 3, O_CLOEXEC = 0x80000
 const F_DUPFD = 0, F_GETFD = 1, F_SETFD = 2, F_GETFL = 3, F_SETFL = 4, F_DUPFD_CLOEXEC = 1030
@@ -370,6 +370,74 @@ const TIOCGPTN = 0x80045430, TIOCSPTLCK = 0x40045431, TIOCSWINSZ = 0x5414, TIOCP
 const EVIOCRMFF = 0x40044581, EVIOCGRAB = 0x40044590
 const TCSBRK = 0x5409, TIOCMGET = 0x5415, TIOCMBIS = 0x5416, TIOCMBIC = 0x5417, TIOCMSET = 0x5418, TCSBRKP = 0x5425
 
+/** The bytes in one frame of a PCM node's stream (ecmaOS's own request on the node), which says how much of the program's memory a transfer is about */
+const SNDRV_PCM_IOCTL_FRAME_BYTES = ((2 << 30) | (4 << 16) | (0x41 << 8) | 0xf0) >>> 0
+/** The most a transfer moves in one call: the answer has to fit in the thread's 1 MiB region */
+const SOUND_CHUNK = 256 * 1024
+
+/**
+ * ALSA's `'A'` (PCM) and `'U'` (control) requests. A request hands over the structure its number names (`_IOC_SIZE`) and gets it
+ * back filled in; two carry a pointer to memory too. `SNDRV_PCM_IOCTL_WRITEI_FRAMES` and `READI_FRAMES` move frames to and from
+ * `snd_xferi.buf` (the frame size is asked of the node, and a transfer is cut into pieces the answer can hold), and
+ * `SNDRV_CTL_IOCTL_ELEM_LIST` fills the array `snd_ctl_elem_list.pids` points to.
+ */
+function soundIoctl(fd, request, ptr) {
+  const type = (request >>> 8) & 0xff
+  const number = request & 0xff
+  const named = (request >>> 16) & 0x3fff
+  if (type === 0x41 && (number === 0x50 || number === 0x51)) {
+    // struct snd_xferi { long result; void *buf; unsigned long frames; }
+    if (!ptr) return -EFAULT
+    const writes = number === 0x50
+    let buf = view().getUint32(ptr + 8, true)
+    let frames = Number(view().getBigUint64(ptr + 16, true))
+    if (frames > 0 && !buf) return -EFAULT
+    const unit = syscall_raw('ioctl', fd, SNDRV_PCM_IOCTL_FRAME_BYTES)
+    if (unit < 0) return unit
+    const frameBytes = new DataView(returned.buffer, returned.byteOffset).getInt32(0, true)
+    if (frameBytes <= 0) return -EBADFD
+    let moved = 0
+    while (moved < frames || (frames === 0 && moved === 0)) {
+      const count = Math.min(frames - moved, Math.max(1, Math.floor(SOUND_CHUNK / frameBytes)))
+      const argument = new Uint8Array(24 + (writes ? count * frameBytes : 0))
+      argument.set(bytes().subarray(ptr, ptr + 24))
+      new DataView(argument.buffer).setBigUint64(16, BigInt(count), true)
+      if (writes) argument.set(bytes().subarray(buf, buf + count * frameBytes), 24)
+      const length = syscall_raw('ioctl', fd, request, argument)
+      if (length < 0) return moved ? finishTransfer(ptr, moved) : length
+      const got = Number(new DataView(returned.buffer, returned.byteOffset).getBigInt64(0, true))
+      if (!writes && length > 24) bytes().set(returned.subarray(24, 24 + Math.min(length - 24, got * frameBytes)), buf)
+      moved += got
+      buf += got * frameBytes
+      if (got < count || count === 0) break
+    }
+    return finishTransfer(ptr, moved)
+  }
+  if (type === 0x55 && number === 0x10) {
+    // struct snd_ctl_elem_list { u32 offset, space, used, count; struct snd_ctl_elem_id *pids; ... }, the ids following the structure in the answer
+    if (!ptr) return -EFAULT
+    const pids = view().getUint32(ptr + 16, true)
+    const space = view().getUint32(ptr + 4, true)
+    const length = syscall_raw('ioctl', fd, request, bytes().slice(ptr, ptr + named))
+    if (length < 0) return length
+    bytes().set(returned.subarray(0, Math.min(named, length)), ptr)
+    if (pids && length > named) bytes().set(returned.subarray(named, Math.min(length, named + space * 64)), pids)
+    return 0
+  }
+  const argument = ptr && named ? bytes().slice(ptr, ptr + named) : undefined
+  const length = syscall_raw('ioctl', fd, request, argument)
+  if (length < 0) return length
+  // an answer is the structure; whatever the request's direction bits say, the node may have changed it
+  if (length > 0 && ptr && named) give(ptr, named)
+  return 0
+}
+
+/** Sets `snd_xferi.result` to the frames moved */
+function finishTransfer(ptr, moved) {
+  view().setBigInt64(ptr, BigInt(moved), true)
+  return 0
+}
+
 function deviceIoctl(fd, request, ptr) {
   // a pty master's number and its lock: an int each, through the pointer
   if (request === TIOCPKT) return syscall_raw('ioctl', fd, request, ptr ? view().getInt32(ptr, true) : 0)
@@ -406,11 +474,12 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48 && type !== 0x56) return undefined
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x6a && type !== 0x70 && type !== 0x48 && type !== 0x56 && type !== 0x41 && type !== 0x55) return undefined
   const writes = ((request >>> 30) & 1) === 1
   // an event device's or the RTC's request that writes (`EVIOCSFF`, `RTC_SET_TIME`) hands over the structure its number
   // names the size of; `EVIOCRMFF` and `EVIOCGRAB` take their int as it is
   if (request === EVIOCRMFF || request === EVIOCGRAB) return syscall_raw('ioctl', fd, request, ptr)
+  if (type === 0x41 || type === 0x55) return soundIoctl(fd, request, ptr)
   // video4linux: every request hands over its structure (the size its number names) and gets it back filled in
   if (type === 0x56) {
     const named = (request >>> 16) & 0x3fff

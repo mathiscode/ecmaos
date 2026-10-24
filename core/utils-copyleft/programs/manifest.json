@@ -307,6 +307,142 @@
       ],
       "size": 862574,
       "sha256": "13aa58a339dbadf1ed7a50fcc3afee58cd9cb9f6af956424ee9ac15fcfe32949"
+    },
+    "aplay": {
+      "file": "aplay.wasm",
+      "version": "1.2.16",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "description": "aplay, ALSA's command line player: plays WAV and raw sound to the card behind /dev/snd/pcmC0D0p (aplay -l lists it; -D hw:0,0 is the card as it is, the default converts format, rate and channels), with alsa-lib",
+      "homepage": "https://www.alsa-project.org/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "alsa-lib",
+          "version": "1.2.16.1",
+          "license": "LGPL-2.1-or-later",
+          "archive": "alsa-lib-1.2.16.1.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
+          "sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e"
+        },
+        {
+          "name": "alsa-utils",
+          "version": "1.2.16",
+          "license": "GPL-2.0-or-later",
+          "archive": "alsa-utils-1.2.16.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2",
+          "sha256": "092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/alsa-utils/build.sh",
+          "what": "the build; alsa-lib is a static library without dlopen, the sequencer, rawmidi, hwdep, topology or use-case manager, reading /usr/share/alsa/alsa.conf; include/local.h loses its claim that the linker is GNU ld (WebAssembly's assembler has no .gnu.warning sections) and include/alsa-symbols.h makes the public names of versioned functions as weak aliases instead of .weak and .set directives, which WebAssembly's assembler drops"
+        }
+      ],
+      "size": 436884,
+      "sha256": "fcf64b54e05e08881908f379e8c6bd0ef72215f15feae470b1696189c46f0c4f"
+    },
+    "arecord": {
+      "file": "arecord.wasm",
+      "version": "1.2.16",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "description": "arecord, ALSA's command line recorder: records the microphone behind /dev/snd/pcmC0D0c to a WAV file (aplay's program, run as arecord), with alsa-lib",
+      "homepage": "https://www.alsa-project.org/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "alsa-lib",
+          "version": "1.2.16.1",
+          "license": "LGPL-2.1-or-later",
+          "archive": "alsa-lib-1.2.16.1.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
+          "sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e"
+        },
+        {
+          "name": "alsa-utils",
+          "version": "1.2.16",
+          "license": "GPL-2.0-or-later",
+          "archive": "alsa-utils-1.2.16.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2",
+          "sha256": "092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/alsa-utils/build.sh",
+          "what": "the build; alsa-lib is a static library without dlopen, the sequencer, rawmidi, hwdep, topology or use-case manager, reading /usr/share/alsa/alsa.conf; include/local.h loses its claim that the linker is GNU ld (WebAssembly's assembler has no .gnu.warning sections) and include/alsa-symbols.h makes the public names of versioned functions as weak aliases instead of .weak and .set directives, which WebAssembly's assembler drops"
+        }
+      ],
+      "size": 436884,
+      "sha256": "fcf64b54e05e08881908f379e8c6bd0ef72215f15feae470b1696189c46f0c4f"
+    },
+    "amixer": {
+      "file": "amixer.wasm",
+      "version": "1.2.16",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "description": "amixer, ALSA's command line mixer: shows and sets the card's Master and Capture volumes and switches (amixer sset Master 50%), with alsa-lib",
+      "homepage": "https://www.alsa-project.org/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "alsa-lib",
+          "version": "1.2.16.1",
+          "license": "LGPL-2.1-or-later",
+          "archive": "alsa-lib-1.2.16.1.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
+          "sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e"
+        },
+        {
+          "name": "alsa-utils",
+          "version": "1.2.16",
+          "license": "GPL-2.0-or-later",
+          "archive": "alsa-utils-1.2.16.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2",
+          "sha256": "092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/alsa-utils/build.sh",
+          "what": "the build; alsa-lib is a static library without dlopen, the sequencer, rawmidi, hwdep, topology or use-case manager, reading /usr/share/alsa/alsa.conf; include/local.h loses its claim that the linker is GNU ld (WebAssembly's assembler has no .gnu.warning sections) and include/alsa-symbols.h makes the public names of versioned functions as weak aliases instead of .weak and .set directives, which WebAssembly's assembler drops"
+        }
+      ],
+      "size": 224318,
+      "sha256": "d1a375c98de7b35f993e38babf09b6f5070d9498449b13e94a8cd3277aad8c90"
+    },
+    "speaker-test": {
+      "file": "speaker-test.wasm",
+      "version": "1.2.16",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "description": "speaker-test, ALSA's test tone and noise generator for the speakers (speaker-test -t sine -c 2), with alsa-lib",
+      "homepage": "https://www.alsa-project.org/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "alsa-lib",
+          "version": "1.2.16.1",
+          "license": "LGPL-2.1-or-later",
+          "archive": "alsa-lib-1.2.16.1.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
+          "sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e"
+        },
+        {
+          "name": "alsa-utils",
+          "version": "1.2.16",
+          "license": "GPL-2.0-or-later",
+          "archive": "alsa-utils-1.2.16.tar.bz2",
+          "url": "https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2",
+          "sha256": "092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/alsa-utils/build.sh",
+          "what": "the build; alsa-lib is a static library without dlopen, the sequencer, rawmidi, hwdep, topology or use-case manager, reading /usr/share/alsa/alsa.conf; include/local.h loses its claim that the linker is GNU ld (WebAssembly's assembler has no .gnu.warning sections) and include/alsa-symbols.h makes the public names of versioned functions as weak aliases instead of .weak and .set directives, which WebAssembly's assembler drops"
+        }
+      ],
+      "size": 387637,
+      "sha256": "4611c06a831a18f222c1618542fd525725f58dc3f1c5945b33bebcbf4a9a6309"
     }
   }
 }
