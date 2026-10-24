@@ -181,7 +181,7 @@ interface Link {
  * lives from the first to the last. Any other caller (code that reads the file system object directly) just reads or writes: the
  * first access opens the session, and one that goes `idleMs` without a read, write or poll is closed.
  */
-export function sessionOperations(options: SessionNodeOptions): FileOperations {
+export function sessionOperations(options: SessionNodeOptions): FileOperations & { hangup(minor: number): void } {
   const maxPending = options.maxPending ?? 64 * 1024
   const idleMs = options.idleMs ?? 3000
   const links = new Map<number, Link>()
@@ -257,6 +257,16 @@ export function sessionOperations(options: SessionNodeOptions): FileOperations {
   }
 
   return {
+    /** The device behind `minor` has gone: whoever is reading or writing gets `ENODEV` (a reader that is waiting wakes), and the session closes */
+    hangup: minor => {
+      const found = links.get(minor)
+      if (!found) return
+      found.failure = 'the device has gone'
+      found.failureCode = 'ENODEV'
+      found.chunks.length = 0
+      found.size = 0
+      drop(minor, found)
+    },
     open: file => {
       const minor = file.devt.minor
       let found = links.get(minor)

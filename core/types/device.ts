@@ -66,6 +66,12 @@ export interface KernelDevice {
    * and go.
    */
   getTTYDrivers?(ctx: KernelContext): Promise<TTYDriver[]>
+
+  /**
+   * Called once the majors are registered. A package whose devices come and go lists them here and keeps them up to date
+   * with `ctx.devices.add`, which a driver returned from {@link getDrivers} cannot, as it is fixed at boot.
+   */
+  watch?(ctx: KernelContext): void | Promise<void>
 }
 
 /**
