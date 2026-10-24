@@ -115,8 +115,9 @@ ninja -C "$WORK/cxx" install >> "$WORK/cxx.log" 2>&1 || { tail -30 "$WORK/cxx.lo
 # What a build passes as CC and CXX: one command each, so configure scripts and makefiles can take them as they are.
 # The link flags are left off a compile (-c, -S, -E) and the code generation option off a link of objects alone,
 # where clang would warn that they went unused. A program they link gets a signal check in each loop
-# (signal-checks.mjs, kept beside them).
+# (signal-checks.mjs, kept beside them), and one that links fork is made able to (asyncify.sh).
 cp "$(dirname "$0")/signal-checks.mjs" "$STAGE/bin/signal-checks.mjs"
+cp "$(dirname "$0")/asyncify.sh" "$STAGE/bin/asyncify.sh"
 for tool in cc c++; do
   driver=clang; extra=""
   [ "$tool" = c++ ] && driver=clang++ && extra="-stdlib=libc++"
@@ -142,6 +143,8 @@ done
 $driver $DRIVER $extra \$sjlj "\$@" \$link || exit
 # each loop of the program looks for signals now and then, so they reach it while it computes
 [ -z "\$link" ] || [ ! -f "\$out" ] || node "$STAGE/bin/signal-checks.mjs" "\$out"
+# a program that links fork can, in a parent and in a child (a program that does not is left as it is)
+[ -z "\$link" ] || [ ! -f "\$out" ] || "$STAGE/bin/asyncify.sh" "\$out"
 EOF
   # the paths in it are the staging directory's until it is moved into place
   sed -i "s#$STAGE#$OUT#g" "$STAGE/bin/wali-$tool"

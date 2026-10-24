@@ -28,6 +28,16 @@ for _wali_tool in llvm-ar llvm-ranlib cmake ninja make curl xz patch node; do
   command -v "$_wali_tool" > /dev/null || { echo "check-wali: $_wali_tool not found" >&2; return 1 2>/dev/null || exit 1; }
 done
 
+# wasm-opt is only needed to build a program that links fork, and the build of that program says so; but one of another
+# version would make its output differ, so a mismatch stops here
+if command -v wasm-opt > /dev/null; then
+  _wali_binaryen=$(wasm-opt --version 2>/dev/null | grep -oE 'version_?[0-9]+' | grep -oE '[0-9]+' | head -1 || true)
+  if [ "$_wali_binaryen" != "$BINARYEN_VERSION" ] && [ -z "${ECMAOS_WALI_ANY:-}" ]; then
+    echo "wasm-opt ${_wali_binaryen:-unknown}: programs that fork are rewritten by Binaryen $BINARYEN_VERSION (utils/wali-version). Set ECMAOS_WALI_ANY=1 to build with this one anyway." >&2
+    return 1 2>/dev/null || exit 1
+  fi
+fi
+
 _wali_ld=${WALI_LD:-$(command -v wasm-ld || true)}
 if [ -z "$_wali_ld" ] && command -v em-config > /dev/null; then
   _wali_ld=$(em-config LLVM_ROOT 2>/dev/null)/wasm-ld
@@ -40,7 +50,7 @@ if [ -z "$_wali_ld" ]; then
 fi
 _wali_ld_version=$("$_wali_ld" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -1 || true)
 
-_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir/wali/signal-checks.mjs" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
+_wali_key=$(cat "$_wali_dir/wali-version" "$_wali_dir/wali/build-sysroot.sh" "$_wali_dir/wali/signal-checks.mjs" "$_wali_dir/wali/asyncify.sh" "$_wali_dir"/wali/patches/*/*.patch | sha256sum | cut -c1-16)
 WALI_SYSROOT=${ECMAOS_WALI_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/ecmaos/wali}/$_wali_key
 if [ ! -x "$WALI_SYSROOT/bin/wali-cc" ]; then
   mkdir -p "$(dirname "$WALI_SYSROOT")"
@@ -53,4 +63,4 @@ export WALI_CXX=$WALI_SYSROOT/bin/wali-c++
 export WALI_AR=llvm-ar
 export WALI_RANLIB=llvm-ranlib
 export WALI_TOOLCHAIN="WALI musl ${MUSL_COMMIT:0:12} and LLVM $LLVM_VERSION runtimes, clang $_wali_clang, wasm-ld ${_wali_ld_version:-unknown}"
-unset _wali_dir _wali_major _wali_clang _wali_tool _wali_ld _wali_ld_version _wali_key
+unset _wali_dir _wali_binaryen _wali_major _wali_clang _wali_tool _wali_ld _wali_ld_version _wali_key

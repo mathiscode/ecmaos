@@ -66,7 +66,5 @@ printf 'static const struct test tests[] = {\n%b};\n' "$table" >> "$WORK/tests.h
 
 "$WALI_CC" -O2 -I"$WORK" -c "$HERE/runner.c" -o "$WORK/obj/runner.o"
 "$WALI_CC" -O2 "$WORK"/obj/*.o -o "$HERE/libc-test.wasm" 2> "$WORK/link.log" || { cat "$WORK/link.log" >&2; exit 1; }
-# the tests that fork need Asyncify (utils/wali/asyncify.sh leaves a program that does not link fork alone)
-for program in "$HERE"/*.wasm; do "$HERE/../../../../../../utils/wali/asyncify.sh" "$program"; done
 ls -l "$HERE"/*.wasm
 echo "built with $WALI_TOOLCHAIN"

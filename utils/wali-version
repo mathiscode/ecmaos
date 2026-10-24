@@ -1,6 +1,7 @@
 # The WALI toolchain programs are built with (utils/check-wali.sh): WALI's musl at a commit, and the LLVM release
 # whose compiler-rt and libc++ go into the sysroot. clang and wasm-ld come from the system and must be this LLVM
-# major. The Linux UAPI headers (linux/*.h, asm/*.h) are sabotage's sanitized copy of a long-term kernel's, for
+# major. Binaryen's wasm-opt (also from the system, this major) rewrites a program that links fork so it can (utils/wali/asyncify.sh).
+# The Linux UAPI headers (linux/*.h, asm/*.h) are sabotage's sanitized copy of a long-term kernel's, for
 # x86_64, whose structures this target shares; they are only compiled against. Changing anything here (or a patch in
 # utils/wali/patches) builds a new sysroot.
 MUSL_COMMIT=243ec00c3ffb910375db487d7eb24ea76d1e2c9f
@@ -9,3 +10,4 @@ LLVM_VERSION=22.1.8
 LLVM_SHA256=922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888
 KERNEL_HEADERS_VERSION=4.19.88-2
 KERNEL_HEADERS_SHA256=dc7abf734487553644258a3822cfd429d74656749e309f2b25f09f4282e05588
+BINARYEN_VERSION=132
