@@ -238,6 +238,12 @@ function stat(name, ptr, target) {
   const value = syscall_raw(name, target)
   if (value < 0) return value
   give(ptr, STAT_SIZE)
+  // st_rdev: the kernel keeps a device number as major << 20 | minor; a program reads Linux's encoding (what makedev,
+  // major and minor of musl take apart), which is how a terminal's number matches the one in /proc/<pid>/stat
+  const dv = view()
+  const internal = dv.getBigUint64(ptr + 40, true)
+  const major = internal >> 20n, minor = internal & 0xfffffn
+  dv.setBigUint64(ptr + 40, ((major & 0xfffn) << 8n) | (minor & 0xffn) | ((minor & ~0xffn) << 12n) | ((major & ~0xfffn) << 32n), true)
   return 0
 }
 
@@ -613,7 +619,7 @@ function readSmall(path) {
   for (let done = 0;;) {
     const count = syscall_raw('read', fd, 1 << 16, done)
     if (count <= 0) break
-    text += decoder.decode(returned.subarray(0, count), { stream: true })
+    text += decoder.decode(returned.slice(0, count), { stream: true })
     done += count
   }
   syscall_raw('close', fd)
@@ -2387,6 +2393,9 @@ const calls = {
     return 0n
   },
 
+  SYS_stat: (path, ptr) => ptr ? big(stat('stat', ptr, readString(path))) : big(-EFAULT),
+  SYS_lstat: (path, ptr) => ptr ? big(stat('lstat', ptr, readString(path))) : big(-EFAULT),
+  SYS_fstat: (fd, ptr) => ptr ? big(stat('fstat', ptr, fd)) : big(-EFAULT),
   SYS_newfstatat: (dirfd, path, ptr, flags) => {
     if (!ptr) return big(-EFAULT)
     const name = readString(path)

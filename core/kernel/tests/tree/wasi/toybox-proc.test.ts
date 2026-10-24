@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
+import { createPty } from '#lib/pty.ts'
 
 import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
@@ -56,6 +57,18 @@ describe('toybox: ps, lsof, vmstat, netstat, sysctl, lsmod, pidof', () => {
     const ran = await sh('ps -o pid=,ppid=,pgid=,stat= -p 1')
     expect(ran.code, ran.err).toBe(0)
     expect(ran.out.trim().split(/\s+/)).toEqual(['1', '0', '1', 'Ss'])
+  }, 60000)
+
+  it('ps on a terminal lists that terminal\'s processes: st_rdev is Linux\'s number, the one /proc/<pid>/stat has', async () => {
+    const pty = createPty()
+    let seen = ''
+    pty.onData(data => { seen += new TextDecoder().decode(data) })
+    const proc = await kernel.spawnOnPty({ username: 'root', pty, command: '/bin/sh', args: ['-c', 'ps; stat -c %t:%T /dev/pts/0'] })
+    await proc.exited
+    pty.close()
+    expect(seen).toMatch(/^ +PID TTY +TIME CMD/m)
+    expect(seen).toMatch(/^ +\d+ pts\/0 +00:00:00 ps/m)
+    expect(seen).toMatch(/^88:0$/m)
   }, 60000)
 
   it('pidof finds a program by name', async () => {
