@@ -18,6 +18,7 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `qjs` | 0.17.0 | MIT | `qjs/LICENSE` |
 | `patch` | toybox 0.8.12 (built on WALI's musl) | 0BSD | `patch/LICENSE` |
 | `ncdu` | 1.22 | MIT; ncurses is X11 | `ncdu/COPYING`, `ncurses/COPYING` |
+| `tmux` | 3.5a | ISC; libevent is BSD-3-Clause and ncurses is X11 | `tmux/COPYING`, `tmux/libevent-LICENSE`, `ncurses/COPYING` |
 | `mg` | 20260719 | public domain, with ISC and BSD parts; ncurses is X11 | `mg/` |
 | `micropython` | 1.29.0 | MIT; the frozen micropython-lib modules are MIT or, where derived from CPython, the Python License | `micropython/LICENSE`, `micropython/LICENSE-micropython-lib` |
 | `wlcomp` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS) | `wlcomp/LICENSE` |

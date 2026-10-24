@@ -234,6 +234,16 @@
       "toolchain": "wali",
       "size": 1929208,
       "sha256": "b806120a0ea4a98013b921b01a07f8ea9df43dff63880e9425a0071aeebb9d42"
+    },
+    "tmux": {
+      "file": "tmux.wasm",
+      "version": "3.5a",
+      "license": "ISC AND BSD-3-Clause AND X11",
+      "description": "tmux, the terminal multiplexer, with libevent and ncurses; it forks, so it is built with Asyncify",
+      "homepage": "https://github.com/tmux/tmux",
+      "toolchain": "wali",
+      "size": 1660330,
+      "sha256": "2bb4d402b71194d1c4f905b1d07742f7d4dff387379d4e8e5c08e796c5575e21"
     }
   }
 }
