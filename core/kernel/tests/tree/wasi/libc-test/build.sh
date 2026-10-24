@@ -6,7 +6,8 @@
 # shared objects the TLS tests load), which a static program cannot have, and the four of thread cancellation, which
 # WALI's musl does not have (pthread_cancel needs the cancellation points of an architecture's assembly). A test that
 # replaces part of libc (flockfile-list brings its own malloc), or whose main ends without a return (which is 0 only
-# for a function called main), is a program of its own, <dir>.<name>.wasm, beside it. The source is a git checkout of the commit
+# for a function called main), is a program of its own, <dir>.<name>.wasm, beside it (so is raise-race, which forks in a signal
+# handler and is built to unwind at every import for that, see utils/wali/asyncify.sh). The source is a git checkout of the commit
 # below, which git verifies. `../libc-test.test.ts` runs the result; `expected-failures.txt` lists what fails today.
 set -euo pipefail
 source "$(dirname "$0")/../../../../../../utils/check-wali.sh"
@@ -48,8 +49,12 @@ for source in src/functional/*.c src/regression/*.c; do
   dir=$(basename "$(dirname "$source")")
   test=$dir.$name
   symbol=lt_$(echo "$test" | tr -c 'A-Za-z0-9_\n' '_')
-  if [ "$name" = flockfile-list ] || ! "$WALI_CC" ${CFLAGS/ -w / } -Werror=return-type -Dmain="$symbol" -fsyntax-only "$source" 2> /dev/null; then
+  if [ "$name" = flockfile-list ] || [ "$name" = raise-race ] || ! "$WALI_CC" ${CFLAGS/ -w / } -Werror=return-type -Dmain="$symbol" -fsyntax-only "$source" 2> /dev/null; then
+    # (raise-race forks in a signal handler, which the program has to be built to unwind at every import for; a program
+    # of its own, it is the only one to carry that)
+    if [ "$name" = raise-race ]; then export ECMAOS_WALI_ASYNCIFY_SIGNALS=all; fi
     "$WALI_CC" $CFLAGS "$source" "$WORK"/obj/common-*.o -o "$HERE/$test.wasm"
+    unset ECMAOS_WALI_ASYNCIFY_SIGNALS
     continue
   fi
   "$WALI_CC" $CFLAGS -Dmain="$symbol" -c "$source" -o "$WORK/obj/$test.o"

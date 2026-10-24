@@ -60,7 +60,7 @@ receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(messag
  * shared memory the module imports; a later one is given it, and runs `__wasm_thread_start_libc` rather than
  * `_start`. Each worker runs one thread.
  */
-function runWali(source, start) {
+function runWali(source, start, unwindAt) {
   install(wali, start)
   const limits = memoryLimits(source)
   if (start) wali.memory = start.memory
@@ -72,11 +72,11 @@ function runWali(source, start) {
     // a program built with Asyncify can fork, which `drive()` carries out; from a thread too, whose frames start at
     // the function it runs
     if (!start || start.fork) {
-      const _start = drive(instance, limits, start?.fork)
+      const _start = drive(instance, limits, start?.fork, undefined, unwindAt)
       return _start ? { exports: Object.assign(Object.create(null), instance.exports, { _start }) } : instance
     }
     const entry = () => instance.exports.__wasm_thread_start_libc(getpid(), start.arg)
-    const exports = Object.assign(Object.create(null), instance.exports, { _start: drive(instance, limits, undefined, entry) ?? entry })
+    const exports = Object.assign(Object.create(null), instance.exports, { _start: drive(instance, limits, undefined, entry, unwindAt) ?? entry })
     return { exports }
   }
   return run(source)
@@ -124,7 +124,9 @@ try {
   const module = await WebAssembly.compile(source)
   const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
   start = init.env?.__WALI_THREAD__ || init.env?.__WALI_FORK__ ? await threadStart.promise : undefined
-  const code = isPreview1 ? await runPreview1(source) : await runWali(source, start)
+  // the imports a handler's fork can unwind at, if the program was built for that (utils/wali/asyncify.sh)
+  const unwindAt = WebAssembly.Module.customSections(module, 'ecmaos.asyncify-signals').flatMap(section => new TextDecoder().decode(section).split(',').filter(Boolean))
+  const code = isPreview1 ? await runPreview1(source) : await runWali(source, start, unwindAt)
   exit(code)
 } catch (error) {
   // An exception nothing caught (a C++ throw, or a longjmp with no setjmp) leaves the module as a WebAssembly

@@ -366,6 +366,26 @@ describe('WALI programs', () => {
     })
   }, 60_000)
 
+  it('forks in a signal handler: the child goes on from where the signal interrupted it, on the main or the alternate stack', async () => {
+    expect(await run('wali-fork-signal')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'child raise fired=1 local=8 blocked=0 alternate=0',
+        'parent raise exit=4 fired=1 local=8 blocked=0',
+        'child timer fired=1 local=100 blocked=0 alternate=0',
+        'parent timer exit=5 fired=1 local=100 blocked=0',
+        'child altstack fired=1 local=200 blocked=0 alternate=1',
+        'parent altstack exit=6 fired=1 local=200 blocked=0',
+        ''
+      ].join('\n')
+    })
+  }, 60_000)
+
+  it('refuses a fork in a signal handler the program was not built to unwind at, and forks outside one', async () => {
+    expect(await run('wali-fork-signal-refused')).toEqual({ code: 0, err: '', out: 'fork in handler=-1 enosys=1\nfork after=1\n' })
+  }, 60_000)
+
   it('forks inside a try block: the child throws and catches, the parent leaves the block as it would', async () => {
     expect(await run('wali-fork-cxx')).toEqual({ code: 0, err: 'inside', out: 'child exit=21\nparent caught parent, destroyed=1\n' })
   }, 60_000)

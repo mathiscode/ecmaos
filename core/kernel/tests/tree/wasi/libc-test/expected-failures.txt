@@ -1,10 +1,4 @@
 # The libc-test tests (libc-test.wasm, build.sh) that fail on ecmaOS today, one per line with why. ../libc-test.test.ts
 # fails when a test not listed here fails, and when one listed here passes: take it off the list then.
-
-
-# threads
-
-# processes and signals
-regression.raise-race       fork in a signal handler: JavaScript frames lie between _start and the call, which Asyncify cannot unwind (its 1000 raises and 100 pthread_kills all arrive)
-
-# memory and limits
+#
+# None fail today.

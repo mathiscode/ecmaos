@@ -32,9 +32,11 @@ struct test {
 #define COUNT (sizeof tests / sizeof *tests)
 #define TIMEOUT_MS 10000
 
-/* wordexp starts a shell for each of its two hundred cases, which takes a JavaScript worker each here */
+/* wordexp starts a shell for each of its two hundred cases, which takes a JavaScript worker each here; raise-race forks a
+   hundred children that each raise a signal a thousand times, through the one thread the kernel runs on */
 static long long timeout_ms(const char *name) {
-	return strcmp(name, "functional.wordexp") ? TIMEOUT_MS : 300000;
+	if (!strcmp(name, "functional.wordexp")) return 300000;
+	return strcmp(name, "regression.raise-race") ? TIMEOUT_MS : 240000;
 }
 
 static long long now_ms(void) {

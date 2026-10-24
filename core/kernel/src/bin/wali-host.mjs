@@ -1047,32 +1047,49 @@ function siginfoFor(signal) {
  * and the mask is put back when it returns (not when it leaves by `siglongjmp`, which restores its own).
  * @returns how many handlers ran, and whether all of them asked for an interrupted call to be restarted
  */
-function deliver() {
+function deliver(resumed) {
   let handled = 0, restart = true
+  if (resumed) ({ handled, restart } = resumed)
   for (;;) {
-    const ready = raised & ~mask
-    if (!ready) return { handled, restart }
-    let signal = 1
-    while (!(ready & bit(signal))) signal++
-    take(signal)
-    const action = actionOf(signal)
-    if (action.handler === SIG_IGN) continue
-    if (action.handler === SIG_DFL) {
-      if (DEFAULT_IGNORED.has(signal)) continue
-      route(signal)
-      syscall_raw(signal >= SIGRTMIN ? 'proc_kill' : 'kill', getpid(), signal)
-      continue
+    let running = resumed
+    resumed = undefined
+    if (!running) {
+      const ready = raised & ~mask
+      if (!ready) return { handled, restart }
+      let signal = 1
+      while (!(ready & bit(signal))) signal++
+      take(signal)
+      const action = actionOf(signal)
+      if (action.handler === SIG_IGN) continue
+      if (action.handler === SIG_DFL) {
+        if (DEFAULT_IGNORED.has(signal)) continue
+        route(signal)
+        syscall_raw(signal >= SIGRTMIN ? 'proc_kill' : 'kill', getpid(), signal)
+        continue
+      }
+      handled++
+      if (!(action.flags & SA_RESTART)) restart = false
+      const saved = mask
+      mask = (mask | action.mask | (action.flags & SA_NODEFER ? 0n : bit(signal))) & ~UNBLOCKABLE
+      if (action.flags & SA_RESETHAND) setAction(signal, defaultAction)
+      routeAll()
+      const stack = action.flags & SA_ONSTACK ? toAltStack() : undefined
+      running = { signal, handler: action.handler, info: siginfoFor(signal), saved: String(saved), stack }
     }
-    handled++
-    if (!(action.flags & SA_RESTART)) restart = false
-    const saved = mask
-    mask = (mask | action.mask | (action.flags & SA_NODEFER ? 0n : bit(signal))) & ~UNBLOCKABLE
-    if (action.flags & SA_RESETHAND) setAction(signal, defaultAction)
-    routeAll()
-    const left = action.flags & SA_ONSTACK ? toAltStack() : undefined
-    table.get(action.handler)(signal, siginfoFor(signal), 0)
-    left?.()
-    mask = saved
+    handlerDepth++
+    try {
+      table.get(running.handler)(running.signal, running.info, 0)
+    } finally {
+      handlerDepth--
+    }
+    // the handler forked, and its frames are saved in the buffer: what remains of this one is kept to be picked up where
+    // the call is rewound to, in the parent and in the child (see `suspended`)
+    if (unwinding()) {
+      suspended.push({ ...running, handled, restart })
+      return UNWOUND
+    }
+    if (running.stack) fromAltStack(running.stack)
+    mask = BigInt(running.saved)
     routeAll()
   }
 }
@@ -1091,18 +1108,20 @@ function onAltStack() {
 
 /**
  * Moves the stack pointer to the alternate stack, if there is one to move to
- * @returns what puts it back when the handler returns (one that leaves by `siglongjmp` has its stack pointer restored
- * where it lands), with the stack itself, which `SS_AUTODISARM` took away for the handler
+ * @returns what puts it back when the handler returns (`fromAltStack`; one that leaves by `siglongjmp` has its stack
+ * pointer restored where it lands): the stack pointer, and the stack itself, which `SS_AUTODISARM` took away for the handler
  */
 function toAltStack() {
   if (!stackPointer || altStack.flags === SS_DISABLE || onAltStack()) return undefined
   const saved = stackPointer.value, stack = altStack
   stackPointer.value = (stack.sp + stack.size) & ~15
   if (stack.flags & SS_AUTODISARM) altStack = { sp: 0, size: 0, flags: SS_DISABLE }
-  return () => {
-    stackPointer.value = saved
-    altStack = stack
-  }
+  return { sp: saved, stack }
+}
+
+function fromAltStack({ sp, stack }) {
+  stackPointer.value = sp
+  altStack = stack
 }
 
 /**
@@ -1141,7 +1160,12 @@ function raiseHere(signal) {
 function waitForHandler() {
   for (;;) {
     collect()
-    if (deliver().handled) return -EINTR
+    blocked++
+    try {
+      if (deliver().handled) return -EINTR
+    } finally {
+      blocked--
+    }
     if (syscall_raw('poll', [], -1) === -EINTR) takeQueued()
   }
 }
@@ -1165,17 +1189,34 @@ const SIGPIPE = 13
  */
 function delivering(name, call) {
   return (...args) => {
-    collect()
+    // rewound into a handler's fork: this import's turn is picked up where the handler left it
+    const picked = suspended.length ? takeSuspended(name) : undefined
+    if (!picked) collect()
     for (;;) {
       const before = arrivals
-      const result = call(...args)
-      if (result === -BigInt(EPIPE) && WRITES.has(name)) {
-        const flagsAt = WRITES.get(name)
-        if (flagsAt < 0 || !(args[flagsAt] & MSG_NOSIGNAL)) raiseHere(SIGPIPE)
+      let result, interrupted, outcome
+      if (picked && !picked.done) {
+        picked.done = true
+        ;({ interrupted } = picked.call)
+        result = picked.call.result === undefined ? undefined : BigInt(picked.call.result)
+        outcome = deliverHere(name, picked.running)
+      } else {
+        result = call(...args)
+        if (result === -BigInt(EPIPE) && WRITES.has(name)) {
+          const flagsAt = WRITES.get(name)
+          if (flagsAt < 0 || !(args[flagsAt] & MSG_NOSIGNAL)) raiseHere(SIGPIPE)
+        }
+        interrupted = result === -BigInt(EINTR)
+        if (interrupted) takeQueued()
+        outcome = deliverHere(name)
       }
-      const interrupted = result === -BigInt(EINTR)
-      if (interrupted) takeQueued()
-      const { handled, restart } = deliver()
+      // a handler forked: this import returns to a program that is unwinding, which saves its frames, and is rewound into
+      // this import again, which carries on from here
+      if (outcome === UNWOUND) {
+        suspended.push({ name, result: result === undefined ? undefined : String(result), interrupted })
+        return name.startsWith('SYS_') ? 0n : undefined
+      }
+      const { handled, restart } = outcome
       if (!interrupted || OWN_DELIVERY.has(name)) return result
       if (SENDS_SIGNALS.has(name)) return 0n
       if (!handled) {
@@ -1186,6 +1227,27 @@ function delivering(name, call) {
       return result
     }
   }
+}
+
+/**
+ * Runs the handlers an import's return delivers. A fork in one unwinds through this JavaScript, which can only be
+ * resumed where the program was built to unwind (`unwindable`): anywhere else it fails (see `forkCall`).
+ */
+function deliverHere(name, resumed) {
+  const unwinds = unwindable.has(name)
+  if (!unwinds) blocked++
+  try {
+    return deliver(resumed)
+  } finally {
+    if (!unwinds) blocked--
+  }
+}
+
+/** The records a handler's fork left of the import it was delivered at and of its delivery, the outermost first */
+function takeSuspended(name) {
+  const call = suspended.pop(), running = suspended.pop()
+  if (call?.name !== name || !running) throw new Error(`rewound into ${name}, which the unwind left from ${call?.name}`)
+  return { call, running }
 }
 
 // --- processes ---
@@ -2517,6 +2579,22 @@ let forkResult = 0
 let forked = false
 /** Where the calling thread's frames start, `main` for `_start` or `thread` for the function a thread runs */
 let threadEntry = 'main'
+/**
+ * A fork in a signal handler. The handler runs from JavaScript (`deliver`) that an import's return called, so its frames
+ * are not the only ones to save: the unwind returns from the handler to `deliver`, which returns to the import's wrapper,
+ * which returns to the program, whose frames are saved after the handler's. What those two JavaScript frames still had
+ * to do is kept here, innermost first, and the rewind (the parent's and the child's, which is given a copy) finds the
+ * outermost first: the program's frames rewind to the import, whose wrapper picks up its record and the delivery's, and
+ * calls the handler again, which rewinds to its fork. Only the imports the program was built to unwind at can do this
+ * (`unwindable`, from its `ecmaos.asyncify-signals` section: `ECMAOS_WALI_ASYNCIFY_SIGNALS` in utils/wali/asyncify.sh).
+ */
+const UNWOUND = Symbol('unwound')
+let suspended = []
+let unwindable = new Set()
+/** How many handlers are running, and how many deliveries at an import that cannot unwind are (their handlers' forks fail) */
+let handlerDepth = 0
+let blocked = 0
+const unwinding = () => !!asyncify && asyncify.asyncify_get_state() === ASYNCIFY_UNWINDING
 
 function forkCall() {
   if (!asyncify) return big(-ENOSYS)
@@ -2526,6 +2604,9 @@ function forkCall() {
     asyncify.asyncify_stop_rewind()
     return big(forkResult)
   }
+  // a handler delivered where the program cannot unwind (or inside pause or sigsuspend) would be left with frames of
+  // JavaScript the unwind cannot get out of
+  if (handlerDepth > 0 && blocked > 0) return big(-ENOSYS)
   if (!forkBuffer) {
     const at = allocate(FORK_BUFFER)
     if (at < 0) return big(-ENOMEM)
@@ -2557,6 +2638,7 @@ function startChild() {
     files: files.map(file => file.fd),
     attachments: [...attachments],
     altStack,
+    suspended,
     // an i64 goes as text: JSON has no such number
     globals: programGlobals.map(([name, global]) => [name, typeof global.value === 'bigint' ? `${global.value}n` : global.value]),
     mask: String(mask),
@@ -2582,17 +2664,19 @@ function inheritFrom(fork) {
   attachments.clear()
   for (const [at, size] of fork.attachments) attachments.set(at, size)
   altStack = fork.altStack
+  suspended = fork.suspended
 }
 
 /**
  * Replaces `_start` of a program built with Asyncify by one that carries out its forks: each time the program unwinds
  * for one, the child is started and the program rewound to return from the call. In the child (`fork`, from the
- * kernel), the first thing is a rewind into the call. @returns the new `_start`, or undefined for a program without Asyncify
+ * kernel), the first thing is a rewind into the call. @param unwindAt the imports a handler's fork can unwind at (see `suspended`) @returns the new `_start`, or undefined for a program without Asyncify
  */
-export function drive(instance, limits, fork, entry) {
+export function drive(instance, limits, fork, entry, unwindAt = []) {
   const exports = instance.exports
   if (typeof exports.asyncify_start_unwind !== 'function') return undefined
   asyncify = exports
+  unwindable = new Set(unwindAt)
   // a thread's frames start at the function the thread runs, not at `_start`; a child of its fork rewinds into the same
   threadEntry = entry ? 'thread' : fork?.entry === 'thread' ? 'thread' : 'main'
   const run = threadEntry === 'thread' ? entry ?? (() => exports.__wasm_thread_start_libc(0, 0)) : exports._start

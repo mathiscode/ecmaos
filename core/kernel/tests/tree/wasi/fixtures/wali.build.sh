@@ -6,7 +6,11 @@
 set -euo pipefail
 source "$(dirname "$0")/../../../../../../utils/check-wali.sh"
 cd "$(dirname "$0")"
-for source in wali-*.c; do "$WALI_CC" -O2 "$source" -o "${source%.c}.wasm"; done
+for source in wali-*.c; do
+  # (wali-fork-signal forks in signal handlers, so it is built to unwind at every import, which is what a handler runs at)
+  if [ "$source" = wali-fork-signal.c ]; then ECMAOS_WALI_ASYNCIFY_SIGNALS=all "$WALI_CC" -O2 "$source" -o "${source%.c}.wasm"
+  else "$WALI_CC" -O2 "$source" -o "${source%.c}.wasm"; fi
+done
 for source in wali-*.cpp; do "$WALI_CXX" -O2 "$source" -o "${source%.cpp}.wasm"; done
 # (wali-fork and wali-fork-cxx link fork, so the compiler rewrites them with Asyncify)
 for source in emcc-errno.c emcc-readdir.c emcc-inet6.c emcc-udp-msg.c emcc-scm.c emcc-scm-peer.c emcc-mmap.c emcc-proc.c; do name=${source#emcc-}; "$WALI_CC" -O2 "$source" -o "wali-${name%.c}.wasm"; done
