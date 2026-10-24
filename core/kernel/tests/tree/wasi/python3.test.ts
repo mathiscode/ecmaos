@@ -54,6 +54,23 @@ print(datetime.date(2026, 10, 24).isoformat(), P(), os.system("echo sys"), os.po
 `)).toEqual({ code: 0, out: "['a', 'b'] ba7816bf8f01cfea 3.3\nsys\n2026-10-24 P(x=1) 0 pop linux\n", err: '' })
   }, 60000)
 
+  it('compresses with zlib: zlib, gzip, zipfile and a tar.gz', async () => {
+    expect(await run(`import zlib, gzip, zipfile, tarfile, io
+data = b"ecmaOS " * 1000
+z = zlib.compress(data)
+buf = io.BytesIO()
+with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as f: f.writestr("a.txt", data)
+tbuf = io.BytesIO()
+with tarfile.open(fileobj=tbuf, mode="w:gz") as t:
+    info = tarfile.TarInfo("b.txt"); info.size = len(data); t.addfile(info, io.BytesIO(data))
+tbuf.seek(0)
+with open("/tmp/x.gz", "wb") as f: f.write(gzip.compress(data))
+print(len(z) < 100, zlib.decompress(z) == data, gzip.decompress(open("/tmp/x.gz", "rb").read()) == data,
+      zipfile.ZipFile(io.BytesIO(buf.getvalue())).read("a.txt") == data,
+      tarfile.open(fileobj=tbuf, mode="r:gz").extractfile("b.txt").read() == data, zlib.crc32(b"abc"))
+`)).toEqual({ code: 0, out: 'True True True True True 891568578\n', err: '' })
+  }, 60000)
+
   it('forks with os.fork, and waits for the child and its status', async () => {
     expect(await run(`import os
 r, w = os.pipe()
