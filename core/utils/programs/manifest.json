@@ -125,6 +125,16 @@
       "size": 73775,
       "sha256": "1638b0c4fff3ae416499ef37a9d7b8a76a469c04ce559046b6894fb659076440"
     },
+    "hwclock": {
+      "file": "hwclock.wasm",
+      "version": "0.8.12",
+      "license": "0BSD",
+      "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)",
+      "homepage": "https://landley.net/toybox/",
+      "toolchain": "wali",
+      "size": 83779,
+      "sha256": "82dd79cb6bcdaf5aa00ab694b2c77df87467ff3439d70d6e786e0daa185db60f"
+    },
     "ncdu": {
       "file": "ncdu.wasm",
       "version": "1.22",

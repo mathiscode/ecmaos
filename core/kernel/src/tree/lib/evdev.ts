@@ -297,6 +297,7 @@ const EvdevType = 0x45 // 'E'
 /** The type of the framebuffer requests (`FBIO*`), which answer with bytes in the same way */
 const FbType = 0x46 // 'F'
 const GlType = 0x47 // 'G': the GL devices (see gl.ts)
+const RtcType = 0x70 // 'p': the real-time clock (see rtc.ts)
 
 export interface Ioctl { direction: number, type: number, number: number, size: number }
 
@@ -394,7 +395,7 @@ function nodeOperations(hub: InputHub): FileOperations {
 
 /**
  * A program's `ioctl` can only get a number back; a structure is left in the return region of its thread. `EVIOC*` requests
- * answer with bytes, so the syscall is wrapped to put them there and give their length, as the upstream `ioctl` does for
+ * (and `FBIO*`, the GL devices' and `RTC_*`) answer with bytes, so the syscall is wrapped to put them there and give their length, as the upstream `ioctl` does for
  * `TIOCGWINSZ` and `TCGETS`. Idempotent.
  */
 const glWatched = new Set<number>()
@@ -406,7 +407,7 @@ export function installEvdevIoctl() {
   if (!original) return
   syscalls.set('ioctl' as never, ((proc: Process, fd: number, request: number, arg: unknown) => {
     const type = ioctlFields(request >>> 0).type
-    if (type !== EvdevType && type !== FbType && type !== GlType) return original(proc, fd, request, arg)
+    if (type !== EvdevType && type !== FbType && type !== GlType && type !== RtcType) return original(proc, fd, request, arg)
     if (type === GlType) {
       setGlCaller(proc.pid)
       if (!glWatched.has(proc.pid)) {

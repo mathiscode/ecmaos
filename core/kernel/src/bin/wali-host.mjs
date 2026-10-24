@@ -404,8 +404,9 @@ function deviceIoctl(fd, request, ptr) {
     return 0
   }
   const type = (request >>> 8) & 0xff
-  if (type !== 0x45 && type !== 0x46 && type !== 0x47) return undefined
-  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : 0)
+  if (type !== 0x45 && type !== 0x46 && type !== 0x47 && type !== 0x70) return undefined
+  // an RTC request that writes (`RTC_SET_TIME`) hands over the structure its number names the size of
+  const size = IOCTL_ARGUMENT_SIZE[request] ?? (type === 0x47 ? 8 : type === 0x70 && (request >>> 30) & 1 ? (request >>> 16) & 0x3fff : 0)
   const argument = ptr && size ? bytes().slice(ptr, ptr + size) : undefined
   const length = syscall_raw('ioctl', fd, request, argument)
   if (length < 0) return length
@@ -418,8 +419,8 @@ function deviceIoctl(fd, request, ptr) {
     const named = (request >>> 16) & 0x3fff
     give(ptr, named || length)
   }
-  // `fbdev` and GL requests give 0; an event device's give the length of what it answered
-  return type === 0x46 || type === 0x47 ? 0 : length
+  // `fbdev`, GL and RTC requests give 0; an event device's give the length of what it answered
+  return type === 0x46 || type === 0x47 || type === 0x70 ? 0 : length
 }
 
 // --- memory mappings ---

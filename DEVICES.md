@@ -68,6 +68,7 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 10 | 100 | `battery` | ecmaOS misc range |
 | 10 | 101 | `geo` | ecmaOS misc range |
 | 10 | 156 | `presentation` | ecmaOS misc range |
+| 10 | 183 | `hwrng` | Real Linux misc minor; `hw_random` in sysfs (core, not a package) |
 | 13 | 64 | `input/event0` | Keyboard (core, not a package) |
 | 13 | 65 | `input/event1` | Pointer |
 | 13 | 66+n | `input/event<2+n>` | One per framebuffer window, made with its `fb<N>` |
@@ -93,6 +94,7 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 0 (dynamic) | 64, 1+n | `hid`, `hidraw<n>` | WebHID; major 13 belongs to `input` |
 | 0 (dynamic) | 0, 1–4 | `gamepad`, `js0`–`js3` | Gamepads; the nodes are made ahead and open with `ENODEV` until a button is pressed on the pad |
 | 0 (dynamic) | 0, 1+n | `sensors`, `sensor-<kind>` | One per Generic Sensor class the browser has |
+| 0 (dynamic) | 0 | `rtc0` | The real-time clock, dynamic as Linux's rtc class is; `/dev/rtc` links to it (core, not a package) |
 | 0 (dynamic) | any | `ecmaos-remote` | Devices attached from another machine (`attach`) |
 
 A control node (`usb`, `bluetooth`, `midi`, `serial`, `hid`, `gamepad`, `sensors`) is the bus, not a device on it, and is
