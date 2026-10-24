@@ -44,7 +44,7 @@ const FD_CLOEXEC = 1
 const SETFL_MASK = 0x400 /* O_APPEND */ | 0x800 /* O_NONBLOCK */ | 0x2000 /* O_ASYNC */ | 0x4000 /* O_DIRECT */ | 0x40000 /* O_NOATIME */
 const MAP_SHARED = 0x01, MAP_FIXED = 0x10, MAP_ANONYMOUS = 0x20
 const MREMAP_MAYMOVE = 1
-const TCGETS = 0x5401, TIOCGWINSZ = 0x5413, FIONREAD = 0x541b
+const TCGETS = 0x5401, TIOCGWINSZ = 0x5413, FIONREAD = 0x541b, FIONBIO = 0x5421
 /** What an ioctl that answers with a structure copies back: `struct termios` and `struct winsize` */
 const IOCTL_ANSWER_SIZE = { [TCGETS]: 60, [TIOCGWINSZ]: 8 }
 /** `struct stat` on this target: musl's x86_64 layout */
@@ -2235,6 +2235,13 @@ const calls = {
         if (ptr) view().setInt32(ptr, info.readable, true)
         return 0n
       }
+    }
+    // O_NONBLOCK set or cleared by the int the argument points to (what os.set_blocking and the BSD sockets API do)
+    if (request === FIONBIO) {
+      if (!ptr) return big(-EFAULT)
+      const flags = fcntl(fd, F_GETFL, 0)
+      if (flags < 0) return big(flags)
+      return big(fcntl(fd, F_SETFL, view().getInt32(ptr, true) ? flags | 0x800 : flags & ~0x800))
     }
     const device = deviceIoctl(fd, request >>> 0, ptr)
     if (device !== undefined) return big(device)

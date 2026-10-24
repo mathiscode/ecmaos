@@ -165,11 +165,9 @@ describe('micropython', () => {
     expect(await run(`echo 'print(6 * 7)' | micropython`)).toEqual({ code: 0, out: '42\n', err: '' })
   }, 60000)
 
-  it('python and python3 are links to micropython', async () => {
-    expect(await kernel.filesystem.fs.readlink('/bin/python')).toBe('/bin/micropython')
-    expect(await run(`python -c 'print("via link")'`)).toEqual({ code: 0, out: 'via link\n', err: '' })
-    expect(await kernel.filesystem.fs.readlink('/bin/python3')).toBe('/bin/micropython')
-    expect(await run(`python3 -c 'print("via python3")'`)).toEqual({ code: 0, out: 'via python3\n', err: '' })
+  it('is not python3, which is CPython; python is a link to that', async () => {
+    expect(await kernel.filesystem.fs.readlink('/bin/python')).toBe('/bin/python3')
+    expect((await kernel.filesystem.fs.lstat('/bin/python3')).isSymbolicLink()).toBe(false)
   }, 60000)
 
   it('prints a traceback on stderr and exits 1; sys.exit sets the status; a missing file exits 2', async () => {

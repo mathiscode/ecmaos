@@ -244,6 +244,21 @@
       "toolchain": "wali",
       "size": 1660330,
       "sha256": "2bb4d402b71194d1c4f905b1d07742f7d4dff387379d4e8e5c08e796c5575e21"
+    },
+    "python3": {
+      "file": "python3.wasm",
+      "version": "3.14.9",
+      "license": "PSF-2.0",
+      "description": "CPython, with os.fork, subprocess and the standard library; it forks, so it is built with Asyncify",
+      "homepage": "https://www.python.org/",
+      "toolchain": "wali",
+      "size": 11731749,
+      "sha256": "3cd380ec84e54322dc8480ec47e7310d2e993ed90d7683244072b6e1f591c3a2",
+      "runtime": {
+        "file": "python3-lib.tar.gz",
+        "size": 6461370,
+        "sha256": "0d6fa18151f5a7ab943f3eaa62809cbc04052da68cd5fb01da3211268176c5a6"
+      }
     }
   }
 }
