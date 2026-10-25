@@ -8,6 +8,7 @@
 //   node scripts/sources.mjs all                         fetch everything (what `prepack` runs)
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { get } from 'node:https'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -23,13 +24,33 @@ const pick = (program, name = program) => {
 
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex')
 
+/** The bytes at a URL, following redirects. Not `fetch`: gitlab.freedesktop.org answers undici's requests with 406 and node:https' with 200 */
+function download(url, redirects = 10) {
+  return new Promise((resolve, reject) => {
+    get(url, response => {
+      const { statusCode = 0, headers } = response
+      if (statusCode >= 300 && statusCode < 400 && headers.location) {
+        response.resume()
+        if (!redirects) return reject(new Error(`${url}: too many redirects`))
+        return resolve(download(new URL(headers.location, url).href, redirects - 1))
+      }
+      if (statusCode !== 200) {
+        response.resume()
+        return reject(new Error(`${url}: ${statusCode}`))
+      }
+      const chunks = []
+      response.on('data', chunk => chunks.push(chunk))
+      response.on('end', () => resolve(Buffer.concat(chunks)))
+      response.on('error', reject)
+    }).on('error', reject)
+  })
+}
+
 async function fetchSource(source) {
   const file = path.join(dir, source.archive)
   if (existsSync(file) && sha256(file) === source.sha256) return file
   mkdirSync(dir, { recursive: true })
-  const response = await fetch(source.url, { redirect: 'follow' })
-  if (!response.ok) throw new Error(`${source.url}: ${response.status}`)
-  const bytes = Buffer.from(await response.arrayBuffer())
+  const bytes = await download(source.url)
   const actual = createHash('sha256').update(bytes).digest('hex')
   if (actual !== source.sha256) throw new Error(`${source.archive}: sha256 is ${actual}, the manifest pins ${source.sha256}`)
   writeFileSync(`${file}.part`, bytes)
