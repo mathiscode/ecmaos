@@ -4,7 +4,7 @@
  * answers the calls that cannot wait from a copy of the tree in memory and passes each change on to the module.
  */
 
-import { Async, FileSystem, InMemory, Inode } from '@zenfs/core'
+import { Async, Attributes, FileSystem, InMemory, Inode } from '@zenfs/core'
 import { S_IFDIR, S_IFREG } from '@zenfs/core/constants'
 import { withErrno } from 'kerium'
 
@@ -12,6 +12,7 @@ import { withErrno } from 'kerium'
 export interface WasmInode {
   mode: number
   size: bigint
+  nlink: number
   uid: number
   gid: number
   atimeMs: number
@@ -31,6 +32,9 @@ export interface WasmFilesystemExports {
   unlink(path: string): unknown
   rmdir(path: string): unknown
   rename(from: string, to: string): unknown
+  link(target: string, linkPath: string): unknown
+  getAttributes(path: string): Array<[string, Uint8Array]> | Promise<Array<[string, Uint8Array]>>
+  setAttributes(path: string, attributes: Array<[string, Uint8Array]>): unknown
   touch(path: string, mode: number | undefined, uid: number | undefined, gid: number | undefined, size: bigint | undefined, mtimeMs: number | undefined, atimeMs: number | undefined): unknown
 }
 
@@ -47,6 +51,7 @@ const inode = (stat: WasmInode, ino: number) => new Inode({
   ino,
   mode: stat.mode,
   size: Number(stat.size),
+  nlink: stat.nlink,
   uid: stat.uid,
   gid: stat.gid,
   atimeMs: stat.atimeMs,
@@ -108,7 +113,13 @@ export class WasmFS extends Async(FileSystem) {
   }
 
   async stat(path: string): Promise<Inode> {
-    return inode(await this.#call(module => module.stat(path)), this.#ino(path))
+    const found = inode(await this.#call(module => module.stat(path)), this.#ino(path))
+    const attributes = await this.#call(module => module.getAttributes(path))
+    if (attributes.length) {
+      found.attributes ??= new Attributes()
+      for (const [name, value] of attributes) found.attributes.set(name, value)
+    }
+    return found
   }
 
   async readdir(path: string): Promise<string[]> {
@@ -152,6 +163,9 @@ export class WasmFS extends Async(FileSystem) {
   }
 
   async touch(path: string, metadata: Partial<{ mode: number, uid: number, gid: number, size: number, mtimeMs: number, atimeMs: number }> = {}): Promise<void> {
+    const attributes = (metadata as { attributes?: Attributes }).attributes
+    // extended attributes travel on the inode ZenFS passes to touch
+    if (attributes) await this.#call(module => module.setAttributes(path, [...attributes.keys()].map(name => [name, new Uint8Array(attributes.get(name)!)] as [string, Uint8Array])))
     await this.#call(module => module.touch(
       path,
       metadata.mode === undefined ? undefined : metadata.mode & 0o7777,
@@ -165,7 +179,9 @@ export class WasmFS extends Async(FileSystem) {
 
   async sync(): Promise<void> { /* every call has already reached the module */ }
 
-  link(): never {
-    throw withErrno('ENOTSUP')
+  /** A hard link is another path with the same inode number, which is how the VFS knows the two are one file */
+  async link(target: string, link: string): Promise<void> {
+    await this.#call(module => module.link(target, link))
+    this.#inos.set(link, this.#ino(target))
   }
 }

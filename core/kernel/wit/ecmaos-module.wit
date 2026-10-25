@@ -71,6 +71,8 @@ interface filesystem {
     /// The file type and permission bits, as in stat(2) (S_IFREG is 0o100000, S_IFDIR 0o040000)
     mode: u32,
     size: u64,
+    /// How many names the file has (1 unless it has hard links)
+    nlink: u32,
     uid: u32,
     gid: u32,
     atime-ms: f64,
@@ -93,6 +95,12 @@ interface filesystem {
   rmdir: func(path: string) -> result<_, s32>;
   rename: func(old-path: string, new-path: string) -> result<_, s32>;
   /// Changes what is given (a file is cut or padded to `size`)
+  /// Makes `link-path` another name for the file `target` (the same file, not a copy)
+  link: func(target: string, link-path: string) -> result<_, s32>;
+  /// The extended attributes of a file or directory, by name (`user.NAME`)
+  get-attributes: func(path: string) -> result<list<tuple<string, list<u8>>>, s32>;
+  /// Replaces all of them
+  set-attributes: func(path: string, attributes: list<tuple<string, list<u8>>>) -> result<_, s32>;
   touch: func(path: string, mode: option<u32>, uid: option<u32>, gid: option<u32>, size: option<u64>, mtime-ms: option<f64>, atime-ms: option<f64>) -> result<_, s32>;
 }
 
@@ -107,3 +115,4 @@ world filesystem-module {
   include module;
   export filesystem;
 }
+

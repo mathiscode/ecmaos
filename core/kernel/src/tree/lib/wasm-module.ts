@@ -284,7 +284,7 @@ export function wasmModule(bytes: Uint8Array, parameters: string[] = []): Kernel
           ctx.filesystem({
             name,
             source,
-            backend: { name, options: {}, create: (options: { source?: string, options?: Record<string, string> }) => new WasmFS(() => bound.filesystem ?? (() => { throw new WasmModuleError('ENOEXEC', `${ctx.name}: the module has not finished starting`) })(), name, { source: options.source ?? '', options: options.options ?? {} }) },
+            backend: { name, options: {}, create: (options: { source?: string, options?: Record<string, string> }) => new WasmFS(() => bound.filesystem ?? (() => { throw new WasmModuleError('ENOEXEC', `${ctx.name}: the module has not finished starting`) })(), name, { source: options.source ?? '', options: options.options ?? {} } ) },
             config: request => ({ source: request.source, options: request.options })
           })
         }),
