@@ -6,7 +6,7 @@
 >
 > [![Stars](https://img.shields.io/github/stars/mathiscode?style=flat&logo=github&label=⭐️)](https://github.com/mathiscode) [![Followers](https://img.shields.io/github/followers/mathiscode?style=flat&logo=github&label=follow)](https://github.com/mathiscode)
 
-[ecmaOS](https://ecmaos.sh) is a browser-based operating system kernel and suite of applications written primarily in TypeScript, AssemblyScript, and C++. It's the successor of [web3os](https://github.com/web3os-org/kernel).
+[ecmaOS](https://ecmaos.sh) is a browser-based operating system kernel and suite of applications written primarily in TypeScript, Rust, and C++. It's the successor of [web3os](https://github.com/web3os-org/kernel).
 
 The goal is to create a kernel and supporting apps that tie together modern web technologies and utilities to form an "operating system" that can run on modern browsers, not just to create a "desktop experience". It offers the ability to run a wide variety of apps on top of an already (mostly) sandboxed foundation, offering some measure of security by default as well as rich developer tooling. Its main use case is to provide a consistent environment for running web apps, but it has features that allow for more powerful custom scenarios, such as a platform for custom applications, games, and more.
 
@@ -42,7 +42,7 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 
 ## Features
 
-- TypeScript, WebAssembly, AssemblyScript, Rust, C++
+- TypeScript, WebAssembly, Rust, C++
 - Filesystem supporting multiple backends powered by [zenfs](https://github.com/zen-fs/core)
 - Terminal interface powered by [xterm.js](https://xtermjs.org)
 - Streams for handling input and output, allowing redirection and piping
@@ -309,6 +309,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - To sign the in-tree modules, run `node core/kernel/scripts/module-key.mjs DIR` once (it writes `ecmaos.key`, which stays private, and `ecmaos.pub`), build with `ECMAOS_MODULE_KEY=DIR/ecmaos.key` so each module gets a signature, and put the base64 line of `ecmaos.pub` in `core/kernel/src/tree/lib/module-release-key.json` (or set `ECMAOS_MODULE_PUBKEY` for one build): boot writes it to `/etc/modules-keys/ecmaos.pub`, so those modules load with only the `O` taint. The key comes from the kernel's own build, never from the catalog
 - Signing: `sign-module --genkey NAME` makes `NAME.key` and `NAME.pub`, `sign-module -k NAME.key FILE` appends an Ed25519 signature to the module, and a key copied to `/etc/modules-keys` is trusted; a module signed by a trusted key does not taint `E`, a signature that does not match is refused, and writing 1 to `/proc/sys/kernel/module_sig_enforce` refuses every module that is not signed by a trusted key until reboot
 - `kernel_api` is a semver range of the module API (`1.0.0`); a module that asks for another version fails with `ENOEXEC`, and `insmod -f` loads it anyway
+- A package ships a module by listing it in its `package.json`, `"ecmaos": { "modules": ["dist/NAME.ko.mjs"] }` (`.ko.mjs` or `.ko.wasm` files inside the package): `install` copies each into `/lib/modules/RELEASE/` and runs `depmod`, so `modprobe NAME` finds it, and `uninstall` takes them away again (root only, like `insmod`). `turbo gen module` asks whether the module is TypeScript (`build.mjs` bundles `src/index.ts` with esbuild into `dist/NAME.ko.mjs` under the modinfo header made from `module.json`, and `pnpm test` loads it) or Rust (a WASI 0.3 component built by `scripts/build-wasm-rust.mjs`); `modules/boilerplate` is the TypeScript one
 
 ### Packages
 

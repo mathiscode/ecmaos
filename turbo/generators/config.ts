@@ -58,45 +58,48 @@ export default function generator(plop: PlopTypes.NodePlopAPI): void {
   })
 
   plop.setGenerator('module', {
-    description: 'Creates a new module',
+    description: 'Creates a new kernel module, in TypeScript or in Rust (WebAssembly)',
     prompts: [
       {
         type: 'input',
         name: 'name',
         message: 'What is the name of the new module?',
-      }
-    ],
-    actions: [
-      {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/package.json',
-        templateFile: 'templates/module/package.json.hbs',
       },
       {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/assembly/index.ts',
-        templateFile: 'templates/module/assembly/index.ts.hbs',
-      },
-      {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/assembly/tsconfig.json',
-        templateFile: 'templates/module/assembly/tsconfig.json',
-      },
-      {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/tests/index.js',
-        templateFile: 'templates/module/tests/index.js',
-      },
-      {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/asconfig.json',
-        templateFile: 'templates/module/asconfig.json',
-      },
-      {
-        type: 'add',
-        path: '{{ turbo.paths.root }}/modules/{{ dashCase name }}/index.html',
-        templateFile: 'templates/module/index.html',
+        type: 'list',
+        name: 'kind',
+        message: 'What is it written in?',
+        choices: [
+          { name: 'TypeScript (runs in the kernel, trusted)', value: 'ts' },
+          { name: 'Rust (a sandboxed WebAssembly component)', value: 'rust' },
+        ],
       },
     ],
+    actions: data => {
+      const root = '{{ turbo.paths.root }}/modules/{{ dashCase name }}'
+      const files = data?.kind === 'rust'
+        ? [
+            ['Cargo.toml', 'Cargo.toml.hbs'],
+            ['rust-toolchain.toml', 'rust-toolchain.toml'],
+            ['.gitignore', 'gitignore'],
+            ['module.json', 'module.json.hbs'],
+            ['package.json', 'package.json.hbs'],
+            ['src/lib.rs', 'src/lib.rs.hbs'],
+          ]
+        : [
+            ['build.mjs', 'build.mjs'],
+            ['module.json', 'module.json.hbs'],
+            ['package.json', 'package.json.hbs'],
+            ['tsconfig.json', 'tsconfig.json.hbs'],
+            ['src/index.ts', 'src/index.ts.hbs'],
+            ['tests/index.mjs', 'tests/index.mjs'],
+          ]
+      const template = data?.kind === 'rust' ? 'module-rust' : 'module-ts'
+      return files.map(([file, source]) => ({
+        type: 'add' as const,
+        path: `${root}/${file}`,
+        templateFile: `templates/${template}/${source}`,
+      }))
+    },
   })
 }

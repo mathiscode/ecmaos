@@ -1,0 +1,29 @@
+{
+  "name": "@ecmaos-modules/{{ dashCase name }}",
+  "version": "0.1.0",
+  "description": "A kernel module for ecmaOS",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "ecmaos": {
+    "modules": [
+      "dist/{{ dashCase name }}.ko.mjs"
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node tests/index.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "esbuild": "^0.27.2",
+    "typescript": "^7.0.2"
+  }
+}

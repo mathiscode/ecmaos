@@ -41,7 +41,7 @@ function readWholeFile(path) {
   return new TextDecoder().decode(bytes)
 }
 
-function main() {
+async function main() {
   const args = argv.slice(1)
   if (args.length > 0 && (args[0] === '--help' || args[0] === '-h')) {
     write(2, new TextEncoder().encode(usage + '\n'))
@@ -91,6 +91,7 @@ function main() {
   }
 
   let hasError = false
+  let modulesRemoved = false
 
   for (const versionToUninstall of versionsToUninstall) {
     const versionPath = join(packageDir, versionToUninstall)
@@ -101,6 +102,18 @@ function main() {
     } else {
       try {
         const packageJson = JSON.parse(readWholeFile(packagePath))
+
+        const listed = packageJson.ecmaos?.modules ?? packageJson.ecmaos?.module ?? []
+        for (const file of Array.isArray(listed) ? listed : [listed]) {
+          if (typeof file !== 'string') continue
+          try {
+            const name = file.slice(file.lastIndexOf('/') + 1)
+            const target = join('/lib/modules', globalThis.ecmaosSyscalls.env['KERNEL_VERSION'], name)
+            unlink(target)
+            modulesRemoved = true
+            write(1, new TextEncoder().encode(`Removed module ${target}\n`))
+          } catch { /* not installed there */ }
+        }
 
         if (packageJson.bin) {
           const unlinkBin = (name, binPath) => {
@@ -140,6 +153,8 @@ function main() {
     }
   }
 
+  if (modulesRemoved) await globalThis.ecmaosSyscalls.custom('shell_exec', 'depmod')
+
   const remainingVersions = (() => { try { return readdir(packageDir) } catch { return [] } })()
   if (remainingVersions.length === 0) {
     try {
@@ -153,7 +168,7 @@ function main() {
 }
 
 try {
-  exit(main())
+  exit(await main())
 } catch (error) {
   write(2, new TextEncoder().encode(`uninstall: ${error instanceof Error ? error.message : String(error)}\n`))
   exit(1)

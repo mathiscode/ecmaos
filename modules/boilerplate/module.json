@@ -1,0 +1,8 @@
+{
+  "name": "boilerplate",
+  "description": "A boilerplate kernel module for ecmaOS",
+  "license": "MIT",
+  "author": [],
+  "depends": [],
+  "alias": []
+}

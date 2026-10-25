@@ -1,43 +1,29 @@
 {
   "name": "@ecmaos-modules/boilerplate",
-  "version": "0.2.0",
-  "license": "MIT OR Apache-2.0",
-  "description": "Boilerplate module for EcmaOS",
+  "version": "0.3.0",
+  "description": "A boilerplate kernel module for ecmaOS",
+  "license": "MIT",
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./build/release.d.ts",
-      "import": "./build/release.js"
-    },
-    "./debug": {
-      "types": "./build/debug.d.ts",
-      "import": "./build/debug.js"
-    }
-  },
   "files": [
-    "build"
+    "dist"
   ],
-  "scripts": {
-    "asbuild:debug": "asc assembly/index.ts --target debug",
-    "asbuild:release": "asc assembly/index.ts --target release",
-    "asbuild": "pnpm run asbuild:debug && pnpm run asbuild:release",
-    "build": "pnpm run asbuild && echo '!*' > build/.npmignore",
-    "dev": "nodemon",
-    "start": "pnpx serve -C .",
-    "test": "node tests"
-  },
-  "nodemonConfig": {
-    "exec": "pnpm run asbuild",
-    "ext": "ts,js,html,css,cpp,hpp",
-    "watch": [
-      "assembly/**/*"
+  "ecmaos": {
+    "modules": [
+      "dist/boilerplate.ko.mjs"
     ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node tests/index.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "assemblyscript": "^0.27.31",
-    "serve": "^14.2.3"
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "esbuild": "^0.27.2",
+    "typescript": "^7.0.2"
   }
 }
