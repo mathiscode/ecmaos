@@ -1,3 +1,9 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { Session } from './session.ts'
@@ -88,5 +94,55 @@ describe.skipIf(!supported)('kernel modules on the Node host', () => {
     expect(await session.run('lsmod')).toMatch(/^archives /m)
     expect(await session.run('cat /proc/filesystems')).toMatch(/\biso\b/)
     expect(await session.run('ls /lib/modules/$(uname -r)/kernel/archives.ko.mjs; echo exit $?')).toMatch(/exit 0$/)
+  })
+
+  // the nightly compiler with the wasip3 library is a separate install (see the examples' rust-toolchain.toml)
+  const toolchain = (() => {
+    try {
+      return execFileSync('rustup', ['target', 'list', '--installed', '--toolchain', 'nightly-2026-10-25'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).includes('wasm32-wasip3')
+    } catch {
+      return false
+    }
+  })()
+
+  describe.skipIf(!toolchain)('WebAssembly modules (Rust, WASI 0.3)', () => {
+    let server: Server
+    let url = ''
+
+    beforeAll(async () => {
+      const kernel = path.resolve(import.meta.dirname, '../../kernel')
+      const folder = mkdtempSync(path.join(tmpdir(), 'ecmaos-rust-'))
+      for (const name of ['wasm-hello-rust', 'wasm-ramfs-rust']) {
+        execFileSync(process.execPath, ['scripts/build-wasm-rust.mjs', `examples/${name}`, path.join(folder, `${name.replaceAll('-', '_')}.ko.wasm`)], { cwd: kernel, stdio: 'ignore' })
+      }
+      server = createServer((request, response) => {
+        try { response.end(readFileSync(path.join(folder, path.basename(request.url ?? '')))) } catch { response.statusCode = 404; response.end() }
+      })
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+      url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    }, 480000)
+
+    afterAll(() => { server?.close() })
+
+    it('a component loads on the host, answers /proc and a syscall, and unloads', async () => {
+      expect(await session.run(`fetch -o /tmp/hello.ko.wasm ${url}/wasm_hello_rust.ko.wasm; echo exit $?`)).toMatch(/exit 0$/)
+      expect(await session.run('modinfo /tmp/hello.ko.wasm')).toContain('kind:           wasm')
+      expect(await session.run('insmod /tmp/hello.ko.wasm greeting=hej; echo exit $?', 60_000)).toBe('exit 0')
+      expect(await session.run('cat /proc/wasm_hello_rust')).toBe('hej from Rust')
+      expect(await session.run('rmmod wasm_hello_rust; echo exit $?')).toBe('exit 0')
+      expect(await session.run('ls /proc/wasm_hello_rust; echo exit $?')).toMatch(/exit [1-9]\d*$/)
+    }, 120000)
+
+    it('a filesystem in Rust mounts, holds a file, and cannot be unloaded while mounted', async () => {
+      expect(await session.run(`fetch -o /tmp/ramfs.ko.wasm ${url}/wasm_ramfs_rust.ko.wasm; echo exit $?`)).toMatch(/exit 0$/)
+      expect(await session.run('insmod /tmp/ramfs.ko.wasm; echo exit $?', 60_000)).toBe('exit 0')
+      expect(await session.run('cat /proc/filesystems')).toContain('wasmram')
+      expect(await session.run('mkdir -p /mnt/wasmram; mount -t wasmram /mnt/wasmram; echo exit $?')).toMatch(/exit 0$/)
+      await session.run('echo kept > /mnt/wasmram/a.txt')
+      await session.run('mv /mnt/wasmram/a.txt /mnt/wasmram/b.txt')
+      expect(await session.run('cat /mnt/wasmram/b.txt')).toBe('kept')
+      expect(await session.run('rmmod wasm_ramfs_rust; echo exit $?')).toContain('in use')
+      expect(await session.run('umount /mnt/wasmram; rmmod wasm_ramfs_rust; echo exit $?')).toMatch(/exit 0$/)
+    }, 120000)
   })
 })
