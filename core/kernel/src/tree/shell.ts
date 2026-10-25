@@ -7,6 +7,7 @@
  */
 
 import { DEFAULT_UMASK } from './lib/umask-store.ts'
+import { localTimeZone } from './lib/time-zone.ts'
 import path from 'path'
 import { parse } from 'smol-toml'
 import { bindContext } from '@zenfs/core'
@@ -290,6 +291,7 @@ const DefaultShellOptions = {
     TERM: 'xterm.js',
     USER: 'root',
     HOME: '/root',
+    TZ: localTimeZone(),
   }
 }
 

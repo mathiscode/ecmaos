@@ -44,6 +44,18 @@ describe('toybox: ps, lsof, vmstat, netstat, sysctl, lsmod, pidof', () => {
     expect(rows.some(row => row[3] === 'ps')).toBe(true)
   }, 60000)
 
+  it('ps prints start times in the browser\'s zone, as the JavaScript commands do: TZ carries it to musl', async () => {
+    const zone = await sh('echo "$TZ"')
+    expect(zone.out.trim()).toMatch(/\S/)
+    const ran = await sh('ps -o stime= -p 1')
+    expect(ran.code, ran.err).toBe(0)
+    const uptime = Number((await kernel.filesystem.fs.readFile('/proc/uptime', 'utf8')).split(' ')[0])
+    // init joined the table at boot, so its start is the clock a whole uptime ago (minute marks may fall between the two reads)
+    const clock = (ms: number) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
+    const near = [-60, 0, 60].map(shift => clock(Date.now() - uptime * 1000 + shift * 1000))
+    expect(near).toContain(ran.out.trim())
+  }, 60000)
+
   it('ps aux and ps -ef print the headers of the BSD and the SysV listings', async () => {
     const aux = await sh('ps aux')
     expect(aux.code, aux.err).toBe(0)

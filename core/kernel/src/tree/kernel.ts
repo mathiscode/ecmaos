@@ -100,6 +100,7 @@ import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { bootSplash } from '#lib/splash.ts'
 import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
+import { localTimeZone } from '#lib/time-zone.ts'
 
 import {
   KernelEvents,
@@ -454,7 +455,7 @@ export class Kernel implements IKernel {
       users: this.users,
       tty: 0,
       terminal: consoleView,
-      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost', HOME: '/root', USER: 'root', LOGNAME: 'root' }
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost', HOME: '/root', USER: 'root', LOGNAME: 'root', TZ: localTimeZone() }
     })
     // TTY 0 is the console that boots active, so its shell is the one `globalThis.process.env`
     // mirrors until `switchTty` hands ownership to another - see `Shell.claimProcessEnv`.
