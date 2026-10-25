@@ -32,8 +32,10 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
   if (request.action === 'info') {
     try {
       const mod = loadedModules.get(request.target)
-      const info = mod ? kmodules.info(mod.name) : parseModinfo(await kernel.filesystem.fs.readFile(request.target, 'utf8'))
+      const source = mod ? undefined : await kernel.filesystem.fs.readFile(request.target, 'utf8')
+      const info = source === undefined ? kmodules.info(mod!.name) : parseModinfo(source)
       if (!info) return fail('modinfo', new ModuleError('ENOENT', `module ${request.target} not found`))
+      const signature = source === undefined ? kmodules.signature(mod!.name) : await kmodules.verify(source)
       const lines = [`name:           ${info.name}`]
       if (info.version) lines.push(`version:        ${info.version}`)
       for (const author of info.author ?? []) lines.push(`author:         ${author}`)
@@ -44,6 +46,12 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
       if (info.depends.length) lines.push(`depends:        ${info.depends.join(',')}`)
       for (const alias of info.alias) lines.push(`alias:          ${alias}`)
       for (const parm of info.parm) lines.push(`parm:           ${parm.name}:${parm.description} (${parm.type})`)
+      if (signature && signature.state !== 'none') {
+        lines.push('sig_id:         Ed25519')
+        if (signature.signer) lines.push(`signer:         ${signature.signer}`)
+        if (signature.keyId) lines.push(`sig_key:        ${signature.keyId}`)
+        lines.push(`sig_status:     ${signature.state === 'valid' ? `valid (trusted key ${signature.key})` : signature.state === 'bad' ? 'does not match' : 'no trusted key'}`)
+      }
       return done(...lines)
     } catch (error) {
       return fail('modinfo', error)

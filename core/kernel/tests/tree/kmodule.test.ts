@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { find_module, modules } from '@zenfs/linux'
 
-import { acceptsApi, ModuleError, ModuleManager, parseModinfo, parseParams } from '#lib/kmodule.ts'
+import { acceptsApi, checkSignature, keyIdOf, ModuleError, ModuleManager, parseModinfo, parseParams, parsePublicKey } from '#lib/kmodule.ts'
+import type { TrustedKey } from '#lib/kmodule.ts'
 
 const header = (lines: string[]) => `/* ecmaos-module\n${lines.map(line => ` * ${line}`).join('\n')}\n */\n`
 
@@ -9,7 +10,8 @@ const header = (lines: string[]) => `/* ecmaos-module\n${lines.map(line => ` * $
 const file = (lines: string[], body = 'export default { init() {} }') => header(lines) + body
 
 const lines: string[] = []
-const manager = () => new ModuleManager({
+const manager = (keys: TrustedKey[] = []) => new ModuleManager({
+  keys: async () => keys,
   log: { info: () => {}, warn: () => {}, error: () => {} },
   dmesg: line => lines.push(line),
   evaluate: async source => (await import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)) as unknown
@@ -139,5 +141,67 @@ describe('insmod and rmmod', () => {
     await expect(kmod.unload('before')).rejects.toMatchObject({ code: 'EPERM' })
     expect(find_module('before')).not.toBeNull()
     expect(new ModuleError('X', 'y').code).toBe('X')
+  })
+})
+
+/** What `sign-module` does, from the same spec: Ed25519 over the bytes before a comment-block trailer */
+async function signed(source: string, name = 'release') {
+  const pair = await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify']) as CryptoKeyPair
+  const pub = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey))
+  const body = source.endsWith('\n') ? source : source + '\n'
+  const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', pair.privateKey, new TextEncoder().encode(body)))
+  const trailer = `/* ecmaos-module-signature\n * signer=${name}\n * key_id=${await keyIdOf(pub)}\n * sig=${Buffer.from(sig).toString('base64')}\n */\n`
+  return { text: body + trailer, key: { name, pub } satisfies TrustedKey }
+}
+
+describe('module signatures', () => {
+  it('a module signed by a trusted key loads without the E taint, and modinfo still reads it', async () => {
+    const { text, key } = await signed(file(['name=trusted']))
+    expect(parseModinfo(text).name).toBe('trusted')
+    const mod = await manager([key]).load(text)
+    expect(mod.flags).toBe('O')
+    expect(lines.some(line => line.includes('verification failed'))).toBe(false)
+  })
+
+  it('an unsigned module, or one signed by a key nobody trusts, loads tainted E and says so in dmesg', async () => {
+    const { text } = await signed(file(['name=stranger']))
+    const mod = await manager().load(text)
+    expect(mod.flags).toBe('OE')
+    expect(lines.some(line => line.includes('stranger: module verification failed'))).toBe(true)
+  })
+
+  it('a signature that does not match the bytes is refused, whatever the policy', async () => {
+    const { text, key } = await signed(file(['name=tampered'], 'export default { init() {} } // one'))
+    const kmod = manager([key])
+    await expect(kmod.load(text.replace('// one', '// two'))).rejects.toMatchObject({ code: 'EKEYREJECTED' })
+    expect(find_module('tampered')).toBeNull()
+  })
+
+  it('with enforcement on, only a module signed by a trusted key loads, and it cannot be turned off', async () => {
+    const { text, key } = await signed(file(['name=ok']))
+    const kmod = manager([key])
+    kmod.enforce()
+    await expect(kmod.load(file(['name=plain']))).rejects.toMatchObject({ code: 'ENOKEY' })
+    const other = await signed(file(['name=other']), 'other')
+    await expect(kmod.load(other.text)).rejects.toMatchObject({ code: 'ENOKEY' })
+    expect((await kmod.load(text)).flags).toBe('O')
+    expect(kmod.enforcing).toBe(true)
+  })
+
+  it('reads a public key file, and its id is the first 8 bytes of the SHA-256', async () => {
+    const { key } = await signed('x')
+    const text = `# ecmaos module key\n${Buffer.from(key.pub).toString('base64')}\n`
+    expect(parsePublicKey(text)).toEqual(key.pub)
+    expect(parsePublicKey('not base64 !')).toBeUndefined()
+    expect(parsePublicKey('')).toBeUndefined()
+    expect(await keyIdOf(key.pub)).toMatch(/^[0-9a-f]{16}$/)
+  })
+
+  it('reports the state without loading anything', async () => {
+    const { text, key } = await signed(file(['name=state']))
+    expect((await checkSignature(text, [key])).state).toBe('valid')
+    expect((await checkSignature(text, [])).state).toBe('unknown-key')
+    expect((await checkSignature(file(['name=state']), [key])).state).toBe('none')
+    expect((await checkSignature(text.replace('name=state', 'name=stale'), [key])).state).toBe('bad')
   })
 })

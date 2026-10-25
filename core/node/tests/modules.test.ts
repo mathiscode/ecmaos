@@ -24,4 +24,20 @@ describe.skipIf(!supported)('kernel modules on the Node host', () => {
     expect(await session.run('rmmod hello; echo exit $?')).toBe('exit 0')
     expect(await session.run('lsmod')).not.toContain('hello')
   })
+
+  it('a module signed by a trusted key loads without the E taint, and a changed one is refused', async () => {
+    await session.run(file)
+    await session.run('mkdir -p /etc/modules-keys && sign-module --genkey release')
+    // the line is long enough that the terminal wraps its echo, so only the end of the output is compared
+    expect(await session.run('sign-module -k release.key -o /tmp/s.ko.mjs /tmp/hello.ko.mjs; echo exit $?')).toMatch(/exit 0$/)
+    expect(await session.run('modinfo /tmp/s.ko.mjs')).toContain('sig_status:     no trusted key')
+    await session.run('cp release.pub /etc/modules-keys/')
+    expect(await session.run('modinfo /tmp/s.ko.mjs')).toContain('sig_status:     valid (trusted key release)')
+    expect(await session.run('insmod /tmp/s.ko.mjs times=1; echo exit $?')).toBe('exit 0')
+    expect(await session.run('cat /sys/module/hello/taint')).toBe('O')
+    expect(await session.run('rmmod hello; echo exit $?')).toBe('exit 0')
+
+    await session.run("sed 's/1.0.0/1.0.1/' /tmp/s.ko.mjs > /tmp/e.ko.mjs")
+    expect(await session.run('insmod /tmp/e.ko.mjs; echo exit $?')).toContain('signature does not match')
+  })
 })

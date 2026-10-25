@@ -109,9 +109,49 @@ describe('insmod, rmmod and modinfo', () => {
     expect((await asAlice('rmmod hello')).out).toContain('Operation not permitted')
   })
 
+  it('sign-module makes a key and signs; a trusted signature removes the E taint, and enforcement refuses the rest', async () => {
+    await kernel.filesystem.fs.mkdir('/root/keys', { recursive: true })
+    expect((await sh('cd /root/keys && sign-module --genkey release')).code).toBe(0)
+    expect((await kernel.filesystem.fs.stat('/root/keys/release.key')).mode & 0o777).toBe(0o600)
+
+    expect((await sh('cd /root/keys && sign-module -k release.key -s release -o /lib/modules/hello-signed.ko.mjs /lib/modules/hello.ko.mjs')).code).toBe(0)
+    const signed = await kernel.filesystem.fs.readFile('/lib/modules/hello-signed.ko.mjs', 'utf-8')
+    expect(signed).toMatch(/\/\* ecmaos-module-signature\n \* signer=release\n \* key_id=[0-9a-f]{16}\n \* sig=\S+\n \*\/\n$/)
+    // the module is the same module with a trailer
+    await kernel.filesystem.fs.writeFile('/lib/modules/hello-signed.ko.mjs', signed.replace('name=hello', 'name=hello-signed'))
+    // no key is trusted yet, so the signature is only unknown
+    expect((await sh('modinfo /lib/modules/hello-signed.ko.mjs')).out).toContain('sig_status:     no trusted key')
+
+    // sign again, after the rename, and trust the key
+    expect((await sh('cd /root/keys && sign-module -k release.key /lib/modules/hello-signed.ko.mjs')).code).toBe(0)
+    await kernel.filesystem.fs.mkdir('/etc/modules-keys', { recursive: true })
+    expect((await sh('cp /root/keys/release.pub /etc/modules-keys/release.pub')).code).toBe(0)
+
+    const info = await sh('modinfo /lib/modules/hello-signed.ko.mjs')
+    expect(info.out).toContain('sig_id:         Ed25519')
+    expect(info.out).toContain('signer:         release')
+    expect(info.out).toContain('sig_status:     valid (trusted key release)')
+
+    expect((await sh('insmod /lib/modules/hello-signed.ko.mjs')).code).toBe(0)
+    expect((await sh('cat /sys/module/hello-signed/taint')).out.trim()).toBe('O')
+    expect((await sh('cat /proc/sys/kernel/tainted')).out.trim()).toBe(String(1 << 12))
+    expect((await sh('rmmod hello-signed')).code).toBe(0)
+
+    // a byte changed after signing is refused
+    await kernel.filesystem.fs.writeFile('/lib/modules/hello-signed.ko.mjs', (await kernel.filesystem.fs.readFile('/lib/modules/hello-signed.ko.mjs', 'utf-8')).replace('Says hello', 'Says hullo'))
+    expect((await sh('insmod /lib/modules/hello-signed.ko.mjs')).out).toContain('signature does not match')
+
+    // enforcement: unsigned is refused, and it cannot be turned off
+    expect(await kernel.shell.execute('echo 1 > /proc/sys/kernel/module_sig_enforce')).toBe(0)
+    await kernel.shell.execute('echo 0 > /proc/sys/kernel/module_sig_enforce')
+    expect((await sh('insmod /lib/modules/hello.ko.mjs')).out).toContain('module is not signed')
+    expect((await sh('cat /proc/sys/kernel/module_sig_enforce')).out.trim()).toBe('1')
+  })
+
   it('stops loading for good once modules_disabled is 1', async () => {
     expect(await kernel.shell.execute('echo 1 > /proc/sys/kernel/modules_disabled')).toBe(0)
-    expect(await kernel.shell.execute('echo 0 > /proc/sys/kernel/modules_disabled')).not.toBe(0)
+    await kernel.shell.execute('echo 0 > /proc/sys/kernel/modules_disabled')
+    expect((await sh('cat /proc/sys/kernel/modules_disabled')).out.trim()).toBe('1')
     expect((await sh('insmod /lib/modules/hello.ko.mjs')).out).toContain('module loading is disabled')
   })
 })

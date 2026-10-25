@@ -1,4 +1,4 @@
-/** The module entries of `/proc`: `modules` (with the size of each file, which `lsmod` shows), `kallsyms`, and `sys/kernel/tainted` and `modules_disabled` */
+/** The module entries of `/proc`: `modules` (with the size of each file, which `lsmod` shows), `kallsyms`, and `sys/kernel/tainted`, `modules_disabled` and `module_sig_enforce` */
 
 import { modules } from '@zenfs/linux'
 import { ProcDir } from '@zenfs/linux/fs/procfs'
@@ -25,13 +25,21 @@ export function registerModuleProc(root: ProcDir, kmodules: ModuleManager): void
   const dir = kernel instanceof ProcDir ? kernel.lookup('kernel') : undefined
   if (!(dir instanceof ProcDir)) return
   dir.children.set('tainted', { mode: 0o444, show: () => `${kmodules.tainted}\n` })
-  // one-way, as on Linux: writing 1 stops loading and unloading until reboot, and a 0 does not undo it
+  // one-way, as on Linux: writing 1 stops loading and unloading until reboot, and a 0 does not undo it. A refused write
+  // is ignored rather than thrown: procfs keeps a file whose write threw dirty, and every close of it fails after
   dir.children.set('modules_disabled', {
     mode: 0o644,
     show: () => `${kmodules.disabled ? 1 : 0}\n`,
     store: (value: string) => {
       if (value.trim() === '1') kmodules.disable()
-      else if (kmodules.disabled) throw Object.assign(new Error('Operation not permitted'), { code: 'EPERM' })
+    }
+  })
+  // one-way too: once on, a module loads only if a key in /etc/modules-keys signed it
+  dir.children.set('module_sig_enforce', {
+    mode: 0o644,
+    show: () => `${kmodules.enforcing ? 1 : 0}\n`,
+    store: (value: string) => {
+      if (value.trim() === '1') kmodules.enforce()
     }
   })
 }

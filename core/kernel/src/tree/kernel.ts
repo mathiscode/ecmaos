@@ -36,7 +36,8 @@ import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
-import { ModuleManager } from '#lib/kmodule.ts'
+import { ModuleManager, parsePublicKey } from '#lib/kmodule.ts'
+import type { TrustedKey } from '#lib/kmodule.ts'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerModuleProc } from '#lib/module-proc.ts'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -165,7 +166,10 @@ const DefaultKernelOptions: KernelOptions = {
 const DefaultBootOptions: BootOptions = { silent: false }
 
 /** Commands that live in `/sbin` rather than `/bin`. */
-const SbinCommands = new Set(['init', 'getty', 'insmod', 'rmmod', 'modinfo'])
+const SbinCommands = new Set(['init', 'getty', 'insmod', 'rmmod', 'modinfo', 'sign-module'])
+
+/** Where the public keys that may sign a kernel module are kept */
+const MODULE_KEYS = '/etc/modules-keys'
 
 /** UTF-8 text as base64, for a `data:` import (`Buffer` is not there in a browser) */
 const base64 = (text: string) => {
@@ -400,7 +404,17 @@ export class Kernel implements IKernel {
     this.kmodules = new ModuleManager({
       log: { info: message => this.log.info(message), warn: message => this.log.warn(message), error: message => this.log.error(message) },
       dmesg: line => this.log.info(line),
-      evaluate: source => import(/* @vite-ignore */ `data:text/javascript;base64,${base64(source)}`)
+      evaluate: source => import(/* @vite-ignore */ `data:text/javascript;base64,${base64(source)}`),
+      keys: async () => {
+        const keys: TrustedKey[] = []
+        const names = await this.filesystem.fs.readdir(MODULE_KEYS).catch(() => [] as string[])
+        for (const name of names) {
+          if (!name.endsWith('.pub')) continue
+          const pub = parsePublicKey(await this.filesystem.fs.readFile(`${MODULE_KEYS}/${name}`, 'utf8').catch(() => ''))
+          if (pub) keys.push({ name: name.slice(0, -4), pub })
+        }
+        return keys
+      }
     })
     this.screensavers = new Map()
     this.windows = new WindowServer()

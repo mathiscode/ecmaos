@@ -296,6 +296,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - A loaded module is in `/proc/modules` and `/sys/module/NAME` (with `parameters/`); it taints the kernel (`O` out-of-tree, `E` unsigned, `F` forced), which `/proc/sys/kernel/tainted` shows, and writing 1 to `/proc/sys/kernel/modules_disabled` stops loading and unloading until reboot
 - A module reaches the kernel through `ctx` only: `ctx.param`, `ctx.log`, `ctx.export` and `ctx.import` (symbols listed in `/proc/kallsyms`, a user holds its provider), and `ctx.onExit` for what `rmmod` must undo; the [types](./core/types/modules.ts) are the interface
 - A JS module runs in the kernel and is not confined: load only what you trust
+- Signing: `sign-module --genkey NAME` makes `NAME.key` and `NAME.pub`, `sign-module -k NAME.key FILE` appends an Ed25519 signature to the module, and a key copied to `/etc/modules-keys` is trusted; a module signed by a trusted key does not taint `E`, a signature that does not match is refused, and writing 1 to `/proc/sys/kernel/module_sig_enforce` refuses every module that is not signed by a trusted key until reboot
 - `kernel_api` is a semver range of the module API (`1.0.0`); a module that asks for another version fails with `ENOEXEC`, and `insmod -f` loads it anyway
 
 ### Packages

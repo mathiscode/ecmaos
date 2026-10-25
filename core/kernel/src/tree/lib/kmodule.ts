@@ -18,6 +18,73 @@ export class ModuleError extends Error {
 }
 
 const HEADER = /^\s*\/\*\s*ecmaos-module\b([\s\S]*?)\*\//
+const TRAILER = /\/\* ecmaos-module-signature\b([\s\S]*?)\*\/\s*$/
+
+/** A key `sign-module` made: the raw 32 bytes of an Ed25519 public key, as base64 in a `NAME.pub` file */
+export interface TrustedKey { name: string, pub: Uint8Array }
+
+/** What a module's signature came to: `none` (no trailer), `unknown-key` (nobody trusted signed it), `bad` (a trusted key does not match the bytes), `valid` */
+export interface ModuleSignature {
+  state: 'none' | 'valid' | 'unknown-key' | 'bad'
+  signer?: string
+  keyId?: string
+  /** Name of the trusted key file that checked it */
+  key?: string
+}
+
+const toHex = (bytes: Uint8Array) => [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')
+const fromBase64 = (text: string) => Uint8Array.from(atob(text.replace(/\s+/g, '')), char => char.charCodeAt(0))
+
+/** The short name of a public key that a signature trailer carries: the first 8 bytes of its SHA-256, in hex */
+export async function keyIdOf(pub: Uint8Array) {
+  return toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', pub as BufferSource)).subarray(0, 8))
+}
+
+/** Reads a `NAME.pub` file: base64 of 32 bytes, with `#` comment lines allowed */
+export function parsePublicKey(text: string): Uint8Array | undefined {
+  const line = text.split('\n').map(entry => entry.trim()).find(entry => entry && !entry.startsWith('#'))
+  if (!line) return undefined
+  try {
+    const bytes = fromBase64(line)
+    return bytes.length === 32 ? bytes : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Splits a module file into the bytes that are signed and the signature trailer after them, if there is one */
+export function splitSignature(source: string): { body: string, signer?: string, keyId?: string, sig?: Uint8Array } {
+  const trailer = TRAILER.exec(source)
+  if (!trailer) return { body: source }
+  const fields = new Map<string, string>()
+  for (const raw of trailer[1]!.split('\n')) {
+    const line = raw.replace(/^\s*\*?\s?/, '').trim()
+    const at = line.indexOf('=')
+    if (at > 0) fields.set(line.slice(0, at).trim(), line.slice(at + 1).trim())
+  }
+  let sig: Uint8Array | undefined
+  try { sig = fields.has('sig') ? fromBase64(fields.get('sig')!) : undefined } catch { sig = undefined }
+  return { body: source.slice(0, trailer.index), signer: fields.get('signer'), keyId: fields.get('key_id'), sig }
+}
+
+/** Checks a module file's signature against the trusted keys; reads bytes and runs nothing */
+export async function checkSignature(source: string, keys: TrustedKey[]): Promise<ModuleSignature> {
+  const { body, signer, keyId, sig } = splitSignature(source)
+  if (body === source) return { state: 'none' }
+  const claimed = { signer, keyId }
+  if (!sig) return { state: 'bad', ...claimed }
+  const bytes = new TextEncoder().encode(body)
+  let known = false
+  for (const key of keys) {
+    if (keyId && await keyIdOf(key.pub) !== keyId) continue
+    known = true
+    try {
+      const imported = await crypto.subtle.importKey('raw', key.pub as BufferSource, 'Ed25519', false, ['verify'])
+      if (await crypto.subtle.verify('Ed25519', imported, sig as BufferSource, bytes)) return { state: 'valid', ...claimed, key: key.name }
+    } catch { /* a key this runtime cannot use is the same as one that does not match */ }
+  }
+  return { state: known ? 'bad' : 'unknown-key', ...claimed }
+}
 
 /** Reads the modinfo block at the start of a module file; does not run anything */
 export function parseModinfo(source: string): ModuleInfo {
@@ -97,6 +164,8 @@ export interface ModuleHost {
   evaluate(source: string): Promise<unknown>
   /** Kernel log line (dmesg) */
   dmesg(line: string): void
+  /** The public keys in `/etc/modules-keys`, read each time a module is checked */
+  keys(): Promise<TrustedKey[]>
 }
 
 /**
@@ -105,14 +174,22 @@ export interface ModuleHost {
 export class ModuleManager {
   /** `/proc/sys/kernel/modules_disabled`: once set, nothing loads or unloads, and it cannot be cleared */
   #disabled = false
+  /** `/proc/sys/kernel/module_sig_enforce`: once set, only a module signed by a trusted key loads, and it cannot be cleared */
+  #enforce = false
   readonly #symbols = new Map<string, { owner: Module, value: unknown }>()
-  readonly #infos = new Map<string, { info: ModuleInfo, size: number }>()
+  readonly #infos = new Map<string, { info: ModuleInfo, size: number, signature: ModuleSignature }>()
   #warnedTaint = false
 
   constructor(private readonly host: ModuleHost) {}
 
   get disabled() { return this.#disabled }
   disable() { this.#disabled = true }
+
+  get enforcing() { return this.#enforce }
+  enforce() { this.#enforce = true }
+
+  /** The signature of a module file against the keys trusted now */
+  async verify(source: string) { return checkSignature(source, await this.host.keys()) }
 
   /** `/proc/sys/kernel/tainted`: the bits of every taint a loaded module has set */
   get tainted() {
@@ -130,6 +207,7 @@ export class ModuleManager {
   info(name: string) { return this.#infos.get(name)?.info }
   /** Bytes of the module file, what `lsmod` shows as its size */
   size(name: string) { return this.#infos.get(name)?.size ?? 0 }
+  signature(name: string) { return this.#infos.get(name)?.signature }
 
   /** Every symbol modules export, for `/proc/kallsyms` */
   symbols() {
@@ -141,8 +219,14 @@ export class ModuleManager {
     const info = parseModinfo(source)
     if (find_module(info.name)) throw new ModuleError('EEXIST', `${info.name}: module already loaded`)
 
-    // out of tree, and unsigned until a signature is checked (signing comes later)
-    const taints = new Set<'O' | 'E' | 'F'>(['O', 'E'])
+    // out of tree always; unsigned (E) unless a trusted key signed it. A signature that does not match is refused whatever the policy
+    const signature = await this.verify(source)
+    if (signature.state === 'bad') throw new ModuleError('EKEYREJECTED', `${info.name}: module verification failed: signature does not match`)
+    if (signature.state !== 'valid' && this.#enforce) {
+      throw new ModuleError('ENOKEY', `${info.name}: module verification failed: ${signature.state === 'none' ? 'module is not signed' : 'required key missing'}`)
+    }
+    const taints = new Set<'O' | 'E' | 'F'>(['O'])
+    if (signature.state !== 'valid') taints.add('E')
     if (!acceptsApi(info.kernelApi)) {
       if (!options.force) throw new ModuleError('ENOEXEC', `${info.name}: invalid module format: needs kernel_api ${info.kernelApi}, this kernel has ${KERNEL_API_VERSION}`)
       taints.add('F')
@@ -184,7 +268,8 @@ export class ModuleManager {
       throw error
     }
 
-    this.#infos.set(info.name, { info, size: new TextEncoder().encode(source).length })
+    this.#infos.set(info.name, { info, size: new TextEncoder().encode(source).length, signature })
+    if (signature.state !== 'valid') this.host.dmesg(`${info.name}: module verification failed: signature and/or required key missing - tainting kernel`)
     this.host.dmesg(`${info.name}: loading out-of-tree module taints kernel.`)
     this.host.dmesg(`${info.name}: module${info.version ? ` ${info.version}` : ''} loaded`)
     if (!this.#warnedTaint) {
