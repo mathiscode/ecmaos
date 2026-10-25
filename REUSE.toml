@@ -187,6 +187,13 @@ precedence = "override"
 SPDX-FileCopyrightText = "the authors of each program, named in its license text"
 SPDX-License-Identifier = "GPL-2.0-or-later AND X11"
 
+# core/utils-copyleft: programs built from upstream sources under Artistic-1.0-Perl OR GPL-1.0-or-later (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = ["core/utils-copyleft/programs/perl-lib.tar.gz", "core/utils-copyleft/programs/perl.wasm"]
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "Artistic-1.0-Perl OR GPL-1.0-or-later"
+
 # Bundles of upstream files shipped beside a program
 [[annotations]]
 path = "core/utils/programs/python3-lib.tar.gz"
