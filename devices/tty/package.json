@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-devices/tty",
   "version": "0.1.1",
+  "license": "MIT OR Apache-2.0",
   "publishConfig": {
     "access": "public"
   },

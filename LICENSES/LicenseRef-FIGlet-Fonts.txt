@@ -1,0 +1,4 @@
+The FIGlet fonts the figlet command can import (core/kernel/public/importable-fonts) are distributed by figlet.js
+and come from the FIGlet font collections. Each font's header names its designer and the terms they gave (many say
+the font is free to use and redistribute with the header intact, some ask for credit, some are public domain). They
+have not been reviewed one by one: use a font under the terms in its own header, and keep the header.

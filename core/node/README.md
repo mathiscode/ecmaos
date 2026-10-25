@@ -23,6 +23,14 @@ The initfs and the permissively licensed programs of `@ecmaos/coreutils` come wi
 from disk, with no network. The GPL programs (`vim`, `nano`, `make`, ...) are not part of it: install
 `@ecmaos/coreutils-copyleft` beside it to have them (`ECMAOS_COPYLEFT=0` ignores it).
 
+## Licenses
+
+`@ecmaos/node` is MIT OR Apache-2.0. `dist/ecmaos.mjs` has ZenFS (`@zenfs/*`), `utilium` and `memium` bundled into it, all
+LGPL-3.0-or-later and all unmodified; their texts, and ecmaOS's own, are in this package's `licenses/` folder (and, in a
+running machine, `/usr/share/licenses/`: run `licenses` to list them). To use a modified copy of any of them, follow
+`licenses/@zenfs/README.md`: replace the dependency's `dist` in a clone of
+[the repository](https://github.com/ecmaos/ecmaos) and run `pnpm --filter @ecmaos/node build`.
+
 ## `node` inside the machine
 
 `node` in the guest shell runs JavaScript. It is a real `node` command line:

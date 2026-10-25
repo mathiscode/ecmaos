@@ -49,6 +49,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The kernel and node bundles must not hold a copyleft program (they are separate files, run as processes)
+      - name: Copyleft boundary in the built bundles
+        run: node scripts/check-license-boundary.mjs --dist
+
       - name: Typecheck error-budget ratchet
         run: node scripts/typecheck-ratchet.mjs
 
@@ -60,6 +64,40 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+  licenses:
+    name: licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # REUSE.toml is generated from the programs' manifests; the other files' licenses come from their headers
+      - name: REUSE.toml is up to date
+        run: node scripts/reuse-toml.mjs --check
+
+      - name: Every file has a license (REUSE)
+        run: pipx run reuse==6.2.0 lint
+
+      - name: Every dependency is under an allowed license
+        run: pnpm check:licenses
+
+      - name: Only the copyleft package holds, depends on or imports the copyleft programs
+        run: pnpm check:license-boundary
+
+      - name: Every commit is signed off (Developer Certificate of Origin)
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-dco.mjs "origin/${{ github.base_ref }}..HEAD"
 
   node:
     name: node ${{ matrix.node }} on ${{ matrix.os }}

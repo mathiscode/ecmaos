@@ -1,0 +1,31 @@
+{
+  "comment": "Licenses a dependency may be under without review. An SPDX expression passes when every AND operand passes and at least one OR alternative does. Anything else fails `pnpm check:licenses` until it is reviewed and added here.",
+  "allowed": [
+    "MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "Zlib", "BlueOak-1.0.0", "CC0-1.0",
+    "Python-2.0", "Unlicense", "WTFPL", "X11"
+  ],
+  "normalize": {
+    "MIT/X11": "MIT",
+    "Apache 2.0": "Apache-2.0",
+    "GPLv2": "GPL-2.0-only"
+  },
+  "reviewed": {
+    "comment": "Copyleft licenses, allowed only for the packages named (a glob ending in * matches a prefix), each reviewed",
+    "LGPL-3.0-or-later": {
+      "packages": ["@zenfs/*", "utilium", "memium"],
+      "why": "ZenFS and the two libraries it is built on: bundled unmodified, with their texts in /usr/share/licenses and the steps to use your own copy in /usr/share/licenses/@zenfs/README.md (the @zenfs/* packages also carry the web-application exception in COPYING.md)"
+    },
+    "MPL-2.0": {
+      "packages": ["lightningcss", "lightningcss-*", "@typhonjs-typedoc/*"],
+      "why": "build and documentation tooling, unmodified; MPL-2.0 is file-level and nothing of it is in what ecmaOS ships except the generated docs theme, which REUSE.toml annotates"
+    }
+  },
+  "exceptions": {
+    "comment": "Packages whose metadata says nothing or something unparseable, checked by hand",
+    "spawndamnit": "no SPDX in package.json ('SEE LICENSE IN LICENSE'); the LICENSE file is MIT (a development dependency of changesets)",
+    "canvas-linux-x64-gnu": "prebuilt binary of node-canvas, which is MIT; no license field (development dependency)",
+    "canvas-linux-x64-musl": "prebuilt binary of node-canvas, which is MIT; no license field (development dependency)",
+    "@bytecodealliance/componentize-js": "'Apache 2.0 OR GPLv2': used under Apache-2.0 (the dual license is Apache-2.0 OR GPL-2.0-only, with the LLVM exception)",
+    "jszip": "'MIT OR GPL-3.0-or-later': used under MIT"
+  }
+}

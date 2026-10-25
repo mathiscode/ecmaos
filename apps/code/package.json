@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-apps/code",
   "version": "0.3.4",
+  "license": "MIT OR Apache-2.0",
   "description": "ecmaOS Code Editor",
   "author": "Jay Mathis <code@mathis.network>",
   "type": "module",

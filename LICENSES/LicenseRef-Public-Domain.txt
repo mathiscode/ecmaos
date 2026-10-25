@@ -1,0 +1,4 @@
+Dedicated to the public domain by its authors, who claim no copyright in it (for example SQLite, whose blessing is in
+LICENSES/blessing.txt, and the public domain parts of mg, libtomcrypt, libtommath and TweetNaCl). Where a jurisdiction
+does not recognize that, anyone may use the work for any purpose, with or without changes, without asking and without
+a notice.

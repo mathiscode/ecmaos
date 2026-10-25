@@ -22,7 +22,7 @@ This is NOT intended to be a "Linux kernel in Javascript" - while it takes its h
 [![Created](https://img.shields.io/github/created-at/ecmaos/ecmaos?style=flat&label=created&color=success)](https://github.com/ecmaos/ecmaos/pulse)
 [![Last Commit](https://img.shields.io/github/last-commit/ecmaos/ecmaos.svg)](https://github.com/ecmaos/ecmaos/commit/main)
 [![API Reference](https://img.shields.io/badge/API-Reference-success)](https://docs.ecmaos.sh)
-[![GitHub license](https://img.shields.io/badge/license-MIT+Apache2.0-success)](https://github.com/ecmaos/ecmaos/blob/main/LICENSE)
+[![GitHub license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-success)](https://github.com/ecmaos/ecmaos/blob/main/LICENSE)
 
 [![Open issues](https://img.shields.io/github/issues/ecmaos/ecmaos.svg?logo=github)](https://github.com/ecmaos/ecmaos/issues)
 [![Closed issues](https://img.shields.io/github/issues-closed/ecmaos/ecmaos.svg?logo=github)](https://github.com/ecmaos/ecmaos/issues?q=is%3Aissue+is%3Aclosed)
@@ -463,7 +463,7 @@ cat /dev/usb0
 /dev/midi list
 /dev/presentation start https://wikipedia.org
 /dev/sensors list
-/dev/serial devices
+/dev/serialctl devices
 /dev/usb list
 /dev/webgpu test
 echo "Goodbye" > /dev/null
@@ -504,7 +504,7 @@ out = 2
 - **`/dev/hidraw<N>`** and **`/dev/midi<N>`** are the HID devices and MIDI ports the browser has already allowed; the gamepads are under `/dev/input` (see Input, above).
 - **`/dev/ttyACM<N>`**, **`/dev/ttyUSB<N>`** and **`/dev/rfcomm<N>`** are the serial ports: a board that speaks CDC ACM (an Arduino, a Raspberry Pi Pico, an ESP32 with native USB), one behind a USB-serial chip (FTDI, CP210x, CH340, PL2303) and a Bluetooth serial port, named as Linux names them. Each is a terminal, with the line discipline and a `c_cflag` that sets the port's speed, character size, parity, stop bits and flow control (`stty -F /dev/ttyACM0 115200 raw`, `microcom -s 115200 /dev/ttyACM0`). A port gets its node when it is granted (`serial request`) or plugged in, with the lowest free number as on Linux, and loses it when it is unplugged; a program that still has it open reads the end of the file. `/dev/serial/by-id/usb-<vendor>_<product>-if00` is a name that stays with the device.
 
-Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serial`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. The number in a `usb<N>`, `ble<N>` or `hidraw<N>` name stays with its device: each is remembered by what identifies it (ids and serial number, or the Bluetooth device id) in `/var/lib/ecmaos/<driver>-minors.json`. Forgetting a device leaves a gap and the others keep their names; a new device gets a number that was never used. Devices that look the same (no serial number) are told apart by the order the browser lists them in. MIDI ports are numbered by position.
+Each driver with several nodes also has a control node (`/dev/usb`, `/dev/serialctl`, `/dev/hid` and so on) that is always there, even where the browser lacks the API, so its command can be run. The number in a `usb<N>`, `ble<N>` or `hidraw<N>` name stays with its device: each is remembered by what identifies it (ids and serial number, or the Bluetooth device id) in `/var/lib/ecmaos/<driver>-minors.json`. Forgetting a device leaves a gap and the others keep their names; a new device gets a number that was never used. Devices that look the same (no serial number) are told apart by the order the browser lists them in. MIDI ports are numbered by position. `/dev/serial` is not the control node: as on Linux it is a directory, holding the `by-id` names of the USB serial ports.
 
 ## Code Execution Example
 
@@ -648,8 +648,15 @@ Everything is also in the running system: the texts are in `/usr/share/licenses/
 
 ### Third-party notices
 
-- **[ZenFS](https://github.com/zen-fs/core)** (`@zenfs/core`, `@zenfs/linux`, `@zenfs/dom`, `@zenfs/archives`, `@zenfs/cloud`, `@zenfs/emscripten`), Copyright © James Prevett and other ZenFS contributors, licensed under the [LGPL 3.0 or later](https://www.gnu.org/licenses/lgpl-3.0.html) and [COPYING.md](https://github.com/zen-fs/core/blob/main/COPYING.md). ecmaOS is built on it and is grateful to it. It is a dependency, bundled by the build and not copied into this repository. Its texts are in `/usr/share/licenses/@zenfs/` in the running system, and in `core/kernel/public/initfs/usr/share/licenses/@zenfs/` here.
-- **Using your own ZenFS.** To build ecmaOS (the site, or the Node host, which has ZenFS bundled into `dist/ecmaos.mjs`) against a modified ZenFS, point the dependency at your copy and rebuild; the steps are in `/usr/share/licenses/@zenfs/README.md` (the same file is in the repository under `core/kernel/public/initfs/`).
+- **[ZenFS](https://github.com/zen-fs/core)** (`@zenfs/core`, `@zenfs/linux`, `@zenfs/dom`, `@zenfs/archives`, `@zenfs/cloud`, `@zenfs/emscripten`, `@zenfs/streams`), Copyright © James Prevett and other ZenFS contributors, licensed under the [LGPL 3.0 or later](https://www.gnu.org/licenses/lgpl-3.0.html) and [COPYING.md](https://github.com/zen-fs/core/blob/main/COPYING.md). ecmaOS is built on it and is grateful to it. It is a dependency, bundled by the build and not copied into this repository, and it is not modified.
+- **[utilium](https://github.com/james-pre/utilium) and [memium](https://github.com/james-pre/memium)**, by the same author and also bundled, are the LGPL 3.0 or later with no web-application exception.
+- **What carries them:** the site (a web application, which the ZenFS exception covers), the Node host `@ecmaos/node` (ZenFS and the two libraries are bundled into `dist/ecmaos.mjs`) and the desktop app `@ecmaos/jaffa`. The last two ship the library texts in a `licenses/` folder, and every distribution has them in the running system, in `/usr/share/licenses/` (`licenses` lists them and prints any of them).
+- **Using your own copy.** To build ecmaOS (the site, the Node host or the desktop app) against a modified copy of any of these libraries, point the dependency at your copy and rebuild; the steps are in `/usr/share/licenses/@zenfs/README.md` (the same file is in the repository under `core/kernel/public/initfs/`).
+- **The rest of the dependency tree** (about 300 packages in production) is MIT, Apache-2.0, BSD, ISC, MPL-2.0 (`lightningcss`, a build tool, unmodified) or similar; `pnpm check:licenses` fails when a dependency is under a license that is not on the list in `scripts/license-allowlist.json`.
+
+### Contributing and license checks
+
+Contributions are licensed under the license of the directory they touch (MIT OR Apache-2.0, and the program's own license under `core/utils-copyleft`), and each commit carries a `Signed-off-by` line ([the Developer Certificate of Origin](https://developercertificate.org/)); see [CONTRIBUTING.md](/CONTRIBUTING.md). `REUSE.toml` states the license of every file, and CI runs `reuse lint`, `pnpm check:licenses` (dependencies) and `pnpm check:license-boundary` (the kernel and `@ecmaos/coreutils` never import the copyleft package).
 
 ## Security Vulnerabilities
 
