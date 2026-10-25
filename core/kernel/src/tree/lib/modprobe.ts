@@ -6,13 +6,14 @@
 
 import { modules as loadedModules } from '@zenfs/linux'
 
-import { ModuleError, parseModinfo } from './kmodule.ts'
+import { ModuleError, parseModinfo, readModuleFile } from './kmodule.ts'
 import type { ModuleManager } from './kmodule.ts'
 
 /** The part of the filesystem this needs; `kernel.filesystem.fs` has it */
 export interface ProbeFs {
   readdir(path: string): Promise<string[]>
   readFile(path: string, encoding: 'utf8'): Promise<string>
+  readFile(path: string): Promise<Uint8Array>
   writeFile(path: string, data: string): Promise<void>
   mkdir(path: string, options: { recursive: true }): Promise<unknown>
   exists(path: string): Promise<boolean>
@@ -21,7 +22,10 @@ export interface ProbeFs {
 
 export const moduleDir = (release: string) => `/lib/modules/${release}`
 
-const SUFFIX = '.ko.mjs'
+/** The suffixes of a module file: JavaScript, and WebAssembly */
+const SUFFIXES = ['.ko.mjs', '.ko.wasm']
+/** The module name a file name stands for */
+const nameOf = (file: string) => file.split('/').pop()!.replace(/\.ko\.(mjs|wasm)$/, '')
 /** Linux treats `-` and `_` in a module name as the same character */
 const same = (name: string) => name.replace(/-/g, '_')
 
@@ -37,19 +41,19 @@ async function walk(fs: ProbeFs, dir: string): Promise<string[]> {
   for (const entry of (await fs.readdir(dir).catch(() => [] as string[])).sort()) {
     const path = `${dir}/${entry}`
     if ((await fs.stat(path)).isDirectory()) found.push(...await walk(fs, path))
-    else if (entry.endsWith(SUFFIX)) found.push(path)
+    else if (SUFFIXES.some(suffix => entry.endsWith(suffix))) found.push(path)
   }
   return found
 }
 
-/** Reads every `*.ko.mjs` under `dir` and writes `modules.dep` (a module and everything it needs, nearest first) and `modules.alias` */
+/** Reads every `*.ko.mjs` and `*.ko.wasm` under `dir` and writes `modules.dep` (a module and everything it needs, nearest first) and `modules.alias` */
 export async function depmod(fs: ProbeFs, dir: string): Promise<DepmodResult> {
   const warnings: string[] = []
   const found = new Map<string, { path: string, depends: string[], alias: string[] }>()
   for (const path of await walk(fs, dir)) {
-    const file = path.split('/').pop()!.slice(0, -SUFFIX.length)
+    const file = nameOf(path)
     try {
-      const info = parseModinfo(await fs.readFile(path, 'utf8'))
+      const info = parseModinfo(await readModuleFile(fs, path))
       if (same(info.name) !== same(file)) {
         warnings.push(`${path}: the file is named ${file} but the module says it is ${info.name}; skipped`)
         continue
@@ -171,7 +175,7 @@ export class ModProbe {
       const at = line.indexOf(':')
       if (at < 1) continue
       const path = line.slice(0, at)
-      dep.set(same(path.split('/').pop()!.slice(0, -SUFFIX.length)), { path, needs: line.slice(at + 1).trim().split(/\s+/).filter(Boolean) })
+      dep.set(same(nameOf(path)), { path, needs: line.slice(at + 1).trim().split(/\s+/).filter(Boolean) })
     }
     const aliases: Array<{ pattern: string, name: string }> = []
     for (const line of (await this.host.fs.readFile(`${this.dir}/modules.alias`, 'utf8').catch(() => '')).split('\n')) {
@@ -233,13 +237,13 @@ export class ModProbe {
     for (const pre of soft?.pre ?? []) lines.push(...await this.load(pre, { dryRun: options.dryRun }, done).catch(() => []))
     const entry = index.dep.get(name)!
     for (const need of [...entry.needs].reverse()) {
-      const file = same(need.split('/').pop()!.slice(0, -SUFFIX.length))
+      const file = same(nameOf(need))
       lines.push(...await this.load(file, { dryRun: options.dryRun }, done))
     }
 
     const params = [...(config.options.get(name) ?? []), ...(options.params ?? [])]
     lines.push(`insmod ${this.dir}/${entry.path}${params.length ? ' ' + params.join(' ') : ''}`)
-    if (!options.dryRun) await this.host.kmodules.load(await this.host.fs.readFile(`${this.dir}/${entry.path}`, 'utf8'), { params })
+    if (!options.dryRun) await this.host.kmodules.load(await readModuleFile(this.host.fs, `${this.dir}/${entry.path}`), { params })
     for (const post of soft?.post ?? []) lines.push(...await this.load(post, { dryRun: options.dryRun }, done).catch(() => []))
     return lines
   }
@@ -263,7 +267,7 @@ export class ModProbe {
     lines.push(`rmmod ${mod.name}`)
     if (!options.dryRun) await this.host.kmodules.unload(mod.name)
     for (const need of index.dep.get(name)!.needs) {
-      const dependency = loaded(need.split('/').pop()!.slice(0, -SUFFIX.length))
+      const dependency = loaded(nameOf(need))
       if (!dependency || (!options.dryRun && dependency.refcnt > 0)) continue
       lines.push(`rmmod ${dependency.name}`)
       if (!options.dryRun) await this.host.kmodules.unload(dependency.name).catch(() => {})

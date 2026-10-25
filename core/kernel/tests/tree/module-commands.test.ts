@@ -493,6 +493,87 @@ export default {
     })
   })
 
+  describe('WebAssembly modules', () => {
+    const builtin = <T>(id: string) => (process as unknown as { getBuiltinModule: (id: string) => T }).getBuiltinModule(id)
+    const dir = () => `/lib/modules/${kernel.version}`
+
+    beforeAll(async () => {
+      // a JavaScript module componentized with jco, packed with its modinfo
+      const cwd = builtin<typeof import('node:path')>('node:path').resolve(import.meta.dirname, '../..')
+      const out = builtin<typeof import('node:path')>('node:path').join(builtin<typeof import('node:fs')>('node:fs').mkdtempSync(builtin<typeof import('node:path')>('node:path').join(builtin<typeof import('node:os')>('node:os').tmpdir(), 'ecmaos-wasm-')), 'wasm_hello.ko.wasm')
+      builtin<typeof import('node:child_process')>('node:child_process').execFileSync(process.execPath, ['scripts/wasm-module.mjs', 'build', 'examples/wasm-hello/module.js', 'examples/wasm-hello/module.json', out], { cwd, stdio: 'ignore' })
+      await kernel.filesystem.fs.mkdir(dir(), { recursive: true })
+      await kernel.filesystem.fs.writeFile(`${dir()}/wasm_hello.ko.wasm`, new Uint8Array(builtin<typeof import('node:fs')>('node:fs').readFileSync(out)))
+      await kernel.filesystem.fs.writeFile('/usr/bin/wasm-call', "#!/usr/bin/env node\nconst { argv, custom, write, exit } = globalThis.ecmaosSyscalls; let out; try { out = String(await custom(argv[1], ...argv.slice(2).map(Number))) } catch (error) { out = 'threw ' + (error.code ?? error.message) } write(1, new TextEncoder().encode(out + '\\n')); exit(0)\n", { mode: 0o755 })
+    }, 60000)
+
+    it('modinfo reads the modinfo section without running the module', async () => {
+      const result = await sh(`modinfo ${dir()}/wasm_hello.ko.wasm`)
+      expect(result.out).toContain('name:           wasm_hello')
+      expect(result.out).toContain('license:        MIT')
+      expect(result.out).toContain('kind:           wasm (a sandboxed component')
+      expect(result.out).toContain('parm:           greeting')
+      expect((await sh('cat /proc/modules')).out).not.toContain('wasm_hello')
+    })
+
+    it('loads, adds its files, syscall, policy and program format, answers them, and takes them all away on rmmod', async () => {
+      const loaded = await sh(`insmod ${dir()}/wasm_hello.ko.wasm greeting=hi`)
+      expect(loaded.code, loaded.out).toBe(0)
+      expect((await sh('cat /proc/modules')).out).toMatch(/^wasm_hello /m)
+
+      expect((await sh('cat /proc/wasm_hello')).out).toBe('hi from WebAssembly\nnote: \n')
+      expect(await kernel.shell.execute('echo remembered > /proc/wasm_hello')).toBe(0)
+      expect((await sh('cat /proc/wasm_hello')).out).toBe('hi from WebAssembly\nnote: remembered\n')
+      expect((await sh('cat /sys/kernel/wasm_hello/greeting')).out).toBe('hi\n')
+      expect((await sh('cat /sys/kernel/wasm_hello/note')).out).toBe('remembered\n')
+      // each read of the file runs the module (the size is worked out from the text too), so the count goes up by however many
+      const first = Number((await sh('cat /sys/kernel/debug/wasm_hello/reads')).out)
+      const second = Number((await sh('cat /sys/kernel/debug/wasm_hello/reads')).out)
+      expect(first).toBeGreaterThan(0)
+      expect(second).toBeGreaterThan(first)
+      expect((await sh('wasm-call wasm_hello_add 2 3 4')).out).toBe('9\n')
+      expect(kernel.moduleBinfmts.size).toBe(1)
+
+      expect((await sh('rmmod wasm_hello')).code).toBe(0)
+      for (const path of ['/proc/wasm_hello', '/sys/kernel/wasm_hello', '/sys/kernel/debug/wasm_hello']) expect((await sh(`ls ${path}`)).code, path).not.toBe(0)
+      expect((await sh('wasm-call wasm_hello_add 2 3')).out).toBe('threw ENOSYS\n')
+      expect(kernel.moduleBinfmts.size).toBe(0)
+    }, 60000)
+
+    it('depmod finds it and modprobe loads it by its alias', async () => {
+      expect((await sh('depmod')).code).toBe(0)
+      expect(await kernel.filesystem.fs.readFile(`${dir()}/modules.alias`, 'utf-8')).toContain('alias binfmt-hello wasm_hello')
+      expect((await sh('modprobe binfmt-hello')).code).toBe(0)
+      expect((await sh('cat /proc/wasm_hello')).out).toContain('from WebAssembly')
+      expect((await sh('modprobe -r wasm_hello')).code).toBe(0)
+    }, 60000)
+
+    it('refuses the filesystem, the network and HTTP', async () => {
+      const { denied } = await import('#lib/wasm-module.ts')
+      expect(() => (denied('the network') as { connect(): void }).connect()).toThrow('the network is not available to a module')
+      expect(() => new ((denied('the filesystem') as { Descriptor: new () => unknown }).Descriptor)()).toThrow('the filesystem is not available to a module')
+    })
+
+    it('a signature is one more section: a trusted one removes the E taint and a changed module is refused', async () => {
+      expect((await sh('sign-module --genkey wasmkey')).code).toBe(0)
+      await kernel.filesystem.fs.mkdir('/etc/modules-keys', { recursive: true })
+      expect((await sh('cp wasmkey.pub /etc/modules-keys/')).code).toBe(0)
+      const signed = await sh(`sign-module -k wasmkey.key -o /tmp/signed.ko.wasm ${dir()}/wasm_hello.ko.wasm`)
+      expect(signed.code, signed.out).toBe(0)
+      expect((await sh('modinfo /tmp/signed.ko.wasm')).out).toContain('sig_status:     valid (trusted key wasmkey)')
+      expect((await sh('insmod /tmp/signed.ko.wasm')).code).toBe(0)
+      expect((await sh('cat /sys/module/wasm_hello/taint')).out).toBe('O\n')
+      expect((await sh('rmmod wasm_hello')).code).toBe(0)
+
+      // one byte of the module changed under its signature
+      const bytes = new Uint8Array(await kernel.filesystem.fs.readFile('/tmp/signed.ko.wasm'))
+      bytes[bytes.length >> 1]! ^= 1
+      await kernel.filesystem.fs.writeFile('/tmp/changed.ko.wasm', bytes)
+      expect((await sh('insmod /tmp/changed.ko.wasm')).out).toContain('signature does not match')
+      await kernel.filesystem.fs.unlink('/etc/modules-keys/wasmkey.pub')
+    }, 120000)
+  })
+
   it('lets anyone list and read, but only root load or unload', async () => {
     if (!await canRunProgramsAsUser(kernel.filesystem.fs)) return // every program runs as root on this machine
     await kernel.filesystem.fs.chmod('/tmp', 0o1777)

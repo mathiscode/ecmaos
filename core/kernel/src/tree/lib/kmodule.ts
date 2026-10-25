@@ -9,9 +9,13 @@ import { Module, find_module, modules as loadedModules } from '@zenfs/linux'
 import type { KernelModule, ModuleContext, ModuleInfo } from '@ecmaos/types'
 
 import { createHooks, type HookHost } from './module-hooks.ts'
+import { isWasm, splitWasmSignature, wasmCustomSection, wasmModule, WASM_MODINFO_SECTION } from './wasm-module.ts'
 
 /** The module API this kernel offers; a module's `kernel_api` range is checked against it */
 export const KERNEL_API_VERSION = '1.0.0'
+
+/** `js` runs in the kernel with everything it can do; `wasm` is a sandboxed component that has only the world it declares */
+export type ModuleKind = 'js' | 'wasm'
 
 export class ModuleError extends Error {
   constructor(readonly code: string, message: string) {
@@ -70,31 +74,47 @@ export function splitSignature(source: string): { body: string, signer?: string,
 }
 
 /** Checks a module file's signature against the trusted keys; reads bytes and runs nothing */
-export async function checkSignature(source: string, keys: TrustedKey[]): Promise<ModuleSignature> {
-  const { body, signer, keyId, sig } = splitSignature(source)
+export async function checkSignature(source: string | Uint8Array, keys: TrustedKey[]): Promise<ModuleSignature> {
+  const wasm = isWasm(source)
+  const { body, signer, keyId, sig } = wasm ? splitWasmSignature(source) : splitSignature(source as string)
   if (body === source) return { state: 'none' }
   const claimed = { signer, keyId }
   if (!sig) return { state: 'bad', ...claimed }
-  const bytes = new TextEncoder().encode(body)
+  const bytes = typeof body === 'string' ? new TextEncoder().encode(body) : body
   let known = false
   for (const key of keys) {
     if (keyId && await keyIdOf(key.pub) !== keyId) continue
     known = true
     try {
       const imported = await crypto.subtle.importKey('raw', key.pub as BufferSource, 'Ed25519', false, ['verify'])
-      if (await crypto.subtle.verify('Ed25519', imported, sig as BufferSource, bytes)) return { state: 'valid', ...claimed, key: key.name }
+      if (await crypto.subtle.verify('Ed25519', imported, sig as BufferSource, bytes as BufferSource)) return { state: 'valid', ...claimed, key: key.name }
     } catch { /* a key this runtime cannot use is the same as one that does not match */ }
   }
   return { state: known ? 'bad' : 'unknown-key', ...claimed }
 }
 
+/** Reads a module file the way the loader wants it: text for a JS module, bytes for a WebAssembly one */
+export async function readModuleFile(fs: { readFile(path: string): Promise<Uint8Array> }, path: string): Promise<string | Uint8Array> {
+  const read = await fs.readFile(path)
+  const bytes = new Uint8Array(read.buffer, read.byteOffset, read.byteLength)
+  return isWasm(bytes) ? bytes : new TextDecoder().decode(bytes)
+}
+
 /** Reads the modinfo block at the start of a module file; does not run anything */
-export function parseModinfo(source: string): ModuleInfo {
-  const header = HEADER.exec(source)
-  if (!header) throw new ModuleError('ENOEXEC', 'invalid module format: no ecmaos-module header')
+export function parseModinfo(source: string | Uint8Array): ModuleInfo {
+  let lines: string
+  if (isWasm(source)) {
+    const section = wasmCustomSection(source, WASM_MODINFO_SECTION)
+    if (section === undefined) throw new ModuleError('ENOEXEC', `invalid module format: no ${WASM_MODINFO_SECTION} section`)
+    lines = section
+  } else {
+    const header = HEADER.exec(source as string)
+    if (!header) throw new ModuleError('ENOEXEC', 'invalid module format: no ecmaos-module header')
+    lines = header[1]!
+  }
 
   const info: ModuleInfo = { name: '', depends: [], alias: [], parm: [], fields: [] }
-  for (const raw of header[1]!.split('\n')) {
+  for (const raw of lines.split('\n')) {
     const line = raw.replace(/^\s*\*?\s?/, '').trimEnd()
     if (!line || line.startsWith('#')) continue
     const at = line.indexOf('=')
@@ -182,7 +202,7 @@ export class ModuleManager {
   /** Questions a module asks of the world before it may unload (a mounted filesystem of its own): the answer is a reason, or nothing */
   readonly #busy = new Map<Module, Array<() => string | undefined>>()
   readonly #provided = new Map<string, unknown>()
-  readonly #infos = new Map<string, { info: ModuleInfo, size: number, signature: ModuleSignature }>()
+  readonly #infos = new Map<string, { info: ModuleInfo, size: number, signature: ModuleSignature, kind: ModuleKind }>()
   #warnedTaint = false
 
   constructor(private readonly host: ModuleHost) {}
@@ -194,7 +214,7 @@ export class ModuleManager {
   enforce() { this.#enforce = true }
 
   /** The signature of a module file against the keys trusted now */
-  async verify(source: string) { return checkSignature(source, await this.host.keys()) }
+  async verify(source: string | Uint8Array) { return checkSignature(source, await this.host.keys()) }
 
   /** `/proc/sys/kernel/tainted`: the bits of every taint a loaded module has set */
   get tainted() {
@@ -213,6 +233,7 @@ export class ModuleManager {
   /** Bytes of the module file, what `lsmod` shows as its size */
   size(name: string) { return this.#infos.get(name)?.size ?? 0 }
   signature(name: string) { return this.#infos.get(name)?.signature }
+  kind(name: string) { return this.#infos.get(name)?.kind }
 
   /** Makes `value` importable by every module under `symbol`, like a symbol the kernel exports itself */
   provide(symbol: string, value: unknown) {
@@ -227,7 +248,7 @@ export class ModuleManager {
     ].sort((a, b) => a.symbol.localeCompare(b.symbol))
   }
 
-  async load(source: string, options: LoadOptions = {}): Promise<Module> {
+  async load(source: string | Uint8Array, options: LoadOptions = {}): Promise<Module> {
     if (this.#disabled) throw new ModuleError('EPERM', 'module loading is disabled')
     const info = parseModinfo(source)
     if (find_module(info.name)) throw new ModuleError('EEXIST', `${info.name}: module already loaded`)
@@ -246,7 +267,7 @@ export class ModuleManager {
     }
     const values = parseParams(options.params ?? [], info)
 
-    const exported = await this.host.evaluate(source) as { default?: KernelModule } & Partial<KernelModule>
+    const exported = (isWasm(source) ? wasmModule(source) : await this.host.evaluate(source as string)) as { default?: KernelModule } & Partial<KernelModule>
     const entry = (exported.default ?? exported) as Partial<KernelModule>
     if (typeof entry.init !== 'function') throw new ModuleError('ENOEXEC', `${info.name}: invalid module format: no init function`)
 
@@ -282,7 +303,7 @@ export class ModuleManager {
       throw error
     }
 
-    this.#infos.set(info.name, { info, size: new TextEncoder().encode(source).length, signature })
+    this.#infos.set(info.name, { info, size: typeof source === 'string' ? new TextEncoder().encode(source).length : source.length, signature, kind: isWasm(source) ? 'wasm' : 'js' })
     if (signature.state !== 'valid') this.host.dmesg(`${info.name}: module verification failed: signature and/or required key missing - tainting kernel`)
     this.host.dmesg(`${info.name}: loading out-of-tree module taints kernel.`)
     this.host.dmesg(`${info.name}: module${info.version ? ` ${info.version}` : ''} loaded`)

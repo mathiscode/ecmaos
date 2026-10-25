@@ -1,0 +1,8 @@
+{
+  "name": "wasm_hello",
+  "version": "1.0.0",
+  "description": "Says hello from WebAssembly: a /proc file, a /sys directory, a debugfs file, a syscall and a program format",
+  "license": "MIT",
+  "alias": ["binfmt-hello"],
+  "parm": ["greeting:string:What to say"]
+}

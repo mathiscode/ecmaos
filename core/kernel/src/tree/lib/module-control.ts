@@ -7,7 +7,8 @@ import { Cap, capable, modules as loadedModules } from '@zenfs/linux'
 import type { Process } from '@zenfs/linux'
 
 import type { Kernel } from '#kernel.ts'
-import { ModuleError, parseModinfo } from './kmodule.ts'
+import { ModuleError, parseModinfo, readModuleFile } from './kmodule.ts'
+import { isWasm } from './wasm-module.ts'
 import { depmod } from './modprobe.ts'
 
 export type ModuleRequest =
@@ -35,7 +36,7 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
   if (request.action === 'info') {
     try {
       const mod = loadedModules.get(request.target)
-      const source = mod ? undefined : await kernel.filesystem.fs.readFile(request.target, 'utf8')
+      const source = mod ? undefined : await readModuleFile(kernel.filesystem.fs, request.target)
       const info = source === undefined ? kmodules.info(mod!.name) : parseModinfo(source)
       if (!info) return fail('modinfo', new ModuleError('ENOENT', `module ${request.target} not found`))
       const signature = source === undefined ? kmodules.signature(mod!.name) : await kmodules.verify(source)
@@ -44,7 +45,8 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
       for (const author of info.author ?? []) lines.push(`author:         ${author}`)
       if (info.description) lines.push(`description:    ${info.description}`)
       if (info.license) lines.push(`license:        ${info.license}`)
-      lines.push('kind:           js (runs in the kernel, unconfined)')
+      const kind = source === undefined ? kmodules.kind(mod!.name) : isWasm(source) ? 'wasm' : 'js'
+      lines.push(kind === 'wasm' ? 'kind:           wasm (a sandboxed component: it has only the world it declares)' : 'kind:           js (runs in the kernel, unconfined)')
       if (info.kernelApi) lines.push(`kernel_api:     ${info.kernelApi}`)
       if (info.depends.length) lines.push(`depends:        ${info.depends.join(',')}`)
       for (const alias of info.alias) lines.push(`alias:          ${alias}`)
@@ -85,7 +87,7 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
 
   if (request.action === 'load') {
     try {
-      const source = await kernel.filesystem.fs.readFile(request.path, 'utf8')
+      const source = await readModuleFile(kernel.filesystem.fs, request.path)
       await kmodules.load(source, { force: request.force, params: request.params })
       return done()
     } catch (error) {

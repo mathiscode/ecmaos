@@ -1,0 +1,65 @@
+/// The world of a WebAssembly kernel module (a NAME.ko.wasm file). A module is a component that exports `lifecycle` and
+/// `hooks` and imports `kernel`; the kernel gives it nothing else (the WASI interfaces a toolchain adds are answered with
+/// a clock, random bytes and a place to write log lines, and refuse the filesystem, the network and HTTP).
+package ecmaos:module@0.1.0;
+
+interface kernel {
+  /// Writes a line to the kernel log (dmesg) as this module; `level` is info, warn or error
+  log: func(level: string, message: string);
+
+  /// The value of a parameter `insmod` was given (or its default), as text
+  param: func(name: string) -> option<string>;
+
+  /// Adds /proc/PATH; the kernel calls `proc-show` and, when `writable`, `proc-store` with the same path.
+  /// An error is the reason it could not be added.
+  proc: func(path: string, writable: bool) -> option<string>;
+
+  /// Adds the directory /sys/kernel/PATH with these attributes (name and whether it can be written); the kernel calls
+  /// `sys-show` and `sys-store`
+  sys: func(path: string, attributes: list<tuple<string, bool>>) -> option<string>;
+
+  /// Adds /sys/kernel/debug/NAME/PATH, which the kernel reads and writes with `debugfs-read` and `debugfs-write`
+  debugfs-file: func(path: string, writable: bool) -> option<string>;
+
+  /// Adds the syscall `name`, which the kernel runs with `syscall-call`
+  syscall: func(name: string) -> option<string>;
+
+  /// Adds a check to every syscall; the kernel asks `syscall-allowed`
+  syscall-policy: func() -> option<string>;
+
+  /// Teaches execve a program format; the kernel asks `binfmt-matches` and runs a match with `interpreter`
+  binfmt: func(name: string, interpreter: string) -> option<string>;
+}
+
+interface lifecycle {
+  /// Runs when the module loads. An error stops the load, and what the module added is taken away.
+  init: func() -> result<_, string>;
+  /// Runs when the module unloads, before what it added is taken away
+  exit: func();
+}
+
+interface hooks {
+  variant argument {
+    text(string),
+    number(f64),
+  }
+
+  proc-show: func(path: string) -> string;
+  proc-store: func(path: string, value: string) -> result<_, string>;
+  sys-show: func(path: string, attribute: string) -> string;
+  sys-store: func(path: string, attribute: string, value: string) -> result<_, string>;
+  debugfs-read: func(path: string) -> string;
+  debugfs-write: func(path: string, value: string) -> result<_, string>;
+
+  /// The result of a syscall: a number, negative for `-errno`
+  syscall-call: func(name: string, pid: u32, uid: u32, gid: u32, arguments: list<argument>) -> s32;
+  /// False refuses the syscall with EPERM
+  syscall-allowed: func(syscall: string, pid: u32, uid: u32, exe: option<string>) -> bool;
+  binfmt-matches: func(name: string, filename: string, magic: list<u8>) -> bool;
+}
+
+world module {
+  import kernel;
+  export lifecycle;
+  export hooks;
+}
