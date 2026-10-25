@@ -1,0 +1,27 @@
+perl 5.44.0 (Artistic-1.0-Perl OR GPL-1.0-or-later)
+
+programs/perl.wasm is built from the upstream source below, with the changes listed under it. Together they
+are the complete corresponding source of the binary; this is the offer of it.
+
+Upstream source
+  perl-5.44.0.tar.xz  (perl 5.44.0, Artistic-1.0-Perl OR GPL-1.0-or-later)
+    sha256 505cf43912e9480495c344c70260452e32aa2a73c546a026b3f100053b23ce91
+    from https://www.cpan.org/src/5.0/perl-5.44.0.tar.xz
+  perl-cross-1.6.5.tar.gz  (perl-cross 1.6.5, Artistic-1.0-Perl OR GPL-1.0-or-later)
+    sha256 81130cd4b8c6d9eb2a1959f37d44391a46ad6a6794fc41fed5441f74e85e3dd0
+    from https://github.com/arsv/perl-cross/releases/download/1.6.5/perl-cross-1.6.5.tar.gz
+
+Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
+  wasm/perl/build.sh
+    the build: a cross build with perl-cross; extensions linked in statically (no dlopen; ext/re, Compress::Raw::Zlib and Compress::Raw::Bzip2 left out); a stand-in readelf over llvm-nm so configure can size types in a WebAssembly object; byte order given; main() without the env argument; no source file of Perl is changed
+
+The changes were made in 2026; the repository history dates each one.
+
+Toolchain: WALI's musl and the LLVM runtimes (musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8), with the patches in utils/wali/patches;
+utils/wali-version in the repository pins them, and utils/wali/build-sysroot.sh builds them. Its compiler then
+puts a signal check in each loop of the linked program (utils/wali/signal-checks.mjs).
+
+Where to get it
+  - /sources/perl-5.44.0.tar.xz on the site that served this program, and the other archives listed above in the same place
+  - the sources/ and wasm/ directories of the npm package @ecmaos/coreutils-copyleft, in the version that holds this file
+  - https://github.com/ecmaos/ecmaos (core/utils-copyleft), at the tag of the release that holds this file

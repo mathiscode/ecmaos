@@ -1,6 +1,6 @@
 # @ecmaos/coreutils-copyleft
 
-Copyleft programs for ecmaOS, built to WebAssembly: GNU Bash, GNU make, GNU nano (with ncurses), GNU screen (with ncurses), GNU ed, lz4, tree, evtest, htop (with ncurses), the ALSA tools (aplay, arecord, amixer, speaker-test), Vim and Doom. They live apart
+Copyleft programs for ecmaOS, built to WebAssembly: GNU Bash, GNU make, GNU nano (with ncurses), GNU screen (with ncurses), GNU ed, lz4, tree, evtest, htop (with ncurses), Perl, the ALSA tools (aplay, arecord, amixer, speaker-test), Vim and Doom. They live apart
 from `@ecmaos/coreutils` (MIT OR Apache-2.0) so that package, and the kernel, carry no copyleft code. The ecmaOS
 site serves these programs as separate files under `/programs/`; nothing in the kernel bundle contains them.
 
@@ -20,6 +20,7 @@ syscalls, arguments and pipes. The programs are never imported as libraries.
 | `tree` 2.2.1 | GPL-2.0-or-later | |
 | `evtest` 1.35 | GPL-2.0-or-later | |
 | `htop` 3.5.3 | GPL-2.0-or-later | statically linked with ncurses 6.5 (X11 license) |
+| `perl` 5.44.0 | Artistic-1.0-Perl OR GPL-1.0-or-later | cross built with perl-cross 1.6.5; its library is `perl.runtime` in the manifest, unpacked to `/usr/lib/perl5/5.44.0` |
 | `aplay`, `arecord`, `amixer`, `speaker-test` 1.2.16 | GPL-2.0-or-later | alsa-utils, statically linked with alsa-lib 1.2.16.1 (LGPL-2.1-or-later); `arecord` is `aplay` run under another name |
 | `vim` 9.1.0 | Vim license | a modified version: see `licenses/vim/SOURCE`; `:version` and the intro screen say so |
 | `doom` 0.1.0 | GPL-2.0-or-later | doomgeneric (the Doom source release), statically linked with SDL 3.4.18 (zlib license), libwayland 1.26.0 and libxkbcommon 1.13.2 (MIT); SDL and the two libraries are built by the scripts in `@ecmaos/coreutils` (`wasm/lib/`); no game data |

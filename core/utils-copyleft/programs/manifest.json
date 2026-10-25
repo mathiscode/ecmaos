@@ -503,6 +503,45 @@
       ],
       "size": 714604,
       "sha256": "868b74988f4744d0175fa6bc04800ce1cea4202df93288a12fab8193dc2553a2"
+    },
+    "perl": {
+      "file": "perl.wasm",
+      "version": "5.44.0",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "description": "Perl, with fork, system and pipe opens, and the core modules; it forks, so it is built with Asyncify",
+      "homepage": "https://www.perl.org/",
+      "toolchain": "wali",
+      "sources": [
+        {
+          "name": "perl",
+          "version": "5.44.0",
+          "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+          "archive": "perl-5.44.0.tar.xz",
+          "url": "https://www.cpan.org/src/5.0/perl-5.44.0.tar.xz",
+          "sha256": "505cf43912e9480495c344c70260452e32aa2a73c546a026b3f100053b23ce91"
+        },
+        {
+          "name": "perl-cross",
+          "version": "1.6.5",
+          "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+          "archive": "perl-cross-1.6.5.tar.gz",
+          "url": "https://github.com/arsv/perl-cross/releases/download/1.6.5/perl-cross-1.6.5.tar.gz",
+          "sha256": "81130cd4b8c6d9eb2a1959f37d44391a46ad6a6794fc41fed5441f74e85e3dd0"
+        }
+      ],
+      "modifications": [
+        {
+          "file": "wasm/perl/build.sh",
+          "what": "the build: a cross build with perl-cross; extensions linked in statically (no dlopen; ext/re, Compress::Raw::Zlib and Compress::Raw::Bzip2 left out); a stand-in readelf over llvm-nm so configure can size types in a WebAssembly object; byte order given; main() without the env argument; no source file of Perl is changed"
+        }
+      ],
+      "size": 6919943,
+      "sha256": "6089b6afb38721685462511e2bcca12ef2f09bc404dba7a8b46d6700513aa57c",
+      "runtime": {
+        "file": "perl-lib.tar.gz",
+        "size": 4706066,
+        "sha256": "91d9924035a2899f31a496b8072c39332a4c28489dc2e4ba34a111eca38b4080"
+      }
     }
   }
 }
