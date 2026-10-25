@@ -15,6 +15,7 @@ import * as clocks from '@bytecodealliance/preview2-shim/clocks'
 import * as io from '@bytecodealliance/preview2-shim/io'
 import * as random from '@bytecodealliance/preview2-shim/random'
 import type { KernelModule, ModuleContext } from '@ecmaos/types'
+import { WasmFS, type WasmFilesystemExports } from './wasm-filesystem.ts'
 
 export const WASM_MODINFO_SECTION = 'ecmaos-module'
 export const WASM_SIGNATURE_SECTION = 'ecmaos-module-signature'
@@ -223,7 +224,8 @@ export function wasmModule(bytes: Uint8Array, parameters: string[] = []): Kernel
       }
 
       // the kernel calls the module back through these, once it has finished starting
-      const bound: { hooks?: Hooks } = {}
+      const bound: { hooks?: Hooks, filesystem?: WasmFilesystemExports } = {}
+      const filesystemExported = /ecmaos:module\/filesystem/.test(new TextDecoder('latin1').decode(bytes))
       const need = () => bound.hooks ?? (() => { throw new WasmModuleError('ENOEXEC', `${ctx.name}: the module has not finished starting`) })()
       /** A number for the module, never text: 0 is success, otherwise an errno; the reason goes to the kernel log */
       const errnos: Record<string, number> = { EPERM: 1, EIO: 5, EEXIST: 17, ENOTDIR: 20, EINVAL: 22, ENOSYS: 38 }
@@ -276,6 +278,16 @@ export function wasmModule(bytes: Uint8Array, parameters: string[] = []): Kernel
         }])))),
         debugfsFile: (path: string, writable: boolean) => attempt(() => ctx.debugfs.file(path, { read: served(() => need().debugfsRead(path)), write: writable ? written(value => need().debugfsWrite(path, value)) : undefined })),
         syscall: (name: string) => attempt(() => ctx.syscall(name, async (call, ...args) => await need().syscallCall(name, call.pid, call.uid, call.gid, args.map(arg => typeof arg === 'number' ? { tag: 'number', val: arg } : { tag: 'text', val: arg })))),
+        filesystem: (name: string, source: string) => attempt(() => {
+          if (!bound.filesystem && !filesystemExported) throw Object.assign(new Error('a filesystem type needs the filesystem-module world'), { code: 'ENOSYS' })
+          if (source !== 'none' && source !== 'optional' && source !== 'required') throw Object.assign(new Error(`bad source '${source}'`), { code: 'EINVAL' })
+          ctx.filesystem({
+            name,
+            source,
+            backend: { name, options: {}, create: (options: { source?: string, options?: Record<string, string> }) => new WasmFS(() => bound.filesystem ?? (() => { throw new WasmModuleError('ENOEXEC', `${ctx.name}: the module has not finished starting`) })(), name, { source: options.source ?? '', options: options.options ?? {} }) },
+            config: request => ({ source: request.source, options: request.options })
+          })
+        }),
         syscallPolicy: asynchronous ? unsupported('a syscall policy') : () => attempt(() => ctx.syscallPolicy(call => need().syscallAllowed(call.syscall, call.pid, call.uid, call.exe))),
         binfmt: asynchronous ? unsupported('a program format') : (name: string, interpreter: string) => attempt(() => ctx.binfmt({ name, interpreter, matches: ({ filename, magic }) => need().binfmtMatches(name, filename, magic) }))
       }
@@ -339,6 +351,7 @@ export function wasmModule(bytes: Uint8Array, parameters: string[] = []): Kernel
 
       life = (component['ecmaos:module/lifecycle@0.1.0'] ?? component['ecmaos:module/lifecycle'] ?? component['lifecycle']) as typeof life
       bound.hooks = (component['ecmaos:module/hooks@0.1.0'] ?? component['ecmaos:module/hooks'] ?? component['hooks']) as Hooks | undefined
+      bound.filesystem = (component['ecmaos:module/filesystem@0.1.0'] ?? component['ecmaos:module/filesystem'] ?? component['filesystem']) as WasmFilesystemExports | undefined
       if (!life || !bound.hooks) throw new WasmModuleError('ENOEXEC', `${ctx.name}: the component does not export ecmaos:module/lifecycle and hooks`)
       const values: Array<[string, string]> = []
       for (const name of parameters) {

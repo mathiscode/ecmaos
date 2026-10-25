@@ -591,11 +591,15 @@ export default {
     beforeAll(async () => {
       if (!toolchain) return
       const { join } = builtin<typeof import('node:path')>('node:path')
-      const out = join(builtin<typeof import('node:fs')>('node:fs').mkdtempSync(join(builtin<typeof import('node:os')>('node:os').tmpdir(), 'ecmaos-rust-')), 'wasm_hello_rust.ko.wasm')
-      builtin<typeof import('node:child_process')>('node:child_process').execFileSync(process.execPath, ['scripts/build-wasm-rust.mjs', 'examples/wasm-hello-rust', out], { cwd, stdio: 'ignore' })
+      const fs = builtin<typeof import('node:fs')>('node:fs')
+      const folder = fs.mkdtempSync(join(builtin<typeof import('node:os')>('node:os').tmpdir(), 'ecmaos-rust-'))
       await kernel.filesystem.fs.mkdir(dir(), { recursive: true })
-      await kernel.filesystem.fs.writeFile(`${dir()}/wasm_hello_rust.ko.wasm`, new Uint8Array(builtin<typeof import('node:fs')>('node:fs').readFileSync(out)))
-    }, 240000)
+      for (const name of ['wasm_hello_rust', 'wasm_ramfs_rust']) {
+        const out = join(folder, `${name}.ko.wasm`)
+        builtin<typeof import('node:child_process')>('node:child_process').execFileSync(process.execPath, ['scripts/build-wasm-rust.mjs', `examples/${name.replace('_', '-').replace('_', '-')}`, out], { cwd, stdio: 'ignore' })
+        await kernel.filesystem.fs.writeFile(`${dir()}/${name}.ko.wasm`, new Uint8Array(fs.readFileSync(out)))
+      }
+    }, 480000)
 
     it.skipIf(!toolchain)('a WASI 0.3 component loads, answers /proc and a syscall, and unloads', async () => {
       const loaded = await sh(`insmod ${dir()}/wasm_hello_rust.ko.wasm greeting=hej`)
@@ -605,6 +609,26 @@ export default {
       expect((await sh('modinfo wasm_hello_rust')).out).toContain('kind:           wasm')
       expect((await sh('rmmod wasm_hello_rust')).code).toBe(0)
       expect((await sh('ls /proc/wasm_hello_rust')).code).not.toBe(0)
+    }, 60000)
+
+    it.skipIf(!toolchain)('a filesystem written in Rust mounts, holds files, and keeps the module loaded while mounted', async () => {
+      expect((await sh(`insmod ${dir()}/wasm_ramfs_rust.ko.wasm`)).code).toBe(0)
+      expect((await sh('cat /proc/filesystems')).out).toContain('wasmram')
+      await kernel.filesystem.fs.mkdir('/mnt/wasmram', { recursive: true })
+      const mounted = await sh('mount -t wasmram /mnt/wasmram')
+      expect(mounted.code, mounted.out).toBe(0)
+      await kernel.filesystem.fs.writeFile('/mnt/wasmram/a.txt', 'one two')
+      await kernel.filesystem.fs.mkdir('/mnt/wasmram/d')
+      await kernel.filesystem.fs.rename('/mnt/wasmram/a.txt', '/mnt/wasmram/d/b.txt')
+      expect(await kernel.filesystem.fs.readFile('/mnt/wasmram/d/b.txt', 'utf-8')).toBe('one two')
+      expect(await kernel.filesystem.fs.readdir('/mnt/wasmram')).toEqual(['d'])
+      expect(await kernel.filesystem.fs.readdir('/mnt/wasmram/d')).toEqual(['b.txt'])
+      expect((await sh('rmmod wasm_ramfs_rust')).out).toContain('in use')
+      await kernel.filesystem.fs.unlink('/mnt/wasmram/d/b.txt')
+      await kernel.filesystem.fs.rmdir('/mnt/wasmram/d')
+      expect(await kernel.filesystem.fs.readdir('/mnt/wasmram')).toEqual([])
+      expect((await sh('umount /mnt/wasmram')).code).toBe(0)
+      expect((await sh('rmmod wasm_ramfs_rust')).code).toBe(0)
     }, 60000)
   })
 
