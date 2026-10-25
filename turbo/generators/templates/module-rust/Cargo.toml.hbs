@@ -1,0 +1,18 @@
+[package]
+name = "{{ snakeCase name }}"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "A kernel module in Rust, a WebAssembly component for WASI 0.3"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.63"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

@@ -1,0 +1,10 @@
+{
+  "name": "cloud",
+  "description": "The dropbox and googledrive filesystem types: mounts a cloud drive",
+  "license": "LGPL-3.0-or-later",
+  "alias": [
+    "fs-dropbox",
+    "fs-googledrive"
+  ],
+  "depends": []
+}

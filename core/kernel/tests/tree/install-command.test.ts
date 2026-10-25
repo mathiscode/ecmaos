@@ -108,8 +108,8 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     expect(await fs.readFile('/usr/share/applications/tool.desktop', 'utf-8')).toContain('Tool 2.0.0')
   })
 
-  const publish = async (name: string, version: string, files: Record<string, string>, integrity: 'sha512' | 'sha1-only' | 'bad-sha512' = 'sha512', dependencies?: Record<string, string>) => {
-    const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name, version, dependencies, bin: files['dist/cli.js'] ? { [name.split('/').pop()!]: 'dist/cli.js' } : undefined }), ...files })
+  const publish = async (name: string, version: string, files: Record<string, string>, integrity: 'sha512' | 'sha1-only' | 'bad-sha512' = 'sha512', dependencies?: Record<string, string>, manifest: Record<string, unknown> = {}) => {
+    const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name, version, dependencies, ...manifest, bin: files['dist/cli.js'] ? { [name.split('/').pop()!]: 'dist/cli.js' } : undefined }), ...files })
         const dist = {
       tarball: `${registry}/${name}/-/${version}.tgz`,
       shasum: await sha1Hex(tarball),
@@ -170,5 +170,26 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     expect(await fs.exists('/usr/share/man/man1/a.1')).toBe(false)
     expect(await fs.exists('/usr/share/docs/@ecmaos/a/a.md')).toBe(false)
     expect(await fs.readFile('/usr/share/man/man1/b.1', 'utf-8')).toBe('.TH B 1\n')
+  })
+
+  it('puts the kernel modules a package lists in /lib/modules/RELEASE, indexes them, and uninstall takes them away', async () => {
+    const module = (name: string) => `/* ecmaos-module\n * name=${name}\n * license=MIT\n */\nexport default { init(ctx) { ctx.log.info('${name} is here') } }\n`
+    await publish('mod-pkg', '1.0.0', { 'dist/pkgmod.ko.mjs': module('pkgmod') }, 'sha512', undefined, { ecmaos: { modules: ['dist/pkgmod.ko.mjs'] } })
+    const { fs } = kernel.filesystem
+    const release = kernel.version
+
+    expect(await kernel.shell.execute(`install mod-pkg --registry ${registry}`)).toBe(0)
+    expect(await fs.exists(`/lib/modules/${release}/pkgmod.ko.mjs`)).toBe(true)
+    expect(await fs.readFile(`/lib/modules/${release}/modules.dep`, 'utf-8')).toContain('pkgmod')
+    expect(await kernel.shell.execute('modprobe pkgmod')).toBe(0)
+    expect(await fs.exists('/sys/module/pkgmod')).toBe(true)
+    expect(await kernel.shell.execute('modprobe -r pkgmod')).toBe(0)
+
+    expect(await kernel.shell.execute('uninstall mod-pkg')).toBe(0)
+    expect(await fs.exists(`/lib/modules/${release}/pkgmod.ko.mjs`)).toBe(false)
+
+    await publish('mod-bad', '1.0.0', { 'dist/x.js': '//\n' }, 'sha512', undefined, { ecmaos: { modules: ['dist/x.js'] } })
+    expect(await kernel.shell.execute(`install mod-bad --registry ${registry} 2> /tmp/mod.err`)).toBe(1)
+    expect(await fs.readFile('/tmp/mod.err', 'utf-8')).toContain('is not a NAME.ko.mjs')
   })
 })

@@ -77,11 +77,33 @@ export function getCachedManifest(exe: string): ProgramManifest | null | undefin
  * check. Safe to call more than once (e.g. after a later `define_syscall` registers something
  * new) - already-wrapped handlers are tracked and skipped, so nothing is wrapped twice.
  */
+/** What a policy added by a module is told of each syscall */
+export interface PolicyCall {
+  syscall: string
+  pid: number
+  uid: number
+  exe?: string
+}
+
+/** Checks added by modules (`ctx.syscallPolicy`): a syscall any of them answers `false` to is refused, whatever a manifest says */
+const policies = new Set<(call: PolicyCall) => boolean | void>()
+
+/** Adds a check to every syscall and returns the function that takes it away */
+export function addSyscallPolicy(policy: (call: PolicyCall) => boolean | void): () => void {
+  policies.add(policy)
+  return () => { policies.delete(policy) }
+}
+
 export function installSyscallPolicy(fs: Filesystem['fs']): void {
   for (const [name, handler] of syscalls.entries()) {
     if (wrappedHandlers.has(handler as object)) continue
 
     const wrapped = async (proc: Process, ...args: unknown[]): Promise<number | bigint | void> => {
+      if (policies.size) {
+        const call: PolicyCall = { syscall: name as string, pid: proc.pid, uid: proc.context.credentials.euid, exe: proc.exe }
+        for (const policy of policies) if (policy(call) === false) return -Errno.EPERM
+      }
+
       const exe = proc.exe
       if (exe) {
         const manifest = await loadManifest(fs, exe)

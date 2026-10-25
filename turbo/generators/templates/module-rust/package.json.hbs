@@ -1,0 +1,20 @@
+{
+  "name": "@ecmaos-modules/{{ dashCase name }}",
+  "version": "0.1.0",
+  "description": "A WebAssembly kernel module for ecmaOS, written in Rust",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "ecmaos": {
+    "modules": [
+      "dist/{{ snakeCase name }}.ko.wasm"
+    ]
+  },
+  "scripts": {
+    "build": "mkdir -p dist && node ../../core/kernel/scripts/build-wasm-rust.mjs . dist/{{ snakeCase name }}.ko.wasm"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

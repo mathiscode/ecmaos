@@ -19,7 +19,7 @@
     "licenses"
   ],
   "scripts": {
-    "build": "vite build",
+    "build": "node ../kernel/scripts/build-modules.mjs && vite build",
     "lint": "eslint src",
     "start": "node dist/ecmaos.mjs",
     "test": "vite build && vitest run",

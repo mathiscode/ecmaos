@@ -1,0 +1,7 @@
+{
+  "name": "wasm_ramfs_rust",
+  "version": "1.0.0",
+  "description": "The wasmram filesystem type: a tree in memory, written in Rust (WASI 0.3)",
+  "license": "MIT",
+  "alias": ["fs-wasmram"]
+}

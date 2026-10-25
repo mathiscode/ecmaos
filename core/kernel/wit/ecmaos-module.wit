@@ -1,0 +1,118 @@
+/// The world of a WebAssembly kernel module (a NAME.ko.wasm file). A module is a component that exports `lifecycle` and
+/// `hooks` and imports `kernel`; the kernel gives it nothing else (the WASI interfaces a toolchain adds are answered with
+/// a clock, random bytes and a place to write log lines, and refuse the filesystem, the network and HTTP).
+package ecmaos:module@0.1.0;
+
+interface kernel {
+  /// Nothing here returns text to the module: a WASI 0.3 host (jco) hands the module memory it cannot safely free. Parameters
+  /// arrive as the argument of `init`, and a call that fails returns an error number (0 is success; 17 EEXIST, 22 EINVAL,
+  /// 38 ENOSYS, 20 ENOTDIR, 5 anything else) and writes the reason to the kernel log.
+
+  /// Writes a line to the kernel log (dmesg) as this module; `level` is info, warn or error
+  log: func(level: string, message: string);
+
+  /// Adds /proc/PATH; the kernel calls `proc-show` and, when `writable`, `proc-store` with the same path
+  proc: func(path: string, writable: bool) -> u32;
+
+  /// Adds the directory /sys/kernel/PATH with these attributes (name and whether it can be written); the kernel calls
+  /// `sys-show` and `sys-store`
+  sys: func(path: string, attributes: list<tuple<string, bool>>) -> u32;
+
+  /// Adds /sys/kernel/debug/NAME/PATH, which the kernel reads and writes with `debugfs-read` and `debugfs-write`
+  debugfs-file: func(path: string, writable: bool) -> u32;
+
+  /// Adds the syscall `name`, which the kernel runs with `syscall-call`
+  syscall: func(name: string) -> u32;
+
+  /// Adds a check to every syscall; the kernel asks `syscall-allowed`
+  syscall-policy: func() -> u32;
+
+  /// Teaches execve a program format; the kernel asks `binfmt-matches` and runs a match with `interpreter`
+  binfmt: func(name: string, interpreter: string) -> u32;
+
+  /// Adds the filesystem type `name` to `mount -t` (`source` is none, optional or required, as the shell's `mount` takes it).
+  /// Only a module of the `filesystem-module` world can do this: the kernel runs the files of a mount through its `filesystem` export.
+  filesystem: func(name: string, source: string) -> u32;
+}
+
+interface lifecycle {
+  /// Runs when the module loads, with the parameters `insmod` was given (and the defaults of the rest) as text. An error stops
+  /// the load, and what the module added is taken away.
+  init: func(params: list<tuple<string, string>>) -> result<_, string>;
+  /// Runs when the module unloads, before what it added is taken away
+  exit: func();
+}
+
+interface hooks {
+  variant argument {
+    text(string),
+    number(f64),
+  }
+
+  proc-show: func(path: string) -> string;
+  proc-store: func(path: string, value: string) -> result<_, string>;
+  sys-show: func(path: string, attribute: string) -> string;
+  sys-store: func(path: string, attribute: string, value: string) -> result<_, string>;
+  debugfs-read: func(path: string) -> string;
+  debugfs-write: func(path: string, value: string) -> result<_, string>;
+
+  /// The result of a syscall: a number, negative for `-errno`
+  syscall-call: func(name: string, pid: u32, uid: u32, gid: u32, arguments: list<argument>) -> s32;
+  /// False refuses the syscall with EPERM
+  syscall-allowed: func(syscall: string, pid: u32, uid: u32, exe: option<string>) -> bool;
+  binfmt-matches: func(name: string, filename: string, magic: list<u8>) -> bool;
+}
+
+/// What a filesystem module exports: the operations ZenFS asks of a filesystem, on paths from the root of the mount (`/`).
+/// A failure is an error number (2 ENOENT, 17 EEXIST, 20 ENOTDIR, 21 EISDIR, 39 ENOTEMPTY, 5 anything else). The kernel keeps
+/// a copy of the tree in memory for the calls that cannot wait, so every call here may be asynchronous.
+interface filesystem {
+  record inode {
+    /// The file type and permission bits, as in stat(2) (S_IFREG is 0o100000, S_IFDIR 0o040000)
+    mode: u32,
+    size: u64,
+    /// How many names the file has (1 unless it has hard links)
+    nlink: u32,
+    uid: u32,
+    gid: u32,
+    atime-ms: f64,
+    mtime-ms: f64,
+    ctime-ms: f64,
+    birthtime-ms: f64,
+  }
+
+  /// Runs once for each mount, with the `source` (empty if none) and the `-o key=value` options
+  mount: func(source: string, options: list<tuple<string, string>>) -> result<_, s32>;
+  stat: func(path: string) -> result<inode, s32>;
+  readdir: func(path: string) -> result<list<string>, s32>;
+  /// Up to `length` bytes of the file from `offset`
+  read: func(path: string, offset: u64, length: u64) -> result<list<u8>, s32>;
+  /// Writes at `offset`, making the file longer if need be
+  write: func(path: string, offset: u64, data: list<u8>) -> result<_, s32>;
+  /// Makes an empty file, or a directory
+  create: func(path: string, mode: u32, uid: u32, gid: u32, directory: bool) -> result<_, s32>;
+  unlink: func(path: string) -> result<_, s32>;
+  rmdir: func(path: string) -> result<_, s32>;
+  rename: func(old-path: string, new-path: string) -> result<_, s32>;
+  /// Changes what is given (a file is cut or padded to `size`)
+  /// Makes `link-path` another name for the file `target` (the same file, not a copy)
+  link: func(target: string, link-path: string) -> result<_, s32>;
+  /// The extended attributes of a file or directory, by name (`user.NAME`)
+  get-attributes: func(path: string) -> result<list<tuple<string, list<u8>>>, s32>;
+  /// Replaces all of them
+  set-attributes: func(path: string, attributes: list<tuple<string, list<u8>>>) -> result<_, s32>;
+  touch: func(path: string, mode: option<u32>, uid: option<u32>, gid: option<u32>, size: option<u64>, mtime-ms: option<f64>, atime-ms: option<f64>) -> result<_, s32>;
+}
+
+world module {
+  import kernel;
+  export lifecycle;
+  export hooks;
+}
+
+/// A module that also provides a filesystem type
+world filesystem-module {
+  include module;
+  export filesystem;
+}
+

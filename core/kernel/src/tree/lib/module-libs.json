@@ -1,0 +1,14 @@
+[
+  "@zenfs/core",
+  "@zenfs/core/backends/backend.js",
+  "@zenfs/core/constants",
+  "@zenfs/core/mixins/index.js",
+  "@zenfs/core/mixins/readonly.js",
+  "@zenfs/core/path",
+  "kerium",
+  "kerium/log",
+  "memium",
+  "memium/decorators",
+  "utilium",
+  "utilium/buffer"
+]

@@ -324,6 +324,11 @@ export interface KernelOptions {
    * See `@ecmaos/coreutils` and `@ecmaos/coreutils-copyleft`, which supply the programs.
    */
   programs?: string | false
+  /**
+   * Where the catalog of in-tree kernel modules is (default `/modules/index.json`); `false` fetches none. The modules `zip`,
+   * `iso`, `dropbox` and `googledrive` are in it, and are downloaded the first time `mount -t` asks for one.
+   */
+  modules?: string | false
   /** context and filesystem are supplied by Kernel itself when constructing Service */
   service?: Omit<ServiceOptions, 'context' | 'filesystem'>
 }

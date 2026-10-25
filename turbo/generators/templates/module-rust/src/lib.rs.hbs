@@ -1,0 +1,41 @@
+//! A kernel module in Rust. `pnpm build` (it needs the nightly toolchain in `rust-toolchain.toml`, and wasm-tools to check the
+//! result) packs the component with `module.json` into `dist/{{ snakeCase name }}.ko.wasm`; load it with `insmod`.
+
+wit_bindgen::generate!({
+    path: "../../core/kernel/wit",
+    world: "module",
+    generate_all,
+});
+
+use ecmaos::module::kernel;
+use exports::ecmaos::module::hooks::{Argument, Guest as Hooks};
+use exports::ecmaos::module::lifecycle::Guest as Lifecycle;
+
+struct Module;
+
+impl Lifecycle for Module {
+    fn init(_params: Vec<(String, String)>) -> Result<(), String> {
+        kernel::log("info", "{{ snakeCase name }} is loaded");
+        // each import returns 0, or an error number
+        match kernel::proc("{{ snakeCase name }}", false) {
+            0 => Ok(()),
+            code => Err(format!("could not add the /proc file (error {code})")),
+        }
+    }
+
+    fn exit() {}
+}
+
+impl Hooks for Module {
+    fn proc_show(_path: String) -> String { "hello from {{ snakeCase name }}\n".to_string() }
+    fn proc_store(_path: String, _value: String) -> Result<(), String> { Err("read only".to_string()) }
+    fn sys_show(_path: String, _attribute: String) -> String { String::new() }
+    fn sys_store(_path: String, _attribute: String, _value: String) -> Result<(), String> { Err("read only".to_string()) }
+    fn debugfs_read(_path: String) -> String { String::new() }
+    fn debugfs_write(_path: String, _value: String) -> Result<(), String> { Err("read only".to_string()) }
+    fn syscall_call(_name: String, _pid: u32, _uid: u32, _gid: u32, _arguments: Vec<Argument>) -> i32 { 0 }
+    fn syscall_allowed(_syscall: String, _pid: u32, _uid: u32, _exe: Option<String>) -> bool { true }
+    fn binfmt_matches(_name: String, _filename: String, _magic: Vec<u8>) -> bool { false }
+}
+
+export!(Module);

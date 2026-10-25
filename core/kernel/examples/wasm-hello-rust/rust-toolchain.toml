@@ -1,0 +1,7 @@
+# WASI 0.3 needs the nightly compiler and its wasm32-wasip3 standard library (stable has neither yet). This file applies to
+# this directory only: your default toolchain is not changed. Install with
+#   rustup toolchain install nightly-2026-10-25 --profile minimal -t wasm32-wasip3
+[toolchain]
+channel = "nightly-2026-10-25"
+targets = ["wasm32-wasip3"]
+profile = "minimal"

@@ -32,7 +32,7 @@ function mkdirp(path) {
   mkdir(path, 0o755)
 }
 
-function readText(path) {
+function readBytes(path) {
   const fd = open(path, O_RDONLY)
   const chunks = []
   try {
@@ -48,8 +48,10 @@ function readText(path) {
   const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0))
   let offset = 0
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return decoder.decode(bytes)
+  return bytes
 }
+
+const readText = path => decoder.decode(readBytes(path))
 
 function writeBytes(path, bytes) {
   const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
@@ -115,6 +117,35 @@ function link(packageName, version, packageJson) {
     }
   }
   return true
+}
+
+/**
+ * A package that ships kernel modules lists them in `package.json` as `"ecmaos": { "modules": ["dist/NAME.ko.mjs"] }` (paths
+ * inside the package; `.ko.mjs` or `.ko.wasm`). They are copied into `/lib/modules/RELEASE/` and `depmod` indexes them, so
+ * `modprobe NAME` finds them. Returns false if one could not be installed.
+ */
+async function installModules(packageName, version, packageJson) {
+  const listed = packageJson.ecmaos?.modules ?? packageJson.ecmaos?.module ?? []
+  const files = (Array.isArray(listed) ? listed : [listed]).filter(file => typeof file === 'string')
+  if (!files.length) return true
+  try {
+    const directory = join('/lib/modules', env['KERNEL_VERSION'])
+    for (const file of files) {
+      const name = file.slice(file.lastIndexOf('/') + 1)
+      const source = join('/usr/lib', packageName, version, file)
+      if (!/^[\w.+-]+\.ko\.(mjs|wasm)$/.test(name)) throw new Error(`${file} is not a NAME.ko.mjs or NAME.ko.wasm file`)
+      if (!exists(source)) throw new Error(`${source} does not exist`)
+      mkdirp(directory)
+      writeBytes(join(directory, name), readBytes(source))
+      line(1, blue(`Installed module ${name} in ${directory}`))
+    }
+    const code = await custom('shell_exec', 'depmod')
+    if (code) throw new Error(`depmod failed (${code}); run it as root`)
+    return true
+  } catch (error) {
+    line(2, red(`Failed to install the modules of ${packageName}@${version}: ${error instanceof Error ? error.message : error}`))
+    return false
+  }
 }
 
 /**
@@ -215,6 +246,7 @@ async function install(packageArg, registryArg, reinstall, dependency = false) {
   }
 
   if (!dependency && !link(packageName, version, packageJson)) return 1
+  if (!await installModules(packageName, version, packageJson)) return 1
 
   try {
     for (const name in packageJson.dependencies ?? {}) {
