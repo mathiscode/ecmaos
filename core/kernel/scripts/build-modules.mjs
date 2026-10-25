@@ -13,7 +13,7 @@
 
 import { build } from 'esbuild'
 import { createHash, webcrypto } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -60,8 +60,13 @@ async function sign(body, keyFile, signer) {
 export async function buildModules({ out = path.join(root, 'public/modules'), key = process.env.ECMAOS_MODULE_KEY, signer = process.env.ECMAOS_MODULE_SIGNER ?? 'ecmaos' } = {}) {
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
   mkdirSync(out, { recursive: true })
-  // a module that is gone from the tree is gone from the catalog and the directory
-  for (const stale of readdirSync(out).filter(file => file.endsWith('.ko.mjs'))) rmSync(path.join(out, stale))
+  const built = new Set()
+  // a reader (a test, a dev server, the node build) may be fetching while this runs, so a file is replaced in one step
+  const put = (file, text) => {
+    const temp = path.join(out, `.${file}.${process.pid}.tmp`)
+    writeFileSync(temp, text)
+    renameSync(temp, path.join(out, file))
+  }
   const catalog = { modules: {} }
 
   for (const name of readdirSync(path.join(root, 'modules'), { withFileTypes: true }).filter(entry => entry.isDirectory() && existsSync(path.join(root, 'modules', entry.name, 'module.json'))).map(entry => entry.name).sort()) {
@@ -96,7 +101,8 @@ export async function buildModules({ out = path.join(root, 'public/modules'), ke
     const body = `${header}\n// Built from modules/${name} by scripts/build-modules.mjs\n// The bundle runs once, however often the module is loaded: the kernel keeps the module it evaluated, and a library inside\n// it may register types that cannot be registered twice\nlet impl\nexport default {\n  async init(ctx) {\n    if (!impl) {\n      const __lib = spec => ctx.import('lib:' + spec)\n${bundle}\n      impl = __m.default\n    }\n    await impl.init(ctx)\n  },\n  async exit() { await impl?.exit?.() }\n}\n`
     const text = key ? body + await sign(body, key, signer) : body
     const file = `${name}.ko.mjs`
-    writeFileSync(path.join(out, file), text)
+    put(file, text)
+    built.add(file)
     catalog.modules[name] = {
       file,
       size: Buffer.byteLength(text),
@@ -110,7 +116,9 @@ export async function buildModules({ out = path.join(root, 'public/modules'), ke
     }
   }
 
-  writeFileSync(path.join(out, 'index.json'), JSON.stringify(catalog, null, 2) + '\n')
+  put('index.json', JSON.stringify(catalog, null, 2) + '\n')
+  // a module that is gone from the tree is gone from the catalog and the directory
+  for (const stale of readdirSync(out).filter(file => file.endsWith('.ko.mjs') && !built.has(file))) rmSync(path.join(out, stale))
   return catalog
 }
 
