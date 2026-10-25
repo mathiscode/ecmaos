@@ -19,8 +19,9 @@ import Module from 'node:module'
 import path from 'node:path'
 import semver from 'semver'
 
+import * as zenfsCore from '@zenfs/core'
 import { bindContext, boundContexts, Credentials, fs as zenfsFs } from '@zenfs/core'
-import { char_dev, current as zenfsCurrent, Device, modules as loadedModules, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
+import { binfmts, char_dev, define_syscall, syscalls as zenfsSyscalls, current as zenfsCurrent, Device, modules as loadedModules, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { UsbRegistry } from '#lib/usb-bus.ts'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -34,7 +35,8 @@ import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
 import { installWarmThreads } from '#lib/warm-threads.ts'
 import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
-import type { FileOperations } from '@zenfs/linux'
+import type { BinFmt, FileOperations } from '@zenfs/linux'
+import type { BinPrm } from '@zenfs/linux/fs/exec'
 import { withErrno } from 'kerium'
 import { ModuleError, ModuleManager, parsePublicKey } from '#lib/kmodule.ts'
 import { ModProbe } from '#lib/modprobe.ts'
@@ -42,6 +44,11 @@ import type { ProbeFs } from '#lib/modprobe.ts'
 import type { TrustedKey } from '#lib/kmodule.ts'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerModuleProc } from '#lib/module-proc.ts'
+import { FsTypes } from '#lib/fs-types.ts'
+import { ModuleCatalog } from '#lib/module-catalog.ts'
+import { PROVIDED_LIBS } from '#lib/module-libs.ts'
+import releaseKeyFile from '#lib/module-release-key.json'
+import { builtinFsTypes } from '#lib/mount-backends.ts'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
 import { context, trace } from '@opentelemetry/api'
 
@@ -94,7 +101,7 @@ import { DEFAULT_INITTAB, gettyEntries, gettyTerminals, isUntouchedInittab, with
 import { Init, INIT_BOOT_TIMEOUT_MS } from '#lib/init.ts'
 import { DEFAULT_BOOT_INIT, removeStaleCommandStubs, runFsMigrations } from '#lib/fs-migrations.ts'
 import { parseFstabFile } from '#lib/fstab.ts'
-import { getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
+import { addSyscallPolicy, getCachedManifest, installSyscallPolicy } from '#lib/syscall-policy.ts'
 import { isolationProblem } from '#lib/isolation.ts'
 import { installSyscallTrace } from '#lib/syscall-trace.ts'
 import { installMainThreadSyscalls, registerProcessKernel } from '#lib/main-thread-syscalls.ts'
@@ -329,6 +336,12 @@ export class Kernel implements IKernel {
   /** Loads and unloads modules (`insmod`, `rmmod`) and keeps their symbols */
   public readonly kmodules: ModuleManager
   public readonly modprobe: ModProbe
+  /** The in-tree modules that are fetched when first asked for; undefined when `options.modules` is `false` */
+  readonly modcatalog?: ModuleCatalog
+  /** The filesystem types `mount -t` knows: the built-in ones and those modules add */
+  public readonly fstypes: FsTypes
+  /** The program formats modules added, which the shell asks about a file it does not know */
+  readonly moduleBinfmts = new Set<BinFmt>()
   /** Configuration options passed to the kernel */
   public readonly options: KernelOptions
   /** Map of loaded packages */
@@ -408,6 +421,51 @@ export class Kernel implements IKernel {
       log: { info: message => this.log.info(message), warn: message => this.log.warn(message), error: message => this.log.error(message) },
       dmesg: line => this.log.info(line),
       evaluate: source => import(/* @vite-ignore */ `data:text/javascript;base64,${base64(source)}`),
+      fstypes: () => this.fstypes,
+      syscalls: {
+        define: (name, handler) => {
+          if (zenfsSyscalls.has(name as never)) throw new ModuleError('EEXIST', `syscall ${name} exists`)
+          define_syscall(name as never, (async (proc: ZenFSProcess, ...args: Array<string | number>) => {
+            const { euid, egid } = proc.context.credentials
+            const call = {
+              pid: proc.pid, uid: euid, gid: egid, exe: proc.exe,
+              writeFile: async (path: string, text: string) => {
+                await this.filesystem.fs.writeFile(path, text, { mode: 0o600 })
+                if (euid !== 0) await this.filesystem.fs.chown(path, euid, egid)
+              }
+            }
+            return (await handler(call, ...args)) ?? 0
+          }) as never)
+          // a program restricted by a manifest meets the new syscall behind the same check as the rest
+          installSyscallPolicy(this.filesystem.fs)
+          return () => { zenfsSyscalls.delete(name as never) }
+        },
+        policy: addSyscallPolicy
+      },
+      binfmts: {
+        register: spec => {
+          if ([...binfmts].some(format => format.name === spec.name)) throw new ModuleError('EEXIST', `binfmt ${spec.name} exists`)
+          const format: BinFmt = {
+            name: spec.name,
+            matches: prm => spec.matches({ filename: prm.filename, magic: prm.buf }),
+            // the interpreter is a program in its own right (a script, say), so the search starts over on it with the file as its first argument
+            load(prm) {
+              prm.argv = [spec.interpreter, prm.filename, ...prm.argv.slice(1)]
+              prm.filename = spec.interpreter
+            }
+          }
+          // before `js`, which takes any file without a NUL byte, and after `script` and `wasm`, which are exact
+          const formats = [...binfmts]
+          binfmts.clear()
+          for (const existing of formats) {
+            if (existing.name === 'js') binfmts.add(format)
+            binfmts.add(existing)
+          }
+          binfmts.add(format)
+          this.moduleBinfmts.add(format)
+          return () => { binfmts.delete(format); this.moduleBinfmts.delete(format) }
+        }
+      },
       commands: {
         install: async (name, source) => {
           // a module adds a program, and never shadows one: the name must be free on the whole PATH
@@ -430,6 +488,9 @@ export class Kernel implements IKernel {
         return keys
       }
     })
+    // what a module needs to write a filesystem type: the ZenFS the kernel runs on, never a second copy
+    this.kmodules.provide('zenfs.core', zenfsCore)
+    for (const [name, lib] of Object.entries(PROVIDED_LIBS)) this.kmodules.provide(`lib:${name}`, lib)
     const kernel = this
     this.modprobe = new ModProbe({
       // the filesystem and the shell are built a few lines below
@@ -438,6 +499,18 @@ export class Kernel implements IKernel {
       release: this.version,
       run: command => this.shell.execute(command)
     })
+    const modulesUrl = this.options.modules === false ? '' : this.options.modules || (import.meta.env['ECMAOS_MODULES'] as string | undefined) || '/modules/index.json'
+    if (modulesUrl && modulesUrl !== 'none') {
+      this.modcatalog = new ModuleCatalog({
+        url: modulesUrl,
+        fetch: (url, init) => (this.host.fetch ?? fetch)(url, init),
+        dir: () => this.modprobe.dir,
+        get fs() { return kernel.filesystem.fs as never },
+        log: { warn: message => this.log.warn(message) }
+      })
+    }
+    this.fstypes = new FsTypes(() => this.filesystem.mounts.values())
+    for (const type of builtinFsTypes()) this.fstypes.register(type)
     this.screensavers = new Map()
     this.windows = new WindowServer()
     this.framebuffers = new Framebuffers(this.windows)
@@ -675,7 +748,16 @@ export class Kernel implements IKernel {
       }
 
       // /etc/modules-load.d names the modules to load now; one that fails is logged and does not stop the boot
-      await this.modprobe.loadAtBoot(message => this.log.warn(message))
+      await this.modprobe.writeBuiltin(this.fstypes.names().filter(name => !this.fstypes.get(name)?.owner))
+    // the key the in-tree modules are signed with, from the build (ECMAOS_MODULE_PUBKEY: base64 of the 32 raw bytes); written each
+    // boot so a rotated key reaches machines that already exist
+    // (a build can set another; without one it is the key in module-release-key.json, which signs the in-tree modules)
+    const releaseKey = (import.meta.env['ECMAOS_MODULE_PUBKEY'] as string | undefined)?.trim() || releaseKeyFile.pub
+    if (releaseKey) {
+      await this.filesystem.fs.mkdir(MODULE_KEYS, { recursive: true })
+      await this.filesystem.fs.writeFile(`${MODULE_KEYS}/ecmaos.pub`, `# ecmaos release key for the modules built with this kernel\n${releaseKey}\n`, { mode: 0o644 })
+    }
+    await this.modprobe.loadAtBoot(message => this.log.warn(message))
 
       if (!(await this.filesystem.fs.exists('/etc/hosts'))) {
         await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
@@ -1179,6 +1261,12 @@ export class Kernel implements IKernel {
   async configure(options: KernelOptions) {
     await this.filesystem.configure(options.filesystem ?? {})
     registerModuleProc(proc_root, this.kmodules)
+    // the types `mount -t` knows, with the kernel's own filesystems (proc, sysfs, ...) that are mounted but not mountable
+    proc_root.children.set('filesystems', {
+      mode: 0o444,
+      show: () => [...new Set([...this.fstypes.names(), ...[...this.filesystem.mounts.values()].map(fs => (fs as { name?: string }).name).filter((name): name is string => !!name)])]
+        .sort().map(name => `nodev\t${name}\n`).join('')
+    })
   }
 
   /**
@@ -1246,6 +1334,50 @@ export class Kernel implements IKernel {
     return { ...options, stdin: options.openStdin?.(), stdinFile: undefined, openStdin: undefined }
   }
 
+  /**
+   * `request_module`: the kernel asks for a module by alias (`fs-zip` when `mount -t zip` meets a type nobody has) and
+   * `modprobe` loads it, as root, whoever asked. True if the alias named a module and it loaded.
+   */
+  async requestModule(alias: string): Promise<boolean> {
+    if (!/^[a-z0-9][a-z0-9_.-]*$/i.test(alias) || this.kmodules.disabled) return false
+    const load = async () => {
+      await this.modprobe.load(alias)
+      this.log.info(`request_module: ${alias}: loaded`)
+      return true
+    }
+    try {
+      return await load()
+    } catch { /* not on this machine: the catalog may have it */ }
+
+    // an in-tree module that is not in the boot bundle is fetched the first time it is asked for, and stays
+    const name = await this.modcatalog?.find(alias)
+    if (!name) return false
+    try {
+      const written = await this.modcatalog!.install(name)
+      if (!written.length) return false
+      this.log.info(`request_module: ${alias}: downloaded ${written.join(', ')}`)
+      await this.modprobe.reindex()
+      return await load()
+    } catch (error) {
+      this.log.warn(`request_module: ${alias}: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
+  /** Whether a format a module added recognizes the file, by the first 256 bytes of it */
+  private async moduleFormatMatches(filename: string, shell: IShell): Promise<boolean> {
+    const handle = await shell.context.fs.promises.open(filename, 'r').catch(() => undefined)
+    if (!handle) return false
+    try {
+      const buf = new Uint8Array(256)
+      const { bytesRead } = await handle.read(buf, 0, 256, 0)
+      const prm = { filename, buf: buf.subarray(0, bytesRead) } as unknown as BinPrm
+      return [...this.moduleBinfmts].some(format => format.matches(prm))
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  }
+
   async execute(options: KernelExecuteOptions): Promise<number> {
     try {
       if (!await this.filesystem.exists(options.command)) {
@@ -1254,6 +1386,18 @@ export class Kernel implements IKernel {
       }
 
       const header = await this.readFileHeader(options.command, options.shell) ?? { type: 'application/octet-stream' as const }
+      // a format a module added: `execve` knows how to run it, the file header reader does not
+      // (one that is not loaded yet is asked for by the file's extension: `foo.demo` calls for `binfmt-demo`)
+      if (header.type === 'application/octet-stream') {
+        const extension = /\.([A-Za-z0-9_-]+)$/.exec(options.command)?.[1]
+        if (extension && !(this.moduleBinfmts.size && await this.moduleFormatMatches(options.command, options.shell))) await this.requestModule(`binfmt-${extension.toLowerCase()}`)
+      }
+      if (header.type === 'application/octet-stream' && this.moduleBinfmts.size && await this.moduleFormatMatches(options.command, options.shell)) {
+        const exitCode = await this.executeViaExecve(options)
+        options.shell.env.set('?', exitCode.toString())
+        this.events.dispatch<KernelExecuteEvent>(KernelEvents.EXECUTE, { command: options.command, args: options.args, exitCode })
+        return exitCode
+      }
 
       let exitCode: number | void = -1
       switch (header.type) {

@@ -160,7 +160,7 @@ export interface LoadOptions {
   params?: string[]
 }
 
-export interface ModuleHost extends Partial<Pick<HookHost, 'commands'>> {
+export interface ModuleHost extends Partial<Pick<HookHost, 'commands' | 'fstypes' | 'binfmts' | 'syscalls'>> {
   log: { info(message: string): void, warn(message: string): void, error(message: string): void }
   /** Turns module source into the object it exports */
   evaluate(source: string): Promise<unknown>
@@ -179,6 +179,9 @@ export class ModuleManager {
   /** `/proc/sys/kernel/module_sig_enforce`: once set, only a module signed by a trusted key loads, and it cannot be cleared */
   #enforce = false
   readonly #symbols = new Map<string, { owner: Module, value: unknown }>()
+  /** Questions a module asks of the world before it may unload (a mounted filesystem of its own): the answer is a reason, or nothing */
+  readonly #busy = new Map<Module, Array<() => string | undefined>>()
+  readonly #provided = new Map<string, unknown>()
   readonly #infos = new Map<string, { info: ModuleInfo, size: number, signature: ModuleSignature }>()
   #warnedTaint = false
 
@@ -211,9 +214,17 @@ export class ModuleManager {
   size(name: string) { return this.#infos.get(name)?.size ?? 0 }
   signature(name: string) { return this.#infos.get(name)?.signature }
 
-  /** Every symbol modules export, for `/proc/kallsyms` */
+  /** Makes `value` importable by every module under `symbol`, like a symbol the kernel exports itself */
+  provide(symbol: string, value: unknown) {
+    this.#provided.set(symbol, value)
+  }
+
+  /** Every symbol modules export, and those the kernel provides (module ''), for `/proc/kallsyms` */
   symbols() {
-    return [...this.#symbols].map(([symbol, entry]) => ({ symbol, module: entry.owner.name })).sort((a, b) => a.symbol.localeCompare(b.symbol))
+    return [
+      ...[...this.#provided.keys()].map(symbol => ({ symbol, module: '' })),
+      ...[...this.#symbols].map(([symbol, entry]) => ({ symbol, module: entry.owner.name }))
+    ].sort((a, b) => a.symbol.localeCompare(b.symbol))
   }
 
   async load(source: string, options: LoadOptions = {}): Promise<Module> {
@@ -267,6 +278,7 @@ export class ModuleManager {
     } catch (error) {
       for (const step of undo.reverse()) await step()
       for (const [symbol, { owner }] of this.#symbols) if (owner === mod) this.#symbols.delete(symbol)
+      this.#busy.delete(mod)
       throw error
     }
 
@@ -286,7 +298,14 @@ export class ModuleManager {
     const mod = find_module(name)
     if (!mod) throw new ModuleError('ENOENT', `module ${name} is not currently loaded`)
     if (mod.refcnt > 0 && !force) throw new ModuleError('EBUSY', `module ${name} is in use`)
+    if (!force) {
+      for (const check of this.#busy.get(mod) ?? []) {
+        const reason = check()
+        if (reason) throw new ModuleError('EBUSY', `module ${name} is in use: ${reason}`)
+      }
+    }
     await mod.dispose(force)
+    this.#busy.delete(mod)
     this.#infos.delete(name)
     this.host.dmesg(`${name}: module unloaded`)
   }
@@ -304,9 +323,11 @@ export class ModuleManager {
       export: (symbol, value) => {
         const taken = this.#symbols.get(symbol)
         if (taken) throw new ModuleError('EEXIST', `${mod.name}: symbol ${symbol} is already exported by ${taken.owner.name}`)
+        if (this.#provided.has(symbol)) throw new ModuleError('EEXIST', `${mod.name}: symbol ${symbol} is provided by the kernel`)
         this.#symbols.set(symbol, { owner: mod, value })
       },
       import: <T>(symbol: string) => {
+        if (this.#provided.has(symbol)) return this.#provided.get(symbol) as T
         const entry = this.#symbols.get(symbol)
         if (!entry) throw new ModuleError('ENOENT', `${mod.name}: unknown symbol ${symbol}`)
         if (entry.owner !== mod && !mod.uses.has(entry.owner)) {
@@ -316,7 +337,7 @@ export class ModuleManager {
         return entry.value as T
       },
       onExit: step => { undo.push(step) },
-      ...createHooks({ module: mod.name, host: this.host, undo, fail: (code, message) => new ModuleError(code, message) })
+      ...createHooks({ module: mod.name, host: this.host, undo, busy: check => { this.#busy.set(mod, [...(this.#busy.get(mod) ?? []), check]) }, fail: (code, message) => new ModuleError(code, message) })
     }
   }
 }

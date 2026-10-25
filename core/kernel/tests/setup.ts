@@ -287,6 +287,12 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const pathname = new URL(raw, 'http://localhost/').pathname
+    if (pathname.startsWith('/modules/')) {
+      // the in-tree kernel modules, as `scripts/build-modules.mjs` writes them
+      const built = nodePath.join(import.meta.dirname, '../public/modules', nodePath.basename(pathname))
+      if (!nodeFs.existsSync(built)) return Promise.resolve(new Response('Not found', { status: 404 }))
+      return Promise.resolve(new Response(nodeFs.readFileSync(built), { headers: { 'content-type': pathname.endsWith('.json') ? 'application/json' : 'text/javascript' } }))
+    }
     if (!pathname.startsWith('/programs/')) return realFetch(input as RequestInfo, init)
     if (pathname === '/programs/index.json') {
       const all = new URL(raw, 'http://localhost/').searchParams.has('all')

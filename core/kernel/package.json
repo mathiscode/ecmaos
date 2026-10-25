@@ -97,8 +97,8 @@
     "#*": "./src/tree/*"
   },
   "scripts": {
-    "build": "node scripts/splash.mjs && node ../../utils/initfs.mjs build --if-possible && vite build && cp index-dist.html dist/index.html",
-    "dev": "node scripts/splash.mjs && node ../../utils/initfs.mjs build --if-possible && vite",
+    "build": "node scripts/splash.mjs && node ../../utils/initfs.mjs build --if-possible && node scripts/build-modules.mjs && vite build && cp index-dist.html dist/index.html",
+    "dev": "node scripts/splash.mjs && node ../../utils/initfs.mjs build --if-possible && node scripts/build-modules.mjs && vite",
     "lint": "eslint src",
     "preview": "vite preview",
     "test": "vitest run",

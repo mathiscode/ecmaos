@@ -205,3 +205,10 @@ describe('module signatures', () => {
     expect((await checkSignature(text.replace('name=state', 'name=stale'), [key])).state).toBe('bad')
   })
 })
+
+describe('libraries modules take from the kernel', () => {
+  it('module-libs.json and what the kernel provides name the same libraries', async () => {
+    const { LIB_NAMES, PROVIDED_LIBS } = await import('#lib/module-libs.ts')
+    expect(Object.keys(PROVIDED_LIBS).sort()).toEqual([...LIB_NAMES].sort())
+  })
+})

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { bindContext } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
@@ -78,7 +78,10 @@ describe('insmod, rmmod and modinfo', () => {
 
     expect((await sh('rmmod hello')).code).toBe(0)
     expect((await sh('cat /proc/modules')).out).not.toMatch(/^hello/m)
-    expect((await sh('cat /proc/kallsyms')).out.trim()).toBe('')
+    // what the kernel provides stays; what the module exported is gone
+    const symbols = (await sh('cat /proc/kallsyms')).out
+    expect(symbols).toContain('T zenfs.core')
+    expect(symbols).not.toContain('hello.times')
   })
 
   it('modinfo reads the file, and the loaded module', async () => {
@@ -260,6 +263,233 @@ export default { init(ctx) { ctx.proc('clash', { show: () => 'x\\n' }); ctx.debu
       const result = await sh('insmod /lib/modules/shadow.ko.mjs')
       expect(result.code).not.toBe(0)
       expect(result.out).toContain('exists')
+    })
+  })
+
+  describe('filesystem types', () => {
+    const memfs = `/* ecmaos-module
+ * name=memfs
+ * license=GPL-2.0-only
+ */
+export default {
+  init(ctx) {
+    const { InMemory } = ctx.import('zenfs.core')
+    ctx.filesystem({ name: 'scratchfs', backend: InMemory })
+  }
+}
+`
+    beforeAll(async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/memfs.ko.mjs', memfs)
+    })
+
+    it('lists the built-in types, takes a module type, mounts it, and refuses to unload it while it is mounted', async () => {
+      expect((await sh('cat /proc/filesystems')).out).toMatch(/nodev\tmemory\n/)
+      expect((await sh('cat /proc/filesystems')).out).not.toContain('scratchfs')
+      expect((await sh('mount -t scratchfs /mnt/scratch')).out).toContain("unknown filesystem type 'scratchfs'")
+
+      expect((await sh('insmod /lib/modules/memfs.ko.mjs')).code).toBe(0)
+      expect((await sh('cat /proc/filesystems')).out).toMatch(/nodev\tscratchfs\n/)
+      expect((await sh('mount -t scratchfs /mnt/scratch')).out).toContain('Mounted scratchfs filesystem at /mnt/scratch')
+      expect((await sh('echo hi > /mnt/scratch/f && cat /mnt/scratch/f')).out).toBe('hi\n')
+      expect((await sh('mount -t scratchfs /mnt/other src')).out).toContain('does not require a source')
+
+      const busy = await sh('rmmod memfs')
+      expect(busy.code).not.toBe(0)
+      expect(busy.out).toContain('1 scratchfs filesystem is mounted')
+
+      expect((await sh('umount /mnt/scratch')).code).toBe(0)
+      expect((await sh('rmmod memfs')).code).toBe(0)
+      expect((await sh('cat /proc/filesystems')).out).not.toContain('scratchfs')
+      expect((await sh('mount -t scratchfs /mnt/scratch')).out).toContain("unknown filesystem type")
+    })
+
+    it('will not take a name a type already has', async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/dup.ko.mjs', "/* ecmaos-module\n * name=dup\n */\nexport default { init(ctx) { ctx.filesystem({ name: 'memory', backend: ctx.import('zenfs.core').InMemory }) } }\n")
+      const result = await sh('insmod /lib/modules/dup.ko.mjs')
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('filesystem type memory exists')
+    })
+  })
+
+  describe('program formats', () => {
+    const fmt = `/* ecmaos-module
+ * name=binfmt_demo
+ * license=GPL-2.0-only
+ */
+export default {
+  async init(ctx) {
+    await ctx.command('demo-run', "const { argv, read, open, close, write, exit, O_RDONLY } = globalThis.ecmaosSyscalls; const fd = open(argv[1], O_RDONLY); const buf = new Uint8Array(64); const n = read(fd, buf, -1); close(fd); write(1, new TextEncoder().encode('demo ran ' + new TextDecoder().decode(buf.subarray(5, n)).trim() + '\\\\n')); exit(0)")
+    ctx.binfmt({ name: 'demo', interpreter: '/usr/bin/demo-run', matches: ({ magic }) => new TextDecoder().decode(magic.subarray(0, 5)) === 'DEMO:' })
+  }
+}
+`
+    beforeAll(async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/binfmt_demo.ko.mjs', fmt)
+      await kernel.filesystem.fs.writeFile('/tmp/prog.demo', 'DEMO:hello\n', { mode: 0o755 })
+    })
+
+    it('runs a file of a format a module added, and stops when the module goes', async () => {
+      expect((await sh('/tmp/prog.demo')).code).not.toBe(0)
+      expect((await sh('insmod /lib/modules/binfmt_demo.ko.mjs')).code).toBe(0)
+      const ran = await sh('/tmp/prog.demo')
+      expect(ran.out).toContain('demo ran hello')
+      expect(ran.code).toBe(0)
+      expect((await sh('rmmod binfmt_demo')).code).toBe(0)
+      expect((await sh('/tmp/prog.demo')).code).not.toBe(0)
+    })
+
+    it('will not take the name of a format that exists', async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/binfmt_dup.ko.mjs', "/* ecmaos-module\n * name=binfmt_dup\n */\nexport default { init(ctx) { ctx.binfmt({ name: 'script', interpreter: '/bin/sh', matches: () => false }) } }\n")
+      const result = await sh('insmod /lib/modules/binfmt_dup.ko.mjs')
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('binfmt script exists')
+    })
+  })
+
+  describe('syscalls', () => {
+    const sys = `/* ecmaos-module
+ * name=sys_demo
+ * license=GPL-2.0-only
+ */
+export default {
+  init(ctx) {
+    ctx.syscall('demo_add', (call, a, b) => a + b)
+    ctx.syscall('demo_secret', () => 7)
+    ctx.syscallPolicy(call => call.syscall === 'demo_secret' ? false : undefined)
+    ctx.syscallPolicy(() => { throw new Error('broken policy') })
+  }
+}
+`
+    beforeAll(async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/sys_demo.ko.mjs', sys)
+      await kernel.filesystem.fs.writeFile('/usr/bin/demo-call', "#!/usr/bin/env node\nconst { argv, custom, write, exit } = globalThis.ecmaosSyscalls; let out; try { out = String(await custom(argv[1], ...argv.slice(2).map(Number))) } catch (error) { out = 'threw ' + (error.code ?? error.message) } write(1, new TextEncoder().encode(out + '\\n')); exit(0)\n", { mode: 0o755 })
+    })
+
+    it('adds a syscall and a policy, and takes both away on rmmod', async () => {
+      expect((await sh('demo-call demo_add 2 3')).out).toBe('threw ENOSYS\n')
+      expect((await sh('insmod /lib/modules/sys_demo.ko.mjs')).code).toBe(0)
+      expect((await sh('demo-call demo_add 2 3')).out).toBe('5\n')
+      // the policy refuses one syscall, and a policy that throws does not lock anything
+      expect((await sh('demo-call demo_secret')).out).toBe('threw EPERM\n')
+      expect((await sh('rmmod sys_demo')).code).toBe(0)
+      expect((await sh('demo-call demo_add 2 3')).out).toBe('threw ENOSYS\n')
+    })
+
+    it('will not take the name of a syscall that exists', async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/sys_dup.ko.mjs', "/* ecmaos-module\n * name=sys_dup\n */\nexport default { init(ctx) { ctx.syscall('module_ctl', () => 0) } }\n")
+      const result = await sh('insmod /lib/modules/sys_dup.ko.mjs')
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('syscall module_ctl exists')
+    })
+  })
+
+  describe('request_module', () => {
+    const dir = () => `/lib/modules/${kernel.version}`
+    beforeAll(async () => {
+      await kernel.filesystem.fs.mkdir(dir(), { recursive: true })
+      await kernel.filesystem.fs.writeFile(`${dir()}/autofs.ko.mjs`, "/* ecmaos-module\n * name=autofs\n * alias=fs-autofs\n */\nexport default { init(ctx) { ctx.filesystem({ name: 'autofs', backend: ctx.import('zenfs.core').InMemory }) } }\n")
+      await kernel.filesystem.fs.writeFile(`${dir()}/binfmt_auto.ko.mjs`, "/* ecmaos-module\n * name=binfmt_auto\n * alias=binfmt-auto\n */\nexport default { async init(ctx) { await ctx.command('auto-run', \"globalThis.ecmaosSyscalls.write(1, new TextEncoder().encode('auto ran\\\\n')); globalThis.ecmaosSyscalls.exit(0)\"); ctx.binfmt({ name: 'auto', interpreter: '/usr/bin/auto-run', matches: ({ magic }) => new TextDecoder().decode(magic.subarray(0, 5)) === 'AUTO:' }) } }\n")
+      await kernel.filesystem.fs.writeFile('/tmp/prog.auto', 'AUTO:x\n', { mode: 0o755 })
+      expect((await sh('depmod')).code).toBe(0)
+    })
+
+    it('mount -t loads the module with the alias fs-TYPE, and an unknown type still fails', async () => {
+      expect((await sh('cat /proc/modules')).out).not.toContain('autofs')
+      expect((await sh('mount -t autofs /mnt/auto')).out).toContain('Mounted autofs filesystem at /mnt/auto')
+      expect((await sh('cat /proc/modules')).out).toContain('autofs')
+      expect((await sh('mount -t nonesuch /mnt/none')).out).toContain("unknown filesystem type 'nonesuch'")
+      expect((await sh('umount /mnt/auto')).code).toBe(0)
+      expect((await sh('rmmod autofs')).code).toBe(0)
+    })
+
+    it('running a file of an unknown format loads the module with the alias binfmt-EXTENSION', async () => {
+      expect((await sh('cat /proc/modules')).out).not.toContain('binfmt_auto')
+      const ran = await sh('/tmp/prog.auto')
+      expect(ran.out).toContain('auto ran')
+      expect((await sh('cat /proc/modules')).out).toContain('binfmt_auto')
+      expect((await sh('rmmod binfmt_auto')).code).toBe(0)
+    })
+
+    it('requestModule loads by alias for the kernel itself', async () => {
+      expect(await kernel.requestModule('fs-autofs')).toBe(true)
+      expect((await sh('rmmod autofs')).code).toBe(0)
+    })
+  })
+
+  describe('in-tree modules', () => {
+    // a mount that failed still loaded the module, and an unsigned module taints the kernel for the signing test after
+    afterAll(async () => { await sh('umount /mnt/bad'); await sh('rmmod archives') })
+
+    beforeAll(async () => {
+      // the modules the site serves, built the way a release builds them
+      const { execFileSync } = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:child_process') }).getBuiltinModule('node:child_process')
+      execFileSync(process.execPath, ['scripts/build-modules.mjs'], { cwd: (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:path') }).getBuiltinModule('node:path').resolve(import.meta.dirname, '../..') })
+      // a zip with one file in it, made with the library the module bundles
+      const { zipSync, strToU8 } = await import('fflate')
+      await kernel.filesystem.fs.writeFile('/tmp/test.zip', zipSync({ 'hello.txt': strToU8('from the zip\n') }))
+    })
+
+    it('mount -t zip fetches the zip module the first time, loads it, and the files are there', async () => {
+      expect(await kernel.filesystem.fs.exists(`/lib/modules/${kernel.version}/kernel/archives.ko.mjs`)).toBe(false)
+      expect((await sh('cat /proc/modules')).out).not.toMatch(/^archives /m)
+      expect((await sh('mount -t zip /tmp/test.zip /mnt/zip')).out).toContain('Mounted zip filesystem from /tmp/test.zip to /mnt/zip')
+      expect(await kernel.filesystem.fs.exists(`/lib/modules/${kernel.version}/kernel/archives.ko.mjs`)).toBe(true)
+      expect((await sh('cat /mnt/zip/hello.txt')).out).toBe('from the zip\n')
+      expect((await sh('cat /proc/modules')).out).toMatch(/^archives /m)
+      expect((await sh('cat /proc/filesystems')).out).toContain('zip')
+      expect((await sh('modinfo archives')).out).toContain('license:        LGPL-3.0-or-later')
+
+      // in use while mounted, and free after
+      expect((await sh('rmmod archives')).out).toContain('1 zip filesystem is mounted')
+      expect((await sh('umount /mnt/zip')).code).toBe(0)
+      expect((await sh('rmmod archives')).code).toBe(0)
+
+      // it stays on disk, so the next mount needs no download
+      expect((await sh('mount -t zip /tmp/test.zip /mnt/zip2')).out).toContain('Mounted zip filesystem')
+      expect((await sh('umount /mnt/zip2')).code).toBe(0)
+      expect((await sh('rmmod archives')).code).toBe(0)
+    })
+
+    it('says what the zip type needs, and what is wrong with a file that is not one', async () => {
+      expect((await sh('mount -t zip /mnt/nope')).out).toContain('zip filesystem requires a source')
+      await kernel.filesystem.fs.writeFile('/tmp/bad.zip', 'not a zip')
+      const bad = await sh('mount -t zip /tmp/bad.zip /mnt/bad')
+      expect(bad.code).not.toBe(0)
+    })
+
+    it('a build with the release key signs the modules, and a kernel that trusts that key loads one with no E taint', async () => {
+      const builtin = <T>(id: string) => (process as unknown as { getBuiltinModule: (id: string) => T }).getBuiltinModule(id)
+      const fsx = builtin<typeof import('node:fs')>('node:fs')
+      const pathx = builtin<typeof import('node:path')>('node:path')
+      const osx = builtin<typeof import('node:os')>('node:os')
+      const cp = builtin<typeof import('node:child_process')>('node:child_process')
+      const dir = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'ecmaos-key-'))
+      const cwd = pathx.resolve(import.meta.dirname, '../..')
+      cp.execFileSync(process.execPath, ['scripts/module-key.mjs', dir], { cwd })
+      cp.execFileSync(process.execPath, ['scripts/build-modules.mjs', pathx.join(dir, 'out')], { cwd, env: { ...process.env, ECMAOS_MODULE_KEY: pathx.join(dir, 'ecmaos.key') } })
+      const catalog = JSON.parse(fsx.readFileSync(pathx.join(dir, 'out', 'index.json'), 'utf8'))
+      expect(catalog.modules.cloud.signed).toBe(true)
+
+      await kernel.filesystem.fs.mkdir('/etc/modules-keys', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/etc/modules-keys/testrelease.pub', fsx.readFileSync(pathx.join(dir, 'ecmaos.pub'), 'utf8'))
+      await kernel.filesystem.fs.writeFile('/tmp/cloud.ko.mjs', fsx.readFileSync(pathx.join(dir, 'out', 'cloud.ko.mjs'), 'utf8'))
+      expect((await sh('modinfo /tmp/cloud.ko.mjs')).out).toContain('sig_status:     valid (trusted key testrelease)')
+      expect((await sh('insmod /tmp/cloud.ko.mjs')).code).toBe(0)
+      expect((await sh('cat /sys/module/cloud/taint')).out).toBe('O\n')
+      expect((await sh('rmmod cloud')).code).toBe(0)
+      await kernel.filesystem.fs.unlink('/etc/modules-keys/testrelease.pub')
+    })
+
+    it('boot writes the release key, so the modules the project signs are trusted', async () => {
+      const pub = await kernel.filesystem.fs.readFile('/etc/modules-keys/ecmaos.pub', 'utf-8')
+      expect(pub).toContain('1LgQZqClL+Wj85WkCDh8vg5SX7igrTzvPRtK24OZQoM=')
+    })
+
+    it('modules.builtin lists the types the kernel has, and modprobe has nothing to load for them', async () => {
+      const text = await kernel.filesystem.fs.readFile(`/lib/modules/${kernel.version}/modules.builtin`, 'utf-8')
+      expect(text).toContain('kernel/fs/memory.ko\n')
+      expect(text).not.toContain('zip')
+      expect((await sh('modprobe -n fs-memory')).out).toContain('builtin kernel/fs/memory.ko')
     })
   })
 

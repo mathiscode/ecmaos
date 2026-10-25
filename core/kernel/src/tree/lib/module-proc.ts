@@ -18,7 +18,7 @@ export function registerModuleProc(root: ProcDir, kmodules: ModuleManager): void
 
   root.children.set('kallsyms', {
     mode: 0o444,
-    show: () => kmodules.symbols().map(({ symbol, module }) => `0000000000000000 T ${symbol}\t[${module}]`).join('\n') + (kmodules.symbols().length ? '\n' : '')
+    show: () => kmodules.symbols().map(({ symbol, module }) => `0000000000000000 T ${symbol}${module ? `\t[${module}]` : ''}`).join('\n') + (kmodules.symbols().length ? '\n' : '')
   })
 
   const kernel = root.lookup('sys')

@@ -13,7 +13,7 @@ import { nodeDisplay } from './display/index.ts'
 import type { NodeWindowRenderer } from './display/index.ts'
 import type { HostDisplay } from '@ecmaos/types'
 import { MemoryStorage } from './memory-storage.ts'
-import { initfsFile, initfsUrl, ProgramsUrl, sourceFetch } from './sources.ts'
+import { initfsFile, initfsUrl, ModulesUrl, ProgramsUrl, sourceFetch } from './sources.ts'
 import { SqliteStorage } from './sqlite-storage.ts'
 import { openDatabase, sqliteRoot } from './sqlite-store.ts'
 
@@ -96,6 +96,7 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
       } as NonNullable<Host['defaults']>['filesystem'],
       initfs: options.ephemeral ? false : initfsUrl(),
       programs: options.ephemeral ? false : ProgramsUrl,
+      modules: ModulesUrl,
       service: { register: false }
     },
     flush() {

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -6,6 +6,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /** Where the program catalog is, as a URL the host's `fetch` answers (see `sourceFetch`) */
 export const ProgramsUrl = 'ecmaos-programs:/index.json'
+
+/** Where the catalog of in-tree kernel modules is, answered by `sourceFetch` from `modules/` beside the entry point */
+export const ModulesUrl = 'ecmaos-modules:/index.json'
 
 interface ProgramPackage {
   name: string
@@ -71,6 +74,14 @@ export function sourceFetch(env: NodeJS.ProcessEnv = process.env, allowed: strin
       const served = entry && Object.values(entry.programs).flatMap(candidate => [candidate.file, candidate.runtime?.file]).find(candidate => candidate === file)
       if (!entry || !served) return missing()
       return respond(await readFile(path.join(entry.dir, served)), served.endsWith('.wasm') ? 'application/wasm' : 'application/gzip')
+    }
+    if (target.protocol === 'ecmaos-modules:') {
+      const file = target.pathname.slice(1)
+      // the catalog and the module files, nothing else in the directory
+      if (file !== 'index.json' && !/^[A-Za-z0-9_-]+\.ko\.mjs$/.test(file)) return missing()
+      const found = path.join(fileURLToPath(new URL('./modules/', import.meta.url)), file)
+      if (!existsSync(found)) return missing()
+      return respond(await readFile(found), file.endsWith('.json') ? 'application/json' : 'text/javascript')
     }
     return missing()
   }

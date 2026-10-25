@@ -161,6 +161,9 @@ export class ModProbe {
 
   get dir() { return moduleDir(this.host.release) }
 
+  /** Writes `modules.dep` and `modules.alias` again, after a module was added to the directory */
+  async reindex() { return depmod(this.host.fs, this.dir) }
+
   async #index() {
     if (!await this.host.fs.exists(`${this.dir}/modules.dep`)) await depmod(this.host.fs, this.dir)
     const dep = new Map<string, { path: string, needs: string[] }>()
@@ -190,11 +193,27 @@ export class ModProbe {
 
   index() { return this.#index() }
 
+  /** The `modules.builtin` line for NAME or its `fs-NAME` alias, if the kernel has it built in */
+  async #builtin(request: string): Promise<string | undefined> {
+    const text = await this.host.fs.readFile(`${this.dir}/modules.builtin`, 'utf8').catch(() => '')
+    const wanted = same(request).replace(/^fs_/, '')
+    return text.split('\n').find(line => line && same(line.split('/').pop()!.replace(/\.ko$/, '')) === wanted)
+  }
+
+  /** Writes `modules.builtin`: `kernel/fs/NAME.ko` for each filesystem type the kernel has without a module */
+  async writeBuiltin(fsTypes: string[]) {
+    await this.host.fs.mkdir(this.dir, { recursive: true })
+    await this.host.fs.writeFile(`${this.dir}/modules.builtin`, fsTypes.map(name => `kernel/fs/${name}.ko\n`).join(''))
+  }
+
   /** `modprobe NAME`: loads what NAME needs, then NAME; returns the lines a dry run or verbose run prints */
   async load(request: string, options: ProbeOptions = {}, done = new Set<string>()): Promise<string[]> {
     const lines: string[] = []
     const index = await this.#index()
     const config = await readConfig(this.host.fs)
+    // `modules.builtin` lists what is part of the kernel already: nothing to load, as on Linux
+    const builtin = await this.#builtin(request)
+    if (builtin) return [`builtin ${builtin}`]
     const { name, viaAlias } = this.#resolve(request, index, config)
     if (done.has(name)) return lines
     done.add(name)

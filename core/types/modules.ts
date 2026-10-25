@@ -63,6 +63,74 @@ export interface ModuleContext {
    * commands in `/bin`. Fails with `EEXIST` if there is already a file of that name. Removed when the module unloads.
    */
   command(name: string, source: string): Promise<void>
+  /**
+   * Adds a filesystem type to `mount -t` and `/proc/filesystems`. Fails with `EEXIST` if the name is taken. The module
+   * cannot be unloaded while a filesystem of the type is mounted (`EBUSY`).
+   */
+  filesystem(spec: FilesystemSpec): void
+  /**
+   * Teaches `execve` a program format, as `binfmt_misc` does: a file `matches` recognizes is run as `interpreter FILE ARGS`.
+   * It is tried after the formats for `#!` scripts and WebAssembly, which are exact, and before the one for JavaScript, which takes any text file.
+   * Fails with `EEXIST` if the name is taken. Removed when the module unloads.
+   */
+  binfmt(spec: BinfmtSpec): void
+  /**
+   * Adds the syscall `name`, which a program makes with `ecmaosSyscalls.custom(name, ...args)`. `handler` returns a number
+   * (a negative one is `-errno`), or nothing for 0. Fails with `EEXIST` if the name is taken; name it after the module.
+   * Removed when the module unloads. A program restricted by a `.manifest.json` can make it only if it lists it.
+   */
+  syscall(name: string, handler: (call: SyscallCall, ...args: Array<string | number>) => number | void | Promise<number | void>): void
+  /**
+   * Adds a check to every syscall a process makes: when `policy` returns `false` the syscall fails with `EPERM`. It can only
+   * deny, and a policy that throws is logged and ignored, so a broken one cannot lock the machine. Removed when the module unloads.
+   */
+  syscallPolicy(policy: (call: { syscall: string, pid: number, uid: number, exe?: string }) => boolean | void): void
+}
+
+/** Who made a syscall a module defined */
+export interface SyscallCall {
+  pid: number
+  /** The effective user id */
+  uid: number
+  gid: number
+  exe?: string
+  /** Writes `text` to a file of the caller's (mode 600), for an answer too big to return; the caller reads it back */
+  writeFile(path: string, text: string): Promise<void>
+}
+
+export interface BinfmtSpec {
+  name: string
+  /** `magic` is the first 256 bytes of the file */
+  matches(program: { filename: string, magic: Uint8Array }): boolean
+  /** The program that runs a file of this format, an absolute path (a command the module adds with `ctx.command`, say) */
+  interpreter: string
+}
+
+export interface FilesystemSpec {
+  /** What `mount -t NAME` says */
+  name: string
+  /** A ZenFS `Backend` (what `resolveMountConfig` takes as `backend`) */
+  backend: object
+  /** `none`: `mount -t NAME TARGET`; `required`: `mount -t NAME SOURCE TARGET`; `optional` takes either. @default 'none' */
+  source?: 'none' | 'optional' | 'required'
+  /** The options for the backend. Without this they are the `-o key=value` strings as given. */
+  config?(request: FilesystemRequest): object | Promise<object>
+  /** Said when `/etc/fstab` would mount it, if it needs a person (a picker, a sign-in window): the type is then skipped there */
+  needsPerson?: string
+}
+
+export interface FilesystemRequest {
+  source: string
+  /** Absolute */
+  target: string
+  /** The `-o key=value` options of the mount */
+  options: Record<string, string>
+  /** The bytes of a file or of an `http(s):` URL; a relative path is taken from where `mount` was run */
+  read(source: string): Promise<Uint8Array>
+  /** Prints a line on stdout */
+  out(text: string): void
+  /** Ends the mount with `mount: MESSAGE`; the lines after the first are printed as they are */
+  fail(message: string): never
 }
 
 /** A file in `/proc`. A `store` that throws is logged and the write still succeeds: procfs fails every later close of a file whose write threw */

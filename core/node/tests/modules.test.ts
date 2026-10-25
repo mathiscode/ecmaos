@@ -68,4 +68,25 @@ describe.skipIf(!supported)('kernel modules on the Node host', () => {
     expect(await session.run('ls /proc/extras /sys/kernel/extras /sys/kernel/debug/extras /usr/bin/extras-cmd; echo exit $?')).toMatch(/exit [1-9]\d*$/)
     expect(await session.run('ls /sys/kernel/config')).not.toContain('extras')
   })
+
+  it('a module adds a filesystem type, a program format, a syscall and a policy, and request_module loads one by alias', async () => {
+    await session.run('d=/lib/modules/$(uname -r); mkdir -p $d')
+    await session.run(String.raw`printf '/* ecmaos-module\n * name=fsx\n * alias=fs-fsx\n */\nexport default { init(ctx) { ctx.filesystem({ name: "fsx", backend: ctx.import("zenfs.core").InMemory }); ctx.syscall("fsx_ping", () => 9); ctx.binfmt({ name: "fsx", interpreter: "/bin/sh", matches: () => false }); ctx.syscallPolicy(() => undefined) } }\n' > $d/fsx.ko.mjs`)
+    expect(await session.run('depmod; echo exit $?')).toMatch(/exit 0$/)
+    expect(await session.run('cat /proc/filesystems')).not.toContain('fsx')
+    expect(await session.run('mount -t fsx /mnt/fsx; echo exit $?')).toMatch(/Mounted fsx filesystem at \/mnt\/fsx\s+exit 0$/)
+    expect(await session.run('cat /proc/filesystems')).toContain('fsx')
+    expect(await session.run('rmmod fsx; echo exit $?')).toContain('1 fsx filesystem is mounted')
+    expect(await session.run('umount /mnt/fsx; rmmod fsx; echo exit $?')).toMatch(/exit 0$/)
+    expect(await session.run('cat /proc/filesystems')).not.toContain('fsx')
+  })
+
+  it('mount -t of a type nobody has fetches the module that has it from the catalog the first time', async () => {
+    expect(await session.run('ls /lib/modules/$(uname -r)/kernel/archives.ko.mjs; echo exit $?')).toMatch(/exit [1-9]\d*$/)
+    // the file is not there, but the type is: the module had to be fetched and loaded to get as far as saying so
+    expect(await session.run('mount -t iso /tmp/nothing.iso /mnt/iso')).toContain('file not found: /tmp/nothing.iso')
+    expect(await session.run('lsmod')).toMatch(/^archives /m)
+    expect(await session.run('cat /proc/filesystems')).toMatch(/\biso\b/)
+    expect(await session.run('ls /lib/modules/$(uname -r)/kernel/archives.ko.mjs; echo exit $?')).toMatch(/exit 0$/)
+  })
 })

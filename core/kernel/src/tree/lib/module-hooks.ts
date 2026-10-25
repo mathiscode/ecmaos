@@ -12,13 +12,23 @@ import {
 } from '@zenfs/linux/fs/debugfs'
 import { ProcDir, proc_root, type ProcEntry } from '@zenfs/linux/fs/procfs'
 import { KObject, kernel_kobj } from '@zenfs/linux/kobject'
-import type { AttributeSpec, ConfigItemSpec, ConfigSubsystemSpec, DebugFileSpec, DebugValueType, ModuleContext, ProcFileSpec } from '@ecmaos/types'
+import type { FsTypes } from './fs-types.ts'
+import type { AttributeSpec, BinfmtSpec, SyscallCall, ConfigItemSpec, ConfigSubsystemSpec, DebugFileSpec, DebugValueType, FilesystemSpec, ModuleContext, ProcFileSpec } from '@ecmaos/types'
 
-type Hooks = Pick<ModuleContext, 'proc' | 'sys' | 'debugfs' | 'configfs' | 'command'>
+type Hooks = Pick<ModuleContext, 'proc' | 'sys' | 'debugfs' | 'configfs' | 'command' | 'filesystem' | 'binfmt' | 'syscall' | 'syscallPolicy'>
 
 export interface HookHost {
   log: { warn(message: string): void }
   /** Writes `/usr/bin/NAME` (see `ModuleContext.command`) and throws a `ModuleError` if the name is taken */
+  /** The registry `mount -t` reads (see `ModuleContext.filesystem`) */
+  fstypes?: () => FsTypes
+  /** Adds a program format to `execve`'s table and returns the function that takes it away; throws if the name is taken */
+  /** Adds a syscall (the handler gets its caller already described) and returns the function that takes it away; throws if the name is taken */
+  syscalls?: {
+    define(name: string, handler: (call: SyscallCall, ...args: Array<string | number>) => number | void | Promise<number | void>): () => void
+    policy(policy: (call: { syscall: string, pid: number, uid: number, exe?: string }) => boolean | void): () => void
+  }
+  binfmts?: { register(format: BinfmtSpec): () => void }
   commands?: { install(name: string, source: string): Promise<void>, remove(name: string): Promise<void> }
 }
 
@@ -27,6 +37,8 @@ export interface HookOptions {
   host: HookHost
   /** The module's undo list, run last in first out when it unloads */
   undo: Array<() => void | Promise<void>>
+  /** Says the module cannot unload while `check` returns a reason */
+  busy(check: () => string | undefined): void
   fail(code: string, message: string): Error
 }
 
@@ -40,7 +52,7 @@ const DEBUG_VALUES = {
   bool: debugfs_create_bool, str: debugfs_create_str
 } as const
 
-export function createHooks({ module, host, undo, fail }: HookOptions): Hooks {
+export function createHooks({ module, host, undo, busy, fail }: HookOptions): Hooks {
   const segments = (path: string, what: string): string[] => {
     const parts = path.split('/').filter(Boolean)
     if (!parts.length || !parts.every(part => NAME.test(part))) throw fail('EINVAL', `${module}: bad ${what} path '${path}'`)
@@ -192,6 +204,66 @@ export function createHooks({ module, host, undo, fail }: HookOptions): Hooks {
           group.unregisterSubsystem()
         })
       }
+    },
+
+    filesystem(spec: FilesystemSpec) {
+      const types = host.fstypes?.()
+      if (!types) throw fail('ENOSYS', `${module}: this kernel cannot add filesystem types`)
+      if (!NAME.test(spec.name)) throw fail('EINVAL', `${module}: bad filesystem type name '${spec.name}'`)
+      let remove: () => void
+      try {
+        remove = types.register({
+          name: spec.name,
+          source: spec.source ?? 'none',
+          owner: module,
+          needsPerson: spec.needsPerson,
+          mount: async request => {
+            const extra = await spec.config?.({ source: request.source, target: request.target, options: request.options, read: request.read, out: request.out, fail: request.fail })
+            await request.mount({ backend: spec.backend, ...(spec.config ? extra : request.options) })
+          }
+        })
+      } catch {
+        throw fail('EEXIST', `${module}: filesystem type ${spec.name} exists`)
+      }
+      undo.push(remove)
+      busy(() => {
+        const mounted = types.inUse(spec.name)
+        return mounted ? `${mounted} ${spec.name} filesystem${mounted === 1 ? ' is' : 's are'} mounted` : undefined
+      })
+    },
+
+    binfmt(spec: BinfmtSpec) {
+      if (!host.binfmts) throw fail('ENOSYS', `${module}: this kernel cannot add program formats`)
+      if (!NAME.test(spec.name)) throw fail('EINVAL', `${module}: bad binfmt name '${spec.name}'`)
+      if (!spec.interpreter.startsWith('/')) throw fail('EINVAL', `${module}: the interpreter of ${spec.name} must be an absolute path`)
+      let remove: () => void
+      try {
+        remove = host.binfmts.register(spec)
+      } catch {
+        throw fail('EEXIST', `${module}: binfmt ${spec.name} exists`)
+      }
+      undo.push(remove)
+    },
+
+    syscall(name, handler) {
+      if (!host.syscalls) throw fail('ENOSYS', `${module}: this kernel cannot add syscalls`)
+      if (!NAME.test(name)) throw fail('EINVAL', `${module}: bad syscall name '${name}'`)
+      try {
+        undo.push(host.syscalls.define(name, handler))
+      } catch {
+        throw fail('EEXIST', `${module}: syscall ${name} exists`)
+      }
+    },
+
+    syscallPolicy(policy) {
+      if (!host.syscalls) throw fail('ENOSYS', `${module}: this kernel cannot add syscall policies`)
+      undo.push(host.syscalls.policy(call => {
+        try {
+          return policy(call)
+        } catch (error) {
+          host.log.warn(`${module}: syscall policy failed and was ignored: ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }))
     },
 
     async command(name: string, source: string) {
