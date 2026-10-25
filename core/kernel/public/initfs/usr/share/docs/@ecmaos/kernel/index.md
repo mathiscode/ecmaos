@@ -291,13 +291,12 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 
 - Refer to the full list of [official modules on npm](https://www.npmjs.com/org/ecmaos-modules)
 - See the [MODULES.md](/MODULES.md) file for a list of community modules; submit a PR to add your module!
-- Modules are dynamically loaded into the kernel at boot and can be enabled or disabled
-- They are specified during build via the `ECMAOS_KERNEL_MODULES` environment variable
-  - e.g. `ECMAOS_KERNEL_MODULES=@ecmaos-modules/boilerplate@0.1.0,@your/package@1.2.3`
-- Versions must be pinned and are mandatory - you cannot use NPM version specifiers
-- They can provide additional functionality, devices, commands, etc.
-- They offer a [common interface](./core/types/modules.ts) for interacting with the kernel
-- Generally they should be written in [AssemblyScript](https://www.assemblyscript.org), but this isn't required
+- A module is one file, `NAME.ko.mjs`, that starts with a comment block of `key=value` lines (`name`, `version`, `license`, `kernel_api`, `depends`, `parm`) and exports `init(ctx)` and an optional `exit()`
+- `insmod [-f] FILE [name=value ...]` loads it, `rmmod [-f] NAME` unloads it, `lsmod` (or `/proc/modules`) lists the loaded ones and `modinfo FILE|NAME` shows what a module says about itself without running it; `insmod` and `rmmod` need root
+- A loaded module is in `/proc/modules` and `/sys/module/NAME` (with `parameters/`); it taints the kernel (`O` out-of-tree, `E` unsigned, `F` forced), which `/proc/sys/kernel/tainted` shows, and writing 1 to `/proc/sys/kernel/modules_disabled` stops loading and unloading until reboot
+- A module reaches the kernel through `ctx` only: `ctx.param`, `ctx.log`, `ctx.export` and `ctx.import` (symbols listed in `/proc/kallsyms`, a user holds its provider), and `ctx.onExit` for what `rmmod` must undo; the [types](./core/types/modules.ts) are the interface
+- A JS module runs in the kernel and is not confined: load only what you trust
+- `kernel_api` is a semver range of the module API (`1.0.0`); a module that asks for another version fails with `ENOEXEC`, and `insmod -f` loads it anyway
 
 ### Packages
 
@@ -527,7 +526,6 @@ install jquery
 - `/etc/crontab` is loaded on boot and contains system-wide scheduled tasks
 - `~/.config/crontab` is loaded on user login and contains user-specific scheduled tasks
 - `/etc/packages` is a list of already installed packages to load on boot; one per line
-- The env var `ECMAOS_KERNEL_MODULES` is a list of modules to load on boot; CSV with pinned versions
 - The env var `ECMAOS_RECOMMENDED_APPS` is a list of apps to suggest to new users
 
 ## App Development

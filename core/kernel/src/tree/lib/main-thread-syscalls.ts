@@ -17,6 +17,7 @@ import { O_DIRECTORY, S_IFSOCK } from '@zenfs/core/constants'
 import type { Credentials } from '@zenfs/core'
 import type { Kernel } from '#kernel.ts'
 import { listMounts, mountFilesystem, type MountRequest } from './mount-backends.ts'
+import { moduleControl, type ModuleRequest } from './module-control.ts'
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
@@ -87,6 +88,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_manage(action: string, argsJson: string, path: string): number
     fs_umount(target: string, path: string): number
     fs_mount(argsJson: string, path: string): number
+    module_ctl(argsJson: string, path: string): number
     peer_share(argsJson: string, path: string): number
     peer_attach(argsJson: string, path: string): number
     gateway_ctl(argsJson: string, path: string): number
@@ -1961,6 +1963,14 @@ export function installMainThreadSyscalls(): void {
       text = JSON.stringify(await mountFilesystem(kernel, shell, args))
     }
 
+    await writeScratch(kernel, proc, path, text)
+    return text.length
+  })
+
+  // `insmod`, `rmmod`, `modinfo`: the module list and the symbol table live in the kernel (`kmodule.ts`)
+  define_syscall('module_ctl', async (proc: Process, argsJson: string, path: string) => {
+    const kernel = kernelOf(proc)
+    const text = JSON.stringify(await moduleControl(kernel, proc, JSON.parse(argsJson) as ModuleRequest))
     await writeScratch(kernel, proc, path, text)
     return text.length
   })

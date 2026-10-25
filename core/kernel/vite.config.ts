@@ -112,7 +112,7 @@ export default defineConfig({
   envPrefix: 'ECMAOS_',
   // Tests boot against the kernel's built-in defaults, never the developer's (or CI's) `.env`:
   // Vite 8's unbundled path exposes `.env` values to `import.meta.env` under vitest, which would
-  // make every boot fetch initfs and install ECMAOS_KERNEL_MODULES from the network.
+  // make every boot fetch initfs from the network.
   envDir: process.env['VITEST'] ? false : undefined,
   plugins: [
     binNode(),

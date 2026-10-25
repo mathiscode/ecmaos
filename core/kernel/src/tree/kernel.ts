@@ -20,7 +20,7 @@ import path from 'node:path'
 import semver from 'semver'
 
 import { bindContext, boundContexts, Credentials, fs as zenfsFs } from '@zenfs/core'
-import { char_dev, current as zenfsCurrent, Device, Module as ZenFSModule, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
+import { char_dev, current as zenfsCurrent, Device, modules as loadedModules, Process as ZenFSProcess, processes as zenfsProcesses, Signal as ZenFSSignal, tty } from '@zenfs/linux'
 import { BusType } from '@zenfs/linux/drivers/base/bus'
 import { UsbRegistry } from '#lib/usb-bus.ts'
 import { driver_init as initDriverCore } from '@zenfs/linux/drivers/base/init'
@@ -36,6 +36,9 @@ import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
+import { ModuleManager } from '#lib/kmodule.ts'
+import { proc_root } from '@zenfs/linux/fs/procfs'
+import { registerModuleProc } from '#lib/module-proc.ts'
 import { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
 import { context, trace } from '@opentelemetry/api'
 
@@ -130,7 +133,6 @@ import type {
   EventCallback,
   FileHeader,
   KernelShutdownEvent,
-  KernelModule,
   KernelModules,
   CommandInvocation,
   Timer
@@ -163,7 +165,14 @@ const DefaultKernelOptions: KernelOptions = {
 const DefaultBootOptions: BootOptions = { silent: false }
 
 /** Commands that live in `/sbin` rather than `/bin`. */
-const SbinCommands = new Set(['init', 'getty'])
+const SbinCommands = new Set(['init', 'getty', 'insmod', 'rmmod', 'modinfo'])
+
+/** UTF-8 text as base64, for a `data:` import (`Buffer` is not there in a browser) */
+const base64 = (text: string) => {
+  let binary = ''
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
 const DefaultFigletFonts = [
   '3-D',
   '3x5',
@@ -309,8 +318,10 @@ export class Kernel implements IKernel {
   public readonly log: Log
   /** Memory management service */
   public readonly memory: Memory
-  /** Map of loaded modules */
-  public readonly modules: KernelModules = new Map()
+  /** The loaded modules, `@zenfs/linux`'s list that `/proc/modules` shows */
+  public readonly modules: KernelModules = loadedModules
+  /** Loads and unloads modules (`insmod`, `rmmod`) and keeps their symbols */
+  public readonly kmodules: ModuleManager
   /** Configuration options passed to the kernel */
   public readonly options: KernelOptions
   /** Map of loaded packages */
@@ -386,7 +397,11 @@ export class Kernel implements IKernel {
     this.keyboard = navigator.keyboard
     this.log = this.options.log ? new Log(this.options.log) : new Log()
     this.memory = new Memory()
-    this.modules = new Map()
+    this.kmodules = new ModuleManager({
+      log: { info: message => this.log.info(message), warn: message => this.log.warn(message), error: message => this.log.error(message) },
+      dmesg: line => this.log.info(line),
+      evaluate: source => import(/* @vite-ignore */ `data:text/javascript;base64,${base64(source)}`)
+    })
     this.screensavers = new Map()
     this.windows = new WindowServer()
     this.framebuffers = new Framebuffers(this.windows)
@@ -946,63 +961,6 @@ export class Kernel implements IKernel {
       await this.loadFstab()
       fstabSpan.end()
 
-      // Load kernel modules
-      const modulesSpan = tracer.startSpan('kernel.boot.modules', {}, trace.setSpan(context.active(), bootSpan))
-      const modules = import.meta.env['ECMAOS_KERNEL_MODULES']
-      if (modules) {
-        const mods = modules.split(',')
-        modulesSpan.setAttribute('modules.count', mods.length)
-        for (const mod of mods) {
-          try {
-            const spec = mod.match(/(@[^/]+\/[^@]+|[^@]+)(?:@([^/]+))?/)
-            const name = spec?.[1]
-            const version = spec?.[2]
-
-            if (!name) { this.log.error(`Failed to load module ${mod}: Invalid package name format`); continue }
-            if (!version) { this.log.error(`Failed to load module ${mod}: No version specified`); continue }
-
-            this.log.info(`Loading module ${name}@${version}`)
-            const [scope, pkg] = name.split('/')
-            const pkgPath = `/usr/lib/${scope ? `${scope}/` : ''}${pkg}/${version}`
-            const exists = await this.filesystem.fs.exists(pkgPath)
-
-            let result
-            if (!exists) {
-              result = await this.shell.execute(`/bin/install ${name}@${version}`)
-              if (result !== 0) throw new Error(`Failed to install module ${name}@${version}: ${result}`)
-              if (!await this.filesystem.fs.exists(pkgPath)) throw new Error(`Failed to install module ${name}@${version}: ${result}`)
-            }
-
-            // load its main export from package.json
-            const pkgJson = await this.filesystem.fs.readFile(`${pkgPath}/package.json`, 'utf-8')
-            const pkgData = JSON.parse(pkgJson) as JSONSchemaForNPMPackageJsonFiles
-            const mainFile = this.getPackageMainExport(pkgData)
-            if (!mainFile) throw new Error(`Failed to load module ${name}@${version}: No main export found`)
-            const mainPath = path.join(pkgPath,  mainFile)
-
-            // Importing from a blob objectURL doesn't work for some reason, so use SWAPI
-            const loaded = await import(/* @vite-ignore */ `/swapi/fs${mainPath}`) as KernelModule
-            const modname = loaded.name?.value || mod
-
-            // A real `@zenfs/linux` Module (refcounting, `/sys/module/<name>`); a package's own init and cleanup run
-            // from its lifecycle.
-            const zenfsModule = new ZenFSModule({
-              name: modname,
-              version: pkgData.version,
-              description: loaded.description?.value ?? pkgData.description,
-              author: loaded.author?.value ?? (typeof pkgData.author === 'string' ? pkgData.author : undefined),
-              init: async () => { loaded.init?.(this.id) },
-              exit: async () => { loaded.cleanup?.() }
-            })
-
-            await zenfsModule.init()
-            this.modules.set(modname, loaded)
-          } catch (error) {
-            this.log.error(`Failed to load module ${mod}: ${(error as Error).message}`)
-          }
-        }
-      }
-
       // Setup root user or load existing users
       const usersSpan = tracer.startSpan('kernel.boot.users', {}, trace.setSpan(context.active(), bootSpan))
       try {
@@ -1181,6 +1139,7 @@ export class Kernel implements IKernel {
    */
   async configure(options: KernelOptions) {
     await this.filesystem.configure(options.filesystem ?? {})
+    registerModuleProc(proc_root, this.kmodules)
   }
 
   /**

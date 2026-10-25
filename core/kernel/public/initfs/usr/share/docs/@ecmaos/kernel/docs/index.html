@@ -244,16 +244,12 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 <ul>
 <li>Refer to the full list of <a href="https://www.npmjs.com/org/ecmaos-modules" target="_blank" class="external">official modules on npm</a></li>
 <li>See the <a href="/MODULES.md">MODULES.md</a> file for a list of community modules; submit a PR to add your module!</li>
-<li>Modules are dynamically loaded into the kernel at boot and can be enabled or disabled</li>
-<li>They are specified during build via the <code>ECMAOS_KERNEL_MODULES</code> environment variable
-<ul>
-<li>e.g. <code>ECMAOS_KERNEL_MODULES=@ecmaos-modules/boilerplate@0.1.0,@your/package@1.2.3</code></li>
-</ul>
-</li>
-<li>Versions must be pinned and are mandatory - you cannot use NPM version specifiers</li>
-<li>They can provide additional functionality, devices, commands, etc.</li>
-<li>They offer a <a href="modules/types_modules.html">common interface</a> for interacting with the kernel</li>
-<li>Generally they should be written in <a href="https://www.assemblyscript.org" target="_blank" class="external">AssemblyScript</a>, but this isn't required</li>
+<li>A module is one file, <code>NAME.ko.mjs</code>, that starts with a comment block of <code>key=value</code> lines (<code>name</code>, <code>version</code>, <code>license</code>, <code>kernel_api</code>, <code>depends</code>, <code>parm</code>) and exports <code>init(ctx)</code> and an optional <code>exit()</code></li>
+<li><code>insmod [-f] FILE [name=value ...]</code> loads it, <code>rmmod [-f] NAME</code> unloads it, <code>lsmod</code> (or <code>/proc/modules</code>) lists the loaded ones and <code>modinfo FILE|NAME</code> shows what a module says about itself without running it; <code>insmod</code> and <code>rmmod</code> need root</li>
+<li>A loaded module is in <code>/proc/modules</code> and <code>/sys/module/NAME</code> (with <code>parameters/</code>); it taints the kernel (<code>O</code> out-of-tree, <code>E</code> unsigned, <code>F</code> forced), which <code>/proc/sys/kernel/tainted</code> shows, and writing 1 to <code>/proc/sys/kernel/modules_disabled</code> stops loading and unloading until reboot</li>
+<li>A module reaches the kernel through <code>ctx</code> only: <code>ctx.param</code>, <code>ctx.log</code>, <code>ctx.export</code> and <code>ctx.import</code> (symbols listed in <code>/proc/kallsyms</code>, a user holds its provider), and <code>ctx.onExit</code> for what <code>rmmod</code> must undo; the <a href="modules/types_modules.html">types</a> are the interface</li>
+<li>A JS module runs in the kernel and is not confined: load only what you trust</li>
+<li><code>kernel_api</code> is a semver range of the module API (<code>1.0.0</code>); a module that asks for another version fails with <code>ENOEXEC</code>, and <code>insmod -f</code> loads it anyway</li>
 </ul>
 <a id="packages" class="tsd-anchor"></a><h3 class="tsd-anchor-link">Packages<a href="#packages" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3><ul>
 <li>Packages are <a href="https://www.npmjs.com" target="_blank" class="external">NPM packages</a> that are installed into the ecmaOS environment</li>
@@ -353,7 +349,6 @@ install jquery
 <li><code>/etc/crontab</code> is loaded on boot and contains system-wide scheduled tasks</li>
 <li><code>~/.config/crontab</code> is loaded on user login and contains user-specific scheduled tasks</li>
 <li><code>/etc/packages</code> is a list of already installed packages to load on boot; one per line</li>
-<li>The env var <code>ECMAOS_KERNEL_MODULES</code> is a list of modules to load on boot; CSV with pinned versions</li>
 <li>The env var <code>ECMAOS_RECOMMENDED_APPS</code> is a list of apps to suggest to new users</li>
 </ul>
 <a id="app-development" class="tsd-anchor"></a><h2 class="tsd-anchor-link">App Development<a href="#app-development" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2><p>The <a href="/apps">apps</a> directory in the repository contains some examples of how to develop apps, but there are many approaches you could take.</p>
