@@ -337,6 +337,9 @@ export class Terminal extends XTerm implements ITerminal {
     }
   }
 
+  /** What `^D` on an empty line does when no login session is running (it ends the session when one is) */
+  onEndOfInput?: () => void
+
   private _session?: () => void
   private _sessionEnded = false
 
@@ -348,7 +351,9 @@ export class Terminal extends XTerm implements ITerminal {
   runSession(): Promise<void> {
     return new Promise(resolve => {
       this._sessionEnded = false
-      this._session = () => { this._session = undefined; this._shell.onExit = undefined; resolve() }
+      // a session inside another (`su`) gives the shell back to the outer one's handler when it ends
+      const outer = this._shell.onExit
+      this._session = () => { this._session = undefined; this._shell.onExit = outer; resolve() }
       this._shell.onExit = () => this.endSession()
       this.listen()
       // from column 0: erasing the line does not move the cursor, which may be wherever login left it
@@ -1403,6 +1408,8 @@ export class Terminal extends XTerm implements ITerminal {
         case 'd':
           // On an empty line `^D` is end of input: it ends a login session, as in a real shell.
           if (this._session && editor.text === '') { this.endSession(); return true }
+          // with no login session to end, a host may say what end of input means (the Node console halts)
+          if (!this._session && this.onEndOfInput && editor.text === '') { this.onEndOfInput(); return true }
           editor.deleteForward()
           return true
         case 'k': editor.killToEnd(); return true

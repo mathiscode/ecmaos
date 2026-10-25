@@ -41,6 +41,38 @@ describe.skipIf(!supported)('the end of a session', () => {
     expect(await ends(session)).toMatchObject({ code: 0, signal: null })
   })
 
+  it('exits with 0 on shutdown, a link to halt', async () => {
+    const session = new Session(['--quiet', '--ephemeral'])
+    await session.ready()
+    session.send('shutdown -h now\r')
+    expect(await ends(session)).toMatchObject({ code: 0, signal: null })
+  })
+
+  it('exits with 0 on exit, and on ^D at an empty line', async () => {
+    for (const input of ['exit\r', '\x04']) {
+      const session = new Session(['--quiet', '--ephemeral'])
+      await session.ready()
+      session.send(input)
+      expect(await ends(session)).toMatchObject({ code: 0, signal: null })
+    }
+  })
+
+  it('leaves a nested shell with exit, and the console with the next one', async () => {
+    const session = new Session(['--quiet', '--ephemeral'])
+    await session.ready()
+    await session.run('useradd -m -p secret bob')
+    session.send('su bob\r')
+    await session.waitFor('ecmash$ ')
+    const mark = session.output.length
+    session.send('exit\r')
+    // back in root's shell, which is still running
+    await session.waitFor('root:/root# ', mark)
+    expect(await session.run('whoami')).toBe('root')
+    expect(session.exit).toBeUndefined()
+    session.send('exit\r')
+    expect(await ends(session)).toMatchObject({ code: 0, signal: null })
+  })
+
   it('stops on SIGTERM', async () => {
     const session = new Session(['--quiet', '--ephemeral'])
     await session.ready()

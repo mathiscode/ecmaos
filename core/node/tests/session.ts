@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+
+import { bootedTemplate } from './template.ts'
 
 const ptyHost = path.resolve(import.meta.dirname, 'pty-host.py')
 const bundle = path.resolve(import.meta.dirname, '../dist/ecmaos.mjs')
@@ -28,11 +30,16 @@ export class Session {
   /**
    * With `pty`, the bundle runs on a pseudo-terminal of that size (through `pty-host.py`), so it sees a real TTY: raw
    * mode, a window size, escape sequences. Without, it is fed through pipes.
+   * The machine starts from a copy of one that has booted before (see `template.ts`) unless `fresh` asks for a new one.
    */
-  constructor(args: string[] = ['--quiet'], options: { cwd?: string, env?: NodeJS.ProcessEnv, pty?: { cols: number, rows: number } } = {}) {
+  constructor(args: string[] = ['--quiet'], options: { cwd?: string, env?: NodeJS.ProcessEnv, pty?: { cols: number, rows: number }, fresh?: boolean } = {}) {
     // Every session gets a machine of its own, so nothing is written into the working tree
     const given = (options.env ?? process.env)['ECMAOS_DATA']
-    if (!given) this._temp = mkdtempSync(path.join(tmpdir(), 'ecmaos-test-'))
+    if (!given) {
+      this._temp = mkdtempSync(path.join(tmpdir(), 'ecmaos-test-'))
+      // `fresh` is for a test of the first boot itself: an empty folder, with the initfs and programs still to install
+      if (!options.fresh) cpSync(bootedTemplate(), this._temp, { recursive: true })
+    }
     this.dataDir = given ?? this._temp!
     const env = { ...(options.env ?? process.env), ECMAOS_DATA: this.dataDir }
     this._child = options.pty

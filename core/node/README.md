@@ -245,7 +245,8 @@ The logins here use `auth`, then `tty` (bytes in and out, `resize` messages); fi
 - **`reboot` starts a new process** with the same arguments, so the old kernel's mounts and workers never carry over.
   The new process reads the same stdin, so on piped input it sees only what is left.
 - **End of input** (a script running out, or the terminal closing) halts the machine after the commands already typed have run.
-  `halt`, `poweroff`, `SIGTERM` and `SIGHUP` also exit with status 0; a second signal ends the process at once.
+  `halt`, `shutdown` (a link to it), `poweroff`, `exit` at the console's own shell (not in a nested one such as `su`), `^D` on an empty line,
+  `SIGTERM` and `SIGHUP` also exit with status 0; a second signal ends the process at once.
 - **`^D`** at an empty prompt does nothing yet.
 - **Remote logins** end when the shell exits (`exit`) or the connection drops; whatever was running on the terminal is hung up.
 

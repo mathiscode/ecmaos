@@ -336,6 +336,8 @@ export interface BootOptions {
   figletFontRandom?: boolean
   figletColor?: string
   silent?: boolean
+  /** How long boot waits for `/sbin/init` to finish its sysinit entries, in ms; with this set, boot throws when it does not (default: 60 s, then carries on) */
+  initTimeout?: number
 }
 
 /**

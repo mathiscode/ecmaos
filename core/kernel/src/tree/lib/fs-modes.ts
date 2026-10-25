@@ -100,6 +100,7 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/bash': '/bin/ecmash',
   '/usr/bin/env': '/bin/env',
   '/bin/vi': '/bin/vim',
+  '/bin/shutdown': '/bin/halt',
   '/bin/dc': '/bin/bc',
   '/bin/bunzip2': '/bin/bzip2',
   '/bin/bzcat': '/bin/bzip2',

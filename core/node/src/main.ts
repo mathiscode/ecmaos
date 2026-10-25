@@ -14,7 +14,7 @@ import { openDevice, parseDevice, parseDeviceList } from './devices.ts'
 import { openExport, parseExport } from './exports.ts'
 import type { Daemon } from './ecmaosd.ts'
 import { nodeHost } from './host.ts'
-import { attachStdio } from './terminal.ts'
+import { attachStdio, attachTty } from './terminal.ts'
 
 const argv = process.argv.slice(2)
 const args = new Set(argv)
@@ -151,8 +151,20 @@ if (args.has('--quiet')) (kernel.log.settings.overwrite ??= {}).transportFormatt
   console.log(meta + formatWithOptions(kernel.log.settings.prettyInspectOptions, ...logArgs) + (errors.length ? `\n${errors.join('\n')}` : ''))
 }
 
-await kernel.boot({ silent: args.has('--quiet') })
+attachTty(kernel)
+// A boot that stalls is a failure to report at once: the default wait of a minute only hides it. boot() logs the reason
+// and leaves the kernel in the panic state
+await kernel.boot({ silent: args.has('--quiet'), initTimeout: 15_000 })
+if (kernel.state === 'panic') {
+  console.error('ecmaos: the kernel did not boot')
+  finish(1)
+  await new Promise(() => {})
+}
 terminal.detach = attachStdio(kernel, { stdin: process.stdin, stdout: process.stdout })
+// The console has no login session to end, so leaving the shell (`exit`, or `^D` on an empty line) takes the machine down,
+// as the end of its input does. `exit` inside a nested shell (`su`) only ends that one: it has a handler of its own
+kernel.shell.onExit = () => void kernel.stop('halt')
+;(kernel.terminal as unknown as { onEndOfInput?: () => void }).onEndOfInput = () => void kernel.stop('halt')
 
 const listen = argv.find(arg => arg === '--listen' || arg.startsWith('--listen='))
 if (listen) {

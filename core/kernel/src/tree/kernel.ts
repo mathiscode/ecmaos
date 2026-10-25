@@ -1082,8 +1082,11 @@ export class Kernel implements IKernel {
       // waits for the sysinit and wait entries, so /boot/init's own output (motd, screensaver-daemon,
       // ...) finishes printing before the recommended-apps prompt below writes its own.
       await this.init.start(this)
-      if (!await this.init.waitForBoot(INIT_BOOT_TIMEOUT_MS)) {
-        this.log.error(`/sbin/init did not finish its sysinit entries within ${INIT_BOOT_TIMEOUT_MS / 1000}s; carrying on`)
+      const initTimeout = options.initTimeout ?? INIT_BOOT_TIMEOUT_MS
+      if (!await this.init.waitForBoot(initTimeout)) {
+        const message = `/sbin/init did not finish its sysinit entries within ${initTimeout / 1000}s`
+        if (options.initTimeout !== undefined) throw new Error(message)
+        this.log.error(`${message}; carrying on`)
       }
       initSpan.end()
 

@@ -66,6 +66,11 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    testTimeout: 60_000
+    globalSetup: ['tests/global-setup.ts'],
+    // no test may run longer than this: a test that needs more is doing too much
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+    // every test starts machines of its own, each a few busy processes: more files at once than this only slows them all
+    maxWorkers: 3
   }
 })

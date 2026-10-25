@@ -7,6 +7,15 @@ import { TerminalDriver } from './driver.ts'
 import type { DrivenTerminal } from './driver.ts'
 
 /**
+ * Gives the kernel's terminal its `@zenfs/linux` TTY, as `Terminal.mount()` does in a browser. Boot needs it: a program that
+ * init starts writes to its tty, and with none that write waits for ever, so the boot would sit out its whole timeout.
+ */
+export function attachTty(kernel: Kernel) {
+  const term = kernel.terminal as unknown as { _zfsTty?: unknown }
+  if (!term._zfsTty) term._zfsTty = attach_xterm(term as never, { index: 0, input: false })
+}
+
+/**
  * Connects the kernel's terminal to this process's stdin and stdout.
  *
  * On a TTY the terminal is put in raw mode and what you type is parsed into keys; the window size follows `SIGWINCH`.
@@ -22,8 +31,8 @@ export function attachStdio(kernel: Kernel, io: { stdin: NodeJS.ReadStream; stdo
     return xtermWrite(data, callback)
   }
 
-  // What `Terminal.mount()` does in a browser: without it a program's writes to its tty fail with ENXIO
-  term._zfsTty = attach_xterm(term as never, { index: 0, input: false })
+  // Without a TTY a program's writes to it fail with ENXIO
+  attachTty(kernel)
 
   const driver = new TerminalDriver(term, interactive)
 
