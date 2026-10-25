@@ -22,8 +22,8 @@ export const pkg = {
   https://developer.mozilla.org/en-US/docs/Web/API/Navigator/serial#browser_compatibility
 
   Usage:
-    serial devices                       List the ports this browser has granted, with their nodes
-    serial request <options>             Ask for a port (blank for the browser's choice); it becomes /dev/ttyACM<n>,
+    serialctl devices                    List the ports this browser has granted, with their nodes
+    serialctl request <options>          Ask for a port (blank for the browser's choice); it becomes /dev/ttyACM<n>,
                                          /dev/ttyUSB<n> (a USB-serial bridge chip) or /dev/rfcomm<n> (Bluetooth)
 
   Options:
@@ -92,9 +92,9 @@ const serial_class = new Class('serial')
 
 let listening = false
 
-/** `/dev/serial`, the control node; the ports are terminals (see `getTTYDrivers`) */
+/** `/dev/serialctl`, the control node (`/dev/serial` is the directory of `by-id` links); the ports are terminals (see `getTTYDrivers`) */
 export async function getDrivers(ctx: KernelContext): Promise<KernelCharDevice[]> {
-  const control: KernelCharDevice = { name: 'serial', major: 0, minor: 0, class: serial_class, ops: controlOperations }
+  const control: KernelCharDevice = { name: 'serialctl', major: 0, minor: 0, class: serial_class, ops: controlOperations }
   if (typeof navigator === 'undefined' || !navigator.serial || listening) return [control]
   listening = true
   // A port that is plugged in gets its line, and one that is unplugged hangs its line up

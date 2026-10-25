@@ -228,7 +228,7 @@ export async function openLocalDevice(spec: string): Promise<DeviceSession> {
       const serial = nav['serial'] as { getPorts(): Promise<Array<Parameters<typeof openSerialSession>[0]>> } | undefined
       if (!serial) throw new RemoteMountFailure('this machine has no Web Serial')
       const port = (await serial.getPorts())[at]
-      if (!port) throw new RemoteMountFailure(`no serial port ${at} (see 'serial devices'; 'serial request' asks for one)`)
+      if (!port) throw new RemoteMountFailure(`no serial port ${at} (see 'serialctl devices'; 'serialctl request' asks for one)`)
       return as(await openSerialSession(port, baudRate === undefined ? {} : { baudRate }))
     }
     case 'midi': {

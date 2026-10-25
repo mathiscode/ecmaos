@@ -362,7 +362,7 @@ function sessionIoctl(driver: NonNullable<SessionNodeOptions['ioctl']>, linkOf: 
 }
 
 /**
- * The operations of a driver's control node (`/dev/usb`, `/dev/serial`): it reads as an empty file and takes whatever is
+ * The operations of a driver's control node (`/dev/usb`, `/dev/serialctl`): it reads as an empty file and takes whatever is
  * written, since the node exists to be the name the device's command is run against and to be listed in `/dev`.
  */
 export const controlOperations: FileOperations = {
