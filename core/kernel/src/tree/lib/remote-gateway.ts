@@ -273,6 +273,17 @@ export async function exposePort(kernel: Kernel, local: number, as?: number, udp
   return { address: opened.address, port: opened.port }
 }
 
+/** Makes a logged-in connection this machine's gateway: what `gateway up` does once it has one, and what a test does with a host of its own */
+export function adoptGatewayLink(kernel: Kernel, connection: Connection, host: string, user: string): Link {
+  const link: Link = { connection, exposures: new Map(), host, user, since: Date.now(), flows: 0 }
+  links.set(kernel, link)
+  // what the host forwards for a port this machine exposed comes as channels it opens
+  connection.accept(NetChannel, channel => acceptInbound(kernel, link, channel))
+  // the other side going away takes the route with it
+  void connection.done.then(() => { if (links.get(kernel) === link) links.delete(kernel) })
+  return link
+}
+
 export type GatewayRequest =
   | { action: 'up', target: string, options: Record<string, string> }
   | { action: 'expose', port: number, as?: number, udp?: boolean }
@@ -336,12 +347,7 @@ export async function manageGateway(kernel: Kernel, shell: Shell, request: Gatew
       fingerprint: options['fingerprint'],
       acceptNew: options['accept-new'] === 'yes' || options['accept-new'] === 'true'
     })
-    const link: Link = { connection, exposures: new Map(), host: `${source.host}:${source.port}`, user: source.user, since: Date.now(), flows: 0 }
-    links.set(kernel, link)
-    // what the host forwards for a port this machine exposed comes as channels it opens
-    connection.accept(NetChannel, channel => acceptInbound(kernel, link, channel))
-    // the other side going away takes the route with it
-    void connection.done.then(() => { if (links.get(kernel) === link) links.delete(kernel) })
+    const link = adoptGatewayLink(kernel, connection, `${source.host}:${source.port}`, source.user)
     out(`Gateway ${link.host} is up as ${link.user}`)
     return { code: 0, lines }
   } catch (error) {

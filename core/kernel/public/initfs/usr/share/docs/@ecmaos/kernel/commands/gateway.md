@@ -32,7 +32,10 @@ refusal reaches the program as `EACCES`; a destination that does not answer is `
 ## Names
 
 A program's `getaddrinfo()` and `gethostbyname()` answer from `/etc/hosts` first (it ships with `localhost`; edit it to add
-your own names), then ask the gateway, whose machine resolves with its own resolver. The program then connects to the address
+your own names), then ask the gateway, whose machine resolves with its own resolver. A program built on musl (python3, perl and the
+rest of `/bin/wali`'s programs) does its own lookups: `/etc/resolv.conf` names 127.0.0.1, and a DNS query for A or AAAA sent to port 53
+there is answered by the kernel the same way, so `urllib.request.urlopen('https://example.com/')` in python3 resolves the name,
+connects through the gateway and checks the certificate against `/etc/ssl`. A program that binds port 53 itself takes the place of that answer. The program then connects to the address
 it got, and that is checked again on the way out. The gateway machine does not hand out addresses it would not connect to:
 a name that points into its own network (a private range, loopback, a metadata address) is answered as if it did not exist,
 unless its operator named that range in an allow rule. With no gateway up, a name that is not in `/etc/hosts` fails with

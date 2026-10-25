@@ -20,7 +20,8 @@ import { listMounts, mountFilesystem, type MountRequest } from './mount-backends
 import { isMachineStore, MachineKeyPrefix, machineStore } from './machine.ts'
 import { manageAttach, type AttachRequest } from './remote-device.ts'
 import { gatewayLink, GatewayFailure, LookupFailure, manageGateway, openGatewayFlow, resolveHostname, setDatagramSink, setInboundSink, setLocalProbe, type GatewayRequest } from './remote-gateway.ts'
-import { bindUdpPort, boundUdpPorts, FrameHeader, frameOf, udpPortAt } from './udp-ports.ts'
+import { answerQuery } from './dns-stub.ts'
+import { bindUdpPort, boundUdpPorts, FrameHeader, frameOf, udpPortAt, type UdpDeps } from './udp-ports.ts'
 import { setNetSource, socketInode } from './proc-extras.ts'
 import { formatEndpoint, parseEndpoint } from '@ecmaos/peer'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp } from './ip.ts'
@@ -521,6 +522,12 @@ function claimAddress(family: string, addr: string, port: number, serverProc: Pr
   const release = () => { for (const key of keys) if (loopbackListeners.get(key) === listener) loopbackListeners.delete(key) }
   return { listener, key: keys[0]!, port: assigned, release }
 }
+
+/** What a bound UDP socket reaches: the gateway's flows, and the kernel's nameserver on loopback port 53 */
+const udpDeps = (kernel: Kernel): UdpDeps => ({
+  open: (host, to) => openGatewayFlow(kernel, host, to, 'udp'),
+  nameserver: query => answerQuery(query, (name, family) => resolveHostname(kernel, name, family))
+})
 
 export function installMainThreadSyscalls(): void {
   if (installed) return
@@ -1056,7 +1063,7 @@ export function installMainThreadSyscalls(): void {
     let text: string
     if (addr && !isLoopbackHost(addr)) text = JSON.stringify({ error: 'EADDRNOTAVAIL' })
     else {
-      const bound = bindUdpPort(port, { open: (host, to) => openGatewayFlow(kernel, host, to, 'udp') })
+      const bound = bindUdpPort(port, udpDeps(kernel))
       if (!bound) text = JSON.stringify({ error: 'EADDRINUSE' })
       else {
         const rxEnd = kernel.attachStream(proc, 'read', bound.rx)
@@ -1311,7 +1318,7 @@ export function installMainThreadSyscalls(): void {
     const kernel = kernelOf(proc)
     if (socket.info.bound) throw socketErrno('EINVAL')
     if (addr && !isLoopbackHost(addr)) throw socketErrno('EADDRNOTAVAIL')
-    const bound = bindUdpPort(port, { open: (host, to) => openGatewayFlow(kernel, host, to, 'udp') })
+    const bound = bindUdpPort(port, udpDeps(kernel))
     if (!bound) throw socketErrno('EADDRINUSE')
     const writer = bound.tx.getWriter()
     const reader = bound.rx.getReader()

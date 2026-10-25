@@ -21,6 +21,11 @@ const QueueLimit = 256
 export interface UdpDeps {
   /** A datagram flow to `host:port` through the gateway; rejects when none is up or the gateway refuses */
   open(host: string, port: number): Promise<GatewayFlow>
+  /**
+   * The nameserver at loopback port 53 (`dns-stub.ts`): answers a query as a datagram, or not at all. A program that binds
+   * port 53 itself takes the place of it.
+   */
+  nameserver?(query: Uint8Array): Promise<Uint8Array | undefined>
 }
 
 const ports = new Map<number, UdpPort>()
@@ -105,6 +110,10 @@ export class UdpPort {
     const route = this.routes.get(key)
     if (route) { route(data); return }
     if (isLoopbackIp(address)) {
+      if (port === 53 && this.deps.nameserver && !ports.has(53)) {
+        void this.deps.nameserver(data).then(answer => { if (answer) this.deliver(loopbackLike(address), 53, answer) }, () => { /* no answer, as from a server that is down */ })
+        return
+      }
       ports.get(port)?.deliver(loopbackLike(address), this.port, data) // nothing there: dropped, as a datagram to a closed port is
       return
     }

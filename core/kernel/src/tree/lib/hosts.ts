@@ -5,6 +5,9 @@
 
 export const DEFAULT_HOSTS = '127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n'
 
+/** `/etc/resolv.conf`: the kernel answers DNS queries on loopback port 53 itself, by `/etc/hosts` and then the gateway */
+export const DEFAULT_RESOLV = 'nameserver 127.0.0.1\n'
+
 /**
  * `/etc/services`: the names of well-known ports, `NAME PORT/PROTOCOL [ALIAS...]`, which a C library reads for
  * `getservbyname` and `getnameinfo` (musl's does; an emscripten program has the same names built into its host)

@@ -47,7 +47,7 @@ import { DefaultDevices } from '#device.ts'
 import { DefaultDomOptions, Dom } from '#dom.ts'
 import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
-import { DEFAULT_HOSTS, DEFAULT_SERVICES } from '#lib/hosts.ts'
+import { DEFAULT_HOSTS, DEFAULT_RESOLV, DEFAULT_SERVICES } from '#lib/hosts.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
 import { displayAddress } from '#lib/display-client.ts'
@@ -634,6 +634,11 @@ export class Kernel implements IKernel {
       await this.filesystem.fs.mkdir('/etc/ssl/certs', { recursive: true, mode: 0o755 }).catch(() => {})
       for (const link of ['/etc/ssl/cert.pem', '/etc/ssl/certs/ca-certificates.crt']) {
         if (!(await this.filesystem.fs.exists(link))) await this.filesystem.fs.symlink('/usr/share/ca-certificates/ca-bundle.crt', link).catch(() => {})
+      }
+
+      // The nameserver is the kernel's own, at loopback port 53 (dns-stub.ts); musl would use it with no file, but tools print this
+      if (!(await this.filesystem.fs.exists('/etc/resolv.conf'))) {
+        await this.filesystem.fs.writeFile('/etc/resolv.conf', DEFAULT_RESOLV, { mode: 0o644 })
       }
 
       if (!(await this.filesystem.fs.exists('/etc/services'))) {
@@ -1562,10 +1567,13 @@ export class Kernel implements IKernel {
     direction: 'read' | 'write',
     stream: ReadableStream<Uint8Array> | WritableStream<Uint8Array>
   ): { fd: number, stop: () => void, done: Promise<void> } {
+    // `pipeProcess` holds the far end of the pipe as well (a socket's flow is held there): a number picked first could be
+    // the one `create_pipe` gives that far end, so the program's end stays where the pipe put it
+    const inPlace = proc.context === this.pipeProcess.context
     let fd = 3
-    while (proc.context.descriptors.has(fd)) fd++
-    const { stop, done } = this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true })
-    return { fd, stop, done }
+    if (!inPlace) while (proc.context.descriptors.has(fd)) fd++
+    const bridge = this.bridgeFd(proc, fd, direction, stream, { closeOnEof: true, inPlace })
+    return { fd: bridge.fd, stop: bridge.stop, done: bridge.done }
   }
 
   /**
@@ -1600,8 +1608,9 @@ export class Kernel implements IKernel {
     // `closeOnEof`: end a `'write'` stream as soon as the program closes its end and what it wrote
     // has drained (shutdown of the write side), instead of only when the program exits. Stdio
     // leaves this off - it has always ended with the process - but a socket needs it to half-close.
-    { closeOnEof = false }: { closeOnEof?: boolean } = {}
-  ): { stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
+    // `inPlace`: leave the program's end in `proc`'s table where the pipe was made, and report its number as `fd`
+    { closeOnEof = false, inPlace = false }: { closeOnEof?: boolean, inPlace?: boolean } = {}
+  ): { fd: number, stop: () => void, done: Promise<void>, unread: () => Promise<Uint8Array> } {
     const pipeProcCtx = this.pipeProcess.context
 
     const [pipeReadFd, pipeWriteFd] = createPipe(pipeProcCtx)
@@ -1611,14 +1620,16 @@ export class Kernel implements IKernel {
     // The program-facing end's Handle is copied to `proc`'s standard slot and removed from `pipeProcCtx`; the console
     // handle previously there is discarded.
     const programHandle = pipeProcCtx.descriptors.get(programFd)
-    pipeProcCtx.descriptors.delete(programFd)
-    if (programHandle) proc.context.descriptors.set(stdFd, programHandle)
+    if (!inPlace) {
+      pipeProcCtx.descriptors.delete(programFd)
+      if (programHandle) proc.context.descriptors.set(stdFd, programHandle)
+    }
 
     const bridgeHandle = pipeProcCtx.descriptors.get(bridgeFd)
     const bridgeFile = bridgeHandle && pipefs._device(bridgeHandle.internalPath)
     if (!bridgeFile) {
       this.log.error(`bridgeStdio: could not resolve fd ${stdFd}'s pipe device; leaving it on the console`)
-      return { stop: () => {}, done: Promise.resolve(), unread: async () => new Uint8Array(0) }
+      return { fd: inPlace ? programFd : stdFd, stop: () => {}, done: Promise.resolve(), unread: async () => new Uint8Array(0) }
     }
 
     let stopped = false
@@ -1719,7 +1730,7 @@ export class Kernel implements IKernel {
       return rest
     }
 
-    return { stop, done, unread }
+    return { fd: inPlace ? programFd : stdFd, stop, done, unread }
   }
 
   /**
