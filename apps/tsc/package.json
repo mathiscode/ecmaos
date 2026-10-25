@@ -1,0 +1,33 @@
+{
+  "name": "@ecmaos-apps/tsc",
+  "description": "ecmaOS: tsc, the TypeScript compiler, as tsrs (a Rust port of TypeScript 7) running as WebAssembly",
+  "version": "0.1.0",
+  "license": "MIT+Apache-2.0",
+  "homepage": "https://ecmaos.sh",
+  "repository": "https://github.com/ecmaos/ecmaos",
+  "author": {
+    "name": "Jay Mathis",
+    "email": "code@mathis.network",
+    "url": "https://github.com/mathiscode"
+  },
+  "type": "module",
+  "bin": {
+    "tsc": "dist/tsc.mjs"
+  },
+  "files": [
+    "dist",
+    "share"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@tsrs/wasm": "0.18.0-ts7.1.0-dev.20260929"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.2"
+  }
+}

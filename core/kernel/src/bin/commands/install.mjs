@@ -5,8 +5,9 @@
 import semver from 'semver'
 
 import { join } from './lib/path-utils.mjs'
+import { SHARE_DIRS, linkTree } from './lib/share-links.mjs'
 
-const { argv, env, exit, write, custom, readdir, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, env, exit, write, custom, chmod, readdir, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: install <package-name>[@version] [--registry URL] [--reinstall]
 Install a package from a registry into /usr/lib and link its bins into /usr/bin.
@@ -65,8 +66,62 @@ async function runTar(tarballPath, directory) {
   return await custom('proc_wait', pid)
 }
 
-/** Returns an exit code; 0 for "installed" and for "already installed". */
-async function install(packageArg, registryArg, reinstall) {
+/** Checks `bytes` against the registry's `dist.integrity` (an SRI list; the strongest hash listed decides), else its SHA-1 `shasum` */
+async function verify(bytes, dist) {
+  const hex = digest => Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const sri = String(dist?.integrity ?? '').split(/\s+/).map(item => item.match(/^(sha512|sha384|sha256)-(.+)$/)).filter(Boolean)
+  const strongest = ['sha512', 'sha384', 'sha256'].map(algorithm => sri.find(item => item[1] === algorithm)).find(Boolean)
+  if (strongest) {
+    const name = { sha512: 'SHA-512', sha384: 'SHA-384', sha256: 'SHA-256' }[strongest[1]]
+    const actual = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest(name, bytes))))
+    return actual === strongest[2] ? undefined : `Integrity verification failed. Expected ${strongest[1]}-${strongest[2]} but got ${strongest[1]}-${actual}`
+  }
+  const expected = dist?.shasum?.toLowerCase()
+  if (!expected) return 'No integrity or checksum found'
+  const actual = hex(await crypto.subtle.digest('SHA-1', bytes))
+  return actual === expected ? undefined : `Checksum verification failed. Expected ${expected} but got ${actual}`
+}
+
+/** Links a package's bins into `/usr/bin` and its `share/` files into `/usr/share`; an upgrade replaces the links an earlier version left */
+function link(packageName, version, packageJson) {
+  try {
+    if (packageJson.bin) {
+      const bins = typeof packageJson.bin === 'string' ? { [packageJson.name]: packageJson.bin } : packageJson.bin
+      for (const bin in bins) {
+        const binPath = join('/usr/lib', packageName, version, bins[bin])
+        if (!exists(binPath)) {
+          line(2, red(`${binPath} does not exist`))
+          return false
+        }
+        // a tarball keeps the mode of the file it was packed from, and npm makes a bin executable as it installs it
+        chmod(binPath, 0o755)
+        // An upgrade replaces the link an earlier version left
+        try { unlink(join('/usr/bin', bin)) } catch { /* not linked yet */ }
+        symlink(binPath, join('/usr/bin', bin))
+        line(1, blue(`Linked ${bin} to ${join('/usr/bin', bin)}`))
+      }
+    }
+  } catch (error) {
+    line(2, red(`Failed to link bins for ${packageName}@${version}: ${error}`))
+  }
+
+  // `share/applications`, `docs`, `licenses` and `man` are linked where the desktop's launcher, `man` and the rest look
+  for (const directory of SHARE_DIRS) {
+    try {
+      const source = join('/usr/lib', packageName, version, 'share', directory)
+      if (exists(source)) for (const linked of linkTree(source, join('/usr/share', directory))) line(1, blue(`Linked ${linked}`))
+    } catch (error) {
+      line(2, red(`Failed to link share/${directory} for ${packageName}@${version}: ${error}`))
+    }
+  }
+  return true
+}
+
+/**
+ * Returns an exit code; 0 for "installed" and for "already installed". A dependency is installed but not linked: its
+ * bins and `share/` files are for the package that needs it (as with npm), not for the user's PATH.
+ */
+async function install(packageArg, registryArg, reinstall, dependency = false) {
   const spec = packageArg.match(/(@[^/]+\/[^@]+|[^@]+)(?:@([^/]+))?/)
   if (!spec) {
     line(2, red('Invalid package name format'))
@@ -94,7 +149,7 @@ async function install(packageArg, registryArg, reinstall) {
   if (reinstall) {
     try {
       const pkgData = JSON.parse(readText(join('/usr/lib', packageName, version, 'package.json')))
-      for (const bin in pkgData.bin) unlink(join('/usr/bin', bin))
+      for (const bin in pkgData.bin) { try { unlink(join('/usr/bin', bin)) } catch { /* a dependency's bins are not linked */ } }
       rmRecursive(join('/usr/lib', packageName, version))
     } catch {
       // nothing installed yet, or already partly removed
@@ -104,24 +159,24 @@ async function install(packageArg, registryArg, reinstall) {
   const packagePath = join('/usr/lib', packageName, version, 'package.json')
   if (exists(packagePath)) {
     line(1, green(`${packageName} v${version} is already installed`))
+    // it may have come in as a dependency, which is not linked
+    if (!dependency) link(packageName, version, JSON.parse(readText(packagePath)))
     return 0
   }
 
   line(1, `Installing ${data.name} v${version} from ${registry}...`)
 
   const tarballUrl = data.versions[version]?.dist?.tarball
-  const tarballChecksum = data.versions[version]?.dist?.shasum?.toLowerCase()
-  if (!tarballUrl || !tarballChecksum) {
+  const dist = data.versions[version]?.dist
+  if (!tarballUrl || !(dist?.integrity || dist?.shasum)) {
     line(2, red(`No tarball URL or checksum found for ${packageName} v${version}`))
     return 1
   }
 
   const arrayBuffer = await (await globalThis.fetch(tarballUrl)).arrayBuffer()
-  const digest = await crypto.subtle.digest('SHA-1', arrayBuffer)
-  const downloadChecksum = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
-
-  if (downloadChecksum !== tarballChecksum) {
-    line(2, red(`Checksum verification failed. Expected ${tarballChecksum} but got ${downloadChecksum}`))
+  const problem = await verify(arrayBuffer, dist)
+  if (problem) {
+    line(2, red(problem))
     return 1
   }
 
@@ -159,47 +214,12 @@ async function install(packageArg, registryArg, reinstall) {
     return 1
   }
 
-  try {
-    if (packageJson.bin) {
-      const bins = typeof packageJson.bin === 'string' ? { [packageJson.name]: packageJson.bin } : packageJson.bin
-      for (const bin in bins) {
-        const binPath = join('/usr/lib', packageName, version, bins[bin])
-        if (!exists(binPath)) {
-          line(2, red(`${binPath} does not exist`))
-          return 1
-        }
-        // An upgrade replaces the link an earlier version left
-        try { unlink(join('/usr/bin', bin)) } catch { /* not linked yet */ }
-        symlink(binPath, join('/usr/bin', bin))
-        line(1, blue(`Linked ${bin} to ${join('/usr/bin', bin)}`))
-      }
-    }
-  } catch (error) {
-    line(2, red(`Failed to link bins for ${packageName}@${version}: ${error}`))
-  }
-
-  // `share/applications/*.desktop` in a package is linked where the desktop's launcher looks
-  try {
-    const applications = join('/usr/lib', packageName, version, 'share/applications')
-    if (exists(applications)) {
-      mkdirp('/usr/share/applications')
-      for (const entry of readdir(applications)) {
-        const name = typeof entry === 'string' ? entry : entry.name
-        if (!name.endsWith('.desktop')) continue
-        const target = join('/usr/share/applications', name)
-        try { unlink(target) } catch { /* not there yet */ }
-        symlink(join(applications, name), target)
-        line(1, blue(`Linked ${name} to ${target}`))
-      }
-    }
-  } catch (error) {
-    line(2, red(`Failed to link desktop entries for ${packageName}@${version}: ${error}`))
-  }
+  if (!dependency && !link(packageName, version, packageJson)) return 1
 
   try {
-    for (const dependency in packageJson.dependencies ?? {}) {
-      const range = packageJson.dependencies[dependency]
-      await install(`${dependency}${range ? `@${range}` : ''}`, registryArg, false)
+    for (const name in packageJson.dependencies ?? {}) {
+      const range = packageJson.dependencies[name]
+      await install(`${name}${range ? `@${range}` : ''}`, registryArg, false, true)
     }
   } catch (error) {
     line(2, red(`Failed to install dependencies for ${packageName}@${version}: ${error}`))

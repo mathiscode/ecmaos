@@ -2,12 +2,11 @@ import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createTarPacker } from 'modern-tar'
-import pako from 'pako'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
+import { buildNpmTarballGzip, sha1Hex, sha512Sri } from './fixtures/npm-tarball'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
@@ -15,41 +14,6 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * `install` extracts with the `tar` coreutil (`tar -xzf ... -C <scratch>`) and moves the result into place, stripping
  * npm's `package/` wrapper.
  */
-async function buildNpmTarballGzip(files: Record<string, string>): Promise<Uint8Array> {
-  const { readable, controller } = createTarPacker()
-  const chunks: Uint8Array[] = []
-  const readerDone = (async () => {
-    const reader = readable.getReader()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(value)
-    }
-  })()
-
-  for (const [name, content] of Object.entries(files)) {
-    const bytes = new TextEncoder().encode(content)
-    const entryStream = controller.add({ name: `package/${name}`, type: 'file', size: bytes.length })
-    const writer = entryStream.getWriter()
-    await writer.write(bytes)
-    await writer.close()
-  }
-  controller.finalize()
-  await readerDone
-
-  const total = chunks.reduce((sum, c) => sum + c.length, 0)
-  const tarBytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) { tarBytes.set(chunk, offset); offset += chunk.length }
-
-  return pako.gzip(tarBytes)
-}
-
-async function sha1Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-1', bytes)
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 describe('install command: real tar extraction via shell.execute, not extractTarball directly', () => {
   let kernel: Kernel
   let server: Server
@@ -142,5 +106,69 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     expect(await kernel.shell.execute(`install tool-pkg --registry ${registry}`)).toBe(0)
     expect(await fs.readlink('/usr/bin/tool')).toBe('/usr/lib/tool-pkg/2.0.0/dist/tool.js')
     expect(await fs.readFile('/usr/share/applications/tool.desktop', 'utf-8')).toContain('Tool 2.0.0')
+  })
+
+  const publish = async (name: string, version: string, files: Record<string, string>, integrity: 'sha512' | 'sha1-only' | 'bad-sha512' = 'sha512', dependencies?: Record<string, string>) => {
+    const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name, version, dependencies, bin: files['dist/cli.js'] ? { [name.split('/').pop()!]: 'dist/cli.js' } : undefined }), ...files })
+        const dist = {
+      tarball: `${registry}/${name}/-/${version}.tgz`,
+      shasum: await sha1Hex(tarball),
+      ...(integrity === 'sha512' ? { integrity: await sha512Sri(tarball) } : integrity === 'bad-sha512' ? { integrity: `sha512-${btoa('x'.repeat(64))}` } : {})
+    }
+    routes.set(`/${name}/-/${version}.tgz`, () => ({ body: tarball }))
+    routes.set(`/${name}`, () => ({ body: JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { dist } } }) }))
+  }
+
+  it('verifies the SHA-512 integrity the registry gives, and refuses a package that does not match it even when the SHA-1 does', async () => {
+    await publish('sri-pkg', '1.0.0', { 'dist/cli.js': '// sri\n' })
+    expect(await kernel.shell.execute(`install sri-pkg --registry ${registry}`)).toBe(0)
+
+    await publish('sri-bad', '1.0.0', { 'dist/cli.js': '// bad\n' }, 'bad-sha512')
+    expect(await kernel.shell.execute(`install sri-bad --registry ${registry} 2> /tmp/sri.err`)).toBe(1)
+    expect(await kernel.filesystem.fs.readFile('/tmp/sri.err', 'utf-8')).toContain('Integrity verification failed')
+    expect(await kernel.filesystem.fs.exists('/usr/lib/sri-bad')).toBe(false)
+  })
+
+  it('falls back to the SHA-1 shasum when the registry gives no integrity', async () => {
+    await publish('sha1-pkg', '1.0.0', { 'dist/cli.js': '// sha1\n' }, 'sha1-only')
+    expect(await kernel.shell.execute(`install sha1-pkg --registry ${registry}`)).toBe(0)
+  })
+
+  it('makes a bin executable, as npm does, when the tarball has it as a plain file', async () => {
+    await publish('exec-pkg', '1.0.0', { 'dist/cli.js': '// exec\n' })
+    expect(await kernel.shell.execute(`install exec-pkg --registry ${registry}`)).toBe(0)
+    expect((await kernel.filesystem.fs.stat('/usr/lib/exec-pkg/1.0.0/dist/cli.js')).mode & 0o111).not.toBe(0)
+  })
+
+  it('does not link the bins of a dependency, and links them if the dependency is installed on its own afterwards', async () => {
+    await publish('dep-lib', '1.0.0', { 'dist/cli.js': '// dep\n' })
+    await publish('dep-app', '1.0.0', { 'dist/cli.js': '// app\n' }, 'sha512', { 'dep-lib': '1.0.0' })
+    const { fs } = kernel.filesystem
+
+    expect(await kernel.shell.execute(`install dep-app --registry ${registry}`)).toBe(0)
+    expect(await fs.readlink('/usr/bin/dep-app')).toBe('/usr/lib/dep-app/1.0.0/dist/cli.js')
+    expect(await fs.exists('/usr/lib/dep-lib/1.0.0/package.json')).toBe(true)
+    expect(await fs.exists('/usr/bin/dep-lib')).toBe(false)
+
+    expect(await kernel.shell.execute(`install dep-lib --registry ${registry}`)).toBe(0)
+    expect(await fs.readlink('/usr/bin/dep-lib')).toBe('/usr/lib/dep-lib/1.0.0/dist/cli.js')
+  })
+
+  it('links share/docs, share/licenses and share/man file by file, beside what other packages put there, and uninstall takes only its own', async () => {
+    await publish('share-a', '1.0.0', { 'share/man/man1/a.1': '.TH A 1\n', 'share/docs/@ecmaos/a/a.md': '# a\n', 'share/licenses/@ecmaos/a/LICENSE': 'a\n' })
+    await publish('share-b', '1.0.0', { 'share/man/man1/b.1': '.TH B 1\n' })
+    const { fs } = kernel.filesystem
+
+    expect(await kernel.shell.execute(`install share-a --registry ${registry}`)).toBe(0)
+    expect(await kernel.shell.execute(`install share-b --registry ${registry}`)).toBe(0)
+    expect(await fs.readFile('/usr/share/man/man1/a.1', 'utf-8')).toBe('.TH A 1\n')
+    expect(await fs.readFile('/usr/share/man/man1/b.1', 'utf-8')).toBe('.TH B 1\n')
+    expect(await fs.readFile('/usr/share/docs/@ecmaos/a/a.md', 'utf-8')).toBe('# a\n')
+    expect(await fs.readFile('/usr/share/licenses/@ecmaos/a/LICENSE', 'utf-8')).toBe('a\n')
+
+    expect(await kernel.shell.execute('uninstall share-a')).toBe(0)
+    expect(await fs.exists('/usr/share/man/man1/a.1')).toBe(false)
+    expect(await fs.exists('/usr/share/docs/@ecmaos/a/a.md')).toBe(false)
+    expect(await fs.readFile('/usr/share/man/man1/b.1', 'utf-8')).toBe('.TH B 1\n')
   })
 })
