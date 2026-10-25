@@ -1,0 +1,7 @@
+{
+  "name": "wasm_hello_rust",
+  "version": "1.0.0",
+  "description": "Says hello from Rust in WebAssembly (WASI 0.3): a /proc file and a syscall",
+  "license": "MIT",
+  "parm": ["greeting:string:What to say"]
+}

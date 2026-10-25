@@ -4,36 +4,37 @@
 package ecmaos:module@0.1.0;
 
 interface kernel {
+  /// Nothing here returns text to the module: a WASI 0.3 host (jco) hands the module memory it cannot safely free. Parameters
+  /// arrive as the argument of `init`, and a call that fails returns an error number (0 is success; 17 EEXIST, 22 EINVAL,
+  /// 38 ENOSYS, 20 ENOTDIR, 5 anything else) and writes the reason to the kernel log.
+
   /// Writes a line to the kernel log (dmesg) as this module; `level` is info, warn or error
   log: func(level: string, message: string);
 
-  /// The value of a parameter `insmod` was given (or its default), as text
-  param: func(name: string) -> option<string>;
-
-  /// Adds /proc/PATH; the kernel calls `proc-show` and, when `writable`, `proc-store` with the same path.
-  /// An error is the reason it could not be added.
-  proc: func(path: string, writable: bool) -> option<string>;
+  /// Adds /proc/PATH; the kernel calls `proc-show` and, when `writable`, `proc-store` with the same path
+  proc: func(path: string, writable: bool) -> u32;
 
   /// Adds the directory /sys/kernel/PATH with these attributes (name and whether it can be written); the kernel calls
   /// `sys-show` and `sys-store`
-  sys: func(path: string, attributes: list<tuple<string, bool>>) -> option<string>;
+  sys: func(path: string, attributes: list<tuple<string, bool>>) -> u32;
 
   /// Adds /sys/kernel/debug/NAME/PATH, which the kernel reads and writes with `debugfs-read` and `debugfs-write`
-  debugfs-file: func(path: string, writable: bool) -> option<string>;
+  debugfs-file: func(path: string, writable: bool) -> u32;
 
   /// Adds the syscall `name`, which the kernel runs with `syscall-call`
-  syscall: func(name: string) -> option<string>;
+  syscall: func(name: string) -> u32;
 
   /// Adds a check to every syscall; the kernel asks `syscall-allowed`
-  syscall-policy: func() -> option<string>;
+  syscall-policy: func() -> u32;
 
   /// Teaches execve a program format; the kernel asks `binfmt-matches` and runs a match with `interpreter`
-  binfmt: func(name: string, interpreter: string) -> option<string>;
+  binfmt: func(name: string, interpreter: string) -> u32;
 }
 
 interface lifecycle {
-  /// Runs when the module loads. An error stops the load, and what the module added is taken away.
-  init: func() -> result<_, string>;
+  /// Runs when the module loads, with the parameters `insmod` was given (and the defaults of the rest) as text. An error stops
+  /// the load, and what the module added is taken away.
+  init: func(params: list<tuple<string, string>>) -> result<_, string>;
   /// Runs when the module unloads, before what it added is taken away
   exit: func();
 }

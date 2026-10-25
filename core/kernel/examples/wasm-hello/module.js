@@ -1,12 +1,14 @@
 // A kernel module in JavaScript, built into a WebAssembly component: node scripts/wasm-module.mjs build examples/wasm-hello/module.js examples/wasm-hello/module.json wasm_hello.ko.wasm
-import { log, param, proc, sys, debugfsFile, syscall, syscallPolicy, binfmt } from 'ecmaos:module/kernel@0.1.0'
+import { log, proc, sys, debugfsFile, syscall, syscallPolicy, binfmt } from 'ecmaos:module/kernel@0.1.0'
 
 let reads = 0
 let note = ''
+let greeting = 'hello'
 
 export const lifecycle = {
-  init() {
-    log('info', `loaded; greeting is ${param('greeting') ?? '(none)'}`)
+  init(params) {
+    greeting = new Map(params).get('greeting') ?? 'hello'
+    log('info', `loaded; greeting is ${greeting}`)
     const failures = [
       proc('wasm_hello', true),
       sys('wasm_hello', [['greeting', false], ['note', true]]),
@@ -14,8 +16,8 @@ export const lifecycle = {
       syscall('wasm_hello_add'),
       syscallPolicy(),
       binfmt('hello', '/bin/sh')
-    ].filter(Boolean)
-    if (failures.length) throw failures.join('; ')
+    ].filter(code => code !== 0)
+    if (failures.length) throw `could not add everything (error ${failures.join(', ')})`
   },
   exit() {
     log('info', 'unloading')
@@ -23,9 +25,9 @@ export const lifecycle = {
 }
 
 export const hooks = {
-  procShow: () => `${param('greeting') ?? 'hello'} from WebAssembly\nnote: ${note}\n`,
+  procShow: () => `${greeting} from WebAssembly\nnote: ${note}\n`,
   procStore: (_path, value) => { note = value.trim() },
-  sysShow: (_path, attribute) => (attribute === 'greeting' ? (param('greeting') ?? 'hello') : note) + '\n',
+  sysShow: (_path, attribute) => (attribute === 'greeting' ? greeting : note) + '\n',
   sysStore: (_path, _attribute, value) => { note = value.trim() },
   debugfsRead: () => `${++reads}\n`,
   debugfsWrite: () => {},

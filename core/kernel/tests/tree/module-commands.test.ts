@@ -574,6 +574,40 @@ export default {
     }, 120000)
   })
 
+  describe('WebAssembly modules for WASI 0.3, written in Rust', () => {
+    const builtin = <T>(id: string) => (process as unknown as { getBuiltinModule: (id: string) => T }).getBuiltinModule(id)
+    const dir = () => `/lib/modules/${kernel.version}`
+    const cwd = builtin<typeof import('node:path')>('node:path').resolve(import.meta.dirname, '../..')
+    // the nightly compiler with the wasip3 library is a separate install (see examples/wasm-hello-rust/rust-toolchain.toml)
+    const toolchain = (() => {
+      try {
+        const installed = builtin<typeof import('node:child_process')>('node:child_process').execFileSync('rustup', ['target', 'list', '--installed', '--toolchain', 'nightly-2026-10-25'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+        return installed.includes('wasm32-wasip3')
+      } catch {
+        return false
+      }
+    })()
+
+    beforeAll(async () => {
+      if (!toolchain) return
+      const { join } = builtin<typeof import('node:path')>('node:path')
+      const out = join(builtin<typeof import('node:fs')>('node:fs').mkdtempSync(join(builtin<typeof import('node:os')>('node:os').tmpdir(), 'ecmaos-rust-')), 'wasm_hello_rust.ko.wasm')
+      builtin<typeof import('node:child_process')>('node:child_process').execFileSync(process.execPath, ['scripts/build-wasm-rust.mjs', 'examples/wasm-hello-rust', out], { cwd, stdio: 'ignore' })
+      await kernel.filesystem.fs.mkdir(dir(), { recursive: true })
+      await kernel.filesystem.fs.writeFile(`${dir()}/wasm_hello_rust.ko.wasm`, new Uint8Array(builtin<typeof import('node:fs')>('node:fs').readFileSync(out)))
+    }, 240000)
+
+    it.skipIf(!toolchain)('a WASI 0.3 component loads, answers /proc and a syscall, and unloads', async () => {
+      const loaded = await sh(`insmod ${dir()}/wasm_hello_rust.ko.wasm greeting=hej`)
+      expect(loaded.code, loaded.out).toBe(0)
+      expect((await sh('cat /proc/wasm_hello_rust')).out).toBe('hej from Rust\n')
+      expect((await sh('wasm-call wasm_hello_rust_add 4 5')).out).toBe('9\n')
+      expect((await sh('modinfo wasm_hello_rust')).out).toContain('kind:           wasm')
+      expect((await sh('rmmod wasm_hello_rust')).code).toBe(0)
+      expect((await sh('ls /proc/wasm_hello_rust')).code).not.toBe(0)
+    }, 60000)
+  })
+
   it('lets anyone list and read, but only root load or unload', async () => {
     if (!await canRunProgramsAsUser(kernel.filesystem.fs)) return // every program runs as root on this machine
     await kernel.filesystem.fs.chmod('/tmp', 0o1777)

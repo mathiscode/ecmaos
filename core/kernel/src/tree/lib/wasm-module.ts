@@ -120,6 +120,20 @@ export const denied = (what: string) => new Proxy({}, {
     : () => { throw refused(what) }
 })
 
+/** Whether a component imports WASI 0.3: the interface names are in the file as text, `wasi:cli/stdout@0.3.0` and so on */
+export function usesPreview3(bytes: Uint8Array): boolean {
+  const needle = new TextEncoder().encode('wasi:')
+  const version = new TextEncoder().encode('@0.3.')
+  for (let at = bytes.indexOf(needle[0]!); at !== -1 && at < bytes.length; at = bytes.indexOf(needle[0]!, at + 1)) {
+    if (!needle.every((byte, index) => bytes[at + index] === byte)) continue
+    // the version follows the interface name, a few dozen bytes on at most
+    for (let end = at + needle.length; end < Math.min(bytes.length, at + 80) && bytes[end]! >= 0x2d; end++) {
+      if (version.every((byte, index) => bytes[end + index] === byte)) return true
+    }
+  }
+  return false
+}
+
 /** Turns what a module writes to its standard streams into kernel log lines */
 function lines(write: (line: string) => void) {
   let pending = ''
@@ -146,9 +160,53 @@ interface Hooks {
   binfmtMatches(name: string, filename: string, magic: Uint8Array): boolean
 }
 
+/**
+ * The WASI 0.3 interfaces a component links against, answered the way the 0.2 ones are: no arguments, environment or input,
+ * output as log lines, a clock, and no terminal. `preview3-shim`'s browser build is not used: it only throws, and a module
+ * should get exactly this much and no more.
+ */
+function preview3Imports(ctx: ModuleContext): Record<string, unknown> {
+  /** Reads a `stream<u8>` the module wrote to, line by line, as the stream yields chunks */
+  const drain = async (stream: unknown, write: (line: string) => void) => {
+    const sink = lines(write)
+    const source = stream as AsyncIterable<Uint8Array | number[]> | undefined
+    if (source && typeof source[Symbol.asyncIterator] === 'function') {
+      for await (const chunk of source) sink.write(Uint8Array.from(chunk))
+    }
+  }
+  const nothing = { }
+  const exit = () => { throw new Error('a module cannot end the kernel') }
+  const monotonic = () => BigInt(Math.round(performance.now() * 1_000_000))
+  return {
+    'wasi:cli/environment': { getEnvironment: () => [], getArguments: () => [], getInitialCwd: () => undefined },
+    'wasi:cli/exit': { exit, exitWithCode: exit },
+    'wasi:cli/stdin': { readViaStream: () => [(async function* () { /* ends at once */ })(), Promise.resolve({ tag: 'ok' })] },
+    'wasi:cli/stdout': { writeViaStream: (data: unknown) => drain(data, line => ctx.log.info(line)).then(() => ({ tag: 'ok' })) },
+    'wasi:cli/stderr': { writeViaStream: (data: unknown) => drain(data, line => ctx.log.warn(line)).then(() => ({ tag: 'ok' })) },
+    'wasi:cli/terminal-input': { TerminalInput: class {} },
+    'wasi:cli/terminal-output': { TerminalOutput: class {} },
+    'wasi:cli/terminal-stdin': { getTerminalStdin: () => undefined },
+    'wasi:cli/terminal-stdout': { getTerminalStdout: () => undefined },
+    'wasi:cli/terminal-stderr': { getTerminalStderr: () => undefined },
+    'wasi:clocks/monotonic-clock': {
+      now: monotonic,
+      getResolution: () => 1_000n,
+      waitUntil: async (when: bigint) => { await new Promise(resolve => setTimeout(resolve, Math.max(0, Number(when - monotonic()) / 1_000_000))) },
+      waitFor: async (howLong: bigint) => { await new Promise(resolve => setTimeout(resolve, Number(howLong) / 1_000_000)) }
+    },
+    'wasi:clocks/system-clock': {
+      now: () => { const ms = Date.now(); return { seconds: BigInt(Math.floor(ms / 1000)), nanoseconds: (ms % 1000) * 1_000_000 } },
+      getResolution: () => 1_000_000n
+    },
+    'wasi:clocks/types': nothing,
+    'wasi:cli/types': nothing
+  }
+}
+
 /** The module's entry point for the loader: instantiates the component when the module starts, with its context */
-export function wasmModule(bytes: Uint8Array): KernelModule {
-  let life: { init(): void, exit(): void } | undefined
+/** `parameters` are the names the modinfo declares; their values are passed to `init` */
+export function wasmModule(bytes: Uint8Array, parameters: string[] = []): KernelModule {
+  let life: { init(params: Array<[string, string]>): unknown, exit(): void } | undefined
   return {
     async init(ctx: ModuleContext) {
       const { generate } = await import('@bytecodealliance/jco/component')
@@ -167,67 +225,111 @@ export function wasmModule(bytes: Uint8Array): KernelModule {
       // the kernel calls the module back through these, once it has finished starting
       const bound: { hooks?: Hooks } = {}
       const need = () => bound.hooks ?? (() => { throw new WasmModuleError('ENOEXEC', `${ctx.name}: the module has not finished starting`) })()
-      /** `option<string>`: nothing is success, a string is why not */
+      /** A number for the module, never text: 0 is success, otherwise an errno; the reason goes to the kernel log */
+      const errnos: Record<string, number> = { EPERM: 1, EIO: 5, EEXIST: 17, ENOTDIR: 20, EINVAL: 22, ENOSYS: 38 }
       const attempt = (run: () => void) => {
-        try { run() } catch (error) { return error instanceof Error ? error.message : String(error) }
-        return undefined
+        try {
+          run()
+          return 0
+        } catch (error) {
+          ctx.log.warn(error instanceof Error ? error.message : String(error))
+          return errnos[(error as { code?: string }).code ?? ''] ?? errnos.EIO!
+        }
+      }
+
+      // WASI 0.3: jco makes every export of such a component async, and the kernel's /proc, /sys and debugfs files, the
+      // syscall policy and the program-format check must answer at once. A file is served from the last text the module's hook
+      // returned (primed once `init` is done, refreshed after each read, and after each write), and a policy or format cannot
+      // be added by a 0.3 module at all: refused, rather than quietly allowing everything.
+      const asynchronous = usesPreview3(bytes)
+      const primers: Array<() => Promise<unknown>> = []
+      const served = (call: () => unknown) => {
+        let text = ''
+        const refresh = async () => {
+          try { text = String(await call()) } catch (error) { ctx.log.warn(`hook failed: ${error instanceof Error ? error.message : String(error)}`) }
+        }
+        if (asynchronous) primers.push(refresh)
+        return () => {
+          const answer = call()
+          if (answer && typeof (answer as { then?: unknown }).then === 'function') {
+            void refresh()
+            return text
+          }
+          return String(answer)
+        }
+      }
+      const written = (call: (value: string) => unknown) => (value: string) => {
+        const answer = call(value)
+        if (answer && typeof (answer as { then?: unknown }).then === 'function') void (answer as Promise<unknown>).catch((error: unknown) => ctx.log.warn(`write refused: ${error instanceof Error ? error.message : String(error)}`))
+      }
+      const unsupported = (what: string) => () => {
+        ctx.log.warn(`${what} cannot be added by a WASI 0.3 module: its hooks are asynchronous and the kernel needs the answer at once`)
+        return errnos.ENOSYS!
       }
 
       const kernel = {
         log: (level: string, message: string) => ctx.log[level === 'warn' || level === 'error' ? level : 'info'](message),
-        param: (name: string) => { const value = ctx.param(name); return value === undefined ? undefined : String(value) },
-        proc: (path: string, writable: boolean) => attempt(() => ctx.proc(path, { show: () => need().procShow(path), store: writable ? value => need().procStore(path, value) : undefined })),
+        proc: (path: string, writable: boolean) => attempt(() => ctx.proc(path, { show: served(() => need().procShow(path)), store: writable ? written(value => need().procStore(path, value)) : undefined })),
         sys: (path: string, attributes: Array<[string, boolean]>) => attempt(() => ctx.sys(path, Object.fromEntries(attributes.map(([name, writable]) => [name, {
-          show: () => need().sysShow(path, name),
-          store: writable ? (value: string) => need().sysStore(path, name, value) : undefined
+          show: served(() => need().sysShow(path, name)),
+          store: writable ? written(value => need().sysStore(path, name, value)) : undefined
         }])))),
-        debugfsFile: (path: string, writable: boolean) => attempt(() => ctx.debugfs.file(path, { read: () => need().debugfsRead(path), write: writable ? value => need().debugfsWrite(path, value) : undefined })),
-        syscall: (name: string) => attempt(() => ctx.syscall(name, (call, ...args) => need().syscallCall(name, call.pid, call.uid, call.gid, args.map(arg => typeof arg === 'number' ? { tag: 'number', val: arg } : { tag: 'text', val: arg })))),
-        syscallPolicy: () => attempt(() => ctx.syscallPolicy(call => need().syscallAllowed(call.syscall, call.pid, call.uid, call.exe))),
-        binfmt: (name: string, interpreter: string) => attempt(() => ctx.binfmt({ name, interpreter, matches: ({ filename, magic }) => need().binfmtMatches(name, filename, magic) }))
+        debugfsFile: (path: string, writable: boolean) => attempt(() => ctx.debugfs.file(path, { read: served(() => need().debugfsRead(path)), write: writable ? written(value => need().debugfsWrite(path, value)) : undefined })),
+        syscall: (name: string) => attempt(() => ctx.syscall(name, async (call, ...args) => await need().syscallCall(name, call.pid, call.uid, call.gid, args.map(arg => typeof arg === 'number' ? { tag: 'number', val: arg } : { tag: 'text', val: arg })))),
+        syscallPolicy: asynchronous ? unsupported('a syscall policy') : () => attempt(() => ctx.syscallPolicy(call => need().syscallAllowed(call.syscall, call.pid, call.uid, call.exe))),
+        binfmt: asynchronous ? unsupported('a program format') : (name: string, interpreter: string) => attempt(() => ctx.binfmt({ name, interpreter, matches: ({ filename, magic }) => need().binfmtMatches(name, filename, magic) }))
       }
 
-      const shim = cli.createCli({
-        arguments: [],
-        environment: {},
-        initialCwd: '/',
-        stdin: { read: () => { throw { tag: 'closed' } }, blockingRead: () => { throw { tag: 'closed' } }, subscribe: () => io.pollableCreate() } as never,
-        stdout: lines(line => ctx.log.info(line)) as never,
-        stderr: lines(line => ctx.log.warn(line)) as never
-      })
-      const imports: Record<string, unknown> = {
-        'ecmaos:module/kernel': kernel,
-        'ecmaos:module/kernel@0.1.0': kernel,
-        'wasi:cli/environment': shim.environment,
-        'wasi:cli/exit': shim.exit,
-        'wasi:cli/stdin': shim.stdin,
-        'wasi:cli/stdout': shim.stdout,
-        'wasi:cli/stderr': shim.stderr,
-        'wasi:cli/terminal-input': shim.terminalInput,
-        'wasi:cli/terminal-output': shim.terminalOutput,
-        'wasi:cli/terminal-stdin': shim.terminalStdin,
-        'wasi:cli/terminal-stdout': shim.terminalStdout,
-        'wasi:cli/terminal-stderr': shim.terminalStderr,
-        'wasi:clocks/monotonic-clock': clocks.monotonicClock,
-        'wasi:clocks/wall-clock': clocks.wallClock,
-        'wasi:io/error': io.error,
-        'wasi:io/poll': io.poll,
-        'wasi:io/streams': io.streams,
-        'wasi:random/random': random.random,
-        'wasi:random/insecure': random.insecure,
-        'wasi:random/insecure-seed': random.insecureSeed,
+      const imports: Record<string, unknown> = { 'ecmaos:module/kernel': kernel, 'ecmaos:module/kernel@0.1.0': kernel }
+      if (usesPreview3(bytes)) {
+        Object.assign(imports, preview3Imports(ctx))
+      } else {
+        const shim = cli.createCli({
+          arguments: [],
+          environment: {},
+          initialCwd: '/',
+          stdin: { read: () => { throw { tag: 'closed' } }, blockingRead: () => { throw { tag: 'closed' } }, subscribe: () => io.pollableCreate() } as never,
+          stdout: lines(line => ctx.log.info(line)) as never,
+          stderr: lines(line => ctx.log.warn(line)) as never
+        })
+        Object.assign(imports, {
+          'wasi:cli/environment': shim.environment,
+          'wasi:cli/exit': shim.exit,
+          'wasi:cli/stdin': shim.stdin,
+          'wasi:cli/stdout': shim.stdout,
+          'wasi:cli/stderr': shim.stderr,
+          'wasi:cli/terminal-input': shim.terminalInput,
+          'wasi:cli/terminal-output': shim.terminalOutput,
+          'wasi:cli/terminal-stdin': shim.terminalStdin,
+          'wasi:cli/terminal-stdout': shim.terminalStdout,
+          'wasi:cli/terminal-stderr': shim.terminalStderr,
+          'wasi:clocks/monotonic-clock': clocks.monotonicClock,
+          'wasi:clocks/wall-clock': clocks.wallClock,
+          'wasi:io/error': io.error,
+          'wasi:io/poll': io.poll,
+          'wasi:io/streams': io.streams,
+          'wasi:random/random': random.random,
+          'wasi:random/insecure': random.insecure,
+          'wasi:random/insecure-seed': random.insecureSeed
+        })
+      }
+      // whichever version it is, these are refused
+      Object.assign(imports, {
         'wasi:filesystem/preopens': denied('the filesystem'),
         'wasi:filesystem/types': denied('the filesystem'),
         'wasi:http/outgoing-handler': denied('HTTP'),
         'wasi:http/types': denied('HTTP'),
+        'wasi:http/client': denied('HTTP'),
         'wasi:sockets/instance-network': denied('the network'),
         'wasi:sockets/ip-name-lookup': denied('the network'),
         'wasi:sockets/network': denied('the network'),
         'wasi:sockets/tcp': denied('the network'),
         'wasi:sockets/tcp-create-socket': denied('the network'),
         'wasi:sockets/udp': denied('the network'),
-        'wasi:sockets/udp-create-socket': denied('the network')
-      }
+        'wasi:sockets/udp-create-socket': denied('the network'),
+        'wasi:sockets/types': denied('the network'),
+        'wasi:sockets/ip-name-lookup@0.3.0': denied('the network')
+      })
 
       const component = await generated.instantiate(async name => {
         const core = output.get(name)
@@ -238,7 +340,13 @@ export function wasmModule(bytes: Uint8Array): KernelModule {
       life = (component['ecmaos:module/lifecycle@0.1.0'] ?? component['ecmaos:module/lifecycle'] ?? component['lifecycle']) as typeof life
       bound.hooks = (component['ecmaos:module/hooks@0.1.0'] ?? component['ecmaos:module/hooks'] ?? component['hooks']) as Hooks | undefined
       if (!life || !bound.hooks) throw new WasmModuleError('ENOEXEC', `${ctx.name}: the component does not export ecmaos:module/lifecycle and hooks`)
-      life.init()
+      const values: Array<[string, string]> = []
+      for (const name of parameters) {
+        const value = ctx.param(name)
+        if (value !== undefined) values.push([name, String(value)])
+      }
+      await life.init(values)
+      for (const prime of primers) await prime()
     },
     exit() {
       life?.exit()

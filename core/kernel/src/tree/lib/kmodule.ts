@@ -267,7 +267,7 @@ export class ModuleManager {
     }
     const values = parseParams(options.params ?? [], info)
 
-    const exported = (isWasm(source) ? wasmModule(source) : await this.host.evaluate(source as string)) as { default?: KernelModule } & Partial<KernelModule>
+    const exported = (isWasm(source) ? wasmModule(source, info.parm.map(parm => parm.name)) : await this.host.evaluate(source as string)) as { default?: KernelModule } & Partial<KernelModule>
     const entry = (exported.default ?? exported) as Partial<KernelModule>
     if (typeof entry.init !== 'function') throw new ModuleError('ENOEXEC', `${info.name}: invalid module format: no init function`)
 
