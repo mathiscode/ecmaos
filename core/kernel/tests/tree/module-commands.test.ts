@@ -98,6 +98,88 @@ describe('insmod, rmmod and modinfo', () => {
     expect((await sh('insmod /lib/modules/hello.ko.mjs times=x')).out).toContain('wants a number')
   })
 
+  describe('depmod and modprobe', () => {
+    const mod = (name: string, extra: string[] = []) => `/* ecmaos-module\n * name=${name}\n${extra.map(line => ` * ${line}\n`).join('')} */\nexport default { init(ctx) { ctx.log.info('${name}') } }\n`
+    const dir = () => `/lib/modules/${kernel.version}`
+    const loadedNames = async () => [...(await sh('cat /proc/modules')).out.matchAll(/^(\S+) /gm)].map(match => match[1])
+    const config = async (text: string) => {
+      await kernel.filesystem.fs.mkdir('/etc/modprobe.d', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/etc/modprobe.d/test.conf', text)
+    }
+
+    beforeAll(async () => {
+      await kernel.filesystem.fs.mkdir(`${dir()}/extra`, { recursive: true })
+      await kernel.filesystem.fs.writeFile(`${dir()}/extra/base.ko.mjs`, mod('base'))
+      await kernel.filesystem.fs.writeFile(`${dir()}/mid.ko.mjs`, mod('mid', ['depends=base']))
+      await kernel.filesystem.fs.writeFile(`${dir()}/top.ko.mjs`, mod('top', ['depends=mid', 'alias=fs-top', 'parm=greeting:string:The greeting']))
+      await kernel.filesystem.fs.writeFile(`${dir()}/solo.ko.mjs`, mod('solo'))
+      await kernel.filesystem.fs.writeFile(`${dir()}/odd.ko.mjs`, mod('other'))
+    })
+
+    it('depmod writes modules.dep and modules.alias, and warns about a file whose name is not the module', async () => {
+      const result = await sh('depmod')
+      expect(result.code).toBe(0)
+      expect(result.out).toContain('odd.ko.mjs: the file is named odd but the module says it is other')
+      const dep = await kernel.filesystem.fs.readFile(`${dir()}/modules.dep`, 'utf-8')
+      expect(dep).toContain('top.ko.mjs: mid.ko.mjs extra/base.ko.mjs\n')
+      expect(dep).toContain('mid.ko.mjs: extra/base.ko.mjs\n')
+      expect(dep).toContain('extra/base.ko.mjs:\n')
+      expect(await kernel.filesystem.fs.readFile(`${dir()}/modules.alias`, 'utf-8')).toBe('alias fs-top top\n')
+    })
+
+    it('modprobe loads a module through its alias with what it needs, applies modprobe.d options, and -r unloads the lot', async () => {
+      await config('# comment\noptions top greeting=hi\n')
+      expect((await sh('modprobe -n fs-top')).out).toMatch(/insmod .*\/extra\/base\.ko\.mjs\ninsmod .*\/mid\.ko\.mjs\ninsmod .*\/top\.ko\.mjs greeting=hi/)
+      expect(await loadedNames()).not.toContain('top')
+
+      expect((await sh('modprobe fs-top')).code).toBe(0)
+      expect(await loadedNames()).toEqual(expect.arrayContaining(['base', 'mid', 'top']))
+      expect((await sh('cat /sys/module/top/parameters/greeting')).out.trim()).toBe('hi')
+      expect((await sh('rmmod base')).out).toContain('in use')
+      expect((await sh('modprobe top')).code).toBe(0) // already there
+
+      expect((await sh('modprobe -r fs-top')).code).toBe(0)
+      expect(await loadedNames()).not.toEqual(expect.arrayContaining(['base']))
+      expect(await loadedNames()).not.toContain('mid')
+    })
+
+    it('a blacklisted module does not load for an alias, softdep loads its friends, install runs a command', async () => {
+      await config('blacklist top\n')
+      expect((await sh('modprobe fs-top')).code).toBe(0)
+      expect(await loadedNames()).not.toContain('top')
+      expect((await sh('modprobe top')).code).toBe(0)
+      expect(await loadedNames()).toContain('top')
+      expect((await sh('modprobe -r top')).code).toBe(0)
+
+      await config('softdep solo post: base\n')
+      expect((await sh('modprobe solo')).code).toBe(0)
+      expect(await loadedNames()).toEqual(expect.arrayContaining(['solo', 'base']))
+      expect((await sh('modprobe -r solo')).code).toBe(0)
+      expect((await sh('rmmod base')).code).toBe(0)
+
+      await config('install solo echo ran-install > /tmp/install-ran\n')
+      expect((await sh('modprobe solo')).code).toBe(0)
+      expect(await loadedNames()).not.toContain('solo')
+      expect((await kernel.filesystem.fs.readFile('/tmp/install-ran', 'utf-8')).trim()).toBe('ran-install')
+      expect((await sh('modprobe --ignore-install solo')).code).toBe(0)
+      expect(await loadedNames()).toContain('solo')
+      expect((await sh('rmmod solo')).code).toBe(0)
+    })
+
+    it('says when a module is not there, and /etc/modules-load.d loads names at boot and reports the ones that fail', async () => {
+      await config('')
+      expect((await sh('modprobe nothing-here')).out).toContain('Module nothing-here not found in directory')
+      await kernel.filesystem.fs.mkdir('/etc/modules-load.d', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/etc/modules-load.d/test.conf', '# at boot\nsolo\nmissing\n')
+      const reports: string[] = []
+      await kernel.modprobe.loadAtBoot(message => reports.push(message))
+      expect(await loadedNames()).toContain('solo')
+      expect(reports).toEqual([expect.stringContaining('modprobe missing: Module missing not found')])
+      expect((await sh('rmmod solo')).code).toBe(0)
+      await kernel.filesystem.fs.writeFile('/etc/modules-load.d/test.conf', '')
+    })
+  })
+
   it('lets anyone list and read, but only root load or unload', async () => {
     if (!await canRunProgramsAsUser(kernel.filesystem.fs)) return // every program runs as root on this machine
     await kernel.filesystem.fs.chmod('/tmp', 0o1777)

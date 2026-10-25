@@ -8,11 +8,14 @@ import type { Process } from '@zenfs/linux'
 
 import type { Kernel } from '#kernel.ts'
 import { ModuleError, parseModinfo } from './kmodule.ts'
+import { depmod } from './modprobe.ts'
 
 export type ModuleRequest =
   | { action: 'load', path: string, params: string[], force: boolean }
   | { action: 'unload', name: string, force: boolean }
   | { action: 'info', target: string }
+  | { action: 'depmod' }
+  | { action: 'probe', name: string, remove: boolean, dryRun: boolean, verbose: boolean, ignoreCommands: boolean, params: string[] }
 
 export interface ModuleResult {
   code: number
@@ -58,7 +61,27 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
     }
   }
 
-  if (!capable(proc, Cap.SYS_MODULE)) return fail(request.action === 'load' ? 'insmod' : 'rmmod', 'Operation not permitted')
+  const command = { load: 'insmod', unload: 'rmmod', depmod: 'depmod', probe: 'modprobe' }[request.action]
+  if (!capable(proc, Cap.SYS_MODULE)) return fail(command, 'Operation not permitted')
+
+  if (request.action === 'depmod') {
+    try {
+      const { modules, warnings } = await depmod(kernel.filesystem.fs, kernel.modprobe.dir)
+      return { code: 0, lines: warnings.map(text => ({ stream: 'err' as const, text: `depmod: WARNING: ${text}` })).concat(modules ? [] : [{ stream: 'err' as const, text: `depmod: no modules found in ${kernel.modprobe.dir}` }]) }
+    } catch (error) {
+      return fail('depmod', error)
+    }
+  }
+
+  if (request.action === 'probe') {
+    try {
+      const options = { dryRun: request.dryRun, ignoreCommands: request.ignoreCommands, params: request.params }
+      const lines = request.remove ? await kernel.modprobe.unload(request.name, options) : await kernel.modprobe.load(request.name, options)
+      return done(...(request.dryRun || request.verbose ? lines : []))
+    } catch (error) {
+      return fail('modprobe', error)
+    }
+  }
 
   if (request.action === 'load') {
     try {

@@ -40,4 +40,19 @@ describe.skipIf(!supported)('kernel modules on the Node host', () => {
     await session.run("sed 's/1.0.0/1.0.1/' /tmp/s.ko.mjs > /tmp/e.ko.mjs")
     expect(await session.run('insmod /tmp/e.ko.mjs; echo exit $?')).toContain('signature does not match')
   })
+
+  it('depmod and modprobe load a module with what it needs, by alias, and -r unloads them', async () => {
+    const make = (name: string, extra = '') => `printf '/* ecmaos-module\\n * name=${name}\\n${extra} */\\nexport default { init() {} }\\n' > $d/${name}.ko.mjs`
+    await session.run('d=/lib/modules/$(uname -r); mkdir -p $d')
+    await session.run(make('lib1'))
+    await session.run(make('app1', ' * depends=lib1\\n * alias=fs-app1\\n'))
+    expect(await session.run('depmod; echo exit $?')).toMatch(/exit 0$/)
+    expect(await session.run('cat $d/modules.dep')).toContain('app1.ko.mjs: lib1.ko.mjs')
+    expect(await session.run('modprobe fs-app1; echo exit $?')).toMatch(/exit 0$/)
+    const listed = await session.run('lsmod')
+    expect(listed).toMatch(/^lib1 /m)
+    expect(listed).toMatch(/^app1 /m)
+    expect(await session.run('modprobe -r app1; echo exit $?')).toMatch(/exit 0$/)
+    expect(await session.run('lsmod')).not.toMatch(/^(lib1|app1) /m)
+  })
 })

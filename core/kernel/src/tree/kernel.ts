@@ -37,6 +37,8 @@ import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
 import { ModuleManager, parsePublicKey } from '#lib/kmodule.ts'
+import { ModProbe } from '#lib/modprobe.ts'
+import type { ProbeFs } from '#lib/modprobe.ts'
 import type { TrustedKey } from '#lib/kmodule.ts'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerModuleProc } from '#lib/module-proc.ts'
@@ -166,7 +168,7 @@ const DefaultKernelOptions: KernelOptions = {
 const DefaultBootOptions: BootOptions = { silent: false }
 
 /** Commands that live in `/sbin` rather than `/bin`. */
-const SbinCommands = new Set(['init', 'getty', 'insmod', 'rmmod', 'modinfo', 'sign-module'])
+const SbinCommands = new Set(['init', 'getty', 'insmod', 'rmmod', 'modinfo', 'sign-module', 'depmod', 'modprobe'])
 
 /** Where the public keys that may sign a kernel module are kept */
 const MODULE_KEYS = '/etc/modules-keys'
@@ -326,6 +328,7 @@ export class Kernel implements IKernel {
   public readonly modules: KernelModules = loadedModules
   /** Loads and unloads modules (`insmod`, `rmmod`) and keeps their symbols */
   public readonly kmodules: ModuleManager
+  public readonly modprobe: ModProbe
   /** Configuration options passed to the kernel */
   public readonly options: KernelOptions
   /** Map of loaded packages */
@@ -415,6 +418,14 @@ export class Kernel implements IKernel {
         }
         return keys
       }
+    })
+    const kernel = this
+    this.modprobe = new ModProbe({
+      // the filesystem and the shell are built a few lines below
+      get fs() { return kernel.filesystem.fs as unknown as ProbeFs },
+      kmodules: this.kmodules,
+      release: this.version,
+      run: command => this.shell.execute(command)
     })
     this.screensavers = new Map()
     this.windows = new WindowServer()
@@ -651,6 +662,9 @@ export class Kernel implements IKernel {
 
         await this.filesystem.fs.writeFile('/etc/os-release', osRelease, { mode: 0o444 })
       }
+
+      // /etc/modules-load.d names the modules to load now; one that fails is logged and does not stop the boot
+      await this.modprobe.loadAtBoot(message => this.log.warn(message))
 
       if (!(await this.filesystem.fs.exists('/etc/hosts'))) {
         await this.filesystem.fs.writeFile('/etc/hosts', DEFAULT_HOSTS, { mode: 0o644 })
