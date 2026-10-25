@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-apps/desktop",
   "version": "0.0.0",
+  "license": "MIT OR Apache-2.0",
   "description": "A desktop environment for ecmaOS: taskbar, launcher and terminal windows",
   "type": "module",
   "bin": {

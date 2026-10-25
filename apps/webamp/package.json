@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-apps/webamp",
   "version": "0.2.2",
+  "license": "MIT OR Apache-2.0",
   "description": "Winamp for the web",
   "type": "module",
   "bin": {

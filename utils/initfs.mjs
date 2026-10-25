@@ -28,7 +28,12 @@ const MIRRORS = [
   { source: 'docs', copy: path.relative(root, path.join(share, 'docs/@ecmaos/kernel/docs')), sync: 'sync:docs' },
   ...['LICENSE', 'LICENSE-APACHE', 'LICENSE-MIT'].map(name => ({ source: name, copy: path.relative(root, path.join(share, 'licenses/@ecmaos/kernel', name)), sync: 'sync:licenses' })),
   { source: 'core/utils/licenses', copy: path.relative(root, path.join(share, 'licenses/@ecmaos/coreutils')), sync: 'sync:licenses' },
-  { source: 'core/utils-copyleft/licenses', copy: path.relative(root, path.join(share, 'licenses/@ecmaos/coreutils-copyleft')), sync: 'sync:licenses' }
+  { source: 'core/utils-copyleft/licenses', copy: path.relative(root, path.join(share, 'licenses/@ecmaos/coreutils-copyleft')), sync: 'sync:licenses' },
+  // The LGPL libraries' texts also travel with the Node host and the desktop app
+  ...['core/node/licenses', 'core/jaffa/src-tauri/licenses'].flatMap(target => [
+    ...['@zenfs', 'utilium', 'memium'].map(name => ({ source: path.relative(root, path.join(share, 'licenses', name)), copy: `${target}/${name}`, sync: 'sync:licenses' })),
+    ...['LICENSE', 'LICENSE-APACHE', 'LICENSE-MIT'].map(name => ({ source: name, copy: `${target}/ecmaos/${name}`, sync: 'sync:licenses' }))
+  ])
 ]
 
 function gnuTar() {

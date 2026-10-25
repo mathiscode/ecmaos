@@ -1,0 +1,5 @@
+These files reproduce the license texts and copyright notices of other projects whose software ecmaOS ships or is
+built with, copied unchanged from their source distributions so that a license that asks for its notice to travel
+with the software gets it. They are the license of each project, not a license for ecmaOS: the project each belongs to
+is named by the directory it is in, and the text says who holds the copyright and on what terms. Copy them only
+together with the software they accompany.

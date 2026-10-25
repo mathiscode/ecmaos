@@ -7,7 +7,7 @@
     "email": "code@mathis.network",
     "url": "https://github.com/mathiscode"
   },
-  "license": "MIT+Apache-2.0",
+  "license": "MIT OR Apache-2.0",
   "homepage": "https://ecmaos.sh",
   "repository": "https://github.com/ecmaos/ecmaos",
   "type": "module",
@@ -15,7 +15,8 @@
     "ecmaos": "./dist/ecmaos.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "licenses"
   ],
   "scripts": {
     "build": "vite build",

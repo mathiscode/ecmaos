@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-apps/edit",
   "version": "0.1.2",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "bin": {
     "edit": "./dist/index.js"

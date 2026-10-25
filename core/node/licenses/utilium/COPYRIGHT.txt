@@ -1,0 +1,2 @@
+utilium 3.7.0, LGPL-3.0-or-later, Copyright © James Prevett and other contributors
+https://github.com/james-pre/utilium

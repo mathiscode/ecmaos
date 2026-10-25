@@ -103,7 +103,22 @@ move together:
 
 ## License
 
-By contributing to ecmaOS, you agree that your contributions will be licensed under its MIT license.
+ecmaOS is MIT OR Apache-2.0. By contributing, you agree that your contribution is licensed under the license of the part of the repository it goes into:
+
+* Almost everywhere, that is **MIT OR Apache-2.0**, the same as the rest of the project.
+* In `core/utils-copyleft`, a change to a program's build or to a file linked into it is licensed as that program is (GPL-2.0-or-later, GPL-3.0-or-later or the Vim license; `licenses/<program>/SOURCE` and the manifest say which). Keep new GPL code in that package and the program a separate process: the kernel and the permissive packages never import or link it (`pnpm check:license-boundary` fails if they do).
+* A new program or library under another license needs its notice in `licenses/` and an entry in the package's `programs/manifest.json`, and a new dependency must be under a license on `scripts/license-allowlist.json` (`pnpm check:licenses`); anything copyleft is a decision for a maintainer.
+
+### Sign your commits
+
+Every commit needs a `Signed-off-by: Your Name <you@example.com>` line, which says you wrote the change or have the right to contribute it under that license (the [Developer Certificate of Origin](https://developercertificate.org/)). Add it with `git commit -s`, or to commits already made with `git rebase --signoff main`. CI checks the commits of a pull request (`node scripts/check-dco.mjs origin/main..HEAD` does the same locally); merge commits, bots and the maintainer (the project's copyright holder) are skipped.
+
+### What CI checks about licenses
+
+* `reuse lint` (REUSE 3.3): every file has a license and a copyright holder. A file's own `SPDX-License-Identifier` header wins; otherwise `REUSE.toml` says. `REUSE.toml` is generated from the programs' manifests by `pnpm sync:reuse`; do not edit it by hand. The license texts are in `LICENSES/`.
+* `pnpm check:licenses`: every dependency is under an allowed license.
+* `pnpm check:license-boundary`: nothing but `@ecmaos/coreutils-copyleft` holds, depends on or imports the copyleft programs; after a build, `node scripts/check-license-boundary.mjs --dist` checks the bundles too.
+* `pnpm check:initfs`: the notices in the initfs (and the copies shipped with `@ecmaos/node` and `@ecmaos/jaffa`) match their sources; `pnpm sync:licenses` refreshes them.
 
 ## Questions?
 

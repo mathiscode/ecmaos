@@ -1,6 +1,7 @@
 {
   "name": "@ecmaos-apps/web3",
   "version": "0.1.2",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "bin": {
     "web3": "./dist/index.js"
