@@ -36,7 +36,7 @@ import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { FileOperations } from '@zenfs/linux'
 import { withErrno } from 'kerium'
-import { ModuleManager, parsePublicKey } from '#lib/kmodule.ts'
+import { ModuleError, ModuleManager, parsePublicKey } from '#lib/kmodule.ts'
 import { ModProbe } from '#lib/modprobe.ts'
 import type { ProbeFs } from '#lib/modprobe.ts'
 import type { TrustedKey } from '#lib/kmodule.ts'
@@ -408,6 +408,17 @@ export class Kernel implements IKernel {
       log: { info: message => this.log.info(message), warn: message => this.log.warn(message), error: message => this.log.error(message) },
       dmesg: line => this.log.info(line),
       evaluate: source => import(/* @vite-ignore */ `data:text/javascript;base64,${base64(source)}`),
+      commands: {
+        install: async (name, source) => {
+          // a module adds a program, and never shadows one: the name must be free on the whole PATH
+          for (const dir of ['/bin', '/sbin', '/usr/bin', '/usr/sbin', '/usr/local/bin']) {
+            if (await this.filesystem.fs.exists(`${dir}/${name}`)) throw new ModuleError('EEXIST', `${dir}/${name} exists`)
+          }
+          await this.filesystem.fs.mkdir('/usr/bin', { recursive: true })
+          await this.filesystem.fs.writeFile(`/usr/bin/${name}`, `#!/usr/bin/env node\n${source}`, { mode: 0o755 })
+        },
+        remove: async name => { await this.filesystem.fs.unlink(`/usr/bin/${name}`).catch(() => {}) }
+      },
       keys: async () => {
         const keys: TrustedKey[] = []
         const names = await this.filesystem.fs.readdir(MODULE_KEYS).catch(() => [] as string[])

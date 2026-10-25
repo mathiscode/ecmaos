@@ -16,7 +16,7 @@ import { VNode } from '@zenfs/core/vfs/vnode.js'
 
 import { checkFileSize, meterChange, meterStart, residentBytes } from '#lib/storage-limits.ts'
 import { chargeQuota } from '#lib/quota.ts'
-import { DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
+import { ConfigFS, DebugFS, DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerProcExtras } from '#lib/proc-extras.ts'
 import { init_uts } from '@zenfs/linux/uts'
@@ -287,6 +287,10 @@ export const DefaultFilesystemOptions: Configuration<ConfigMounts> = {
     '/proc': new ProcFS(),
     // an attribute's size is its text, as /proc's files have, since a read stops at the size and sysfs would say 0
     '/sys': Object.assign(new SysFS(), { enableFileSize: true }),
+    // where a module's debugfs files and configfs subsystems appear; the two filesystems make the directories, and a file's
+    // size is its text, as sysfs's is
+    '/sys/kernel/config': Object.assign(new ConfigFS(), { enableFileSize: true }),
+    '/sys/kernel/debug': Object.assign(new DebugFS(), { enableFileSize: true }),
     '/tmp': { backend: InMemory, options: { name: 'tmpfs' } }
   },
 }

@@ -180,6 +180,89 @@ describe('insmod, rmmod and modinfo', () => {
     })
   })
 
+  describe('hooks that add files', () => {
+    const files = `/* ecmaos-module
+ * name=files
+ * license=GPL-2.0-only
+ */
+export default {
+  async init(ctx) {
+    let count = 7
+    const ref = { value: 5 }
+    ctx.proc('files', { show: () => 'proc ok\\n' })
+    ctx.proc('filesdir/stats', {
+      show: () => 'count=' + count + '\\n',
+      store: value => { if (!/^\\d+$/.test(value.trim())) throw new Error('not a number'); count = Number(value) }
+    })
+    ctx.sys('files/deep', { answer: { show: () => '42\\n' } })
+    ctx.debugfs.file('hello', { read: () => 'debug ok\\n' })
+    ctx.debugfs.value('deep/level', 'u32', ref)
+    ctx.configfs.subsystem({ name: 'files', attributes: { version: { show: () => '1\\n' } }, make: name => ({ attributes: { size: { show: () => name.length + '\\n' } } }) })
+    await ctx.command('files-hello', "const { write, exit } = globalThis.ecmaosSyscalls; write(1, new TextEncoder().encode('from files\\\\n')); exit(0)")
+  }
+}
+`
+    const clash = `/* ecmaos-module
+ * name=clash
+ */
+export default { init(ctx) { ctx.proc('clash', { show: () => 'x\\n' }); ctx.debugfs.file('f', { read: () => 'x\\n' }); ctx.proc('version', { show: () => 'x\\n' }) } }
+`
+    const exists = async (path: string) => (await sh(`ls ${path}`)).code === 0
+
+    beforeAll(async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/files.ko.mjs', files)
+      await kernel.filesystem.fs.writeFile('/lib/modules/clash.ko.mjs', clash)
+    })
+
+    it('adds /proc, /sys, debugfs, configfs and a command, and rmmod takes every one of them away', async () => {
+      expect((await sh('insmod /lib/modules/files.ko.mjs')).code).toBe(0)
+
+      expect((await sh('cat /proc/files')).out).toBe('proc ok\n')
+      expect((await sh('cat /proc/filesdir/stats')).out).toBe('count=7\n')
+      expect((await sh('cat /sys/kernel/files/deep/answer')).out).toBe('42\n')
+      expect((await sh('cat /sys/kernel/debug/files/hello')).out).toBe('debug ok\n')
+      expect((await sh('cat /sys/kernel/debug/files/deep/level')).out).toBe('5\n')
+      expect(await kernel.shell.execute('echo 9 > /sys/kernel/debug/files/deep/level')).toBe(0)
+      expect((await sh('cat /sys/kernel/debug/files/deep/level')).out).toBe('9\n')
+      expect((await sh('cat /sys/kernel/config/files/version')).out).toBe('1\n')
+      expect((await sh('mkdir /sys/kernel/config/files/box')).code).toBe(0)
+      expect((await sh('cat /sys/kernel/config/files/box/size')).out).toBe('3\n')
+      expect((await sh('files-hello')).out).toBe('from files\n')
+
+      // a store that throws is logged, and the file keeps working
+      expect(await kernel.shell.execute('echo 12 > /proc/filesdir/stats')).toBe(0)
+      expect(await kernel.shell.execute('echo nope > /proc/filesdir/stats')).toBe(0)
+      expect((await sh('cat /proc/filesdir/stats')).out).toBe('count=12\n')
+
+      expect((await sh('rmmod files')).code).toBe(0)
+      for (const path of ['/proc/files', '/proc/filesdir', '/sys/kernel/files', '/sys/kernel/debug/files', '/sys/kernel/config/files', '/usr/bin/files-hello']) {
+        expect(await exists(path), path).toBe(false)
+      }
+      expect((await sh('files-hello')).code).not.toBe(0)
+
+      // and it loads again, since nothing was left in the way
+      expect((await sh('insmod /lib/modules/files.ko.mjs')).code).toBe(0)
+      expect((await sh('cat /proc/files')).out).toBe('proc ok\n')
+      expect((await sh('rmmod files')).code).toBe(0)
+    })
+
+    it('a module that cannot get a name it asks for does not load and leaves nothing behind', async () => {
+      const result = await sh('insmod /lib/modules/clash.ko.mjs')
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('/proc/version exists')
+      expect(await exists('/proc/clash')).toBe(false)
+      expect(await exists('/sys/kernel/debug/clash')).toBe(false)
+      expect((await sh('cat /proc/version')).out).toContain('ecmaOS version')
+    })
+
+    it('will not put a command where one is already', async () => {
+      await kernel.filesystem.fs.writeFile('/lib/modules/shadow.ko.mjs', "/* ecmaos-module\n * name=shadow\n */\nexport default { init: ctx => ctx.command('ls', 'x') }\n")
+      const result = await sh('insmod /lib/modules/shadow.ko.mjs')
+      expect(result.code).not.toBe(0)
+      expect(result.out).toContain('exists')
+    })
+  })
+
   it('lets anyone list and read, but only root load or unload', async () => {
     if (!await canRunProgramsAsUser(kernel.filesystem.fs)) return // every program runs as root on this machine
     await kernel.filesystem.fs.chmod('/tmp', 0o1777)

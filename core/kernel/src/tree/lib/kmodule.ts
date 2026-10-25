@@ -8,6 +8,8 @@ import semver from 'semver'
 import { Module, find_module, modules as loadedModules } from '@zenfs/linux'
 import type { KernelModule, ModuleContext, ModuleInfo } from '@ecmaos/types'
 
+import { createHooks, type HookHost } from './module-hooks.ts'
+
 /** The module API this kernel offers; a module's `kernel_api` range is checked against it */
 export const KERNEL_API_VERSION = '1.0.0'
 
@@ -158,7 +160,7 @@ export interface LoadOptions {
   params?: string[]
 }
 
-export interface ModuleHost {
+export interface ModuleHost extends Partial<Pick<HookHost, 'commands'>> {
   log: { info(message: string): void, warn(message: string): void, error(message: string): void }
   /** Turns module source into the object it exports */
   evaluate(source: string): Promise<unknown>
@@ -313,7 +315,8 @@ export class ModuleManager {
         }
         return entry.value as T
       },
-      onExit: step => { undo.push(step) }
+      onExit: step => { undo.push(step) },
+      ...createHooks({ module: mod.name, host: this.host, undo, fail: (code, message) => new ModuleError(code, message) })
     }
   }
 }
