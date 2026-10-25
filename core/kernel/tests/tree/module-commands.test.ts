@@ -130,6 +130,12 @@ describe('insmod, rmmod and modinfo', () => {
       expect(await kernel.filesystem.fs.readFile(`${dir()}/modules.alias`, 'utf-8')).toBe('alias fs-top top\n')
     })
 
+    it('modinfo takes the name or an alias of an installed module that is not loaded', async () => {
+      expect((await sh('modinfo solo')).out).toContain('name:           solo')
+      expect((await sh('modinfo fs-top')).out).toContain('name:           top')
+      expect((await sh('modinfo nonesuch')).code).toBe(1)
+    })
+
     it('modprobe loads a module through its alias with what it needs, applies modprobe.d options, and -r unloads the lot', async () => {
       await config('# comment\noptions top greeting=hi\n')
       expect((await sh('modprobe -n fs-top')).out).toMatch(/insmod .*\/extra\/base\.ko\.mjs\ninsmod .*\/mid\.ko\.mjs\ninsmod .*\/top\.ko\.mjs greeting=hi/)

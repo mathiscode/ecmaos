@@ -36,7 +36,9 @@ export async function moduleControl(kernel: Kernel, proc: Process, request: Modu
   if (request.action === 'info') {
     try {
       const mod = loadedModules.get(request.target)
-      const source = mod ? undefined : await readModuleFile(kernel.filesystem.fs, request.target)
+      // a name that is not loaded is looked up among the installed modules, as modprobe does
+      const file = mod || request.target.includes('/') ? request.target : await kernel.modprobe.path(request.target) ?? request.target
+      const source = mod ? undefined : await readModuleFile(kernel.filesystem.fs, file)
       const info = source === undefined ? kmodules.info(mod!.name) : parseModinfo(source)
       if (!info) return fail('modinfo', new ModuleError('ENOENT', `module ${request.target} not found`))
       const signature = source === undefined ? kmodules.signature(mod!.name) : await kmodules.verify(source)

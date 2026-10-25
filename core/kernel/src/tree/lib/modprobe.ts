@@ -197,6 +197,16 @@ export class ModProbe {
 
   index() { return this.#index() }
 
+  /** The file of the installed module a name or alias is for, or undefined if the directory has none */
+  async path(request: string): Promise<string | undefined> {
+    const index = await this.#index()
+    try {
+      return `${this.dir}/${index.dep.get(this.#resolve(request, index, await readConfig(this.host.fs)).name)!.path}`
+    } catch {
+      return undefined
+    }
+  }
+
   /** The `modules.builtin` line for NAME or its `fs-NAME` alias, if the kernel has it built in */
   async #builtin(request: string): Promise<string | undefined> {
     const text = await this.host.fs.readFile(`${this.dir}/modules.builtin`, 'utf8').catch(() => '')

@@ -3,7 +3,8 @@
 import { absolute, die, help, moduleCall } from './lib/module-call.mjs'
 
 const usage = `Usage: modinfo FILE|NAME
-Show the modinfo of a kernel module: a NAME.ko.mjs file, or a module that is loaded.
+Show the modinfo of a kernel module: a NAME.ko.mjs or NAME.ko.wasm file, a module that is loaded, or the name
+or an alias of one installed in /lib/modules/RELEASE.
 
   --help  display this help and exit`
 

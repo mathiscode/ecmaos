@@ -292,7 +292,7 @@ index.json /mnt/api fetch baseUrl=http://localhost:30808
 - Refer to the full list of [official modules on npm](https://www.npmjs.com/org/ecmaos-modules)
 - See the [MODULES.md](/MODULES.md) file for a list of community modules; submit a PR to add your module!
 - A module is one file, `NAME.ko.mjs`, that starts with a comment block of `key=value` lines (`name`, `version`, `license`, `kernel_api`, `depends`, `parm`) and exports `init(ctx)` and an optional `exit()`
-- `insmod [-f] FILE [name=value ...]` loads it, `rmmod [-f] NAME` unloads it, `lsmod` (or `/proc/modules`) lists the loaded ones and `modinfo FILE|NAME` shows what a module says about itself without running it; `insmod` and `rmmod` need root
+- `insmod [-f] FILE [name=value ...]` loads it, `rmmod [-f] NAME` unloads it, `lsmod` (or `/proc/modules`) lists the loaded ones and `modinfo FILE|NAME` shows what a module says about itself without running it (NAME may be a loaded module, or one installed in `/lib/modules` by name or alias); `insmod` and `rmmod` need root
 - A loaded module is in `/proc/modules` and `/sys/module/NAME` (with `parameters/`); it taints the kernel (`O` out-of-tree, `E` unsigned, `F` forced), which `/proc/sys/kernel/tainted` shows, and writing 1 to `/proc/sys/kernel/modules_disabled` stops loading and unloading until reboot
 - A module reaches the kernel through `ctx` only: `ctx.param`, `ctx.log`, `ctx.export` and `ctx.import` (symbols listed in `/proc/kallsyms`, a user holds its provider), and `ctx.onExit` for what `rmmod` must undo; the [types](./core/types/modules.ts) are the interface
 - A JS module runs in the kernel and is not confined: load only what you trust
