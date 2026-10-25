@@ -56,9 +56,21 @@ const inode = (stat: WasmInode, ino: number) => new Inode({
 })
 
 export class WasmFS extends Async(FileSystem) {
-  constructor(private readonly module: () => WasmFilesystemExports, name: string, private readonly mounted: { source: string, options: Record<string, string> }) {
+  /**
+   * `-o lazy` (or `lazy=true`) keeps no copy of the tree: nothing is read at mount, every call goes to the module, and the
+   * synchronous calls, which need a copy, fail with ENOTSUP. For a tree too big to hold in memory, or too slow to walk.
+   */
+  readonly lazy: boolean
+  private readonly mounted: { source: string, options: Record<string, string> }
+
+  constructor(private readonly module: () => WasmFilesystemExports, name: string, mounted: { source: string, options: Record<string, string> }) {
     super(0x7761736d, name)
+    const { lazy, ...options } = mounted.options
+    this.lazy = lazy !== undefined && !['false', '0', 'no'].includes(lazy)
+    // the module is not told: it sees a filesystem either way
+    this.mounted = { source: mounted.source, options }
     this._sync = InMemory.create({ label: `${name}:` })
+    if (this.lazy) this.attributes.set('no_async_preload', true)
   }
 
   /** The inode number of each path. The VFS tells open files apart by it, and a module has no such number to give. The root is 0. */

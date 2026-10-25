@@ -630,6 +630,25 @@ export default {
       expect((await sh('umount /mnt/wasmram')).code).toBe(0)
       expect((await sh('rmmod wasm_ramfs_rust')).code).toBe(0)
     }, 60000)
+
+    it.skipIf(!toolchain)('mount -o lazy keeps no copy of the tree: every call goes to the module, and the files are still there', async () => {
+      expect((await sh(`insmod ${dir()}/wasm_ramfs_rust.ko.wasm`)).code).toBe(0)
+      await kernel.filesystem.fs.mkdir('/mnt/lazy', { recursive: true })
+      const mounted = await sh('mount -t wasmram -o lazy /mnt/lazy')
+      expect(mounted.code, mounted.out).toBe(0)
+      const { fs } = kernel.filesystem
+      await fs.writeFile('/mnt/lazy/a.txt', 'lazily')
+      await fs.mkdir('/mnt/lazy/d')
+      await fs.rename('/mnt/lazy/a.txt', '/mnt/lazy/d/b.txt')
+      expect(await fs.readFile('/mnt/lazy/d/b.txt', 'utf-8')).toBe('lazily')
+      expect(await fs.readdir('/mnt/lazy/d')).toEqual(['b.txt'])
+      expect((await sh('cat /mnt/lazy/d/b.txt')).out).toBe('lazily')
+      expect((await sh('ls /mnt/lazy/d')).out).toBe('b.txt\n')
+      await fs.unlink('/mnt/lazy/d/b.txt')
+      await fs.rmdir('/mnt/lazy/d')
+      expect((await sh('umount /mnt/lazy')).code).toBe(0)
+      expect((await sh('rmmod wasm_ramfs_rust')).code).toBe(0)
+    }, 60000)
   })
 
   it('lets anyone list and read, but only root load or unload', async () => {
