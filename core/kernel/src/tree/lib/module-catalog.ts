@@ -43,9 +43,13 @@ export class ModuleCatalog {
     this.#loading ??= (async () => {
       try {
         const response = await this.host.fetch(this.host.url, { cache: 'no-cache' })
-        if (!response.ok) return undefined
+        if (!response.ok) {
+          this.host.log.warn(`module catalog ${this.host.url}: ${response.status} ${response.statusText}`)
+          return undefined
+        }
         return (await response.json() as { modules?: Record<string, CatalogEntry> }).modules ?? {}
-      } catch {
+      } catch (error) {
+        this.host.log.warn(`module catalog ${this.host.url}: ${error instanceof Error ? error.message : String(error)}`)
         return undefined
       }
     })()
