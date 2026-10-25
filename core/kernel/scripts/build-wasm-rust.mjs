@@ -3,7 +3,7 @@
  * has `module.json` (the modinfo) and a `rust-toolchain.toml` that selects the nightly compiler (stable has no
  * `wasm32-wasip3` standard library yet), so the toolchain you use elsewhere is not changed. The compiler links a component
  * itself; this packs it with the modinfo, and checks it with wasm-tools if that is installed (ECMAOS_WASM_TOOLS is the
- * directory it is in, else PATH).
+ * directory it is in, else PATH). With ECMAOS_MODULE_KEY set to a private key file (`module-key.mjs` makes one) the result is signed.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -11,6 +11,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { signWasm } from './module-sign.mjs'
 import { packWasmModule } from './wasm-module.mjs'
 
 const [crate, out] = process.argv.slice(2)
@@ -35,5 +36,7 @@ try {
   console.error('wasm-tools is not installed; the component was not validated')
 }
 
-writeFileSync(path.resolve(out), packWasmModule(readFileSync(built), JSON.parse(readFileSync(path.join(dir, 'module.json'), 'utf8'))))
+const packed = packWasmModule(readFileSync(built), JSON.parse(readFileSync(path.join(dir, 'module.json'), 'utf8')))
+// ECMAOS_MODULE_KEY (a key from module-key.mjs) signs it; ECMAOS_MODULE_SIGNER names the signer
+writeFileSync(path.resolve(out), process.env.ECMAOS_MODULE_KEY ? await signWasm(packed, process.env.ECMAOS_MODULE_KEY, process.env.ECMAOS_MODULE_SIGNER) : packed)
 console.log(`wrote ${path.resolve(out)} (${path.relative(process.cwd(), fileURLToPath(import.meta.url))})`)

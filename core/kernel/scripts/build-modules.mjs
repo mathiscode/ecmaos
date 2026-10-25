@@ -12,21 +12,19 @@
  */
 
 import { build } from 'esbuild'
-import { createHash, webcrypto } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { signatureTrailer } from './module-sign.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.join(here, '..')
 const require = createRequire(path.join(root, 'package.json'))
 const libs = JSON.parse(readFileSync(path.join(root, 'src/tree/lib/module-libs.json'), 'utf8'))
 const LIBRARY = /^(@zenfs\/core|kerium|utilium|memium)(\/|$)/
-
-const toBase64 = bytes => Buffer.from(bytes).toString('base64')
-const fromBase64Url = text => Buffer.from(text.replace(/-/g, '+').replace(/_/g, '/'), 'base64')
-const hex = bytes => Buffer.from(bytes).toString('hex')
 
 /** Stands in for a kernel library: the module reads it from the kernel when it starts (`__lib` is defined by the wrapper) */
 function kernelLibraries() {
@@ -47,14 +45,6 @@ function kernelLibraries() {
       })
     }
   }
-}
-
-async function sign(body, keyFile, signer) {
-  const jwk = JSON.parse(readFileSync(keyFile, 'utf8'))
-  const key = await webcrypto.subtle.importKey('jwk', jwk, 'Ed25519', false, ['sign'])
-  const signature = new Uint8Array(await webcrypto.subtle.sign('Ed25519', key, Buffer.from(body)))
-  const id = hex(createHash('sha256').update(fromBase64Url(jwk.x)).digest().subarray(0, 8))
-  return `/* ecmaos-module-signature\n * signer=${signer}\n * key_id=${id}\n * sig=${toBase64(signature)}\n */\n`
 }
 
 export async function buildModules({ out = path.join(root, 'public/modules'), key = process.env.ECMAOS_MODULE_KEY, signer = process.env.ECMAOS_MODULE_SIGNER ?? 'ecmaos' } = {}) {
@@ -99,7 +89,7 @@ export async function buildModules({ out = path.join(root, 'public/modules'), ke
       ' */'
     ].join('\n')
     const body = `${header}\n// Built from modules/${name} by scripts/build-modules.mjs\n// The bundle runs once, however often the module is loaded: the kernel keeps the module it evaluated, and a library inside\n// it may register types that cannot be registered twice\nlet impl\nexport default {\n  async init(ctx) {\n    if (!impl) {\n      const __lib = spec => ctx.import('lib:' + spec)\n${bundle}\n      impl = __m.default\n    }\n    await impl.init(ctx)\n  },\n  async exit() { await impl?.exit?.() }\n}\n`
-    const text = key ? body + await sign(body, key, signer) : body
+    const text = key ? body + await signatureTrailer(body, key, signer) : body
     const file = `${name}.ko.mjs`
     put(file, text)
     built.add(file)

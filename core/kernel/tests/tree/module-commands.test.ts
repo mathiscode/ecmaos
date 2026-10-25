@@ -662,6 +662,44 @@ export default {
     expect((await asAlice('rmmod hello')).out).toContain('Operation not permitted')
   })
 
+  it('a module signed by the build scripts (ECMAOS_MODULE_KEY) verifies against the key the kernel trusts', async () => {
+    const builtin = <T>(id: string) => (process as unknown as { getBuiltinModule: (id: string) => T }).getBuiltinModule(id)
+    const { join, resolve } = builtin<typeof import('node:path')>('node:path')
+    const fs = builtin<typeof import('node:fs')>('node:fs')
+    const folder = fs.mkdtempSync(join(builtin<typeof import('node:os')>('node:os').tmpdir(), 'ecmaos-sign-'))
+    const root = resolve(import.meta.dirname, '../..')
+    const node = (args: string[]) => builtin<typeof import('node:child_process')>('node:child_process').execFileSync(process.execPath, args, { cwd: root, encoding: 'utf8' })
+    node(['scripts/module-key.mjs', folder])
+    const text = '/* ecmaos-module\n * name=buildsigned\n */\nexport default { init() {} }\n'
+    // a minimal component is not needed to check the signature: a file with the WebAssembly header and a modinfo section is enough for modinfo
+    node(['--input-type=module', '-e', `
+      import { signatureTrailer, signWasm } from './scripts/module-sign.mjs'
+      import { customSection, packWasmModule } from './scripts/wasm-module.mjs'
+      import { writeFileSync } from 'node:fs'
+      const key = ${JSON.stringify(join(folder, 'ecmaos.key'))}
+      const text = ${JSON.stringify(text)}
+      writeFileSync(${JSON.stringify(join(folder, 'js.ko.mjs'))}, text + await signatureTrailer(text, key, 'builder'))
+      const header = Buffer.concat([Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), customSection('pad', '')])
+      writeFileSync(${JSON.stringify(join(folder, 'wasm.ko.wasm'))}, await signWasm(packWasmModule(header, { name: 'buildsigned' }), key, 'builder'))
+    `])
+    const { fs: vfs } = kernel.filesystem
+    await vfs.mkdir('/etc/modules-keys', { recursive: true })
+    await vfs.writeFile('/lib/modules/js.ko.mjs', new Uint8Array(fs.readFileSync(join(folder, 'js.ko.mjs'))))
+    await vfs.writeFile('/lib/modules/wasm.ko.wasm', new Uint8Array(fs.readFileSync(join(folder, 'wasm.ko.wasm'))))
+    expect((await sh('modinfo /lib/modules/js.ko.mjs')).out).toContain('sig_status:     no trusted key')
+    expect((await sh('modinfo /lib/modules/wasm.ko.wasm')).out).toContain('sig_status:     no trusted key')
+
+    await vfs.writeFile('/etc/modules-keys/builder.pub', fs.readFileSync(join(folder, 'ecmaos.pub'), 'utf8'))
+    try {
+      expect((await sh('modinfo /lib/modules/js.ko.mjs')).out).toContain('sig_status:     valid (trusted key builder)')
+      expect((await sh('modinfo /lib/modules/wasm.ko.wasm')).out).toContain('sig_status:     valid (trusted key builder)')
+    } finally {
+      await vfs.unlink('/etc/modules-keys/builder.pub')
+      await vfs.unlink('/lib/modules/js.ko.mjs')
+      await vfs.unlink('/lib/modules/wasm.ko.wasm')
+    }
+  })
+
   it('sign-module makes a key and signs; a trusted signature removes the E taint, and enforcement refuses the rest', async () => {
     await kernel.filesystem.fs.mkdir('/root/keys', { recursive: true })
     expect((await sh('cd /root/keys && sign-module --genkey release')).code).toBe(0)
