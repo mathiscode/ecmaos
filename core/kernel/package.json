@@ -120,6 +120,7 @@
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/coreutils-copyleft": "workspace:^",
+    "@ecmaos-apps/tsc": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@eslint/js": "^10.0.1",
     "@schemastore/package": "^0.0.10",

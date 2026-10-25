@@ -171,6 +171,16 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  apps/tsc:
+    dependencies:
+      '@tsrs/wasm':
+        specifier: 0.18.0-ts7.1.0-dev.20260929
+        version: 0.18.0-ts7.1.0-dev.20260929
+    devDependencies:
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.7
+
   apps/web3:
     devDependencies:
       '@ecmaos/config-typescript':
@@ -470,6 +480,9 @@ importers:
         specifier: ^0.2.82
         version: 0.2.82
     devDependencies:
+      '@ecmaos-apps/tsc':
+        specifier: workspace:^
+        version: link:../../apps/tsc
       '@ecmaos/config-typescript':
         specifier: workspace:^
         version: link:../../utils/config-typescript
@@ -2353,8 +2366,8 @@ packages:
   '@maxim_mazurok/gapi.client.discovery-v1@0.6.20200806':
     resolution: {integrity: sha512-QN6aGmIbLXcJW0SEf8tz9UWCpQTBMy2u4xSuZ04YofzMGknhWwMeUecySLntCZYAEstHzDoSgwxCf5Gb8GqIRQ==}
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261012':
-    resolution: {integrity: sha512-pyIFD7bd5Ly1lkpjzT0hxFUsB7ZbzXUCf2LK8BQN0sggFHeGS4CyCoqdyDI8qQFm6Lhdd2DhIjSXLXeFMR+e3Q==}
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261020':
+    resolution: {integrity: sha512-j8ZEjp03eOCHWV9Mevpb/TWUqhVW96HntTJ1cx+rXxd1zqh3H+zA69aOyh9r0cOQXZDznK8QMHitpVmMRVghCQ==}
 
   '@microsoft/api-extractor-model@7.33.12':
     resolution: {integrity: sha512-TdKOYgwf98xLjNW+y3iXIiCf4ZLQbilGAlqkMTTAqqAWfgRXAn9YCSGMsaiB1U7OPRvslUWg6n08EqQPbP93tA==}
@@ -3633,6 +3646,11 @@ packages:
 
   '@tsconfig/node16@1.0.4':
     resolution: {integrity: sha512-vxhUy4J8lyeyinH7Azl1pdd43GJhZH/tP2weN8TntQblOY+A0XbT8DJk1/oCPuOOyg/Ja757rG0CgHcWC8OfMA==}
+
+  '@tsrs/wasm@0.18.0-ts7.1.0-dev.20260929':
+    resolution: {integrity: sha512-1Wv0GU3OIsY1x37cUykxrDLTeCWb81lWS/BCuw2ZfYcB6E7cno3mgfZvOA/3uV1hKs6fBN94LEntmMjULNaRTw==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   '@turbo/gen@2.3.0':
     resolution: {integrity: sha512-H0ktAVBm8bbngQvklOOBDEIXqSII1Ok0SYy6wUu7UTR81KwDumXtnCi5xUhSHzv4UCF+Gvkle8Fol1ge8ZD/Lg==}
@@ -8958,7 +8976,7 @@ snapshots:
       '@types/gapi.client.discovery-v1': 0.0.4
     optional: true
 
-  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261012':
+  '@maxim_mazurok/gapi.client.drive-v3@0.3.20261020':
     dependencies:
       '@types/gapi.client': 1.0.8
       '@types/gapi.client.discovery-v1': 0.0.4
@@ -9973,6 +9991,8 @@ snapshots:
 
   '@tsconfig/node16@1.0.4': {}
 
+  '@tsrs/wasm@0.18.0-ts7.1.0-dev.20260929': {}
+
   '@turbo/gen@2.3.0(@types/node@26.5.1)':
     dependencies:
       '@turbo/workspaces': 2.3.0
@@ -10045,7 +10065,7 @@ snapshots:
 
   '@types/gapi.client.drive-v3@0.0.5':
     dependencies:
-      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20261012
+      '@maxim_mazurok/gapi.client.drive-v3': 0.3.20261020
     optional: true
 
   '@types/gapi.client@1.0.8':

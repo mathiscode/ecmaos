@@ -1,11 +1,17 @@
 /** Uninstall a package: `uninstall <package-name>[@version]`. */
 
 import { join } from './lib/path-utils.mjs'
+import { SHARE_DIRS, unlinkTree } from './lib/share-links.mjs'
 
 const { argv, exit, write, readdir, unlink, rmRecursive, rmdir, access } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: uninstall <package-name>[@version]
 Uninstall a package. If no version is specified, all versions will be uninstalled.`
+
+/** `true` if `link` is a symbolic link into `directory` (a bin another version or package linked is not ours to remove) */
+function isLinkedTo(link, directory) {
+  try { return globalThis.ecmaosSyscalls.readlink(link).startsWith(directory + '/') } catch { return false }
+}
 
 function exists(path) {
   try { access(path); return true } catch { return false }
@@ -99,6 +105,7 @@ function main() {
         if (packageJson.bin) {
           const unlinkBin = (name, binPath) => {
             try {
+              if (!isLinkedTo(binPath, versionPath)) return
               unlink(binPath)
               write(1, new TextEncoder().encode(`Unlinked ${name} from ${binPath}\n`))
             } catch (error) {
@@ -117,15 +124,12 @@ function main() {
       }
     }
 
-    try {
-      const applications = join(versionPath, 'share/applications')
-      if (exists(applications)) {
-        for (const entry of readdir(applications)) {
-          const name = typeof entry === 'string' ? entry : entry.name
-          if (name.endsWith('.desktop')) { try { unlink(join('/usr/share/applications', name)) } catch { /* not linked */ } }
-        }
-      }
-    } catch { /* nothing to unlink */ }
+    for (const directory of SHARE_DIRS) {
+      try {
+        const source = join(versionPath, 'share', directory)
+        if (exists(source)) unlinkTree(source, join('/usr/share', directory))
+      } catch { /* nothing to unlink */ }
+    }
 
     try {
       rmRecursive(versionPath)
