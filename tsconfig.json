@@ -10,7 +10,8 @@
     "core/jaffa",
     "core/kernel/src/ui.ts",
     "**/vite.config.ts",
-    "**/vite-plugin-*.ts"
+    "**/vite-plugin-*.ts",
+    "**/vitest*.config.ts"
   ],
   "compilerOptions": {
     "rootDir": "./core",
