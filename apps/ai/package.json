@@ -28,8 +28,8 @@
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
-    "esbuild": "^0.27.2",
-    "openai": "^6.7.0",
+    "esbuild": "^0.27.7",
+    "openai": "^6.49.0",
     "typescript": "^7.0.2"
   }
 }

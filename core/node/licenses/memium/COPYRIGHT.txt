@@ -1,2 +1,2 @@
-memium 1.0.4, LGPL-3.0-or-later, Copyright © James Prevett and other contributors
+memium 1.1.1, LGPL-3.0-or-later, Copyright © James Prevett and other contributors
 https://github.com/james-pre/memium

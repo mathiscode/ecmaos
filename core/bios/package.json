@@ -40,10 +40,10 @@
     ]
   },
   "devDependencies": {
-    "@types/emscripten": "^1.39.13",
-    "concurrently": "^9.0.1",
-    "nodemon": "^3.1.7",
-    "serve": "^14.2.3"
+    "@types/emscripten": "^1.41.6",
+    "concurrently": "^9.2.5",
+    "nodemon": "^3.1.14",
+    "serve": "^14.2.6"
   },
   "publishConfig": {
     "access": "public"

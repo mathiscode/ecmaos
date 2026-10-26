@@ -21,14 +21,14 @@
   },
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
-    "vite": "^8.3.1"
+    "vite": "^8.3.5"
   },
   "peerDependencies": {
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@faker-js/faker": "^9.1.0",
-    "hono": "^4.6.7"
+    "@faker-js/faker": "^9.9.0",
+    "hono": "^4.13.14"
   },
   "publishConfig": {
     "access": "public"
