@@ -139,6 +139,41 @@ describe('Linux reflex commands', () => {
     })
   })
 
+  describe('ssh-keygen', () => {
+    const node = (id: 'node:child_process' | 'node:fs' | 'node:os' | 'node:path') => (process as unknown as { getBuiltinModule: (id: string) => any }).getBuiltinModule(id)
+
+    // OpenSSH's own ssh-keygen reads what ours wrote and says the same about it
+    it.each([['ed25519', ''], ['ecdsa', '-b 384'], ['rsa', '-b 2048']])('makes a %s key OpenSSH accepts (%s)', async (type, extra) => {
+      const file = `/tmp/key-${type}`
+      const made = await run(`ssh-keygen -t ${type} ${extra} -N "" -C test@ecmaos -f ${file}`)
+      expect(made.err).toBe('')
+      expect(made.code).toBe(0)
+      expect(made.out).toContain(`Generating public/private ${type} key pair.`)
+      expect(made.out).toContain(`Your identification has been saved in ${file}`)
+
+      expect(((await fs().stat(file)).mode & 0o777).toString(8)).toBe('600')
+      const dir = node('node:fs').mkdtempSync(node('node:path').join(node('node:os').tmpdir(), 'sshkey-'))
+      node('node:fs').writeFileSync(`${dir}/k`, await fs().readFile(file, 'utf-8'), { mode: 0o600 })
+      const host = (...args: string[]) => node('node:child_process').spawnSync('ssh-keygen', args, { encoding: 'utf8' })
+      const pub = (await fs().readFile(`${file}.pub`, 'utf-8')).trim()
+      expect(host('-y', '-f', `${dir}/k`).stdout.trim()).toBe(pub.replace(' test@ecmaos', ' test@ecmaos'))
+      const theirs = host('-l', '-f', `${dir}/k`).stdout.trim()
+      expect((await run(`ssh-keygen -l -f ${file}`)).out.trim()).toBe(theirs)
+      expect((await run(`ssh-keygen -y -f ${file}`)).out.trim()).toBe(pub)
+      expect((await run(`ssh-keygen -l -f ${file}.pub`)).out.trim()).toBe(theirs)
+    }, 60000)
+
+    it('defaults to ~/.ssh/id_ed25519, keeps an existing key unless told to overwrite, and refuses a passphrase', async () => {
+      await kernel.shell.execute('mkdir -p /home/dflt')
+      const made = await run('HOME=/home/dflt ssh-keygen -q -N ""')
+      expect(made).toMatchObject({ code: 0, out: '' })
+      expect(await fs().exists('/home/dflt/.ssh/id_ed25519.pub')).toBe(true)
+      expect((await run('HOME=/home/dflt ssh-keygen -q -N "" < /dev/null')).code).toBe(1)
+      expect((await run('ssh-keygen -N secret -f /tmp/no')).err).toContain('passphrases are not supported')
+      expect((await run('ssh-keygen -y -f /tmp/missing')).code).toBe(255)
+    }, 60000)
+  })
+
   describe('what a browser tab cannot do', () => {
     it.each(['unshare', 'chroot', 'nsenter'])('%s says why and fails', async (name) => {
       const result = await run(`${name} /bin/sh`)
