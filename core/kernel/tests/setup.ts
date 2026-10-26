@@ -295,8 +295,10 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
     }
     if (!pathname.startsWith('/programs/')) return realFetch(input as RequestInfo, init)
     if (pathname === '/programs/index.json') {
-      const all = new URL(raw, 'http://localhost/').searchParams.has('all')
-      const catalog = { packages: all ? packages.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) : [] }
+      const params = new URL(raw, 'http://localhost/').searchParams
+      // `?all` is every package; `?coreutils` is the permissive one, for a test that must not find the copyleft programs (bash)
+      const chosen = params.has('all') ? packages : params.has('coreutils') ? packages.filter(pkg => pkg.name === 'coreutils') : []
+      const catalog = { packages: chosen.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) }
       return Promise.resolve(new Response(JSON.stringify(catalog), { headers: { 'content-type': 'application/json' } }))
     }
     const [, , pkgName, file] = pathname.split('/')

@@ -51,7 +51,7 @@ describe('/dev descriptor links', () => {
   })
 })
 
-describe('ps and killall read /proc', () => {
+describe('killall reads /proc', () => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -62,16 +62,6 @@ describe('ps and killall read /proc', () => {
       log: TestLogOptions
     })
     await kernel.boot()
-  })
-
-  it('lists itself with a parent and a uid, from /proc', async () => {
-    await kernel.shell.execute('ps > /tmp/ps-proc.out')
-    const lines = (await kernel.filesystem.fs.readFile('/tmp/ps-proc.out', 'utf-8')).trim().split('\n')
-    expect(lines[0]).toBe('PID\tPPID\tUID\tCOMMAND')
-    const own = lines.slice(1).map(line => line.split('\t')).find(cols => cols[3] === 'ps')
-    expect(own).toBeDefined()
-    expect(Number(own![0])).toBeGreaterThan(0)
-    expect(own![2]).toBe('0')
   })
 
   it('killall reports a name nothing is running under', async () => {

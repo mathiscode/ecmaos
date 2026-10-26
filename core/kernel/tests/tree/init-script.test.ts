@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
  * `/boot/init` and its script commands: MOTD display, user-crontab loading and the screensaver idle-timeout daemon
@@ -18,9 +18,11 @@ describe('/boot/init and its script commands', () => {
       credentials: { username: 'root', password: 'root' },
       dom: TestDomOptions,
       filesystem: DefaultFilesystemOptions,
-      log: TestLogOptions
+      log: TestLogOptions,
+      programs: PROGRAMS_ALL
     })
     await kernel.boot()
+    await kernel.whenProgramsReady()
 
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -45,7 +47,7 @@ describe('/boot/init and its script commands', () => {
     // crond actually registering its real Process, so give it a moment before checking `ps`.
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    const code = await kernel.shell.execute('ps > /tmp/init-script-ps.out')
+    const code = await kernel.shell.execute('ps -e > /tmp/init-script-ps.out')
     expect(code).toBe(0)
     const out = await kernel.filesystem.fs.readFile('/tmp/init-script-ps.out', 'utf-8')
     expect(out).toContain('crond')

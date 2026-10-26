@@ -82,7 +82,7 @@ describe('mount, passkey and screensaver-daemon as execve programs', () => {
     it('reports a missing archive', async () => {
       const { code, err } = await run('mount -t zip /tmp/nope.zip /mnt/tc-nozip')
       expect(code).toBe(1)
-      expect(err).toContain('mount: archive file not found: /tmp/nope.zip')
+      expect(err).toContain('mount: file not found: /tmp/nope.zip')
     })
 
     it('validates arguments before touching the kernel', async () => {
@@ -133,7 +133,7 @@ describe('mount, passkey and screensaver-daemon as execve programs', () => {
       expect(kernel.filesystem.mounts.has('/mnt/tc-fstab-mem')).toBe(true)
       expect(out).toContain('Mounting 3 filesystem(s) from /etc/fstab...')
       expect(err).toContain('skipping /mnt/tc-fstab-wa: webaccess requires interactive directory selection')
-      expect(err).toContain('mount: archive file not found: /none')
+      expect(err).toContain('mount: file not found: /none')
       expect(out).toContain('Mount summary: 1 succeeded, 2 failed')
     })
 

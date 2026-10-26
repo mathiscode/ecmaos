@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 
-import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+import { PROGRAMS_COREUTILS, TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 describe('what scripts expect to find', () => {
   let kernel: Kernel
@@ -18,8 +18,9 @@ describe('what scripts expect to find', () => {
   }
 
   beforeAll(async () => {
-    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, programs: PROGRAMS_COREUTILS })
     await kernel.boot()
+    await kernel.whenProgramsReady()
     const container = document.createElement('div')
     document.body.appendChild(container)
     kernel.terminal.mount(container)
@@ -72,7 +73,7 @@ describe('what scripts expect to find', () => {
       expect(await kernel.shell.execute('sleep 30 & echo $! > /tmp/bg-pid; kill -0 $!; echo status=$? >> /tmp/bg-pid')).toBe(0)
       const [pid, status] = (await kernel.filesystem.fs.readFile('/tmp/bg-pid', 'utf-8')).trim().split('\n')
       expect(status).toBe('status=0')
-      expect((await run('/bin/ps')).out).toMatch(new RegExp(`^${pid}\\s`, 'm'))
+      expect((await run('/bin/ps -e')).out).toMatch(new RegExp(`^\\s*${pid}\\s`, 'm'))
       await run(`kill -9 ${pid}`)
     }, 30000)
   })
@@ -80,13 +81,13 @@ describe('what scripts expect to find', () => {
   describe('kill -0', () => {
     it('succeeds for a live process, fails for a missing one, and delivers nothing', async () => {
       await kernel.shell.execute('sleep 30 &')
-      const listing = (await run('/bin/ps')).out
+      const listing = (await run('/bin/ps -e')).out
       const pid = listing.split('\n').find(line => line.includes('sleep'))?.trim().split(/\s+/)[0]
       expect(pid).toBeTruthy()
       expect((await run(`kill -0 ${pid}`)).code).toBe(0)
       expect((await run(`kill -s 0 ${pid}`)).code).toBe(0)
       expect((await run('kill -0 999999')).code).not.toBe(0)
-      expect((await run(`/bin/ps`)).out).toContain('sleep')
+      expect((await run('/bin/ps -e')).out).toContain('sleep')
       await run(`kill -9 ${pid}`)
     }, 30000)
   })

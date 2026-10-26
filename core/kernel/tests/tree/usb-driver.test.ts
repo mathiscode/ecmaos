@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getDrivers, openUsbSession, usbOptionsFor } from '@ecmaos-devices/usb'
 
-const ctx = { log: { warn() {} } } as never
+const ctx = { log: { warn() {} }, usb: { sync() {} } } as never
+const webusb = (getDevices: () => Promise<unknown[]>) => ({ usb: { getDevices, addEventListener() {} } })
 const usb = (vendorId: number, productId: number, serialNumber: string | null = null) => ({ vendorId, productId, serialNumber })
 
 afterEach(() => { vi.unstubAllGlobals() })
@@ -29,7 +30,7 @@ describe('usb device nodes', () => {
   })
 
   it('add usb<N> nodes on major 180 for each granted device', async () => {
-    vi.stubGlobal('navigator', { usb: { getDevices: async () => [usb(1, 1, 'a'), usb(1, 1, 'b')] } })
+    vi.stubGlobal('navigator', webusb(async () => [usb(1, 1, 'a'), usb(1, 1, 'b')]))
     const drivers = await getDrivers(ctx)
     expect(drivers.map(driver => [driver.name, driver.major, driver.minor])).toEqual([['usb', 180, 0], ['usb0', 180, 1], ['usb1', 180, 2]])
   })
@@ -40,19 +41,19 @@ describe('usb node numbers', () => {
 
   it('stay with a device when another is forgotten, and a new device gets a number never given before', async () => {
     const a = usb(2, 1, 'a'), b = usb(2, 1, 'b'), c = usb(2, 1, 'c')
-    vi.stubGlobal('navigator', { usb: { getDevices: async () => [a, b, c] } })
+    vi.stubGlobal('navigator', webusb(async () => [a, b, c]))
     const first = await names()
-    vi.stubGlobal('navigator', { usb: { getDevices: async () => [a, c] } })
+    vi.stubGlobal('navigator', webusb(async () => [a, c]))
     const second = await names()
     expect(second.filter(([name]) => name !== 'usb')).toEqual([first[1], first[3]])
     const d = usb(2, 1, 'd')
-    vi.stubGlobal('navigator', { usb: { getDevices: async () => [a, d, c] } })
+    vi.stubGlobal('navigator', webusb(async () => [a, d, c]))
     const third = await names()
     expect(third.slice(1).map(([, minor]) => minor)).toEqual([first[1]![1], Math.max(...first.map(([, minor]) => minor as number)) + 1, first[3]![1]])
   })
 
   it('tell two identical devices apart by their order', async () => {
-    vi.stubGlobal('navigator', { usb: { getDevices: async () => [usb(3, 3), usb(3, 3)] } })
+    vi.stubGlobal('navigator', webusb(async () => [usb(3, 3), usb(3, 3)]))
     const minors = (await names()).slice(1).map(([, minor]) => minor)
     expect(new Set(minors).size).toBe(2)
   })
