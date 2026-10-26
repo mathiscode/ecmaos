@@ -8,6 +8,7 @@
 sudo [-u USER] [-n] [-S] [-k | -K] [--] COMMAND [ARG]...
 sudo [-u USER] [-n] [-S] -i | -s [COMMAND [ARG]...]
 sudo -v | -l | -k
+sudo [-n] [-S] -e FILE...
 ```
 
 ## Description
@@ -28,6 +29,7 @@ A command that is stopped with `^Z` is resumed at once: `sudo` is not a job a sh
 - `-k`, `-K`: forget the remembered password.
 - `-v`: ask for the password and remember it, running nothing.
 - `-l`, `--list`: list what you may run. It does not ask for a password.
+- `-e`, `--edit`: edit the files as root in your own editor, as `sudoedit` does (see `@ecmaos/coreutils/sudoedit`).
 
 ## /etc/sudoers
 
@@ -58,4 +60,4 @@ The command's. 1 when `sudo` itself refuses (not allowed, wrong password, unknow
 
 ## See also
 
-`@ecmaos/coreutils/sudoers`, `@ecmaos/coreutils/su`, `@ecmaos/kernel/commands/passwd`
+`sudoedit`, `@ecmaos/coreutils/sudoers`, `@ecmaos/coreutils/su`, `@ecmaos/kernel/commands/passwd`
