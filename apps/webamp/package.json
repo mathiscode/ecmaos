@@ -33,6 +33,6 @@
     "@ecmaos/types": "workspace:^",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "webamp": "0.0.0-next-b06490d"
+    "webamp": "2.3.1"
   }
 }

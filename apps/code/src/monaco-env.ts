@@ -1,10 +1,10 @@
 // Monaco's workers are inlined (`?worker&inline`), so the bundle is one file: it also runs where there is no site to fetch worker files from
 import * as monaco from 'monaco-editor'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker&inline'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker&inline'
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker&inline'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker&inline'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline'
+import editorWorker from 'monaco-editor/editor/editor.worker?worker&inline'
+import jsonWorker from 'monaco-editor/language/json/json.worker?worker&inline'
+import cssWorker from 'monaco-editor/language/css/css.worker?worker&inline'
+import htmlWorker from 'monaco-editor/language/html/html.worker?worker&inline'
+import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker&inline'
 
 declare global {
   var editor: monaco.editor.IStandaloneCodeEditor

@@ -59,7 +59,7 @@
     "cronstrue": "^3.38.0",
     "human-format": "^1.4.0",
     "isomorphic-git": "^1.44.4",
-    "modern-tar": "^0.7.7",
+    "modern-tar": "^0.8.6",
     "smol-toml": "^1.9.1"
   },
   "devDependencies": {
