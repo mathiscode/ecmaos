@@ -62,7 +62,6 @@
     "@changesets/cli": "^3.0.3",
     "@ecmaos/config-typescript": "workspace:^",
     "@turbo/gen": "^2.11.10",
-    "@types/webmidi": "^2.1.0",
     "@typhonjs-typedoc/ts-lib-docs": "^2024.12.25",
     "@typhonjs-typedoc/typedoc-theme-dmt": "^0.4.0",
     "concurrently": "^10.0.6",

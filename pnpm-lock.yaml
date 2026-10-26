@@ -25,9 +25,6 @@ importers:
       '@turbo/gen':
         specifier: ^2.11.10
         version: 2.11.10(@types/node@22.20.2)
-      '@types/webmidi':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@typhonjs-typedoc/ts-lib-docs':
         specifier: ^2024.12.25
         version: 2024.12.25(typedoc@0.28.20)
@@ -132,7 +129,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
 
   apps/edit:
     dependencies:
@@ -555,9 +552,6 @@ importers:
       '@types/web-bluetooth':
         specifier: ^0.0.22
         version: 0.0.22
-      '@types/webmidi':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@types/winbox':
         specifier: 0.2.5
         version: 0.2.5
@@ -644,7 +638,7 @@ importers:
         version: 6.1.1(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       vitest-canvas-mock:
         specifier: ^1.2.0
         version: 1.2.0(vitest@5.0.5)
@@ -708,7 +702,7 @@ importers:
         version: 4.1.0(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       ws:
         specifier: ^8.22.0
         version: 8.22.0
@@ -738,7 +732,7 @@ importers:
         version: 8.72.0(eslint@10.13.0)
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
 
   core/swapi:
     dependencies:
@@ -903,7 +897,7 @@ importers:
         version: 0.4.3
       vitest:
         specifier: ^5.0.5
-        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+        version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
 
   core/utils-copyleft: {}
 
@@ -1236,9 +1230,6 @@ importers:
       '@types/node':
         specifier: 22.20.2
         version: 22.20.2
-      '@types/webmidi':
-        specifier: ^2.1.0
-        version: 2.1.0
       '@zenfs/core':
         specifier: ^2.7.7
         version: 2.7.7
@@ -3612,9 +3603,6 @@ packages:
 
   '@types/web@0.0.359':
     resolution: {integrity: sha512-rggYl8j9E6R8CgHidONXf7B5jJk9iidDaNl6xhRKHgFtb8ES49mxrOIDjDVmiS3n0Mv2QcB3jC/9FvaGQ6n20A==}
-
-  '@types/webmidi@2.1.0':
-    resolution: {integrity: sha512-k898MjEUSHB+6rSeCPQk/kLgie0wgWZ2t78GlWj86HbTQ+XmtbBafYg5LNjn8bVHfItEhPGZPf579Xfc6keV6w==}
 
   '@types/webrtc@0.0.47':
     resolution: {integrity: sha512-l4G2skp32Q7ENiocokNhIHG6dKfws9ALJ04zW+ZZ97LMe6G+yqs/E8qsJLZJELGcdUDgEWvi2jg7KSP5TpJxeg==}
@@ -6580,6 +6568,7 @@ packages:
 
   vitest@5.0.5:
     resolution: {integrity: sha512-cPODOMF8YnkiiYtDdHo6n4wWmBrOBBbOIYH2d33M4l3CdNn72h+qMmO6uXffUN6A5AZFXNND/d+krS9mgkXRfg==}
+    version: 5.0.5
     engines: {node: ^22.12.0 || ^24.0.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
@@ -8721,8 +8710,6 @@ snapshots:
 
   '@types/web@0.0.359': {}
 
-  '@types/webmidi@2.1.0': {}
-
   '@types/webrtc@0.0.47': {}
 
   '@types/winbox@0.2.5': {}
@@ -8897,7 +8884,7 @@ snapshots:
       '@vitest/mocker': 5.0.5(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       playwright: 1.64.1
       tinyrainbow: 3.2.0
-      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
     transitivePeerDependencies:
       - bufferutil
       - msw
@@ -8914,7 +8901,7 @@ snapshots:
       pngjs: 7.0.0
       sirv: 3.0.2
       tinyrainbow: 3.2.0
-      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
       ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
@@ -8932,7 +8919,7 @@ snapshots:
       obug: 3.0.0
       std-env: 4.3.0
       tinyrainbow: 3.2.0
-      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
     optionalDependencies:
       '@vitest/browser': 5.0.5(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))(vitest@5.0.5)
 
@@ -8966,7 +8953,7 @@ snapshots:
       pathe: 2.0.3
       sirv: 3.0.2
       tinyrainbow: 3.2.0
-      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
 
   '@vitest/utils@5.0.5':
     dependencies:
@@ -11844,9 +11831,9 @@ snapshots:
     dependencies:
       cssfontparser: 1.2.1
       moo-color: 1.0.3
-      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
+      vitest: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
 
-  vitest@5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1)):
+  vitest@5.0.5(@opentelemetry/api@1.10.0)(@types/node@22.20.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(jsdom@30.1.3(@noble/hashes@1.8.0)(canvas@https://codeload.github.com/Automattic/node-canvas/tar.gz/ec8ade4e0ffabf05e5719b0b9213b1f14feb8b13))(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1)):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/mocker': 5.0.5(msw@2.15.0(@types/node@22.20.2))(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))

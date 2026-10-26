@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { formatWithOptions } from 'node:util'
 
 import { Thread } from '@zenfs/linux'
 import { Kernel } from '@ecmaos/kernel/kernel'
@@ -146,9 +145,9 @@ const kernel = new Kernel({
 
 // --quiet keeps the kernel's chatter off the console and still says what went wrong (warnings and errors); every line
 // still goes to /var/log/kernel.log
-if (args.has('--quiet')) (kernel.log.settings.overwrite ??= {}).transportFormatted = (meta, logArgs, errors, logMeta) => {
-  if ((logMeta?.logLevelId ?? 0) < 4) return
-  console.log(meta + formatWithOptions(kernel.log.settings.prettyInspectOptions, ...logArgs) + (errors.length ? `\n${errors.join('\n')}` : ''))
+if (args.has('--quiet')) {
+  kernel.log.settings.type = 'hidden'
+  kernel.log.attachTransport({ name: 'quiet-console', minLevel: 'WARN', format: 'pretty', write: (_record, line) => console.log(line) })
 }
 
 attachTty(kernel)
