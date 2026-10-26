@@ -9,6 +9,7 @@
  */
 
 import { Process, Thread, kill as zenfsKill, processes, syscalls } from '@zenfs/linux'
+import { inheritNice } from './nice-store.ts'
 import { inheritUmask } from './umask-store.ts'
 import { bindContext, fs } from '@zenfs/core'
 import type { Credentials } from '@zenfs/core'
@@ -551,6 +552,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
   })
   shareGroupSignals(child)
   inheritUmask(parent, child)
+  inheritNice(parent, child)
   // A traced process's children are traced too when the tracer follows them
   const inherited = tracerOf(parent.pid)
   const tracer = options.trace ?? (inherited?.options.follow ? inherited : undefined)

@@ -198,6 +198,44 @@ describe('Linux reflex commands', () => {
     })
   })
 
+  describe('nice and renice', () => {
+    it('prints the niceness, adjusts it for a command, and passes it on to what that runs', async () => {
+      expect((await run('nice')).out).toBe('0\n')
+      expect((await run('nice nice')).out).toBe('10\n')
+      expect((await run('nice -n 5 nice')).out).toBe('5\n')
+      expect((await run('nice -n 5 nice -n 3 nice')).out).toBe('8\n')
+      expect((await run('nice -4 nice')).out).toBe('4\n')
+      expect((await run('nice --adjustment=7 nice')).out).toBe('7\n')
+      expect((await run('nice -n 99 nice')).out).toBe('19\n')
+      expect((await run('nice -n -5 nice')).out).toBe('-5\n')
+    })
+
+    it('exits with nice\'s own statuses', async () => {
+      expect((await run('nice -n 5')).code).toBe(125)
+      expect((await run('nice -n x nice')).code).toBe(125)
+      expect((await run('nice no-such-command')).code).toBe(127)
+      expect((await run('nice -n 5 sh -c "exit 7"')).code).toBe(7)
+    })
+
+    it('renice changes a running process, shown in /proc and by its report', async () => {
+      await kernel.shell.execute('sleep 30 &')
+      const pids = (await fs().readdir('/proc')).filter(name => /^\d+$/.test(name))
+      let target = 0
+      for (const pid of pids) if ((await fs().readFile(`/proc/${pid}/cmdline`, 'utf-8').catch(() => '')).includes('sleep')) target = Number(pid)
+      expect(target).toBeGreaterThan(0)
+      const stat = async () => (await fs().readFile(`/proc/${target}/stat`, 'utf-8')).slice((await fs().readFile(`/proc/${target}/stat`, 'utf-8')).lastIndexOf(')') + 2).split(' ')
+      expect((await stat())[16]).toBe('0')
+      const done = await run(`renice -n 6 -p ${target}`)
+      expect(done).toMatchObject({ code: 0, out: `${target} (process ID) old priority 0, new priority 6\n` })
+      const fields = await stat()
+      expect(fields.slice(15, 17)).toEqual(['26', '6'])
+      expect((await run(`renice 2 ${target}`)).out).toContain('old priority 6, new priority 2')
+      expect((await run('renice -n 1 -p 999999')).code).toBe(1)
+      expect((await run('renice')).code).toBe(1)
+      await run(`kill -9 ${target}`)
+    })
+  })
+
   describe('what a browser tab cannot do', () => {
     it.each(['unshare', 'chroot', 'nsenter'])('%s says why and fails', async (name) => {
       const result = await run(`${name} /bin/sh`)

@@ -6,6 +6,7 @@
  * itself keeps (the loopback listeners and the bound UDP ports); a connection that is only a pair of pipes has no row.
  */
 
+import { niceOf } from './nice-store.ts'
 import { ProcDir } from '@zenfs/linux/fs/procfs'
 import type { Process } from '@zenfs/linux'
 import { processes } from '@zenfs/linux'
@@ -109,7 +110,7 @@ function showPidStat(proc: Process): string {
     foreground ? foreground.pid : -1, 0,
     0, 0, 0, 0,                 // minflt cminflt majflt cmajflt
     0, 0, 0, 0,                 // utime stime cutime cstime
-    20, 0, 1, 0,                // priority nice num_threads itrealvalue
+    20 + niceOf(proc), niceOf(proc), 1, 0, // priority nice num_threads itrealvalue
     ticks(startOf(proc)),
     0, 0, 0xffffffffffffffffn,  // vsize rss rsslim
     0, 0, 0, 0, 0,              // startcode endcode startstack kstkesp kstkeip
