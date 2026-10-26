@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { getDrivers as bluetoothDrivers } from '@ecmaos-devices/bluetooth'
-import { getDrivers as hidDrivers } from '@ecmaos-devices/hid'
+import { syncHid } from '@ecmaos-devices/hid'
 
 import { fileMinorStore, StableMinors } from '@ecmaos-devices/session'
 import type { MinorStore } from '@ecmaos-devices/session'
@@ -81,10 +81,20 @@ describe('nodes of the other drivers', () => {
   })
 
   it('hid devices keep their hidraw<N>', async () => {
+    // hidraw nodes are made after boot (hotplug): ctx.devices.add gives a node and returns what takes it away
+    const present = new Map<string, number>()
+    const hidCtx = {
+      log: { warn() {}, debug() {}, info() {} },
+      usb: { sync() {} },
+      devices: { add: (_pkg: string, driver: { name: string, minor: number }) => { present.set(driver.name, driver.minor); return () => { present.delete(driver.name) } } }
+    } as never
+    const listed = () => [...present].map(([name, minor]) => `${name}:${minor}`).sort()
     const device = (productId: number) => ({ vendorId: 5, productId, productName: 'pad' })
     vi.stubGlobal('navigator', { hid: { getDevices: async () => [device(1), device(2), device(3)] } })
-    expect(nodes(await hidDrivers(ctx), 'hid')).toEqual(['hidraw0:1', 'hidraw1:2', 'hidraw2:3'])
+    await syncHid(hidCtx)
+    expect(listed()).toEqual(['hidraw0:1', 'hidraw1:2', 'hidraw2:3'])
     vi.stubGlobal('navigator', { hid: { getDevices: async () => [device(1), device(3)] } })
-    expect(nodes(await hidDrivers(ctx), 'hid')).toEqual(['hidraw0:1', 'hidraw2:3'])
+    await syncHid(hidCtx)
+    expect(listed()).toEqual(['hidraw0:1', 'hidraw2:3'])
   })
 })

@@ -1,5 +1,3 @@
-/// <reference types="webmidi" />
-
 /**
  * A Web MIDI input and/or output as a device session for `@ecmaos/peer`'s `serveDevice`. Reads are the raw MIDI bytes of
  * the messages the input produced (one message per chunk); writes are raw MIDI bytes, cut into whole messages before they

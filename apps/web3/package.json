@@ -28,8 +28,8 @@
   "devDependencies": {
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
-    "esbuild": "^0.27.2",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
-    "viem": "^2.45.1"
+    "viem": "^2.57.11"
   }
 }

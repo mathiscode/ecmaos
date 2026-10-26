@@ -108,6 +108,8 @@ describe('ALSA nodes', () => {
     }
     kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions, programs: PROGRAMS_ALL, devices: { audio: card as never } })
     await kernel.boot()
+    // boot does not wait for the programs: unpacking them stalls the event loop, and a stream that runs on the real clock runs dry
+    await kernel.whenProgramsReady()
     // the initfs is not unpacked in a test: alsa-lib reads the configuration the machine would have
     const { readFileSync } = process.getBuiltinModule('node:fs')
     await kernel.filesystem.fs.mkdir('/usr/share/alsa', { recursive: true })

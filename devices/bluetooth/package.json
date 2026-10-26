@@ -16,7 +16,7 @@
     "@ecmaos/types": "workspace:^",
     "@types/ansi-escape-sequences": "^4.0.4",
     "@types/node": "22.20.2",
-    "@types/web-bluetooth": "^0.0.20",
+    "@types/web-bluetooth": "^0.0.22",
     "@zenfs/core": "^2.7.7",
     "@zenfs/linux": "0.6.1",
     "typescript": "^7.0.2",
@@ -25,7 +25,7 @@
   "dependencies": {
     "@ecmaos-devices/session": "workspace:^",
     "ansi-escape-sequences": "^6.2.4",
-    "smol-toml": "^1.6.0"
+    "smol-toml": "^1.9.1"
   },
   "files": [
     "dist"

@@ -27,16 +27,16 @@
   "dependencies": {
     "@ecmaos/kernel": "workspace:^",
     "@ecmaos/types": "workspace:^",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-shell": "^2"
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-shell": "^2.5.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "sass-embedded": "^1.79.4",
+    "@tauri-apps/cli": "^2.12.4",
+    "sass-embedded": "^1.106.1",
     "typescript": "^7.0.2",
-    "user-agent-data-types": "^0.4.2",
-    "vite": "^8.3.1",
-    "vite-plugin-i18next-loader": "^2.0.13",
+    "user-agent-data-types": "^0.4.3",
+    "vite": "^8.3.5",
+    "vite-plugin-i18next-loader": "^4.1.0",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
 }

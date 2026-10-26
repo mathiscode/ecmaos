@@ -6,10 +6,10 @@ are the complete corresponding source of the binary; this is the offer of it.
 Upstream source
   screen-5.0.1.tar.gz  (screen 5.0.1, GPL-3.0-or-later)
     sha256 2dae36f4db379ffcd14b691596ba6ec18ac3a9e22bc47ac239789ab58409869d
-    from https://ftp.gnu.org/gnu/screen/screen-5.0.1.tar.gz
+    from https://ftpmirror.gnu.org/screen/screen-5.0.1.tar.gz
   ncurses-6.5.tar.gz  (ncurses 6.5, X11)
     sha256 136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6
-    from https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz
+    from https://ftpmirror.gnu.org/ncurses/ncurses-6.5.tar.gz
 
 Changes and build scripts (in wasm/ of the package, and in the repository under core/utils-copyleft/wasm/)
   wasm/screen/build.sh

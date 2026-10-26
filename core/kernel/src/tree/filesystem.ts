@@ -21,7 +21,7 @@ import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerProcExtras } from '#lib/proc-extras.ts'
 import { init_uts } from '@zenfs/linux/uts'
 import { TarReader } from '@gera2ld/tarjs'
-import pako from 'pako'
+import { ungzip } from 'pako'
 import path from 'path'
 import binNodeSource from 'virtual:bin-node'
 import binWaliSource from 'virtual:bin-wali'
@@ -569,7 +569,7 @@ export class Filesystem {
     const isGzipped = tarball.length >= 2 && tarball[0] === 0x1f && tarball[1] === 0x8b
     
     // Only decompress if the file is actually gzipped
-    const tarData = isGzipped ? pako.ungzip(tarball) : tarball
+    const tarData = isGzipped ? ungzip(tarball) : tarball
     const tar = await TarReader.load(tarData)
 
     const hasPackageDir = tar.fileInfos.some(file => file.name.startsWith('package/'))

@@ -7,7 +7,7 @@ import semver from 'semver'
 import { join } from './lib/path-utils.mjs'
 import { SHARE_DIRS, linkTree } from './lib/share-links.mjs'
 
-const { argv, env, exit, write, custom, chmod, readdir, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, env, exit, write, custom, chmod, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 const usage = `Usage: install <package-name>[@version] [--registry URL] [--reinstall]
 Install a package from a registry into /usr/lib and link its bins into /usr/bin.
