@@ -1,6 +1,7 @@
 /** Write a message to every terminal with someone logged in. */
 
 import { readFdText, readTextFile } from './lib/fs-text.mjs'
+import { deviceOf, mayWrite } from './lib/mesg-state.mjs'
 
 const { argv, env, exit, writeAll, open, close, O_WRONLY } = globalThis.ecmaosSyscalls
 const encoder = new TextEncoder()
@@ -38,8 +39,10 @@ function main() {
 
   let failed = 0
   for (const line of lines) {
+    // a terminal that turned messages off with mesg n is skipped, unless root writes
+    if (!mayWrite(deviceOf(line))) continue
     try {
-      const fd = open(`/dev/xterm${String(line).replace(/^tty/, '')}`, O_WRONLY)
+      const fd = open(deviceOf(line), O_WRONLY)
       try { writeAll(fd, encoder.encode(text)) } finally { close(fd) }
     } catch {
       failed++

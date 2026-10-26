@@ -17,6 +17,10 @@ describe('Linux reflex commands', () => {
   beforeAll(async () => {
     kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
     await kernel.boot()
+    // mesg and tty-aware commands need a terminal on standard input
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
   }, 60000)
 
   describe('findmnt', () => {
@@ -172,6 +176,26 @@ describe('Linux reflex commands', () => {
       expect((await run('ssh-keygen -N secret -f /tmp/no')).err).toContain('passphrases are not supported')
       expect((await run('ssh-keygen -y -f /tmp/missing')).code).toBe(255)
     }, 60000)
+  })
+
+  describe('mesg', () => {
+    it('shows and changes whether this terminal takes messages, with the exit status', async () => {
+      expect(await run('mesg')).toMatchObject({ code: 0, out: 'is y\n' })
+      expect((await run('mesg n')).code).toBe(1)
+      expect(await run('mesg')).toMatchObject({ code: 1, out: 'is n\n' })
+      expect(((await fs().stat('/dev/xterm0')).mode & 0o777).toString(8)).toBe('644')
+      expect((await run('mesg y')).code).toBe(0)
+      expect(await run('mesg')).toMatchObject({ code: 0, out: 'is y\n' })
+      expect((await run('mesg maybe')).code).toBe(2)
+    })
+
+    it('lets root wall a terminal that refused messages', async () => {
+      await run('mesg n')
+      await fs().writeFile('/run/utmp', 'root\ttty0\t0\n')
+      const wall = await run('wall hello')
+      expect(wall.code).toBe(0)
+      await run('mesg y')
+    })
   })
 
   describe('what a browser tab cannot do', () => {

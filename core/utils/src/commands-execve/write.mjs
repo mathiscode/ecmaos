@@ -1,6 +1,7 @@
 /** Send a message to one user's terminal. */
 
 import { readFdText, readTextFile } from './lib/fs-text.mjs'
+import { deviceOf, mayWrite } from './lib/mesg-state.mjs'
 
 const { argv, env, exit, writeAll, open, close, O_WRONLY } = globalThis.ecmaosSyscalls
 const encoder = new TextEncoder()
@@ -33,6 +34,8 @@ function main() {
   } else if (lines.length > 1) {
     err(`write: ${user} is logged in more than once; writing to ${line}`)
   }
+
+  if (!mayWrite(deviceOf(line))) { err(`write: ${user} has messages disabled on ${line}`); return 1 }
 
   const message = readFdText(0)
   if (!message.trim()) return 0
