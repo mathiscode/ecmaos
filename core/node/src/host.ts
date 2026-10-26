@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { DefaultFilesystemOptions } from '@ecmaos/kernel/filesystem'
+import { SyslogDevice } from '@ecmaos/kernel/lib/syslog'
 import { InMemory } from '@zenfs/core'
 import * as TTYDevice from '@ecmaos-devices/tty'
 
@@ -88,7 +89,7 @@ export function nodeHost(options: NodeHostOptions = {}): NodeHost {
     },
     fetch: sourceFetch(env, [initfsFile()]),
     defaults: {
-      devices: { tty: TTYDevice },
+      devices: { tty: TTYDevice, syslog: SyslogDevice },
       dom: { topbar: false },
       filesystem: {
         ...DefaultFilesystemOptions,
