@@ -86,6 +86,30 @@ describe('Linux reflex commands', () => {
     })
   })
 
+  describe('diff3', () => {
+    const three = async (mine: string, older: string, yours: string) => {
+      await fs().writeFile('/tmp/d3m', mine); await fs().writeFile('/tmp/d3o', older); await fs().writeFile('/tmp/d3y', yours)
+    }
+
+    it('lists the blocks as GNU does and exits 0', async () => {
+      await three('a\nb\n', 'a\nc\n', 'a\nd\n')
+      expect(await run('diff3 /tmp/d3m /tmp/d3o /tmp/d3y')).toEqual({ code: 0, err: '', out: '====\n1:2c\n  b\n2:2c\n  c\n3:2c\n  d\n' })
+    })
+
+    it('merges what one side changed and brackets what both did, with status 1', async () => {
+      await three('a\nb\nz\n', 'a\nc\nz\n', 'a\nd\nz\n')
+      const merged = await run('diff3 -m -L m -L o -L y /tmp/d3m /tmp/d3o /tmp/d3y')
+      expect(merged).toEqual({ code: 1, err: '', out: 'a\n<<<<<<< m\nb\n||||||| o\nc\n=======\nd\n>>>>>>> y\nz\n' })
+      await three('a\nc\nz\n', 'a\nc\nz\n', 'a\nc\ny\n')
+      expect((await run('diff3 -m /tmp/d3m /tmp/d3o /tmp/d3y'))).toEqual({ code: 0, err: '', out: 'a\nc\ny\n' })
+    })
+
+    it('reports a missing file and refuses ed scripts', async () => {
+      expect(await run('diff3 /tmp/d3m /tmp/d3o /tmp/nope')).toMatchObject({ code: 2, err: 'diff3: /tmp/nope: No such file or directory\n' })
+      expect((await run('diff3 -e /tmp/d3m /tmp/d3o /tmp/d3y')).code).toBe(2)
+    })
+  })
+
   describe('what a browser tab cannot do', () => {
     it.each(['unshare', 'chroot', 'nsenter'])('%s says why and fails', async (name) => {
       const result = await run(`${name} /bin/sh`)
