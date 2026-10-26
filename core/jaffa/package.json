@@ -36,7 +36,7 @@
     "typescript": "^7.0.2",
     "user-agent-data-types": "^0.4.3",
     "vite": "^8.3.5",
-    "vite-plugin-i18next-loader": "^2.0.14",
+    "vite-plugin-i18next-loader": "^4.1.0",
     "vite-plugin-node-polyfills": "^0.28.0"
   }
 }

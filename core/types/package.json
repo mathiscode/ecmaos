@@ -27,7 +27,7 @@
     "@zenfs/emscripten": "^1.0.10",
     "@zenfs/linux": "0.6.1",
     "chalk": "^6.0.1",
-    "i18next": "^23.16.8",
+    "i18next": "^26.5.11",
     "notyf": "^3.10.0",
     "topbar": "^3.0.1"
   },
