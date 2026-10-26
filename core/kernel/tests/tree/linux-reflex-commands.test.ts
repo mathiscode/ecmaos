@@ -110,6 +110,35 @@ describe('Linux reflex commands', () => {
     })
   })
 
+  describe('locate and updatedb', () => {
+    it('finds what updatedb saw, by part of a name, a glob, the file name, or a regular expression', async () => {
+      await fs().mkdir('/srv/Docs/deep', { recursive: true })
+      await fs().writeFile('/srv/Docs/Readme.md', 'x')
+      await fs().writeFile('/srv/Docs/deep/notes.txt', 'x')
+      expect((await run('updatedb -U /srv -o /tmp/srv.db')).code).toBe(0)
+      expect((await run('locate -d /tmp/srv.db notes')).out).toBe('/srv/Docs/deep/notes.txt\n')
+      expect((await run('locate -d /tmp/srv.db -i readme')).out).toBe('/srv/Docs/Readme.md\n')
+      expect((await run("locate -d /tmp/srv.db '*.md'")).out).toBe('/srv/Docs/Readme.md\n')
+      // a glob must match the whole path, and * crosses slashes
+      expect((await run("locate -d /tmp/srv.db '/srv/*.md'")).out).toBe('/srv/Docs/Readme.md\n')
+      expect((await run("locate -d /tmp/srv.db 'Readme*'")).out).toBe('')
+      expect((await run("locate -d /tmp/srv.db -b '*.md'")).out).toBe('/srv/Docs/Readme.md\n')
+      expect((await run('locate -d /tmp/srv.db -c Docs')).out).toBe('4\n')
+      expect((await run('locate -d /tmp/srv.db -l 1 Docs')).out.split('\n').length).toBe(2)
+      expect((await run("locate -d /tmp/srv.db --regex 'txt$'")).out).toBe('/srv/Docs/deep/notes.txt\n')
+      expect((await run('locate -d /tmp/srv.db -A Docs notes')).out).toBe('/srv/Docs/deep/notes.txt\n')
+      expect((await run('locate -d /tmp/srv.db nothing-like-this')).code).toBe(1)
+    })
+
+    it('does not enter /proc or /tmp, and names its default database', async () => {
+      expect((await run('updatedb')).code).toBe(0)
+      expect((await run('locate /etc/os-release')).out).toBe('/etc/os-release\n')
+      expect((await run('locate -c /proc/')).out).toBe('0\n')
+      expect((await run('locate -d /no/such.db x')).err).toContain('/no/such.db: No such file or directory (run updatedb)')
+      expect((await run('locate')).code).toBe(2)
+    })
+  })
+
   describe('what a browser tab cannot do', () => {
     it.each(['unshare', 'chroot', 'nsenter'])('%s says why and fails', async (name) => {
       const result = await run(`${name} /bin/sh`)
