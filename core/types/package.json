@@ -26,7 +26,7 @@
     "@zenfs/dom": "^1.2.14",
     "@zenfs/emscripten": "^1.0.10",
     "@zenfs/linux": "0.6.1",
-    "chalk": "^5.6.2",
+    "chalk": "^6.0.1",
     "i18next": "^23.16.8",
     "notyf": "^3.10.0",
     "topbar": "^3.0.1"
@@ -39,7 +39,7 @@
     "@types/node": "22.20.2",
     "@types/winbox": "0.2.5",
     "command-line-args": "^6.0.2",
-    "tslog": "^4.11.0",
+    "tslog": "^5.4.0",
     "typescript": "^7.0.2",
     "vite-plugin-node-polyfills": "^0.28.0",
     "winbox": "^0.2.82"

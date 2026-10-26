@@ -14,42 +14,25 @@ export class Log extends Logger<ILogObj> implements ILog {
   constructor(_options: LogOptions = DefaultLogOptions) {
     const options = { ...DefaultLogOptions, ..._options }
 
+    const icons: Record<string, string> = { DEBUG: '🔍', INFO: '💡', WARN: '⚠️', ERROR: '🚨', FATAL: '💀' }
+
     super({
       name: options.name || 'ecmaos:kernel',
       type: options.type || 'pretty',
-      maskValuesOfKeysCaseInsensitive: true,
-      hideLogPositionForProduction: true,
-      prettyErrorTemplate: '{{errorName}} {{errorMessage}} {{errorStack}}',
-      overwrite: {
-        /* v8 ignore start */
-        addPlaceholders: (logObjMeta, placeholderValues) => {
-          switch (logObjMeta.logLevelName) {
-            case 'DEBUG':
-              placeholderValues.icon = '🔍'
-              break
-            case 'INFO':
-              placeholderValues.icon = '💡'
-              break
-            case 'WARN':
-              placeholderValues.icon = '⚠️'
-              break
-            case 'ERROR':
-              placeholderValues.icon = '🚨'
-              break
-            case 'FATAL':
-              placeholderValues.icon = '💀'
-              break
-            default:
-              placeholderValues.icon = '💬'
-              break
-          }
+      // tslog 5 masks nothing by default; 4 masked "password"
+      mask: { keys: ['password'], caseInsensitive: true },
+      stack: { capture: 'off' },
+      // the kernel's transports read the metadata from _meta, where tslog 4 put it
+      meta: { property: '_meta' },
+      pretty: {
+        errorTemplate: '{{errorName}} {{errorMessage}} {{errorStack}}',
+        template: '{{dateIsoStr}} {{name}} {{logLevelName}}\t {{icon}}\t ',
+        placeholders: {
+          /* v8 ignore next */
+          icon: meta => icons[meta.logLevelName] ?? '💬'
         }
-        /* v8 ignore end */
       }
     })
-
-    // Set after construction: tslog warns about any placeholder it does not know, including the ones addPlaceholders adds
-    this.settings.prettyLogTemplate = '{{dateIsoStr}} {{name}} {{logLevelName}}\t {{icon}}\t '
 
     this._name = options.name || 'ecmaos:kernel'
 

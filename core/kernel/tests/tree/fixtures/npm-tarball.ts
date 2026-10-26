@@ -1,5 +1,5 @@
 import { createTarPacker } from 'modern-tar'
-import pako from 'pako'
+import { gzip } from 'pako'
 
 /** An npm tarball (`package/<name>` entries, gzipped) of `files`, as a registry serves it */
 export async function buildNpmTarballGzip(files: Record<string, string | Uint8Array>): Promise<Uint8Array> {
@@ -29,7 +29,7 @@ export async function buildNpmTarballGzip(files: Record<string, string | Uint8Ar
   let offset = 0
   for (const chunk of chunks) { tarBytes.set(chunk, offset); offset += chunk.length }
 
-  return pako.gzip(tarBytes)
+  return gzip(tarBytes)
 }
 
 export async function sha1Hex(bytes: Uint8Array): Promise<string> {

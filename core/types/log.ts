@@ -26,8 +26,9 @@ export interface Log extends Logger<ILogObj> {
   /**
    * Attach a transport for log output
    * @param transportLogger - Transport function
+   * @returns Function that detaches the transport
    */
-  attachTransport(transportLogger: (logObj: ILogObj & ILogObjMeta) => void): void
+  attachTransport(transportLogger: (logObj: ILogObj & ILogObjMeta) => void): () => void
 
   /** Log at silly level */
   silly(...args: unknown[]): (ILogObj & ILogObjMeta) | undefined

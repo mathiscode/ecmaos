@@ -1102,7 +1102,7 @@ export class Kernel implements IKernel {
       } catch (err) {
         usersSpan.recordException(err as Error)
         usersSpan.setStatus({ code: 2, message: (err as Error).message })
-        this.log.error(err)
+        this.log.error(err as Error)
         this.terminal.writeln(chalk.red((err as Error).message))
         usersSpan.end()
         throw err
@@ -1217,7 +1217,7 @@ export class Kernel implements IKernel {
       bootSpan.setStatus({ code: 2, message: (error as Error).message })
       bootSpan.setAttribute('kernel.state', KernelState.PANIC)
       bootSpan.end()
-      this.log.error(error)
+      this.log.error(error as Error)
       this._state = KernelState.PANIC
       this.showBootFailure(error, spinner)
       this.events.dispatch<KernelPanicEvent>(KernelEvents.PANIC, { error: error as Error })
@@ -1477,7 +1477,7 @@ export class Kernel implements IKernel {
       return exitCode
     } catch (error) {
       console.error(error)
-      this.log.error(error)
+      this.log.error(error as Error)
       options.shell.env.set('?', '-1')
       return -1
     }
@@ -2341,7 +2341,7 @@ export class Kernel implements IKernel {
       const extensionType = checkExtensionType(linked)
       return extensionType ? { type: extensionType } : null
     } catch (error) {
-      this.log.error(error)
+      this.log.error(error as Error)
       throw error
     }
   }
@@ -3663,7 +3663,7 @@ export class Kernel implements IKernel {
     try {
       return await this.execute({ command: path, args, shell: this.system })
     } catch (error) {
-      this.log.error(error)
+      this.log.error(error as Error)
       return 1
     }
   }

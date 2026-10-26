@@ -27,7 +27,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@faker-js/faker": "^9.9.0",
+    "@faker-js/faker": "^10.6.0",
     "hono": "^4.13.14"
   },
   "publishConfig": {

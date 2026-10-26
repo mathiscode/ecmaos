@@ -29,7 +29,7 @@
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "esbuild": "^0.28.2",
-    "openai": "^6.49.0",
+    "openai": "^7.43.0",
     "typescript": "^7.0.2"
   }
 }
