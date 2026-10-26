@@ -1,5 +1,5 @@
 import type { KernelContext, TelemetryOptions } from '@ecmaos/types'
-import { trace } from '@opentelemetry/api'
+import { context, trace } from '@opentelemetry/api'
 
 /**
  * Tracing is optional and the web OpenTelemetry stack is browser-only: `@opentelemetry/context-zone` patches
@@ -31,19 +31,17 @@ export class Telemetry {
 
   private async _initialize(endpoint: string) {
     const [
-      { WebTracerProvider },
+      { BatchSpanProcessor, SimpleSpanProcessor, TracerProvider },
       { ZoneContextManager },
       { DocumentLoadInstrumentation },
       { registerInstrumentations },
-      { OTLPTraceExporter },
-      { BatchSpanProcessor, SimpleSpanProcessor }
+      { OTLPTraceExporter }
     ] = await Promise.all([
-      import('@opentelemetry/sdk-trace-web'),
+      import('@opentelemetry/sdk-trace'),
       import('@opentelemetry/context-zone'),
       import('@opentelemetry/instrumentation-document-load'),
       import('@opentelemetry/instrumentation'),
-      import('@opentelemetry/exporter-trace-otlp-http'),
-      import('@opentelemetry/sdk-trace-base')
+      import('@opentelemetry/exporter-trace-otlp-http')
     ])
 
     const exporter = new OTLPTraceExporter({
@@ -53,20 +51,20 @@ export class Telemetry {
 
     const useSimpleProcessor = import.meta.env.ECMAOS_OPENTELEMETRY_SIMPLE_PROCESSOR === 'true'
     const spanProcessor = useSimpleProcessor
-      ? new SimpleSpanProcessor(exporter)
-      : new BatchSpanProcessor(exporter, {
+      ? new SimpleSpanProcessor({ exporter })
+      : new BatchSpanProcessor({
+          exporter,
           scheduledDelayMillis: 100,
           maxQueueSize: 2048,
           maxExportBatchSize: 512
         })
 
-    const provider = new WebTracerProvider({
+    const provider = new TracerProvider({
       spanProcessors: [spanProcessor]
     })
 
-    provider.register({
-      contextManager: new ZoneContextManager()
-    })
+    trace.setGlobalTracerProvider(provider)
+    context.setGlobalContextManager(new ZoneContextManager().enable())
 
     registerInstrumentations({
       instrumentations: [
