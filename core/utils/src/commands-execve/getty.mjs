@@ -26,6 +26,13 @@ function ttyNumber() {
   return match ? Number(match[1]) : 0
 }
 
+/** agetty's escapes in `/etc/issue`: `\n` host name, `\l` terminal, `\r` release, `\s` system, `\m` machine, `\\` a backslash */
+function expandIssue(text, hostname) {
+  const release = (readFile('/proc/sys/kernel/osrelease') ?? '').trim() || 'unknown'
+  const table = { n: hostname, l: (argv[1] ?? '').replace(/^\/dev\//, '') || 'console', r: release, s: 'Linux', m: 'x86_64', '\\': '\\' }
+  return text.replace(/\\(.)/g, (whole, key) => table[key] ?? whole)
+}
+
 async function main() {
   const tty = ttyNumber()
   for (const signal of [SIGINT, SIGQUIT, SIGTSTP]) onSignal(signal, () => {})
@@ -34,8 +41,8 @@ async function main() {
   for (;;) {
     const issue = readFile('/etc/issue')
     out(`\n${new Date().toLocaleString()}\n`)
-    if (issue) out(issue.endsWith('\n') ? issue : issue + '\n')
     const hostname = (readFile('/etc/hostname') ?? 'localhost').trim()
+    if (issue) out(expandIssue(issue, hostname).replace(/\n?$/, '\n'))
 
     out(`${hostname} login: `)
     let username

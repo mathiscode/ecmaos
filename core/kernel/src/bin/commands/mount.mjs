@@ -73,7 +73,7 @@ Examples:
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
   mount -t ecmaos root@127.0.0.1:30022/share /mnt/share`
 
-const NO_SOURCE_TYPES = ['memory', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
+const NO_SOURCE_TYPES = ['memory', 'tmpfs', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
 const REQUIRES_SOURCE_TYPES = ['zip', 'iso', 'fetch', 'indexeddb', 'ecmaos']
 
 function parseOptions(options) {

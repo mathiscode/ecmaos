@@ -61,6 +61,7 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS, DEFAULT_RESOLV, DEFAULT_SERVICES } from '#lib/hosts.ts'
+import { DEFAULT_ENVIRONMENT, DEFAULT_FSTAB, DEFAULT_ISSUE, newMachineId } from '#lib/etc-defaults.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
 import { displayAddress } from '#lib/display-client.ts'
@@ -784,6 +785,16 @@ export class Kernel implements IKernel {
       if (!(await this.filesystem.fs.exists('/etc/hostname'))) {
         await this.filesystem.fs.writeFile('/etc/hostname', `${this.host.platform.hostname() || 'ecmaos'}\n`, { mode: 0o644 })
       }
+
+      // What a Linux machine has under /etc and tools look for. /etc/timezone names the browser's zone (the text a Debian
+      // machine keeps beside the binary /etc/localtime, which needs a zoneinfo database there is none of here).
+      for (const [file, text, mode] of [
+        ['/etc/fstab', DEFAULT_FSTAB, 0o644], ['/etc/environment', DEFAULT_ENVIRONMENT, 0o644], ['/etc/issue', DEFAULT_ISSUE, 0o644],
+        ['/etc/machine-id', newMachineId(), 0o444], ['/etc/timezone', `${new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}\n`, 0o644]
+      ] as const) {
+        if (!(await this.filesystem.fs.exists(file))) await this.filesystem.fs.writeFile(file, text, { mode })
+      }
+      await this.filesystem.fs.mkdir('/etc/profile.d', { recursive: true, mode: 0o755 }).catch(() => {})
 
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
       // starts in vi-compatible mode, which is not what anyone running Vim expects.

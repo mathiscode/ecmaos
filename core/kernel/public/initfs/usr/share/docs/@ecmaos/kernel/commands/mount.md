@@ -31,6 +31,7 @@ Filesystem types:
   webaccess           mount a filesystem using the File System Access API (interactive picker)
   opfs                mount the browser's Origin Private File System (no picker, sandboxed per-origin)
   memory              mount an in-memory filesystem
+  tmpfs               the same filesystem under the name Linux gives it
   singlebuffer        mount a filesystem backed by a single buffer
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)

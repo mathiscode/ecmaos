@@ -122,6 +122,12 @@ export function builtinFsTypes(): FsType[] {
       mount: request => request.mount({ backend: InMemory })
     },
     {
+      // Linux's name for the same thing, which is what /proc/mounts already calls the root and /tmp
+      name: 'tmpfs',
+      source: 'none',
+      mount: request => request.mount({ backend: InMemory })
+    },
+    {
       name: 'singlebuffer',
       source: 'none',
       async mount(request: FsMountRequest) {

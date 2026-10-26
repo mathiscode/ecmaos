@@ -17,7 +17,7 @@ With no command and no file it reads commands from standard input. When that is 
 ## Options
 
 - `-c COMMAND` - run COMMAND, then exit. The next word is `$0`, the rest are `$1...`
-- `-l, --login` - act as a login shell: read `/etc/profile`, every `*.sh` in `/etc/profile.d`, then the first of `~/.bash_profile`, `~/.ecmash_profile` or `~/.profile`. Started with an `argv[0]` beginning with `-` (`-ecmash`) it does the same. An interactive shell also reads `/etc/ecmashrc`, `~/.bashrc` and `~/.ecmashrc`
+- `-l, --login` - act as a login shell: set the variables in `/etc/environment` (`NAME=value` lines, no expansion), read `/etc/profile`, every `*.sh` in `/etc/profile.d`, then the first of `~/.bash_profile`, `~/.ecmash_profile` or `~/.profile`. Started with an `argv[0]` beginning with `-` (`-ecmash`) it does the same. An interactive shell also reads `/etc/ecmashrc`, `~/.bashrc` and `~/.ecmashrc`
 
 ## Scripts
 

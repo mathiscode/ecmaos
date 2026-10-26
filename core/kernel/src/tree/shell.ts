@@ -31,7 +31,7 @@ import { SessionLog } from '#lib/sessions.ts'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
-import { startupFiles } from '@ecmaos/coreutils/lib/shell-core/startup-files'
+import { parseEnvironment, startupFiles, SYSTEM_ENVIRONMENT } from '@ecmaos/coreutils/lib/shell-core/startup-files'
 import { promptCommands } from '@ecmaos/coreutils/lib/shell-core/prompt-command'
 import { isControlFlowSignal } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { signalNameOf } from '@ecmaos/coreutils/lib/shell-core/signal-table'
@@ -725,6 +725,11 @@ export class Shell implements IShell {
         list: async dir => { try { return await fs.readdir(dir) } catch { return [] } }
       }
     )
+
+    // /etc/environment is variables, not a script, and comes before every file
+    try {
+      for (const [key, value] of Object.entries(parseEnvironment(await fs.readFile(SYSTEM_ENVIRONMENT, 'utf-8')))) this._env.set(key, value)
+    } catch { /* no /etc/environment */ }
 
     for (const file of candidates) {
       try {
