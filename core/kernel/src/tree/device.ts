@@ -25,6 +25,7 @@ import type { KernelDevice } from '@ecmaos/types'
 import { InputDevice } from '#lib/gamepads.ts'
 import { HwrngDevice } from '#lib/hwrng.ts'
 import { RtcDevice } from '#lib/rtc.ts'
+import { SyslogDevice } from '#lib/syslog.ts'
 
 export const DefaultDevices: Record<string, KernelDevice> = {
   audio: AudioDevice,
@@ -42,6 +43,7 @@ export const DefaultDevices: Record<string, KernelDevice> = {
   rtc: RtcDevice,
   sensors: SensorsDevice,
   serial: SerialDevice,
+  syslog: SyslogDevice,
   tty: TTYDevice,
   usb: USBDevice,
   webgl: WebGLDevice

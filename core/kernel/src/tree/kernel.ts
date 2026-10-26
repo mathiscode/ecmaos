@@ -61,6 +61,7 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS, DEFAULT_RESOLV, DEFAULT_SERVICES } from '#lib/hosts.ts'
+import { setSyslogSink } from '#lib/syslog.ts'
 import { DEFAULT_ENVIRONMENT, DEFAULT_FSTAB, DEFAULT_ISSUE, newMachineId } from '#lib/etc-defaults.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
@@ -1064,6 +1065,19 @@ export class Kernel implements IKernel {
         }).replace(',', '')
 
         logFile.write(`${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`)
+      })
+
+      // /dev/log and /dev/kmsg: the kernel plays syslogd. /var/log/messages is the file syslog messages end up in
+      const messagesFile = new LogFile(this.filesystem.fs, '/var/log/messages')
+      // the host name is /etc/hostname's; a write cannot wait for the file, so it is read again after each message
+      let syslogHost = (await this.filesystem.fs.readFile('/etc/hostname', 'utf-8').catch(() => '')).trim() || 'localhost'
+      setSyslogSink({
+        messages: text => {
+          messagesFile.write(text)
+          void this.filesystem.fs.readFile('/etc/hostname', 'utf-8').then(name => { syslogHost = name.trim() || syslogHost }).catch(() => {})
+        },
+        kernel: (level, text) => (level <= 3 ? this.log.error(text) : level === 4 ? this.log.warn(text) : this.log.info(text)),
+        hostname: () => syslogHost
       })
 
       // Load core kernel features

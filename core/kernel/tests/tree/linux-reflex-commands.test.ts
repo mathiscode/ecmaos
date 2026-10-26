@@ -236,6 +236,53 @@ describe('Linux reflex commands', () => {
     })
   })
 
+  describe('logger, /dev/log and /dev/kmsg', () => {
+    // the files are written a second after a message
+    const eventually = async (path: string, wanted: RegExp) => {
+      for (let waited = 0; waited < 5000; waited += 100) {
+        const text = await fs().readFile(path, 'utf-8').catch(() => '')
+        if (wanted.test(text)) return text
+        await new Promise(r => setTimeout(r, 100))
+      }
+      return fs().readFile(path, 'utf-8').catch(() => '(no file)')
+    }
+
+    it('appends a syslog line to /var/log/messages', async () => {
+      expect((await run('logger -t build -p local3.info "the first message"')).code).toBe(0)
+      expect((await run('logger -i -t build second')).code).toBe(0)
+      const text = await eventually('/var/log/messages', /build\[\d+\]: second/)
+      expect(text).toMatch(/^[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ build: the first message$/m)
+      expect(text).toMatch(/^[A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \S+ build\[\d+\]: second$/m)
+    })
+
+    it('logs lines from standard input and from a file, and anything written to /dev/log', { timeout: 20000 }, async () => {
+      await fs().writeFile('/tmp/log-lines', 'from a file\nsecond line\n')
+      expect((await run('logger -t filetag -f /tmp/log-lines')).code).toBe(0)
+      expect((await run('printf "piped one\\npiped two\\n" | logger -t pipetag')).code).toBe(0)
+      // not through run(), whose own redirection would replace this one
+      expect(await kernel.shell.execute("echo '<3>direct: written to the device' > /dev/log")).toBe(0)
+      const text = await eventually('/var/log/messages', /direct: written to the device/)
+      for (const line of ['filetag: from a file', 'filetag: second line', 'pipetag: piped one', 'pipetag: piped two', 'direct: written to the device']) expect(text).toContain(line)
+      expect(text).not.toContain('<3>')
+    })
+
+    it('-k and /dev/kmsg reach the kernel log that dmesg shows', async () => {
+      expect((await run('logger -k -p kern.err "kernel complaint"')).code).toBe(0)
+      expect(await kernel.shell.execute("echo '<6>kernel note' > /dev/kmsg")).toBe(0)
+      const text = await eventually('/var/log/kernel.log', /kernel note/)
+      expect(text).toMatch(/\[ERROR\] kernel complaint/)
+      expect(text).toMatch(/\[INFO\] kernel note/)
+    })
+
+    it('refuses what it cannot do, and the devices cannot be read', async () => {
+      expect((await run('logger -p nothing.here hi')).err).toContain('unknown priority name: nothing.here')
+      expect((await run('logger -u /dev/log hi')).code).toBe(1)
+      expect((await run('logger -f /no/such/file')).code).toBe(1)
+      expect((await run('cat /dev/log')).code).not.toBe(0)
+      expect(((await fs().stat('/dev/log')).mode & 0o777).toString(8)).toBe('666')
+    })
+  })
+
   describe('what a browser tab cannot do', () => {
     it.each(['unshare', 'chroot', 'nsenter'])('%s says why and fails', async (name) => {
       const result = await run(`${name} /bin/sh`)
