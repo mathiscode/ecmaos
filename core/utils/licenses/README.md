@@ -47,6 +47,10 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `rg` | ripgrep 15.2.0 | Unlicense OR MIT, with the licenses of the Rust crates it is built from (MIT, Apache-2.0, Unlicense, Zlib and others, each named in its file) | `rg/` |
 | `fd` | 10.5.0 | MIT OR Apache-2.0, with the licenses of the Rust crates it is built from, each named in its file | `fd/` |
 | `bat` | 0.26.1 | MIT OR Apache-2.0, with the licenses of the Rust crates it is built from, each named in its file | `bat/` |
+| `figlet` | 2.2.5 | BSD-3-Clause, and its fonts with it; zipio is MIT | `figlet/LICENSE` |
+| `fortune` | fortune-mod 3.24.0 | BSD-4-Clause-UC (Berkeley's license; the University withdrew its advertising clause in 1999), the cookies too | `fortune/COPYING` |
+| `lolcat` | 1.5 | WTFPL | `lolcat/LICENSE` |
+| `sl` | 5.02 | Toyoda Masashi's own license (anything but claiming to have written it); ncurses 6.5 is X11 | `sl/LICENSE`, `ncurses/` |
 
 Every program also contains musl libc and compiler-rt: WALI's musl and LLVM's, or Emscripten's for the desktop
 demos. See `runtime/`.

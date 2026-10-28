@@ -471,6 +471,60 @@
       "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
       "size": 5753207,
       "sha256": "5760a228a5e0660024edc23e5ae621f8ba76ce1461beed109a17124fcfea742e"
+    },
+    "figlet": {
+      "file": "figlet.wasm",
+      "version": "2.2.5",
+      "license": "BSD-3-Clause AND MIT",
+      "description": "FIGlet, large letters out of ordinary text, with its fonts in /usr/share/figlet",
+      "homepage": "http://www.figlet.org/",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 126874,
+      "sha256": "0882e85f5cb05ff2f3cf1da9423daffb0bace58e9f2049c4e9da7a3c7dafb615",
+      "runtime": {
+        "file": "figlet-fonts.tar.gz",
+        "size": 82269,
+        "sha256": "a831598b14e68a9a58fb942c1753cf9f8f427f32dd7625949b54c96eb92a5af6"
+      }
+    },
+    "fortune": {
+      "file": "fortune.wasm",
+      "version": "3.24.0",
+      "license": "BSD-4-Clause-UC",
+      "description": "fortune, a random epigram, with fortune-mod's cookies (not the offensive ones) in /usr/share/games/fortunes",
+      "homepage": "https://www.shlomifish.org/open-source/projects/fortune-mod/",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 66759,
+      "sha256": "d3b02a70daf995540464fc964fd3a68bc72cce16f82f1021a3f823ff6f04a4f1",
+      "runtime": {
+        "file": "fortune-data.tar.gz",
+        "size": 925856,
+        "sha256": "e3d339e3e2245adf828c6540672de49eabae1d9c4c61ded928365db837530c32"
+      }
+    },
+    "lolcat": {
+      "file": "lolcat.wasm",
+      "version": "1.5",
+      "license": "WTFPL",
+      "description": "lolcat, cat in a rainbow",
+      "homepage": "https://github.com/jaseg/lolcat",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 91866,
+      "sha256": "82b11f5cdb9dca35e7f40330c2bc313bb2a2262ac8505ed8462f645c89b3b1e4"
+    },
+    "sl": {
+      "file": "sl.wasm",
+      "version": "5.02",
+      "license": "LicenseRef-sl AND X11",
+      "description": "sl, a steam locomotive for those who type sl for ls, with ncurses",
+      "homepage": "https://github.com/mtoyoda/sl",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 221277,
+      "sha256": "2fded71c6ca6310eb23fb88c561d73cdb8a9ca905e3c5dfd6f1ba0092b357ecb"
     }
   }
 }

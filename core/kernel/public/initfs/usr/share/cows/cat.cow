@@ -1,0 +1,9 @@
+## a cat
+$the_cow = <<"EOC";
+     $thoughts
+      $thoughts   /\\_/\\
+         ( $eyes )
+          > $tongue<
+         /     \\
+        (_|_ _|_)~
+EOC

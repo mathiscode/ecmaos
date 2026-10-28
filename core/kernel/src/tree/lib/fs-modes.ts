@@ -126,7 +126,8 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/unix2dos': '/bin/dos2unix',
   '/bin/pbcopy': '/bin/xclip',
   '/bin/pbpaste': '/bin/xclip',
-  '/bin/neofetch': '/bin/fastfetch'
+  '/bin/neofetch': '/bin/fastfetch',
+  '/bin/cowthink': '/bin/cowsay'
 }
 
 /** Names that used to be programs of their own and are links now: a leftover file is replaced by the link. */

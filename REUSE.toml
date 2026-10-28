@@ -138,6 +138,34 @@ precedence = "override"
 SPDX-FileCopyrightText = "the authors of each program, named in its license text"
 SPDX-License-Identifier = "Unlicense OR MIT"
 
+# core/utils: programs built from upstream sources under BSD-3-Clause AND MIT (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = ["core/utils/programs/figlet-fonts.tar.gz", "core/utils/programs/figlet.wasm"]
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "BSD-3-Clause AND MIT"
+
+# core/utils: programs built from upstream sources under BSD-4-Clause-UC (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = ["core/utils/programs/fortune-data.tar.gz", "core/utils/programs/fortune.wasm"]
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "BSD-4-Clause-UC"
+
+# core/utils: programs built from upstream sources under WTFPL (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = "core/utils/programs/lolcat.wasm"
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "WTFPL"
+
+# core/utils: programs built from upstream sources under LicenseRef-sl AND X11 (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = "core/utils/programs/sl.wasm"
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "LicenseRef-sl AND X11"
+
 # core/utils-copyleft: programs built from upstream sources under GPL-3.0-or-later (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
 [[annotations]]
 path = ["core/utils-copyleft/programs/bash.wasm", "core/utils-copyleft/programs/make.wasm", "core/utils-copyleft/programs/rsync.wasm"]
@@ -147,7 +175,7 @@ SPDX-License-Identifier = "GPL-3.0-or-later"
 
 # core/utils-copyleft: programs built from upstream sources under GPL-3.0-or-later AND X11 (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
 [[annotations]]
-path = ["core/utils-copyleft/programs/nano.wasm", "core/utils-copyleft/programs/screen.wasm"]
+path = ["core/utils-copyleft/programs/cmatrix.wasm", "core/utils-copyleft/programs/nano.wasm", "core/utils-copyleft/programs/screen.wasm"]
 precedence = "override"
 SPDX-FileCopyrightText = "the authors of each program, named in its license text"
 SPDX-License-Identifier = "GPL-3.0-or-later AND X11"
