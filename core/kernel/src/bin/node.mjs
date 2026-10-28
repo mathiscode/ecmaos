@@ -210,7 +210,8 @@ globalThis.ecmaosSyscalls = {
   getpid, getppid, getuid, geteuid, getgid, getegid, chdir, lseek,
   // The job-control shim (`job-control.ts`), each op named for the POSIX call it stands in for. `waitpid` returns `{
   // pid, code, signal }`, or `null` for `WNOHANG` with nothing ready; `untraced` (`WUNTRACED`) also returns for a
-  // stopped child as `{ pid, stopped: true, signal }`. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`.
+  // stopped child as `{ pid, stopped: true, signal }`. `spawn` is `posix_spawn`: `{ env, fds: { childFd: myFd } }`;
+  // with `setsid`, `ctty: myFd` (a pty's slave) is the new session's controlling terminal.
   waitpid: async (pid, nohang = false, untraced = false) => {
     const packed = await syscall_async('proc_waitpid', pid, (nohang ? 1 : 0) | (untraced ? 2 : 0))
     if (!packed) return null
@@ -231,7 +232,7 @@ globalThis.ecmaosSyscalls = {
   dropControllingTty: fd => syscall_async('proc_ctty', 1, fd, 0),
   ttySession: fd => syscall_async('proc_ctty', 2, fd, 0),
   spawn: (command, argv, options = {}) =>
-    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, tty: options.tty, credentials: options.credentials, trace: options.trace })),
+    syscall_async('proc_spawn', command, JSON.stringify(argv), options.cwd ?? '', JSON.stringify({ env: options.env, fds: options.fds, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, ctty: options.ctty, tty: options.tty, credentials: options.credentials, trace: options.trace })),
   // Signal handlers (`sigaction`): a handler runs when the blocking syscall it interrupted returns
   // `EINTR`, so a program blocked in `read()` on the terminal sees `SIGWINCH` this way.
   onSignal: on_signal, offSignal: off_signal,

@@ -504,6 +504,11 @@ export interface SpawnOptions {
    * it runs.
    */
   terminal?: { zfsTty: Process['tty'] | undefined, attachInput(): () => void }
+  /**
+   * With `setsid`, a terminal the child's descriptors are already open on to make its controlling terminal, as
+   * `login_tty` does for the child of `forkpty` (`script`'s shell on its pty); the keyboard is not routed anywhere
+   */
+  controllingTty?: NonNullable<Process['tty']>
   /** Record the child's system calls (`strace`) */
   trace?: Tracer
 }
@@ -583,6 +588,7 @@ export async function spawnWithFds(parent: Process, command: string, argv: strin
       sessionIds.set(child.pid, child.pid)
       groups.set(child.pid, child.pid)
       setTty(child, null)
+      if (options.controllingTty) setControllingTty(child, options.controllingTty, false)
       void child.exited.then(() => forgetGroup(child.pid))
     }
     if (options.signals) setSignalState(child, options.signals)

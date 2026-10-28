@@ -131,8 +131,11 @@ function allocate(): Pair {
 
 function release(pair: Pair): void {
   pairs.delete(pair.index)
-  // The slave's users see a hangup, as on Linux when the master goes away.
-  try { pair.slave.signal(Signal.HUP) } catch { /* nothing in front of it */ }
+  // The slave's users see a hangup, as on Linux when the master goes away: what is in front of it, when the slave is
+  // its controlling terminal. A process that is only in front because the one there exited (its parent, which may
+  // hold the master, as `script` does) is not the slave's.
+  const front = pair.slave.foreground
+  if (front && front.tty === pair.slave) try { front.kill(Signal.HUP) } catch { /* already gone */ }
   try { pair.slave.close() } catch { /* already closed */ }
   pair.slave.unregister()
   pts.ttys.delete(pair.index)
