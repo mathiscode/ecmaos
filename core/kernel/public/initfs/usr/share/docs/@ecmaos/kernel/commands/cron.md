@@ -39,4 +39,4 @@ Examples:
 
 ## See also
 
-`cron --help`
+`crontab`, the standard way to install a table, and `crond`

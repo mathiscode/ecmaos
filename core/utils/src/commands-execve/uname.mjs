@@ -5,8 +5,15 @@
  */
 
 import { getopt, tryHelp } from './lib/getopt.mjs'
+import { readTextFile } from './lib/fs-text.mjs'
+import { machineName } from './lib/machine.mjs'
 
 const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
+
+/** The kernel's host name, as `/proc/sys/kernel/hostname` has it */
+function nodename() {
+  try { return readTextFile('/proc/sys/kernel/hostname').trim() || env.HOSTNAME || 'localhost' } catch { return env.HOSTNAME || 'localhost' }
+}
 
 const encoder = new TextEncoder()
 const out = text => writeAll(1, encoder.encode(text))
@@ -30,19 +37,6 @@ Print certain system information.  With no OPTION, same as -s.
       --version     output version information and exit
 `
 
-async function machineName() {
-  const data = await navigator.userAgentData?.getHighEntropyValues?.(['architecture', 'bitness']).catch(() => undefined)
-  const arch = data?.architecture
-  const bits = data?.bitness
-  if (arch === 'arm') return bits === '32' ? 'armv7l' : 'aarch64'
-  if (arch === 'x86') return bits === '32' ? 'i686' : 'x86_64'
-  const agent = String(navigator.userAgent ?? '')
-  if (/aarch64|arm64/i.test(agent)) return 'aarch64'
-  if (/\barm\b|armv/i.test(agent)) return 'armv7l'
-  if (/i[3-6]86|\bx86(?!_64)\b/i.test(agent) && !/x86_64|Win64|x64/i.test(agent)) return 'i686'
-  return 'x86_64'
-}
-
 async function main() {
   const { options, operands, error } = getopt(argv.slice(1), {
     short: 'asnrvmpio',
@@ -60,7 +54,7 @@ async function main() {
   const all = keys.has('a')
   const fields = {
     s: 'Linux',
-    n: env.HOSTNAME || 'localhost',
+    n: nodename(),
     r: env.KERNEL_VERSION || '0.0.0',
     v: `#1 ${env.KERNEL_NAME || 'ecmaOS'} ${env.KERNEL_VERSION || ''}`.trim(),
     m: await machineName(),

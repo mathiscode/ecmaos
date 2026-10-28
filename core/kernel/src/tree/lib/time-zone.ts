@@ -106,7 +106,23 @@ export function posixTimeZone(timeZone?: string, now = Date.now()): string {
   return `${name(standard, during(standard))}${westOf(standard)}${name(summer, during(summer))}${summerOffset},${ruleOf(format, begin.at)},${ruleOf(format, end.at)}`
 }
 
-/** The browser's zone as `TZ`, or UTC where the engine cannot say */
+/** The zone `/etc/timezone` names, once the kernel has read it; the browser's until then */
+let systemZone: string | undefined
+
+/** Whether the engine knows an IANA zone name */
+export function isTimeZone(name: string): boolean {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: name }); return true } catch { return false }
+}
+
+/** Sets the system's zone (an IANA name, or undefined for the browser's); a name the engine does not know is refused */
+export function setSystemTimeZone(name: string | undefined): void {
+  if (name !== undefined && !isTimeZone(name)) throw new RangeError(`Invalid time zone: ${name}`)
+  systemZone = name
+}
+
+export const systemTimeZone = (): string => systemZone ?? (new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+
+/** The system's zone as `TZ`, or UTC where the engine cannot say */
 export function localTimeZone(): string {
-  try { return posixTimeZone() } catch { return 'UTC0' }
+  try { return posixTimeZone(systemZone) } catch { return 'UTC0' }
 }

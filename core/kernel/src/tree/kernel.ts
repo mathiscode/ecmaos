@@ -116,7 +116,8 @@ import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { bootSplash } from '#lib/splash.ts'
 import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
-import { localTimeZone } from '#lib/time-zone.ts'
+import { isTimeZone, localTimeZone, setSystemTimeZone } from '#lib/time-zone.ts'
+import { init_uts, set_hostname } from '@zenfs/linux/uts'
 
 import {
   KernelEvents,
@@ -391,6 +392,20 @@ export class Kernel implements IKernel {
   private _activeTty: number = 0
   get activeTty() { return this._activeTty }
   get shells() { return this._shells }
+
+  /**
+   * Makes `name` (an IANA zone, or undefined for the browser's) the system's zone: the `TZ` the kernel's shells give
+   * what they start from now on. A program already running, and a shell that set its own `TZ`, keep theirs.
+   */
+  async applyTimeZone(name: string | undefined): Promise<void> {
+    if (name !== undefined && !isTimeZone(name)) {
+      this.log.warn(`/etc/timezone names ${name}, which this browser does not know; using the browser's zone`)
+      name = undefined
+    }
+    setSystemTimeZone(name)
+    const tz = localTimeZone()
+    for (const shell of this._shells.values()) { shell.env.set('TZ', tz); shell.publishEnv() }
+  }
 
   /** Add an event listener; alias for `events.on` */
   get addEventListener() { return this.events.on }
@@ -694,6 +709,9 @@ export class Kernel implements IKernel {
         // /proc and /sys are their own mounted filesystems (ProcFS/SysFS); they are not created here
         '/bin', '/sbin', '/boot', '/tmp', '/home', '/lib', '/run', '/root', '/opt',
         '/etc', '/etc/default', '/etc/opt',
+        // where units and SysV scripts live, and the runlevels' links to the scripts
+        '/etc/systemd', '/etc/systemd/system', '/lib/systemd', '/lib/systemd/system', '/etc/init.d',
+        '/etc/rc0.d', '/etc/rc1.d', '/etc/rc2.d', '/etc/rc3.d', '/etc/rc4.d', '/etc/rc5.d', '/etc/rc6.d',
         '/var', '/var/cache', '/var/lib', '/var/log', '/var/spool', '/var/tmp', '/var/lock', '/var/opt', '/var/games',
         '/usr', '/usr/bin', '/usr/lib', '/usr/sbin', '/usr/share', '/usr/share/docs', '/usr/share/licenses', '/usr/include', '/usr/local'
       ]
@@ -796,6 +814,14 @@ export class Kernel implements IKernel {
       ] as const) {
         if (!(await this.filesystem.fs.exists(file))) await this.filesystem.fs.writeFile(file, text, { mode })
       }
+      // The kernel's own names come from /etc: the host name `uname -n` and /proc/sys/kernel/hostname give, and the zone
+      // whose rules `TZ` carries to every program
+      const etcHostname = (await this.filesystem.fs.readFile('/etc/hostname', 'utf-8').catch(() => '')).trim()
+      if (etcHostname) {
+        set_hostname(etcHostname)
+        for (const shell of this._shells.values()) shell.env.set('HOSTNAME', etcHostname)
+      }
+      await this.applyTimeZone((await this.filesystem.fs.readFile('/etc/timezone', 'utf-8').catch(() => '')).trim() || undefined)
       await this.filesystem.fs.mkdir('/etc/profile.d', { recursive: true, mode: 0o755 }).catch(() => {})
 
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
@@ -918,6 +944,11 @@ export class Kernel implements IKernel {
         }
         
         this.i18n.setLanguage(finalLocale)
+        // What `locale -a` and `localectl list-locales` offer: the languages there are translations for, in glibc's
+        // SUPPORTED format, rewritten each boot so a new language shows up
+        const supported = this.i18n.languages.map(language => `${this.i18n.languageToLocale(language)}.UTF-8 UTF-8`).sort()
+        await this.filesystem.fs.mkdir('/usr/share/i18n', { recursive: true, mode: 0o755 }).catch(() => {})
+        await this.filesystem.fs.writeFile('/usr/share/i18n/SUPPORTED', supported.join('\n') + '\n', { mode: 0o644 }).catch(() => {})
         t = this.i18n.i18next.getFixedT(this.i18n.language, 'kernel')
         localeSpan.setAttribute('locale.system', systemLocale)
         localeSpan.setAttribute('locale.final', finalLocale)
@@ -3473,7 +3504,7 @@ export class Kernel implements IKernel {
       users: this.users,
       tty: ttyNumber,
       terminal,
-      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: init_uts.nodename === '(none)' ? 'localhost' : init_uts.nodename, TZ: localTimeZone() }
     })
     terminal.attachShell(shell)
 
@@ -3538,7 +3569,7 @@ export class Kernel implements IKernel {
       users: this.users,
       tty,
       terminal,
-      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: 'localhost' }
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, HOSTNAME: init_uts.nodename === '(none)' ? 'localhost' : init_uts.nodename, TZ: localTimeZone() }
     })
     terminal.attachShell(shell)
     terminal.attachHeadless(options.write)

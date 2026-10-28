@@ -6,10 +6,23 @@
 
 import { parseCronExpression } from 'cron-schedule'
 
+/** The `@` names Vixie cron takes in place of the five fields; `@reboot` is run once when crond starts after a boot. */
+export const CRON_MACROS = {
+  '@yearly': '0 0 1 1 *', '@annually': '0 0 1 1 *', '@monthly': '0 0 1 * *', '@weekly': '0 0 * * 0',
+  '@daily': '0 0 * * *', '@midnight': '0 0 * * *', '@hourly': '0 * * * *'
+}
+
 /** Parse a single crontab line - `null` for an empty line, a comment, or something unparseable. */
 export function parseCrontabLine(line) {
   const trimmed = line.trim()
   if (trimmed === '' || trimmed.startsWith('#')) return null
+
+  const macro = /^(@\w+)\s+(\S.*)$/.exec(trimmed)
+  if (macro) {
+    const [, name, command] = macro
+    if (name === '@reboot') return { expression: '@reboot', command: command.trim(), reboot: true }
+    return CRON_MACROS[name] ? { expression: CRON_MACROS[name], command: command.trim() } : null
+  }
 
   const parts = trimmed.split(/\s+/)
   if (parts.length < 6) return null
@@ -62,7 +75,7 @@ export function parseCrontabFile(content) {
     const line = lines[i]?.trim()
     if (!line) continue
     const parsed = parseCrontabLine(line)
-    if (parsed) entries.push({ expression: parsed.expression, command: parsed.command, lineNumber: i + 1 })
+    if (parsed) entries.push({ expression: parsed.expression, command: parsed.command, lineNumber: i + 1, ...(parsed.reboot ? { reboot: true } : {}) })
   }
 
   return entries

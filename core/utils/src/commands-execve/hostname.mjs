@@ -1,13 +1,42 @@
-/** Print the system hostname, read from `env.HOSTNAME` (a fixed `'localhost'`). */
+/**
+ * Show or set the system's host name: the kernel's, `/proc/sys/kernel/hostname`, which boot takes from `/etc/hostname`.
+ * Setting it (root only) lasts until the next boot, as on Linux; `hostnamectl set-hostname` also writes the file.
+ */
 
-const { argv, exit, writeAll, env } = globalThis.ecmaosSyscalls
+import { readTextFile } from './lib/fs-text.mjs'
+import { reasonOf } from './lib/errno.mjs'
 
-const usage = `Usage: hostname [OPTION]
-Print the system hostname.
+const { argv, exit, writeAll, env, open, close, geteuid, O_WRONLY, O_TRUNC } = globalThis.ecmaosSyscalls
+
+const usage = `Usage: hostname [OPTION] [NAME]
+Show or set the system's host name.
 
   -f, --fqdn              print the FQDN (Fully Qualified Domain Name)
   -s, --short             print the short hostname
+  -F, --file FILE         set the host name from FILE
   --help                  display this help and exit`
+
+const KERNEL_HOSTNAME = '/proc/sys/kernel/hostname'
+
+function current() {
+  try { return readTextFile(KERNEL_HOSTNAME).trim() || env.HOSTNAME || 'localhost' } catch { return env.HOSTNAME || 'localhost' }
+}
+
+function setName(name) {
+  if (geteuid() !== 0) { writeAll(2, new TextEncoder().encode('hostname: you must be root to change the host name\n')); return 1 }
+  if (!/^[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*$/.test(name) || name.length > 64) {
+    writeAll(2, new TextEncoder().encode('hostname: the specified hostname is invalid\n'))
+    return 1
+  }
+  try {
+    const fd = open(KERNEL_HOSTNAME, O_WRONLY | O_TRUNC)
+    try { writeAll(fd, new TextEncoder().encode(name + '\n')) } finally { close(fd) }
+  } catch (error) {
+    writeAll(2, new TextEncoder().encode(`hostname: ${reasonOf(error)}\n`))
+    return 1
+  }
+  return 0
+}
 
 function main() {
   const args = argv.slice(1)
@@ -20,10 +49,18 @@ function main() {
   let showShort = false
   const positional = []
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
     if (!arg) continue
 
-    if (arg === '--help' || arg === '-h') {
+    if (arg === '-F' || arg === '--file') {
+      const file = args[++i]
+      if (file === undefined) { writeAll(2, new TextEncoder().encode("hostname: option requires an argument -- 'F'\n")); return 1 }
+      let text
+      try { text = readTextFile(file) } catch (error) { writeAll(2, new TextEncoder().encode(`hostname: ${file}: ${reasonOf(error)}\n`)); return 1 }
+      const name = text.split('\n').map(line => line.trim()).find(line => line && !line.startsWith('#'))
+      return name ? setName(name) : 0
+    } else if (arg === '--help' || arg === '-h') {
       writeAll(1, new TextEncoder().encode(usage + '\n'))
       return 0
     } else if (arg === '-f' || arg === '--fqdn') {
@@ -44,12 +81,13 @@ function main() {
     }
   }
 
-  if (positional.length > 0) {
-    writeAll(2, new TextEncoder().encode("hostname: invalid argument\nTry 'hostname --help' for more information.\n"))
+  if (positional.length > 1) {
+    writeAll(2, new TextEncoder().encode("hostname: too many arguments\nTry 'hostname --help' for more information.\n"))
     return 1
   }
+  if (positional.length === 1) return setName(positional[0])
 
-  const hostname = env.HOSTNAME || 'localhost'
+  const hostname = current()
   let output
 
   if (showFqdn) {

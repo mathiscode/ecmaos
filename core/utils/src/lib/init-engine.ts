@@ -4,10 +4,14 @@
  * `respawn` entries when they exit, reaps everything else and re-reads the file on `SIGHUP`.
  * `SIGTERM` reboots, `SIGUSR1` halts, `SIGUSR2` powers off. Going down runs `shutdown` entries, sends `SIGTERM` to
  * every other process, then `SIGKILL` to what is left, then calls {@link InitHost.finish}. No Node built-ins.
+ * With a {@link ServiceManager}, init also runs systemd units: it starts them once the `respawn` entries are started,
+ * hands it every child it reaps, takes `systemctl`'s requests when a `SIGHUP` comes with some waiting, and has it stop
+ * every unit before the `shutdown` entries run.
  */
 
 import { DEFAULT_BACKOFF, DEFAULT_INITTAB, RespawnTracker, entryKey, parseInittab } from './inittab.js'
 import type { BackoffOptions, InitEntry } from './inittab.js'
+import type { ExitStatus, ServiceManager, ServiceReply, ServiceRequest } from './service-manager.js'
 
 export interface InitHost {
   /** The text of `/etc/inittab`, or `undefined` when there is no such file. */
@@ -29,6 +33,12 @@ export interface InitHost {
   sleep(ms: number): Promise<void>
   now(): number
   log(level: 'info' | 'warn' | 'error', message: string): void
+  /** How a reaped child ended, when the host knows. */
+  statusOf?(pid: number): ExitStatus
+  /** The requests `systemctl` has left for init; each is taken once. */
+  takeRequests?(): ServiceRequest[]
+  /** Answers a request. */
+  reply?(reply: ServiceReply): void
   /** Called once the `sysinit` and `wait` entries are done. */
   booted(): void | Promise<void>
   /** Sends `signal` to every process except init and the kernel's own; resolves to how many it reached. */
@@ -75,7 +85,8 @@ export class InitEngine {
   constructor(
     private readonly host: InitHost,
     backoff: BackoffOptions = DEFAULT_BACKOFF,
-    private readonly timings: InitTimings = DEFAULT_TIMINGS
+    private readonly timings: InitTimings = DEFAULT_TIMINGS,
+    private readonly services?: ServiceManager
   ) {
     this.tracker = new RespawnTracker(backoff)
   }
@@ -91,6 +102,8 @@ export class InitEngine {
     await this.host.booted()
     for (const entry of here) if (entry.action === 'once') { this.ran.add(entryKey(entry)); await this.start(entry) }
     for (const entry of here) if (entry.action === 'respawn') await this.start(entry)
+    // the units start while init goes on reaping, which is what tells the manager that a process it waits for is done
+    this.services?.boot(this.level).catch(error => this.host.log('error', `init: starting units: ${error instanceof Error ? error.message : String(error)}`))
   }
 
   /** The reaping loop. Returns only after {@link stop}. */
@@ -101,7 +114,7 @@ export class InitEngine {
         this.handleSignals()
         if (pid) this.exited(pid)
         if (this.requested) { await this.shutdown(this.requested); return }
-        if (this.reloadRequested) { this.reloadRequested = false; await this.reload() }
+        if (this.reloadRequested) { this.reloadRequested = false; if (this.serviceRequests()) await this.reload() }
         await this.startDue()
       } catch (error) {
         this.host.log('error', `init: ${error instanceof Error ? error.message : String(error)}`)
@@ -223,8 +236,32 @@ export class InitEngine {
     }
   }
 
+  /**
+   * `systemctl`'s requests, which come with a `SIGHUP`: each is handled without holding up the reaping it depends on.
+   * True when the `SIGHUP` was a plain one, or a `daemon-reload`, and inittab is to be read again too.
+   */
+  private serviceRequests(): boolean {
+    const requests = this.services ? this.host.takeRequests?.() ?? [] : []
+    if (requests.length === 0) return true
+    for (const request of requests) {
+      this.services!.handle(request).then(reply => this.host.reply?.(reply), error => this.host.reply?.({ id: request.id, ok: false, errors: [error instanceof Error ? error.message : String(error)] }))
+    }
+    return requests.some(request => request.action === 'daemon-reload')
+  }
+
+  /** Reaps until `work` is done, for the manager's work that waits on processes when the run loop is not running */
+  private async settle(work: Promise<unknown>): Promise<void> {
+    let done = false
+    void work.catch(() => {}).finally(() => { done = true })
+    while (!done) {
+      const pid = await this.host.wait(100).catch(() => 0)
+      if (pid) this.exited(pid)
+    }
+  }
+
   /** A child exited and is already reaped. Restarts it later when it is a `respawn` entry still in the file. */
   private exited(pid: number): void {
+    if (this.services?.exited(pid, this.host.statusOf?.(pid) ?? {})) return
     const entry = this.running.get(pid)
     if (!entry) return // an orphan adopted from a process that exited, or something already forgotten
     this.running.delete(pid)
@@ -258,6 +295,8 @@ export class InitEngine {
     this.goingDown = true
     this.pending.clear()
     this.host.log('warn', `init: the system is going down for ${mode}`)
+
+    if (this.services) await this.settle(this.services.shutdown())
 
     for (const entry of this.entries) {
       if (entry.action === 'shutdown') await this.runShutdownEntry(entry)

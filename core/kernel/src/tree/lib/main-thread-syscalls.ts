@@ -54,6 +54,7 @@ import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { hostPresenters, presenters, type Presented } from './presenters/index.ts'
 import { remoteKinds } from './presenters/remote.ts'
+import { isTimeZone } from './time-zone.ts'
 import type { Shell, SocketConnection } from '@ecmaos/types'
 
 // Declaration merging into `@zenfs/linux`'s `Syscalls` interface, so `define_syscall` accepts these names.
@@ -100,6 +101,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_password(oldPassword: string, newPassword: string, path: string): number
     users_sign(password: string, dataBase64: string, path: string): number
     users_authenticate(username: string, password: string): number
+    tz_set(name: string): number
     credentials_supported(): number
     proc_umask(mask: number): number
     proc_nice(op: number, pid: number, value: number): number
@@ -2097,6 +2099,17 @@ export function installMainThreadSyscalls(): void {
   // What `su` and `sudo` ask before starting something as someone else: 1 when `password` is `username`'s.
   // Only a root process may ask (those two run with the setuid bit), so an ordinary program cannot use it
   // to guess passwords, only go through them, as on Linux.
+  // `timedatectl set-timezone`: writes /etc/timezone and gives the kernel's shells the zone's `TZ`. Root only, as
+  // changing /etc/localtime is on Linux.
+  define_syscall('tz_set', async (proc: Process, name: string) => {
+    requireRoot(proc, 'tz_set')
+    if (!isTimeZone(name)) throw Object.assign(new Error(`Invalid or not installed time zone '${name}'`), { errno: Errno.EINVAL })
+    const kernel = kernelOf(proc)
+    await kernel.filesystem.fs.writeFile('/etc/timezone', `${name}\n`, { mode: 0o644 })
+    await kernel.applyTimeZone(name)
+    return 0
+  })
+
   define_syscall('users_authenticate', async (proc: Process, username: string, password: string) => {
     requireRoot(proc, 'users_authenticate')
     try {

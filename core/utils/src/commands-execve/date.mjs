@@ -1,13 +1,14 @@
 /**
  * Print the date and time, as GNU `date` does: the current time or `-d STRING` / `-r FILE`, in local time or `-u`,
  * through a `+FORMAT` (every strftime conversion, with flags and widths), `-I[FMT]`, `-R` or `--rfc-3339=FMT`.
- * Setting the clock is refused: a browser cannot change it. The zone is the host's, or UTC when `TZ` names it.
+ * Setting the clock is refused: a browser cannot change it. The zone is the one `TZ` names, else the browser's.
  */
 
 import { getopt, tryHelp } from './lib/getopt.mjs'
 import { parseDate, useUtc } from './lib/datespec.mjs'
 import { readFileBytes } from './lib/bytes.mjs'
 import { strftime } from './lib/strftime.mjs'
+import { zoneAt } from './lib/tz.mjs'
 import { resolve } from './lib/path-utils.mjs'
 import { reasonOf, quotef } from './lib/errno.mjs'
 
@@ -36,6 +37,8 @@ const UTC_NAMES = /^(UTC|GMT|UCT|Z|Etc\/UTC|Etc\/GMT)(0|\+0|-0)?$/
 
 function zoneName(ms, utc) {
   if (utc) return 'UTC'
+  const zone = zoneAt(ms)
+  if (zone) return zone.abbr
   try {
     const part = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date(ms)).find(p => p.type === 'timeZoneName')
     return part?.value ?? 'UTC'

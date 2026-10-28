@@ -74,10 +74,11 @@ export async function tightenDirectoryModes(fs: Fs): Promise<string[]> {
 
 /**
  * Programs that run with their owner's privileges, which for these is root's: `su` and `sudo` check who
- * is asking and then start something as someone else, which a user's own program may not do. The kernel
+ * is asking and then start something as someone else, which a user's own program may not do; `crontab` and `at` keep
+ * their spools under `/var/spool/cron`, which only root can write. The kernel
  * honours the bit when it starts a program (see `setuidCredentials`), as Linux does.
  */
-export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo', '/bin/sudoedit']
+export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo', '/bin/sudoedit', '/bin/crontab', '/bin/at']
 
 /**
  * Gives the setuid programs their bit, every boot, since a rewritten command file is a fresh one. @returns the
@@ -119,6 +120,9 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/scp': '/bin/dropbear',
   '/bin/dropbearkey': '/bin/dropbear',
   '/bin/xdg-open': '/bin/open',
+  '/bin/atq': '/bin/at',
+  '/bin/atrm': '/bin/at',
+  '/bin/batch': '/bin/at',
   '/bin/pbcopy': '/bin/xclip',
   '/bin/pbpaste': '/bin/xclip',
   '/bin/neofetch': '/bin/fastfetch'

@@ -12,7 +12,7 @@ import { bindContext, boundContexts } from '@zenfs/core'
 import { execve, kill as zenfsKill, Process, processes, WaitQueue, wait_event_any } from '@zenfs/linux'
 
 import type { Kernel } from '#kernel.ts'
-import { forgetGroup, setpgid } from './job-control.ts'
+import { encodeStatus, forgetGroup, setpgid } from './job-control.ts'
 import { registerProcessKernel } from './main-thread-syscalls.ts'
 
 export const INIT_PATH = '/sbin/init'
@@ -77,8 +77,8 @@ export class Init {
   }
 
   /**
-   * Resolves to the pid of a child that has exited, which is reaped, or to 0 once `timeoutMs` passes
-   * (a negative number waits for ever).
+   * Resolves to the pid of a child that has exited, which is reaped, times 65536, plus its wait status (as `waitpid`
+   * packs it), or to 0 once `timeoutMs` passes (a negative number waits for ever).
    * @throws EINTR when a signal arrives first
    */
   async wait(timeoutMs: number): Promise<number> {
@@ -87,9 +87,9 @@ export class Init {
     const exited = () => [...init.children].find(child => child.code !== undefined)
     if (!await wait_event_any([this.events], () => !!exited(), init, timeoutMs)) return 0
     const done = exited()!
-    const pid = done.pid
+    const packed = done.pid * 65536 + encodeStatus(done.code, done.killed_by)
     done.reap()
-    return pid
+    return packed
   }
 
   /**

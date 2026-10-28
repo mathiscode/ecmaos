@@ -3,8 +3,11 @@
  * %l %m %M %n %N %p %P %r %R %s %S %t %T %u %U %V %w %W %x %X %y %Y %z %Z %%`), the flags `-` `_` `0` `^` `#`, a field
  * width, `%:z` / `%::z`, and the `E` and `O` modifiers (ignored). An unknown conversion is printed as written.
  *
- * `fields` is `{ ms, utc, zone }`: the instant, whether to read it in UTC, and the zone's abbreviation.
+ * `fields` is `{ ms, utc, zone }`: the instant, whether to read it in UTC, and the zone's abbreviation. Local time is
+ * the zone `TZ` names (`lib/tz.mjs`), else the browser's.
  */
+
+import { zoneAt } from './tz.mjs'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -12,6 +15,11 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 export function breakdown(ms, utc) {
   const d = new Date(ms)
   if (utc) return { Y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate(), H: d.getUTCHours(), M: d.getUTCMinutes(), S: d.getUTCSeconds(), w: d.getUTCDay(), offset: 0 }
+  const zone = zoneAt(ms)
+  if (zone) {
+    const w = new Date(ms + zone.offset * 60000)
+    return { Y: w.getUTCFullYear(), m: w.getUTCMonth(), d: w.getUTCDate(), H: w.getUTCHours(), M: w.getUTCMinutes(), S: w.getUTCSeconds(), w: w.getUTCDay(), offset: zone.offset }
+  }
   return { Y: d.getFullYear(), m: d.getMonth(), d: d.getDate(), H: d.getHours(), M: d.getMinutes(), S: d.getSeconds(), w: d.getDay(), offset: -d.getTimezoneOffset() }
 }
 

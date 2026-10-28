@@ -65,6 +65,11 @@ export class I18n {
     }
   }
 
+  /** The languages there are translations for, as codes (`en`, `de`) */
+  get languages(): string[] {
+    return Object.keys(resources)
+  }
+
   /**
    * Converts a locale string to a language code
    * Examples: 'en_US' -> 'en', 'es_ES' -> 'es', 'en' -> 'en'

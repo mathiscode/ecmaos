@@ -10,12 +10,16 @@
  * pid 1 ignores signals it has not caught, so `kill -9 1` does nothing. It catches `SIGHUP` (re-read inittab) and, as
  * BusyBox does, `SIGTERM` (reboot), `SIGUSR1` (halt) and `SIGUSR2` (poweroff), which `reboot`, `halt` and `poweroff`
  * send.
+ * It is also the service manager (`lib/service-manager.ts`). `systemctl` asks it for something by leaving
+ * `/run/systemd/req-ID.json` and sending `SIGHUP`; the answer is `/run/systemd/rep-ID.json`. Only root can write there.
  */
 
 import { InitEngine } from '../lib/init-engine.ts'
+import { ServiceManager } from '../lib/service-manager.ts'
+import { RUN_DIR } from '../lib/unit-file.ts'
 
 const sys = globalThis.ecmaosSyscalls
-const { open, read, close, write, custom, spawn, exit, getpid, onSignal, pendingSignals, O_RDONLY } = sys
+const { open, read, close, write, writeAll, custom, spawn, exit, getpid, onSignal, pendingSignals, readdir, readlink, lstat, stat, mkdir, unlink, rename, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
 
 const SIGNALS = { HUP: 1, USR1: 10, USR2: 12, TERM: 15 }
 
@@ -82,6 +86,63 @@ async function call(fn, ...args) {
   }
 }
 
+/** How each reaped child ended, until the engine asks */
+const statuses = new Map()
+
+/** Writes a file whole, through a temporary name so a reader never sees half of it */
+function writeFileText(path, text) {
+  const temporary = `${path}.${Math.random().toString(36).slice(2, 8)}`
+  const fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+  try { writeAll(fd, encoder.encode(text)) } finally { close(fd) }
+  rename(temporary, path)
+}
+
+/** `/etc/passwd` and `/etc/group` as the manager needs them: an account by name, a group's id by name */
+function accounts() {
+  const readOr = path => { try { return readFileText(path) } catch { return '' } }
+  const lines = text => text.split('\n').filter(line => line.trim() && !line.startsWith('#')).map(line => line.split(':'))
+  const groups = lines(readOr('/etc/group')).map(([name, , gid, members]) => ({ name, gid: Number(gid), members: (members ?? '').split(',').map(m => m.trim()).filter(Boolean) }))
+  const users = lines(readOr('/etc/passwd')).map(([name, , uid, gid, , home, shell]) => ({ name, uid: Number(uid), gid: Number(gid), home: home || '/', shell: shell || '' }))
+  return { users, groups }
+}
+
+const unitReader = {
+  readdir(path) { try { return readdir(path) } catch { return [] } },
+  readFile(path) { try { return readFileText(path) } catch { return undefined } },
+  readlink(path) { try { return readlink(path) } catch { return undefined } },
+  isExecutable(path) {
+    try { const info = stat(path); return (info.mode & 0o170000) === 0o100000 && (info.mode & 0o111) !== 0 } catch { return false }
+  }
+}
+
+const services = new ServiceManager({
+  reader: unitReader,
+  async spawn(argv, { cwd, env, credentials }) {
+    return await call(spawn, argv[0], argv, { cwd, env, pgid: 0, ...(credentials ? { credentials } : {}) })
+  },
+  async killpg(pgid, signal) { await call(custom, 'proc_killpg', pgid, signal) },
+  async kill(pid, signal) { await call(custom, 'proc_kill', pid, signal) },
+  alive(pid) { try { lstat(`/proc/${pid}`); return true } catch { return false } },
+  writeFile: writeFileText,
+  mkdir(path) { try { stat(path) } catch { mkdir(path, 0o755) } },
+  account(name) {
+    const { users, groups } = accounts()
+    const user = users.find(candidate => candidate.name === name)
+    if (!user) return undefined
+    return { ...user, groups: groups.filter(group => group.members.includes(name) && group.gid !== user.gid).map(group => group.gid) }
+  },
+  groupId(name) { return accounts().groups.find(group => group.name === name)?.gid },
+  syslog(message) {
+    try {
+      const fd = open('/dev/log', O_WRONLY)
+      try { writeAll(fd, encoder.encode(`<30>init[1]: ${message}\n`)) } finally { close(fd) }
+    } catch { /* no log yet */ }
+  },
+  now: () => Date.now(),
+  setTimer: (callback, ms) => setTimeout(callback, ms),
+  clearTimer: timer => clearTimeout(timer)
+})
+
 const host = {
   readInittab() {
     collectSignals()
@@ -116,11 +177,45 @@ const host = {
     collectSignals()
     if (seen.size) return 0 // a signal is already waiting: let the engine act on it first
     try {
-      return await call(custom, 'init_wait', timeoutMs)
+      const packed = await call(custom, 'init_wait', timeoutMs)
+      if (!packed) return 0
+      const pid = Math.floor(packed / 65536)
+      const status = packed % 65536
+      statuses.set(pid, status & 0x7f ? { signal: status & 0x7f } : { code: (status >> 8) & 0xff })
+      return pid
     } catch (error) {
       if (String(error?.code ?? error?.message ?? error).includes('EINTR')) return 0
       throw error
     }
+  },
+
+  statusOf(pid) {
+    const status = statuses.get(pid) ?? {}
+    statuses.delete(pid)
+    return status
+  },
+
+  takeRequests() {
+    collectSignals()
+    const requests = []
+    let names = []
+    try { names = readdir(RUN_DIR) } catch { return requests }
+    for (const name of names) {
+      if (!/^req-[\w-]+\.json$/.test(name)) continue
+      const path = `${RUN_DIR}/${name}`
+      try {
+        requests.push(JSON.parse(readFileText(path)))
+      } catch (error) {
+        host.log('warn', `init: unreadable request ${name}: ${error?.message ?? error}`)
+      }
+      try { unlink(path) } catch { /* taken */ }
+    }
+    return requests
+  },
+
+  reply(answer) {
+    if (!/^[\w-]+$/.test(String(answer.id))) return
+    try { writeFileText(`${RUN_DIR}/rep-${answer.id}.json`, JSON.stringify(answer) + '\n') } catch (error) { host.log('warn', `init: cannot answer ${answer.id}: ${error?.message ?? error}`) }
   },
 
   takeSignals() {
@@ -161,7 +256,7 @@ if (getpid() !== 1) {
 // Asking for a signal is what makes the kernel raise it on this thread instead of ignoring it.
 for (const [name, number] of Object.entries(SIGNALS)) onSignal(number, () => seen.add(name))
 
-const engine = new InitEngine(host)
+const engine = new InitEngine(host, undefined, undefined, services)
 try {
   await engine.boot()
 } catch (error) {

@@ -1,0 +1,81 @@
+/**
+ * Crontab-line parsing for `crontab`, which checks a file before installing it: a copy of the kernel's
+ * `src/bin/commands/lib/crontab.mjs`, which `crond` schedules from (each package bundles its own programs).
+ */
+
+import { parseCronExpression } from 'cron-schedule'
+
+/** The `@` names Vixie cron takes in place of the five fields; `@reboot` is run once when crond starts after a boot. */
+export const CRON_MACROS = {
+  '@yearly': '0 0 1 1 *', '@annually': '0 0 1 1 *', '@monthly': '0 0 1 * *', '@weekly': '0 0 * * 0',
+  '@daily': '0 0 * * *', '@midnight': '0 0 * * *', '@hourly': '0 * * * *'
+}
+
+/** Parse a single crontab line - `null` for an empty line, a comment, or something unparseable. */
+export function parseCrontabLine(line) {
+  const trimmed = line.trim()
+  if (trimmed === '' || trimmed.startsWith('#')) return null
+
+  const macro = /^(@\w+)\s+(\S.*)$/.exec(trimmed)
+  if (macro) {
+    const [, name, command] = macro
+    if (name === '@reboot') return { expression: '@reboot', command: command.trim(), reboot: true }
+    return CRON_MACROS[name] ? { expression: CRON_MACROS[name], command: command.trim() } : null
+  }
+
+  const parts = trimmed.split(/\s+/)
+  if (parts.length < 6) return null
+
+  let expression
+  let command
+
+  if (parts.length === 6) {
+    // 5-field format: minute hour day month weekday command
+    expression = parts.slice(0, 5).join(' ')
+    command = parts[5] ?? ''
+  } else {
+    // 7+ parts: try the 6-field (extended, with seconds) format first, since the user wrote 6
+    // fields; fall back to 5-field only if 6-field doesn't parse.
+    const potential5Field = parts.slice(0, 5).join(' ')
+    const potential6Field = parts.slice(0, 6).join(' ')
+
+    let valid6Field = false
+    try { parseCronExpression(potential6Field); valid6Field = true } catch { /* not 6-field */ }
+
+    let valid5Field = false
+    try { parseCronExpression(potential5Field); valid5Field = true } catch { /* not 5-field */ }
+
+    if (valid6Field) {
+      expression = potential6Field
+      command = parts.slice(6).join(' ')
+    } else if (valid5Field) {
+      expression = potential5Field
+      command = parts.slice(5).join(' ')
+    } else {
+      return null
+    }
+  }
+
+  try {
+    parseCronExpression(expression)
+  } catch {
+    return null
+  }
+
+  return { expression, command: command.trim() }
+}
+
+/** Parse a complete crontab file's content into `{ expression, command, lineNumber }` entries. */
+export function parseCrontabFile(content) {
+  const lines = content.split('\n')
+  const entries = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]?.trim()
+    if (!line) continue
+    const parsed = parseCrontabLine(line)
+    if (parsed) entries.push({ expression: parsed.expression, command: parsed.command, lineNumber: i + 1, ...(parsed.reboot ? { reboot: true } : {}) })
+  }
+
+  return entries
+}
