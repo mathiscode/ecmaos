@@ -41,6 +41,8 @@ import { installWaliSignals } from './wali-signals.ts'
 import { installSysvIpc } from './sysv-ipc.ts'
 import { installRecordLocks } from './record-locks.ts'
 import { installFsWatch } from './fs-watch.ts'
+import { installOpenDirectory } from './open-directory.ts'
+import { installUtimes } from './utimes.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -541,6 +543,8 @@ export function installMainThreadSyscalls(): void {
   if (installed) return
   installed = true
   installFdLinks()
+  installOpenDirectory()
+  installUtimes()
   installPipeWakeup()
   installPtys()
   installEcmaosBinfmt()

@@ -95,7 +95,8 @@ export const migratedCommands = [
   'free', 'who', 'last', 'ecmash', 'init', 'getty', 'login', 'env', 'printenv', 'su', 'sudo', 'sudoedit', 'fsck', 'true', 'false', 'yes', 'xargs', 'timeout', 'nohup', 'watch', 'strace', 'md5sum', 'sha1sum', 'sha256sum', 'sha384sum', 'sha512sum', 'base64', 'expr', 'du', 'egrep', 'fgrep', 'more', 'chgrp', 'gzip', 'gunzip', 'zcat', 'file', 'hexdump', 'getent', 'stty', 'tput', 'visudo', 'dmesg', 'lscpu', 'findmnt', 'mountpoint', 'diff3', 'locate', 'updatedb', 'ssh-keygen', 'mesg', 'nice', 'renice', 'logger', 'lsb_release', 'unshare', 'chroot', 'nsenter', 'fastfetch', 'wall', 'write', 'ss', 'w', 'ip', 'lsblk', 'licenses',
   'crontab', 'at', 'systemd-cat', 'systemctl', 'service', 'journalctl', 'hostnamectl', 'timedatectl', 'localectl', 'locale',
   'truncate', 'sync', 'setsid', 'flock', 'base32', 'numfmt', 'b2sum', 'sha224sum', 'tsort', 'csplit', 'pstree', 'fuser', 'iconv',
-  'dos2unix', 'shred', 'fallocate', 'lslocks', 'inotifywait', 'arch', 'users', 'link', 'unlink', 'sum', 'pathchk'
+  'dos2unix', 'shred', 'fallocate', 'lslocks', 'inotifywait', 'arch', 'users', 'link', 'unlink', 'sum', 'pathchk',
+  'wget'
 ] as const
 
 /**

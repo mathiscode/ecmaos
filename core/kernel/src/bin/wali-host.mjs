@@ -1486,7 +1486,7 @@ function utimensat(dirfd, pathPtr, timesPtr, flags) {
   let atime = time(0), mtime = time(1)
   if (atime === null || mtime === null) return -EINVAL
   if (atime === undefined || mtime === undefined) {
-    const value = syscall_raw(pathPtr ? 'stat' : 'fstat', path)
+    const value = syscall_raw(pathPtr ? (flags & AT_SYMLINK_NOFOLLOW ? 'lstat' : 'stat') : 'fstat', path)
     if (value < 0) return value
     const dv = new DataView(returned.buffer, returned.byteOffset)
     const statTime = at => Number(dv.getBigInt64(at, true)) + Number(dv.getBigInt64(at + 8, true)) / 1e9
@@ -1494,7 +1494,8 @@ function utimensat(dirfd, pathPtr, timesPtr, flags) {
     mtime ??= statTime(88)
   }
   // `utimes` takes seconds; `futimes` sets the open file's times as they are kept, in milliseconds
-  return pathPtr ? syscall_raw('utimes', path, atime, mtime) : syscall_raw('futimes', path, atime * 1000, mtime * 1000)
+  // AT_SYMLINK_NOFOLLOW sets a symbolic link's own times, as lutimes does
+  return pathPtr ? syscall_raw(flags & AT_SYMLINK_NOFOLLOW ? 'lutimes' : 'utimes', path, atime, mtime) : syscall_raw('futimes', path, atime * 1000, mtime * 1000)
 }
 
 function readTimespec(ptr) {
@@ -2306,6 +2307,12 @@ const calls = {
   },
 
   SYS_open: (path, flags, mode) => big(withinLimit(opened(syscall_raw('open', readString(path), flags, mode), flags))),
+  // fchdir: the directory a descriptor is open on, as /proc/self/fd names it, made the working directory (rsync changes
+  // into its destination this way, through a descriptor it opened without following a stranger's symbolic link)
+  SYS_fchdir: fd => {
+    const dir = resolveAt(fd, 0, AT_EMPTY_PATH)
+    return typeof dir === 'number' ? big(dir) : big(syscall_raw('chdir', dir))
+  },
   SYS_openat: (dirfd, path, flags, mode) => at(dirfd, path, resolved => withinLimit(opened(syscall_raw('open', resolved, flags, mode), flags))),
   SYS_memfd_create: (_name, flags) => big(memfdCreate(num(flags))),
   SYS_fallocate: (fd, mode, offset, length) => big(fallocate(fd, num(mode), num(offset), num(length))),

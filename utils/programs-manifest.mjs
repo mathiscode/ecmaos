@@ -46,11 +46,16 @@ for (const [name, program] of Object.entries(manifest.programs)) {
 
 const pin = readFileSync(path.join(import.meta.dirname, 'emscripten-version'), 'utf8').trim()
 if (manifest.toolchain?.emscripten !== pin) problems.push(`toolchain.emscripten is ${manifest.toolchain?.emscripten}, utils/emscripten-version pins ${pin}`)
-// A program built on WALI's musl says so (`"toolchain": "wali"`); the package then names the pin in utils/wali-version
+// A program built on WALI's musl says so (`"toolchain": "wali"`) and names the musl and LLVM it was built with (`built`),
+// since a program is rebuilt only when it changes and so may predate the pin; the package names the pin in
+// utils/wali-version, which is what a build uses now
 const wali = Object.fromEntries([...readFileSync(path.join(import.meta.dirname, 'wali-version'), 'utf8').matchAll(/^(\w+)=(\S+)$/gm)].map(([, key, value]) => [key, value]))
 const waliPin = `musl ${wali.MUSL_COMMIT}, LLVM ${wali.LLVM_VERSION}`
 const waliPrograms = Object.entries(manifest.programs).filter(([, program]) => program.toolchain === 'wali')
 if (waliPrograms.length && manifest.toolchain?.wali !== waliPin) problems.push(`toolchain.wali is ${manifest.toolchain?.wali}, utils/wali-version pins ${waliPin}`)
+for (const [name, program] of waliPrograms) {
+  if (!/^musl [0-9a-f]{40}, LLVM \d+\.\d+\.\d+$/.test(program.built ?? '')) problems.push(`${name}: no built (the musl and LLVM it was built with, e.g. "${waliPin}")`)
+}
 for (const [name, program] of Object.entries(manifest.programs)) {
   if (program.toolchain !== undefined && program.toolchain !== 'wali') problems.push(`${name}: toolchain is ${program.toolchain}; a program names one only when it is wali`)
 }

@@ -2,7 +2,7 @@
   "package": "@ecmaos/coreutils",
   "toolchain": {
     "emscripten": "6.0.9",
-    "wali": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8"
+    "wali": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3"
   },
   "programs": {
     "bc": {
@@ -12,6 +12,7 @@
       "description": "bc, and dc (the same binary under another name)",
       "homepage": "https://git.gavinhoward.com/gavin/bc",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 281041,
       "sha256": "61731d1ca6a41f80c5e66bc35a5e3e7634f39e4d4798f9cbdfd3fd4d84dece74"
     },
@@ -22,6 +23,7 @@
       "description": "brotli, the compressor and decompressor",
       "homepage": "https://github.com/google/brotli",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 838590,
       "sha256": "575a95910e029d5f9c7e1c9bd6d4d0b81636f5c62b79fe00ebf1b9f26968e6a3"
     },
@@ -32,6 +34,7 @@
       "description": "dash, the Debian Almquist shell (a POSIX sh); it forks, so it is built with Asyncify",
       "homepage": "http://gondor.apana.org.au/~herbert/dash/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 199788,
       "sha256": "0d045edeb16992e486aba937589543d9372a74fdafc53454264cc1989ec826a2"
     },
@@ -42,6 +45,7 @@
       "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
       "homepage": "https://jqlang.org",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1000971,
       "sha256": "0da89d878620ab2bf360ae7f6840ec2f3e55f2860d8dd773bee49dd6a73f9f04"
     },
@@ -52,6 +56,7 @@
       "description": "The Lua 5.4 interpreter",
       "homepage": "https://www.lua.org",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 314293,
       "sha256": "027e11ca1f2b20121908146860394e127a1a63957099b6ae323141e6d788fe8b"
     },
@@ -62,6 +67,7 @@
       "description": "The SQLite command-line shell, with linenoise for line editing",
       "homepage": "https://sqlite.org",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1712573,
       "sha256": "20d16b3c557d5da9e94193fa1c64b34dfa504efec90982887678c9a630ca3fcc"
     },
@@ -72,6 +78,7 @@
       "description": "bzip2, and bunzip2 and bzcat (links to it)",
       "homepage": "https://sourceware.org/bzip2/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 142464,
       "sha256": "b090405f5b17c49062a76265eafc2ffe049b86e839e67d3ad1f76cb430a854d7"
     },
@@ -82,6 +89,7 @@
       "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)",
       "homepage": "https://tukaani.org/xz/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 270001,
       "sha256": "6f713a7b89e2638574416ef47215ccce3244b897d7a431dbfde3b3ef9c896bc3"
     },
@@ -92,6 +100,7 @@
       "description": "zstd, and unzstd and zstdcat (links to it)",
       "homepage": "https://facebook.github.io/zstd/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 773629,
       "sha256": "1f7a4c8bfb8b62e44cc8e6d93494a0febd04c70d311f9b29aef45be84ca7f2f8"
     },
@@ -102,6 +111,7 @@
       "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
       "homepage": "https://quickjs-ng.github.io/quickjs/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1166757,
       "sha256": "06387406495c4311c35c2f1102777952dd06b27ca9453959ab74d928498ad55e"
     },
@@ -112,6 +122,7 @@
       "description": "patch, from toybox: applies unified, context and normal diffs",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 122098,
       "sha256": "5d94a1fd918af84b78192d5df9dd37be2fbaae1d02c4e4ebcc263dc513b8b266"
     },
@@ -122,6 +133,7 @@
       "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 74622,
       "sha256": "f72fe23ca0469c48852a3e63ec4eb16182d77a5a8352d67f4ebd2d1cd1338ad5"
     },
@@ -132,6 +144,7 @@
       "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 84626,
       "sha256": "bc1a72429cdd4b75ac728e0cff57f272cb9fb918d083dda0b456deb2a6734289"
     },
@@ -142,6 +155,7 @@
       "description": "ps, from toybox: lists processes (ps -ef, ps aux, -o columns), read from /proc",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 137675,
       "sha256": "7a512b4c040cbbef78d2980f480f94493fc1d6b9ec9a0e4b8d85d42c6038aa95"
     },
@@ -152,6 +166,7 @@
       "description": "lsof, from toybox: lists the files, sockets and pipes processes have open",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 104465,
       "sha256": "652e2f9a18a5c25dee0a7af39c4f97aad5c6eb7fac06fb64f6be0b68140a677f"
     },
@@ -162,6 +177,7 @@
       "description": "vmstat, from toybox: reports memory, processes and CPU time from /proc",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 93116,
       "sha256": "4d41ed05d04efec766c845e02b5dbdaab29c3452d1427cc1795407b7221c56ab"
     },
@@ -172,6 +188,7 @@
       "description": "netstat, from toybox: lists listening and open sockets from /proc/net",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 127838,
       "sha256": "df37d12752411cd59aad1aa1ad0e86481b0221c9e50a568fd71098f3160091b0"
     },
@@ -182,6 +199,7 @@
       "description": "sysctl, from toybox: reads and sets kernel parameters in /proc/sys",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 78778,
       "sha256": "7dd8a5bfab2d17b14c61428a138ea0c34403fbe0d743972172120cb154cbc8f7"
     },
@@ -192,6 +210,7 @@
       "description": "lsmod, from toybox: lists the loaded kernel modules",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 56171,
       "sha256": "01004e6f9f27c580194a33d94a1f9f1c023c616cd4d1c71e4293f2644c6d38d5"
     },
@@ -202,6 +221,7 @@
       "description": "pidof, from toybox: finds the process ids of a program by name",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 73921,
       "sha256": "5be24f86a89b529a5b2e4d74e1370407cfc281fd97b054142b1ecdd335a11bda"
     },
@@ -212,6 +232,7 @@
       "description": "ncdu, the disk usage browser, with ncurses",
       "homepage": "https://dev.yorhel.nl/ncdu",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 316985,
       "sha256": "48455408e9d7deb0ff97083e90ad6d7e5b9656c6a562f5e7239f442d3d696d75"
     },
@@ -222,6 +243,7 @@
       "description": "mg, a small Emacs-style editor, with ncurses",
       "homepage": "https://github.com/hboetes/mg",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 357978,
       "sha256": "491b5038aa890716c8b784bdb233a9a934ec4cc3cde76e5db228915ba30ceda3"
     },
@@ -232,6 +254,7 @@
       "description": "MicroPython: a lean Python 3 interpreter and REPL",
       "homepage": "https://micropython.org/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 783429,
       "sha256": "3d51fc8868eeb3ef278e3058cb6ec9fd1ede1d1961539659bfbcb7070400bc05"
     },
@@ -242,6 +265,7 @@
       "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
       "homepage": "https://mandoc.bsd.lv",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 628001,
       "sha256": "a410662e340b642ab01ac335455e4bb63f0bae9ea733f793ae93e1b36edfff29"
     },
@@ -252,6 +276,7 @@
       "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 177013,
       "sha256": "e540923e7ede81da293914864dabcb2158a47dd4f387e70541fdf00c80076138"
     },
@@ -262,6 +287,7 @@
       "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 47983,
       "sha256": "8de7d7bc85de0d179be265d04610ca923e829f5981f7495910bd9ac37e3ea424"
     },
@@ -272,6 +298,7 @@
       "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 74418,
       "sha256": "450f5c9e00c94ecd7dbcc3081160aba5f8141419abb9cc6511b0ecfe9576676c"
     },
@@ -282,6 +309,7 @@
       "description": "wldemo, a demo Wayland client: a resizable window with a bouncing ball, a pointer follower and the last key typed (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 375377,
       "sha256": "d2b05dd77b62db8d2cb21c33051a92f78f7fbeb58a8b6b2944266169ebd9fbb1"
     },
@@ -292,6 +320,7 @@
       "description": "sdlsnake, Snake with sound on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer, M mutes (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1920814,
       "sha256": "2a80e7bcf95a4b621fb8513f8ff8057de02e1cac0c4e3fea6dd9d68bb97a2a68"
     },
@@ -302,6 +331,7 @@
       "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a brush-sized ring pointer over the picture (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1919968,
       "sha256": "8dc9d9f9ae050885a9838b5e9cca1e6ac8e589329a7f76d6a71ac3aac8090661"
     },
@@ -312,6 +342,7 @@
       "description": "sdlclip, shows the clipboard and what is dropped on its window, on SDL 3 through its Wayland driver: C copies a line, V reads the clipboard (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1918973,
       "sha256": "b69b470fba2b463fd952ebbc9de2b56ce8133048a2aec30d39916ac4ce9de404"
     },
@@ -322,6 +353,7 @@
       "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/input/event<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1919638,
       "sha256": "41fe9d2db29b6e60c5ae6b39e6ed4f07e983370aa4f63e8c4cd8daa329ae47fd"
     },
@@ -332,6 +364,7 @@
       "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1919346,
       "sha256": "a2bb81349ca2370d50f41accef5683d25ecae97095f6ae311481ce2433de534d"
     },
@@ -342,6 +375,7 @@
       "description": "sdlgears, three meshing gears in OpenGL ES on SDL 3, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
       "homepage": "https://github.com/ecmaos/ecmaos",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1925129,
       "sha256": "5844ce8a750e39fbd11e9c6296a7dc735e5188249a43550d5392401804fed674"
     },
@@ -352,6 +386,7 @@
       "description": "tmux, the terminal multiplexer, with libevent and ncurses; it forks, so it is built with Asyncify",
       "homepage": "https://github.com/tmux/tmux",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 1660330,
       "sha256": "2bb4d402b71194d1c4f905b1d07742f7d4dff387379d4e8e5c08e796c5575e21"
     },
@@ -362,6 +397,7 @@
       "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify",
       "homepage": "https://matt.ucc.asn.au/dropbear/dropbear.html",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 829517,
       "sha256": "17713bc2e5d7ec3c9156140b9bcc86e9a625c66e4241fdce12d84e6a4c0223bc"
     },
@@ -372,6 +408,7 @@
       "description": "CPython, with os.fork, subprocess and the standard library; it forks, so it is built with Asyncify",
       "homepage": "https://www.python.org/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 17426726,
       "sha256": "ea816bdfded8a6c482538a543b1b3c209824165fe4d0f4cf13dd17615f1dd7be",
       "runtime": {
@@ -387,6 +424,7 @@
       "description": "lsusb, from toybox: lists the USB devices in /sys/bus/usb/devices",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 135294,
       "sha256": "96f1048ed3ff0399ff6ec2d5b5cc7285efa763380d3cfe7d8c7331d6e002c278"
     },
@@ -397,6 +435,7 @@
       "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices",
       "homepage": "https://landley.net/toybox/",
       "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 139980,
       "sha256": "3d87d4751cfc9d84662be4fd3953ea3740130ed88497ea9c3950ba6766e7c37d"
     }
