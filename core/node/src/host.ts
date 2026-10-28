@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { DefaultFilesystemOptions } from '@ecmaos/kernel/filesystem'
+import { setHostMemory } from '@ecmaos/kernel/lib/meminfo'
 import { SyslogDevice } from '@ecmaos/kernel/lib/syslog'
 import { InMemory } from '@zenfs/core'
 import * as TTYDevice from '@ecmaos-devices/tty'
@@ -68,6 +69,8 @@ function openAddress(url: string, env: NodeJS.ProcessEnv): Promise<void> {
  */
 export function nodeHost(options: NodeHostOptions = {}): NodeHost {
   const env = options.env ?? process.env
+  // `/proc/meminfo`, and so `free` and `sysinfo`, report this machine's memory; a browser has no call that says
+  setHostMemory(() => ({ total: os.totalmem(), free: os.freemem() }))
   const persistent = !options.ephemeral
   const dataDir = persistent ? resolveDataDir(options.data, env) : undefined
   const db = dataDir ? openDatabase(path.join(dataDir, 'root.db'), { synchronous: options.synchronous ?? synchronousFrom(env['ECMAOS_SYNCHRONOUS']) }) : undefined

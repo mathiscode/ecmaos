@@ -76,6 +76,7 @@
     "./lib/remote-fs": "./src/tree/lib/remote-fs.ts",
     "./lib/remote-mount": "./src/tree/lib/remote-mount.ts",
     "./lib/remote-device": "./src/tree/lib/remote-device.ts",
+    "./lib/meminfo": "./src/tree/lib/meminfo.ts",
     "./lib/syslog": "./src/tree/lib/syslog.ts",
     "./log": "./src/tree/log.ts",
     "./memory": "./src/tree/memory.ts",

@@ -62,6 +62,7 @@ import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS, DEFAULT_RESOLV, DEFAULT_SERVICES } from '#lib/hosts.ts'
 import { setSyslogSink } from '#lib/syslog.ts'
+import { registerSysDepth } from '#lib/sys-depth.ts'
 import { DEFAULT_ENVIRONMENT, DEFAULT_FSTAB, DEFAULT_ISSUE, newMachineId } from '#lib/etc-defaults.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
@@ -1087,6 +1088,8 @@ export class Kernel implements IKernel {
       initDriverCore()
       initMemDevices()
       populatePlatformBus()
+      // after the driver core: it makes `/sys/devices/system/cpu`, which this adds the masks to
+      registerSysDepth()
       // Programs start on workers made ready ahead of time
       installWarmThreads()
 

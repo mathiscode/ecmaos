@@ -19,6 +19,8 @@ import { chargeQuota } from '#lib/quota.ts'
 import { ConfigFS, DebugFS, DevTmpFS, ProcFS, SysFS } from '@zenfs/linux'
 import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerProcExtras } from '#lib/proc-extras.ts'
+import { registerProcDepth } from '#lib/proc-depth.ts'
+import { showMeminfo } from '#lib/meminfo.ts'
 import { init_uts } from '@zenfs/linux/uts'
 import { TarReader } from '@gera2ld/tarjs'
 import { ungzip } from 'pako'
@@ -447,6 +449,7 @@ export class Filesystem {
    */
   private registerProcEntries() {
     registerProcExtras(proc_root)
+    registerProcDepth(proc_root)
 
     proc_root.children.set('version', {
       mode: 0o444,
@@ -468,24 +471,7 @@ export class Filesystem {
       }
     })
 
-    proc_root.children.set('meminfo', {
-      mode: 0o444,
-      show: () => {
-        const lines: string[] = []
-        if ('deviceMemory' in navigator && navigator.deviceMemory) {
-          const totalKb = Math.round(navigator.deviceMemory * 1024 * 1024)
-          lines.push(`MemTotal:       ${totalKb} kB`)
-        }
-
-        if (performance.memory) {
-          const { totalJSHeapSize, usedJSHeapSize, jsHeapSizeLimit } = performance.memory
-          lines.push(`MemFree:        ${Math.round((totalJSHeapSize - usedJSHeapSize) / 1024)} kB`)
-          lines.push(`MemAvailable:   ${Math.round((jsHeapSizeLimit - usedJSHeapSize) / 1024)} kB`)
-        }
-
-        return lines.length ? lines.join('\n') + '\n' : ''
-      }
-    })
+    proc_root.children.set('meminfo', { mode: 0o444, show: showMeminfo })
 
     proc_root.children.set('userAgent', {
       mode: 0o444,
