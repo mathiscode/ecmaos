@@ -142,6 +142,25 @@ async function lock(proc: Process, op: number, key: string, type: number, start:
   }
 }
 
+/**
+ * `/proc/locks`: one line per lock, as Linux writes them, `N: POSIX  ADVISORY  WRITE PID MAJ:MIN:INODE START END`, the
+ * device in hex and the end inclusive or `EOF`
+ */
+export function showLocks(): string {
+  const lines: string[] = []
+  for (const [key, locks] of files) {
+    const [dev = '0', ino = '0'] = key.split(':')
+    const device = BigInt(dev)
+    const major = Number((device >> 8n) & 0xfffn)
+    const minor = Number((device & 0xffn) | ((device >> 12n) & 0xfff00n))
+    const hex = (n: number) => n.toString(16).padStart(2, '0')
+    for (const held of locks) {
+      lines.push(`${lines.length + 1}: POSIX  ADVISORY  ${held.type === WRITE_LOCK ? 'WRITE' : 'READ '} ${held.owner} ${hex(major)}:${hex(minor)}:${ino} ${held.start} ${held.end === Infinity ? 'EOF' : held.end - 1}`)
+    }
+  }
+  return lines.length ? lines.join('\n') + '\n' : ''
+}
+
 let installed = false
 export function installRecordLocks(): void {
   if (installed) return

@@ -40,6 +40,7 @@ import { installThreads, leaderOf } from './wali-threads.ts'
 import { installWaliSignals } from './wali-signals.ts'
 import { installSysvIpc } from './sysv-ipc.ts'
 import { installRecordLocks } from './record-locks.ts'
+import { installFsWatch } from './fs-watch.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -102,6 +103,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_sign(password: string, dataBase64: string, path: string): number
     users_authenticate(username: string, password: string): number
     tz_set(name: string): number
+    sync_all(): number
     credentials_supported(): number
     proc_umask(mask: number): number
     proc_nice(op: number, pid: number, value: number): number
@@ -552,6 +554,7 @@ export function installMainThreadSyscalls(): void {
   installWaliSignals()
   installSysvIpc()
   installRecordLocks()
+  installFsWatch((proc, path, text) => writeScratch(kernelOf(proc), proc, path, text))
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
     let inode: NonNullable<typeof handle>['inode']
@@ -2099,6 +2102,13 @@ export function installMainThreadSyscalls(): void {
   // What `su` and `sudo` ask before starting something as someone else: 1 when `password` is `username`'s.
   // Only a root process may ask (those two run with the setuid bit), so an ordinary program cannot use it
   // to guess passwords, only go through them, as on Linux.
+  // `sync`: asks every mounted filesystem to write out what it holds. The IndexedDB root commits each write as it is
+  // made, so there it has nothing to do; a backend that buffers (a remote mount) flushes.
+  define_syscall('sync_all', async () => {
+    for (const mounted of new Set(mounts.values())) await mounted.sync().catch(() => {})
+    return 0
+  })
+
   // `timedatectl set-timezone`: writes /etc/timezone and gives the kernel's shells the zone's `TZ`. Root only, as
   // changing /etc/localtime is on Linux.
   define_syscall('tz_set', async (proc: Process, name: string) => {

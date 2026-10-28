@@ -1,6 +1,6 @@
 /**
  * More of `/proc` for the tools that read it: `limits`, `mountinfo`, `maps`, `smaps`, `io`, `ns/`, `oom_score`, `oom_score_adj`,
- * `wchan` and `loginuid` under each process; `swaps`, `diskstats`, `interrupts` and `cgroups` at the top; and the `sysctl` keys
+ * `wchan` and `loginuid` under each process; `swaps`, `diskstats`, `interrupts`, `locks` and `cgroups` at the top; and the `sysctl` keys
  * programs ask for (`kernel/random`, `vm`, `fs`, `net/core`). Like `proc-extras.ts`, what the browser cannot measure reads 0.
  * Where the machine has nothing of a kind, the file is there and empty of rows: no swap, no interrupts, no controllers.
  *
@@ -13,6 +13,7 @@
 import { ProcDir, ProcLink } from '@zenfs/linux/fs/procfs'
 import type { ProcFile } from '@zenfs/linux/fs/procfs'
 import { processes } from '@zenfs/linux'
+import { showLocks } from './record-locks.ts'
 
 const file = (show: () => string): ProcFile => ({ mode: 0o444, show })
 const cores = () => navigator.hardwareConcurrency || 1
@@ -132,6 +133,7 @@ export function registerProcDepth(root: ProcDir): void {
     const columns = Array.from({ length: cores() }, (_, cpu) => `CPU${cpu}`).join(' '.repeat(7))
     return `${' '.repeat(11)}${columns}\nERR: ${'0'.padStart(10)}\nMIS: ${'0'.padStart(10)}\n`
   }))
+  root.children.set('locks', file(showLocks))
   root.children.set('cgroups', file(() => '#subsys_name\thierarchy\tnum_cgroups\tenabled\n'))
   sysctl(root)
 

@@ -123,6 +123,7 @@ export const CommandLinks: Readonly<Record<string, string>> = {
   '/bin/atq': '/bin/at',
   '/bin/atrm': '/bin/at',
   '/bin/batch': '/bin/at',
+  '/bin/unix2dos': '/bin/dos2unix',
   '/bin/pbcopy': '/bin/xclip',
   '/bin/pbpaste': '/bin/xclip',
   '/bin/neofetch': '/bin/fastfetch'

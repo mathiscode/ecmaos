@@ -1,4 +1,4 @@
-/** `md5sum`, `sha1sum`, `sha256sum`, `sha384sum` and `sha512sum`: one program, five algorithms. */
+/** `md5sum`, `sha1sum`, `sha224sum`, `sha256sum`, `sha384sum`, `sha512sum` and `b2sum`: one program, seven algorithms. */
 
 import { digestHex } from './digest.mjs'
 import { readFdBytes, readFileBytes } from './bytes.mjs'
@@ -7,13 +7,15 @@ import { resolve } from './path-utils.mjs'
 const { argv, exit, writeAll, getcwd } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
-const HEX_LENGTH = { md5: 32, sha1: 40, sha256: 64, sha384: 96, sha512: 128 }
+const HEX_LENGTH = { md5: 32, sha1: 40, sha224: 56, sha256: 64, sha384: 96, sha512: 128, blake2b: 128 }
+/** What `--tag` names each algorithm */
+const TAG = { blake2b: 'BLAKE2b' }
 
 export async function checksum(name, algorithm) {
   const out = text => writeAll(1, encoder.encode(text))
   const err = text => writeAll(2, encoder.encode(`${name}: ${text}\n`))
   const usage = `Usage: ${name} [OPTION]... [FILE]...
-Print or check ${algorithm.toUpperCase()} checksums. With no FILE, or when FILE is -, read standard input.
+Print or check ${TAG[algorithm] ?? algorithm.toUpperCase()} checksums. With no FILE, or when FILE is -, read standard input.
 
   -b, --binary   read in binary mode (the output marks it with a *)
   -t, --text     read in text mode (the default)
@@ -60,7 +62,7 @@ Print or check ${algorithm.toUpperCase()} checksums. With no FILE, or when FILE 
     for (const file of files) {
       try {
         const sum = await digestHex(algorithm, load(file))
-        out(o.tag ? `${algorithm.toUpperCase()} (${file}) = ${sum}\n` : `${sum} ${o.binary ? '*' : ' '}${file}\n`)
+        out(o.tag ? `${TAG[algorithm] ?? algorithm.toUpperCase()} (${file}) = ${sum}\n` : `${sum} ${o.binary ? '*' : ' '}${file}\n`)
       } catch (error) { err(`${file}: ${error?.message ?? error}`); failed = true }
     }
     return failed ? 1 : 0

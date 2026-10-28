@@ -21,6 +21,7 @@ import { proc_root } from '@zenfs/linux/fs/procfs'
 import { registerProcExtras } from '#lib/proc-extras.ts'
 import { registerProcDepth } from '#lib/proc-depth.ts'
 import { showMeminfo } from '#lib/meminfo.ts'
+import { installHardLinkRemoval } from '#lib/hard-links.ts'
 import { init_uts } from '@zenfs/linux/uts'
 import { TarReader } from '@gera2ld/tarjs'
 import { ungzip } from 'pako'
@@ -225,6 +226,8 @@ const limited = <Fn extends (this: StoreFSLike, ...args: never[]) => unknown>(or
     }
     return original.apply(this, args)
   } as unknown as Fn
+// removing one of several names of a file also takes it out of the store's path index
+installHardLinkRemoval()
 const proto = StoreFS.prototype as unknown as Record<string, (this: StoreFSLike, ...args: never[]) => unknown>
 for (const name of ['write', 'writeSync']) {
   proto[name] = limited(proto[name]!, ((_path: string, data: Uint8Array, offset: number) => offset + data.byteLength) as never)
