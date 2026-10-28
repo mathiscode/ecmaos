@@ -28,6 +28,7 @@ import type { Redirected, Statement } from '@ecmaos/coreutils/lib/control-flow-p
 import { aggregateBuiltinNames, jobStatusLabel, kernelBuiltinHost, runTrueBuiltin, trueBuiltinNameFor } from '#lib/shell-builtins.ts'
 import { testExpression, shellQuote } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { SessionLog } from '#lib/sessions.ts'
+import { lockOf } from '#lib/inode-flags.ts'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
@@ -2137,11 +2138,25 @@ export class Shell implements IShell {
     const chunks: Uint8Array[] = []
     let dirty = false
     let lastFlush = 0
+    // An append-only file (`chattr +a`) is not rewritten: what came since the last flush is written at its end, through a
+    // handle opened to append, at the position named
+    let appendOnly = false
+    let written = 0
 
     const flush = async () => {
       if (!dirty) return
       dirty = false
       lastFlush = Date.now()
+      if (appendOnly) {
+        const fresh = chunks.slice(written)
+        written = chunks.length
+        const bytes = new Uint8Array(fresh.reduce((n, c) => n + c.length, 0))
+        let offset = 0
+        for (const chunk of fresh) { bytes.set(chunk, offset); offset += chunk.length }
+        const handle = await context.fs.promises.open(targetPath, 'a')
+        try { await handle.write(bytes, 0, bytes.length, (await handle.stat()).size) } finally { await handle.close() }
+        return
+      }
       const all = new Uint8Array(base.length + chunks.reduce((n, c) => n + c.length, 0))
       all.set(base, 0)
       let at = base.length
@@ -2174,8 +2189,12 @@ export class Shell implements IShell {
           device = await context.fs.promises.open(targetPath, 'w')
           return
         }
+        // what open(2) refuses: writing an immutable file, and an append-only one but to append
+        const lock = await lockOf(context, targetPath)
+        if (lock.immutable || (lock.appendOnly && !append)) throw Object.assign(new Error(`${targetPath}: Operation not permitted`), { code: 'EPERM' })
+        appendOnly = lock.appendOnly
         const existed = append && await context.fs.promises.exists(targetPath)
-        if (existed) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
+        if (appendOnly) { /* nothing is read: only the new output is written */ } else if (existed) base = new Uint8Array(await context.fs.promises.readFile(targetPath))
         else {
           // Two streams can open the same new target at once (a command and the aggregate builtin around
           // it, `env echo hi >> new`); the one that loses the race finds the file already there.

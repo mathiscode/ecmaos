@@ -38,6 +38,7 @@ import { canonicalize } from './lib/canon.mjs'
 const sys = globalThis.ecmaosSyscalls
 const { poll, POLLIN, POLLHUP, POLLERR, open, close, read, write, pipe, stat, lstat, geteuid, getegid, unlink, readdir, getcwd, chdir, exit, spawn, waitpid, killpg, setpgid, tcsetpgrp, getpid, getppid, onSignal } = sys
 const { O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = sys
+const O_APPEND = 0o2000
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -102,6 +103,15 @@ function writeAllFd(fd, text) {
 
 function writeWholeFile(path, text) {
   const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+  try { writeAllFd(fd, text) } finally { close(fd) }
+}
+
+/**
+ * Adds `text` to the end of `path` in one write, as `>>` does: what is there is not rewritten (an append-only file is
+ * only ever opened to append)
+ */
+function appendWholeFile(path, text) {
+  const fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
   try { writeAllFd(fd, text) } finally { close(fd) }
 }
 
@@ -907,9 +917,10 @@ class Shell {
         record = { scratch, handle, path, append: redirection.type === '>>' }
         files.set(path, record)
         copies.push(record)
-        // Creating the target now makes `> f` truncate immediately, as in every shell.
+        // Creating the target now makes `> f` truncate immediately, as in every shell, and a target that cannot be
+        // written fails the command before it runs.
         if (!record.append) writeWholeFile(path, '')
-        else if (!exists(path)) writeWholeFile(path, '')
+        else close(open(path, O_WRONLY | O_CREAT | O_APPEND, 0o644))
       }
       fds[fd] = record.handle
     }
@@ -923,7 +934,8 @@ class Shell {
         for (const record of copies) {
           const body = readFileText(record.scratch)
           try { unlink(record.scratch) } catch { /* gone */ }
-          writeWholeFile(record.path, record.append && exists(record.path) ? readFileText(record.path) + body : body)
+          if (record.append) appendWholeFile(record.path, body)
+          else writeWholeFile(record.path, body)
         }
         copies.length = 0
       },

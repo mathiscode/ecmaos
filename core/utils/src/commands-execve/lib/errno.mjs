@@ -30,7 +30,9 @@ const REASONS = {
   ENODEV: 'No such device',
   ENOEXEC: 'Exec format error',
   ENOSYS: 'Function not implemented',
-  ETXTBSY: 'Text file busy'
+  ETXTBSY: 'Text file busy',
+  ENOTSUP: 'Operation not supported',
+  ENODATA: 'No data available'
 }
 
 const NAMES = Object.keys(REASONS)

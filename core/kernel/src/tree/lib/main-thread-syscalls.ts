@@ -43,6 +43,7 @@ import { installRecordLocks } from './record-locks.ts'
 import { installFsWatch } from './fs-watch.ts'
 import { installOpenDirectory } from './open-directory.ts'
 import { installUtimes } from './utimes.ts'
+import { installInodeFlags } from './inode-flags.ts'
 import { installPtys, ptyIndexOf, ptySlaveOf } from './pty.ts'
 import { installDeviceHolds } from './device-holds.ts'
 import { FbMajor, framebufferAt, installFbSeek } from './fb.ts'
@@ -545,6 +546,7 @@ export function installMainThreadSyscalls(): void {
   installFdLinks()
   installOpenDirectory()
   installUtimes()
+  installInodeFlags()
   installPipeWakeup()
   installPtys()
   installEcmaosBinfmt()
