@@ -2276,7 +2276,8 @@ export function installMainThreadSyscalls(): void {
       const { fd, ...traceOptions } = options.trace
       trace = createTracer(traceOptions, traceSink(proc, fd))
     }
-    const child = await spawnWithFds(proc, command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, exactFds: options.exactFds, signals: options.signals, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, terminal, credentials, trace })
+    // a child is the process's, not the thread's that started it, as on Linux: any thread may wait for it
+    const child = await spawnWithFds(leaderOf(proc), command, argv, options.env ?? shell?.envObject ?? proc.env, { cwd, fds: options.fds, exactFds: options.exactFds, signals: options.signals, pgid: options.pgid, foreground: options.foreground, setsid: options.setsid, terminal, credentials, trace })
     registerProcessKernel(child, kernel, shell)
     // A getty started during boot must not take the keyboard until boot is over: the kernel may still be
     // asking a question (the first-boot prompt) on the same terminal, and the answer would reach both.

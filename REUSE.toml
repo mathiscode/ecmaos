@@ -105,7 +105,7 @@ SPDX-License-Identifier = "ISC AND Zlib"
 
 # core/utils: programs built from upstream sources under MIT OR Apache-2.0 (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
 [[annotations]]
-path = ["core/utils/programs/hidinfo.wasm", "core/utils/programs/sdlclip.wasm", "core/utils/programs/sdlgears.wasm", "core/utils/programs/sdlgl.wasm", "core/utils/programs/sdlpad.wasm", "core/utils/programs/sdlpaint.wasm", "core/utils/programs/sdlsnake.wasm", "core/utils/programs/v4l2grab.wasm", "core/utils/programs/wlcomp.wasm", "core/utils/programs/wldemo.wasm"]
+path = ["core/utils/programs/bat.wasm", "core/utils/programs/fd.wasm", "core/utils/programs/hidinfo.wasm", "core/utils/programs/sdlclip.wasm", "core/utils/programs/sdlgears.wasm", "core/utils/programs/sdlgl.wasm", "core/utils/programs/sdlpad.wasm", "core/utils/programs/sdlpaint.wasm", "core/utils/programs/sdlsnake.wasm", "core/utils/programs/v4l2grab.wasm", "core/utils/programs/wlcomp.wasm", "core/utils/programs/wldemo.wasm"]
 precedence = "override"
 SPDX-FileCopyrightText = "2024-2026 Jay Mathis <code@mathis.network>"
 SPDX-License-Identifier = "MIT OR Apache-2.0"
@@ -131,9 +131,16 @@ precedence = "override"
 SPDX-FileCopyrightText = "the authors of each program, named in its license text"
 SPDX-License-Identifier = "PSF-2.0"
 
+# core/utils: programs built from upstream sources under Unlicense OR MIT (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
+[[annotations]]
+path = "core/utils/programs/rg.wasm"
+precedence = "override"
+SPDX-FileCopyrightText = "the authors of each program, named in its license text"
+SPDX-License-Identifier = "Unlicense OR MIT"
+
 # core/utils-copyleft: programs built from upstream sources under GPL-3.0-or-later (the upstream authors' copyright; the changes ecmaOS made are in wasm/ and the SOURCE offers)
 [[annotations]]
-path = ["core/utils-copyleft/programs/bash.wasm", "core/utils-copyleft/programs/make.wasm"]
+path = ["core/utils-copyleft/programs/bash.wasm", "core/utils-copyleft/programs/make.wasm", "core/utils-copyleft/programs/rsync.wasm"]
 precedence = "override"
 SPDX-FileCopyrightText = "the authors of each program, named in its license text"
 SPDX-License-Identifier = "GPL-3.0-or-later"

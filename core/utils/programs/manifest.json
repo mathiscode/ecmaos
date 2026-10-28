@@ -438,6 +438,39 @@
       "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 22.1.8",
       "size": 139980,
       "sha256": "3d87d4751cfc9d84662be4fd3953ea3740130ed88497ea9c3950ba6766e7c37d"
+    },
+    "rg": {
+      "file": "rg.wasm",
+      "version": "15.2.0",
+      "license": "Unlicense OR MIT",
+      "description": "ripgrep, the fast recursive grep, in Rust (its crates' licenses are in licenses/rg); it forks, so it is built with Asyncify",
+      "homepage": "https://github.com/BurntSushi/ripgrep",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 5408935,
+      "sha256": "5588990eb55294a8b425507787de76a1a88dfefac80fe8ebb9e7309eee4bc6e7"
+    },
+    "fd": {
+      "file": "fd.wasm",
+      "version": "10.5.0",
+      "license": "MIT OR Apache-2.0",
+      "description": "fd, the friendly alternative to find, in Rust (its crates' licenses are in licenses/fd); it forks, so it is built with Asyncify",
+      "homepage": "https://github.com/sharkdp/fd",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 4258056,
+      "sha256": "536748980af338264fdd088989816e3956769bc8bd6d2c68578a18dccfa29838"
+    },
+    "bat": {
+      "file": "bat.wasm",
+      "version": "0.26.1",
+      "license": "MIT OR Apache-2.0",
+      "description": "bat, cat with syntax highlighting and paging, in Rust, without git markers (its crates' licenses are in licenses/bat); it forks, so it is built with Asyncify",
+      "homepage": "https://github.com/sharkdp/bat",
+      "toolchain": "wali",
+      "built": "musl 243ec00c3ffb910375db487d7eb24ea76d1e2c9f, LLVM 23.1.3",
+      "size": 5753207,
+      "sha256": "5760a228a5e0660024edc23e5ae621f8ba76ce1461beed109a17124fcfea742e"
     }
   }
 }

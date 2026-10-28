@@ -138,12 +138,15 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
   // The preopens are opened up front so they get real fd numbers from the same allocator `env.__syscall_openat` uses.
   const preopenRoot = open('/', O_RDONLY | O_DIRECTORY)
   const preopenCwd = open(cwd, O_RDONLY | O_DIRECTORY)
+  // wasi-libc finds the preopens by asking fd 3, 4 and on until one is not a preopen, so they are wasi fds 3 and 4
+  // whatever real numbers they got (a program started with more than stdio open, under `timeout` say, has 3 taken);
+  // what is open there already is not the program's to see, as under any WASI runtime
   const fds = new Map([
     [0, { fd: 0, path: null, dir: false }],
     [1, { fd: 1, path: null, dir: false }],
     [2, { fd: 2, path: null, dir: false }],
-    [preopenRoot, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
-    [preopenCwd, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
+    [3, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
+    [4, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
   // The descriptors that close on exec, which the kernel does not keep: a child spawned does not get them, and the
   // preopens are this host's own.

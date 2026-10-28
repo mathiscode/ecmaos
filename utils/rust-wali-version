@@ -1,0 +1,3 @@
+# The Rust toolchain that builds the Rust programs for WALI (utils/wali/rust.sh): wasm32-wali-linux-musl is a tier-3
+# target, so it is a pinned nightly with rust-src, whose std is built with the program (-Z build-std).
+RUST_TOOLCHAIN=nightly-2026-10-25

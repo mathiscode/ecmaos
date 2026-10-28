@@ -12,7 +12,8 @@
 
 import { ProcDir, ProcLink } from '@zenfs/linux/fs/procfs'
 import type { ProcFile } from '@zenfs/linux/fs/procfs'
-import { processes } from '@zenfs/linux'
+import { current, processes } from '@zenfs/linux'
+import { leaderOf } from './wali-threads.ts'
 import { showLocks } from './record-locks.ts'
 
 const file = (show: () => string): ProcFile => ({ mode: 0o444, show })
@@ -134,6 +135,10 @@ export function registerProcDepth(root: ProcDir): void {
     return `${' '.repeat(11)}${columns}\nERR: ${'0'.padStart(10)}\nMIS: ${'0'.padStart(10)}\n`
   }))
   root.children.set('locks', file(showLocks))
+  // /proc/self is the process, as on Linux, not the thread asking: a thread of a WALI program is a process of the
+  // kernel's with an id of its own, and its own entry lists none of the descriptors the program's threads share
+  const self = root.children.get('self') as ProcLink | undefined
+  if (self) root.children.set('self', new ProcLink(() => (current ? String(leaderOf(current).pid) : self.target())))
   root.children.set('cgroups', file(() => '#subsys_name\thierarchy\tnum_cgroups\tenabled\n'))
   sysctl(root)
 

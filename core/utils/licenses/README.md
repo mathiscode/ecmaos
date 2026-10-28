@@ -44,6 +44,9 @@ MIT OR Apache-2.0; these keep their own licenses, all permissive, and the notice
 | `sdlpad` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlpad/` |
 | `sdlgl` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgl/` |
 | `sdlgears` | 0.1.0 | MIT OR Apache-2.0 (written for ecmaOS); SDL 3.4.18 is zlib, libwayland 1.26.0 is MIT, libxkbcommon 1.13.2 is MIT, the xdg-shell protocol code is MIT | `sdlgears/` |
+| `rg` | ripgrep 15.2.0 | Unlicense OR MIT, with the licenses of the Rust crates it is built from (MIT, Apache-2.0, Unlicense, Zlib and others, each named in its file) | `rg/` |
+| `fd` | 10.5.0 | MIT OR Apache-2.0, with the licenses of the Rust crates it is built from, each named in its file | `fd/` |
+| `bat` | 0.26.1 | MIT OR Apache-2.0, with the licenses of the Rust crates it is built from, each named in its file | `bat/` |
 
 Every program also contains musl libc and compiler-rt: WALI's musl and LLVM's, or Emscripten's for the desktop
 demos. See `runtime/`.
