@@ -77,7 +77,7 @@ export async function tightenDirectoryModes(fs: Fs): Promise<string[]> {
  * is asking and then start something as someone else, which a user's own program may not do. The kernel
  * honours the bit when it starts a program (see `setuidCredentials`), as Linux does.
  */
-export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo']
+export const SETUID_PROGRAMS: readonly string[] = ['/bin/su', '/bin/sudo', '/bin/sudoedit']
 
 /**
  * Gives the setuid programs their bit, every boot, since a rewritten command file is a fresh one. @returns the

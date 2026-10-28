@@ -11,6 +11,7 @@
 import { define_syscall, Process, Thread, type Process as ProcessType } from '@zenfs/linux'
 import { bindContext, fs } from '@zenfs/core'
 import { Errno } from 'kerium'
+import { inheritNice } from './nice-store.ts'
 import { inheritUmask } from './umask-store.ts'
 import { joinThreadGroup } from './job-control.ts'
 
@@ -73,6 +74,7 @@ export function installThreads(): void {
     siblings.add(thread)
     void thread.exited.then(() => siblings.delete(thread))
     inheritUmask(leader, thread)
+    inheritNice(leader, thread)
     joinThreadGroup(thread, leader)
     const data = readFile.call(leader.context, interpreter)
     thread.thread = new Thread(thread)

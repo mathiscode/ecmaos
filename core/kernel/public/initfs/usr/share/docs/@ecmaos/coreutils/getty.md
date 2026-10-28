@@ -12,7 +12,7 @@
 
 The login prompt on one terminal. `init` runs one for each terminal from `/etc/inittab`; you do not normally start it by hand.
 
-It prints `/etc/issue`, asks for a user name, and runs `/bin/login` with it on the terminal. `login` asks for the password, starts the session and runs the user's shell (see `@ecmaos/coreutils/login`). When `login` returns, whether the user logged out or the login was refused, getty asks for a user name again. `^C` at the prompt is ignored.
+It prints `/etc/issue` (with agetty's escapes: `\n` the host name, `\l` the terminal, `\r` the release, `\s` the system name, `\m` the machine, `\\` a backslash), asks for a user name, and runs `/bin/login` with it on the terminal. `login` asks for the password, starts the session and runs the user's shell (see `@ecmaos/coreutils/login`). When `login` returns, whether the user logged out or the login was refused, getty asks for a user name again. `^C` at the prompt is ignored.
 
 ## Terminal
 

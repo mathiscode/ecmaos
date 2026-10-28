@@ -166,6 +166,78 @@ describe('su and sudo', () => {
     }, 60000)
   })
 
+  describe('sudoedit', () => {
+    // an editor that appends the id of whoever runs it to the file it is given, or does nothing with FAKE_EDITOR_NOOP
+    const editor = '/tmp/fake-editor.js'
+    beforeAll(async () => {
+      await kernel.filesystem.fs.writeFile(editor, `
+        const s = globalThis.ecmaosSyscalls
+        const file = s.argv[1]
+        if (!s.env.FAKE_EDITOR_NOOP) {
+          const fd = s.open(file, s.O_WRONLY | 0o2000)
+          s.writeAll(fd, new TextEncoder().encode('edited by uid ' + s.getuid() + '\\n'))
+          s.close(fd)
+        }
+        s.exit(Number(s.env.FAKE_EDITOR_EXIT ?? 0))
+      `, { mode: 0o755 })
+      await kernel.filesystem.fs.writeFile('/etc/sudoedit-target', 'original\n', { mode: 0o644 })
+    })
+
+    it('carries the setuid bit like sudo', async () => {
+      const stats = await kernel.filesystem.fs.stat('/bin/sudoedit')
+      expect(stats.mode & 0o7777).toBe(0o4755)
+      expect(stats.uid).toBe(0)
+    })
+
+    it('edits a root file in a copy the user owns, and writes it back as root', async () => {
+      if (!gateOpen) return
+      await kernel.filesystem.fs.writeFile('/etc/sudoedit-target', 'original\n', { mode: 0o644 })
+      await asAlice(async () => {
+        const result = await status(`echo wonder | SUDO_EDITOR=${editor} sudoedit -S /etc/sudoedit-target`)
+        expect(result.err).not.toContain('not permitted')
+        expect(result.code).toBe(0)
+      })
+      // the editor ran as alice, not as root, and the file is still root's
+      expect(await kernel.filesystem.fs.readFile('/etc/sudoedit-target', 'utf-8')).toBe(`original\nedited by uid ${alice.uid}\n`)
+      const stats = await kernel.filesystem.fs.stat('/etc/sudoedit-target')
+      expect([stats.uid, stats.mode & 0o777]).toEqual([0, 0o644])
+      // nothing is left in /tmp
+      expect((await kernel.filesystem.fs.readdir('/tmp')).filter(name => name.startsWith('sudoedit.'))).toEqual([])
+    }, 90000)
+
+    it('sudo -e is the same, and a file nobody changed or an editor that failed is left alone', async () => {
+      if (!gateOpen) return
+      await kernel.filesystem.fs.writeFile('/etc/sudoedit-target', 'original\n', { mode: 0o644 })
+      await asAlice(async () => {
+        const unchanged = await status(`echo wonder | FAKE_EDITOR_NOOP=1 SUDO_EDITOR=${editor} sudo -S -e /etc/sudoedit-target`)
+        expect([unchanged.code, unchanged.err]).toEqual([0, expect.stringContaining('/etc/sudoedit-target unchanged')])
+        const failed = await status(`FAKE_EDITOR_EXIT=3 SUDO_EDITOR=${editor} sudo -n -e /etc/sudoedit-target`)
+        expect(failed.code).toBe(1)
+        expect(failed.err).toContain('not updated')
+      })
+      expect(await kernel.filesystem.fs.readFile('/etc/sudoedit-target', 'utf-8')).toBe('original\n')
+    }, 90000)
+
+    it('refuses a file in a directory the user can write to, a symbolic link, and a user the policy does not name', async () => {
+      if (!gateOpen) return
+      await kernel.filesystem.fs.writeFile('/tmp/sudoedit-tmpfile', 'x\n')
+      await kernel.filesystem.fs.symlink('/etc/sudoedit-target', '/etc/sudoedit-link').catch(() => {})
+      await asAlice(async () => {
+        const writable = await status(`echo wonder | SUDO_EDITOR=${editor} sudoedit -S /tmp/sudoedit-tmpfile`)
+        expect(writable.code).toBe(1)
+        expect(writable.err).toContain('editing files in a writable directory is not permitted')
+        const link = await status(`echo wonder | SUDO_EDITOR=${editor} sudoedit -S /etc/sudoedit-link`)
+        expect(link.code).toBe(1)
+        expect(link.err).toContain('symbolic links')
+      })
+      await asBob(async () => {
+        const result = await status(`echo builder | SUDO_EDITOR=${editor} sudoedit -S /etc/sudoedit-target`)
+        expect(result.code).toBe(1)
+        expect(result.err).toContain('bob is not in the sudoers file')
+      })
+    }, 90000)
+  })
+
   describe('sudo', () => {
     it('asks for the caller\'s own password and runs the command as root', async () => {
       if (!gateOpen) return

@@ -49,6 +49,7 @@ import type { TraceOptions } from './syscall-trace.ts'
 import { dropControllingTty, getpgid, getsid, installGroupExit, installStops, killpg, mayKill, setControllingTty, setpgid, setSignalState, setsid, signalStateOf, ttySession, spawnWithFds, ttyHoldOf, waitpid } from './job-control.ts'
 import type { SignalState } from './job-control.ts'
 import { umaskOf, setUmask } from './umask-store.ts'
+import { clampNice, niceOf, setNice } from './nice-store.ts'
 import { managePasskey } from './passkey-manage.ts'
 import type { Outcome } from './outcome.ts'
 import { hostPresenters, presenters, type Presented } from './presenters/index.ts'
@@ -101,6 +102,7 @@ declare module '@zenfs/linux/uapi/abi' {
     users_authenticate(username: string, password: string): number
     credentials_supported(): number
     proc_umask(mask: number): number
+    proc_nice(op: number, pid: number, value: number): number
     proc_file_limit(): number
     kernel_info(path: string): number
     device_cli_start(name: string, argsJson: string, path: string): number
@@ -2112,6 +2114,20 @@ export function installMainThreadSyscalls(): void {
     // the mask lives with the process; a negative argument asks without changing
     if (mask < 0) return umaskOf(proc)
     return setUmask(proc, mask)
+  })
+
+  // `getpriority` / `setpriority` for one process. Like Linux's getpriority it answers `20 - nice` so the number is never
+  // negative (here: nice + 20, 0 to 39), and it is `nice` itself the program wants. Raising the niceness of one's own
+  // processes is free; lowering it, or touching another user's process, is for root.
+  define_syscall('proc_nice', (proc: Process, op: number, pid: number, value: number) => {
+    const target = pid === 0 ? proc : processes.get(pid)
+    if (!target || target.code !== undefined) throw Object.assign(new Error('No such process'), { errno: Errno.ESRCH })
+    if (op === 0) return niceOf(target) + 20
+    const privileged = identityOf(proc).euid === 0
+    if (!privileged && !mayKill(proc, target)) throw Object.assign(new Error('Operation not permitted'), { errno: Errno.EPERM })
+    const wanted = clampNice(value)
+    if (!privileged && wanted < niceOf(target)) throw Object.assign(new Error('Permission denied'), { errno: Errno.EACCES })
+    return setNice(target, wanted) + 20
   })
 
   // The most one file on the machine's storage may hold, in bytes (`ulimit -f`), or -1 when there is no limit.

@@ -69,6 +69,8 @@ or inventing one; prefer this for anything that doesn't need a specific number.
 | 10 | 101 | `geo` | ecmaOS misc range |
 | 10 | 156 | `presentation` | ecmaOS misc range |
 | 10 | 183 | `hwrng` | Real Linux misc minor; `hw_random` in sysfs (core, not a package) |
+| 10 | 219 | `log` | ecmaOS misc range; Linux's `/dev/log` is a socket, here a write-only device the kernel files into `/var/log/messages` (core) |
+| 10 | 220 | `kmsg` | ecmaOS misc range; Linux has it at 1:11, a major the memory devices hold; writes go to the kernel log (core) |
 | 13 | 64 | `input/event0` | Keyboard (core, not a package) |
 | 13 | 65 | `input/event1` | Pointer |
 | 13 | 0+n | `input/js<n>` | A gamepad's joystick API node (joydev), lowest free number (core, not a package) |

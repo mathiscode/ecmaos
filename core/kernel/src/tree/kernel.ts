@@ -61,6 +61,9 @@ import { DefaultDomOptions, Dom } from '#dom.ts'
 import { LogFile } from '#lib/log-file.ts'
 import { registerHeldOperations } from '#lib/device-holds.ts'
 import { DEFAULT_HOSTS, DEFAULT_RESOLV, DEFAULT_SERVICES } from '#lib/hosts.ts'
+import { setSyslogSink } from '#lib/syslog.ts'
+import { registerSysDepth } from '#lib/sys-depth.ts'
+import { DEFAULT_ENVIRONMENT, DEFAULT_FSTAB, DEFAULT_ISSUE, newMachineId } from '#lib/etc-defaults.ts'
 import { claimMachine, stealMachineLock } from '#lib/machine-lock.ts'
 import { DisplayOwner, type RemoteCall } from '#lib/remote-display.ts'
 import { displayAddress } from '#lib/display-client.ts'
@@ -785,6 +788,16 @@ export class Kernel implements IKernel {
         await this.filesystem.fs.writeFile('/etc/hostname', `${this.host.platform.hostname() || 'ecmaos'}\n`, { mode: 0o644 })
       }
 
+      // What a Linux machine has under /etc and tools look for. /etc/timezone names the browser's zone (the text a Debian
+      // machine keeps beside the binary /etc/localtime, which needs a zoneinfo database there is none of here).
+      for (const [file, text, mode] of [
+        ['/etc/fstab', DEFAULT_FSTAB, 0o644], ['/etc/environment', DEFAULT_ENVIRONMENT, 0o644], ['/etc/issue', DEFAULT_ISSUE, 0o644],
+        ['/etc/machine-id', newMachineId(), 0o444], ['/etc/timezone', `${new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}\n`, 0o644]
+      ] as const) {
+        if (!(await this.filesystem.fs.exists(file))) await this.filesystem.fs.writeFile(file, text, { mode })
+      }
+      await this.filesystem.fs.mkdir('/etc/profile.d', { recursive: true, mode: 0o755 }).catch(() => {})
+
       // Vim reads this before anything else (its build points the system vimrc here). Without one it
       // starts in vi-compatible mode, which is not what anyone running Vim expects.
       if (!(await this.filesystem.fs.exists('/etc/vimrc'))) {
@@ -1055,6 +1068,19 @@ export class Kernel implements IKernel {
         logFile.write(`${formattedDate} [${logObj._meta?.logLevelName}] ${logObj[0] || logObj.message}\n\n`)
       })
 
+      // /dev/log and /dev/kmsg: the kernel plays syslogd. /var/log/messages is the file syslog messages end up in
+      const messagesFile = new LogFile(this.filesystem.fs, '/var/log/messages')
+      // the host name is /etc/hostname's; a write cannot wait for the file, so it is read again after each message
+      let syslogHost = (await this.filesystem.fs.readFile('/etc/hostname', 'utf-8').catch(() => '')).trim() || 'localhost'
+      setSyslogSink({
+        messages: text => {
+          messagesFile.write(text)
+          void this.filesystem.fs.readFile('/etc/hostname', 'utf-8').then(name => { syslogHost = name.trim() || syslogHost }).catch(() => {})
+        },
+        kernel: (level, text) => (level <= 3 ? this.log.error(text) : level === 4 ? this.log.warn(text) : this.log.info(text)),
+        hostname: () => syslogHost
+      })
+
       // Load core kernel features
       await this.registerEvents()
       // Mounts the standard `/dev` memory devices (null, zero, full, random, urandom) from `@zenfs/linux`.
@@ -1062,6 +1088,8 @@ export class Kernel implements IKernel {
       initDriverCore()
       initMemDevices()
       populatePlatformBus()
+      // after the driver core: it makes `/sys/devices/system/cpu`, which this adds the masks to
+      registerSysDepth()
       // Programs start on workers made ready ahead of time
       installWarmThreads()
 

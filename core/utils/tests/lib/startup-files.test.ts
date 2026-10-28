@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { startupFiles } from '../../src/lib/shell-core/startup-files.ts'
+import { parseEnvironment, startupFiles } from '../../src/lib/shell-core/startup-files.ts'
 
 /** A host over a set of file paths; a directory lists the names directly beneath it. */
 const host = (files: string[]) => ({
@@ -39,5 +39,12 @@ describe('startupFiles', () => {
     expect(await startupFiles({ login: true, interactive: true }, host(['/etc/profile', '/h/.bashrc']))).toEqual(['/etc/profile'])
     const broken = { isFile: () => { throw new Error('boom') }, list: () => { throw new Error('boom') } }
     expect(await startupFiles({ home: '/h', login: true, interactive: true }, broken)).toEqual([])
+  })
+})
+
+describe('parseEnvironment', () => {
+  it('reads NAME=value lines as pam_env does: comments, export, quotes, no expansion', () => {
+    expect(parseEnvironment('# note\nEDITOR=vim\nexport PAGER="less -R"\nQ=\'a b\'\nEMPTY=\nPATH_X=$HOME/bin\n  \nbad line\n1X=no\n'))
+      .toEqual({ EDITOR: 'vim', PAGER: 'less -R', Q: 'a b', EMPTY: '', PATH_X: '$HOME/bin' })
   })
 })

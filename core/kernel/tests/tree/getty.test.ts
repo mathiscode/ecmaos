@@ -46,8 +46,12 @@ describe('/sbin/getty', () => {
   })
 
   it('logs a user in, runs their shell, and asks again when it exits', async () => {
+    // agetty's escapes in /etc/issue: host name, terminal, a backslash
+    await kernel.filesystem.fs.writeFile('/etc/issue', 'Issue \\n on \\l (\\\\)\n')
     const done = kernel.shell.execute('/sbin/getty tty0')
     await waitFor(() => count('login:') === 1)
+    const hostname = (await kernel.filesystem.fs.readFile('/etc/hostname', 'utf-8')).trim()
+    expect(screen()).toContain(`Issue ${hostname} on tty0 (\\)`)
 
     // a wrong password is refused and the prompt comes back
     type('alice\r')

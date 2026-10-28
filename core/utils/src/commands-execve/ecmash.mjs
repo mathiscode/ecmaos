@@ -29,7 +29,7 @@ import { programmableCompletion } from '../lib/shell-core/programmable-completio
 import { promptCommands } from '../lib/shell-core/prompt-command.ts'
 import { CONTROL_FLOW_KEYWORDS } from '../lib/control-flow-parser.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '../lib/shell-core/signals.ts'
-import { startupFiles } from '../lib/shell-core/startup-files.ts'
+import { parseEnvironment, startupFiles } from '../lib/shell-core/startup-files.ts'
 import { SIGNAL_NUMBERS, UNCATCHABLE_SIGNALS } from '../lib/shell-core/signal-table.ts'
 import { completionMatches } from '../lib/completion.ts'
 import { rawMode, decodeKeys, ttyFd, isTty, terminalSize } from './lib/tty.mjs'
@@ -1361,6 +1361,8 @@ async function main() {
     return true
   }
   if (login) {
+    // /etc/environment is variables, not a script, and comes before every file; set straight into the store, so children inherit them
+    try { for (const [key, value] of Object.entries(parseEnvironment(readFileText('/etc/environment')))) shell.vars.set(key, value) } catch { /* no /etc/environment */ }
     for (const file of await startupFiles({ home: shell.vars.get('HOME'), login: true, interactive: false }, startupHost)) {
       if (!await runStartupFile(file)) break
     }

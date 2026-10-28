@@ -30,6 +30,23 @@ export const USER_RC_FILES = ['.bashrc', '.ecmashrc']
 export const SYSTEM_PROFILE = '/etc/profile'
 export const SYSTEM_PROFILE_DIR = '/etc/profile.d'
 export const SYSTEM_RC = '/etc/ecmashrc'
+export const SYSTEM_ENVIRONMENT = '/etc/environment'
+
+/**
+ * `/etc/environment` as pam_env reads it: `NAME=value` lines, `#` comments, an optional leading `export`, matching quotes
+ * around a value removed. Nothing is expanded.
+ */
+export function parseEnvironment(text: string): Record<string, string> {
+  const vars: Record<string, string> = {}
+  for (const raw of text.split('\n')) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(raw)
+    if (!match) continue
+    let value = match[2]!.trim()
+    if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.endsWith(value[0]!)) value = value.slice(1, -1)
+    vars[match[1]!] = value
+  }
+  return vars
+}
 
 const join = (dir: string, name: string): string => (dir.endsWith('/') ? dir : `${dir}/`) + name
 
