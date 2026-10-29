@@ -22,7 +22,3 @@ Create links between files.
   -v, --verbose   print name of each linked file
   --help          display this help and exit
 ```
-
-## See also
-
-`ln --help`

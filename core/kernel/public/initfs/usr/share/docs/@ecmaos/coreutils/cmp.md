@@ -23,7 +23,3 @@ Compare two files byte by byte. With no FILE, or when FILE is -, read standard i
   -s, --quiet, --silent      suppress all normal output
   --help                     display this help and exit
 ```
-
-## See also
-
-`cmp --help`

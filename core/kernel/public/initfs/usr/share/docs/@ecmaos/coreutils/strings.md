@@ -18,7 +18,3 @@ Print the sequences of printable characters in files.
   -n, --bytes=MIN_LEN    print sequences of at least MIN_LEN characters (default: 4)
   --help                 display this help and exit
 ```
-
-## See also
-
-`strings --help`

@@ -32,7 +32,3 @@ The counts are printed in the order lines, words, characters, bytes, longest lin
 ## Exit status
 
 1 if a file cannot be read or is a directory (the other files are still counted), otherwise 0.
-
-## See also
-
-`wc --help`

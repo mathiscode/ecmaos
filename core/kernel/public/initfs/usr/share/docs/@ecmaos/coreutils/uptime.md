@@ -17,7 +17,3 @@ Print how long the system has been running.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`uptime --help`

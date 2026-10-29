@@ -31,7 +31,3 @@ Write each FILE to standard output, with line numbers added. With no FILE, or wh
 STYLE is one of: a (number all lines), t (number only nonempty lines), n (number no lines), pBRE (number only lines that
 match the regular expression BRE).
 ```
-
-## See also
-
-`nl --help`

@@ -58,8 +58,6 @@ File and directory selection:
   --help                    display this help and exit
 ```
 
-## See also
-
-`grep --help`
+## Colors
 
 `--color` marks each match in bold red, file names in magenta, line numbers in green and the separators in cyan (GNU grep's defaults; `$GREP_COLORS` changes `ms`, `fn`, `ln` and `se`). `auto` colors only when standard output is a terminal, so a pipe stays plain; `-v` has no matches to mark. The default `.bashrc` in `/etc/skel` aliases `grep`, `egrep` and `fgrep` to `--color=auto`.

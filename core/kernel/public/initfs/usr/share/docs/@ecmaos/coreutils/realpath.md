@@ -19,7 +19,3 @@ Print the resolved absolute file name.
   -q, --quiet                  suppress most error messages
   --help                       display this help and exit
 ```
-
-## See also
-
-`realpath --help`

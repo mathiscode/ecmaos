@@ -158,7 +158,7 @@ describe('Shell job control - & background execution and the job table', () => {
 
     const result = kernel.shell.bg(`%${job.id}`)
     expect(result).toBe(job)
-    expect(job.status).toBe('running') // unchanged -- bg() only acts on a stopped job
+    expect(job.status).toBe('running') // unchanged: bg() only acts on a stopped job
 
     await kernel.shell.wait()
   })

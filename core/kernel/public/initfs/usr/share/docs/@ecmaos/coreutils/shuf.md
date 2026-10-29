@@ -20,7 +20,3 @@ Write a random permutation of the input lines to standard output.
   -i, --input-range=LO-HI   treat each number LO through HI as an input line
   --help                    display this help and exit
 ```
-
-## See also
-
-`shuf --help`

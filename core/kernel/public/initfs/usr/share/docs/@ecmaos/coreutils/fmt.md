@@ -20,7 +20,3 @@ Reformat paragraph text.
   -u, --uniform-spacing use uniform spacing (one space between words)
   --help                display this help and exit
 ```
-
-## See also
-
-`fmt --help`

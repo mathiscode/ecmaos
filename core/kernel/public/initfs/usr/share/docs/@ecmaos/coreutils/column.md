@@ -20,7 +20,3 @@ Format input into columns.
   -c, --columns=COLS       specify number of columns
   --help                   display this help and exit
 ```
-
-## See also
-
-`column --help`

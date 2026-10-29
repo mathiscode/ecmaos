@@ -29,7 +29,3 @@ Print selected parts of lines from each FILE to standard output. With no FILE, o
 Use one, and only one of -b, -c or -f. Each LIST is made up of one range, or many ranges separated by commas.
 Each range is one of: N, N-M, N- (from N to the end of the line), -M (from the first to M).
 ```
-
-## See also
-
-`cut --help`

@@ -19,7 +19,3 @@ Search for files in a directory hierarchy.
   -type TYPE     file is of type TYPE (f=file, d=directory, l=symlink)
   --help         display this help and exit
 ```
-
-## See also
-
-`find --help`

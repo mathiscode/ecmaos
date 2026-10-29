@@ -27,4 +27,4 @@ NUM may end in `b` (512), `k` (1024) or `m` (1048576). `-NUM` is the old spellin
 
 ## See also
 
-`head`, `tail --help`
+`head`

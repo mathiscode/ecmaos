@@ -18,7 +18,3 @@ Reverse lines characterwise. With no file, or when file is -, read standard inpu
   -0, --zero   use the NUL byte as line separator
   -h, --help   display this help and exit
 ```
-
-## See also
-
-`rev --help`

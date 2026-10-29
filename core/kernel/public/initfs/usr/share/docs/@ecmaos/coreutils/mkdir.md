@@ -19,7 +19,3 @@ Create the DIRECTORY(ies), if they do not already exist.
   -v, --verbose     print a message for each created directory
       --help        display this help and exit
 ```
-
-## See also
-
-`mkdir --help`

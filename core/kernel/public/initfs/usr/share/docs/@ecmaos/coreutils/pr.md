@@ -22,7 +22,3 @@ Paginate or columnate files for printing.
   -n, --number-lines     number lines
   --help                 display this help and exit
 ```
-
-## See also
-
-`pr --help`

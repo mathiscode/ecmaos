@@ -21,7 +21,3 @@ Print NAME with any leading directory components removed. If specified, also rem
   -z, --zero           end each output line with NUL, not newline
   --help               display this help and exit
 ```
-
-## See also
-
-`basename --help`

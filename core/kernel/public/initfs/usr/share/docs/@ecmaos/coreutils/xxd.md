@@ -31,7 +31,3 @@ Numbers may be decimal, `0x` hex or leading-0 octal. Text that is not a number i
 ## Exit status
 
 2 if INFILE cannot be read or is a directory, 1 for an option it does not know, otherwise 0.
-
-## See also
-
-`xxd --help`

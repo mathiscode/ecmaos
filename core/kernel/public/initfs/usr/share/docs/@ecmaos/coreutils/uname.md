@@ -26,7 +26,3 @@ Print system information.
   -o, --operating-system   print the operating system
   --help                   display this help and exit
 ```
-
-## See also
-
-`uname --help`

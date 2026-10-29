@@ -18,7 +18,3 @@ View file contents interactively.
   FILE    the file to view (if omitted, reads from stdin)
   --help  display this help and exit
 ```
-
-## See also
-
-`less --help`

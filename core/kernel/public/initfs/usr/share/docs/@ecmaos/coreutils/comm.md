@@ -27,7 +27,3 @@ Compare sorted files FILE1 and FILE2 line by line.
 
 With no FILE, or when FILE is -, read standard input.
 ```
-
-## See also
-
-`comm --help`

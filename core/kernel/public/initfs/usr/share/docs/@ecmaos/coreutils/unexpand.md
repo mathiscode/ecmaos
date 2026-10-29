@@ -21,7 +21,3 @@ Convert blanks in each FILE to tabs, writing to standard output. With no FILE, o
   -t, --tabs=LIST  use comma separated LIST of tab positions (enables -a)
   --help           display this help and exit
 ```
-
-## See also
-
-`unexpand --help`

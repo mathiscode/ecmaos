@@ -41,7 +41,3 @@ Examples:
   chown -v user file              Verbose output while changing owner
   chown -c user file              Report only when changes are made
 ```
-
-## See also
-
-`chown --help`

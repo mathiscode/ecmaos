@@ -17,7 +17,3 @@ Print the number of processing units available.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`nproc --help`

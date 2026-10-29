@@ -24,7 +24,3 @@ Transfer data from or to a server.
   -v, --verbose            verbose mode (show request/response headers)
   --help                   display this help and exit
 ```
-
-## See also
-
-`curl --help`

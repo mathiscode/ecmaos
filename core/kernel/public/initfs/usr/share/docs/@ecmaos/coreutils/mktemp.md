@@ -28,7 +28,3 @@ Create a temporary file or directory, safely, and print its name.
 The TEMPLATE must contain at least 3 consecutive 'X's in last component.
 If TEMPLATE is not specified, use tmp.XXXXXX, and --tmpdir implies -t.
 ```
-
-## See also
-
-`mktemp --help`

@@ -41,7 +41,3 @@ Operands:
 
   --help      display this help and exit
 ```
-
-## See also
-
-`dd --help`

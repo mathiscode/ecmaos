@@ -30,7 +30,3 @@ Patterns are basic regular expressions, or extended with `-E`. A last line with 
 
 If no -e, --expression, -f, or --file option is given, then the first non-option argument is taken as the sed script to interpret.
 ```
-
-## See also
-
-`sed --help`

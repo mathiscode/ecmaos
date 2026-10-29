@@ -15,10 +15,9 @@ export interface WasiComponentResult {
 }
 
 /** The `env.__syscall_*` names `wasi-preview1.mjs`'s own `envSyscalls` object answers - see its doc
- * comment for how the signatures, the varargs-pointer convention and the `struct stat` layout were
- * confirmed against a real `emcc` 6.0.9 build rather than guessed, and `tests/tree/wasi/fixtures/`
- * for the real compiled fixture (`emcc-hello.c`/`.wasm`) that proves it end to end: stdout, a real
- * file created/written/closed/stat'd, a real directory, and the program's own exit code. */
+ * comment for the signatures, the varargs-pointer convention and the `struct stat` layout of `emcc`
+ * 6.0.9, and `tests/tree/wasi/fixtures/` for the compiled fixture (`emcc-hello.c`/`.wasm`) that runs
+ * them end to end: stdout, a file created, written, closed and stat'd, a directory, and its exit code. */
 const IMPLEMENTED_SYSCALLS = new Set([
   '__syscall_chdir', '__syscall_fchdir', '__syscall_chmod', '__syscall_fchmod', '__syscall_rmdir',
   '__syscall_getcwd', '__syscall_truncate64', '__syscall_ftruncate64', '__syscall_stat64', '__syscall_lstat64',

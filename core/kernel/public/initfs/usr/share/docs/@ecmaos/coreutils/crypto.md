@@ -42,7 +42,3 @@ Examples:
   crypto import --format jwk --input key.json --output key.pem
   crypto export --format pkcs8 --input key.pem --output key.json
 ```
-
-## See also
-
-`crypto --help`

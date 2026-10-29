@@ -21,7 +21,3 @@ Print user and group IDs.
   -n, --name     print names instead of numeric IDs
   --help         display this help and exit
 ```
-
-## See also
-
-`id --help`

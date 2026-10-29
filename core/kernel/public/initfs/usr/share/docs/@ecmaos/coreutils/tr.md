@@ -33,7 +33,3 @@ SETs are specified as strings of characters. Interpreted sequences are:
   [:alnum:] [:alpha:] [:blank:] [:cntrl:] [:digit:] [:graph:] [:lower:] [:print:] [:punct:] [:space:] [:upper:] [:xdigit:]
   [=CHAR=]        all characters which are equivalent to CHAR
 ```
-
-## See also
-
-`tr --help`

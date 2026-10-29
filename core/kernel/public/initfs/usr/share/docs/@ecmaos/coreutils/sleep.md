@@ -17,7 +17,3 @@ Pause for NUMBER seconds.  SUFFIX may be 's' for seconds (the default), 'm' for 
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`sleep --help`

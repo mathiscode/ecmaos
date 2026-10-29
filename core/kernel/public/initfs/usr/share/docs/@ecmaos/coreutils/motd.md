@@ -17,7 +17,3 @@ Print the message of the day (/etc/motd), if one exists.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`motd --help`

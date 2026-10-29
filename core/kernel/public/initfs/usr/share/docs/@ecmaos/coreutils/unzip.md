@@ -29,7 +29,3 @@ Examples:
   unzip -l archive.zip
   unzip -x "*.txt" archive.zip
 ```
-
-## See also
-
-`unzip --help`

@@ -21,7 +21,3 @@ Print who is logged in, one console per line.
 
 Reads /run/utmp. Each line is: NAME  LINE  TIME
 ```
-
-## See also
-
-`who --help`

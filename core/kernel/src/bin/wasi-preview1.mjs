@@ -968,9 +968,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     return JSON.parse(decoder.decode(out))
   }
 
-  /** `struct sockaddr_un`/`struct sockaddr_in`, confirmed by compiling and running a real
-   * `offsetof()` probe with the installed emcc 6.0.9 (same methodology as `struct stat`): family
-   * (u16) at offset 0 for both; `sockaddr_in`'s port (u16, network/big-endian byte order) at 2,
+  /** `struct sockaddr_un`/`struct sockaddr_in` as emcc 6.0.9 lays them out (`offsetof()`, as for
+   * `struct stat`): family (u16) at offset 0 for both; `sockaddr_in`'s port (u16, network/big-endian byte order) at 2,
    * its 4-byte address at 4; `sockaddr_un`'s NUL-terminated path starts at 2. */
   function readSockaddr(ptr) {
     const dv = view()

@@ -17,7 +17,3 @@ Print the groups a user belongs to.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`groups --help`

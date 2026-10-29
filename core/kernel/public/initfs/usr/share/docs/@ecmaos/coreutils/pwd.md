@@ -17,7 +17,3 @@ Print the name of the current working directory.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`pwd --help`

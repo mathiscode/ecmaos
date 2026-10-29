@@ -17,7 +17,3 @@ Print effective user ID.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`whoami --help`

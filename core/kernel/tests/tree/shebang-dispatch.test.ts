@@ -6,12 +6,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 /**
- * A real POSIX `#!` line naming an interpreter.
- *
- * `Kernel.readFileHeader` used to recognize only `#!ecmaos:<type>:<ns>:<name>` and the literal
- * `#!/usr/bin/env node`. Anything else returned `null`, fell through to `checkExtensionType`, came
- * back as `application/octet-stream`, and matched no case in `Kernel.execute`'s switch - so a file
- * starting `#!/bin/node` exited `-1` with no output and no diagnostic at all.
+ * A POSIX `#!` line naming an interpreter, such as `#!/bin/node`: `Kernel.readFileHeader` classifies the file as
+ * `interpreter`, beside `#!ecmaos:<type>:<ns>:<name>` and `#!/usr/bin/env node`.
  *
  * ecmaOS does not parse the shebang itself: `@zenfs/linux`'s `binfmt_script` already implements the
  * real rule (rewrite argv to `[interpreter, arg?, filename, ...rest]`, re-search the binfmt table,

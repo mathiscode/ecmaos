@@ -30,7 +30,3 @@ Variables:
   NR    record number (line number)
   NF    number of fields
 ```
-
-## See also
-
-`awk --help`

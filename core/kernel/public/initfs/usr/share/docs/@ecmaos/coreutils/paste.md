@@ -20,7 +20,3 @@ Write lines consisting of the sequentially corresponding lines from each FILE, s
   -z, --zero-terminated   line delimiter is NUL, not newline
   --help                  display this help and exit
 ```
-
-## See also
-
-`paste --help`

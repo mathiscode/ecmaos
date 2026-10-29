@@ -19,7 +19,3 @@ Split INPUT into fixed-size pieces.
   -b, -bSIZE            put SIZE bytes per output file
   --help                 display this help and exit
 ```
-
-## See also
-
-`split --help`

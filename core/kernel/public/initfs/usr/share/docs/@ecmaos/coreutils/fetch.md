@@ -26,7 +26,3 @@ Examples:
   fetch -o file.txt https://example.com  fetch and save to file.txt
   fetch -X POST -d "data" https://api.example.com  POST request with body
 ```
-
-## See also
-
-`fetch --help`

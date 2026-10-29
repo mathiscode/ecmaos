@@ -18,7 +18,3 @@ Print the user's login name, from LOGNAME (or USER).
   --help     display this help and exit
   --version  output version information and exit
 ```
-
-## See also
-
-`logname --help`

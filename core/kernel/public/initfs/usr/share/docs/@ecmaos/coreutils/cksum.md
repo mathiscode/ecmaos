@@ -19,7 +19,3 @@ If no FILE is specified, or if FILE is -, read standard input.
 
   --help  display this help and exit
 ```
-
-## See also
-
-`cksum --help`

@@ -27,7 +27,3 @@ Examples:
   man package-name/topic         display topic from package-name
   man @scope/package/docs        display docs/index from @scope/package
 ```
-
-## See also
-
-`man --help`

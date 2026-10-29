@@ -17,7 +17,3 @@ Print prime factors of each NUMBER.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`factor --help`

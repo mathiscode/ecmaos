@@ -28,7 +28,3 @@ Filter adjacent matching lines from INPUT (or standard input), writing to OUTPUT
 
 A field is a run of blanks (usually spaces and/or TABs), then non-blank characters. Fields are skipped before chars.
 ```
-
-## See also
-
-`uniq --help`

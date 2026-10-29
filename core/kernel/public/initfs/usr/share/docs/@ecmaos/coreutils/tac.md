@@ -20,7 +20,3 @@ Write each FILE to standard output, last line first. With no FILE, or when FILE 
   -s, --separator=STRING   use STRING as the separator instead of newline
   --help                   display this help and exit
 ```
-
-## See also
-
-`tac --help`

@@ -47,7 +47,3 @@ download /tmp/backup.tgz
 upload                         # pick the file; it lands in the current directory
 tar xzf backup.tgz -C /
 ```
-
-## See also
-
-`tar --help`

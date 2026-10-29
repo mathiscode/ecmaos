@@ -17,7 +17,3 @@ Remove the DIRECTORY(ies), if they are empty.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`rmdir --help`

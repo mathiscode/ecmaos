@@ -20,7 +20,3 @@ Echo the STRING(s) to standard output.
   -n     do not output the trailing newline
   --help display this help and exit
 ```
-
-## See also
-
-`echo --help`

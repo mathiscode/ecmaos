@@ -25,7 +25,3 @@ Examples:
   zip -r archive.zip directory/
   zip -l archive.zip
 ```
-
-## See also
-
-`zip --help`

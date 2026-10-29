@@ -28,7 +28,3 @@ Output format shorthands: -a (-t a), -b (-t o1), -c (-t c), -d (-t u2), -f (-t f
 
 TYPE is made up of one or more of these specifications: a (named character, ignoring high-order bit), c (printable character or backslash escape), d[SIZE] (signed decimal), f[SIZE] (floating point), o[SIZE] (octal), u[SIZE] (unsigned decimal), x[SIZE] (hexadecimal). SIZE is a number; for d, o, u and x it may be C, S, I or L (char, short, int, long), for f it may be F, D or L (float, double, long double).
 ```
-
-## See also
-
-`od --help`

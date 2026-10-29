@@ -17,7 +17,3 @@ Rename SOURCE to DEST, or move SOURCE(s) to DIRECTORY.
 ```
   --help  display this help and exit
 ```
-
-## See also
-
-`mv --help`

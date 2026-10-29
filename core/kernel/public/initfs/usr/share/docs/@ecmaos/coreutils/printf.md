@@ -45,7 +45,3 @@ Conversion specifiers:
 
   --help  display this help and exit
 ```
-
-## See also
-
-`printf --help`

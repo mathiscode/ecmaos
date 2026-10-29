@@ -635,7 +635,7 @@ export async function expandWordPattern(parts: WordPart[], ctx: ExpansionContext
 
 /**
  * Expands a heredoc body: `$...` and command substitutions expand, and a backslash escapes only
- * `$`, `` ` ``, `\` and a newline -- everything else, quotes included, is literal text.
+ * `$`, `` ` ``, `\` and a newline; everything else, quotes included, is literal text.
  */
 export async function expandHeredocBody(body: string, ctx: ExpansionContext): Promise<string> {
   const parts: WordPart[] = []

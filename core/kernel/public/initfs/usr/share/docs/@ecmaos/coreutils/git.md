@@ -30,7 +30,3 @@ Common Git commands:
 
   --help            display this help and exit
 ```
-
-## See also
-
-`git --help`

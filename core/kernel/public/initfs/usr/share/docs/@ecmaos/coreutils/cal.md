@@ -19,7 +19,3 @@ Display a calendar.
   YEAR    year
   --help  display this help and exit
 ```
-
-## See also
-
-`cal --help`

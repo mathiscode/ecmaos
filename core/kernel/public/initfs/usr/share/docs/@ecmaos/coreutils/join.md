@@ -29,7 +29,3 @@ For each pair of input lines with identical join fields, write a line to standar
 
 FORMAT is one or more comma or blank separated specifications, each being 'FILENUM.FIELD' or '0' (the join field).
 ```
-
-## See also
-
-`join --help`

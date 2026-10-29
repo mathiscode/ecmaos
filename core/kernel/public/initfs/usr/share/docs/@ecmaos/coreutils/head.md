@@ -26,7 +26,3 @@ The bytes are passed through untouched: a last line with no newline stays withou
 
 NUM may have a multiplier suffix: b 512, kB 1000, K 1024, MB 1000*1000, M 1024*1024, GB, G, TB, T.
 ```
-
-## See also
-
-`head --help`

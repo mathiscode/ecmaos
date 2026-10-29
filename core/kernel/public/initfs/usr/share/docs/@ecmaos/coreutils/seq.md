@@ -26,7 +26,3 @@ Numbers have as many decimals as `FIRST` and `INCREMENT`; `-f` takes a printf fl
 
 If FIRST or INCREMENT is omitted, it defaults to 1. That is, an omitted INCREMENT defaults to 1 even when LAST is smaller than FIRST.
 ```
-
-## See also
-
-`seq --help`

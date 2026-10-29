@@ -19,7 +19,3 @@ Compare files line by line.
   -c, --context=NUM   output NUM (default 3) lines of copied context
   --help              display this help and exit
 ```
-
-## See also
-
-`diff --help`

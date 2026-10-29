@@ -20,7 +20,3 @@ Print or set the system date and time.
   -f, --format=FORMAT         output date/time in specified format (strftime-like)
   --help                      display this help and exit
 ```
-
-## See also
-
-`date --help`

@@ -29,7 +29,3 @@ With no option the bytes are copied as they are read. `-E` shows a carriage retu
   -v, --show-nonprinting   use ^ and M- notation, except for LFD and TAB
   --help                   display this help and exit
 ```
-
-## See also
-
-`cat --help`

@@ -40,7 +40,3 @@ Lines are compared as bytes, as in GNU `sort` in the C locale: uppercase sorts b
 KEYDEF is F[.C][OPTS][,F[.C][OPTS]] for start and stop position, where F is a field number and C a character position in the
 field; both are origin 1. OPTS is one or more of [bdfgiMhnRrV], which override global ordering options for that key.
 ```
-
-## See also
-
-`sort --help`

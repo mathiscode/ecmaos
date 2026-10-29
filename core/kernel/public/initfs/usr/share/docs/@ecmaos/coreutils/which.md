@@ -18,7 +18,3 @@ Locate a command.
   COMMAND  the command(s) to locate
   --help  display this help and exit
 ```
-
-## See also
-
-`which --help`

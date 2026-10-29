@@ -22,7 +22,3 @@ A file or directory that does not exist yet is created with its source's permiss
   -v, --verbose         explain what is being done
   --help                display this help and exit
 ```
-
-## See also
-
-`cp --help`

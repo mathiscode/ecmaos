@@ -20,7 +20,3 @@ Wrap input lines in each FILE, writing to standard output. With no FILE, or when
   -w, --width=WIDTH   use WIDTH columns instead of 80
   --help              display this help and exit
 ```
-
-## See also
-
-`fold --help`
