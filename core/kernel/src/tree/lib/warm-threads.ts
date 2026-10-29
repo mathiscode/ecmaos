@@ -36,6 +36,8 @@ const nodeWorkerThreads = 'node:' + 'worker_threads'
 export interface ProgramModule {
   module: WebAssembly.Module
   limits?: { initial: number, maximum: number }
+  /** The file it was compiled from (inode, size, mtime): a worker whose `exe` is another file now reads that one */
+  id?: string
 }
 
 /** How many programs' modules are held: compiled code is large (python3's is tens of MB) */

@@ -1448,11 +1448,13 @@ export class Kernel implements IKernel {
   private async wasmRunsInWorker(command: string, shell: IShell): Promise<boolean> {
     const fs = shell.context.fs.promises
     const stat = await fs.stat(command)
-    const key = `${command}\0${stat.ino}\0${stat.size}\0${stat.mtimeMs}`
+    const id = `${stat.ino}\0${stat.size}\0${stat.mtimeMs}`
+    const key = `${command}\0${id}`
     let known = this.wasmWorkerVerdicts.get(key)
     // a WALI program whose module was let go is inspected again: its worker would compile it twice otherwise
     if (!known || known.released) {
       known = await this.wasm.inspectForWorker(await fs.readFile(command))
+      if (known.wali) known.wali = { ...known.wali, id }
       this.wasmWorkerVerdicts.delete(key)
       // oldest first out; a changed file leaves its old key behind, so this stays bounded
       if (this.wasmWorkerVerdicts.size >= 256) this.wasmWorkerVerdicts.delete(this.wasmWorkerVerdicts.keys().next().value!)

@@ -54,4 +54,17 @@ describe('rg, fd and bat', () => {
     expect((await run('bat /tmp/proj/notes.txt')).out).toBe('Needle in caps\n')
     expect((await run('bat --list-languages')).out).toContain('Rust:rs')
   }, 60_000)
+
+  it('a program replaced on disk runs as the new one, from the kernel or from a child', async () => {
+    const copy = async (from: string) => {
+      await fs().writeFile('/tmp/swap', new Uint8Array(await fs().readFile(from) as Uint8Array))
+      await fs().chmod('/tmp/swap', 0o755)
+    }
+    await copy('/bin/rg')
+    expect((await run('/tmp/swap --version')).out).toMatch(/^ripgrep /)
+    await copy('/bin/fd')
+    // the kernel kept rg's compiled module for this path: a child's launch must not be given it
+    expect((await run("ecmash -c '/tmp/swap --version'")).out).toMatch(/^fd /)
+    expect((await run('/tmp/swap --version')).out).toMatch(/^fd /)
+  }, 60_000)
 })

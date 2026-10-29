@@ -10,7 +10,7 @@
 import { ready, exit, getpid } from '@zenfs/linux/uapi/process'
 import { receive } from '@zenfs/linux/uapi/port'
 import { syscall_raw } from '@zenfs/linux/uapi/base'
-import { open, read, write, close } from '@zenfs/linux/uapi/fs'
+import { open, read, write, close, stat } from '@zenfs/linux/uapi/fs'
 import { run, wali } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasi-preview1.mjs'
 import { install, attach, drive } from './wali-host.mjs'
@@ -60,6 +60,16 @@ receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(messag
  */
 let provided
 receive(message => { if (message.$ === 'wali-module') provided = message })
+
+/** Whether `path` is still the file a module was compiled from: a program replaced since is read again, wherever it is run from */
+function sameFile(path, id) {
+  try {
+    const stats = stat(path)
+    return id === `${stats.ino}\0${stats.size}\0${stats.mtimeMs}`
+  } catch {
+    return false
+  }
+}
 
 /**
  * A WALI module runs on the dependency's table with ecmaOS's calls added (`wali-host.mjs`). `run()` keeps the
@@ -134,7 +144,7 @@ const fail = code => start ? syscall_raw('proc_exit_group', code) : exit(code)
 
 try {
   // a module the kernel sent for this very program is used as it is; the first thing a worker is told is which one it is for
-  const preloaded = provided?.exe === init.exe ? provided : undefined
+  const preloaded = provided?.exe === init.exe && sameFile(init.exe, provided.id) ? provided : undefined
   const source = preloaded ? undefined : await readWholeFile(init.exe)
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
   // `wasi-preview1.mjs`; anything else is WALI.
