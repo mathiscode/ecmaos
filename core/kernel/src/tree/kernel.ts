@@ -32,7 +32,7 @@ import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
 import { execveWhenFree as zenfsExecve } from '#lib/execve-retry.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
-import { installWarmThreads } from '#lib/warm-threads.ts'
+import { installWarmThreads, provideProgramModule, type ProgramModule } from '#lib/warm-threads.ts'
 import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { BinFmt, FileOperations } from '@zenfs/linux'
@@ -1437,6 +1437,34 @@ export class Kernel implements IKernel {
     }
   }
 
+  /**
+   * The answer to `canRunInWorker` for programs seen already, by file identity: reading and compiling a program for it is
+   * most of what a launch costs on the main thread. A WALI program's compiled module is kept too (the newest few) and
+   * handed to its worker, which would otherwise read the file and compile it twice.
+   */
+  private readonly wasmWorkerVerdicts = new Map<string, { inWorker: boolean, wali?: ProgramModule, released?: boolean }>()
+
+  /** Whether a WebAssembly program runs as a worker process; a file that changed on disk is asked again (not by `ctime`, which a read moves along with `atime`) */
+  private async wasmRunsInWorker(command: string, shell: IShell): Promise<boolean> {
+    const fs = shell.context.fs.promises
+    const stat = await fs.stat(command)
+    const key = `${command}\0${stat.ino}\0${stat.size}\0${stat.mtimeMs}`
+    let known = this.wasmWorkerVerdicts.get(key)
+    // a WALI program whose module was let go is inspected again: its worker would compile it twice otherwise
+    if (!known || known.released) {
+      known = await this.wasm.inspectForWorker(await fs.readFile(command))
+      this.wasmWorkerVerdicts.delete(key)
+      // oldest first out; a changed file leaves its old key behind, so this stays bounded
+      if (this.wasmWorkerVerdicts.size >= 256) this.wasmWorkerVerdicts.delete(this.wasmWorkerVerdicts.keys().next().value!)
+      this.wasmWorkerVerdicts.set(key, known)
+      // only the newest few keep their module
+      let held = 0
+      for (const entry of [...this.wasmWorkerVerdicts.values()].reverse()) if (entry.wali && ++held > 8) Object.assign(entry, { wali: undefined, released: true })
+    }
+    provideProgramModule(command, known.wali)
+    return known.inWorker
+  }
+
   async execute(options: KernelExecuteOptions): Promise<number> {
     try {
       if (!await this.filesystem.exists(options.command)) {
@@ -1463,8 +1491,7 @@ export class Kernel implements IKernel {
         case 'wasm': {
           // A plain wasip1 module runs as a real worker Process under /bin/wali (killable, real
           // pid, real pipes); the rest still need the main-thread adapter.
-          const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
-          exitCode = await this.wasm.canRunInWorker(wasmBytes)
+          exitCode = await this.wasmRunsInWorker(options.command, options.shell)
             ? await this.executeViaExecve(options)
             : await this.executeWasm(this.withStdinStream(options))
           break

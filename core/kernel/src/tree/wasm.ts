@@ -41,6 +41,42 @@ const IMPLEMENTED_SYSCALLS = new Set([
   '__ecmaos_sleep', '__ecmaos_pause', '__syscall_getpid', '__syscall_getppid',
 ])
 
+/** The limits of the first memory a module imports, as `/bin/wali` reads them (`memoryLimits` in `src/bin/wali.mjs`) */
+function memoryImportLimits(bytes: Uint8Array): { initial: number, maximum: number } | undefined {
+  let at = 8
+  const leb = () => {
+    let result = 0, shift = 0, byte: number
+    do { byte = bytes[at++]!; result += (byte & 0x7f) * 2 ** shift; shift += 7 } while (byte & 0x80)
+    return result
+  }
+  const skipName = () => { const length = leb(); at += length }
+  while (at < bytes.length) {
+    const id = bytes[at++]!, size = leb(), end = at + size
+    if (id !== 2) { at = end; continue }
+    for (let count = leb(); count > 0; count--) {
+      skipName()
+      skipName()
+      const kind = bytes[at++]
+      if (kind === 0) leb()
+      else if (kind === 1) { at++; const flags = bytes[at++]!; leb(); if (flags & 1) leb() }
+      else if (kind === 2) { const flags = bytes[at++]!; const initial = leb(); return { initial, maximum: flags & 1 ? leb() : initial } }
+      else if (kind === 3) at += 2
+      else if (kind === 4) { at++; leb() }
+    }
+    return undefined
+  }
+  return undefined
+}
+
+/** A core module built against WALI's musl: every import from `wali`, with its memory and `_start` exported */
+function waliShaped(module: WebAssembly.Module): boolean {
+  const imports = WebAssembly.Module.imports(module)
+  const exports = WebAssembly.Module.exports(module)
+  return imports.length > 0 && imports.every(entry => entry.module === 'wali') &&
+    exports.some(entry => entry.name === 'memory' && entry.kind === 'memory') &&
+    exports.some(entry => entry.name === '_start' && entry.kind === 'function')
+}
+
 /**
  * Plain `wasm32-wasip1` modules and ordinary `emcc` builds run as worker processes under `/bin/wali` (see
  * `canRunInWorker`). What still runs here (real internet sockets, an unimplemented `__syscall_*`, preview2
@@ -121,13 +157,8 @@ export class Wasm implements IWasm {
     if (wasmBytes.length < 8 || wasmBytes[0] !== 0x00 || wasmBytes[1] !== 0x61 || wasmBytes[2] !== 0x73 || wasmBytes[3] !== 0x6d) return false
     if (wasmBytes[4] !== 0x01) return false
     try {
-      const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
-      const module = await WebAssembly.compile(buffer)
-      const imports = WebAssembly.Module.imports(module)
-      const exports = WebAssembly.Module.exports(module)
-      return imports.length > 0 && imports.every(entry => entry.module === 'wali') &&
-        exports.some(entry => entry.name === 'memory' && entry.kind === 'memory') &&
-        exports.some(entry => entry.name === '_start' && entry.kind === 'function')
+      const module = await WebAssembly.compile(wasmBytes as Uint8Array<ArrayBuffer>)
+      return waliShaped(module)
     } catch {
       return false
     }
@@ -136,28 +167,34 @@ export class Wasm implements IWasm {
   /**
    * Whether a module can run as a worker process under `/bin/wali`: a WALI module, a core module importing only
    * `wasi_snapshot_preview1`, or an `emcc` build importing only names in `IMPLEMENTED_SYSCALLS`, with exported or
-   * imported memory. Asyncify is fine.
+   * imported memory. Asyncify is fine. The module is compiled once for all of these checks: a launch asks on every run.
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
-    if (await this.isWali(wasmBytes)) return true
-    if (await this.detectWasiVersion(wasmBytes) !== 'preview1') return false
+    return (await this.inspectForWorker(wasmBytes)).inWorker
+  }
+
+  async inspectForWorker(wasmBytes: Uint8Array): Promise<{ inWorker: boolean, wali?: { module: WebAssembly.Module, limits?: { initial: number, maximum: number } } }> {
+    // a component (preview2) or anything that is not a core module has no worker to run in
+    if (wasmBytes.length < 8 || wasmBytes[0] !== 0x00 || wasmBytes[1] !== 0x61 || wasmBytes[2] !== 0x73 || wasmBytes[3] !== 0x6d) return { inWorker: false }
+    if (wasmBytes[4] !== 0x01 || wasmBytes[5] !== 0x00 || wasmBytes[6] !== 0x00 || wasmBytes[7] !== 0x00) return { inWorker: false }
     try {
-      const buffer = wasmBytes.buffer.slice(wasmBytes.byteOffset, wasmBytes.byteOffset + wasmBytes.byteLength) as ArrayBuffer
-      const module = await WebAssembly.compile(buffer)
+      const module = await WebAssembly.compile(wasmBytes as Uint8Array<ArrayBuffer>)
+      if (waliShaped(module)) return { inWorker: true, wali: { module, limits: memoryImportLimits(wasmBytes) } }
+      const imports = WebAssembly.Module.imports(module)
+      if (!imports.some(entry => entry.module === 'wasi_snapshot_preview1')) return { inWorker: false }
       // Any other `env` import stays on the main-thread path rather than fail on a missing import.
-      if (!WebAssembly.Module.imports(module).every(entry =>
+      if (!imports.every(entry =>
         entry.module === 'wasi_snapshot_preview1' ||
         (entry.module === 'env' && IMPLEMENTED_SYSCALLS.has(entry.name)) ||
         (entry.kind === 'memory' && entry.name === 'memory')
-      )) return false
+      )) return { inWorker: false }
       const hasExportedMemory = WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')
-      const hasImportedMemory = WebAssembly.Module.imports(module).some(entry => entry.kind === 'memory')
-      if (!hasExportedMemory && !hasImportedMemory) return false
+      const hasImportedMemory = imports.some(entry => entry.kind === 'memory')
       // An asyncify-instrumented module only unwinds when an import it calls triggers it, which this adapter never
       // does, so it runs as if uninstrumented.
-      return true
+      return { inWorker: hasExportedMemory || hasImportedMemory }
     } catch {
-      return false
+      return { inWorker: false }
     }
   }
 

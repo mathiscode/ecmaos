@@ -64,6 +64,12 @@ export interface Wasm {
   canRunInWorker(wasmBytes: Uint8Array): Promise<boolean>
 
   /**
+   * `canRunInWorker`, and for a WALI module also what its worker would otherwise work out for itself: the module compiled,
+   * and the limits of the memory it imports.
+   */
+  inspectForWorker(wasmBytes: Uint8Array): Promise<{ inWorker: boolean, wali?: { module: WebAssembly.Module, limits?: { initial: number, maximum: number } } }>
+
+  /**
    * Loads a WASI component with stream integration.
    * @param path - path to the WASM file
    * @param streams - stdin/stdout/stderr stream options

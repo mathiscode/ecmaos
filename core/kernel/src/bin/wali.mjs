@@ -55,14 +55,21 @@ const threadStart = Promise.withResolvers()
 receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(message) })
 
 /**
+ * A program the kernel has compiled already is sent ahead of `init` (`lib/warm-threads.ts`): its module and the limits of
+ * the memory it imports. The file is then not read, nor compiled again here.
+ */
+let provided
+receive(message => { if (message.$ === 'wali-module') provided = message })
+
+/**
  * A WALI module runs on the dependency's table with ecmaOS's calls added (`wali-host.mjs`). `run()` keeps the
  * instance to itself, so its memory is picked up here as the module is instantiated. The first thread makes the
  * shared memory the module imports; a later one is given it, and runs `__wasm_thread_start_libc` rather than
  * `_start`. Each worker runs one thread.
  */
-function runWali(source, start, unwindAt) {
+function runWali(source, start, unwindAt, preloaded) {
   install(wali, start)
-  const limits = memoryLimits(source)
+  const limits = preloaded ? preloaded.limits : memoryLimits(source)
   if (start) wali.memory = start.memory
   else if (limits) wali.memory = new WebAssembly.Memory({ ...limits, shared: true })
   const instantiate = WebAssembly.instantiate
@@ -79,13 +86,22 @@ function runWali(source, start, unwindAt) {
     const exports = Object.assign(Object.create(null), instance.exports, { _start: drive(instance, limits, undefined, entry, unwindAt) ?? entry })
     return { exports }
   }
+  if (preloaded) {
+    // `run` compiles what it is given: it is given the object the module came in, and answers with the module
+    const compile = WebAssembly.compile
+    WebAssembly.compile = async (value, ...rest) => value === preloaded ? preloaded.module : compile.call(WebAssembly, value, ...rest)
+    return run(preloaded)
+  }
   return run(source)
 }
 
-/** `read()` never blocks past what's buffered, so read in a loop until a short read ends it. */
+/**
+ * A short read is not EOF, so loop until `read()` returns 0. A program is megabytes (python3 is 17MB), and each `read` is
+ * a round trip to the kernel: 1MiB at a time is the most one returns, and took python3's read from 2s to 0.15s.
+ */
 async function readWholeFile(path) {
   const fd = open(path, 0 /* O_RDONLY */)
-  const chunkSize = 65536
+  const chunkSize = 1048576
   const chunks = []
 
   try {
@@ -94,7 +110,6 @@ async function readWholeFile(path) {
       const n = read(fd, buffer, -1)
       if (n <= 0) break
       chunks.push(buffer.subarray(0, n))
-      if (n < chunkSize) break
     }
   } finally {
     close(fd)
@@ -118,15 +133,17 @@ let start
 const fail = code => start ? syscall_raw('proc_exit_group', code) : exit(code)
 
 try {
-  const source = await readWholeFile(init.exe)
+  // a module the kernel sent for this very program is used as it is; the first thing a worker is told is which one it is for
+  const preloaded = provided?.exe === init.exe ? provided : undefined
+  const source = preloaded ? undefined : await readWholeFile(init.exe)
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
   // `wasi-preview1.mjs`; anything else is WALI.
-  const module = await WebAssembly.compile(source)
-  const isPreview1 = WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
+  const module = preloaded ? preloaded.module : await WebAssembly.compile(source)
+  const isPreview1 = !preloaded && WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
   start = init.env?.__WALI_THREAD__ || init.env?.__WALI_FORK__ ? await threadStart.promise : undefined
   // the imports a handler's fork can unwind at, if the program was built for that (utils/wali/asyncify.sh)
   const unwindAt = WebAssembly.Module.customSections(module, 'ecmaos.asyncify-signals').flatMap(section => new TextDecoder().decode(section).split(',').filter(Boolean))
-  const code = isPreview1 ? await runPreview1(source) : await runWali(source, start, unwindAt)
+  const code = isPreview1 ? await runPreview1(source) : await runWali(source, start, unwindAt, preloaded)
   exit(code)
 } catch (error) {
   // An exception nothing caught (a C++ throw, or a longjmp with no setjmp) leaves the module as a WebAssembly

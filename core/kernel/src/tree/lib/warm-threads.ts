@@ -32,6 +32,27 @@ const WebWorker = globalThis.Worker
 /** Kept out of the import so it stays opaque to bundlers; a browser build never reaches it */
 const nodeWorkerThreads = 'node:' + 'worker_threads'
 
+/** A program the kernel has compiled already: what `/bin/wali` would otherwise read from the file and compile itself */
+export interface ProgramModule {
+  module: WebAssembly.Module
+  limits?: { initial: number, maximum: number }
+}
+
+/** How many programs' modules are held: compiled code is large (python3's is tens of MB) */
+const MAX_PROGRAMS = 8
+const programs = new Map<string, ProgramModule>()
+
+/**
+ * Has the next worker for `exe` be sent its compiled module ahead of `init` (a program's threads and forks run the same
+ * `exe`, so they are given it too). A worker takes it only if the `exe` it is started with is this one.
+ */
+export function provideProgramModule(exe: string, program: ProgramModule | undefined): void {
+  programs.delete(exe)
+  if (!program) return
+  programs.set(exe, program)
+  for (const old of [...programs.keys()].slice(0, Math.max(0, programs.size - MAX_PROGRAMS))) programs.delete(old)
+}
+
 const interpreters: Interpreter[] = []
 let installed = false
 
@@ -138,7 +159,16 @@ async function warmThread(bytes: Uint8Array): Promise<HostThread> {
   }
   const taken = await spare
   taken.take()
-  return taken.host
+  const host = taken.host
+  const post = host.post.bind(host)
+  host.post = message => {
+    const exe = (message as { $?: string }).$ === 'init' ? (message as unknown as { exe?: string }).exe : undefined
+    const program = exe === undefined ? undefined : programs.get(exe)
+    // a message of its own, before `init`: the worker holds it until it knows which program it was started for
+    if (exe !== undefined && program) post({ $: 'wali-module', exe, ...program } as never)
+    post(message)
+  }
+  return host
 }
 
 /** Idempotent. */
