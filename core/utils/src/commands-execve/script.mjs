@@ -186,11 +186,14 @@ async function main() {
 
   const buffer = new Uint8Array(65536)
   let reading = true
+  // the master hangs up (a read fails with EIO) once nothing has the slave open: all the output has been read
+  let hungUp = false
   let status
   // a read of the master with nothing in it waits, so each read is asked for only when poll says there is something
   const drain = () => {
-    while (poll([{ fd: master, events: POLLIN }], 0)[0] & POLLIN) {
-      const n = read(master, buffer, -1)
+    while (!hungUp && poll([{ fd: master, events: POLLIN }], 0)[0] & POLLIN) {
+      let n
+      try { n = read(master, buffer, -1) } catch (e) { if (!`${e?.code} ${e?.message}`.includes('EIO')) throw e; hungUp = true; return }
       if (n <= 0) return
       const bytes = buffer.slice(0, n)
       writeAll(1, bytes)
@@ -198,8 +201,16 @@ async function main() {
     }
   }
   for (;;) {
-    let ready = [0, 0]
-    try { ready = poll(reading ? [{ fd: master, events: POLLIN }, { fd: 0, events: POLLIN }] : [{ fd: master, events: POLLIN }], 50) } catch (e) { if (!`${e?.code} ${e?.message}`.includes('EINTR')) throw e }
+    // ready[0] is the master's, ready[1] standard input's; what is not watched stays 0
+    const ready = [0, 0]
+    const watched = [hungUp ? -1 : master, reading ? 0 : -1]
+    const asked = watched.filter(fd => fd >= 0)
+    try {
+      if (asked.length) {
+        const answer = poll(asked.map(fd => ({ fd, events: POLLIN })), 50)
+        asked.forEach((fd, i) => { ready[watched.indexOf(fd)] = answer[i] })
+      } else await new Promise(resolve => setTimeout(resolve, 50))
+    } catch (e) { if (!`${e?.code} ${e?.message}`.includes('EINTR')) throw e }
     if (resized) {
       resized = false
       try { const s = winsize(0); ioctl(master, TIOCSWINSZ, { rows: s.row, cols: s.col }) } catch {}
@@ -226,7 +237,7 @@ async function main() {
   if (outFile) outFile.write(encoder.encode(footer))
   if (inFile && inFile !== outFile) inFile.write(encoder.encode(footer))
   for (const { log } of files) log.close()
-  // the pty hangs up on what is in front of it when its master closes, which is this process once the shell has exited;
+  // closing the master hangs up what is in front of a slave still open, which is this process once the shell has exited;
   // the close is interrupted by it, and done all the same, as on Linux
   onSignal(SIGHUP, () => {})
   try { close(master) } catch (e) { if (!`${e?.code} ${e?.message}`.includes('EINTR')) throw e }

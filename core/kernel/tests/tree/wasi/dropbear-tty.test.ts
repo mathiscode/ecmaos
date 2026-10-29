@@ -62,8 +62,9 @@ describe('ssh on the terminal', () => {
     await press('echo from-$((6*7))-ssh\r', 1000)
     await waitFor(() => /^from-42-ssh$/m.test(screenText()))
     await press('exit 4\r')
-    // the session ends when the shell does (its status does not come back over a pty yet; a command without one does)
-    await done
-    expect(screenText()).toMatch(/Connection to root@127\.0\.0\.1:2222 exited/)
+    // the session ends when the shell does, and ssh exits with its status
+    expect(await done).toBe(4)
+    // a session that ends with a status is not a dropped connection
+    expect(screenText()).not.toMatch(/Connection to root@127\.0\.0\.1:2222 exited/)
   }, 120000)
 })

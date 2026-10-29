@@ -4,12 +4,18 @@
  * Opening `/dev/ptmx` allocates a pair by wrapping the `open` syscall (as `fd-links.ts` does for `/dev/fd`); a pair
  * is freed when the last descriptor on its master closes. The master answers `TIOCGPTN` and `TIOCSPTLCK`, and `TIOCPKT` (packet mode: each
  * read begins with a status byte, 0 for data; the flow-control and flush notices Linux can also send are not raised).
+ * Once the slave has been opened and its last descriptor closes, the master hangs up as Linux's does: `poll` gives
+ * `POLLHUP` and a read with nothing left to give fails with `EIO`, which is how a terminal's owner (sshd, `script`,
+ * `tmux`) learns that what ran on it is gone. Opening the slave again clears it.
  * `/dev/tty` resolves to the caller's controlling terminal.
  */
 
 import { CharDevice, Class, Device, Process, Signal, TTYDriver, WaitQueue, processes, syscalls, tty_class } from '@zenfs/linux'
 import type { DeviceFile, TTY } from '@zenfs/linux'
 import { EPOLLIN, EPOLLOUT } from '@zenfs/linux'
+import { withErrno } from 'kerium'
+
+const EPOLLHUP = 0x10
 
 /** Linux's `ptmx` (`5:2`), the legacy BSD master major (`128`) and the unix98 slave major (`136`). */
 const PTMX = { major: 5, minor: 2 }
@@ -43,6 +49,10 @@ interface Pair {
   held: boolean
   /** Where the slave's output goes when the kernel holds the master */
   listeners: Set<(data: Uint8Array) => void>
+  /** A descriptor on the slave has been open */
+  slaveOpened: boolean
+  /** The slave had descriptors and has none now */
+  hungUp: boolean
 }
 
 const pairs = new Map<number, Pair>()
@@ -68,6 +78,7 @@ const masters = new CharDevice({
   read(file, buffer, start, end) {
     const pair = pairs.get(file.devt.minor)
     if (!pair) return 0
+    if (pair.hungUp && !pair.output.length) throw withErrno('EIO')
     let count = 0
     // a packet begins with its status, which is 0 for data; nothing to read is still nothing
     if (pair.packet && pair.output.length && start < end) buffer[start + count++] = 0
@@ -89,6 +100,8 @@ const masters = new CharDevice({
   },
   poll: file => {
     const pair = pairs.get(file.devt.minor)
+    // a hangup is readable too, so a read waiting on the master wakes to its EIO
+    if (pair?.hungUp) return EPOLLIN | EPOLLHUP
     return (pair?.output.length ? EPOLLIN : 0) | EPOLLOUT
   },
   poll_wait: file => pairs.get(file.devt.minor)?.wait,
@@ -124,17 +137,17 @@ function allocate(): Pair {
   slave.open()
   const masterDevice = new Device({ name: `pts/.ptm${index}`, class: master_class, dev_t: { major: MASTER_MAJOR, minor: index } })
   masterDevice.register()
-  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true, packet: false, held: false, listeners: new Set() }
+  const pair: Pair = { index, slave, output: [], wait: new WaitQueue(), masterPath: `/pts/.ptm${index}`, masterDevice, opened: false, locked: true, packet: false, held: false, listeners: new Set(), slaveOpened: false, hungUp: false }
   pairs.set(index, pair)
   return pair
 }
 
 function release(pair: Pair): void {
   pairs.delete(pair.index)
-  // The slave's users see a hangup, as on Linux when the master goes away. What is in front may be only there because the
-  // process before it exited: its parent, often the one that held the master. A dropbear session ends this way (its
-  // shell's exit is not seen over a pty yet); `script` closes its master with SIGHUP caught.
-  try { pair.slave.signal(Signal.HUP) } catch { /* nothing in front of it */ }
+  // The slave's users see a hangup, as on Linux when the master goes away. A slave nobody has open any more has no users:
+  // what is in front of it then is only there because the process before it exited (its parent, often the one holding
+  // the master, as sshd and `script` do), so it is left alone.
+  if (!pair.hungUp) try { pair.slave.signal(Signal.HUP) } catch { /* nothing in front of it */ }
   try { pair.slave.close() } catch { /* already closed */ }
   pair.slave.unregister()
   pts.ttys.delete(pair.index)
@@ -142,16 +155,18 @@ function release(pair: Pair): void {
   pair.wait.wake_up()
 }
 
-/** How many descriptors, in any process, are open on a pair's master. */
-function masterRefs(pair: Pair): number {
-  let count = 0
+/** How many descriptors, in any process, are open on a pair's master and on its slave. */
+function refs(pair: Pair): { master: number, slave: number } {
+  const slavePath = `/pts/${pair.index}`
+  let master = 0, slave = 0
   for (const proc of processes.values()) {
     for (const handle of proc.context.descriptors.values()) {
       const path = (handle as unknown as { internalPath?: string, path?: string }).internalPath ?? (handle as unknown as { path?: string }).path
-      if (path === pair.masterPath) count++
+      if (path === pair.masterPath) master++
+      else if (path === slavePath) slave++
     }
   }
-  return count
+  return { master, slave }
 }
 
 /** The `/dev/pts/<n>` number of a slave tty, or `undefined` when it is not a pty's */
@@ -171,10 +186,14 @@ export function ptySlaveOf(index: number): TTY | undefined {
   return pairs.get(index)?.slave
 }
 
-/** Frees every pair whose master has no descriptor left. */
+/** Frees every pair whose master has no descriptor left, and hangs up the master of one whose slave has none left. */
 export function sweepPtys(): void {
   for (const pair of [...pairs.values()]) {
-    if (pair.opened && !pair.held && masterRefs(pair) === 0) release(pair)
+    if (!pair.opened || pair.held) continue
+    const { master, slave } = refs(pair)
+    if (master === 0) { release(pair); continue }
+    if (slave > 0) { pair.slaveOpened = true; pair.hungUp = false }
+    else if (pair.slaveOpened && !pair.hungUp) { pair.hungUp = true; pair.wait.wake_up() }
   }
 }
 
@@ -255,6 +274,8 @@ export function installPtys(): void {
       }
       // A process's own terminal, not the console's.
       if (path === '/dev/tty' && proc.tty) return await open(proc, ttyPathOf(proc.tty), ...rest)
+      // a slave opened is one the master can hang up on when it closes again
+      if (typeof path === 'string' && path.startsWith('/dev/pts/')) try { return await open(proc, path, ...rest) } finally { sweepPtys() }
       return await open(proc, path, ...rest)
     }) as never)
   }

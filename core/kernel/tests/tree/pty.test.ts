@@ -51,6 +51,29 @@ describe('pseudo-terminals', () => {
     expect(ptyIndices()).toEqual([])
   })
 
+  it('the master hangs up once the slave has been opened and closed again: POLLHUP, then EIO after what is left', async () => {
+    const { result } = await program('hup', `
+      // POLLHUP is asked for: this poll reports only what it is asked (a WALI program's adds it, as Linux's always does)
+      const { poll } = globalThis.ecmaosSyscalls
+      const master = open('/dev/ptmx', 2, 0)
+      const index = ioctl(master, 0x80045430)
+      say('before=' + (poll([{ fd: master, events: 0x11 }], 0)[0] & 0x10))
+      const slave = open('/dev/pts/' + index, 2, 0)
+      write(slave, enc.encode('last'))
+      close(slave)
+      say('after=' + (poll([{ fd: master, events: 0x11 }], 0)[0] & 0x10))
+      const buf = new Uint8Array(64)
+      const n = read(master, buf, -1)
+      say('left=' + JSON.stringify(dec.decode(buf.subarray(0, n))))
+      try { read(master, buf, -1); say('read') } catch (e) { say('error=' + (e.code ?? e.message)) }
+      // a slave opened again is no longer hung up
+      const again = open('/dev/pts/' + index, 2, 0)
+      say('reopened=' + (poll([{ fd: master, events: 0x11 }], 0)[0] & 0x10))
+      close(again); close(master)
+    `)
+    expect(result).toMatch(/^before=0\|after=16\|left="last"\|error=.*EIO.*\|reopened=0$/)
+  })
+
   it('bytes written to the master arrive on the slave, and the slave answers', async () => {
     const { result } = await program('io', `
       const { readdir } = globalThis.ecmaosSyscalls

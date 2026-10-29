@@ -17,7 +17,7 @@ Dropbear 2026.94, a small SSH server and client, built to WebAssembly. `/bin/dro
 
 The server needs a host key, made with `dropbearkey -t ed25519 -f FILE` and given with `-r`, and is told where to listen with `-p`. A login uses a key (`ssh -i KEY`; `-y` accepts an unknown host key without asking, and `scp` runs `ssh` without it, so the host's key must be in `known_hosts`). `ssh` and `scp` find each other in `/bin`. When the account's shell is the kernel's own, which is a name and not a file to run, the session runs `/bin/sh`.
 
-Known gap: the exit status of a session on a pty is lost.
+A session on a pty ends when its shell does, and `ssh` exits with the shell's status, as it does for a command.
 
 ## Examples
 
