@@ -11,7 +11,8 @@ import { ready, exit, getpid, getppid, getuid, geteuid, getgid, getegid } from '
 import {
   open as openRaw, read, close, write, getcwd,
   mkdir as mkdirRaw, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
-  link, symlink, readlink, utimes, statfs, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2
+  link, symlink, readlink, utimes, statfs, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2,
+  getxattr, setxattr, removexattr, listxattr
 } from '@zenfs/linux/uapi/fs'
 import { parseArgs, installConsole, runSource, readStdin, isTty, startRepl, Usage } from './node-cli.mjs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
@@ -199,6 +200,8 @@ globalThis.ecmaosSyscalls = {
   mkdir, umask, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes, statfs,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
+  // Extended attributes: `getxattr(path, name, noFollow)` gives the value's bytes, `listxattr(path, noFollow)` the names
+  getxattr, setxattr, removexattr, listxattr,
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
   // (`TCGETS`/`TCSETS`, `lflag`/`iflag`/`oflag`/`cc`), `winsize` (`TIOCGWINSZ`), and the bare `ioctl`.
   ioctl, tcgetattr, tcsetattr, winsize,
