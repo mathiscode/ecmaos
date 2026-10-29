@@ -21,6 +21,7 @@ const O_RDWR = 2
 const O_APPEND = 0o2000
 const TIOCGPTN = 0x80045430
 const TIOCSWINSZ = 0x5414
+const SIGHUP = 1
 const SIGWINCH = 28
 // termios bits (`<asm-generic/termbits.h>`)
 const ISIG = 0o1, ICANON = 0o2, ECHO = 0o10, IEXTEN = 0o100000
@@ -225,7 +226,10 @@ async function main() {
   if (outFile) outFile.write(encoder.encode(footer))
   if (inFile && inFile !== outFile) inFile.write(encoder.encode(footer))
   for (const { log } of files) log.close()
-  close(master)
+  // the pty hangs up on what is in front of it when its master closes, which is this process once the shell has exited;
+  // the close is interrupted by it, and done all the same, as on Linux
+  onSignal(SIGHUP, () => {})
+  try { close(master) } catch (e) { if (!`${e?.code} ${e?.message}`.includes('EINTR')) throw e }
   if (!quiet) writeAll(1, encoder.encode('Script done.\n'))
   return returnStatus ? code : 0
 }

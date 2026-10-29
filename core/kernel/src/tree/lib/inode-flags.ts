@@ -177,11 +177,11 @@ export function fileFlags(proc: Process, path: string): number {
 
 /**
  * Whether `path`, seen from `context` (a shell's), is immutable or append-only; neither for a file that does not exist
- * or has no flags
+ * or has no flags. Synchronous: a shell's two streams on one file (`> f 2>&1`) each truncate it as they are made, in order.
  */
-export async function lockOf(context: unknown, path: string): Promise<{ immutable: boolean, appendOnly: boolean }> {
-  const ioctl = vfs.ioctl as unknown as (this: unknown, path: string, command: number) => Promise<number>
-  const flags = await ioctl.call(context, path, GETFLAGS[0] as number).catch(() => 0)
+export function lockOf(context: unknown, path: string): { immutable: boolean, appendOnly: boolean } {
+  const ioctl = vfs.ioctlSync as unknown as (this: unknown, path: string, command: number) => number
+  const flags = quiet(() => ioctl.call(context, path, GETFLAGS[0] as number)) ?? 0
   return { immutable: !!(flags & FS_IMMUTABLE_FL), appendOnly: !!(flags & FS_APPEND_FL) }
 }
 

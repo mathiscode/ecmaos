@@ -131,11 +131,10 @@ function allocate(): Pair {
 
 function release(pair: Pair): void {
   pairs.delete(pair.index)
-  // The slave's users see a hangup, as on Linux when the master goes away: what is in front of it, when the slave is
-  // its controlling terminal. A process that is only in front because the one there exited (its parent, which may
-  // hold the master, as `script` does) is not the slave's.
-  const front = pair.slave.foreground
-  if (front && front.tty === pair.slave) try { front.kill(Signal.HUP) } catch { /* already gone */ }
+  // The slave's users see a hangup, as on Linux when the master goes away. What is in front may be only there because the
+  // process before it exited: its parent, often the one that held the master. A dropbear session ends this way (its
+  // shell's exit is not seen over a pty yet); `script` closes its master with SIGHUP caught.
+  try { pair.slave.signal(Signal.HUP) } catch { /* nothing in front of it */ }
   try { pair.slave.close() } catch { /* already closed */ }
   pair.slave.unregister()
   pts.ttys.delete(pair.index)

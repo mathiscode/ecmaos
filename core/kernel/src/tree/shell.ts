@@ -2190,7 +2190,7 @@ export class Shell implements IShell {
           return
         }
         // what open(2) refuses: writing an immutable file, and an append-only one but to append
-        const lock = await lockOf(context, targetPath)
+        const lock = lockOf(context, targetPath)
         if (lock.immutable || (lock.appendOnly && !append)) throw Object.assign(new Error(`${targetPath}: Operation not permitted`), { code: 'EPERM' })
         appendOnly = lock.appendOnly
         const existed = append && await context.fs.promises.exists(targetPath)
