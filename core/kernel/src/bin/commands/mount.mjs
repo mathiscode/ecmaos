@@ -33,12 +33,17 @@ Filesystem types:
   memory              mount an in-memory filesystem
   singlebuffer        mount a filesystem backed by a single buffer
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
+  tar                 mount a readonly filesystem from a tar archive, gzipped or not (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)
   googledrive         mount a Google Drive filesystem (requires apiKey via -o apiKey, optionally clientId for OAuth)
   ecmaos              mount a directory of another ecmaOS machine (SOURCE is [wss://][user@]host[:port][/export]; wss:// for a host serving TLS); asks for your password,
                       which unlocks the key that logs in. The directory is copied into memory: see the options below
 
+With a SOURCE and no -t, an image's type (zip, tar, iso) is found from its first bytes, or from its name for a URL;
+-o loop is accepted for it, as on Linux, where an image is mounted through a loop device.
+
 Mount options:
+  loop                mount an image file (zip, tar, iso); implied by an image SOURCE
   baseUrl=URL         base URL for fetch operations (fetch type)
   size=BYTES          buffer size in bytes for singlebuffer type (default: 1048576)
   storage=TYPE        storage type for webstorage (localStorage or sessionStorage, default: localStorage)
@@ -69,12 +74,58 @@ Examples:
   mount -t zip /tmp/archive.zip /mnt/zip
   mount -t iso https://example.com/image.iso /mnt/iso
   mount -t iso /tmp/image.iso /mnt/iso
+  mount -o loop /tmp/image.iso /mnt/iso       the type is found from the image
+  mount /tmp/site.tar.gz /mnt/site
   mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY # readonly/public
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
   mount -t ecmaos root@127.0.0.1:30022/share /mnt/share`
 
 const NO_SOURCE_TYPES = ['memory', 'tmpfs', 'singlebuffer', 'webstorage', 'webaccess', 'opfs', 'xml', 'dropbox', 'googledrive']
-const REQUIRES_SOURCE_TYPES = ['zip', 'iso', 'fetch', 'indexeddb', 'ecmaos']
+const REQUIRES_SOURCE_TYPES = ['zip', 'tar', 'iso', 'fetch', 'indexeddb', 'ecmaos']
+const IMAGE_TYPES = ['zip', 'tar', 'iso']
+
+/** The bytes of `path` from 0 up to `length`, or `null` when it cannot be read */
+function readHead(path, length) {
+  let fd
+  try { fd = open(path, 0) } catch { return null }
+  try {
+    const head = new Uint8Array(length)
+    let filled = 0
+    while (filled < length) {
+      const chunk = new Uint8Array(length - filled)
+      const n = read(fd, chunk, -1)
+      if (n <= 0) break
+      head.set(chunk.subarray(0, n), filled)
+      filled += n
+    }
+    return head.subarray(0, filled)
+  } finally { close(fd) }
+}
+
+const ascii = (bytes, at, text) => [...text].every((char, i) => bytes[at + i] === char.charCodeAt(0))
+
+/**
+ * The image type of `source`, as `mount` without `-t` finds it (blkid's job on Linux): a zip's `PK` header, a tar's
+ * `ustar` at 257, gzip's `1f 8b` (a gzipped tarball), an ISO 9660 volume's `CD001` at 32769. A URL is not read for it:
+ * its name says (`.zip`, `.tar`, `.tar.gz`, `.tgz`, `.iso`).
+ */
+function imageTypeOf(source) {
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(source)) {
+    const name = source.split(/[?#]/)[0].toLowerCase()
+    if (name.endsWith('.zip')) return 'zip'
+    if (/\.(tar|tar\.gz|tgz)$/.test(name)) return 'tar'
+    if (name.endsWith('.iso')) return 'iso'
+    return undefined
+  }
+  const path = source.startsWith('/') ? source : `${getcwd().replace(/\/$/, '')}/${source}`
+  const head = readHead(path, 32774)
+  if (!head) return undefined
+  if (head[0] === 0x50 && head[1] === 0x4b && (head[2] === 3 || head[2] === 5)) return 'zip'
+  if (head[0] === 0x1f && head[1] === 0x8b) return 'tar'
+  if (ascii(head, 257, 'ustar')) return 'tar'
+  if (ascii(head, 32769, 'CD001')) return 'iso'
+  return undefined
+}
 
 function parseOptions(options) {
   const parsed = {}
@@ -263,6 +314,15 @@ async function main() {
     return 1
   }
 
+  // an image named with no type (`mount -o loop disk.iso /mnt`) says what it is
+  if ((!type || type === 'auto') && positional.length === 2) {
+    type = imageTypeOf(positional[0])
+    if (!type) {
+      writeln(2, `mount: ${positional[0]}: cannot tell what kind of image this is; name it with -t`)
+      return 1
+    }
+  }
+
   if (!type) {
     writeln(2, 'mount: filesystem type must be specified')
     writeln(2, "Try 'mount --help' for more information.")
@@ -283,7 +343,7 @@ async function main() {
     return 1
   }
 
-  if (positional.length === 1 && (lowerType === 'zip' || lowerType === 'iso')) {
+  if (positional.length === 1 && IMAGE_TYPES.includes(lowerType)) {
     writeln(2, `mount: ${lowerType} filesystem requires a source file or URL`)
     writeln(2, `Usage: mount -t ${lowerType} SOURCE TARGET`)
     return 1

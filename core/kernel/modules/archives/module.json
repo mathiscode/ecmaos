@@ -1,9 +1,10 @@
 {
   "name": "archives",
-  "description": "The zip and iso filesystem types: mounts a ZIP archive or an ISO 9660 image read-only",
+  "description": "The zip, tar and iso filesystem types: mounts a ZIP archive, a tar archive (gzipped or not) or an ISO 9660 image read-only",
   "license": "LGPL-3.0-or-later",
   "alias": [
     "fs-zip",
+    "fs-tar",
     "fs-iso"
   ],
   "depends": []

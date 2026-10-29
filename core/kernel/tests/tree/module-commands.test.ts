@@ -456,6 +456,45 @@ export default {
       expect((await sh('rmmod archives')).code).toBe(0)
     })
 
+    it('mounts a tar archive, gzipped or not, and finds an image\'s type itself with -o loop', async () => {
+      // a ustar archive of one file: a 512-byte header, the data padded to 512, and two empty blocks
+      const tarOf = (name: string, text: string) => {
+        const data = new TextEncoder().encode(text)
+        const header = new Uint8Array(512)
+        const put = (at: number, value: string) => header.set(new TextEncoder().encode(value), at)
+        put(0, name); put(100, '0000644\0'); put(108, '0000000\0'); put(116, '0000000\0')
+        put(124, data.length.toString(8).padStart(11, '0') + '\0'); put(136, '00000000000\0')
+        put(148, '        '); put(156, '0'); put(257, 'ustar\0'); put(263, '00')
+        const sum = header.reduce((total, byte) => total + byte, 0)
+        put(148, sum.toString(8).padStart(6, '0') + '\0 ')
+        const body = new Uint8Array(Math.ceil(data.length / 512) * 512)
+        body.set(data)
+        const all = new Uint8Array(512 + body.length + 1024)
+        all.set(header); all.set(body, 512)
+        return all
+      }
+      const zlib = (process as unknown as { getBuiltinModule: (id: string) => typeof import('node:zlib') }).getBuiltinModule('node:zlib')
+      await kernel.filesystem.fs.writeFile('/tmp/test.tar', tarOf('inside.txt', 'from the tar\n'))
+      await kernel.filesystem.fs.writeFile('/tmp/test.tgz', new Uint8Array(zlib.gzipSync(tarOf('zipped.txt', 'gzipped\n'))))
+
+      expect((await sh('mount -t tar /tmp/test.tar /mnt/tar')).out).toContain('Mounted tar filesystem from /tmp/test.tar to /mnt/tar')
+      expect((await sh('cat /mnt/tar/inside.txt')).out).toBe('from the tar\n')
+      expect((await sh('umount /mnt/tar')).code).toBe(0)
+
+      // no -t: the type is in the image's first bytes
+      expect((await sh('mount -o loop /tmp/test.tgz /mnt/tgz')).out).toContain('Mounted tar filesystem')
+      expect((await sh('cat /mnt/tgz/zipped.txt')).out).toBe('gzipped\n')
+      expect((await sh('umount /mnt/tgz')).code).toBe(0)
+      expect((await sh('mount /tmp/test.zip /mnt/auto')).out).toContain('Mounted zip filesystem')
+      expect((await sh('umount /mnt/auto')).code).toBe(0)
+
+      await kernel.filesystem.fs.writeFile('/tmp/plain.bin', 'neither\n')
+      const unknown = await sh('mount -o loop /tmp/plain.bin /mnt/x')
+      expect(unknown.code).toBe(1)
+      expect(unknown.out + unknown.err).toContain('cannot tell what kind of image this is')
+      expect((await sh('rmmod archives')).code).toBe(0)
+    })
+
     it('says what the zip type needs, and what is wrong with a file that is not one', async () => {
       expect((await sh('mount -t zip /mnt/nope')).out).toContain('zip filesystem requires a source')
       await kernel.filesystem.fs.writeFile('/tmp/bad.zip', 'not a zip')

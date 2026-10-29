@@ -14,6 +14,8 @@ mount [-l|--list]
 
 Mount a filesystem.
 
+With a SOURCE and no `-t`, an image's type (`zip`, `tar`, `iso`) is found from its first bytes, or from its name for a URL, as Linux's `mount` asks blkid. `-o loop` is accepted for it, as on Linux, where an image is mounted through a loop device.
+
 ## Options
 
 ```
@@ -34,12 +36,14 @@ Filesystem types:
   tmpfs               the same filesystem under the name Linux gives it
   singlebuffer        mount a filesystem backed by a single buffer
   zip                 mount a readonly filesystem from a zip archive (requires SOURCE file or URL)
+  tar                 mount a readonly filesystem from a tar archive, gzipped or not (requires SOURCE file or URL)
   iso                 mount a readonly filesystem from an ISO image (requires SOURCE file or URL)
   googledrive         mount a Google Drive filesystem (requires apiKey via -o apiKey, optionally clientId for OAuth)
   ecmaos              mount a directory of another ecmaOS machine (SOURCE is [wss://][user@]host[:port][/export]; wss:// for a host serving TLS); asks for your password,
                       which unlocks the key that logs in. The directory is copied into memory: see the options below
 
 Mount options:
+  loop                mount an image file (zip, tar, iso); implied by an image SOURCE
   baseUrl=URL         base URL for fetch operations (fetch type)
   size=BYTES          buffer size in bytes for singlebuffer type (default: 1048576)
   storage=TYPE        storage type for webstorage (localStorage or sessionStorage, default: localStorage)
@@ -70,6 +74,8 @@ Examples:
   mount -t zip /tmp/archive.zip /mnt/zip
   mount -t iso https://example.com/image.iso /mnt/iso
   mount -t iso /tmp/image.iso /mnt/iso
+  mount -o loop /tmp/image.iso /mnt/iso       the type is found from the image
+  mount /tmp/site.tar.gz /mnt/site
   mount -t googledrive /mnt/gdrive -o apiKey=YOUR_API_KEY # readonly/public
   mount -t googledrive /mnt/gdrive -o clientId=YOUR_CLIENT_ID # rw/private
   mount -t ecmaos root@127.0.0.1:30022/share /mnt/share
