@@ -28,6 +28,37 @@ function poll(fds, timeout = -1) {
   return fds.map((_, i) => view.getUint16(i * 2, true))
 }
 
+/** The loopback listener a TCP connection to `host` reaches on this machine, or `undefined` for a host beyond it */
+function loopbackKeys(host, port) {
+  const name = String(host).replace(/^\[(.*)\]$/, '$1').toLowerCase()
+  if (name === 'localhost' || name === 'localhost.') return [`inet:127.0.0.1:${port}`, `inet6:${port}`]
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name) || name === '0.0.0.0') return [`inet:127.0.0.1:${port}`]
+  if (name === '::1' || name === '::') return [`inet6:${port}`]
+  return undefined
+}
+
+/**
+ * `socket` and `connect` for a TCP stream: to a program listening on this machine for a loopback host (127.0.0.0/8,
+ * `localhost`, `::1`), through the gateway for any other. The descriptor is read and written as any other, and
+ * `shutdown(fd, 1)` ends what is sent while the answer is still read.
+ */
+function connect(host, port) {
+  const fd = syscall('sock_open', 0, 0)
+  try {
+    const keys = loopbackKeys(host, port)
+    if (!keys) { syscall('sock_connect_out', fd, String(host), Number(port)); return fd }
+    for (const [index, key] of keys.entries()) {
+      try { syscall('sock_connect', fd, key); return fd } catch (error) {
+        if (index === keys.length - 1 || error?.code !== 'ECONNREFUSED') throw error
+      }
+    }
+    return fd
+  } catch (error) {
+    close(fd)
+    throw error
+  }
+}
+
 const POLLIN = 0x1
 const POLLOUT = 0x4
 const POLLERR = 0x8
@@ -202,6 +233,8 @@ globalThis.ecmaosSyscalls = {
   link, symlink, readlink,
   // Extended attributes: `getxattr(path, name, noFollow)` gives the value's bytes, `listxattr(path, noFollow)` the names
   getxattr, setxattr, removexattr, listxattr,
+  // TCP: `connect(host, port)` gives a connected socket's descriptor (see `connect` above); `shutdown(fd, how)`
+  connect, shutdown: (fd, how) => syscall('sock_shutdown', fd, how),
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
   // (`TCGETS`/`TCSETS`, `lflag`/`iflag`/`oflag`/`cc`), `winsize` (`TIOCGWINSZ`), and the bare `ioctl`.
   ioctl, tcgetattr, tcsetattr, winsize,

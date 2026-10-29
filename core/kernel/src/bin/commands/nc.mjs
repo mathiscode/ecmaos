@@ -1,6 +1,7 @@
 /**
- * Connects to a host and port and pipes data between the socket and the terminal or a pipe, like netcat. The
- * connection shows in `sockets list`. End of input flushes and closes (exit 0); `^C` kills the process and closes the
+ * Connects to a host and port and pipes data between the socket and the terminal or a pipe, like netcat. A loopback
+ * host (`localhost`, `127.0.0.1`, `::1`) is a plain TCP connection to a program listening here; another goes over a
+ * WebSocket (or WebTransport, or a gateway's TCP flow with `-g`). The connection shows in `sockets list`. End of input flushes and closes (exit 0); `^C` kills the process and closes the
  * socket.
  */
 
@@ -10,7 +11,7 @@ import { readBackAndDelete, scratchPath } from './lib/scratch.mjs'
 import { loginPeer, parseTarget } from './lib/peer-login.mjs'
 
 const syscalls = globalThis.ecmaosSyscalls
-const { argv, exit, read, writeAll, close, custom, poll, POLLIN, POLLHUP, POLLERR, env } = syscalls
+const { argv, exit, read, writeAll, close, custom, poll, connect, shutdown, POLLIN, POLLHUP, POLLERR, env } = syscalls
 
 const encoder = new TextEncoder()
 const err = text => writeAll(2, encoder.encode(text + '\n'))
@@ -31,7 +32,10 @@ Options:
   -y, --accept-new   with -g: remember a gateway seen for the first time without asking
   --help             display this help and exit
 
+A loopback host (localhost, 127.0.0.1, ::1) is reached over plain TCP, so a server on this machine answers.
+
 Examples:
+  printf 'GET / HTTP/1.0\\r\\n\\r\\n' | nc localhost 8000
   nc -g root@box:30022 example.com 80
   nc echo.websocket.org
   nc -p 443 echo.websocket.org
@@ -115,9 +119,10 @@ async function ask(name, prefix, ...args) {
 
 /**
  * Copies bytes between the input and the socket until the peer closes. At end of input it closes `tx` (a socket has
- * no half-close) and keeps reading until the peer ends. Synchronous, since `poll` and `read` block the worker.
+ * no half-close) and keeps reading until the peer ends. Synchronous, since `poll` and `read` block the worker. A TCP
+ * socket (`rx` and `tx` the same descriptor) is shut down for writing instead, `endInput`.
  */
-function pump(rx, tx) {
+function pump(rx, tx, endInput = () => close(tx)) {
   const buffer = new Uint8Array(65536)
   let inputOpen = true
 
@@ -136,7 +141,7 @@ function pump(rx, tx) {
       const n = read(0, buffer, -1)
       if (n <= 0) {
         inputOpen = false
-        close(tx)
+        endInput()
         continue
       }
       writeAll(tx, buffer.subarray(0, n))
@@ -236,6 +241,22 @@ async function main() {
   const gateway = takeGateway(args)
   if (gateway?.error) { err(`nc: ${gateway.error}`); return 1 }
   if (gateway) return throughGateway(gateway)
+
+  // plain TCP to a program on this machine
+  const positional = args.filter(arg => !arg.startsWith('-'))
+  const loopback = /^(localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|\[::1\])$/i
+  if (positional.length === 2 && loopback.test(positional[0] ?? '') && !args.includes('-u') && !args.includes('--url')) {
+    const port = Number(positional[1])
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { err(`nc: port number invalid: ${positional[1]}`); return 1 }
+    let fd
+    try { fd = connect(positional[0], port) } catch (error) {
+      err(`nc: connect to ${positional[0]} port ${port} (tcp) failed: ${/ECONNREFUSED/.test(String(error?.code ?? error?.message)) ? 'Connection refused' : (error?.message ?? error)}`)
+      return 1
+    }
+    pump(fd, fd, () => { try { shutdown(fd, 1) } catch { /* the peer is gone */ } })
+    close(fd)
+    return 0
+  }
 
   const options = parseUrl(args)
   if (!options) {

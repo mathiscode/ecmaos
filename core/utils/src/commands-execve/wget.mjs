@@ -4,10 +4,12 @@
  * headers, POST data, retries, and a progress bar on a terminal. `-r` follows the links of HTML pages on the same host,
  * `-l` levels deep, keeping the host's directory layout.
  * The browser decides what may be fetched: a site that does not allow cross-origin requests cannot be reached from a
- * page, which wget reports as a failed connection. Names are not looked up, so there is no "Resolving" line.
+ * page, which wget reports as a failed connection. Names are not looked up, so there is no "Resolving" line. A
+ * loopback URL (`http://localhost:8000/`) is fetched over a socket, so a server running here answers.
  */
 
 import { getopt, tryHelp } from './lib/getopt.mjs'
+import { fetchAny } from './lib/socket-fetch.mjs'
 import { reasonOf } from './lib/errno.mjs'
 import { readTextFile } from './lib/fs-text.mjs'
 import { isTty, terminalSize } from './lib/tty.mjs'
@@ -183,7 +185,7 @@ async function main() {
       const controller = new AbortController()
       const timer = o.timeout ? setTimeout(() => controller.abort(), o.timeout) : undefined
       try {
-        response = await fetch(url.href, { method, headers, body: o.body, signal: controller.signal, redirect: 'follow' })
+        response = await fetchAny(url.href, { method, headers, body: o.body, signal: controller.signal, redirect: 'follow' })
         if (o.verbosity > 1) log('connected.\nHTTP request sent, awaiting response... ')
         break
       } catch (e) {

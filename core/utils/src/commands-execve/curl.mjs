@@ -1,6 +1,11 @@
-/** Transfer data from or to a URL. Plain text output, no ANSI coloring. */
+/**
+ * Transfer data from or to a URL. Plain text output, no ANSI coloring. A loopback URL (`http://localhost:8000/`) is
+ * fetched over a socket, so a server running here answers (`lib/socket-fetch.mjs`); anything else goes through the
+ * browser's `fetch`, which follows redirects by itself.
+ */
 
 import { resolve, basename } from './lib/path-utils.mjs'
+import { fetchAny, isLoopbackUrl } from './lib/socket-fetch.mjs'
 
 const { argv, exit, writeAll, getcwd, open, close, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
@@ -12,7 +17,12 @@ Transfer data from or to a server.
   -X, --request=METHOD     HTTP method to use (default: GET)
   -d, --data=DATA          send data in POST request
   -H, --header=HEADER      add custom HTTP header (format: "Name: Value")
-  -s, --silent             silent mode (don't show progress)
+  -i, --include            include the response's status line and headers in the output
+  -I, --head               fetch the headers only (HEAD)
+  -L, --location           follow redirects
+  -f, --fail               fail silently (exit 22) on an HTTP error
+  -s, --silent             silent mode (don't show progress or errors)
+  -S, --show-error         with -s, still show errors
   -v, --verbose            verbose mode (show request/response headers)
   --help                   display this help and exit`
 
@@ -31,7 +41,12 @@ async function main() {
     let body
     const headers = {}
     let silent = false
+    let showError = false
     let verbose = false
+    let include = false
+    let head = false
+    let follow = false
+    let failOnError = false
 
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]
@@ -82,12 +97,27 @@ async function main() {
         silent = true
       } else if (arg === '-v' || arg === '--verbose') {
         verbose = true
-      } else if (arg.startsWith('-')) {
+      } else if (arg === '--show-error') {
+        showError = true
+      } else if (arg === '--include') {
+        include = true
+      } else if (arg === '--head') {
+        head = true
+      } else if (arg === '--location') {
+        follow = true
+      } else if (arg === '--fail') {
+        failOnError = true
+      } else if (arg.startsWith('-') && !arg.startsWith('--')) {
         const flags = arg.slice(1).split('')
         if (flags.includes('s')) silent = true
+        if (flags.includes('S')) showError = true
         if (flags.includes('v')) verbose = true
         if (flags.includes('O')) remoteName = true
-        const invalid = flags.find(f => !['s', 'v', 'O'].includes(f))
+        if (flags.includes('i')) include = true
+        if (flags.includes('I')) head = true
+        if (flags.includes('L')) follow = true
+        if (flags.includes('f')) failOnError = true
+        const invalid = flags.find(f => !['s', 'S', 'v', 'O', 'i', 'I', 'L', 'f'].includes(f))
         if (invalid) {
           writeAll(2, new TextEncoder().encode(`curl: invalid option -- '${invalid}'\nTry 'curl --help' for more information.\n`))
           return 1
@@ -108,12 +138,16 @@ async function main() {
       outputFile = basename(urlObj.pathname) || 'index.html'
     }
 
+    if (head) method = 'HEAD'
+    const quiet = silent && !showError
     try {
       if (verbose && !silent) {
         writeAll(2, new TextEncoder().encode(`* Connecting to ${url}\n> ${method} ${url} HTTP/1.1\n`))
       }
 
       const fetchOptions = { method }
+      // the browser's fetch follows redirects whatever it is told; a socket's is told what curl does
+      if (isLoopbackUrl(url)) fetchOptions.redirect = follow ? 'follow' : 'manual'
       if (body) {
         fetchOptions.body = body
         if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded'
@@ -126,7 +160,7 @@ async function main() {
         }
       }
 
-      const response = await fetch(url, fetchOptions)
+      const response = await fetchAny(url, fetchOptions)
 
       if (verbose && !silent) {
         writeAll(2, new TextEncoder().encode(`< HTTP/${response.status} ${response.status} ${response.statusText}\n`))
@@ -135,37 +169,38 @@ async function main() {
         }
       }
 
-      if (!response.ok && !silent) {
-        writeAll(2, new TextEncoder().encode(`curl: HTTP error! status: ${response.status}\n`))
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        if (!silent) writeAll(2, new TextEncoder().encode('curl: No response body\n'))
-        return response.ok ? 0 : 1
+      if (failOnError && response.status >= 400) {
+        if (!quiet) writeAll(2, new TextEncoder().encode(`curl: (22) The requested URL returned error: ${response.status}\n`))
+        await response.body?.cancel()
+        return 22
       }
 
       const cwd = getcwd()
       let fd
       if (outputFile) fd = open(resolve(cwd, outputFile), O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+      const emit = bytes => { if (fd !== undefined) writeAll(fd, bytes); else writeAll(1, bytes) }
+      if (include || head) {
+        const lines = [`HTTP/1.1 ${response.status} ${response.statusText}`.trimEnd(), ...[...response.headers.entries()].map(([name, value]) => `${name}: ${value}`), '', '']
+        emit(new TextEncoder().encode(lines.join('\r\n')))
+      }
+      if (head) { if (fd !== undefined) close(fd); return 0 }
 
+      const reader = response.body?.getReader()
       try {
-        while (true) {
+        while (reader) {
           const { done, value } = await reader.read()
           if (done) break
-          if (value && value.length > 0) {
-            if (fd !== undefined) writeAll(fd, value)
-            else writeAll(1, value)
-          }
+          if (value && value.length > 0) emit(value)
         }
       } finally {
         if (fd !== undefined) close(fd)
       }
 
-      return response.ok ? 0 : 1
+      // as curl: an HTTP error status is still a transfer that worked, unless -f
+      return 0
     } catch (error) {
-      if (!silent) writeAll(2, new TextEncoder().encode(`curl: ${error instanceof Error ? error.message : String(error)}\n`))
-      return 1
+      if (!quiet) writeAll(2, new TextEncoder().encode(`curl: (7) ${error instanceof Error ? error.message : String(error)}\n`))
+      return 7
     }
   }
 }

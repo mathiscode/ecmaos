@@ -14,7 +14,9 @@ nc -g [USER@]GATEWAY[:PORT] [OPTIONS] <host> <port>
 
 Netcat - network utility for reading from and writing to network connections.
 
-Without `-g`, `nc` speaks WebSocket (or WebTransport): it reaches a server that speaks that, not an arbitrary TCP service, because a browser tab has no sockets of its own.
+A loopback host (`localhost`, `127.0.0.1`, `::1`) and a port make a plain TCP connection to a program listening on this machine, as on Linux: `printf 'GET / HTTP/1.0\r\n\r\n' | nc localhost 8000` asks a server started with `python3 -m http.server 8000`. End of input shuts the connection down for writing, and `nc` ends when the server does.
+
+For any other host, without `-g`, `nc` speaks WebSocket (or WebTransport): it reaches a server that speaks that, not an arbitrary TCP service, because a browser tab has no sockets of its own.
 
 With `-g`, the connection is a plain TCP flow made for you by another ecmaOS machine started with `ecmaos --listen --gateway`. You log in to that machine with your own key (the first time, enrol it with `--pair CODE`), and it connects to host:port and carries the bytes. `nc` ends when the far end does; end of input tells the far end nothing more is coming. What the gateway will reach is the gateway's decision: by default not itself, private networks or metadata addresses, and an operator may allow only some destinations.
 

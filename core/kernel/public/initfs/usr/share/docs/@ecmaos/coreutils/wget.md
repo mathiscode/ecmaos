@@ -26,7 +26,7 @@ A saved file takes the server's `Last-Modified` time.
 
 **Recursion.** `-r` follows the links of the HTML pages it downloads, on the same host, `-l` levels deep (5 by default). Files are saved under `HOST/PATH`. `-nH` leaves out the host directory and `-nd` the directories. `-np` stays below the starting directory, and `-A` and `-R` accept or reject files by suffix.
 
-**What the browser decides.** The browser chooses what may be fetched. A site that does not allow cross-origin requests cannot be reached from a page, and wget reports this as a failed connection. Names are not looked up, so there is no "Resolving" line. The browser may refuse `-U`, since it sets the User-Agent itself. Certificates are always the browser's to check.
+**What the browser decides.** The browser chooses what may be fetched. A site that does not allow cross-origin requests cannot be reached from a page, and wget reports this as a failed connection. Names are not looked up, so there is no "Resolving" line. A loopback URL (`http://localhost:8000/`) is not the browser's: it is fetched over a socket of this machine, so a server running here answers. The browser may refuse `-U`, since it sets the User-Agent itself. Certificates are always the browser's to check.
 
 ## Exit status
 
