@@ -371,6 +371,26 @@ describe('su and sudo', () => {
       })
     }, 60000)
 
+    it('reads rules from /etc/sudoers.d, but not from a file others may write', async () => {
+      if (!gateOpen) return
+      await setSudoers('root ALL=(ALL) ALL\n@includedir /etc/sudoers.d\n')
+      await kernel.filesystem.fs.writeFile('/etc/sudoers.d/alice', 'alice ALL=(root) NOPASSWD: /bin/cat\n', { mode: 0o440 })
+      await kernel.filesystem.fs.writeFile('/etc/sudoers.d/open', 'alice ALL=(root) NOPASSWD: ALL\n', { mode: 0o666 })
+      await kernel.filesystem.fs.writeFile('/etc/sudoers.d/alice.bak', 'alice ALL=(root) NOPASSWD: ALL\n', { mode: 0o440 })
+      try {
+        await asAlice(async () => {
+          const listed = await status('sudo -l')
+          expect(listed.out).toContain('(root) NOPASSWD: /bin/cat')
+          expect(listed.out).not.toContain('NOPASSWD: ALL')
+          expect(listed.err).toContain('/etc/sudoers.d/open is world writable')
+          expect((await status('sudo -n cat /proc/self/status')).out).toMatch(uidLine(0))
+          expect((await status('sudo -n id')).code).not.toBe(0)
+        })
+      } finally {
+        for (const name of ['alice', 'open', 'alice.bak']) await kernel.filesystem.fs.rm(`/etc/sudoers.d/${name}`)
+      }
+    }, 60000)
+
     it('does not ask root for a password, and lets root run as someone else', async () => {
       if (!gateOpen) return
       const result = await status('sudo -n -u alice cat /proc/self/status')

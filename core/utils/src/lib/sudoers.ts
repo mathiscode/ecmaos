@@ -15,8 +15,9 @@
  * with the exact arguments allowed; `!` forbids it. The last matching rule decides.
  * Aliases: `User_Alias`, `Runas_Alias`, `Host_Alias`, `Cmnd_Alias`, several per line separated by `:`; they may nest,
  * be defined after use, and `!READ` forbids every command in an alias. Names are upper case.
- * Not supported (reported as a warning): `#include`, `#includedir`, `SETENV:`/`NOEXEC:`, and `Defaults` other than
- * the two above. A line that does not parse is skipped.
+ * Not supported (reported as a warning): `SETENV:`/`NOEXEC:`, and `Defaults` other than the two above. A line that
+ * does not parse is skipped. `#include` and `#includedir` (or `@include`, `@includedir`) are followed by
+ * `readSudoers`; `parseSudoers` reads one text and warns that they are not supported there.
  */
 
 export interface SudoCommandSpec {
@@ -44,6 +45,8 @@ export interface SudoDefaults {
 }
 
 export interface SudoPolicy {
+  /** The files read, in order, when the policy came from `readSudoers` */
+  files?: string[]
   rules: SudoRule[]
   defaults: SudoDefaults
   warnings: string[]
@@ -145,7 +148,10 @@ function parseCommands(text: string, aliases: Aliases, depth = 0): SudoCommandSp
   return specs
 }
 
-export function parseSudoers(text: string): SudoPolicy {
+/** Where a line of the text came from, for a warning: `line 3`, or `/etc/sudoers.d/web: line 3` */
+export type Locate = (index: number) => string
+
+export function parseSudoers(text: string, locate: Locate = index => `line ${index + 1}`): SudoPolicy {
   const policy: SudoPolicy = { rules: [], defaults: { timestampTimeout: 5, authenticate: true }, warnings: [] }
   // a line ending in a backslash continues on the next
   const lines = text.replace(/\\\r?\n/g, ' ').split('\n')
@@ -154,12 +160,12 @@ export function parseSudoers(text: string): SudoPolicy {
   const aliases: Aliases = { user: new Map(), runas: new Map(), host: new Map(), cmnd: new Map() }
   const aliasLines = new Set<number>()
   lines.forEach((raw, index) => {
-    const line = raw.trim().startsWith('#include') ? '' : stripComment(raw)
+    const line = /^[#@]include/.test(raw.trim()) ? '' : stripComment(raw)
     const word = line.split(/\s+/)[0] ?? ''
     const kind = (ALIAS_KINDS as Record<string, AliasKind>)[word]
     if (!kind) return
     aliasLines.add(index)
-    const warn = (message: string) => policy.warnings.push(`line ${index + 1}: ${message}`)
+    const warn = (message: string) => policy.warnings.push(`${locate(index)}: ${message}`)
     for (const definition of line.slice(word.length).split(/\s*:\s*(?=[A-Z][A-Z0-9_]*\s*=)/)) {
       const match = /^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.+)$/.exec(definition)
       if (!match) { warn(`expected "${word} NAME = members"`); continue }
@@ -168,9 +174,9 @@ export function parseSudoers(text: string): SudoPolicy {
   })
   lines.forEach((raw, index) => {
     if (aliasLines.has(index)) return
-    const warn = (message: string) => policy.warnings.push(`line ${index + 1}: ${message}`)
+    const warn = (message: string) => policy.warnings.push(`${locate(index)}: ${message}`)
     // `#include` looks like a comment but is a directive; `#1000` is a uid, not a comment
-    if (raw.trim().startsWith('#include')) return warn(`${raw.trim().split(/\s+/)[0]} is not supported`)
+    if (/^[#@]include/.test(raw.trim())) return warn(`${raw.trim().split(/\s+/)[0]} is not supported`)
     const line = stripComment(raw)
     if (!line) return
     const word = line.split(/\s+/)[0] ?? ''
@@ -263,6 +269,78 @@ export function listPrivileges(policy: SudoPolicy, who: Pick<SudoRequest, 'user'
 }
 
 /** The file `/etc/sudoers` starts as: root may do anything, and so may anyone in the `sudo` group. */
+/** What `readSudoers` needs of the filesystem; `undefined` for a file or directory that is not there */
+export interface SudoersIO {
+  readFile(path: string): string | undefined
+  readdir(path: string): string[] | undefined
+  stat(path: string): { uid: number, mode: number } | undefined
+}
+
+const MAX_INCLUDE_DEPTH = 128
+
+/**
+ * `/etc/sudoers` (or `path`) with what it includes, as sudo reads it: `#include FILE` and `@include FILE` put a file's
+ * lines in its place, `#includedir DIR` and `@includedir DIR` every file in DIR in sorted order, but for names that end
+ * in `~` or have a `.` in them (an editor's backup, a package manager's `.dpkg-old`). A relative name is taken from the
+ * including file's directory. An included file that root does not own, or that its group or others may write, is left
+ * out with a warning, as sudo does, since whoever can write it could grant themselves anything. Warnings name the file
+ * and line they are about.
+ */
+export function readSudoers(path: string, io: SudoersIO): SudoPolicy | undefined {
+  const top = io.readFile(path)
+  if (top === undefined) return undefined
+  const lines: string[] = []
+  const origins: Array<{ file: string, line: number }> = []
+  const warnings: string[] = []
+  const files: string[] = []
+  const dirname = (file: string) => file.slice(0, file.lastIndexOf('/')) || '/'
+  const resolve = (from: string, name: string) => name.startsWith('/') ? name : `${dirname(from)}/${name}`
+
+  const trusted = (file: string, at: string) => {
+    const stats = io.stat(file)
+    if (!stats) return false
+    if (stats.uid !== 0) { warnings.push(`${at}: ${file} is owned by uid ${stats.uid}, should be 0`); return false }
+    if (stats.mode & 0o022) { warnings.push(`${at}: ${file} is ${stats.mode & 0o002 ? 'world' : 'group'} writable`); return false }
+    return true
+  }
+
+  const add = (file: string, text: string, depth: number) => {
+    files.push(file)
+    // a line ending in a backslash continues on the next, which is one line here as it is to parseSudoers
+    text.replace(/\\\r?\n/g, ' ').split('\n').forEach((raw, index) => {
+      const at = `${file}: line ${index + 1}`
+      const directive = /^[#@](include|includedir)\s+(.+?)\s*$/.exec(raw.trim())
+      if (!directive) { lines.push(raw); origins.push({ file, line: index + 1 }); return }
+      if (depth >= MAX_INCLUDE_DEPTH) { warnings.push(`${at}: too many levels of includes`); return }
+      const target = resolve(file, (directive[2] ?? '').replace(/^"(.*)"$/, '$1'))
+      if (directive[1] === 'include') {
+        const included = io.readFile(target)
+        if (included === undefined) { warnings.push(`${at}: unable to open ${target}`); return }
+        if (trusted(target, at)) add(target, included, depth + 1)
+        return
+      }
+      // a directory that is not there is skipped without a word, as sudo does
+      const names = io.readdir(target)
+      if (!names) return
+      for (const name of [...names].sort()) {
+        if (name.endsWith('~') || name.includes('.')) continue
+        const entry = `${target}/${name}`
+        const included = io.readFile(entry)
+        if (included !== undefined && trusted(entry, at)) add(entry, included, depth + 1)
+      }
+    })
+  }
+
+  add(path, top, 0)
+  const policy = parseSudoers(lines.join('\n'), index => {
+    const origin = origins[index]
+    return origin ? `${origin.file}: line ${origin.line}` : `line ${index + 1}`
+  })
+  policy.warnings.unshift(...warnings)
+  policy.files = files
+  return policy
+}
+
 export const DEFAULT_SUDOERS = `# /etc/sudoers: who may run what as whom (see sudoers(5) and sudo(1))
 #
 # Users are a name, %group, #uid or ALL. After the = comes (runas) and the commands, with
@@ -271,4 +349,7 @@ Defaults timestamp_timeout=5
 
 root    ALL=(ALL:ALL) ALL
 %sudo   ALL=(ALL:ALL) ALL
+
+# Files in /etc/sudoers.d are read too (not those with a . in their name, nor ending in ~)
+@includedir /etc/sudoers.d
 `

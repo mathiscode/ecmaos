@@ -1,15 +1,16 @@
 /**
  * Edits `/etc/sudoers` safely: `visudo`, or `visudo -c` to check. Edits a copy at `/etc/sudoers.tmp` (with
  * `$SUDO_EDITOR`, `$VISUAL`, `$EDITOR` or `vim`), checks it with `sudo`'s parser and installs it (mode 0440) only if
- * sound. A rule `sudo` does not understand is an error; a valid but unsupported construct (`#include`) is noted.
+ * sound. A rule `sudo` does not understand is an error; a valid but unsupported construct (`NOEXEC:`) is noted. What
+ * the file includes (`@includedir /etc/sudoers.d`) is checked with it, as `sudo` reads it.
  */
 
-import { parseSudoers } from '../lib/sudoers.ts'
+import { readSudoers } from '../lib/sudoers.ts'
 import { readFileBytes, writeFileBytes } from './lib/bytes.mjs'
 import { findProgram, run } from './lib/run.mjs'
 
 const sys = globalThis.ecmaosSyscalls
-const { argv, env, exit, writeAll, getuid, stat, unlink, chmod, read } = sys
+const { argv, env, exit, writeAll, getuid, stat, unlink, chmod, read, readdir, isDirectory } = sys
 
 const encoder = new TextEncoder()
 const out = text => writeAll(1, encoder.encode(text))
@@ -29,10 +30,21 @@ save it anyway.`
 
 const isNotice = message => /is not supported$/.test(message)
 
-/** The problems in `text`: `{ errors, notices }`, each a list of `line N: message`. */
-function check(text) {
-  const policy = parseSudoers(text)
-  return { errors: policy.warnings.filter(message => !isNotice(message)), notices: policy.warnings.filter(isNotice) }
+/**
+ * The problems in `file` and what it includes, `text` standing for `file` itself (the copy being edited): `{ errors,
+ * notices, files }`, each message `FILE: line N: message`.
+ */
+function check(file, text) {
+  const io = {
+    readFile: path => {
+      if (path === file) return text
+      try { return isDirectory(path) ? undefined : new TextDecoder().decode(readFileBytes(path)) } catch { return undefined }
+    },
+    readdir: path => { try { return isDirectory(path) ? readdir(path) : undefined } catch { return undefined } },
+    stat: path => { try { const stats = stat(path); return { uid: Number(stats.uid), mode: Number(stats.mode) } } catch { return undefined } }
+  }
+  const policy = readSudoers(file, io)
+  return { errors: policy.warnings.filter(message => !isNotice(message)), notices: policy.warnings.filter(isNotice), files: policy.files ?? [file] }
 }
 
 function readLine() {
@@ -68,22 +80,22 @@ async function main() {
   if (!file) { err('visudo: option requires an argument -- f\n'); return 1 }
   if (getuid() !== 0) { err('visudo: you must be root to edit the sudoers file\n'); return 1 }
 
-  const report = (name, result) => {
+  const report = result => {
     for (const message of result.errors) {
-      const line = /^line (\d+): (.*)$/.exec(message)
-      err(line ? `visudo: >>> ${name}: syntax error near line ${line[1]} <<<\nvisudo: ${name}: line ${line[1]}: ${line[2]}\n` : `visudo: >>> ${name}: ${message} <<<\n`)
+      const line = /^(.+?): line (\d+): (.*)$/.exec(message)
+      err(line ? `visudo: >>> ${line[1]}: syntax error near line ${line[2]} <<<\nvisudo: ${message}\n` : `visudo: >>> ${message} <<<\n`)
     }
-    for (const message of result.notices) err(`visudo: ${name}: ${message}\n`)
+    for (const message of result.notices) err(`visudo: ${message}\n`)
   }
   const bad = result => result.errors.length > 0 || (strict && result.notices.length > 0)
 
   if (checkOnly) {
     let text
     try { text = new TextDecoder().decode(readFileBytes(file)) } catch (error) { err(`visudo: unable to open ${file}: ${error?.message ?? error}\n`); return 1 }
-    const result = check(text)
-    report(file, result)
+    const result = check(file, text)
+    report(result)
     if (bad(result)) return 1
-    if (!quiet) out(`${file}: parsed OK\n`)
+    if (!quiet) for (const name of result.files) out(`${name}: parsed OK\n`)
     return 0
   }
 
@@ -105,8 +117,8 @@ async function main() {
         err(`visudo: ${file} unchanged\n`)
         return 0
       }
-      const result = check(new TextDecoder().decode(edited))
-      report(file, result)
+      const result = check(file, new TextDecoder().decode(edited))
+      report(result)
       if (!bad(result)) {
         writeFileBytes(file, edited, 0o440)
         chmod(file, 0o440)

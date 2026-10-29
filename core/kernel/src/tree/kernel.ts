@@ -849,6 +849,8 @@ export class Kernel implements IKernel {
       if (!(await this.filesystem.fs.exists('/etc/sudoers'))) {
         await this.filesystem.fs.writeFile('/etc/sudoers', DEFAULT_SUDOERS, { mode: 0o440 })
       }
+      // where packages and the administrator drop rules of their own (`@includedir` in the default file)
+      if (!(await this.filesystem.fs.exists('/etc/sudoers.d'))) await this.filesystem.fs.mkdir('/etc/sudoers.d', { mode: 0o750 })
 
       // What init runs. A missing file is not fatal. With `options.credentials` the kernel logs in itself and no
       // getty entries are kept; an untouched default file from an earlier build is upgraded to match, an edited one

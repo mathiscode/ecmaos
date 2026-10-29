@@ -11,7 +11,7 @@
  * and the result is copied back as root if it changed. `sudo.mjs` and `sudoedit.mjs` only load this.
  */
 
-import { checkSudo, listPrivileges, parseSudoers } from '../../lib/sudoers.ts'
+import { checkSudo, listPrivileges, readSudoers } from '../../lib/sudoers.ts'
 import { readFileBytes, writeFdBytes } from './bytes.mjs'
 import { makePriv } from './priv.mjs'
 
@@ -21,6 +21,13 @@ const { argv, env, exit, getcwd, getuid, mkdir, open, close, unlink, writeAll, s
 const asSudoedit = (argv[0] ?? '').split('/').pop() === 'sudoedit'
 const name = asSudoedit ? 'sudoedit' : 'sudo'
 const priv = makePriv(sys, name)
+
+/** `/etc/sudoers` and what it includes, read with sudo's privileges */
+const sudoersIO = () => ({
+  readFile: path => { try { return isDirectory(path) ? undefined : priv.readFile(path) } catch { return undefined } },
+  readdir: path => { try { return isDirectory(path) ? sys.readdir(path) : undefined } catch { return undefined } },
+  stat: path => { try { const stats = stat(path); return { uid: Number(stats.uid), mode: Number(stats.mode) } } catch { return undefined } }
+})
 
 const sudoeditUsage = `Usage: sudoedit [OPTION]... FILE...
 Edit files as root with the caller's own editor: a copy is edited and copied back if it changed.
@@ -178,10 +185,9 @@ async function main() {
   if (!targetEntry) { priv.err(`unknown user ${options.user}`); return 1 }
   const target = priv.withGroups(targetEntry)
 
-  const policyText = priv.readFile('/etc/sudoers')
-  if (policyText === undefined) { priv.err('/etc/sudoers: no such file, so nobody may use sudo'); return 1 }
-  const policy = parseSudoers(policyText)
-  for (const warning of policy.warnings) priv.err(`/etc/sudoers: ${warning}`)
+  const policy = readSudoers('/etc/sudoers', sudoersIO())
+  if (!policy) { priv.err('/etc/sudoers: no such file, so nobody may use sudo'); return 1 }
+  for (const warning of policy.warnings) priv.err(warning)
   const host = (priv.readFile('/etc/hostname') ?? 'localhost').trim()
   const who = { user: caller.name, uid, groups: caller.groupNames, gids: caller.gids, host }
 

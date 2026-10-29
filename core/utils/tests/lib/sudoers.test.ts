@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_SUDOERS, checkSudo, listPrivileges, parseSudoers } from '../../src/lib/sudoers.ts'
+import { DEFAULT_SUDOERS, checkSudo, listPrivileges, parseSudoers, readSudoers } from '../../src/lib/sudoers.ts'
 
 const alice = { user: 'alice', uid: 1000, groups: ['alice', 'sudo'], gids: [1000, 27], host: 'ecmaos' }
 const bob = { user: 'bob', uid: 1001, groups: ['bob'], gids: [1001], host: 'ecmaos' }
@@ -28,10 +28,58 @@ describe('parseSudoers', () => {
     expect(policy.warnings[1]).toContain("'ls' is not an absolute path")
   })
 
-  it('warns about includes instead of guessing', () => {
+  it('warns about includes when reading one text alone', () => {
     const policy = parseSudoers('#includedir /etc/sudoers.d\n#include /etc/more\n')
     expect(policy.rules).toEqual([])
     expect(policy.warnings).toEqual(['line 1: #includedir is not supported', 'line 2: #include is not supported'])
+  })
+
+  describe('readSudoers', () => {
+    const files: Record<string, { text: string, uid?: number, mode?: number }> = {}
+    const dirs: Record<string, string[]> = {}
+    const io = {
+      readFile: (path: string) => files[path]?.text,
+      readdir: (path: string) => dirs[path],
+      stat: (path: string) => files[path] ? { uid: files[path]!.uid ?? 0, mode: files[path]!.mode ?? 0o100440 } : undefined
+    }
+    const request = (user: string, command: string) => ({ user, uid: 1000, groups: [], gids: [], host: 'h', runAs: 'root', command, args: [] })
+
+    it('follows #include and @includedir, in order, skipping backups and names with a dot', () => {
+      files['/etc/sudoers'] = { text: 'root ALL=(ALL) ALL\n@includedir /etc/sudoers.d\n#include more\n' }
+      files['/etc/more'] = { text: 'carol ALL=(root) /bin/df\n' }
+      dirs['/etc/sudoers.d'] = ['20-web', '10-alice', 'old.dpkg-old', 'web~', '30-bad']
+      files['/etc/sudoers.d/10-alice'] = { text: 'Cmnd_Alias LS = /bin/ls\n' }
+      files['/etc/sudoers.d/20-web'] = { text: 'alice ALL=(root) NOPASSWD: LS\n' }
+      files['/etc/sudoers.d/old.dpkg-old'] = { text: 'alice ALL=(root) ALL\n' }
+      files['/etc/sudoers.d/web~'] = { text: 'alice ALL=(root) ALL\n' }
+      files['/etc/sudoers.d/30-bad'] = { text: 'alice ALL=(root) rm\n' }
+      const policy = readSudoers('/etc/sudoers', io)!
+      expect(policy.files).toEqual(['/etc/sudoers', '/etc/sudoers.d/10-alice', '/etc/sudoers.d/20-web', '/etc/sudoers.d/30-bad', '/etc/more'])
+      // an alias from one file is used in the next
+      expect(checkSudo(policy, request('alice', '/bin/ls')).allowed).toBe(true)
+      expect(checkSudo(policy, request('alice', '/bin/rm')).allowed).toBe(false)
+      expect(checkSudo(policy, request('carol', '/bin/df')).allowed).toBe(true)
+      expect(policy.warnings).toEqual(["/etc/sudoers.d/30-bad: line 1: 'rm' is not an absolute path"])
+    })
+
+    it('leaves out a file root does not own or others may write, and says why', () => {
+      files['/etc/sudoers'] = { text: '#include /etc/a\n#include /etc/b\n#include /etc/none\n' }
+      files['/etc/a'] = { text: 'alice ALL=(root) ALL\n', uid: 1000 }
+      files['/etc/b'] = { text: 'alice ALL=(root) ALL\n', mode: 0o100666 }
+      const policy = readSudoers('/etc/sudoers', io)!
+      expect(policy.rules).toEqual([])
+      expect(policy.warnings).toEqual([
+        '/etc/sudoers: line 1: /etc/a is owned by uid 1000, should be 0',
+        '/etc/sudoers: line 2: /etc/b is world writable',
+        '/etc/sudoers: line 3: unable to open /etc/none'
+      ])
+    })
+
+    it('stops a file that includes itself', () => {
+      files['/etc/sudoers'] = { text: '#include /etc/sudoers\n' }
+      expect(readSudoers('/etc/sudoers', io)!.warnings).toEqual(['/etc/sudoers: line 1: too many levels of includes'])
+      expect(readSudoers('/etc/missing', io)).toBeUndefined()
+    })
   })
 
   it('joins a line continued with a backslash', () => {

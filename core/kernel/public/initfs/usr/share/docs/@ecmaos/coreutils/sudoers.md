@@ -37,7 +37,9 @@ ADMINS  ALL=(root) NOPASSWD: READ
 
 **Defaults** understood: `timestamp_timeout=N` (minutes; 0 asks every time, a negative number never forgets) and `authenticate` / `!authenticate`. Any other `Defaults` is reported and ignored.
 
-Not supported, and reported on standard error rather than guessed at: `#include` and `#includedir`, `SETENV:` and `NOEXEC:` tags.
+`#include FILE` (or `@include`) reads another file in its place, and `#includedir DIR` (or `@includedir`) every file in a directory, in sorted order, but for names that end in `~` or have a `.` in them. A relative name is taken from the including file's directory. The default file ends with `@includedir /etc/sudoers.d`, so a rule can be dropped in as a file of its own. An included file must be owned by root and not writable by its group or others; one that is not is left out, with a warning, since whoever can write it could grant themselves anything.
+
+Not supported, and reported on standard error rather than guessed at: the `SETENV:` and `NOEXEC:` tags.
 
 A line ending in a backslash continues on the next. A line that does not parse is skipped.
 

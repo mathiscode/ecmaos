@@ -398,11 +398,24 @@ describe('account commands', () => {
     }, 30000)
 
     it('notes what is valid sudoers but not supported here, and -s makes it an error', async () => {
-      await fs().writeFile('/tmp/alias-sudoers', '#includedir /etc/sudoers.d\nroot ALL=(ALL) ALL\n')
+      await fs().writeFile('/tmp/alias-sudoers', 'Defaults env_reset\nroot ALL=(ALL) ALL\n')
       const lenient = await sh('visudo -c -f /tmp/alias-sudoers')
       expect(lenient.code).toBe(0)
-      expect(lenient.err).toContain('#includedir is not supported')
+      expect(lenient.err).toContain('Defaults env_reset is not supported')
       expect((await sh('visudo -cs -f /tmp/alias-sudoers')).code).toBe(1)
+    }, 30000)
+
+    it('checks the files a sudoers file includes, and names the one with the error', async () => {
+      await fs().mkdir('/tmp/inc.d', { recursive: true })
+      await fs().writeFile('/tmp/inc-sudoers', 'root ALL=(ALL) ALL\n@includedir /tmp/inc.d\n')
+      await fs().writeFile('/tmp/inc.d/web', 'www ALL=(root) /bin/ls\n', { mode: 0o440 })
+      const good = await sh('visudo -c -f /tmp/inc-sudoers')
+      expect(good.code).toBe(0)
+      expect(good.out).toBe('/tmp/inc-sudoers: parsed OK\n/tmp/inc.d/web: parsed OK\n')
+      await fs().writeFile('/tmp/inc.d/web', 'www ALL=(root) ls\n', { mode: 0o440 })
+      const bad = await sh('visudo -c -f /tmp/inc-sudoers')
+      expect(bad.code).toBe(1)
+      expect(bad.err).toContain('/tmp/inc.d/web: syntax error near line 1')
     }, 30000)
 
     it('installs what the editor leaves when it is sound, mode 0440', async () => {
