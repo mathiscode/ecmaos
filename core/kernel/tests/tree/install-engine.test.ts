@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { bindContext } from '@zenfs/core'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -263,6 +264,36 @@ describe('install engine', () => {
     expect((await run('install list --user')).out).toContain('ie-mine@1.0.0')
     expect((await run('install remove --user ie-mine')).code).toBe(0)
     expect(await fs().exists('/root/.local/lib/ie-mine')).toBe(false)
+  })
+
+  it('installs into the home of an ordinary user, and refuses a system install', async () => {
+    await kernel.users.add({ username: 'ieuser', password: 'wonder', home: '/home/ieuser', shell: '/bin/ecmash' })
+    const user = [...(kernel.users.all as Map<number, { uid: number, gid: number, username: string }>).values()].find(u => u.username === 'ieuser')!
+    await publish('ie-home', '1.0.0', { bin: { 'ie-home': 'index.js' } })
+    const rootCredentials = { ...kernel.shell.credentials }
+    const rootContext = kernel.shell.context
+    const credentials = { uid: user.uid, gid: user.gid, suid: user.uid, sgid: user.gid, euid: user.uid, egid: user.gid, groups: [user.gid] }
+    kernel.shell.credentials = credentials
+    kernel.shell.context = bindContext({ root: '/', pwd: '/', credentials })
+    kernel.shell.cwd = '/home/ieuser'
+    // a login sets HOME; this shell is still root's
+    try {
+      // each user has files of their own: /tmp/ie-out is root's
+      await kernel.shell.execute('export HOME=/home/ieuser')
+      const code = await kernel.shell.execute(`install ie-home --registry ${registry} > /tmp/ie-user-out 2> /tmp/ie-user-err`)
+      const err = await fs().readFile('/tmp/ie-user-err', 'utf-8').catch(() => '')
+      expect(code, err).toBe(0)
+      expect(await kernel.shell.execute(`install -g ie-home --registry ${registry} 2> /tmp/ie-user-err`)).toBe(1)
+      expect(await fs().readFile('/tmp/ie-user-err', 'utf-8')).toContain('needs root')
+    } finally {
+      kernel.shell.credentials = rootCredentials
+      kernel.shell.context = rootContext
+      kernel.shell.cwd = '/'
+      await kernel.shell.execute('export HOME=/root')
+    }
+    expect(await fs().readlink('/home/ieuser/.local/bin/ie-home')).toBe('/home/ieuser/.local/lib/ie-home/1.0.0/index.js')
+    expect((await fs().stat('/home/ieuser/.local/lib/ie-home/1.0.0/package.json')).uid).toBe(user.uid)
+    expect(await fs().exists('/usr/lib/ie-home')).toBe(false)
   })
 
   it('adopts a package installed before there was a database', async () => {

@@ -10,7 +10,7 @@ const { readdir, symlink, unlink, readlink, isDirectory, mkdir, access } = globa
 export const SHARE_DIRS = ['applications', 'docs', 'licenses', 'man']
 
 const entries = path => readdir(path).map(entry => (typeof entry === 'string' ? entry : entry.name))
-const exists = path => { try { access(path); return true } catch { return false } }
+const exists = path => { try { access(path, 0); return true } catch { return false } }
 
 function mkdirp(path) {
   if (path === '/' || exists(path)) return

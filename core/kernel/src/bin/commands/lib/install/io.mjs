@@ -9,13 +9,18 @@ export const encoder = new TextEncoder()
 export const decoder = new TextDecoder()
 
 export const dirname = path => path.slice(0, path.lastIndexOf('/')) || '/'
-export const exists = path => { try { access(path); return true } catch { return false } }
+export const exists = path => { try { access(path, 0); return true } catch { return false } }
 export const names = path => readdir(path).map(entry => (typeof entry === 'string' ? entry : entry.name))
 
 export function mkdirp(path, mode = 0o755) {
   if (path === '/' || exists(path)) return
   mkdirp(dirname(path), mode)
-  mkdir(path, mode)
+  try {
+    mkdir(path, mode)
+  } catch (error) {
+    // the syscall's message names no path
+    throw new Error(`${path}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
 }
 
 export function readBytes(path) {
