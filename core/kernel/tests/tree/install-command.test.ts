@@ -327,6 +327,25 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await fs.exists('/usr/bin/lnk-a')).toBe(false)
     })
 
+    it('is marked as a group by list, show and pacman -Qg', async () => {
+      await publish('mk-a', '1.0.0', { 'dist/cli.js': '// a\n' })
+      await group('mk-all', ['mk-a'])
+      expect(await kernel.shell.execute(`install mk-all --registry ${registry}`)).toBe(0)
+      const run = async (command: string) => {
+        await kernel.filesystem.fs.unlink('/tmp/mk.out').catch(() => {})
+        await kernel.shell.execute(`${command} > /tmp/mk.out 2>&1`)
+        return kernel.filesystem.fs.readFile('/tmp/mk.out', 'utf-8')
+      }
+      expect(await run('install list')).toContain('mk-all@1.0.0 [group]')
+      await kernel.filesystem.fs.mkdir('/var/lib/install', { recursive: true })
+      await kernel.filesystem.fs.writeFile('/var/lib/install/package-index.json', JSON.stringify({ version: '9.9.9', index: { schema: 2, common: { 'mk-all': { package: 'mk-all', description: 'a group', meta: true } } } }))
+      try {
+        expect(await run(`apt show mk-all --registry ${registry}`)).toContain('Section: metapackages')
+      } finally { await kernel.filesystem.fs.unlink('/var/lib/install/package-index.json') }
+      expect(await run('pacman -Qg')).toContain('mk-all mk-a')
+      expect(await run('pacman -Qi mk-a')).toContain('mk-all')
+    })
+
     it('a group installs from a registry that holds only prerelease builds, ranged on latest', async () => {
       await publish('pre-a', '1.0.0-ecmaos.1', { 'dist/cli.js': '// a\n' })
       await group('pre-all', ['pre-a'])

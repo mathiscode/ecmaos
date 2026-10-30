@@ -382,7 +382,7 @@ async function showOne(session, o, text) {
     `Package: ${found.requests[0].asked}`,
     `Version: ${version}`,
     'Priority: optional',
-    'Section: node',
+    `Section: ${manifest.ecmaos?.meta ? 'metapackages' : 'node'}`,
     'Origin: npm',
     ...(maintainer ? [`Maintainer: ${typeof maintainer === 'string' ? maintainer : `${maintainer.name}${maintainer.email ? ` <${maintainer.email}>` : ''}`}`] : []),
     ...(manifest.dist?.unpackedSize ? [`Installed-Size: ${kilobytes(manifest.dist.unpackedSize)}`] : []),

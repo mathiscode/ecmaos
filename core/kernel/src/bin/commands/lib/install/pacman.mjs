@@ -280,8 +280,20 @@ function lineOf(session, o, { entry }) {
   return o.has('q') ? name : `${name} ${entry.version}`
 }
 
+/** The group packages (`ecmaos.meta`) among `rows`, each with the display names of its members */
+function groupsIn(session, rows) {
+  return rows.filter(({ scope, entry }) => manifestOf(scope, entry).ecmaos?.meta).map(row => ({ row, name: displayName(session, 'pacman', row.entry), members: Object.keys(row.entry.dependencies ?? {}).map(member => displayName(session, 'pacman', { name: member })) }))
+}
+
 async function query(session, o) {
   let have = installed(session).sort((a, b) => displayName(session, 'pacman', a.entry).localeCompare(displayName(session, 'pacman', b.entry)))
+  if (o.has('g')) {
+    const wanted = o.operands.map(operand => translate(session, 'pacman', [operand]).requests[0]?.name ?? operand)
+    for (const group of groupsIn(session, have).filter(group => !o.operands.length || wanted.includes(group.row.entry.name) || o.operands.includes(group.name))) {
+      for (const member of group.members) out(`${group.name} ${member}`)
+    }
+    return 0
+  }
   if (o.has('o')) {
     let code = 0
     if (!o.operands.length) return fail('error: no targets specified (use -h for help)')
@@ -310,7 +322,7 @@ async function query(session, o) {
       const requiredBy = row.db.dependentsOf(row.entry.name, row.entry.version).map(other => displayName(session, 'pacman', other))
       out(infoLines([
         ['Name', name], ['Version', row.entry.version], ['Description', descriptionOf(row.scope, row.entry) || 'None'], ['Architecture', 'any'],
-        ['URL', manifest.homepage ?? 'None'], ['Licenses', typeof manifest.license === 'string' ? manifest.license : 'None'], ['Groups', 'None'], ['Provides', 'None'],
+        ['URL', manifest.homepage ?? 'None'], ['Licenses', typeof manifest.license === 'string' ? manifest.license : 'None'], ['Groups', groupsIn(session, have).filter(group => group.row.entry.dependencies?.[row.entry.name]).map(group => group.name).join('  ') || 'None'], ['Provides', 'None'],
         ['Depends On', Object.keys(manifest.dependencies ?? {}).map(dependency => displayName(session, 'pacman', { name: dependency })).join('  ') || 'None'],
         ['Optional Deps', 'None'], ['Required By', requiredBy.join('  ') || 'None'], ['Optional For', 'None'], ['Conflicts With', 'None'], ['Replaces', 'None'],
         ['Installed Size', mib(sizeOf(directoryOf(row.scope, row.entry)))], ['Packager', 'Unknown Packager'], ['Build Date', 'None'],

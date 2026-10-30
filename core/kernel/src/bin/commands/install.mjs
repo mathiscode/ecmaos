@@ -9,7 +9,7 @@ import semver from 'semver'
 import { join, resolve } from './lib/path-utils.mjs'
 import { Database, keyOf, scopeOf } from './lib/install/db.mjs'
 import { Engine, blue, green, parseSpec, pickVersion, red, yellow } from './lib/install/engine.mjs'
-import { exists, size } from './lib/install/io.mjs'
+import { exists, readJson, size } from './lib/install/io.mjs'
 import { openRegistry } from './lib/install/registry.mjs'
 import { latestOf as latestAll, rangeOf } from './lib/install/updates.mjs'
 import { hasProvenance, verifySignature } from './lib/install/trust.mjs'
@@ -138,7 +138,8 @@ async function list({ options, operands }) {
   const rows = shown(db.all()).map(entry => [entry, ''])
   // a user's own packages, and the system's beside them unless --user asked for only the user's
   if (!scope.system && !options.user) rows.push(...shown(new Database(scopeOf({ global: true })).all()).map(entry => [entry, ' [system]']))
-  for (const [entry, where] of rows) out(`${keyOf(entry.name, entry.version)}${entry.explicit ? '' : ' [dependency]'}${where}`)
+  const isGroup = (entry, where) => readJson(join(scopeOf(where === ' [system]' ? { global: true } : options).lib, entry.name, entry.version, 'package.json'), {}).ecmaos?.meta
+  for (const [entry, where] of rows) out(`${keyOf(entry.name, entry.version)}${entry.explicit ? '' : ' [dependency]'}${isGroup(entry, where) ? ' [group]' : ''}${where}`)
   if (!rows.length && pattern) return 1
   return 0
 }
