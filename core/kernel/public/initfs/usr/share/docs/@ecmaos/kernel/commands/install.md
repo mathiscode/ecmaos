@@ -31,6 +31,10 @@ Each scope keeps a database of what it installed (`/var/lib/install/db.json`, or
 
 Metadata is fetched in its abbreviated form (`application/vnd.npm.install-v1+json`); `info` fetches the full document. Both metadata and tarballs are cached in `/var/cache/install` (or `~/.cache/install`), so `--offline` installs and reinstalls from what was fetched before, and a registry that cannot be reached falls back to the cached metadata. `clean` empties the cache.
 
+## Running what is installed
+
+A package's `bin` runs as a command: `install cowsay && cowsay hi`. The package's dependencies are linked into its `node_modules` (`/usr/lib/NAME/VERSION/node_modules/DEP` is a link to the version it was given), so a program that `require`s or `import`s them finds those versions; `/bin/node` resolves as Node does, runs CommonJS and ES modules, and provides Node's own modules (`fs`, `path`, `child_process`, `http` clients, and the rest) over the kernel's syscalls. A script of your own finds the packages installed system-wide too: `node script.js` with `require('semver')` uses the highest installed version.
+
 ## Trust
 
 Every tarball is checked against the registry's `dist.integrity` (SHA-512 where the registry gives it, else the SHA-1 `shasum`) before it is unpacked, the cached copy included.
