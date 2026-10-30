@@ -60,6 +60,12 @@ const NODE_MODULES = [
 function polyfills(): Record<string, string> {
   const require = createRequire(path.join(import.meta.dirname, 'package.json'))
   const aliases = Object.fromEntries(['assert', 'buffer', 'events', 'string_decoder', 'url', 'util'].map(name => [`@polyfill/${name}`, require.resolve(`${name}/`)]))
+  Object.assign(aliases, {
+    '@polyfill/crypto-browserify': require.resolve('crypto-browserify'),
+    '@polyfill/zlib': require.resolve('browserify-zlib'),
+    '@polyfill/http': require.resolve('stream-http'),
+    '@polyfill/https': require.resolve('https-browserify')
+  })
   // `punycode` is not the kernel's own dependency: it is the `url` package's
   aliases['@polyfill/punycode'] = createRequire(require.resolve('url/')).resolve('punycode/')
   return aliases

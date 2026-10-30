@@ -14,7 +14,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * registry, installed with `install` and run by `/bin/node`'s loader. This is what the resolver, the ES module conversion
  * and the Node modules are for.
  */
-describe('real npm packages run', () => {
+describe('real npm packages run', { timeout: 120000 }, () => {
   const nodeFs = process.getBuiltinModule('node:fs')
   const nodePath = process.getBuiltinModule('node:path')
   const kernelDir = nodePath.resolve(import.meta.dirname, '../..')

@@ -301,7 +301,28 @@ function install() {
   const g = globalThis
   g.global ??= g
   if (!g.process || g.process.__ecmaos === undefined) g.process = process
-  if (typeof g.Buffer === 'undefined') g.Buffer = require('node:buffer').Buffer
+  // the one every package gets from require('buffer'), so `Buffer.isBuffer` agrees across them
+  g.Buffer = require('node:buffer').Buffer
+  // a request in flight, and a body being read, keep the program alive as they do in Node
+  if (typeof g.fetch === 'function' && !g.fetch.__ecmaos) {
+    const nativeFetch = g.fetch.bind(g)
+    g.fetch = Object.assign((...args) => {
+      const release = hold()
+      const request = nativeFetch(...args)
+      request.then(release, release)
+      return request
+    }, { __ecmaos: true })
+    for (const method of ['json', 'text', 'arrayBuffer', 'blob', 'bytes', 'formData']) {
+      const original = g.Response?.prototype?.[method]
+      if (typeof original !== 'function') continue
+      g.Response.prototype[method] = function (...args) {
+        const release = hold()
+        const result = original.apply(this, args)
+        result.then(release, release)
+        return result
+      }
+    }
+  }
   g.setTimeout = timers.setTimeout
   g.setInterval = timers.setInterval
   g.setImmediate = timers.setImmediate

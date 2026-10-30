@@ -169,7 +169,7 @@ function spawn(file, args, options) {
     // a stream nobody reads would never end, and 'close' waits for it: Node drains them at exit too
     for (const stream of [child.stdout, child.stderr]) if (stream && !stream.listenerCount('data') && !stream.listenerCount('readable')) stream.resume()
     // 'close' follows once the streams are drained
-    const open = [child.stdout, child.stderr].filter(stream => stream && !stream.readableEnded && !stream.destroyed)
+    const open = [child.stdout, child.stderr].filter(stream => stream && !stream.__ended)
     const finish = () => { child.emit('close', code, signal); release() }
     if (!open.length) { setTimeout(finish, 0); return }
     let left = open.length
@@ -183,6 +183,8 @@ function spawn(file, args, options) {
   if (plan.mine[0] !== undefined) child.stdin = pipeWriter(plan.mine[0])
   if (plan.mine[1] !== undefined) child.stdout = pipeReader(plan.mine[1])
   if (plan.mine[2] !== undefined) child.stderr = pipeReader(plan.mine[2])
+  // the stream polyfill has no `readableEnded`: note it, so 'close' does not wait for an 'end' that has been
+  for (const stream of [child.stdout, child.stderr]) if (stream) { stream.once('end', () => { stream.__ended = true }); stream.once('close', () => { stream.__ended = true }) }
   child.stdio = [child.stdin, child.stdout, child.stderr]
   return child
 }

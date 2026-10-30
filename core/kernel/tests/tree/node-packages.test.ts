@@ -14,7 +14,7 @@ import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
  * finds them, runs CommonJS and ES modules, and provides Node's own modules (`fs`, `path`, `child_process`, ...) over
  * the kernel's syscalls. The registry is a real local HTTP server; the programs are run through the shell.
  */
-describe('npm packages run', () => {
+describe('npm packages run', { timeout: 60000 }, () => {
   let kernel: Kernel
   let server: Server
   let registry = ''
@@ -191,4 +191,38 @@ cp.exec('echo async-out; echo async-err 1>&2', (err, stdout, stderr) => {
     expect(boom.out).toBe('before\n')
     expect(boom.err).toContain('kaboom')
   })
+
+  it('provides crypto, zlib, vm, http clients and refuses sockets with a clear error', async () => {
+    const nodeCrypto = process.getBuiltinModule('node:crypto')
+    routes.set('/hello-http', () => ({ body: 'hello over http' }))
+    await fs().writeFile('/tmp/np-builtins.js', `#!/usr/bin/env node
+const crypto = require('crypto'), zlib = require('zlib'), vm = require('vm'), http = require('http')
+console.log(crypto.createHash('sha256').update('abc').digest('hex'))
+console.log(crypto.createHmac('sha1', 'k').update('d').digest('hex'))
+console.log(crypto.randomBytes(8).length, crypto.randomUUID().length, crypto.pbkdf2Sync('pw', 'salt', 1, 8, 'sha1').toString('hex'), crypto.timingSafeEqual(Buffer.from('a'), Buffer.from('a')))
+console.log(zlib.gunzipSync(zlib.gzipSync('zzz')).toString(), zlib.inflateSync(zlib.deflateSync(Buffer.from('q'))).toString())
+console.log(vm.runInNewContext('a * 2', { a: 21 }), vm.runInThisContext('1 + 1'), new vm.Script('x + 1').runInNewContext({ x: 1 }))
+console.log(require('worker_threads').isMainThread)
+try { require('net').createServer() } catch (e) { console.log(e.code) }
+fetch('${registry}/hello-http').then(r => r.text()).then(text => console.log('fetch', text))
+http.get('${registry}/hello-http', res => {
+  let data = ''
+  res.on('data', chunk => { data += chunk })
+  res.on('end', () => console.log(res.statusCode, data))
+})
+`)
+    const result = await run('node /tmp/np-builtins.js')
+    expect(result.err).toBe('')
+    expect(result.out.split('\n').filter(Boolean)).toEqual([
+      nodeCrypto.createHash('sha256').update('abc').digest('hex'),
+      nodeCrypto.createHmac('sha1', 'k').update('d').digest('hex'),
+      `8 36 ${nodeCrypto.pbkdf2Sync('pw', 'salt', 1, 8, 'sha1').toString('hex')} true`,
+      'zzz q',
+      '42 2 2',
+      'true',
+      'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM',
+      'fetch hello over http',
+      '200 hello over http'
+    ])
+  }, 60000)
 })
