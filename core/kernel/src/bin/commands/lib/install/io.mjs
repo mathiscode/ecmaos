@@ -95,3 +95,12 @@ export function size(bytes) {
   while (value >= 1000 && unit < units.length - 1) { value /= 1000; unit++ }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`
 }
+
+/** `to` as a path from the directory `from`, for a symlink that stays valid if both move together */
+export function relative(from, to) {
+  const a = from.split('/').filter(Boolean)
+  const b = to.split('/').filter(Boolean)
+  let shared = 0
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++
+  return [...a.slice(shared).map(() => '..'), ...b.slice(shared)].join('/') || '.'
+}

@@ -11,7 +11,7 @@ import semver from 'semver'
 import { join } from '../path-utils.mjs'
 import { SHARE_DIRS, linkTree, unlinkTree } from '../share-links.mjs'
 import { binsOf, keyOf, satisfies } from './db.mjs'
-import { dirname, exists, mkdirp, names, pool, readBytes, readJson, size, writeBytes } from './io.mjs'
+import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, writeBytes } from './io.mjs'
 import { RegistryError } from './registry.mjs'
 import { scriptsAllowed, verifyIntegrity, verifySignature } from './trust.mjs'
 
@@ -296,6 +296,7 @@ export class Engine {
     this.out(green(`Installed ${name} v${version} to ${target}`))
 
     const manifest = readJson(join(target, 'package.json'), {})
+    this.linkDependencies(node, target)
     const entry = {
       name,
       version,
@@ -318,6 +319,26 @@ export class Engine {
     if (!await this.installModules(entry, manifest)) return false
     if (!await this.script(node, manifest, 'ecmaos:postinstall', target)) return false
     return true
+  }
+
+  /**
+   * Lays out `node_modules` as Node finds it: a link from `target/node_modules/NAME` to each dependency's directory in
+   * `lib` (what `npm:` aliased it as, if it was). A program that imports `NAME` finds the very version this package was
+   * given, and the same directory serves every package that depends on it.
+   */
+  linkDependencies(node, target) {
+    const aliasOf = new Map(Object.entries(node.aliases ?? {}).map(([alias, name]) => [name, alias]))
+    for (const [name, version] of Object.entries(node.dependencies ?? {})) {
+      const link = join(target, 'node_modules', aliasOf.get(name) ?? name)
+      const destination = join(this.scope.lib, name, version)
+      try {
+        mkdirp(dirname(link))
+        try { unlink(link) } catch { /* nothing there yet */ }
+        symlink(relative(dirname(link), destination), link)
+      } catch (error) {
+        this.err(yellow(`Could not link ${link}: ${error instanceof Error ? error.message : error}`))
+      }
+    }
   }
 
   /** Runs one of the package's `ecmaos:` scripts with `sh -c`, as whoever runs `install`, if its scripts may run */

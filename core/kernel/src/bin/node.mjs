@@ -160,9 +160,9 @@ function copyFile(source, destination, mode = 0o644) {
   }
 }
 
-/** Recursively remove a real directory tree: `readdir` + recurse, `unlink` files, `rmdir` on the way back up. */
+/** Recursively remove a real directory tree: `readdir` + recurse, `unlink` files, `rmdir` on the way back up. A symlink is unlinked, not followed. */
 function rmRecursive(path) {
-  if (isDirectory(path)) {
+  if (!isSymbolicLink(path) && isDirectory(path)) {
     for (const name of readdir(path)) rmRecursive(`${path}/${name}`)
     rmdir(path)
   } else {

@@ -99,6 +99,24 @@ describe('install engine', () => {
     expect((await db())['ie-app2@1.0.0'].dependencies).toEqual({ 'ie-lib': '1.0.0' })
   })
 
+  it('lays out node_modules as links to the dependencies, and removing a package leaves what they point at', async () => {
+    await publish('ie-leaf', '1.0.0', {}, { 'data.txt': 'leaf\n' })
+    await publish('@ie/scoped', '1.0.0', {}, { 'data.txt': 'scoped\n' })
+    await publish('ie-root', '1.0.0', { dependencies: { 'ie-leaf': '^1', '@ie/scoped': '^1' } })
+    expect((await run(`install ie-root --registry ${registry}`)).code).toBe(0)
+    expect(await fs().readlink('/usr/lib/ie-root/1.0.0/node_modules/ie-leaf')).toBe('../../../ie-leaf/1.0.0')
+    expect(await fs().readlink('/usr/lib/ie-root/1.0.0/node_modules/@ie/scoped')).toBe('../../../../@ie/scoped/1.0.0')
+    expect(await fs().readFile('/usr/lib/ie-root/1.0.0/node_modules/ie-leaf/data.txt', 'utf-8')).toBe('leaf\n')
+    expect(await fs().readFile('/usr/lib/ie-root/1.0.0/node_modules/@ie/scoped/data.txt', 'utf-8')).toBe('scoped\n')
+
+    // the links are not followed: removing the root keeps nothing alive, but a dependency removed by hand keeps its files
+    expect((await run('install remove ie-root')).code).toBe(0)
+    expect(await fs().exists('/usr/lib/ie-root')).toBe(false)
+    expect(await fs().readFile('/usr/lib/ie-leaf/1.0.0/data.txt', 'utf-8')).toBe('leaf\n')
+    expect((await run('install autoremove')).code).toBe(0)
+    expect(await fs().exists('/usr/lib/ie-leaf')).toBe(false)
+  })
+
   it('keeps a package another still needs as a dependency, and autoremove takes what nothing needs', async () => {
     let result = await run('install remove ie-app')
     expect(result.code, result.err).toBe(0)
