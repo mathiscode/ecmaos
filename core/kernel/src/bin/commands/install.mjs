@@ -1,302 +1,298 @@
 /**
- * Fetch a package from an npm-style registry into `/usr/lib` and link its bins into `/usr/bin`.
- * Runs the package's `ecmaos:preinstall`/`ecmaos:postinstall` scripts, if any, as shell commands.
+ * ecmaOS's package manager, on npm's registry. `install NAME` installs a package and its dependencies into `/usr/lib`
+ * (root) or `~/.local/lib` (anyone else) and links its bins and `share/` files; the other subcommands remove, list,
+ * look up, search for and upgrade packages. The engine is `lib/install/`; `uninstall` is `install remove`.
  */
+
 import semver from 'semver'
 
-import { join } from './lib/path-utils.mjs'
-import { SHARE_DIRS, linkTree } from './lib/share-links.mjs'
+import { join, resolve } from './lib/path-utils.mjs'
+import { Database, keyOf, scopeOf } from './lib/install/db.mjs'
+import { Engine, blue, green, parseSpec, pickVersion, red, yellow } from './lib/install/engine.mjs'
+import { exists, readJson, size } from './lib/install/io.mjs'
+import { Registry } from './lib/install/registry.mjs'
+import { hasProvenance, verifySignature } from './lib/install/trust.mjs'
 
-const { argv, env, exit, write, custom, chmod, open, read, close, writeAll, mkdir, rename, symlink, unlink, rmRecursive, access, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { argv, exit, write, getcwd, geteuid, rmRecursive } = globalThis.ecmaosSyscalls
 
-const usage = `Usage: install <package-name>[@version] [--registry URL] [--reinstall]
-Install a package from a registry into /usr/lib and link its bins into /usr/bin.
+const usage = `Usage: install [COMMAND] [OPTION]... [PACKAGE]...
+Install packages from an npm registry, and manage what is installed.
 
-  --registry URL  registry to use (default: $REGISTRY, else https://registry.npmjs.org)
-  --reinstall     remove an installed copy first
-  --help          display this help and exit`
+Commands:
+  install PACKAGE...     install packages and their dependencies (the default)
+  remove PACKAGE...      remove packages (also: uninstall, rm)
+  autoremove             remove dependencies nothing installed by name needs
+  list [PATTERN]         list installed packages (also: ls)
+  info PACKAGE           show a package's details from the registry (also: show, view)
+  search TEXT...         search the registry
+  update                 refresh the cached metadata of installed packages
+  upgrade [PACKAGE]...   upgrade packages installed by name to their latest versions
+  outdated               list packages with newer versions
+  clean                  empty the download cache
+
+A PACKAGE is NAME, NAME@VERSION, NAME@RANGE, NAME@TAG, @SCOPE/NAME[@...], or a local .tgz file.
+
+Options:
+  --registry URL       registry to use (default: $REGISTRY, else https://registry.npmjs.org)
+  -g, --global         install for the whole system (/usr), which needs root
+  --user               install for yourself (~/.local), even as root
+  --reinstall          install again a version that is already installed
+  --offline            use only the cache
+  --allow-scripts      run the packages' ecmaos:preinstall and ecmaos:postinstall scripts
+  --ignore-signatures  install even when the registry's signature is missing or does not verify
+  -n, --dry-run        show what would be done, and do nothing
+  --autoremove         with remove, also remove the dependencies no longer needed
+  -a, --all            with list and outdated, include dependencies
+  --help               display this help and exit
+
+Packages from ecmaOS's own scopes (@ecmaos, @ecmaos-apps) and those listed in /etc/install/allow-scripts run their
+scripts without --allow-scripts.`
+
+const COMMANDS = {
+  install: 'install', i: 'install', add: 'install',
+  remove: 'remove', rm: 'remove', uninstall: 'remove', un: 'remove',
+  autoremove: 'autoremove',
+  list: 'list', ls: 'list',
+  info: 'info', show: 'info', view: 'info',
+  search: 'search', find: 'search',
+  update: 'update',
+  upgrade: 'upgrade', up: 'upgrade',
+  outdated: 'outdated',
+  clean: 'clean'
+}
 
 const encoder = new TextEncoder()
-const decoder = new TextDecoder()
-const line = (stream, text) => write(stream, encoder.encode(text + '\n'))
-const red = text => `\x1b[31m${text}\x1b[0m`
-const green = text => `\x1b[32m${text}\x1b[0m`
-const blue = text => `\x1b[34m${text}\x1b[0m`
+const out = text => write(1, encoder.encode(text + '\n'))
+const err = text => write(2, encoder.encode(text + '\n'))
 
-const dirname = path => path.slice(0, path.lastIndexOf('/')) || '/'
-const exists = path => { try { access(path); return true } catch { return false } }
-
-function mkdirp(path) {
-  if (path === '/' || exists(path)) return
-  mkdirp(dirname(path))
-  mkdir(path, 0o755)
-}
-
-function readBytes(path) {
-  const fd = open(path, O_RDONLY)
-  const chunks = []
-  try {
-    while (true) {
-      const buffer = new Uint8Array(65536)
-      const n = read(fd, buffer, -1)
-      if (n <= 0) break
-      chunks.push(buffer.subarray(0, n))
-    }
-  } finally {
-    close(fd)
+function parse(args) {
+  const options = {}
+  const operands = []
+  let command
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === '--') { operands.push(...args.slice(i + 1)); break }
+    if (arg === '--help' || arg === '-h') options.help = true
+    else if (arg === '--registry') options.registry = args[++i]
+    else if (arg.startsWith('--registry=')) options.registry = arg.slice(11)
+    else if (arg === '-g' || arg === '--global') options.global = true
+    else if (arg === '--user') options.user = true
+    else if (arg === '--reinstall') options.reinstall = true
+    else if (arg === '--offline') options.offline = true
+    else if (arg === '--allow-scripts') options.allowScripts = true
+    else if (arg === '--ignore-signatures') options.ignoreSignatures = true
+    else if (arg === '-n' || arg === '--dry-run') options.dryRun = true
+    else if (arg === '--autoremove') options.autoremove = true
+    else if (arg === '-a' || arg === '--all') options.all = true
+    else if (arg.startsWith('-') && arg !== '-') throw new Error(`unknown option ${arg}\nTry 'install --help' for more information.`)
+    else if (command === undefined && !operands.length && COMMANDS[arg]) command = COMMANDS[arg]
+    else operands.push(arg)
   }
-  const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0))
-  let offset = 0
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return bytes
+  return { command: command ?? 'install', options, operands }
 }
 
-const readText = path => decoder.decode(readBytes(path))
+function setup(options) {
+  if (options.global && geteuid() !== 0) throw new Error('installing for the whole system needs root (sudo install -g ...)')
+  const scope = scopeOf(options)
+  const db = new Database(scope)
+  const registry = new Registry(options.registry, scope.cache, { offline: options.offline })
+  return { scope, db, registry, engine: new Engine({ scope, db, registry, options }) }
+}
 
-function writeBytes(path, bytes) {
-  const fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-  try {
-    writeAll(fd, bytes)
-  } finally {
-    close(fd)
+async function install({ options, operands }) {
+  if (!operands.length) {
+    err(red('Usage: install <package-name>[@version]'))
+    return 1
   }
-}
-
-
-async function runTar(tarballPath, directory) {
-  const pid = await custom('proc_spawn', '/bin/tar', JSON.stringify(['tar', '-xzf', tarballPath, '-C', directory]), '')
-  return await custom('proc_wait', pid)
-}
-
-/** Checks `bytes` against the registry's `dist.integrity` (an SRI list; the strongest hash listed decides), else its SHA-1 `shasum` */
-async function verify(bytes, dist) {
-  const hex = digest => Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
-  const sri = String(dist?.integrity ?? '').split(/\s+/).map(item => item.match(/^(sha512|sha384|sha256)-(.+)$/)).filter(Boolean)
-  const strongest = ['sha512', 'sha384', 'sha256'].map(algorithm => sri.find(item => item[1] === algorithm)).find(Boolean)
-  if (strongest) {
-    const name = { sha512: 'SHA-512', sha384: 'SHA-384', sha256: 'SHA-256' }[strongest[1]]
-    const actual = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest(name, bytes))))
-    return actual === strongest[2] ? undefined : `Integrity verification failed. Expected ${strongest[1]}-${strongest[2]} but got ${strongest[1]}-${actual}`
-  }
-  const expected = dist?.shasum?.toLowerCase()
-  if (!expected) return 'No integrity or checksum found'
-  const actual = hex(await crypto.subtle.digest('SHA-1', bytes))
-  return actual === expected ? undefined : `Checksum verification failed. Expected ${expected} but got ${actual}`
-}
-
-/** Links a package's bins into `/usr/bin` and its `share/` files into `/usr/share`; an upgrade replaces the links an earlier version left */
-function link(packageName, version, packageJson) {
-  try {
-    if (packageJson.bin) {
-      const bins = typeof packageJson.bin === 'string' ? { [packageJson.name]: packageJson.bin } : packageJson.bin
-      for (const bin in bins) {
-        const binPath = join('/usr/lib', packageName, version, bins[bin])
-        if (!exists(binPath)) {
-          line(2, red(`${binPath} does not exist`))
-          return false
-        }
-        // a tarball keeps the mode of the file it was packed from, and npm makes a bin executable as it installs it
-        chmod(binPath, 0o755)
-        // An upgrade replaces the link an earlier version left
-        try { unlink(join('/usr/bin', bin)) } catch { /* not linked yet */ }
-        symlink(binPath, join('/usr/bin', bin))
-        line(1, blue(`Linked ${bin} to ${join('/usr/bin', bin)}`))
-      }
-    }
-  } catch (error) {
-    line(2, red(`Failed to link bins for ${packageName}@${version}: ${error}`))
-  }
-
-  // `share/applications`, `docs`, `licenses` and `man` are linked where the desktop's launcher, `man` and the rest look
-  for (const directory of SHARE_DIRS) {
-    try {
-      const source = join('/usr/lib', packageName, version, 'share', directory)
-      if (exists(source)) for (const linked of linkTree(source, join('/usr/share', directory))) line(1, blue(`Linked ${linked}`))
-    } catch (error) {
-      line(2, red(`Failed to link share/${directory} for ${packageName}@${version}: ${error}`))
+  const { engine } = setup(options)
+  const requests = []
+  for (const operand of operands) {
+    const spec = parseSpec(operand)
+    if (!spec) { err(red(`Invalid package name format: ${operand}`)); return 1 }
+    if (spec.type === 'file') {
+      const path = resolve(getcwd(), spec.path)
+      if (!exists(path)) { err(red(`${operand}: no such file`)); return 1 }
+      try { requests.push({ name: path, local: await engine.local(path) }) } catch (error) { err(red(error.message)); return 1 }
+    } else {
+      requests.push({ name: spec.name, range: spec.range })
     }
   }
-  return true
+  return await engine.install(requests)
 }
 
-/**
- * A package that ships kernel modules lists them in `package.json` as `"ecmaos": { "modules": ["dist/NAME.ko.mjs"] }` (paths
- * inside the package; `.ko.mjs` or `.ko.wasm`). They are copied into `/lib/modules/RELEASE/` and `depmod` indexes them, so
- * `modprobe NAME` finds them. Returns false if one could not be installed.
- */
-async function installModules(packageName, version, packageJson) {
-  const listed = packageJson.ecmaos?.modules ?? packageJson.ecmaos?.module ?? []
-  const files = (Array.isArray(listed) ? listed : [listed]).filter(file => typeof file === 'string')
-  if (!files.length) return true
-  try {
-    const directory = join('/lib/modules', env['KERNEL_VERSION'])
-    for (const file of files) {
-      const name = file.slice(file.lastIndexOf('/') + 1)
-      const source = join('/usr/lib', packageName, version, file)
-      if (!/^[\w.+-]+\.ko\.(mjs|wasm)$/.test(name)) throw new Error(`${file} is not a NAME.ko.mjs or NAME.ko.wasm file`)
-      if (!exists(source)) throw new Error(`${source} does not exist`)
-      mkdirp(directory)
-      writeBytes(join(directory, name), readBytes(source))
-      line(1, blue(`Installed module ${name} in ${directory}`))
-    }
-    const code = await custom('shell_exec', 'depmod')
-    if (code) throw new Error(`depmod failed (${code}); run it as root`)
-    return true
-  } catch (error) {
-    line(2, red(`Failed to install the modules of ${packageName}@${version}: ${error instanceof Error ? error.message : error}`))
-    return false
-  }
-}
-
-/**
- * Returns an exit code; 0 for "installed" and for "already installed". A dependency is installed but not linked: its
- * bins and `share/` files are for the package that needs it (as with npm), not for the user's PATH.
- */
-async function install(packageArg, registryArg, reinstall, dependency = false) {
-  const spec = packageArg.match(/(@[^/]+\/[^@]+|[^@]+)(?:@([^/]+))?/)
-  if (!spec) {
-    line(2, red('Invalid package name format'))
-    return 1
-  }
-
-  const registry = registryArg || env['REGISTRY'] || 'https://registry.npmjs.org'
-  const packageName = spec[1]?.replace('vnpm:', '')
-  let version = spec[2] || 'latest'
-
-  if (!packageName) {
-    line(2, red('Invalid package name format'))
-    return 1
-  }
-
-  const data = await (await globalThis.fetch(`${registry}/${packageName}`)).json()
-  if (!data.versions || !data['dist-tags']) {
-    line(2, red(`No versions found for ${packageName}`))
-    return 1
-  }
-
-  if (version === 'latest') version = data['dist-tags'].latest
-  else version = semver.maxSatisfying(Object.keys(data.versions), version) || version
-
-  if (reinstall) {
-    try {
-      const pkgData = JSON.parse(readText(join('/usr/lib', packageName, version, 'package.json')))
-      for (const bin in pkgData.bin) { try { unlink(join('/usr/bin', bin)) } catch { /* a dependency's bins are not linked */ } }
-      rmRecursive(join('/usr/lib', packageName, version))
-    } catch {
-      // nothing installed yet, or already partly removed
-    }
-  }
-
-  const packagePath = join('/usr/lib', packageName, version, 'package.json')
-  if (exists(packagePath)) {
-    line(1, green(`${packageName} v${version} is already installed`))
-    // it may have come in as a dependency, which is not linked
-    if (!dependency) link(packageName, version, JSON.parse(readText(packagePath)))
-    return 0
-  }
-
-  line(1, `Installing ${data.name} v${version} from ${registry}...`)
-
-  const tarballUrl = data.versions[version]?.dist?.tarball
-  const dist = data.versions[version]?.dist
-  if (!tarballUrl || !(dist?.integrity || dist?.shasum)) {
-    line(2, red(`No tarball URL or checksum found for ${packageName} v${version}`))
-    return 1
-  }
-
-  const arrayBuffer = await (await globalThis.fetch(tarballUrl)).arrayBuffer()
-  const problem = await verify(arrayBuffer, dist)
-  if (problem) {
-    line(2, red(problem))
-    return 1
-  }
-
-  const tarballPath = `/tmp/${data.name.replace('@', '').replace('/', '-')}-${version}.tar.gz`
-  writeBytes(tarballPath, new Uint8Array(arrayBuffer))
-
-  // npm tarballs wrap their contents in `package/`, so extraction lands in a scratch directory under `/usr/lib` (the
-  // install path's mount, since `rename` across mounts fails with `EXDEV`) and its contents become the install path.
-  const extractPath = `/usr/lib/${data.name}/${version}`
-  const scratchDir = `/usr/lib/.install-${packageName.replace(/[^a-zA-Z0-9._-]/g, '_')}-${version}-${Date.now()}`
-  mkdirp(scratchDir)
-  const tarExitCode = await runTar(tarballPath, scratchDir)
-  unlink(tarballPath)
-
-  if (tarExitCode !== 0) {
-    line(2, red(`Failed to extract ${packageName}@${version}`))
-    rmRecursive(scratchDir)
-    return 1
-  }
-
-  const packageDirInScratch = join(scratchDir, 'package')
-  const extractedDir = exists(packageDirInScratch) ? packageDirInScratch : scratchDir
-
-  mkdirp(dirname(extractPath))
-  rename(extractedDir, extractPath)
-  try { rmRecursive(scratchDir) } catch { /* already moved */ }
-  line(1, green(`Installed ${data.name} v${version} to ${extractPath}`))
-
-  const packageJson = JSON.parse(readText(packagePath))
-
-  try {
-    if (packageJson.scripts?.['ecmaos:preinstall']) await custom('shell_exec', packageJson.scripts['ecmaos:preinstall'])
-  } catch (error) {
-    line(2, red(`Failed to execute preinstall script for ${packageName}@${version}: ${error}`))
-    return 1
-  }
-
-  if (!dependency && !link(packageName, version, packageJson)) return 1
-  if (!await installModules(packageName, version, packageJson)) return 1
-
-  try {
-    for (const name in packageJson.dependencies ?? {}) {
-      const range = packageJson.dependencies[name]
-      await install(`${name}${range ? `@${range}` : ''}`, registryArg, false, true)
-    }
-  } catch (error) {
-    line(2, red(`Failed to install dependencies for ${packageName}@${version}: ${error}`))
-    return 1
-  }
-
-  try {
-    if (packageJson.scripts?.['ecmaos:postinstall']) await custom('shell_exec', packageJson.scripts['ecmaos:postinstall'])
-  } catch (error) {
-    line(2, red(`Failed to execute postinstall script for ${packageName}@${version}: ${error}`))
-    return 1
-  }
-
+async function list({ options, operands }) {
+  const { db, scope } = setup(options)
+  const pattern = operands[0]
+  const shown = entries => entries.filter(entry => (options.all || entry.explicit) && (!pattern || entry.name.includes(pattern)))
+  const rows = shown(db.all()).map(entry => [entry, ''])
+  // a user's own packages, and the system's beside them unless --user asked for only the user's
+  if (!scope.system && !options.user) rows.push(...shown(new Database(scopeOf({ global: true })).all()).map(entry => [entry, ' [system]']))
+  for (const [entry, where] of rows) out(`${keyOf(entry.name, entry.version)}${entry.explicit ? '' : ' [dependency]'}${where}`)
+  if (!rows.length && pattern) return 1
   return 0
 }
 
+async function info({ options, operands }) {
+  const spec = operands[0] && parseSpec(operands[0])
+  if (spec?.type !== 'registry') { err(red('Usage: install info <package-name>[@version]')); return 1 }
+  const { db, registry } = setup(options)
+  const document = await registry.document(spec.name)
+  const version = pickVersion(document, spec.range)
+  const manifest = document.versions?.[version]
+  if (!manifest) { err(red(`No version of ${spec.name} matches ${spec.range ?? 'latest'}`)); return 1 }
+  const dependencies = Object.entries(manifest.dependencies ?? {})
+  const lines = [
+    '',
+    `${blue(`${document.name}@${version}`)} | ${manifest.license ?? document.license ?? 'no license'} | deps: ${dependencies.length || 'none'} | versions: ${Object.keys(document.versions).length}`,
+    manifest.description ?? document.description ?? '',
+    manifest.homepage ?? document.homepage ?? ''
+  ].filter((line, index) => index < 2 || line)
+  if (manifest.deprecated) lines.push(red(`DEPRECATED: ${manifest.deprecated}`))
+  const bins = typeof manifest.bin === 'string' ? [String(document.name).split('/').pop()] : Object.keys(manifest.bin ?? {})
+  if (bins.length) lines.push('', `bin: ${bins.join(', ')}`)
+  const dist = manifest.dist ?? {}
+  lines.push('', 'dist', `.tarball: ${dist.tarball ?? ''}`, `.shasum: ${dist.shasum ?? ''}`)
+  if (dist.integrity) lines.push(`.integrity: ${dist.integrity}`)
+  if (dist.unpackedSize) lines.push(`.unpackedSize: ${size(dist.unpackedSize)}`)
+  const signature = await verifySignature(registry.url, document.name, version, dist)
+  lines.push(`.signature: ${signature ? red(signature) : (dist.signatures?.length ? green('verified') : 'none (the registry does not sign)')}`)
+  lines.push(`.provenance: ${hasProvenance(dist) ? green('yes') : 'no'}`)
+  if (dependencies.length) lines.push('', 'dependencies:', ...dependencies.map(([name, range]) => `${name}: ${range}`))
+  lines.push('', 'dist-tags:', ...Object.entries(document['dist-tags'] ?? {}).map(([tag, value]) => `${tag}: ${value}`))
+  const maintainers = (document.maintainers ?? []).map(person => (typeof person === 'string' ? person : person.name)).filter(Boolean)
+  if (maintainers.length) lines.push('', 'maintainers:', ...maintainers.map(name => `- ${name}`))
+  if (document.time?.[version]) lines.push('', `published ${document.time[version]}`)
+  const installed = db.versionsOf(document.name)
+  lines.push('', `installed: ${installed.length ? installed.map(entry => `${entry.version}${entry.explicit ? '' : ' (dependency)'}`).join(', ') : 'no'}`, '')
+  out(lines.join('\n'))
+  return 0
+}
+
+async function search({ options, operands }) {
+  if (!operands.length) { err(red('Usage: install search <text>')); return 1 }
+  const { db, registry } = setup(options)
+  const found = await registry.search(operands.join(' '))
+  if (!found.length) { out(`No packages match ${operands.join(' ')}`); return 1 }
+  const width = Math.max(...found.map(item => item.name.length))
+  for (const item of found) {
+    const installed = db.versionsOf(item.name).length ? ' [installed]' : ''
+    const description = String(item.description ?? '').replace(/\s+/g, ' ')
+    out(`${green(item.name.padEnd(width))}  ${item.version}${installed}\n  ${description.length > 76 ? description.slice(0, 75) + '…' : description}`)
+  }
+  return 0
+}
+
+/** The newest version of every installed package's name, from the registry: `{ name: { latest, document } }` */
+async function latestOf(db, registry, entries) {
+  const result = {}
+  const failures = []
+  await Promise.all([...new Set(entries.map(entry => entry.name))].map(async name => {
+    try {
+      const document = await registry.metadata(name)
+      result[name] = { latest: document['dist-tags']?.latest, document }
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`)
+    }
+  }))
+  for (const failure of failures) err(yellow(failure))
+  return result
+}
+
+async function update({ options }) {
+  const { db, registry } = setup(options)
+  const entries = db.all()
+  const latest = await latestOf(db, registry, entries)
+  const fetched = Object.keys(latest).length
+  out(`Refreshed the metadata of ${fetched} package${fetched === 1 ? '' : 's'} from ${registry.url}`)
+  const upgradable = db.explicit().filter(entry => latest[entry.name]?.latest && semver.gt(latest[entry.name].latest, entry.version))
+  if (upgradable.length) out(`${upgradable.length} package${upgradable.length === 1 ? ' can' : 's can'} be upgraded. Run 'install outdated' to see ${upgradable.length === 1 ? 'it' : 'them'}.`)
+  else out('All packages are up to date.')
+  return 0
+}
+
+async function outdated({ options }) {
+  const { db, registry } = setup(options)
+  const entries = options.all ? db.all() : db.explicit()
+  const latest = await latestOf(db, registry, entries)
+  const rows = []
+  for (const entry of entries) {
+    const newest = latest[entry.name]?.latest
+    if (!newest || !semver.gt(newest, entry.version)) continue
+    // a dependency can move only as far as every package that depends on it allows
+    let wanted = newest
+    if (!entry.explicit) {
+      const ranges = db.dependentsOf(entry.name, entry.version).map(other => rangeOf(db, other, entry.name)).filter(Boolean)
+      wanted = semver.maxSatisfying(Object.keys(latest[entry.name].document.versions), ranges.join(' ') || '*') ?? entry.version
+    }
+    rows.push([entry.name, entry.version, wanted, newest, entry.explicit ? '' : 'dependency'])
+  }
+  if (!rows.length) return 0
+  const table = [['Package', 'Current', 'Wanted', 'Latest', ''], ...rows]
+  const widths = table[0].map((_, column) => Math.max(...table.map(row => row[column].length)))
+  for (const row of table) out(row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd())
+  return 1
+}
+
+/** The range `entry`'s own `package.json` asks of `name` */
+function rangeOf(db, entry, name) {
+  const manifest = readJson(join(db.scope.lib, entry.name, entry.version, 'package.json'), {})
+  return manifest.dependencies?.[name] ?? manifest.optionalDependencies?.[name] ?? manifest.peerDependencies?.[name]
+}
+
+async function upgrade({ options, operands }) {
+  const { db, registry, engine } = setup(options)
+  const named = operands.map(parseSpec)
+  if (named.some(spec => spec?.type !== 'registry')) { err(red('Usage: install upgrade [package-name]...')); return 1 }
+  const entries = named.length
+    ? named.map(spec => db.versionsOf(spec.name).find(entry => entry.explicit) ?? db.versionsOf(spec.name)[0]).filter(Boolean)
+    : db.explicit()
+  for (const spec of named) if (!db.versionsOf(spec.name).length) { err(red(`Package ${spec.name} is not installed`)); return 1 }
+  const latest = await latestOf(db, registry, entries)
+  const requests = entries
+    .filter(entry => latest[entry.name]?.latest && semver.gt(latest[entry.name].latest, entry.version))
+    .map(entry => ({ name: entry.name, range: latest[entry.name].latest }))
+  if (!requests.length) { out('All packages are up to date.'); return 0 }
+  return await engine.install(requests)
+}
+
 async function main() {
-  const args = argv.slice(1)
-  if (args.includes('--help') || args.includes('-h')) {
-    line(2, usage)
+  const parsed = parse(argv.slice(1))
+  if (parsed.options.help) {
+    err(usage)
     return 0
   }
-
-  let registry
-  let reinstall = false
-  let packageArg
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--registry') registry = args[++i]
-    else if (arg.startsWith('--registry=')) registry = arg.slice(11)
-    else if (arg === '--reinstall') reinstall = true
-    else if (!packageArg) packageArg = arg
+  switch (parsed.command) {
+    case 'install': return await install(parsed)
+    case 'remove': {
+      if (!parsed.operands.length) { err(red('Usage: install remove <package-name>[@version]...')); return 1 }
+      const { engine } = setup(parsed.options)
+      return await engine.remove(parsed.operands, { autoremove: parsed.options.autoremove })
+    }
+    case 'autoremove': {
+      const { engine, db } = setup(parsed.options)
+      const ok = engine.autoremove()
+      db.save()
+      return ok ? 0 : 1
+    }
+    case 'list': return await list(parsed)
+    case 'info': return await info(parsed)
+    case 'search': return await search(parsed)
+    case 'update': return await update(parsed)
+    case 'upgrade': return await upgrade(parsed)
+    case 'outdated': return await outdated(parsed)
+    case 'clean': {
+      const { scope } = setup(parsed.options)
+      for (const directory of ['tarballs', 'meta']) try { rmRecursive(join(scope.cache, directory)) } catch { /* empty already */ }
+      out(`Emptied ${scope.cache}`)
+      return 0
+    }
   }
-
-  if (!packageArg) {
-    line(2, red('Usage: install <package-name>[@version]'))
-    return 1
-  }
-
-  return await install(packageArg, registry, reinstall)
+  return 1
 }
 
 try {
   exit(await main())
 } catch (error) {
-  line(2, `install: ${error instanceof Error ? error.message : String(error)}`)
+  err(`install: ${error instanceof Error ? error.message : String(error)}`)
   exit(1)
 }

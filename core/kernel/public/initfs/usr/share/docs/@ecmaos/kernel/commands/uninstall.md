@@ -5,12 +5,14 @@
 ## Synopsis
 
 ```
-uninstall <package-name>[@version]
+uninstall [-g|--user] [--autoremove] <package-name>[@version]...
 ```
 
 ## Description
 
-Uninstalls a package previously installed with `install`. If no version is given, every installed version is removed. The links the package made in `/usr/bin` and `/usr/share` go with it; a link that another package or version made is left alone. A dependency that `install` brought in stays until it is uninstalled by name.
+Uninstalls packages installed with `install`; it is `install remove`. If no version is given, every installed version is removed. The links the package made in `bin` and `share` go with it; a link that another package or version made is left alone. A package another installed package still depends on keeps its files and becomes a dependency, and `install autoremove` removes it once nothing needs it. With `--autoremove`, the dependencies nothing needs any more are removed at once.
+
+root removes from the whole system (`/usr/lib`), anyone else from `~/.local`; `-g` and `--user` choose.
 
 ## See also
 

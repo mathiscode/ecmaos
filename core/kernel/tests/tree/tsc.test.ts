@@ -47,19 +47,20 @@ describe('tsc', () => {
       '@tsrs/wasm': packFiles(wasmDir),
       '@ecmaos-apps/tsc': packFiles(packageDir)
     }
-    const tarballs = new Map<string, { bytes: Uint8Array, integrity: string, version: string }>()
+    const tarballs = new Map<string, { bytes: Uint8Array, integrity: string, version: string, manifest: Record<string, unknown> }>()
     for (const [name, files] of Object.entries(packages)) {
       const bytes = await buildNpmTarballGzip(files)
-      const version = (JSON.parse(new TextDecoder().decode(files['package.json']!)) as { version: string }).version
-      tarballs.set(name, { bytes, integrity: await sha512Sri(bytes), version })
+      const manifest = JSON.parse(new TextDecoder().decode(files['package.json']!)) as { version: string }
+      tarballs.set(name, { bytes, integrity: await sha512Sri(bytes), version: manifest.version, manifest })
     }
     wasmVersion = tarballs.get('@tsrs/wasm')!.version
 
     const { createServer } = process.getBuiltinModule('node:http')
     server = createServer((req, res) => {
       const url = req.url ?? ''
-      for (const [name, { bytes, integrity, version }] of tarballs) {
-        if (url === `/${name}`) { res.end(JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { dist: { tarball: `${registry}/${name}/-/${version}.tgz`, integrity } } } })); return }
+      for (const [name, { bytes, integrity, version, manifest }] of tarballs) {
+        // a registry's metadata carries each version's manifest, dependencies included
+        if (url === `/${name}`) { res.end(JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { ...manifest, dist: { tarball: `${registry}/${name}/-/${version}.tgz`, integrity } } } })); return }
         if (url === `/${name}/-/${version}.tgz`) { res.end(bytes); return }
       }
       res.statusCode = 404

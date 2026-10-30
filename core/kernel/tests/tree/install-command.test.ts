@@ -110,13 +110,14 @@ describe('install command: real tar extraction via shell.execute, not extractTar
 
   const publish = async (name: string, version: string, files: Record<string, string>, integrity: 'sha512' | 'sha1-only' | 'bad-sha512' = 'sha512', dependencies?: Record<string, string>, manifest: Record<string, unknown> = {}) => {
     const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name, version, dependencies, ...manifest, bin: files['dist/cli.js'] ? { [name.split('/').pop()!]: 'dist/cli.js' } : undefined }), ...files })
-        const dist = {
+    const dist = {
       tarball: `${registry}/${name}/-/${version}.tgz`,
       shasum: await sha1Hex(tarball),
       ...(integrity === 'sha512' ? { integrity: await sha512Sri(tarball) } : integrity === 'bad-sha512' ? { integrity: `sha512-${btoa('x'.repeat(64))}` } : {})
     }
     routes.set(`/${name}/-/${version}.tgz`, () => ({ body: tarball }))
-    routes.set(`/${name}`, () => ({ body: JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { dist } } }) }))
+    // a registry's metadata carries each version's manifest, dependencies included
+    routes.set(`/${name}`, () => ({ body: JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { name, version, dependencies, ...manifest, dist } } }) }))
   }
 
   it('verifies the SHA-512 integrity the registry gives, and refuses a package that does not match it even when the SHA-1 does', async () => {
