@@ -39,6 +39,8 @@ Options:
   --user               install for yourself (~/.local), even as root
   --reinstall          install again a version that is already installed
   --offline            use only the cache
+  --no-install-recommends  do not install the packages a package recommends
+  --force              install a package even when it needs a newer kernel than this one
   --allow-scripts      run the packages' ecmaos:preinstall and ecmaos:postinstall scripts
   --ignore-signatures  install even when the registry's signature is missing or does not verify
   -n, --dry-run        show what would be done, and do nothing
@@ -81,6 +83,8 @@ function parse(args) {
     else if (arg === '--reinstall') options.reinstall = true
     else if (arg === '--offline') options.offline = true
     else if (arg === '--allow-scripts') options.allowScripts = true
+    else if (arg === '--no-install-recommends') options.noRecommends = true
+    else if (arg === '--force') options.force = true
     else if (arg === '--ignore-signatures') options.ignoreSignatures = true
     else if (arg === '-n' || arg === '--dry-run') options.dryRun = true
     else if (arg === '--autoremove') options.autoremove = true

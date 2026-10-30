@@ -10,6 +10,7 @@ import semver from 'semver'
 
 import { join } from '../path-utils.mjs'
 import { SHARE_DIRS, linkTree, unlinkTree } from '../share-links.mjs'
+import { unmet, listOf } from './compat.mjs'
 import { binsOf, keyOf, satisfies } from './db.mjs'
 import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, untar, writeBytes } from './io.mjs'
 import { RegistryError } from './registry.mjs'
@@ -70,6 +71,8 @@ export class Engine {
     this.db = db
     this.registry = registry
     this.options = options
+    /** Packages the plan's packages suggest; printed after the summary, never installed */
+    this.suggested = new Set()
   }
 
   /** Informational output; `options.quiet` is for a front-end that tells the story in its own words (errors still print) */
@@ -106,6 +109,7 @@ export class Engine {
           if (request.explicit) plan.get(key).explicit = true
           continue
         }
+        if (!node.existing) this.check(node, plan)
         plan.set(key, node)
         if (node.existing) continue
         const manifest = node.manifest
@@ -120,10 +124,36 @@ export class Engine {
           if (!spec) { this.err(yellow(`${node.name}@${node.version}: cannot fetch the dependency ${name}@${range}; skipped`)); continue }
           next.push({ ...spec, parent: node, optional: name in optional })
         }
+        // recommended packages come along unless asked not to; one that cannot be had is skipped, not an error
+        if (!this.options.noRecommends) {
+          for (const text of listOf(manifest, 'recommends')) {
+            const spec = parseSpec(text)
+            if (spec?.type === 'registry' && !(spec.name in wanted)) next.push({ name: spec.name, range: spec.range, parent: node, optional: true })
+          }
+        }
+        for (const text of listOf(manifest, 'suggests')) this.suggested.add(text)
       }
       level = next
     }
     return plan
+  }
+
+  /**
+   * Refuses a package this kernel cannot run (`ecmaos.requires`, unless `--force`) or one that conflicts with an
+   * installed or planned package (`ecmaos.conflicts`, from either side). Throws a `RegistryError`.
+   */
+  check(node, plan) {
+    const problems = this.options.force ? [] : unmet(node.manifest)
+    if (problems.length) throw new RegistryError(`${node.name}@${node.version} ${problems.join(' and ')}`)
+    const present = [...this.db.all().map(entry => ({ name: entry.name, conflicts: listOf(readJson(join(this.scope.lib, entry.name, entry.version, 'package.json'), {}), 'conflicts') })),
+      ...[...plan.values()].filter(other => !other.existing).map(other => ({ name: other.name, conflicts: listOf(other.manifest, 'conflicts') }))]
+    const mine = listOf(node.manifest, 'conflicts').map(text => parseSpec(text)?.name ?? text)
+    for (const other of present) {
+      if (other.name === node.name) continue
+      if (mine.includes(other.name) || other.conflicts.some(text => (parseSpec(text)?.name ?? text) === node.name)) {
+        throw new RegistryError(`${node.name} conflicts with ${other.name}, which is ${this.db.all().some(entry => entry.name === other.name) ? 'installed' : 'in this install'}`)
+      }
+    }
   }
 
   /** Whether a dependency is met by a version installed or already planned, so its metadata is not needed */
@@ -240,7 +270,7 @@ export class Engine {
       if (!await this.place(node)) { code = 1; break }
       this.options.placed?.(node)
     }
-    if (!code) this.retireSuperseded(nodes)
+    if (!code) { this.retireSuperseded(nodes); this.retireReplaced(nodes) }
     this.db.save()
     if (!code) this.orphanHint()
     return code
@@ -273,6 +303,7 @@ export class Engine {
     if (upgraded.length) this.out(`The following packages will be upgraded:\n  ${upgraded.map(node => `${node.name} (${this.db.versionsOf(node.name)[0].version} => ${node.version})`).join('\n  ')}`)
     if (again.length) this.out(`The following packages will be reinstalled:\n${list(again)}`)
     this.out(`${upgraded.length} upgraded, ${added.length} newly installed, ${again.length} reinstalled.`)
+    if (this.suggested.size) this.out(`Suggested packages:\n  ${[...this.suggested].join('\n  ')}`)
   }
 
   /** A package asked for by name that is already installed: it becomes explicit, and its links are made again */
@@ -536,6 +567,20 @@ export class Engine {
       for (const old of this.db.versionsOf(node.name)) {
         if (old.version === node.version || old.explicit || required.has(keyOf(old.name, old.version))) continue
         this.removeEntry(old)
+      }
+    }
+  }
+
+  /** A package that `ecmaos.replaces` an installed one (a rename) takes its place: the old name goes, with a note */
+  retireReplaced(nodes) {
+    for (const node of nodes.filter(node => !node.existing && node.manifest)) {
+      for (const text of listOf(node.manifest, 'replaces')) {
+        const old = parseSpec(text)?.name
+        if (!old || old === node.name) continue
+        for (const entry of this.db.versionsOf(old)) {
+          this.out(yellow(`${old} is replaced by ${node.name}`))
+          this.removeEntry(entry)
+        }
       }
     }
   }

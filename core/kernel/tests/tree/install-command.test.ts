@@ -193,4 +193,47 @@ describe('install command: real tar extraction via shell.execute, not extractTar
     expect(await kernel.shell.execute(`install mod-bad --registry ${registry} 2> /tmp/mod.err`)).toBe(1)
     expect(await fs.readFile('/tmp/mod.err', 'utf-8')).toContain('is not a NAME.ko.mjs')
   })
+  describe('relations in ecmaos: recommends, suggests, requires, conflicts, replaces', () => {
+    it('installs the recommended packages, skips them with --no-install-recommends, and lists the suggested ones', async () => {
+      await publish('rec-extra', '1.0.0', { 'dist/cli.js': '// extra\n' })
+      await publish('rec-main', '1.0.0', { 'dist/cli.js': '// main\n' }, 'sha512', undefined, { ecmaos: { recommends: ['rec-extra'], suggests: ['rec-maybe'] } })
+      expect(await kernel.shell.execute(`install rec-main --registry ${registry} --no-install-recommends > /tmp/rec.out 2>&1`)).toBe(0)
+      expect(await kernel.filesystem.fs.exists('/usr/lib/rec-extra')).toBe(false)
+      expect(await kernel.filesystem.fs.readFile('/tmp/rec.out', 'utf-8')).toContain('rec-maybe')
+      expect(await kernel.shell.execute(`install rec-main --reinstall --registry ${registry}`)).toBe(0)
+      expect(await kernel.filesystem.fs.exists('/usr/lib/rec-extra/1.0.0/package.json')).toBe(true)
+    })
+
+    it('a recommendation that cannot be had is skipped, not an error', async () => {
+      await publish('rec-lonely', '1.0.0', { 'dist/cli.js': '// l\n' }, 'sha512', undefined, { ecmaos: { recommends: ['rec-nowhere'] } })
+      expect(await kernel.shell.execute(`install rec-lonely --registry ${registry}`)).toBe(0)
+    })
+
+    it('refuses a package that needs a newer kernel or a feature this kernel lacks, unless --force', async () => {
+      await publish('req-future', '1.0.0', { 'dist/cli.js': '// f\n' }, 'sha512', undefined, { ecmaos: { requires: { kernel: '>=999.0.0' } } })
+      expect(await kernel.shell.execute(`install req-future --registry ${registry} 2> /tmp/req.err`)).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/tmp/req.err', 'utf-8')).toContain('needs kernel >=999.0.0')
+      await publish('req-feature', '1.0.0', { 'dist/cli.js': '// f\n' }, 'sha512', undefined, { ecmaos: { requires: { features: ['warp-drive'] } } })
+      expect(await kernel.shell.execute(`install req-feature --registry ${registry} 2> /tmp/req.err`)).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/tmp/req.err', 'utf-8')).toContain('warp-drive')
+      expect(await kernel.shell.execute(`install req-feature --force --registry ${registry}`)).toBe(0)
+    })
+
+    it('refuses to install beside a package it conflicts with', async () => {
+      await publish('con-a', '1.0.0', { 'dist/cli.js': '// a\n' })
+      await publish('con-b', '1.0.0', { 'dist/cli.js': '// b\n' }, 'sha512', undefined, { ecmaos: { conflicts: ['con-a'] } })
+      expect(await kernel.shell.execute(`install con-a --registry ${registry}`)).toBe(0)
+      expect(await kernel.shell.execute(`install con-b --registry ${registry} 2> /tmp/con.err`)).toBe(1)
+      expect(await kernel.filesystem.fs.readFile('/tmp/con.err', 'utf-8')).toContain('conflicts with con-a')
+    })
+
+    it('replaces an installed package it names in replaces', async () => {
+      await publish('old-name', '1.0.0', { 'dist/cli.js': '// o\n' })
+      expect(await kernel.shell.execute(`install old-name --registry ${registry}`)).toBe(0)
+      await publish('new-name', '1.0.0', { 'dist/cli.js': '// n\n' }, 'sha512', undefined, { ecmaos: { replaces: ['old-name'] } })
+      expect(await kernel.shell.execute(`install new-name --registry ${registry}`)).toBe(0)
+      expect(await kernel.filesystem.fs.exists('/usr/lib/old-name')).toBe(false)
+      expect(await kernel.filesystem.fs.exists('/usr/lib/new-name/1.0.0/package.json')).toBe(true)
+    })
+  })
 })
