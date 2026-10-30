@@ -37,7 +37,7 @@ A package's `bin` runs as a command: `install cowsay && cowsay hi`. The package'
 
 ## Other package managers
 
-`apt`, `apt-get`, `apt-cache`, `dpkg`, `pacman`, `npm`, `npx`, `yarn` and `pnpm` are front-ends of this command: the same packages, database and cache under their own commands and output (see their pages). The distribution tools use their own names for packages, which `@ecmaos/package-index` maps to npm packages; `apt update` and `pacman -Sy` fetch its latest version and keep it in `/var/lib/install/package-index.json` (or `~/.local/state/install/package-index.json`), and the copy built into ecmaOS is used until then.
+`apt`, `apt-get`, `apt-cache`, `dpkg`, `pacman`, `npm`, `npx`, `yarn` and `pnpm` are front-ends of this command (`pip` is its own, on PyPI): the same packages, database and cache under their own commands and output (see their pages). The distribution tools use their own names for packages, which `@ecmaos/package-index` maps to npm packages; `apt update` and `pacman -Sy` fetch its latest version and keep it in `/var/lib/install/package-index.json` (or `~/.local/state/install/package-index.json`), and the copy built into ecmaOS is used until then.
 
 ## Trust
 
