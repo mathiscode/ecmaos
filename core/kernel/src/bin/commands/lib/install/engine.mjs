@@ -164,6 +164,11 @@ export class Engine {
 
   async pick(request, plan, plannedOf) {
     if (request.local) return request.local
+    // a held package stays at its version unless a version is asked for
+    if (request.explicit && !request.range) {
+      const held = this.db.versionsOf(request.name).find(entry => entry.held)
+      if (held) return { name: held.name, version: held.version, existing: true, explicit: true, dependencies: held.dependencies ?? {} }
+    }
     if (!request.explicit) {
       const planned = plannedOf(request.name).find(node => satisfies(node.version, request.range))
       if (planned) return planned
@@ -560,15 +565,64 @@ export class Engine {
     }
   }
 
-  /** An old version an upgrade replaced goes, unless something still depends on it */
+  /**
+   * An old version an upgrade replaced goes, unless something still depends on it. The newest of them stays for one
+   * rollback (`kept`, unlinked), and the generation before that goes.
+   */
   retireSuperseded(nodes) {
-    const required = this.db.required()
     for (const node of nodes.filter(node => node.explicit && !node.existing)) {
-      for (const old of this.db.versionsOf(node.name)) {
-        if (old.version === node.version || old.explicit || required.has(keyOf(old.name, old.version))) continue
+      const olds = this.db.versionsOf(node.name).filter(old => old.version !== node.version && semver.lt(old.version, node.version))
+      const keep = this.scope.project ? undefined : olds.find(old => !old.explicit)
+      for (const old of olds) if (old.kept && old !== keep) { old.kept = false; this.db.set(old) }
+      if (keep) { keep.kept = true; this.db.set(keep) }
+      const required = this.db.required()
+      for (const old of olds) {
+        if (old.explicit || old === keep || required.has(keyOf(old.name, old.version))) continue
         this.removeEntry(old)
       }
     }
+  }
+
+  /** Holds `names` at the version installed (`held`), or lets them move again; false when one is not installed */
+  hold(names, held = true) {
+    let ok = true
+    for (const name of names) {
+      const entry = this.db.versionsOf(name).find(entry => entry.explicit) ?? this.db.versionsOf(name)[0]
+      if (!entry) { this.err(red(`Package ${name} is not installed`)); ok = false; continue }
+      entry.held = held || undefined
+      this.db.set(entry)
+      this.out(`${name} set on ${held ? 'hold' : 'unhold'}.`)
+    }
+    this.db.save()
+    return ok
+  }
+
+  /**
+   * Goes back to the version an upgrade replaced: its links are made, the current version's are taken away, and the
+   * current one is kept in turn (a second rollback goes forward again). Refused when the kept version needs more than
+   * this kernel has.
+   */
+  rollback(name) {
+    const entry = this.db.versionsOf(name).find(entry => entry.explicit)
+    const previous = this.db.previous(name)
+    if (!entry || !previous) { this.err(red(`${name} has no earlier version to go back to`)); return 1 }
+    const manifest = readJson(join(this.scope.lib, name, previous.version, 'package.json'), {})
+    const problems = this.options.force ? [] : unmet(manifest)
+    if (problems.length) { this.err(red(`${name}@${previous.version} ${problems.join(' and ')}`)); return 1 }
+    this.unlinkEntry(entry)
+    entry.explicit = false
+    entry.kept = true
+    previous.kept = false
+    previous.explicit = true
+    this.db.set(entry)
+    this.db.set(previous)
+    if (!this.link(previous, manifest)) return 1
+    previous.held = entry.held
+    entry.held = undefined
+    this.db.set(previous)
+    this.db.save()
+    this.out(green(`${name} is back at v${previous.version} (v${entry.version} is kept)`))
+    return 0
   }
 
   /** A package that `ecmaos.replaces` an installed one (a rename) takes its place: the old name goes, with a note */

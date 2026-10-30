@@ -236,4 +236,43 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await kernel.filesystem.fs.exists('/usr/lib/new-name/1.0.0/package.json')).toBe(true)
     })
   })
+  describe('holds and rollback', () => {
+    it('an upgrade keeps the old version for one rollback, which swaps them back and forth', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('gen-pkg', '1.0.0', { 'dist/cli.js': '// 1\n' })
+      expect(await kernel.shell.execute(`install gen-pkg --registry ${registry}`)).toBe(0)
+      await publish('gen-pkg', '2.0.0', { 'dist/cli.js': '// 2\n' })
+      expect(await kernel.shell.execute(`install upgrade gen-pkg --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/gen-pkg')).toBe('/usr/lib/gen-pkg/2.0.0/dist/cli.js')
+      expect(await fs.exists('/usr/lib/gen-pkg/1.0.0/package.json')).toBe(true)
+
+      expect(await kernel.shell.execute('install rollback gen-pkg')).toBe(0)
+      expect(await fs.readlink('/usr/bin/gen-pkg')).toBe('/usr/lib/gen-pkg/1.0.0/dist/cli.js')
+      expect(await kernel.shell.execute('install --rollback gen-pkg')).toBe(0)
+      expect(await fs.readlink('/usr/bin/gen-pkg')).toBe('/usr/lib/gen-pkg/2.0.0/dist/cli.js')
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/gen-pkg/1.0.0/package.json')).toBe(true)
+    })
+
+    it('a package with no earlier version cannot be rolled back', async () => {
+      await publish('gen-solo', '1.0.0', { 'dist/cli.js': '// 1\n' })
+      expect(await kernel.shell.execute(`install gen-solo --registry ${registry}`)).toBe(0)
+      expect(await kernel.shell.execute('install rollback gen-solo 2> /dev/null')).toBe(1)
+    })
+
+    it('a held package is not upgraded until it is unheld', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('hold-pkg', '1.0.0', { 'dist/cli.js': '// 1\n' })
+      expect(await kernel.shell.execute(`install hold-pkg --registry ${registry}`)).toBe(0)
+      expect(await kernel.shell.execute('install hold hold-pkg')).toBe(0)
+      await publish('hold-pkg', '2.0.0', { 'dist/cli.js': '// 2\n' })
+      expect(await kernel.shell.execute(`install upgrade --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/hold-pkg')).toBe('/usr/lib/hold-pkg/1.0.0/dist/cli.js')
+      expect(await kernel.shell.execute(`install hold-pkg --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/hold-pkg')).toBe('/usr/lib/hold-pkg/1.0.0/dist/cli.js')
+      expect(await kernel.shell.execute('install unhold hold-pkg')).toBe(0)
+      expect(await kernel.shell.execute(`install upgrade hold-pkg --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/hold-pkg')).toBe('/usr/lib/hold-pkg/2.0.0/dist/cli.js')
+    })
+  })
 })

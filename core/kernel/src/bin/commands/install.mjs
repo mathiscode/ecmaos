@@ -29,6 +29,8 @@ Commands:
   update                 refresh the cached metadata of installed packages
   upgrade [PACKAGE]...   upgrade packages installed by name to their latest versions
   outdated               list packages with newer versions
+  hold PACKAGE...        keep packages at the version installed (also --hold); unhold lets them move
+  rollback PACKAGE       go back to the version the last upgrade replaced (also --rollback)
   clean                  empty the download cache
 
 A PACKAGE is NAME, NAME@VERSION, NAME@RANGE, NAME@TAG, @SCOPE/NAME[@...], or a local .tgz file.
@@ -61,6 +63,7 @@ const COMMANDS = {
   update: 'update',
   upgrade: 'upgrade', up: 'upgrade',
   outdated: 'outdated',
+  hold: 'hold', unhold: 'unhold', rollback: 'rollback',
   clean: 'clean'
 }
 
@@ -85,6 +88,7 @@ function parse(args) {
     else if (arg === '--allow-scripts') options.allowScripts = true
     else if (arg === '--no-install-recommends') options.noRecommends = true
     else if (arg === '--force') options.force = true
+    else if (arg === '--hold' || arg === '--unhold' || arg === '--rollback') command = arg.slice(2)
     else if (arg === '--ignore-signatures') options.ignoreSignatures = true
     else if (arg === '-n' || arg === '--dry-run') options.dryRun = true
     else if (arg === '--autoremove') options.autoremove = true
@@ -229,13 +233,14 @@ async function upgrade({ options, operands }) {
   const { db, registry, engine } = setup(options)
   const named = operands.map(parseSpec)
   if (named.some(spec => spec?.type !== 'registry')) { err(red('Usage: install upgrade [package-name]...')); return 1 }
-  const entries = named.length
+  const entries = (named.length
     ? named.map(spec => db.versionsOf(spec.name).find(entry => entry.explicit) ?? db.versionsOf(spec.name)[0]).filter(Boolean)
-    : db.explicit()
+    : db.upgradable())
+  for (const entry of entries.filter(entry => entry.held)) out(`${entry.name} is held at v${entry.version}`)
   for (const spec of named) if (!db.versionsOf(spec.name).length) { err(red(`Package ${spec.name} is not installed`)); return 1 }
   const latest = await latestOf(db, registry, entries)
   const requests = entries
-    .filter(entry => latest[entry.name]?.latest && semver.gt(latest[entry.name].latest, entry.version))
+    .filter(entry => !entry.held && latest[entry.name]?.latest && semver.gt(latest[entry.name].latest, entry.version))
     .map(entry => ({ name: entry.name, range: latest[entry.name].latest }))
   if (!requests.length) { out('All packages are up to date.'); return 0 }
   return await engine.install(requests)
@@ -259,6 +264,14 @@ async function main() {
       const ok = engine.autoremove()
       db.save()
       return ok ? 0 : 1
+    }
+    case 'hold': case 'unhold': {
+      if (!parsed.operands.length) { err(red(`Usage: install ${parsed.command} <package-name>...`)); return 1 }
+      return setup(parsed.options).engine.hold(parsed.operands, parsed.command === 'hold') ? 0 : 1
+    }
+    case 'rollback': {
+      if (parsed.operands.length !== 1) { err(red('Usage: install rollback <package-name>')); return 1 }
+      return setup(parsed.options).engine.rollback(parsed.operands[0])
     }
     case 'list': return await list(parsed)
     case 'info': return await info(parsed)

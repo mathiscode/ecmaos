@@ -299,8 +299,8 @@ async function update(session, o) {
 
 async function upgrade(session, o, command) {
   reading(o)
-  const latest = await latestOf(session.registry, session.db.explicit(), message => err(`W: ${message}`))
-  const due = newer(session.db.explicit(), latest)
+  const latest = await latestOf(session.registry, session.db.upgradable(), message => err(`W: ${message}`))
+  const due = newer(session.db.upgradable(), latest)
   say(o, 'Calculating upgrade... Done')
   if (!due.length) { say(o, '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.'); return 0 }
   const plan = await resolve(session, due.map(entry => ({ name: entry.name, range: latest[entry.name].latest })))
