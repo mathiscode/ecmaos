@@ -42,6 +42,14 @@ export async function readExcluded(fs: Pick<typeof promises, 'readFile'>): Promi
   } catch { return new Set() }
 }
 
+/** The programs the install database has from a package (not the boot's own copies): a boot leaves them to the package */
+export async function readOwned(fs: Pick<typeof promises, 'readFile'>): Promise<Set<string>> {
+  try {
+    const db = JSON.parse(String(await fs.readFile(DB_FILE, 'utf8'))) as { packages?: Record<string, DbEntry> }
+    return new Set(Object.values(db.packages ?? {}).filter(entry => !entry.seeded && entry.name.startsWith(`${SCOPE}/`)).map(entry => entry.name))
+  } catch { return new Set() }
+}
+
 /**
  * Writes what a boot installed into the install database, so `install`, `apt` and `pacman` see it. Each program the
  * catalog wrote is a `seeded` entry (its file is `/bin/NAME`, there is no directory; an upgrade replaces the file with
@@ -75,7 +83,11 @@ export async function recordProfile(fs: Fs, options: {
   }
 
   const definition = catalog.profiles?.[profile]
-  const alreadyRecorded = Object.values(packages).some(entry => entry.name.startsWith(`${SCOPE}/profile-`))
+  // a profile that was recorded and is not this one (the file was changed by hand, or `profile set` reached the next boot) gives way
+  for (const [key, entry] of Object.entries(packages)) {
+    if (entry.name.startsWith(`${SCOPE}/profile-`) && entry.name !== `${SCOPE}/profile-${profile}`) { delete packages[key]; written++ }
+  }
+  const alreadyRecorded = Object.values(packages).some(entry => entry.name === `${SCOPE}/profile-${profile}`)
   const whole = definition && programs.every(({ name }) => landed.has(name))
   if (definition && whole && !alreadyRecorded) {
     const meta = async (name: string, dependencies: Record<string, string>, explicit: boolean) => {

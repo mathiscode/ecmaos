@@ -352,5 +352,212 @@
     "perl": "perl",
     "rsync": "rsync",
     "cmatrix": "cmatrix"
+  },
+  "groups": {
+    "compression": {
+      "description": "bzip2, xz, zstd and lz4",
+      "members": [
+        "bzip2",
+        "xz",
+        "zstd",
+        "lz4"
+      ]
+    },
+    "sysutils": {
+      "description": "Process, kernel and hardware inspection: ps, lsof, vmstat, sysctl, lsmod, pidof, netstat, hwclock, microcom, lspci, lsusb",
+      "members": [
+        "ps",
+        "lsof",
+        "vmstat",
+        "sysctl",
+        "lsmod",
+        "pidof",
+        "netstat",
+        "hwclock",
+        "microcom",
+        "lspci",
+        "lsusb"
+      ]
+    },
+    "network": {
+      "description": "dropbear: an SSH client and server",
+      "members": [
+        "dropbear"
+      ]
+    },
+    "text": {
+      "description": "Text and build tools: patch, make, bc, ed, tree, nano, lua",
+      "members": [
+        "patch",
+        "make",
+        "bc",
+        "ed",
+        "tree",
+        "nano",
+        "lua"
+      ]
+    },
+    "data": {
+      "description": "sqlite3 and jq",
+      "members": [
+        "sqlite3",
+        "jq"
+      ]
+    },
+    "terminal": {
+      "description": "tmux and screen",
+      "members": [
+        "tmux",
+        "screen"
+      ]
+    },
+    "shells": {
+      "description": "bash and dash",
+      "members": [
+        "bash",
+        "dash"
+      ]
+    },
+    "editors": {
+      "description": "vim",
+      "members": [
+        "vim"
+      ]
+    },
+    "monitor": {
+      "description": "htop and ncdu",
+      "members": [
+        "htop",
+        "ncdu"
+      ]
+    },
+    "hardware": {
+      "description": "Input and camera tools: evtest, hidinfo, v4l2grab",
+      "members": [
+        "evtest",
+        "hidinfo",
+        "v4l2grab"
+      ]
+    },
+    "docs": {
+      "description": "mandoc, the manual page formatter",
+      "members": [
+        "mandoc"
+      ]
+    },
+    "dev": {
+      "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
+      "members": [
+        "python3",
+        "perl",
+        "rg",
+        "fd",
+        "bat",
+        "qjs",
+        "micropython",
+        "rsync",
+        "brotli",
+        "mg"
+      ]
+    },
+    "fun": {
+      "description": "figlet, lolcat, fortune, sl, cmatrix",
+      "members": [
+        "figlet",
+        "lolcat",
+        "fortune",
+        "sl",
+        "cmatrix"
+      ]
+    },
+    "audio": {
+      "description": "ALSA tools: aplay, arecord, amixer, speaker-test",
+      "members": [
+        "aplay",
+        "arecord",
+        "amixer",
+        "speaker-test"
+      ]
+    },
+    "graphics": {
+      "description": "doom, the SDL demos and the Wayland compositor demos",
+      "members": [
+        "doom",
+        "sdlsnake",
+        "sdlpaint",
+        "sdlclip",
+        "sdlpad",
+        "sdlgl",
+        "sdlgears",
+        "wlcomp",
+        "wldemo"
+      ]
+    }
+  },
+  "profiles": {
+    "minimal": {
+      "description": "The kernel's own commands, bash, compression, system utilities and an SSH client",
+      "groups": [
+        "compression",
+        "sysutils",
+        "network"
+      ],
+      "packages": [
+        "bash"
+      ]
+    },
+    "standard": {
+      "description": "Minimal plus editors, text and data tools, a terminal multiplexer, monitors, hardware tools and manual pages",
+      "groups": [
+        "compression",
+        "sysutils",
+        "network",
+        "shells",
+        "text",
+        "data",
+        "terminal",
+        "editors",
+        "monitor",
+        "hardware",
+        "docs"
+      ]
+    },
+    "developer": {
+      "description": "Standard plus the developer tools",
+      "groups": [
+        "compression",
+        "sysutils",
+        "network",
+        "shells",
+        "text",
+        "data",
+        "terminal",
+        "editors",
+        "monitor",
+        "hardware",
+        "docs",
+        "dev"
+      ]
+    },
+    "everything": {
+      "description": "Every program ecmaOS ships",
+      "groups": [
+        "compression",
+        "sysutils",
+        "network",
+        "shells",
+        "text",
+        "data",
+        "terminal",
+        "editors",
+        "monitor",
+        "hardware",
+        "docs",
+        "dev",
+        "fun",
+        "audio",
+        "graphics"
+      ]
+    }
   }
 }

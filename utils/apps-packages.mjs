@@ -284,6 +284,13 @@ function updateIndex() {
     changed++
   }
   if (index.schema !== 2 || JSON.stringify(index.commands) !== JSON.stringify(commands)) { index.schema = 2; index.commands = commands; changed++ }
+  // the definitions `profile` works from, without the registry
+  const definitions = { groups: Object.fromEntries(Object.entries(groups).map(([name, group]) => [name, { description: group.description, members: group.members }])), profiles: Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [name, { description: profile.description, groups: profile.groups, ...(profile.packages ? { packages: profile.packages } : {}) }])) }
+  for (const [key, value] of Object.entries(definitions)) {
+    if (JSON.stringify(index[key]) === JSON.stringify(value)) continue
+    index[key] = value
+    changed++
+  }
   for (const [name, entry] of Object.entries(wanted)) {
     if (JSON.stringify(index.common[name]) === JSON.stringify(entry)) continue
     index.common[name] = entry

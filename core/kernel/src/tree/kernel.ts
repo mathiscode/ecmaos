@@ -75,7 +75,7 @@ import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
 import { inProfile, resolveProfile } from '#lib/profiles.ts'
-import { readExcluded, recordProfile } from '#lib/seed-db.ts'
+import { readExcluded, readOwned, recordProfile } from '#lib/seed-db.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, measureOwnedBytes, rootWritesSettled, withMemoryRoot, withRootStore } from '#filesystem.ts'
@@ -2547,6 +2547,8 @@ export class Kernel implements IKernel {
       const { profile } = await resolveProfile(this.filesystem.fs, { requested: requested || undefined, hasPrograms })
       // what was taken out on purpose stays out
       const excluded = await readExcluded(this.filesystem.fs)
+      // a program installed from its package is the package's, not the catalog's
+      const owned = await readOwned(this.filesystem.fs)
       const staged = await stagePrograms(this.filesystem.fs, {
         placeholders: true,
         catalogUrl,
@@ -2558,7 +2560,7 @@ export class Kernel implements IKernel {
           try { await this.filesystem.extractTarball(file, '/', 0o644, 0o755) } finally { await this.filesystem.fs.unlink(file).catch(() => {}) }
         },
         skip: name => !!this.options.blacklist?.commands?.includes(name),
-        include: (name, entry) => inProfile(entry.profile, profile) && !excluded.has(`@ecmaos-apps/${name}`),
+        include: (name, entry) => inProfile(entry.profile, profile) && !excluded.has(`@ecmaos-apps/${name}`) && !owned.has(`@ecmaos-apps/${name}`),
         stamps: {
           read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
           write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
