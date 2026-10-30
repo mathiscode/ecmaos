@@ -111,13 +111,13 @@ export function kilobytes(bytes) {
   return `${Math.max(1, Math.round(bytes / 1000)).toLocaleString('en-US')} kB`
 }
 
-/** The installed packages `session` can see: the scope's own and, for a user, the system's behind them */
+/** The installed packages `session` can see: the scope's own and, for a user, the system's behind them (not the version kept for a rollback) */
 export function installed(session, { system = true } = {}) {
-  const rows = session.db.all().map(entry => ({ entry, scope: session.scope, db: session.db }))
+  const rows = session.db.all().filter(entry => !entry.kept).map(entry => ({ entry, scope: session.scope, db: session.db }))
   if (system && !session.scope.system && !session.scope.project) {
     const scope = scopeOf({ global: true })
     const db = new Database(scope)
-    for (const entry of db.all()) rows.push({ entry, scope, db })
+    for (const entry of db.all().filter(entry => !entry.kept)) rows.push({ entry, scope, db })
   }
   return rows
 }

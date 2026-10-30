@@ -166,7 +166,8 @@ describe('install engine', () => {
     expect(result.code, result.err).toBe(0)
     expect(result.out).toContain('ie-up (1.0.0 => 2.0.0)')
     expect(await fs().readlink('/usr/bin/ie-up')).toBe('/usr/lib/ie-up/2.0.0/index.js')
-    expect(await fs().exists('/usr/lib/ie-up/1.0.0')).toBe(false)
+    // the version replaced stays for one rollback
+    expect(await fs().exists('/usr/lib/ie-up/1.0.0')).toBe(true)
     expect((await run(`install outdated --registry ${registry}`)).code).toBe(0)
     expect((await run(`install upgrade --registry ${registry}`)).out).toContain('All packages are up to date.')
   })
