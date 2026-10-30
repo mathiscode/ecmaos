@@ -11,6 +11,7 @@ import { Database, keyOf, scopeOf } from './lib/install/db.mjs'
 import { Engine, blue, green, parseSpec, pickVersion, red, yellow } from './lib/install/engine.mjs'
 import { exists, readJson, size } from './lib/install/io.mjs'
 import { Registry } from './lib/install/registry.mjs'
+import { latestOf as latestAll, rangeOf } from './lib/install/updates.mjs'
 import { hasProvenance, verifySignature } from './lib/install/trust.mjs'
 
 const { argv, exit, write, getcwd, geteuid, rmRecursive } = globalThis.ecmaosSyscalls
@@ -182,21 +183,8 @@ async function search({ options, operands }) {
   return 0
 }
 
-/** The newest version of every installed package's name, from the registry: `{ name: { latest, document } }` */
-async function latestOf(db, registry, entries) {
-  const result = {}
-  const failures = []
-  await Promise.all([...new Set(entries.map(entry => entry.name))].map(async name => {
-    try {
-      const document = await registry.metadata(name)
-      result[name] = { latest: document['dist-tags']?.latest, document }
-    } catch (error) {
-      failures.push(`${name}: ${error.message}`)
-    }
-  }))
-  for (const failure of failures) err(yellow(failure))
-  return result
-}
+/** `latestOf`, with the failures on stderr */
+const latestOf = (db, registry, entries) => latestAll(registry, entries, failure => err(yellow(failure)))
 
 async function update({ options }) {
   const { db, registry } = setup(options)
@@ -231,12 +219,6 @@ async function outdated({ options }) {
   const widths = table[0].map((_, column) => Math.max(...table.map(row => row[column].length)))
   for (const row of table) out(row.map((cell, column) => cell.padEnd(widths[column])).join('  ').trimEnd())
   return 1
-}
-
-/** The range `entry`'s own `package.json` asks of `name` */
-function rangeOf(db, entry, name) {
-  const manifest = readJson(join(db.scope.lib, entry.name, entry.version, 'package.json'), {})
-  return manifest.dependencies?.[name] ?? manifest.optionalDependencies?.[name] ?? manifest.peerDependencies?.[name]
 }
 
 async function upgrade({ options, operands }) {

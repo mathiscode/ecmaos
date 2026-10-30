@@ -29,6 +29,12 @@ export class Registry {
 
   metaPath(name) { return join(this.cache, 'meta', `${cacheName(name)}.json`) }
 
+  /** The abbreviated metadata of `name` as last cached, without asking the registry: `undefined` if never fetched */
+  cached(name) {
+    const cached = readJson(this.metaPath(name))
+    return cached?.registry === this.url ? cached.document : undefined
+  }
+
   /** The abbreviated metadata of `name`, fetched once a run */
   metadata(name) {
     if (!this.seen.has(name)) this.seen.set(name, this.fetchMetadata(name))

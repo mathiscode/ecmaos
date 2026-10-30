@@ -11,7 +11,7 @@ import semver from 'semver'
 import { join } from '../path-utils.mjs'
 import { SHARE_DIRS, linkTree, unlinkTree } from '../share-links.mjs'
 import { binsOf, keyOf, satisfies } from './db.mjs'
-import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, writeBytes } from './io.mjs'
+import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, untar, writeBytes } from './io.mjs'
 import { RegistryError } from './registry.mjs'
 import { scriptsAllowed, verifyIntegrity, verifySignature } from './trust.mjs'
 
@@ -72,7 +72,8 @@ export class Engine {
     this.options = options
   }
 
-  out(text) { write(1, encoder.encode(text + '\n')) }
+  /** Informational output; `options.quiet` is for a front-end that tells the story in its own words (errors still print) */
+  out(text) { if (!this.options.quiet) write(1, encoder.encode(text + '\n')) }
   err(text) { write(2, encoder.encode(text + '\n')) }
 
   // Resolving
@@ -171,14 +172,42 @@ export class Engine {
     try {
       plan = await this.resolve(requests)
     } catch (error) {
-      for (const request of requests) if (request.local?.unpacked) try { rmRecursive(request.local.unpacked.scratch) } catch { /* gone */ }
+      this.discard(requests)
       this.err(red(`install: ${error instanceof Error ? error.message : String(error)}`))
       return 1
     }
+    this.summary([...plan.values()])
+    if (this.options.dryRun) return 0
+    return await this.apply(plan)
+  }
+
+  /** Removes the scratch directories of local tarballs that were unpacked for requests that will not be carried out */
+  discard(requests) {
+    for (const request of requests) if (request.local?.unpacked) try { rmRecursive(request.local.unpacked.scratch) } catch { /* gone */ }
+  }
+
+  /**
+   * What a plan does, by kind: `added` (new), `upgraded`, `reinstalled` and `already` (asked for by name, nothing to do),
+   * each a list of plan nodes; `fresh` is every node that will be unpacked.
+   */
+  changes(plan) {
     const nodes = [...plan.values()]
     const fresh = nodes.filter(node => !node.existing)
-    this.summary(nodes)
-    if (this.options.dryRun) return 0
+    const upgraded = fresh.filter(node => !node.reinstall && this.db.versionsOf(node.name).length)
+    return {
+      nodes,
+      fresh,
+      upgraded,
+      added: fresh.filter(node => !node.reinstall && !upgraded.includes(node)),
+      reinstalled: fresh.filter(node => node.reinstall),
+      already: nodes.filter(node => node.existing && node.explicit)
+    }
+  }
+
+  /** Carries out a resolved plan: fetches, checks and unpacks what is new; returns an exit code */
+  async apply(plan) {
+    const nodes = [...plan.values()]
+    const fresh = nodes.filter(node => !node.existing)
 
     for (const node of nodes.filter(node => node.existing && node.explicit)) await this.adoptExplicit(node)
 
@@ -209,6 +238,7 @@ export class Engine {
     let code = 0
     for (const node of this.order(fresh, plan)) {
       if (!await this.place(node)) { code = 1; break }
+      this.options.placed?.(node)
     }
     if (!code) this.retireSuperseded(nodes)
     this.db.save()
@@ -235,14 +265,9 @@ export class Engine {
   }
 
   summary(nodes) {
-    const fresh = nodes.filter(node => !node.existing)
-    for (const node of nodes.filter(node => node.existing && node.explicit)) {
-      this.out(green(`${node.name} v${node.version} is already installed`))
-    }
+    const { fresh, upgraded, added, reinstalled: again, already } = this.changes(new Map(nodes.map(node => [keyOf(node.name, node.version), node])))
+    for (const node of already) this.out(green(`${node.name} v${node.version} is already installed`))
     if (!fresh.length) return
-    const upgraded = fresh.filter(node => !node.reinstall && this.db.versionsOf(node.name).length)
-    const added = fresh.filter(node => !node.reinstall && !upgraded.includes(node))
-    const again = fresh.filter(node => node.reinstall)
     const list = items => '  ' + items.map(node => `${node.name}@${node.version}${node.explicit ? '' : ' (dependency)'}`).join('\n  ')
     if (added.length) this.out(`The following NEW packages will be installed:\n${list(added)}`)
     if (upgraded.length) this.out(`The following packages will be upgraded:\n  ${upgraded.map(node => `${node.name} (${this.db.versionsOf(node.name)[0].version} => ${node.version})`).join('\n  ')}`)
@@ -260,10 +285,7 @@ export class Engine {
     if (this.link(entry, manifest)) this.unmarkOthers(entry)
   }
 
-  async tar(path, directory) {
-    const pid = await custom('proc_spawn', '/bin/tar', JSON.stringify(['tar', '-xzf', path, '-C', directory]), '')
-    return await custom('proc_wait', pid)
-  }
+  tar(path, directory) { return untar(path, directory) }
 
   /** Unpacks a node into `lib/NAME/VERSION`, records it, runs its scripts and links it; false when it failed */
   async place(node) {
@@ -382,8 +404,9 @@ export class Engine {
     } catch (error) {
       this.err(red(`Failed to link bins for ${entry.name}@${entry.version}: ${error}`))
     }
+    this.linkProject(entry)
     // `share/applications`, `docs`, `licenses` and `man` are linked where the desktop's launcher, `man` and the rest look
-    for (const share of SHARE_DIRS) {
+    for (const share of this.scope.project ? [] : SHARE_DIRS) {
       try {
         const source = join(directory, 'share', share)
         if (exists(source)) for (const linked of linkTree(source, join(this.scope.share, share))) this.out(blue(`Linked ${linked}`))
@@ -394,6 +417,19 @@ export class Engine {
     entry.linked = true
     this.db.set(entry)
     return true
+  }
+
+  /** In a project, a package asked for by name is the project's own dependency: `node_modules/NAME` points at it */
+  linkProject(entry) {
+    if (!this.scope.project) return
+    const link = join(this.scope.modules, entry.name)
+    try {
+      mkdirp(dirname(link))
+      try { unlink(link) } catch { /* nothing there yet */ }
+      symlink(relative(dirname(link), join(this.scope.lib, entry.name, entry.version)), link)
+    } catch (error) {
+      this.err(yellow(`Could not link ${link}: ${error instanceof Error ? error.message : error}`))
+    }
   }
 
   /** The other versions of a package that was just linked: no longer what the name means */
@@ -423,6 +459,10 @@ export class Engine {
         const source = join(directory, 'share', share)
         if (exists(source)) unlinkTree(source, join(this.scope.share, share))
       } catch { /* nothing to unlink */ }
+    }
+    if (this.scope.project) {
+      const link = join(this.scope.modules, entry.name)
+      try { if (readlink(link).endsWith(`${entry.name}/${entry.version}`)) unlink(link) } catch { /* not linked */ }
     }
     entry.linked = false
   }

@@ -489,6 +489,9 @@ importers:
       '@ecmaos/coreutils-copyleft':
         specifier: workspace:^
         version: link:../utils-copyleft
+      '@ecmaos/package-index':
+        specifier: workspace:^
+        version: link:../../utils/package-index
       '@ecmaos/types':
         specifier: workspace:^
         version: link:../types
@@ -1523,6 +1526,8 @@ importers:
         version: 7.0.2
 
   utils/config-typescript: {}
+
+  utils/package-index: {}
 
 packages:
 

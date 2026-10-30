@@ -41,6 +41,26 @@ export function scopeOf(options = {}) {
   }
 }
 
+/**
+ * A project's scope, for `npm install` and the rest: packages go into `DIR/node_modules/.ecmaos/NAME/VERSION`, the ones
+ * asked for by name are linked as `DIR/node_modules/NAME`, and their bins as `node_modules/.bin/`. `cache` is the
+ * caller's usual one.
+ */
+export function projectScope(directory, options = {}) {
+  const modules = join(directory, 'node_modules')
+  return {
+    system: false,
+    project: true,
+    root: directory,
+    modules,
+    lib: join(modules, '.ecmaos'),
+    bin: join(modules, '.bin'),
+    share: join(modules, '.ecmaos/.share'),
+    db: join(modules, '.ecmaos/db.json'),
+    cache: scopeOf(options).cache
+  }
+}
+
 export const keyOf = (name, version) => `${name}@${version}`
 
 /** The `package.json`s under `lib`: `NAME/VERSION` and `@SCOPE/NAME/VERSION`, where the manifest's version is the directory's */

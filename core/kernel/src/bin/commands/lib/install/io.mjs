@@ -3,7 +3,7 @@
  * may return less than was asked for before the end of a file, so a whole file is read until `read()` returns 0.
  */
 
-const { open, read, close, writeAll, mkdir, access, rename, unlink, readdir, getpid, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
+const { open, read, close, writeAll, mkdir, access, rename, unlink, readdir, getpid, custom, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } = globalThis.ecmaosSyscalls
 
 export const encoder = new TextEncoder()
 export const decoder = new TextDecoder()
@@ -103,4 +103,10 @@ export function relative(from, to) {
   let shared = 0
   while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared++
   return [...a.slice(shared).map(() => '..'), ...b.slice(shared)].join('/') || '.'
+}
+
+/** Unpacks the `.tgz` at `path` into `directory` with `/bin/tar`; gives tar's exit status */
+export async function untar(path, directory) {
+  const pid = await custom('proc_spawn', '/bin/tar', JSON.stringify(['tar', '-xzf', path, '-C', directory]), '')
+  return await custom('proc_wait', pid)
 }
