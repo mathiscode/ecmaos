@@ -21,8 +21,8 @@ With no command and no file it reads commands from standard input. When that is 
 
 ## Scripts
 
-`/bin/sh` and `/bin/bash` are links to `ecmash`, and `/usr/bin/env` is a link to the `env` program, so a script
-starting `#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env sh` or `#!/usr/bin/env bash` runs on `ecmash`. It is a
+`/bin/sh` is a link to `ecmash`, and `/usr/bin/env` is a link to the `env` program, so a script
+starting `#!/bin/sh` or `#!/usr/bin/env sh` runs on `ecmash`. `/bin/bash` is GNU bash, not a link to `ecmash`. It is a
 bash-like shell, so a script written for POSIX `sh` runs unchanged; there is no stricter POSIX mode.
 
 ## Language

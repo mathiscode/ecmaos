@@ -2557,6 +2557,12 @@ export class Kernel implements IKernel {
       const started = new Promise<void>(resolve => { this._startPrograms = resolve })
       this._programsReady = started.then(() => staged.start()).then(programs => {
         if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
+        // bash is a login shell `chsh` accepts once it is here
+        this.filesystem.fs.exists('/bin/bash').then(async here => {
+          if (!here) return
+          const shells = await this.filesystem.fs.readFile('/etc/shells', 'utf8').catch(() => undefined)
+          if (shells !== undefined && !shells.split('\n').includes('/bin/bash')) await this.filesystem.fs.writeFile('/etc/shells', shells.replace(/\n?$/, '\n') + '/bin/bash\n', { mode: 0o644 })
+        }).catch(() => {})
         for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
         for (const [name, npmPackage] of Object.entries(programs.moved)) this.log.info(`${name} is an npm package now: install ${npmPackage}`)
       })
@@ -2584,8 +2590,8 @@ export class Kernel implements IKernel {
     const stubNames = new Set(names.filter(name => !migratedCommandSources[name] && !migratedKernelCommandSources[name]))
     await removeStaleCommandStubs(this.filesystem.fs, stubNames)
 
-    // Names scripts expect to find: `#!/bin/sh`, `#!/bin/bash` and `#!/usr/bin/env ...`. The shell is
-    // ecmash for both, so a script written for either runs on the shell that is here.
+    // Names scripts expect to find: `#!/bin/sh` and `#!/usr/bin/env ...`. `/bin/sh` is ecmash; `/bin/bash` is GNU bash
+    // (a program from the catalog) and no longer a link, so a `#!/bin/bash` script gets the shell it was written for.
     for (const [link, target] of Object.entries(CommandLinks)) {
       if (!await this.filesystem.fs.exists(target)) continue
       // `vi` was once its own program (busybox); a file left by that build would hide the link.

@@ -27,14 +27,15 @@ describe('what scripts expect to find', () => {
     await new Promise(r => setTimeout(r, 1500))
   }, 60000)
 
-  it('/bin/sh, /bin/bash and /usr/bin/env exist', async () => {
-    for (const path of ['/bin/sh', '/bin/bash', '/usr/bin/env']) {
+  it('/bin/sh and /usr/bin/env are links, and /bin/bash is not the shell\'s', async () => {
+    expect(await kernel.filesystem.fs.exists('/bin/bash')).toBe(false)
+    for (const path of ['/bin/sh', '/usr/bin/env']) {
       expect((await kernel.filesystem.fs.lstat(path)).isSymbolicLink(), path).toBe(true)
       expect(await kernel.filesystem.fs.exists(path), path).toBe(true)
     }
   })
 
-  it.each(['#!/bin/sh', '#!/bin/bash', '#!/usr/bin/env sh', '#!/usr/bin/env bash'])('a script starting %s runs', async (shebang) => {
+  it.each(['#!/bin/sh', '#!/usr/bin/env sh'])('a script starting %s runs', async (shebang) => {
     const path = await script('interp.sh', `${shebang}\nname=$1\necho hello $name\nexit 3\n`)
     const result = await run(`${path} world`)
     expect(result.out).toBe('hello world\n')
