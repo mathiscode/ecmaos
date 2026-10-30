@@ -40,7 +40,7 @@ describe.skipIf(!registry)('wasm programs from a local registry', () => {
   afterAll(() => { kernel?.terminal?.dispose?.() })
 
   it('installs a copyleft program and points at its source package', async () => {
-    const result = await run(`apt install -y vim --registry ${registry}`)
+    const result = await run(`apt install -y vim --registry ${registry} --allow-unsigned`)
     expect(result.code, result.err).toBe(0)
     expect(result.out).toContain('apt source vim')
     expect(await fs().readlink('/usr/bin/vim')).toMatch(/vim\.wasm$/)
@@ -50,7 +50,7 @@ describe.skipIf(!registry)('wasm programs from a local registry', () => {
 
   it('fetches the source of it: the upstream archive, the build recipe and the toolchain pins', async () => {
     await fs().mkdir('/tmp/work', { recursive: true })
-    const result = await run(`cd /tmp/work && apt source vim --registry ${registry}`)
+    const result = await run(`cd /tmp/work && apt source vim --registry ${registry} --allow-unsigned`)
     expect(result.code, result.err).toBe(0)
     const directory = '/tmp/work/vim-9.1.0-ecmaos.1'
     expect(await fs().exists(`${directory}/sources/vim-9.1.0.tar.gz`)).toBe(true)
@@ -59,8 +59,25 @@ describe.skipIf(!registry)('wasm programs from a local registry', () => {
   }, 120_000)
 
   it('has no source for a program that is not copyleft', async () => {
-    const result = await run(`cd /tmp/work && apt source lolcat --registry ${registry}`)
+    const result = await run(`cd /tmp/work && apt source lolcat --registry ${registry} --allow-unsigned`)
     expect(result.code).toBe(100)
     expect(result.err).toContain('Unable to find a source package for lolcat')
   }, 60_000)
+  // node utils/apps-registry.mjs publish bzip2 xz zstd lz4 group-compression
+  it('installs a group whose members are prerelease builds on latest, and removing a member keeps it out', async () => {
+    const group = await run(`install -g @ecmaos-apps/group-compression --registry ${registry} --allow-unsigned`)
+    expect(group.code, group.err).toBe(0)
+    for (const command of ['bzip2', 'xz', 'zstd', 'lz4']) expect(await fs().readlink(`/usr/bin/${command}`), command).toMatch(new RegExp(`${command}\\.wasm$`))
+    // the aliases the kernel links are bins of the package now
+    expect(await fs().readlink('/usr/bin/unxz')).toMatch(/xz\.wasm$/)
+
+    expect((await run('install -g remove @ecmaos-apps/xz')).code).toBe(0)
+    expect(await fs().exists('/usr/bin/xz')).toBe(false)
+    expect(await fs().exists('/usr/bin/zstd')).toBe(true)
+    expect(JSON.parse(await fs().readFile('/etc/ecmaos/profile.d/excluded.json', 'utf-8'))).toEqual(['@ecmaos-apps/xz'])
+    expect((await run(`install -g @ecmaos-apps/group-compression --reinstall --registry ${registry} --allow-unsigned`)).code).toBe(0)
+    expect(await fs().exists('/usr/bin/xz')).toBe(false)
+    expect((await run(`install -g @ecmaos-apps/xz --registry ${registry} --allow-unsigned`)).code).toBe(0)
+    expect(await fs().exists('/usr/bin/xz')).toBe(true)
+  }, 180_000)
 })

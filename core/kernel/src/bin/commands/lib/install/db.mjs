@@ -189,8 +189,8 @@ export class Database {
 
   explicit() { return this.all().filter(entry => entry.explicit) }
 
-  /** The explicit packages an upgrade may move: not the ones held at their version */
-  upgradable() { return this.explicit().filter(entry => !entry.held) }
+  /** The packages an upgrade may move: those asked for by name and the members of a group (linked), not the ones held at their version */
+  upgradable() { return this.all().filter(entry => (entry.explicit || entry.linked) && !entry.held && !entry.kept) }
 
   /** The version of `name` kept for one rollback (the one an upgrade replaced), if any */
   previous(name) { return this.versionsOf(name).find(entry => entry.kept) }
@@ -213,8 +213,10 @@ export class Database {
       }
     }
     for (const entry of this.explicit()) visit(entry)
-    // the version kept for a rollback is not an orphan
-    for (const entry of this.all()) if (entry.kept) visit(entry)
+    // the version kept for a rollback stays while the package it belongs to does
+    for (const entry of this.all()) {
+      if (entry.kept && this.versionsOf(entry.name).some(other => !other.kept && seen.has(keyOf(other.name, other.version)))) visit(entry)
+    }
     return seen
   }
 

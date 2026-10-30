@@ -243,7 +243,7 @@ async function upgrade({ options, operands }) {
   const latest = await latestOf(db, registry, entries)
   const requests = entries
     .filter(entry => !entry.held && latest[entry.name]?.latest && semver.gt(latest[entry.name].latest, entry.version))
-    .map(entry => ({ name: entry.name, range: latest[entry.name].latest }))
+    .map(entry => ({ name: entry.name, range: latest[entry.name].latest, ...(entry.explicit ? {} : { auto: true }) }))
   if (!requests.length) { out('All packages are up to date.'); return 0 }
   return await engine.install(requests)
 }

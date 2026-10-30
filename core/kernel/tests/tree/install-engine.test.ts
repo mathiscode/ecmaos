@@ -72,14 +72,14 @@ describe('install engine', () => {
 
   afterAll(() => { server?.close() })
 
-  it('asks for the abbreviated metadata, and records what was named apart from what came in as a dependency', async () => {
+  it('asks a registry that is not npm\'s for the whole document (it carries ecmaos), and records what was named apart from what came in as a dependency', async () => {
     await publish('ie-lib', '1.0.0', {}, { 'dist/cli.js': '//\n' })
     await publish('ie-app', '1.0.0', { dependencies: { 'ie-lib': '^1.0.0' }, bin: { 'ie-app': 'index.js' } })
     const result = await run(`install ie-app --registry ${registry}`)
     expect(result.code, result.err).toBe(0)
     expect(result.out).toContain('The following NEW packages will be installed:')
     expect(result.out).toContain('ie-lib@1.0.0 (dependency)')
-    expect(requests.find(request => request.url === '/ie-app')?.headers.accept).toContain('application/vnd.npm.install-v1+json')
+    expect(requests.find(request => request.url === '/ie-app')?.headers.accept).toBe('application/json')
 
     const packages = await db()
     expect(packages['ie-app@1.0.0']).toMatchObject({ explicit: true, dependencies: { 'ie-lib': '1.0.0' } })

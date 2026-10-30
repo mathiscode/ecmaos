@@ -101,6 +101,8 @@ export class Engine {
           throw error
         }
         if (!node) continue
+        // a member of a group is linked like a package asked for by name, though it stays an automatic install
+        if (request.parent?.manifest?.ecmaos?.meta) node.viaMeta = true
         if (request.parent) {
           request.parent.dependencies[node.name] = node.version
           if (request.alias && request.alias !== node.name) request.parent.aliases[request.alias] = node.name
@@ -108,6 +110,7 @@ export class Engine {
         const key = keyOf(node.name, node.version)
         if (plan.has(key)) {
           if (request.explicit) plan.get(key).explicit = true
+          if (node.viaMeta) plan.get(key).viaMeta = true
           continue
         }
         if (!node.existing) this.check(node, plan)
@@ -188,9 +191,9 @@ export class Engine {
     if (manifest.deprecated && request.explicit) this.err(yellow(`${request.name}@${version} is deprecated: ${manifest.deprecated}`))
     const installed = this.db.get(request.name, version)
     if (installed && !(request.explicit && this.options.reinstall)) {
-      return { name: request.name, version, existing: true, explicit: Boolean(request.explicit), dependencies: installed.dependencies ?? {} }
+      return { name: request.name, version, existing: true, explicit: Boolean(request.explicit) && !request.auto, dependencies: installed.dependencies ?? {} }
     }
-    return { name: request.name, version, manifest, dist: manifest.dist, explicit: Boolean(request.explicit), dependencies: {}, aliases: {}, reinstall: Boolean(installed) }
+    return { name: request.name, version, manifest, dist: manifest.dist, explicit: Boolean(request.explicit) && !request.auto, ...(request.auto ? { viaMeta: true } : {}), dependencies: {}, aliases: {}, reinstall: Boolean(installed) }
   }
 
   /**
@@ -264,6 +267,7 @@ export class Engine {
     const fresh = nodes.filter(node => !node.existing)
 
     for (const node of nodes.filter(node => node.existing && node.explicit)) await this.adoptExplicit(node)
+    for (const node of nodes.filter(node => node.existing && node.viaMeta && !node.explicit)) this.linkMember(node)
 
     const fromRegistry = fresh.filter(node => !node.unpacked)
     if (fromRegistry.length) {
@@ -346,6 +350,14 @@ export class Engine {
     if (this.link(entry, manifest)) this.unmarkOthers(entry)
   }
 
+  /** An installed package a group wants, not linked yet (it came in as a dependency earlier): its bins are linked */
+  linkMember(node) {
+    const entry = this.db.get(node.name, node.version)
+    if (!entry || entry.linked) return
+    const manifest = readJson(join(this.scope.lib, node.name, node.version, 'package.json'), {})
+    if (this.link(entry, manifest)) this.unmarkOthers(entry)
+  }
+
   tar(path, directory) { return untar(path, directory) }
 
   /** Unpacks a node into `lib/NAME/VERSION`, records it, runs its scripts and links it; false when it failed */
@@ -395,7 +407,7 @@ export class Engine {
     this.db.save()
 
     if (!await this.script(node, manifest, 'ecmaos:preinstall', target)) return false
-    if (node.explicit) {
+    if (node.explicit || node.viaMeta) {
       if (!this.link(entry, manifest)) return false
       this.unmarkOthers(entry)
     }
@@ -595,16 +607,26 @@ export class Engine {
    * rollback (`kept`, unlinked), and the generation before that goes.
    */
   retireSuperseded(nodes) {
-    for (const node of nodes.filter(node => node.explicit && !node.existing)) {
+    for (const node of nodes.filter(node => (node.explicit || node.viaMeta) && !node.existing)) {
       const olds = this.db.versionsOf(node.name).filter(old => old.version !== node.version && semver.lt(old.version, node.version))
       const keep = this.scope.project ? undefined : olds.find(old => !old.explicit)
       for (const old of olds) if (old.kept && old !== keep) { old.kept = false; this.db.set(old) }
       if (keep) { keep.kept = true; this.db.set(keep) }
+      for (const old of olds) this.repoint(node.name, old.version, node.version)
       const required = this.db.required()
       for (const old of olds) {
         if (old.explicit || old === keep || required.has(keyOf(old.name, old.version))) continue
         this.removeEntry(old)
       }
+    }
+  }
+
+  /** The groups that wanted `name@from` want `name@to` now (an upgrade or a rollback of a member moves what they point at) */
+  repoint(name, from, to) {
+    for (const parent of this.db.dependentsOf(name, from)) {
+      if (!readJson(join(this.scope.lib, parent.name, parent.version, 'package.json'), {}).ecmaos?.meta) continue
+      parent.dependencies[name] = to
+      this.db.set(parent)
     }
   }
 
@@ -628,23 +650,24 @@ export class Engine {
    * this kernel has.
    */
   rollback(name) {
-    const entry = this.db.versionsOf(name).find(entry => entry.explicit)
+    const entry = this.db.versionsOf(name).find(entry => entry.explicit || entry.linked)
     const previous = this.db.previous(name)
     if (!entry || !previous) { this.err(red(`${name} has no earlier version to go back to`)); return 1 }
     const manifest = readJson(join(this.scope.lib, name, previous.version, 'package.json'), {})
     const problems = this.options.force ? [] : unmet(manifest)
     if (problems.length) { this.err(red(`${name}@${previous.version} ${problems.join(' and ')}`)); return 1 }
     this.unlinkEntry(entry)
+    previous.explicit = entry.explicit
     entry.explicit = false
     entry.kept = true
     previous.kept = false
-    previous.explicit = true
     this.db.set(entry)
     this.db.set(previous)
     if (!this.link(previous, manifest)) return 1
     previous.held = entry.held
     entry.held = undefined
     this.db.set(previous)
+    this.repoint(name, entry.version, previous.version)
     this.db.save()
     this.out(green(`${name} is back at v${previous.version} (v${entry.version} is kept)`))
     return 0

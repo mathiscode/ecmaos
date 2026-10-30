@@ -45,11 +45,14 @@ export function trustOf(documents) {
 const rawPublic = key => createPublicKey(key).export({ format: 'der', type: 'spki' }).subarray(-32)
 const keyIdOf = key => `ed25519:${createHash('sha256').update(rawPublic(key)).digest('hex').slice(0, 16)}`
 
+/** The `trusted-keys.json` entry for the private key in `file` */
+export const publicOf = file => { const privateKey = createPrivateKey(readFileSync(file)); return { keyId: keyIdOf(privateKey), key: rawPublic(privateKey).toString('base64') } }
+
 export function keygen(file) {
   const { privateKey } = generateKeyPairSync('ed25519')
   writeFileSync(file, privateKey.export({ format: 'pem', type: 'pkcs8' }), { mode: 0o600 })
   chmodSync(file, 0o600)
-  return { keyId: keyIdOf(privateKey), key: rawPublic(privateKey).toString('base64') }
+  return publicOf(file)
 }
 
 /** The text of `trust.json` and the `trust.sig.json` that goes with it */

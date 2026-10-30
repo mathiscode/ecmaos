@@ -303,6 +303,30 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(JSON.parse(await fs.readFile('/etc/ecmaos/profile.d/excluded.json', 'utf-8'))).toEqual([])
     })
 
+    it('links the commands of a group\'s members, upgrades them with upgrade, and autoremove takes them once the group is removed', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('lnk-a', '1.0.0', { 'dist/cli.js': '// a1\n' })
+      await group('lnk-all', ['lnk-a'])
+      expect(await kernel.shell.execute(`install lnk-all --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/lnk-a')).toBe('/usr/lib/lnk-a/1.0.0/dist/cli.js')
+
+      await publish('lnk-a', '2.0.0', { 'dist/cli.js': '// a2\n' })
+      expect(await kernel.shell.execute(`install upgrade --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/lnk-a')).toBe('/usr/lib/lnk-a/2.0.0/dist/cli.js')
+      // still a group member, not promoted to a package asked for by name: removing the group frees it
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/lnk-a/2.0.0/package.json')).toBe(true)
+      expect(await kernel.shell.execute('install rollback lnk-a')).toBe(0)
+      expect(await fs.readlink('/usr/bin/lnk-a')).toBe('/usr/lib/lnk-a/1.0.0/dist/cli.js')
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/lnk-a/1.0.0/package.json')).toBe(true)
+
+      expect(await kernel.shell.execute('install remove lnk-all')).toBe(0)
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/lnk-a')).toBe(false)
+      expect(await fs.exists('/usr/bin/lnk-a')).toBe(false)
+    })
+
     it('a group installs from a registry that holds only prerelease builds, ranged on latest', async () => {
       await publish('pre-a', '1.0.0-ecmaos.1', { 'dist/cli.js': '// a\n' })
       await group('pre-all', ['pre-a'])

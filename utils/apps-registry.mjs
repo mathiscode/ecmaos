@@ -7,7 +7,9 @@
 //   node utils/apps-registry.mjs down                    stop it
 //   node utils/apps-registry.mjs status                  whether it answers, and what it holds
 //   node utils/apps-registry.mjs publish [name...]       build the programs' packages (all if none) and publish them, each
-//                                                        source package first, then the package index
+//                                                        source package first; with no names the groups and profiles too,
+//                                                        then the signed index (signed with a key of this registry's own,
+//                                                        .registry/dev-signing.pem) and the package index
 //   node utils/apps-registry.mjs reset                   stop it and forget everything it held
 //
 // Then point ecmaOS at it: `REGISTRY=http://localhost:4893` in the kernel's environment, or `--registry` on a command.
@@ -15,6 +17,9 @@ import { execFileSync, spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+
+import { keygen, publicOf, signTrust, trustOf } from './apps-sign.mjs'
+import { publishedNames } from './apps-sign.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const home = path.join(root, '.registry')
@@ -62,17 +67,44 @@ function publishDirectory(directory) {
   execFileSync('npm', ['publish', directory, '--loglevel', 'error', '--registry', URL_, `--${host}/:_authToken=local`, '--access', 'public', '--tag', 'latest'], { stdio: ['ignore', 'ignore', 'inherit'] })
 }
 
+/**
+ * Signs what this registry holds under `@ecmaos-apps` with the registry's own key, which it makes the first time, and
+ * leaves the entry to trust it in `.registry/trusted-keys.json` (`/etc/ecmaos/trusted-keys.json` on a machine that
+ * should accept this registry's packages without `--allow-unsigned`)
+ */
+async function signIndex() {
+  const keyFile = path.join(home, 'dev-signing.pem')
+  const entry = existsSync(keyFile) ? publicOf(keyFile) : keygen(keyFile)
+  const documents = {}
+  for (const name of publishedNames()) {
+    const response = await fetch(`${URL_}/${name}`)
+    if (response.ok) documents[name] = await response.json()
+  }
+  const trust = trustOf(documents)
+  const { text, signature } = signTrust(trust, keyFile)
+  writeFileSync(path.join(root, 'utils/package-index/trust.json'), text)
+  writeFileSync(path.join(root, 'utils/package-index/trust.sig.json'), JSON.stringify(signature, null, 2) + '\n')
+  writeFileSync(path.join(home, 'trusted-keys.json'), JSON.stringify([entry], null, 2) + '\n')
+  console.log(`signed ${Object.keys(trust.packages).length} packages (trust this registry with .registry/trusted-keys.json)`)
+}
+
 async function publish(names) {
   if (!await ping()) throw new Error(`the registry is not running at ${URL_} (node utils/apps-registry.mjs up)`)
   const out = mkdtempSync(path.join(tmpdir(), 'ecmaos-apps-'))
   try {
-    execFileSync('node', [path.join(import.meta.dirname, 'apps-packages.mjs'), 'build', out, ...names], { stdio: ['ignore', 'ignore', 'inherit'] })
-    const directories = readdirSync(out)
+    // `group-NAME` and `profile-NAME` name the meta-packages; they go with a full run too
+    const isGroup = name => /^(group|profile)-/.test(name)
+    const programNames = names.filter(name => !isGroup(name))
+    if (!names.length || programNames.length) execFileSync('node', [path.join(import.meta.dirname, 'apps-packages.mjs'), 'build', out, ...programNames], { stdio: ['ignore', 'ignore', 'inherit'] })
+    if (!names.length || names.some(isGroup)) execFileSync('node', [path.join(import.meta.dirname, 'apps-packages.mjs'), 'groups', out], { stdio: ['ignore', 'ignore', 'inherit'] })
+    const directories = readdirSync(out).filter(directory => !names.some(isGroup) || programNames.length || names.includes(directory))
     // a copyleft program's source goes up before its binary: the binary never exists without it
-    for (const directory of directories.sort((a, b) => Number(b.endsWith('-src')) - Number(a.endsWith('-src')) || a.localeCompare(b))) {
+    const rank = directory => (directory.endsWith('-src') ? 0 : /^(group|profile)-/.test(directory) ? 2 : 1)
+    for (const directory of directories.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))) {
       publishDirectory(path.join(out, directory))
       console.log(`published @ecmaos-apps/${directory}`)
     }
+    if (!names.length) await signIndex()
     publishDirectory(path.join(root, 'utils/package-index'))
     console.log('published @ecmaos/package-index')
   } finally {

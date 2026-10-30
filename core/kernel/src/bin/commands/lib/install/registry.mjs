@@ -17,6 +17,13 @@ export const registryOf = url => String(url || env['REGISTRY'] || DEFAULT_REGIST
 
 const cacheName = name => name.replace('/', '+')
 
+/**
+ * The abbreviated document leaves out fields npm does not know, and `ecmaos` (`meta`, `requires`, `recommends`...) is
+ * one: a package of ecmaOS's own scopes is asked for whole (there are few versions of each), and so is any package of a
+ * registry that is not npm's, which is small enough.
+ */
+const needsFull = (name, url) => /^@ecmaos(-apps)?\//.test(name) || !/^https:\/\/registry\.npmjs\.org$/i.test(url)
+
 export class RegistryError extends Error {}
 
 export class Registry {
@@ -52,7 +59,7 @@ export class Registry {
     }
     let response
     try {
-      response = await globalThis.fetch(`${this.url}/${name}`, { headers: { Accept: ABBREVIATED } })
+      response = await globalThis.fetch(`${this.url}/${name}`, { headers: { Accept: needsFull(name, this.url) ? 'application/json' : ABBREVIATED } })
     } catch (error) {
       if (usable) return usable
       throw new RegistryError(`${this.url}: ${error instanceof Error ? error.message : String(error)}`)

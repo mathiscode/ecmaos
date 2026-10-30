@@ -305,7 +305,7 @@ async function upgrade(session, o, command) {
   const due = newer(session.db.upgradable(), latest)
   say(o, 'Calculating upgrade... Done')
   if (!due.length) { say(o, '0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.'); return 0 }
-  const plan = await resolve(session, due.map(entry => ({ name: entry.name, range: latest[entry.name].latest })))
+  const plan = await resolve(session, due.map(entry => ({ name: entry.name, range: latest[entry.name].latest, ...(entry.explicit ? {} : { auto: true }) })))
   const changes = session.engine.changes(plan)
   say(o, `The following packages will be upgraded:\n${wrap(namesOf(session, changes.upgraded.length ? changes.upgraded : due))}`)
   say(o, `${changes.upgraded.length} upgraded, ${changes.added.length} newly installed, 0 to remove and 0 not upgraded.`)
