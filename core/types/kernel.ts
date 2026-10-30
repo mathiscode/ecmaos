@@ -325,6 +325,12 @@ export interface KernelOptions {
    */
   programs?: string | false
   /**
+   * Which programs of the catalog a first boot installs: `minimal`, `standard`, `developer` or `everything` (also `?profile=`
+   * and `ECMAOS_PROFILE`). It is not recorded. Without it a machine that already has programs is Everything, a headless
+   * boot is Standard, and a browser asks once (see `/etc/ecmaos/profile`).
+   */
+  profile?: 'minimal' | 'standard' | 'developer' | 'everything'
+  /**
    * Where the catalog of in-tree kernel modules is (default `/modules/index.json`); `false` fetches none. The modules `zip`,
    * `iso`, `dropbox` and `googledrive` are in it, and are downloaded the first time `mount -t` asks for one.
    */

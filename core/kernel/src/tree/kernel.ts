@@ -74,6 +74,7 @@ import { configureQuotas, parseQuotas } from '#lib/quota.ts'
 import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
+import { inProfile, resolveProfile } from '#lib/profiles.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
 import { DefaultFilesystemOptions, DevLinks, Filesystem, fenceRootStore, rootStoreName, measureOwnedBytes, rootWritesSettled, withMemoryRoot, withRootStore } from '#filesystem.ts'
@@ -2538,6 +2539,11 @@ export class Kernel implements IKernel {
       const stampKey = this.machineKey('ecmaos:programs')
       await this.filesystem.fs.mkdir(path.dirname(PROGRAM_WAITER), { recursive: true })
       await this.filesystem.fs.writeFile(PROGRAM_WAITER, programWaiterSource, { mode: 0o755 })
+      // Which programs this machine gets: asked for, recorded, or worked out (a machine that has programs keeps them all)
+      const requested = this.options.profile ?? new URLSearchParams(globalThis.location?.search ?? '').get('profile') ?? (import.meta.env['ECMAOS_PROFILE'] as string | undefined) ?? (this.options.programs ? 'everything' : undefined)
+      let hasPrograms = false
+      try { hasPrograms = Object.keys(JSON.parse(this.storage.local.getItem(stampKey) ?? '{}')).length > 0 } catch { /* none */ }
+      const { profile } = await resolveProfile(this.filesystem.fs, { requested: requested || undefined, hasPrograms })
       const staged = await stagePrograms(this.filesystem.fs, {
         placeholders: true,
         catalogUrl,
@@ -2549,6 +2555,7 @@ export class Kernel implements IKernel {
           try { await this.filesystem.extractTarball(file, '/', 0o644, 0o755) } finally { await this.filesystem.fs.unlink(file).catch(() => {}) }
         },
         skip: name => !!this.options.blacklist?.commands?.includes(name),
+        include: (_name, entry) => inProfile(entry.profile, profile),
         stamps: {
           read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
           write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))

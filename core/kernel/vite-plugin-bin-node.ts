@@ -319,11 +319,28 @@ export function readProgramPackages(): ProgramPackageManifest[] {
 /**
  * The catalog the kernel fetches (`/programs/index.json`): what each package offers, without where it lives on disk.
  */
+/**
+ * The smallest profile that has each program, from `utils/package-index/groups.json`: a program is in the smallest
+ * profile whose groups list it (or lists its group). A program no group names has no entry, and every profile gets it.
+ */
+export function programTiers(): Record<string, string> {
+  let groups: { groups: Record<string, { members: string[] }>, profiles: Record<string, { groups: string[], packages?: string[] }> }
+  try { groups = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../utils/package-index/groups.json'), 'utf8')) } catch { return {} }
+  const tiers: Record<string, string> = {}
+  for (const profile of ['minimal', 'standard', 'developer', 'everything']) {
+    const wanted = groups.profiles[profile]
+    if (!wanted) continue
+    for (const name of [...(wanted.packages ?? []), ...wanted.groups.flatMap(group => groups.groups[group]?.members ?? [])]) tiers[name] ??= profile
+  }
+  return tiers
+}
+
 export function programCatalog(packages: ProgramPackageManifest[]) {
-  const entry = ({ file, size, sha256, version, license, description, runtime }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description, ...(runtime ? { runtime } : {}) })
+  const tiers = programTiers()
+  const entry = (name: string, { file, size, sha256, version, license, description, runtime }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description, ...(tiers[name] ? { profile: tiers[name] } : {}), ...(runtime ? { runtime } : {}) })
   return {
     packages: packages.map(({ name, path, programs, moved }) => ({
-      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(value)])),
+      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(program, value)])),
       ...(Object.keys(moved).length ? { moved } : {})
     }))
   }

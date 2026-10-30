@@ -175,7 +175,7 @@ describe('wasm programs as packages', () => {
     expect(entries).toEqual({ jq: { package: '@ecmaos-apps/jq', description: 'jq' } })
   }, 60_000)
 
-  it('takes a moved program out of the boot catalog, and removes the copy an earlier boot wrote', async () => {
+  it('takes a moved program out of the boot catalog, and keeps the working copy an earlier boot wrote', async () => {
     const programEntry = { file: 'x.wasm', size: 1, sha256: 'x', version: '1', license: 'MIT', description: 'x' }
     const catalog = programCatalog([{ name: 'p', path: 'p', dir: '/nowhere', programs: { kept: programEntry }, moved: { jq: '@ecmaos-apps/jq', ghost: '@ecmaos-apps/ghost' } }])
     expect(catalog.packages[0]?.programs).not.toHaveProperty('jq')
@@ -188,8 +188,9 @@ describe('wasm programs as packages', () => {
     })
     const result = await staged.start()
     expect(result.moved).toEqual({ jq: '@ecmaos-apps/jq' })
-    expect(await fs().exists('/bin/jq')).toBe(false)
-    expect(stamps).toEqual({})
+    // nothing is deleted: the copy works, it is just no longer updated, and the package replaces it when installed
+    expect(await fs().readFile('/bin/jq', 'utf8')).toBe('old')
+    expect(stamps).toEqual({ jq: 'old', 'jq:runtime': 'old' })
   }, 60_000)
 
   it('names the source package of a copyleft program, and fetches it with apt source', async () => {

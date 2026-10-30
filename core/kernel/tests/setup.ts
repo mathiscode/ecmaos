@@ -298,7 +298,14 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
       const params = new URL(raw, 'http://localhost/').searchParams
       // `?all` is every package; `?coreutils` is the permissive one, for a test that must not find the copyleft programs (bash)
       const chosen = params.has('all') ? packages : params.has('coreutils') ? packages.filter(pkg => pkg.name === 'coreutils') : []
-      const catalog = { packages: chosen.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: pkg.manifest.programs })) }
+      // the smallest profile that has each program, as the site's catalog says it (see `programTiers` in vite-plugin-bin-node.ts)
+      const tiers: Record<string, string> = {}
+      const groupFile = JSON.parse(nodeFs.readFileSync(nodePath.resolve(import.meta.dirname, '../../../utils/package-index/groups.json'), 'utf8'))
+      for (const profile of ['minimal', 'standard', 'developer', 'everything']) {
+        const wanted = groupFile.profiles[profile]
+        for (const name of [...(wanted.packages ?? []), ...wanted.groups.flatMap((group: string) => groupFile.groups[group].members)]) tiers[name] ??= profile
+      }
+      const catalog = { packages: chosen.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: Object.fromEntries(Object.entries(pkg.manifest.programs as Record<string, object>).map(([name, program]) => [name, { ...program, ...(tiers[name] ? { profile: tiers[name] } : {}) }])) })) }
       return Promise.resolve(new Response(JSON.stringify(catalog), { headers: { 'content-type': 'application/json' } }))
     }
     const [, , pkgName, file] = pathname.split('/')

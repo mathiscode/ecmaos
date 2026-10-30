@@ -14,6 +14,8 @@ export interface ProgramEntry {
   version: string
   license: string
   description: string
+  /** The smallest profile that has the program (`minimal`, `standard`, `developer`, `everything`); without it, every profile does */
+  profile?: string
   /**
    * Files the program needs beside it (`vim`'s runtime): a tarball rooted at `/`, in the same directory as the
    * program
@@ -38,6 +40,8 @@ export interface InstallProgramsOptions {
   catalogUrl: string
   /** Programs not to install (the kernel's command blacklist). */
   skip?: (name: string) => boolean
+  /** Whether a program is wanted on this machine (its profile); one that is not is neither fetched nor given a placeholder, and one already here is left alone */
+  include?: (name: string, entry: ProgramEntry) => boolean
   /**
    * The hash each installed program had when it was written, so a boot compares sizes instead of reading every
    * binary.
@@ -52,7 +56,7 @@ export interface InstallProgramsResult {
   installed: string[]
   current: string[]
   failed: Record<string, string>
-  /** Programs this machine had from the catalog that are npm packages now: `/bin/<name>` was removed, `install` brings them back */
+  /** Programs this machine had from the catalog that are npm packages now: the copy here keeps working and is no longer updated; `install` brings the package */
   moved: Record<string, string>
 }
 
@@ -158,20 +162,14 @@ export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { 
     return bytes
   }
 
-  // A program that moved to npm: the copy an earlier boot wrote goes, so the package's is the one `PATH` finds. One this
-  // machine never had from the catalog (no stamp) is not ours to remove.
+  // A program that moved to npm keeps the copy an earlier boot wrote: it works, but is no longer updated. The package
+  // replaces the file when it is installed. One this machine never had from the catalog (no stamp) is not mentioned.
   for (const [name, npmPackage] of catalog.packages.flatMap(pkg => Object.entries(pkg.moved ?? {}))) {
-    if (!(name in stamps)) continue
-    const target = `/bin/${name}`
-    if ((await fs.lstat(target).catch(() => undefined))?.isFile()) await fs.unlink(target).catch(() => {})
-    delete stamps[name]
-    delete stamps[`${name}:runtime`]
-    options.stamps.write(stamps)
-    result.moved[name] = npmPackage
+    if (name in stamps) result.moved[name] = npmPackage
   }
 
   const programs = catalog.packages.flatMap(pkg => Object.entries(pkg.programs).map(([name, entry]) => ({ pkg, name, entry })))
-    .filter(({ name }) => !options.skip?.(name))
+    .filter(({ name, entry }) => !options.skip?.(name) && (options.include?.(name, entry) ?? true))
 
   const placeholders: string[] = []
   if (options.placeholders) {
