@@ -59,7 +59,10 @@ const NODE_MODULES = [
 /** `@polyfill/NAME` to the npm package that stands in for Node's NAME (a bare `NAME` would be the module itself) */
 function polyfills(): Record<string, string> {
   const require = createRequire(path.join(import.meta.dirname, 'package.json'))
-  return Object.fromEntries(['assert', 'buffer', 'events', 'string_decoder', 'url', 'util'].map(name => [`@polyfill/${name}`, require.resolve(`${name}/`)]))
+  const aliases = Object.fromEntries(['assert', 'buffer', 'events', 'string_decoder', 'url', 'util'].map(name => [`@polyfill/${name}`, require.resolve(`${name}/`)]))
+  // `punycode` is not the kernel's own dependency: it is the `url` package's
+  aliases['@polyfill/punycode'] = createRequire(require.resolve('url/')).resolve('punycode/')
+  return aliases
 }
 
 export function binNodeBuiltins(): Plugin {

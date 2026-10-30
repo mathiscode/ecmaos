@@ -18,7 +18,7 @@ function memory(files: Record<string, string>, links: Record<string, string> = {
     return path
   }
   return {
-    kind: (path: string) => { const real = follow(path); return real in files ? 'file' : directories.has(real) ? 'dir' : null },
+    kind: (path: string) => { const real = follow(normalize(path)); return real in files ? 'file' : directories.has(real) ? 'dir' : null },
     readlink: (path: string) => links[path] ?? null,
     readdir: (path: string) => [...new Set([...Object.keys(files), ...directories].filter(entry => entry.startsWith(path + '/') && entry !== path).map(entry => entry.slice(path.length + 1).split('/')[0]!))],
     readText: (path: string) => files[follow(path)]!

@@ -86,7 +86,10 @@ export function createLoader({ host, builtinsDir = '/usr/lib/node/builtins', glo
   }
 
   const CJS_PARAMS = ['exports', 'require', 'module', '__filename', '__dirname']
-  const ESM_PARAMS = [...CJS_PARAMS, '__import_meta']
+  // an ES module has no `module`, `__filename` or `__dirname` (it declares its own, as often as not); `exports` and
+  // `require` are for the code the conversion writes
+  const ESM_PARAMS = ['exports', 'require', '__import_meta']
+  const ESM_PARAMS_OWN_REQUIRE = ['exports', '__ecmaos_require', '__import_meta']
 
   /** Whether `.js` source is CommonJS, by trying it as such: a syntax error is an ES module's `import`, `export` or `await` */
   function compilesAsCommonJs(source, filename) {
@@ -130,17 +133,22 @@ export function createLoader({ host, builtinsDir = '/usr/lib/node/builtins', glo
     }
     // an ES module with nothing to convert is a script in a function, which is what it is to the registry
     const converted = HAS_MODULE_SYNTAX.test(source) || HAS_DYNAMIC_IMPORT.test(source) ? transform(stripShebang(source)) : stripShebang(source)
-    const code = converted.replace(/(?<![.\w$])import\.meta\b/g, '__import_meta')
+    let code = converted.replace(/(?<![.\w$])import\.meta\b/g, '__import_meta')
+    // a module that makes its own `require` (`createRequire(import.meta.url)`) cannot also be handed one: the calls the
+    // conversion wrote, and its own, go to ours, which resolves as its would
+    const ownRequire = /(?<![.\w$])(?:const|let|var|function|class)\s+require\b/.test(code)
+    const params = ownRequire ? ESM_PARAMS_OWN_REQUIRE : ESM_PARAMS
+    if (ownRequire) code = code.replace(/(?<![.\w$])require\(/g, '__ecmaos_require(')
     const imports = []
     for (const match of code.matchAll(STATIC_REQUIRE)) if (!imports.includes(match[2])) imports.push(match[2])
     let isAsync = false
-    try { compile(code, filename, ESM_PARAMS, false) } catch (error) {
+    try { compile(code, filename, params, false) } catch (error) {
       if (!(error instanceof SyntaxError)) throw error
       // top-level await: it compiles only as an async function; a real syntax error comes from this attempt
-      compile(code, filename, ESM_PARAMS, true)
+      compile(code, filename, params, true)
       isAsync = true
     }
-    return { format, code, async: isAsync, imports }
+    return { format, code, async: isAsync, imports, params }
   }
 
   function makeRequire(mod, mode) {
@@ -186,11 +194,11 @@ export function createLoader({ host, builtinsDir = '/usr/lib/node/builtins', glo
     const finish = () => { mod.loaded = true; mod.status = 'done'; return mod }
     const fail = error => { registry.delete(mod.filename); throw error }
     try {
-      const mode = prepared.format === 'esm' ? 'import' : 'require'
-      const run = compile(prepared.code, mod.filename, prepared.format === 'esm' ? ESM_PARAMS : CJS_PARAMS, prepared.async)
-      const args = [mod.exports, makeRequire(mod, mode), mod, mod.filename, mod.path]
-      if (prepared.format === 'esm') args.push(makeMeta(mod.filename))
-      const result = Reflect.apply(run, mod.exports, args)
+      const esm = prepared.format === 'esm'
+      const run = compile(prepared.code, mod.filename, esm ? prepared.params : CJS_PARAMS, prepared.async)
+      const args = esm ? [mod.exports, makeRequire(mod, 'import'), makeMeta(mod.filename)] : [mod.exports, makeRequire(mod, 'require'), mod, mod.filename, mod.path]
+      // `this` is `module.exports` in CommonJS and `undefined` in an ES module
+      const result = Reflect.apply(run, esm ? undefined : mod.exports, args)
       if (prepared.async) return result.then(finish, fail)
       return finish()
     } catch (error) {

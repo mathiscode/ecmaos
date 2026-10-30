@@ -14,6 +14,7 @@
  */
 
 const EXTENSIONS = ['.js', '.json', '.mjs', '.cjs']
+const BUILTIN_NAME = /^[a-z][a-z0-9_]*(?:\/[a-z][a-z0-9_]*)?\/?$/
 
 export class ResolveError extends Error {
   constructor(code, message) {
@@ -141,6 +142,8 @@ export function createResolver(host, { builtinsDir = '/usr/lib/node/builtins', g
       if (!isBuiltin(name)) throw new ResolveError('ERR_UNKNOWN_BUILTIN_MODULE', `No such built-in module: ${specifier}`)
       return name
     }
+    // only a bare name is a built-in: `./constants` is a file, whatever the file system makes of `builtins/./constants.cjs`
+    if (!BUILTIN_NAME.test(specifier)) return undefined
     // `events/` is how a package asks for the npm polyfill instead of the module; the built-in stands in for it
     const bare = specifier.endsWith('/') ? specifier.slice(0, -1) : specifier
     return isBuiltin(bare) ? bare : undefined
