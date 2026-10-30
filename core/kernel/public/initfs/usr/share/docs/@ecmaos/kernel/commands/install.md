@@ -35,6 +35,10 @@ Metadata is fetched in its abbreviated form (`application/vnd.npm.install-v1+jso
 
 A package's `bin` runs as a command: `install cowsay && cowsay hi`. The package's dependencies are linked into its `node_modules` (`/usr/lib/NAME/VERSION/node_modules/DEP` is a link to the version it was given), so a program that `require`s or `import`s them finds those versions; `/bin/node` resolves as Node does, runs CommonJS and ES modules, and provides Node's own modules (`fs`, `path`, `child_process`, `http` clients, and the rest) over the kernel's syscalls. A script of your own finds the packages installed system-wide too: `node script.js` with `require('semver')` uses the highest installed version.
 
+## Other package managers
+
+`apt`, `apt-get`, `apt-cache`, `dpkg`, `pacman`, `npm`, `npx`, `yarn` and `pnpm` are front-ends of this command: the same packages, database and cache under their own commands and output (see their pages). The distribution tools use their own names for packages, which `@ecmaos/package-index` maps to npm packages; `apt update` and `pacman -Sy` fetch its latest version and keep it in `/var/lib/install/package-index.json` (or `~/.local/state/install/package-index.json`), and the copy built into ecmaOS is used until then.
+
 ## Trust
 
 Every tarball is checked against the registry's `dist.integrity` (SHA-512 where the registry gives it, else the SHA-1 `shasum`) before it is unpacked, the cached copy included.
