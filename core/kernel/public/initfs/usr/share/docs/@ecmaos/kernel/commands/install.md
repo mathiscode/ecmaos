@@ -14,6 +14,9 @@ install search TEXT...
 install update
 install upgrade [PACKAGE]...
 install outdated [-a]
+install hold PACKAGE...
+install unhold PACKAGE...
+install rollback PACKAGE
 install clean
 ```
 
@@ -39,6 +42,16 @@ A package's `bin` runs as a command: `install cowsay && cowsay hi`. The package'
 
 `apt`, `apt-get`, `apt-cache`, `dpkg`, `pacman`, `npm`, `npx`, `yarn` and `pnpm` are front-ends of this command (`pip` is its own, on PyPI): the same packages, database and cache under their own commands and output (see their pages). The distribution tools use their own names for packages, which `@ecmaos/package-index` maps to npm packages; `apt update` and `pacman -Sy` fetch its latest version and keep it in `/var/lib/install/package-index.json` (or `~/.local/state/install/package-index.json`), and the copy built into ecmaOS is used until then.
 
+## Groups and relations
+
+A group is a package with `"ecmaos": { "meta": true }` and nothing but `dependencies` (the programs ecmaOS ships are grouped as `@ecmaos-apps/group-compression`, `group-editors` and so on, and the profiles `profile-minimal`, `profile-standard`, `profile-developer` and `profile-everything` are groups of groups). A group's members are ranged on the dist-tag `latest`, since every program's version is a prerelease (`X.Y.Z-ecmaos.N`) that `*` would not take. Installing a group links the commands of its members, which stay automatic installs: removing the group and running `install autoremove` takes them. `install upgrade` upgrades the members, and a group's upgrade never brings back a member taken out on purpose.
+
+`install remove vim` while a group wants it removes `vim`, leaves the group installed and puts `vim` on `/etc/ecmaos/profile.d/excluded.json`; installing it by name takes it off again, and a group install or upgrade skips what is on the list.
+
+A package can also say, under `ecmaos`: `recommends` (installed with it unless `--no-install-recommends`; one that cannot be had is skipped), `suggests` (printed, never installed), `conflicts` (the install is refused beside these), `replaces` (an installed package of one of these names goes when this one is installed: a rename) and `requires`, `{ "kernel": ">=1.0.0", "features": ["wasi"] }`, which refuses a package this kernel cannot run (`--force` installs it anyway). The registry's document is read for these: ecmaOS's own scopes and any registry other than npm's are fetched whole, since npm's abbreviated document leaves `ecmaos` out.
+
+`install hold NAME` keeps a package at its version: `upgrade` leaves it and `install NAME` does not move it (a version asked for does); `unhold` lets it move. An upgrade keeps the version it replaced for one rollback: `install rollback NAME` goes back to it and keeps the newer one, so a second rollback goes forward again.
+
 ## Programs as packages
 
 A WebAssembly program is an npm package in the `@ecmaos-apps` scope: `install -g @ecmaos-apps/figlet` (or `apt install figlet`) links `figlet.wasm` into `/usr/bin` as any package's bin. A program that needs files beside it (`figlet`'s fonts, `vim`'s runtime) ships them under `"ecmaos": { "runtime": "runtime" }`, laid out from `/`; its `usr/` is linked into `/usr` file by file and unlinked when the package is removed, so only a system install puts them in place (a `--user` install says so). `utils/apps-packages.mjs` writes these packages from the programs of `@ecmaos/coreutils` and `@ecmaos/coreutils-copyleft` (`build OUT [name...]`), and `index` adds the names to `@ecmaos/package-index`.
@@ -50,6 +63,8 @@ A package's version is the program's upstream version and ecmaOS's revision of t
 To try packages before anything is published, `node utils/apps-registry.mjs up` starts a local registry (Verdaccio, `http://localhost:4893`, kept in `.registry/`), `publish [name...]` builds the packages and publishes them there, and `REGISTRY=http://localhost:4893` (or `--registry`) points ecmaOS at it. Nothing in it goes to npmjs.
 
 ## Trust
+
+Packages of `@ecmaos-apps` are also checked against a signed index. `@ecmaos/package-index` carries `trust.json` (every package the project published, with its versions' integrity and which one is `latest`) and `trust.sig.json` (an Ed25519 signature of it, and the key's id); `apt update` fetches them. `install` refuses a package of the scope that is not in the index, whose integrity differs from it, or whose `latest` is not the one the index names, and refuses everything in the scope when the index is missing or signed with a key not in `/etc/ecmaos/trusted-keys.json`, `[{ "keyId", "key" (base64, the 32 raw bytes), "notAfter"? }]`; a key past its `notAfter` is not trusted, so keys can be rotated. `--allow-unsigned` skips the check, for a registry of your own. `node utils/apps-sign.mjs` makes the key and signs; where the private key lives is the publisher's.
 
 Every tarball is checked against the registry's `dist.integrity` (SHA-512 where the registry gives it, else the SHA-1 `shasum`) before it is unpacked, the cached copy included.
 
@@ -68,6 +83,10 @@ A package that lists kernel modules in its `package.json` (`"ecmaos": { "modules
 - `--offline` - use only the cache
 - `--allow-scripts` - run the packages' `ecmaos:` scripts
 - `--ignore-signatures` - install even when the registry's signature is missing or does not verify
+- `--allow-unsigned` - install packages of `@ecmaos-apps` that are not in the signed index
+- `--no-install-recommends` - do not install what a package recommends
+- `--force` - install a package even when it needs a newer kernel than this one
+- `--hold`, `--unhold`, `--rollback` - the same as the `hold`, `unhold` and `rollback` commands
 - `-n`, `--dry-run` - show what would be installed, upgraded or removed, and do nothing
 - `--autoremove` - with `remove`, also remove the dependencies no longer needed
 - `-a`, `--all` - with `list` and `outdated`, include dependencies
@@ -97,6 +116,9 @@ install @myscope/mypackage --registry http://localhost:4873
 - `/var/cache/install`, `~/.cache/install` - cached metadata and tarballs
 - `/etc/install/keys.json` - signing keys of registries other than npm's
 - `/etc/install/allow-scripts` - packages whose scripts run without `--allow-scripts`
+- `/etc/ecmaos/sources.d/*.json` - registries by scope: `{ "name", "registry", "scopes": ["@scope"], "priority" }`; a scope goes to the highest-priority source that lists it, anything else to the default registry (`--registry` overrides them all)
+- `/etc/ecmaos/trusted-keys.json` - the project keys the signed index is checked with
+- `/etc/ecmaos/profile.d/excluded.json`, `~/.config/ecmaos/excluded.json` - group members taken out on purpose
 
 ## See also
 
