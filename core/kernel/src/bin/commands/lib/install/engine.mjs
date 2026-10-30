@@ -415,6 +415,9 @@ export class Engine {
       }
     }
     this.linkRuntime(entry, manifest, directory)
+    // a copyleft program's source is a package of its own (`NAME-src`, the same version)
+    const source = manifest.ecmaos?.source
+    if (typeof source === 'string') this.out(blue(`Corresponding source: install ${source.replace(/@[^@/]+$/, '')}`))
     entry.linked = true
     this.db.set(entry)
     return true

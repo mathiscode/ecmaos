@@ -59,6 +59,9 @@ for (const [name, program] of waliPrograms) {
 for (const [name, program] of Object.entries(manifest.programs)) {
   if (program.toolchain !== undefined && program.toolchain !== 'wali') problems.push(`${name}: toolchain is ${program.toolchain}; a program names one only when it is wali`)
 }
+for (const [name, program] of Object.entries(manifest.programs)) {
+  if (program.revision !== undefined && !(Number.isInteger(program.revision) && program.revision >= 1)) problems.push(`${name}: revision is ${program.revision}, not a whole number from 1`)
+}
 // A program that moved to npm names its package; it is `@ecmaos-apps/NAME` (see utils/apps-packages.mjs)
 for (const [name, program] of Object.entries(manifest.programs)) {
   if (program.package !== undefined && program.package !== `@ecmaos-apps/${name}`) problems.push(`${name}: package is ${program.package}, not @ecmaos-apps/${name}`)

@@ -45,6 +45,10 @@ A WebAssembly program is an npm package in the `@ecmaos-apps` scope: `install -g
 
 A program moves out of the boot catalog when its `programs/manifest.json` entry gains `"package": "@ecmaos-apps/NAME"`: the site stops serving it, and a machine that had it from the catalog loses that copy at the next boot and is told to install the package. Programs not moved are still written to `/bin` at boot.
 
+A package's version is the program's upstream version and ecmaOS's revision of the build, `9.1.0-ecmaos.2`. A copyleft program's package names its source package (`"ecmaos": { "source": "@ecmaos-apps/NAME-src@VERSION" }`), published with it at the same version: `install` says so when it links the program, and `apt source NAME` (or `install @ecmaos-apps/NAME-src`) brings the upstream archives, our patches, the build recipe and the toolchain's pins. The generator refuses a copyleft program whose source it cannot assemble.
+
+To try packages before anything is published, `node utils/apps-registry.mjs up` starts a local registry (Verdaccio, `http://localhost:4893`, kept in `.registry/`), `publish [name...]` builds the packages and publishes them there, and `REGISTRY=http://localhost:4893` (or `--registry`) points ecmaOS at it. Nothing in it goes to npmjs.
+
 ## Trust
 
 Every tarball is checked against the registry's `dist.integrity` (SHA-512 where the registry gives it, else the SHA-1 `shasum`) before it is unpacked, the cached copy included.

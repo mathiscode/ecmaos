@@ -1,0 +1,27 @@
+# A local npm registry for trying ecmaOS's own packages before they are published (utils/apps-registry.mjs runs it).
+# @ecmaos-apps/* and @ecmaos/package-index are published here and nowhere else; everything else comes from npmjs.
+storage: ./storage
+auth:
+  htpasswd:
+    file: ./htpasswd
+    max_users: -1
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+packages:
+  '@ecmaos-apps/*':
+    access: $all
+    publish: $all
+    unpublish: $all
+  '@ecmaos/package-index':
+    access: $all
+    publish: $all
+    unpublish: $all
+  '@*/*':
+    access: $all
+    proxy: npmjs
+  '**':
+    access: $all
+    proxy: npmjs
+max_body_size: 200mb
+log: { type: stdout, format: pretty, level: warn }

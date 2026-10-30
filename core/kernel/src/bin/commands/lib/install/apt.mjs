@@ -4,17 +4,22 @@
  * signature checks. Output is shaped like apt's. As root, packages go to the whole system; as anyone else, to `~/.local`.
  */
 
+import { join } from '../path-utils.mjs'
 import { pickVersion } from './engine.mjs'
+import { exists, mkdirp, untar } from './io.mjs'
 import { entries, nameFor, refreshIndex } from './names.mjs'
+import { verifyIntegrity, verifySignature } from './trust.mjs'
 import { cachedUpgradable, latestOf, newer } from './updates.mjs'
 import {
   Failure, confirm, dependsOf, directoryOf, displayName, err, installed, isRoot, kilobytes, manifestOf, openSession, out, sizeOf,
   suggest, tilde, translate, wrap
 } from './frontend.mjs'
 
+const { getcwd, rename, rmRecursive, getpid } = globalThis.ecmaosSyscalls
+
 const VERBS = {
-  apt: ['update', 'upgrade', 'full-upgrade', 'install', 'reinstall', 'remove', 'purge', 'autoremove', 'autopurge', 'search', 'show', 'list', 'policy', 'depends', 'rdepends', 'clean', 'autoclean'],
-  'apt-get': ['update', 'upgrade', 'dist-upgrade', 'install', 'reinstall', 'remove', 'purge', 'autoremove', 'autopurge', 'clean', 'autoclean', 'check'],
+  apt: ['update', 'upgrade', 'full-upgrade', 'install', 'reinstall', 'remove', 'purge', 'autoremove', 'autopurge', 'search', 'show', 'list', 'policy', 'depends', 'rdepends', 'clean', 'autoclean', 'source'],
+  'apt-get': ['update', 'upgrade', 'dist-upgrade', 'install', 'reinstall', 'remove', 'purge', 'autoremove', 'autopurge', 'clean', 'autoclean', 'check', 'source'],
   'apt-cache': ['search', 'show', 'policy', 'depends', 'rdepends', 'pkgnames']
 }
 
@@ -170,6 +175,49 @@ async function install(session, o, command) {
   }
   const code = await engine.apply(plan)
   if (code) throw new Failure(`E: Sub-process ${command} returned an error code (${code})`, 100)
+  for (const node of changes.fresh) {
+    if (manifestOf(session.scope, node).ecmaos?.source) say(o, `N: The source of ${asked.get(node.name) ?? displayName(session, 'apt', node)} is a package of its own: apt source ${asked.get(node.name) ?? displayName(session, 'apt', node)}`)
+  }
+  return 0
+}
+
+/**
+ * `apt source NAME`: fetches the source package of a program (`@ecmaos-apps/NAME-src`, the Corresponding Source of a
+ * copyleft binary: the upstream archives, the patches and the build recipe) and unpacks it into `./NAME-VERSION`.
+ */
+async function source(session, o) {
+  if (!o.targets.length) throw new Failure('E: Must specify at least one package to fetch source for', 100)
+  reading(o)
+  const found = translate(session, 'apt', o.targets)
+  await refuse(session, o, found, 'install')
+  const { registry } = session
+  for (const { name: binary, range, asked } of found.requests) {
+    const name = `${binary}-src`
+    let document
+    try { document = await registry.metadata(name) } catch {
+      throw new Failure(`E: Unable to find a source package for ${asked ?? binary}`, 100)
+    }
+    const version = pickVersion(document, range)
+    const dist = document.versions?.[version]?.dist
+    if (!version || !dist) throw new Failure(`E: Unable to find a source package for ${asked ?? binary}${range ? ` (${range})` : ''}`, 100)
+    if (!o.ignoreSignatures) {
+      const problem = await verifySignature(registry.url, name, version, dist)
+      if (problem) throw new Failure(`E: ${problem}`, 100)
+    }
+    const tarball = await registry.tarball(name, version, dist, bytes => verifyIntegrity(bytes, dist))
+    const directory = join(getcwd(), `${asked ?? binary.split('/').pop()}-${version}`)
+    if (exists(directory)) throw new Failure(`E: ${directory} already exists`, 100)
+    say(o, `Get:1 ${registry.url} ${name} ${version} [${dist.unpackedSize ? kilobytes(dist.unpackedSize) : 'unknown size'}]`)
+    const scratch = join(getcwd(), `.source-${getpid()}`)
+    try {
+      mkdirp(scratch)
+      if (await untar(tarball.path, scratch) !== 0) throw new Failure(`E: ${name}@${version} cannot be unpacked`, 100)
+      rename(join(scratch, 'package'), directory)
+    } finally {
+      try { rmRecursive(scratch) } catch { /* never made */ }
+    }
+    say(o, `dpkg-source: info: extracting ${name} in ${tilde(directory)}`)
+  }
   return 0
 }
 
@@ -464,6 +512,7 @@ export async function run(command, args) {
       case 'depends': return await depends(session, o)
       case 'rdepends': return await rdepends(session, o)
       case 'pkgnames': return pkgnames(session)
+      case 'source': return await source(session, o)
     }
     return 0
   } catch (error) {

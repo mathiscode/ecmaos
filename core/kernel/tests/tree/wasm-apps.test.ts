@@ -12,7 +12,7 @@ import { buildNpmTarballGzip, sha512Sri } from './fixtures/npm-tarball'
 import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
 // @ts-expect-error - a script, not a module with types
-import { indexEntries, semverOf } from '../../../../utils/apps-packages.mjs'
+import { indexEntries, semverOf, versionOf } from '../../../../utils/apps-packages.mjs'
 
 /**
  * The WebAssembly programs as npm packages (`@ecmaos-apps/NAME`, written by `utils/apps-packages.mjs`): the package
@@ -35,30 +35,34 @@ describe('wasm programs as packages', () => {
     return { code, out: await read('out'), err: await read('err') }
   }
 
-  /** Writes `name`'s package as the generator does and serves it from the registry */
+  /** Writes `name`'s package as the generator does (and its source package, for a copyleft program) and serves them from the registry */
   const publishProgram = async (name: string) => {
-    const { mkdtempSync, readdirSync, readFileSync, statSync } = process.getBuiltinModule('node:fs')
+    const { mkdtempSync, readdirSync, readFileSync, statSync, existsSync } = process.getBuiltinModule('node:fs')
     const { join } = process.getBuiltinModule('node:path')
     const { tmpdir } = process.getBuiltinModule('node:os')
     const { execFileSync } = process.getBuiltinModule('node:child_process')
     const out = mkdtempSync(join(tmpdir(), 'wa-'))
     execFileSync('node', [script, 'build', out, name])
-    const directory = join(out, name)
-    const files: Record<string, Uint8Array | string> = {}
-    const visit = (path: string, prefix: string) => {
-      for (const child of readdirSync(path)) {
-        const full = join(path, child)
-        if (statSync(full).isDirectory()) visit(full, `${prefix}${child}/`)
-        else files[`${prefix}${child}`] = new Uint8Array(readFileSync(full))
+    let result!: { manifest: Record<string, any>, files: Record<string, Uint8Array | string> }
+    for (const folder of [name, `${name}-src`].filter(candidate => existsSync(join(out, candidate)))) {
+      const directory = join(out, folder)
+      const files: Record<string, Uint8Array | string> = {}
+      const visit = (path: string, prefix: string) => {
+        for (const child of readdirSync(path)) {
+          const full = join(path, child)
+          if (statSync(full).isDirectory()) visit(full, `${prefix}${child}/`)
+          else files[`${prefix}${child}`] = new Uint8Array(readFileSync(full))
+        }
       }
+      visit(directory, '')
+      const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+      const tarball = await buildNpmTarballGzip(files)
+      const dist = { tarball: `${registry}/${manifest.name}/-/${manifest.version}.tgz`, integrity: await sha512Sri(tarball) }
+      routes.set(`/${manifest.name}/-/${manifest.version}.tgz`, tarball)
+      routes.set(`/${manifest.name}`, JSON.stringify({ name: manifest.name, 'dist-tags': { latest: manifest.version }, versions: { [manifest.version]: { ...manifest, dist } } }))
+      if (folder === name) result = { manifest, files }
     }
-    visit(directory, '')
-    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
-    const tarball = await buildNpmTarballGzip(files)
-    const dist = { tarball: `${registry}/${manifest.name}/-/${manifest.version}.tgz`, integrity: await sha512Sri(tarball) }
-    routes.set(`/${manifest.name}/-/${manifest.version}.tgz`, tarball)
-    routes.set(`/${manifest.name}`, JSON.stringify({ name: manifest.name, 'dist-tags': { latest: manifest.version }, versions: { [manifest.version]: { ...manifest, dist } } }))
-    return { manifest, files }
+    return result
   }
 
   beforeAll(async () => {
@@ -83,8 +87,10 @@ describe('wasm programs as packages', () => {
     expect(semverOf('1.22')).toBe('1.22.0')
     expect(semverOf('3.5a')).toBe('3.5.0')
     expect(semverOf('20260719')).toBe('20260719.0.0')
+    expect(versionOf({ version: '3.5a' })).toBe('3.5.0-ecmaos.1')
+    expect(versionOf({ version: '9.1.0', revision: 3 })).toBe('9.1.0-ecmaos.3')
     const listed = process.getBuiltinModule('node:child_process').execFileSync('node', [script, 'list'], { encoding: 'utf8' }).trim().split('\n')
-    expect(listed).toContain('@ecmaos-apps/jq@1.8.2')
+    expect(listed).toContain('@ecmaos-apps/jq@1.8.2-ecmaos.1')
     expect(new Set(listed).size).toBe(listed.length)
   }, 60_000)
 
@@ -101,7 +107,7 @@ describe('wasm programs as packages', () => {
     await publishProgram('figlet')
     const result = await run(`install -g @ecmaos-apps/figlet --registry ${registry} --ignore-signatures`)
     expect(result.code, result.err).toBe(0)
-    expect(await fs().readlink('/usr/bin/figlet')).toMatch(/\/figlet\/[\d.]+\/figlet\.wasm$/)
+    expect(await fs().readlink('/usr/bin/figlet')).toMatch(/\/figlet\/[\w.-]+\/figlet\.wasm$/)
     const manifest = JSON.parse(await fs().readFile('/usr/lib/@ecmaos-apps/figlet/' + (await fs().readdir('/usr/lib/@ecmaos-apps/figlet'))[0] + '/package.json', 'utf-8'))
     const runtimeFile = Object.keys((await publishProgram('figlet')).files).find(file => file.startsWith('runtime/usr/'))!.slice('runtime'.length)
     expect((await fs().lstat(runtimeFile)).isSymbolicLink()).toBe(true)
@@ -151,5 +157,24 @@ describe('wasm programs as packages', () => {
     expect(await fs().exists('/bin/jq')).toBe(false)
     expect(stamps).toEqual({})
   }, 60_000)
-})
 
+  it('names the source package of a copyleft program, and fetches it with apt source', async () => {
+    const { manifest } = await publishProgram('make')
+    expect(manifest.ecmaos.source).toBe(`@ecmaos-apps/make-src@${manifest.version}`)
+    await fs().mkdir('/var/lib/install', { recursive: true })
+    const index = { schema: 1, common: { make: { package: '@ecmaos-apps/make', description: 'make' }, lolcat: { package: '@ecmaos-apps/lolcat', description: 'lolcat' } } }
+    await fs().writeFile('/var/lib/install/package-index.json', JSON.stringify({ version: '9.9.9', index }))
+    const installed = await run(`install -g @ecmaos-apps/make --registry ${registry} --ignore-signatures`)
+    expect(installed.out).toContain('Corresponding source: install @ecmaos-apps/make-src')
+    await fs().mkdir('/tmp/work', { recursive: true })
+    const fetched = await run(`cd /tmp/work && apt source make --registry ${registry}`)
+    expect(fetched.code, fetched.err).toBe(0)
+    const directory = `/tmp/work/make-${manifest.version}`
+    expect(await fs().exists(`${directory}/sources/make-4.4.1.tar.gz`)).toBe(true)
+    expect(await fs().exists(`${directory}/build/build.sh`)).toBe(true)
+    await publishProgram('lolcat')
+    const none = await run(`cd /tmp/work && apt source lolcat --registry ${registry}`)
+    expect(none.code).toBe(100)
+    expect(none.err).toContain('Unable to find a source package for lolcat')
+  }, 60_000)
+})
