@@ -29,6 +29,7 @@ import { aggregateBuiltinNames, jobStatusLabel, kernelBuiltinHost, runTrueBuilti
 import { testExpression, shellQuote } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { SessionLog } from '#lib/sessions.ts'
 import { lockOf } from '#lib/inode-flags.ts'
+import { hintFor } from '../bin/commands/lib/install/hint.mjs'
 import { pairStreams } from '#lib/stream-twins.ts'
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal } from '@ecmaos/coreutils/lib/shell-core/signals'
 import { ShellState } from '@ecmaos/coreutils/lib/shell-core/state'
@@ -281,7 +282,7 @@ function controlFlowMessage(error: ControlFlowParseError): string {
 }
 
 class CommandNotFoundError extends Error {
-  constructor(message: string) { super(message); this.name = 'CommandNotFoundError' }
+  constructor(message: string, readonly command?: string) { super(message); this.name = 'CommandNotFoundError' }
 }
 
 const DefaultShellOptions = {
@@ -1022,7 +1023,7 @@ export class Shell implements IShell {
 
     const finalCommand = await this.resolveCommand(commandName)
     if (!finalCommand) {
-      throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }))
+      throw new CommandNotFoundError(this._ctx.i18n.t('commandNotFound', { ns: 'kernel', command: commandName }), commandName)
     }
 
     return { finalCommand, args, typed: commandName }
@@ -1213,6 +1214,8 @@ export class Shell implements IShell {
         // From a startup file bash names the file and line: `/etc/ecmashrc: line 2: foo: command not found`.
         const where = this._sourceFile ? `${this._sourceFile}: line ${this.state.lineNumber}: ` : ''
         await this.shellDiagnostic(where + error.message)
+        const hint = error.command ? await this.installHint(error.command) : undefined
+        if (hint) await this.shellDiagnostic(hint, true)
         return commands.map(() => 127)
       }
       const args = resolved.args
@@ -2333,6 +2336,24 @@ export class Shell implements IShell {
       this._stdinSources.pop()
       await source.close()
     }
+  }
+
+  /**
+   * What `install` could add to get `name`, from the package index `apt update` fetched or the one the system image
+   * carries (no network, and nothing when neither is readable). The same words the `command-not-found` program says.
+   */
+  private async installHint(name: string): Promise<string | undefined> {
+    if (name.includes('/')) return undefined
+    const { fs } = this._filesystem
+    const home = this.env.get('HOME') || '/root'
+    for (const [path, stored] of [['/var/lib/install/package-index.json', true], [`${home}/.local/state/install/package-index.json`, true], ['/usr/share/ecmaos/package-index/index.json', false]] as const) {
+      try {
+        const found = JSON.parse(await fs.readFile(path, 'utf8'))
+        const index = stored ? found.index : found
+        if (index?.common) return hintFor(index, name, { root: this.credentials.euid === 0 })
+      } catch { /* not there, or not an index */ }
+    }
+    return undefined
   }
 
   /**

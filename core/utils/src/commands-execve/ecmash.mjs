@@ -809,6 +809,7 @@ class Shell {
     const program = this.findProgram(name)
     if (!program) {
       writeAllFd(2, `${this.diagPrefix()}${name}: command not found\n`)
+      await this.suggestInstall(name, applied.fds[2] ?? 2)
       await finish()
       return { status: 127 }
     }
@@ -836,6 +837,20 @@ class Shell {
       await applied.release()
     }
     return { pid, finish }
+  }
+
+  /**
+   * Says what could be installed to get `name`, when the system has `command-not-found` (a kernel program that reads
+   * the package index). It only prints; a script gets it on stderr like the message above it, and the status stays 127.
+   */
+  async suggestInstall(name, errFd) {
+    if (name.includes('/')) return
+    const program = this.findProgram('command-not-found')
+    if (!program) return
+    try {
+      const pid = await spawn(program, ['command-not-found', name], { env: this.environment(), fds: { 0: 0, 1: errFd, 2: errFd }, cwd: getcwd() })
+      await waitpid(pid, false)
+    } catch { /* a hint that cannot run is not worth a message */ }
   }
 
   findProgram(name) {

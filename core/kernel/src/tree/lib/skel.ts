@@ -40,6 +40,13 @@ alias fgrep='fgrep --color=auto'
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
+
+# bash calls this for a command it cannot find; command-not-found says what could be installed to get it
+command_not_found_handle() {
+  printf '%s: command not found\\n' "$1" >&2
+  if [ -x /bin/command-not-found ]; then /bin/command-not-found "$1"; fi
+  return 127
+}
 `
   },
   '.bash_logout': {

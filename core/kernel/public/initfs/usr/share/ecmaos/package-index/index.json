@@ -1,0 +1,356 @@
+{
+  "schema": 2,
+  "common": {
+    "cowsay": {
+      "provided": "cowsay is part of ecmaOS"
+    },
+    "tldr": {
+      "package": "tldr",
+      "description": "simplified and community-driven man pages"
+    },
+    "prettier": {
+      "package": "prettier",
+      "description": "opinionated code formatter"
+    },
+    "eslint": {
+      "package": "eslint",
+      "description": "pluggable JavaScript linter"
+    },
+    "typescript": {
+      "package": "typescript",
+      "description": "TypeScript compiler (tsc)"
+    },
+    "less": {
+      "provided": "less is part of ecmaOS"
+    },
+    "lessc": {
+      "package": "less",
+      "description": "LESS stylesheet compiler"
+    },
+    "sass": {
+      "package": "sass",
+      "description": "Sass stylesheet compiler"
+    },
+    "semver": {
+      "package": "semver",
+      "description": "semantic version parser and comparator"
+    },
+    "marked": {
+      "package": "marked",
+      "description": "Markdown parser and compiler"
+    },
+    "uglify-js": {
+      "package": "uglify-js",
+      "description": "JavaScript minifier"
+    },
+    "terser": {
+      "package": "terser",
+      "description": "JavaScript minifier for ES modules"
+    },
+    "http-server": {
+      "package": "http-server",
+      "description": "simple static HTTP server"
+    },
+    "serve": {
+      "package": "serve",
+      "description": "static file serving and directory listing"
+    },
+    "yaml": {
+      "package": "yaml",
+      "description": "YAML parser and stringifier"
+    },
+    "json5": {
+      "package": "json5",
+      "description": "JSON for humans"
+    },
+    "rimraf": {
+      "package": "rimraf",
+      "description": "the UNIX command rm -rf for node"
+    },
+    "nodemon": {
+      "package": "nodemon",
+      "description": "restart a node program when its files change"
+    },
+    "figlet": {
+      "package": "figlet-cli",
+      "description": "FIGlet banners from the command line"
+    },
+    "fx": {
+      "package": "fx",
+      "description": "terminal JSON viewer and processor"
+    },
+    "jsonlint": {
+      "package": "jsonlint",
+      "description": "JSON validator"
+    },
+    "cronstrue": {
+      "package": "cronstrue",
+      "description": "cron expressions in plain English"
+    },
+    "nodejs": {
+      "provided": "node is part of ecmaOS (/bin/node)"
+    },
+    "node": {
+      "provided": "node is part of ecmaOS (/bin/node)"
+    },
+    "npm": {
+      "provided": "npm is part of ecmaOS (/bin/npm), on top of install"
+    },
+    "coreutils": {
+      "provided": "the core utilities are part of ecmaOS"
+    },
+    "curl": {
+      "provided": "curl is part of ecmaOS"
+    },
+    "wget": {
+      "provided": "wget is part of ecmaOS"
+    },
+    "tar": {
+      "provided": "tar is part of ecmaOS"
+    },
+    "gzip": {
+      "provided": "gzip is part of ecmaOS"
+    },
+    "zip": {
+      "provided": "zip is part of ecmaOS"
+    },
+    "unzip": {
+      "provided": "unzip is part of ecmaOS"
+    },
+    "git": {
+      "provided": "git is part of ecmaOS"
+    },
+    "grep": {
+      "provided": "grep is part of ecmaOS"
+    },
+    "sed": {
+      "provided": "sed is part of ecmaOS"
+    },
+    "gawk": {
+      "provided": "awk is part of ecmaOS"
+    },
+    "sudo": {
+      "provided": "sudo is part of ecmaOS"
+    },
+    "man-db": {
+      "provided": "man is part of ecmaOS"
+    },
+    "compression": {
+      "package": "@ecmaos-apps/group-compression",
+      "description": "bzip2, xz, zstd and lz4",
+      "meta": true
+    },
+    "sysutils": {
+      "package": "@ecmaos-apps/group-sysutils",
+      "description": "Process, kernel and hardware inspection: ps, lsof, vmstat, sysctl, lsmod, pidof, netstat, hwclock, microcom, lspci, lsusb",
+      "meta": true
+    },
+    "network": {
+      "package": "@ecmaos-apps/group-network",
+      "description": "dropbear: an SSH client and server",
+      "meta": true
+    },
+    "text": {
+      "package": "@ecmaos-apps/group-text",
+      "description": "Text and build tools: patch, make, bc, ed, tree, nano, lua",
+      "meta": true
+    },
+    "data": {
+      "package": "@ecmaos-apps/group-data",
+      "description": "sqlite3 and jq",
+      "meta": true
+    },
+    "terminal": {
+      "package": "@ecmaos-apps/group-terminal",
+      "description": "tmux and screen",
+      "meta": true
+    },
+    "shells": {
+      "package": "@ecmaos-apps/group-shells",
+      "description": "bash and dash",
+      "meta": true
+    },
+    "editors": {
+      "package": "@ecmaos-apps/group-editors",
+      "description": "vim",
+      "meta": true
+    },
+    "monitor": {
+      "package": "@ecmaos-apps/group-monitor",
+      "description": "htop and ncdu",
+      "meta": true
+    },
+    "hardware": {
+      "package": "@ecmaos-apps/group-hardware",
+      "description": "Input and camera tools: evtest, hidinfo, v4l2grab",
+      "meta": true
+    },
+    "docs": {
+      "package": "@ecmaos-apps/group-docs",
+      "description": "mandoc, the manual page formatter",
+      "meta": true
+    },
+    "dev": {
+      "package": "@ecmaos-apps/group-dev",
+      "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
+      "meta": true
+    },
+    "fun": {
+      "package": "@ecmaos-apps/group-fun",
+      "description": "figlet, lolcat, fortune, sl, cmatrix",
+      "meta": true
+    },
+    "audio": {
+      "package": "@ecmaos-apps/group-audio",
+      "description": "ALSA tools: aplay, arecord, amixer, speaker-test",
+      "meta": true
+    },
+    "graphics": {
+      "package": "@ecmaos-apps/group-graphics",
+      "description": "doom, the SDL demos and the Wayland compositor demos",
+      "meta": true
+    },
+    "ecmaos-minimal": {
+      "package": "@ecmaos-apps/profile-minimal",
+      "description": "The kernel's own commands, bash, compression, system utilities and an SSH client",
+      "meta": true
+    },
+    "ecmaos-standard": {
+      "package": "@ecmaos-apps/profile-standard",
+      "description": "Minimal plus editors, text and data tools, a terminal multiplexer, monitors, hardware tools and manual pages",
+      "meta": true
+    },
+    "ecmaos-developer": {
+      "package": "@ecmaos-apps/profile-developer",
+      "description": "Standard plus the developer tools",
+      "meta": true
+    },
+    "ecmaos-everything": {
+      "package": "@ecmaos-apps/profile-everything",
+      "description": "Every program ecmaOS ships",
+      "meta": true
+    }
+  },
+  "apt": {
+    "node-typescript": "typescript",
+    "node-semver": "semver",
+    "node-marked": "marked",
+    "node-prettier": "prettier",
+    "node-eslint": "eslint",
+    "node-less": "lessc",
+    "node-uglify": "uglify-js",
+    "node-terser": "terser",
+    "node-yaml": "yaml",
+    "node-json5": "json5",
+    "node-rimraf": "rimraf",
+    "node-sass": "sass",
+    "netcat": {
+      "provided": "nc is part of ecmaOS"
+    },
+    "netcat-openbsd": {
+      "provided": "nc is part of ecmaOS"
+    },
+    "less": "less",
+    "figlet": "figlet",
+    "man": "man-db"
+  },
+  "pacman": {
+    "less": "less",
+    "gawk": "gawk",
+    "openbsd-netcat": {
+      "provided": "nc is part of ecmaOS"
+    },
+    "man-db": "man-db",
+    "nodejs": "nodejs",
+    "yarn": {
+      "provided": "yarn is part of ecmaOS (/bin/yarn), on top of install"
+    },
+    "pnpm": {
+      "provided": "pnpm is part of ecmaOS (/bin/pnpm), on top of install"
+    }
+  },
+  "commands": {
+    "bc": "bc",
+    "dc": "bc",
+    "brotli": "brotli",
+    "dash": "dash",
+    "jq": "jq",
+    "lua": "lua",
+    "sqlite3": "sqlite3",
+    "bzip2": "bzip2",
+    "bunzip2": "bzip2",
+    "bzcat": "bzip2",
+    "xz": "xz",
+    "unxz": "xz",
+    "xzcat": "xz",
+    "lzma": "xz",
+    "unlzma": "xz",
+    "lzcat": "xz",
+    "zstd": "zstd",
+    "unzstd": "zstd",
+    "zstdcat": "zstd",
+    "qjs": "qjs",
+    "patch": "patch",
+    "microcom": "microcom",
+    "hwclock": "hwclock",
+    "ps": "ps",
+    "lsof": "lsof",
+    "vmstat": "vmstat",
+    "netstat": "netstat",
+    "sysctl": "sysctl",
+    "lsmod": "lsmod",
+    "pidof": "pidof",
+    "ncdu": "ncdu",
+    "mg": "mg",
+    "micropython": "micropython",
+    "mandoc": "mandoc",
+    "wlcomp": "wlcomp",
+    "hidinfo": "hidinfo",
+    "v4l2grab": "v4l2grab",
+    "wldemo": "wldemo",
+    "sdlsnake": "sdlsnake",
+    "sdlpaint": "sdlpaint",
+    "sdlclip": "sdlclip",
+    "sdlpad": "sdlpad",
+    "sdlgl": "sdlgl",
+    "sdlgears": "sdlgears",
+    "tmux": "tmux",
+    "dropbear": "dropbear",
+    "ssh": "dropbear",
+    "dbclient": "dropbear",
+    "scp": "dropbear",
+    "dropbearkey": "dropbear",
+    "python3": "python3",
+    "python": "python3",
+    "lsusb": "lsusb",
+    "lspci": "lspci",
+    "rg": "rg",
+    "fd": "fd",
+    "bat": "bat",
+    "figlet": "figlet",
+    "fortune": "fortune",
+    "lolcat": "lolcat",
+    "sl": "sl",
+    "bash": "bash",
+    "make": "make",
+    "nano": "nano",
+    "tree": "tree",
+    "evtest": "evtest",
+    "vim": "vim",
+    "vi": "vim",
+    "ed": "ed",
+    "lz4": "lz4",
+    "unlz4": "lz4",
+    "lz4cat": "lz4",
+    "doom": "doom",
+    "screen": "screen",
+    "aplay": "aplay",
+    "arecord": "arecord",
+    "amixer": "amixer",
+    "speaker-test": "speaker-test",
+    "htop": "htop",
+    "perl": "perl",
+    "rsync": "rsync",
+    "cmatrix": "cmatrix"
+  }
+}

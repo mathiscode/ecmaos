@@ -25,6 +25,7 @@ const MTIME = '2026-01-01 00:00:00Z'
 const MIRRORS = [
   { source: 'README.md', copy: 'core/kernel/README.md', sync: 'sync:readme' },
   { source: 'README.md', copy: path.relative(root, path.join(share, 'docs/@ecmaos/kernel/index.md')), sync: 'sync:readme' },
+  { source: 'utils/package-index/index.json', copy: path.relative(root, path.join(share, 'ecmaos/package-index/index.json')), sync: 'sync:index' },
   { source: 'docs', copy: path.relative(root, path.join(share, 'docs/@ecmaos/kernel/docs')), sync: 'sync:docs' },
   ...['LICENSE', 'LICENSE-APACHE', 'LICENSE-MIT'].map(name => ({ source: name, copy: path.relative(root, path.join(share, 'licenses/@ecmaos/kernel', name)), sync: 'sync:licenses' })),
   { source: 'core/utils/licenses', copy: path.relative(root, path.join(share, 'licenses/@ecmaos/coreutils')), sync: 'sync:licenses' },
