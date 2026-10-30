@@ -3,6 +3,8 @@ import { Buffer } from 'node:buffer'
 import 'fake-indexeddb/auto'
 import './fake-idb-prune'
 import 'vitest-canvas-mock'
+// @ts-expect-error - a script, not a module with types
+import { versionOf } from '../../../utils/apps-packages.mjs'
 
 (globalThis as any).Buffer = Buffer
 
@@ -305,7 +307,7 @@ global.TextEncoder = ESBuildAndJSDOMCompatibleTextEncoder
         const wanted = groupFile.profiles[profile]
         for (const name of [...(wanted.packages ?? []), ...wanted.groups.flatMap((group: string) => groupFile.groups[group].members)]) tiers[name] ??= profile
       }
-      const catalog = { packages: chosen.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: Object.fromEntries(Object.entries(pkg.manifest.programs as Record<string, object>).map(([name, program]) => [name, { ...program, ...(tiers[name] ? { profile: tiers[name] } : {}) }])) })) }
+      const catalog = { packages: chosen.map(pkg => ({ name: pkg.manifest.package, path: pkg.name, programs: Object.fromEntries(Object.entries(pkg.manifest.programs as Record<string, { version: string, revision?: number }>).map(([name, program]) => [name, { ...program, packageVersion: versionOf(program), ...(tiers[name] ? { profile: tiers[name] } : {}) }])) })), groups: groupFile.groups, profiles: groupFile.profiles }
       return Promise.resolve(new Response(JSON.stringify(catalog), { headers: { 'content-type': 'application/json' } }))
     }
     const [, , pkgName, file] = pathname.split('/')

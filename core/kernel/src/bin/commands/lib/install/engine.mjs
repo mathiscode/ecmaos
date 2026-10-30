@@ -17,7 +17,7 @@ import { RegistryError } from './registry.mjs'
 import { loadTrust } from './names.mjs'
 import { isSignedScope, scriptsAllowed, signedProblem, verifyIntegrity, verifySignature, verifyTrust } from './trust.mjs'
 
-const { env, custom, chmod, rename, rmRecursive, rmdir, symlink, unlink, readlink, write } = globalThis.ecmaosSyscalls
+const { env, custom, chmod, rename, rmRecursive, rmdir, symlink, unlink, readlink, write, open, read, close, O_RDONLY } = globalThis.ecmaosSyscalls
 
 const encoder = new TextEncoder()
 export const red = text => `\x1b[31m${text}\x1b[0m`
@@ -62,6 +62,21 @@ export function pickVersion(document, range) {
 function wrongPlatform(manifest) {
   const rules = [manifest?.os, manifest?.cpu].filter(Array.isArray)
   return rules.some(list => list.length && !list.some(item => /^(ecmaos|browser|wasm32|any)$/.test(item)))
+}
+
+const PLACEHOLDER_HEAD = '#!/usr/libexec/ecmaos/wait-for-program'
+
+/** Whether `path` is a program the boot catalog wrote (a WebAssembly binary, or the placeholder for one still downloading) and not a link or a kernel command */
+function catalogCopy(path) {
+  try { readlink(path); return false } catch { /* not a link */ }
+  let fd
+  try {
+    fd = open(path, O_RDONLY)
+    const head = new Uint8Array(PLACEHOLDER_HEAD.length)
+    const count = read(fd, head, -1)
+    if (count >= 4 && head[0] === 0 && head[1] === 0x61 && head[2] === 0x73 && head[3] === 0x6d) return true
+    return count === PLACEHOLDER_HEAD.length && new TextDecoder().decode(head) === PLACEHOLDER_HEAD
+  } catch { return false } finally { if (fd !== undefined) try { close(fd) } catch { /* closed */ } }
 }
 
 const safe = name => name.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -471,6 +486,10 @@ export class Engine {
         // a tarball keeps the mode of the file it was packed from, and npm makes a bin executable as it installs it
         chmod(binPath, 0o755)
         try { unlink(join(this.scope.bin, bin)) } catch { /* not linked yet */ }
+        // the copy the boot catalog put in /bin comes first on the PATH; the package takes its place
+        if (this.scope.system && catalogCopy(`/bin/${bin}`)) {
+          try { unlink(`/bin/${bin}`); this.out(blue(`Replaced the copy of ${bin} in /bin`)) } catch { /* the copy stays */ }
+        }
         symlink(binPath, join(this.scope.bin, bin))
         this.out(blue(`Linked ${bin} to ${join(this.scope.bin, bin)}`))
       }
@@ -609,6 +628,9 @@ export class Engine {
   retireSuperseded(nodes) {
     for (const node of nodes.filter(node => (node.explicit || node.viaMeta) && !node.existing)) {
       const olds = this.db.versionsOf(node.name).filter(old => old.version !== node.version && semver.lt(old.version, node.version))
+      // the catalog's copy is replaced by the package's and not kept: there is no directory to go back to
+      for (const old of olds.filter(old => old.seeded)) { this.repoint(node.name, old.version, node.version); this.db.delete(old.name, old.version) }
+      olds.splice(0, olds.length, ...olds.filter(old => !old.seeded))
       const keep = this.scope.project ? undefined : olds.find(old => !old.explicit)
       for (const old of olds) if (old.kept && old !== keep) { old.kept = false; this.db.set(old) }
       if (keep) { keep.kept = true; this.db.set(keep) }
@@ -697,6 +719,7 @@ export class Engine {
 
   /** Deletes a package's files, links and modules, and its record; true when it is gone */
   removeEntry(entry) {
+    if (entry.seeded) return this.removeSeeded(entry)
     const directory = join(this.scope.lib, entry.name, entry.version)
     this.unlinkEntry(entry)
     let modules = false
@@ -716,6 +739,17 @@ export class Engine {
     this.db.delete(entry.name, entry.version)
     this.out(`Uninstalled ${entry.name}@${entry.version}`)
     if (modules) this.depmod = true
+    return true
+  }
+
+  /** A program the boot catalog wrote: its file goes, and it is kept off the boot's list so the next boot does not fetch it again */
+  removeSeeded(entry) {
+    try { unlink(entry.file) } catch (error) {
+      if (exists(entry.file)) { this.err(red(`Failed to remove ${entry.file}: ${error instanceof Error ? error.message : String(error)}`)); return false }
+    }
+    this.db.delete(entry.name, entry.version)
+    this.db.exclude(entry.name)
+    this.out(`Uninstalled ${entry.name}@${entry.version}`)
     return true
   }
 

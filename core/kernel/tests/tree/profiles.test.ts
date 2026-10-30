@@ -77,4 +77,31 @@ describe('the profile at boot', () => {
     expect(await minimal.filesystem.fs.exists('/bin/python3')).toBe(false)
     expect(await minimal.filesystem.fs.exists(PROFILE_FILE)).toBe(false)
   }, 60_000)
+  it('records the profile in the install database: seeded programs, groups and the profile as the one explicit package', async () => {
+    const db = JSON.parse(await minimal.filesystem.fs.readFile('/var/lib/install/db.json', 'utf8')).packages as Record<string, { explicit: boolean, seeded?: boolean, file?: string, dependencies: Record<string, string> }>
+    const profile = db['@ecmaos-apps/profile-minimal@1.0.0']!
+    expect(profile.explicit).toBe(true)
+    expect(Object.keys(profile.dependencies)).toEqual(expect.arrayContaining(['@ecmaos-apps/bash', '@ecmaos-apps/group-compression']))
+    const compression = db['@ecmaos-apps/group-compression@1.0.0']!
+    expect(compression.explicit).toBe(false)
+    expect(Object.keys(compression.dependencies)).toEqual(expect.arrayContaining(['@ecmaos-apps/bzip2', '@ecmaos-apps/xz']))
+    const bzip2 = Object.entries(db).find(([key]) => key.startsWith('@ecmaos-apps/bzip2@'))![1]
+    expect(bzip2).toMatchObject({ seeded: true, explicit: false, file: '/bin/bzip2' })
+    expect(Object.keys(db).some(key => key.startsWith('@ecmaos-apps/vim@'))).toBe(false)
+    expect(JSON.parse(await minimal.filesystem.fs.readFile('/usr/lib/@ecmaos-apps/group-compression/1.0.0/package.json', 'utf8')).ecmaos.meta).toBe(true)
+  }, 60_000)
+
+  it('install lists them, remove deletes the file and keeps it out of the next boot, and a group stays installed', async () => {
+    const fs = minimal.filesystem.fs
+    const run = async (command: string) => {
+      const code = await minimal.shell.execute(`${command} > /tmp/p.out 2> /tmp/p.err`)
+      return { code, out: await fs.readFile('/tmp/p.out', 'utf8'), err: await fs.readFile('/tmp/p.err', 'utf8') }
+    }
+    expect((await run('install list --all')).out).toMatch(/@ecmaos-apps\/xz@.* \[dependency\]/)
+    expect((await run('install remove @ecmaos-apps/xz')).code).toBe(0)
+    expect(await fs.exists('/bin/xz')).toBe(false)
+    expect(JSON.parse(await fs.readFile('/etc/ecmaos/profile.d/excluded.json', 'utf8'))).toContain('@ecmaos-apps/xz')
+    expect(await fs.exists('/usr/lib/@ecmaos-apps/group-compression/1.0.0/package.json')).toBe(true)
+    expect(await fs.exists('/bin/zstd')).toBe(true)
+  }, 60_000)
 })

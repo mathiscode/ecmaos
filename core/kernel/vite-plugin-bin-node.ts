@@ -10,6 +10,9 @@ import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
+// @ts-expect-error - a script, not a module with types
+import { versionOf } from '../../utils/apps-packages.mjs'
+
 function binWorkerPlugin(name: string, entryPoint: string): Plugin {
   const virtualModuleId = `virtual:bin-${name}`
   const resolvedVirtualModuleId = '\0' + virtualModuleId
@@ -337,12 +340,14 @@ export function programTiers(): Record<string, string> {
 
 export function programCatalog(packages: ProgramPackageManifest[]) {
   const tiers = programTiers()
-  const entry = (name: string, { file, size, sha256, version, license, description, runtime }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description, ...(tiers[name] ? { profile: tiers[name] } : {}), ...(runtime ? { runtime } : {}) })
+  const groupFile = (() => { try { return JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../utils/package-index/groups.json'), 'utf8')) as { groups: object, profiles: object } } catch { return undefined } })()
+  const entry = (name: string, { file, size, sha256, version, revision, license, description, runtime }: ProgramPackageManifest['programs'][string] & { revision?: number }) => ({ file, size, sha256, version, license, description, packageVersion: versionOf({ version, revision }), ...(tiers[name] ? { profile: tiers[name] } : {}), ...(runtime ? { runtime } : {}) })
   return {
     packages: packages.map(({ name, path, programs, moved }) => ({
       name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(program, value)])),
       ...(Object.keys(moved).length ? { moved } : {})
-    }))
+    })),
+    ...(groupFile ? { groups: groupFile.groups, profiles: groupFile.profiles } : {})
   }
 }
 

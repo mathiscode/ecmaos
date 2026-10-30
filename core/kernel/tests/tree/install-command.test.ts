@@ -456,4 +456,35 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await kernel.shell.execute(`install sig-free --registry ${registry}`)).toBe(0)
     })
   })
+  describe('programs the boot catalog wrote', () => {
+    it('are replaced by the package\'s bin when it is installed, and the seeded record goes with them', async () => {
+      const fs = kernel.filesystem.fs
+      await fs.writeFile('/bin/seedswap', new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]), { mode: 0o755 })
+      await fs.mkdir('/var/lib/install', { recursive: true })
+      const db = JSON.parse(await fs.readFile('/var/lib/install/db.json', 'utf-8').catch(() => '{"packages":{}}'))
+      db.packages['seedswap@1.0.0'] = { name: 'seedswap', version: '1.0.0', explicit: true, linked: true, seeded: true, file: '/bin/seedswap', dependencies: {}, installed: new Date().toISOString() }
+      await fs.writeFile('/var/lib/install/db.json', JSON.stringify(db))
+      await publish('seedswap', '2.0.0', { 'dist/cli.js': '// 2\n' })
+
+      expect(await kernel.shell.execute('install list > /tmp/seed.out')).toBe(0)
+      expect(await fs.readFile('/tmp/seed.out', 'utf-8')).toContain('seedswap@1.0.0')
+      expect(await kernel.shell.execute(`install upgrade seedswap --registry ${registry}`)).toBe(0)
+      expect(await fs.exists('/bin/seedswap')).toBe(false)
+      expect(await fs.readlink('/usr/bin/seedswap')).toBe('/usr/lib/seedswap/2.0.0/dist/cli.js')
+      const after = JSON.parse(await fs.readFile('/var/lib/install/db.json', 'utf-8'))
+      expect(after.packages['seedswap@1.0.0']).toBeUndefined()
+      expect(after.packages['seedswap@2.0.0']).toBeDefined()
+      // nothing of the seeded copy is kept for a rollback
+      expect(await kernel.shell.execute('install rollback seedswap 2> /dev/null')).toBe(1)
+    })
+
+    it('leave a file in /bin that is not a program of the catalog alone', async () => {
+      const fs = kernel.filesystem.fs
+      await fs.writeFile('/bin/ownstub', '#!ecmaos:bin:command:ownstub\n', { mode: 0o755 })
+      await publish('ownstub', '1.0.0', { 'dist/cli.js': '// pkg\n' })
+      expect(await kernel.shell.execute(`install ownstub --registry ${registry}`)).toBe(0)
+      expect(await fs.readFile('/bin/ownstub', 'utf-8')).toBe('#!ecmaos:bin:command:ownstub\n')
+      await fs.unlink('/bin/ownstub')
+    })
+  })
 })

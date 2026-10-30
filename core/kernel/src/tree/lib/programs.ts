@@ -14,6 +14,8 @@ export interface ProgramEntry {
   version: string
   license: string
   description: string
+  /** The version of the program's `@ecmaos-apps` package (`9.1.0-ecmaos.1`) */
+  packageVersion?: string
   /** The smallest profile that has the program (`minimal`, `standard`, `developer`, `everything`); without it, every profile does */
   profile?: string
   /**
@@ -33,6 +35,9 @@ export interface ProgramPackage {
 
 export interface ProgramCatalog {
   packages: ProgramPackage[]
+  /** The groups and profiles (`utils/package-index/groups.json`), for recording what a profile installed */
+  groups?: Record<string, { members: string[] }>
+  profiles?: Record<string, { groups: string[], packages?: string[] }>
 }
 
 export interface InstallProgramsOptions {
@@ -124,6 +129,9 @@ for (;;) {
 export interface StagedPrograms {
   /** Programs that got a placeholder because nothing was installed under their name */
   placeholders: string[]
+  /** The catalog, and the programs of it this machine is to have (those its profile and exclusions leave) */
+  catalog?: ProgramCatalog
+  programs: { name: string, entry: ProgramEntry }[]
   /** Starts the downloads (once) and settles when every program is installed or has failed; it never rejects */
   start(): Promise<InstallProgramsResult>
 }
@@ -144,7 +152,7 @@ export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { 
     catalog = await response.json() as ProgramCatalog
   } catch (error) {
     result.failed['(catalog)'] = `${options.catalogUrl}: ${(error as Error).message}`
-    return { placeholders: [], start: () => Promise.resolve(result) }
+    return { placeholders: [], programs: [], start: () => Promise.resolve(result) }
   }
 
   const stamps = options.stamps.read()
@@ -223,7 +231,7 @@ export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { 
     for (const list of [result.installed, result.current]) list.sort((a, b) => order.indexOf(a) - order.indexOf(b))
     return result
   }
-  return { placeholders, start: () => (finished ??= run()) }
+  return { placeholders, catalog, programs: programs.map(({ name, entry }) => ({ name, entry })), start: () => (finished ??= run()) }
 }
 
 /**

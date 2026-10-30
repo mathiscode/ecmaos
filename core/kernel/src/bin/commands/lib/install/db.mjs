@@ -102,8 +102,10 @@ export class Database {
     const found = onDisk(this.scope.lib).filter(({ name, version }) => !known.has(keyOf(name, version)))
     // a recorded entry whose directory has gone was removed by hand
     for (const key of known) {
-      const { name, version } = this.packages[key]
-      if (!exists(join(this.scope.lib, name, version, 'package.json'))) { delete this.packages[key]; this.changed = true }
+      const { name, version, seeded, file } = this.packages[key]
+      // a program the boot catalog wrote has a file in `/bin` and no directory here; it is gone when that file is
+      const present = seeded ? exists(file) : exists(join(this.scope.lib, name, version, 'package.json'))
+      if (!present) { delete this.packages[key]; this.changed = true }
     }
     if (!found.length) return
     const adopted = found.map(({ name, version, manifest }) => ({
