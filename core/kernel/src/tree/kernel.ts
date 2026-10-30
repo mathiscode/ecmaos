@@ -2558,6 +2558,7 @@ export class Kernel implements IKernel {
       this._programsReady = started.then(() => staged.start()).then(programs => {
         if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
         for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
+        for (const [name, npmPackage] of Object.entries(programs.moved)) this.log.info(`${name} is an npm package now: install ${npmPackage}`)
       })
       if (this._state === KernelState.RUNNING) this._startPrograms?.()
     }

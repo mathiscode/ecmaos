@@ -39,6 +39,12 @@ A package's `bin` runs as a command: `install cowsay && cowsay hi`. The package'
 
 `apt`, `apt-get`, `apt-cache`, `dpkg`, `pacman`, `npm`, `npx`, `yarn` and `pnpm` are front-ends of this command (`pip` is its own, on PyPI): the same packages, database and cache under their own commands and output (see their pages). The distribution tools use their own names for packages, which `@ecmaos/package-index` maps to npm packages; `apt update` and `pacman -Sy` fetch its latest version and keep it in `/var/lib/install/package-index.json` (or `~/.local/state/install/package-index.json`), and the copy built into ecmaOS is used until then.
 
+## Programs as packages
+
+A WebAssembly program is an npm package in the `@ecmaos-apps` scope: `install -g @ecmaos-apps/figlet` (or `apt install figlet`) links `figlet.wasm` into `/usr/bin` as any package's bin. A program that needs files beside it (`figlet`'s fonts, `vim`'s runtime) ships them under `"ecmaos": { "runtime": "runtime" }`, laid out from `/`; its `usr/` is linked into `/usr` file by file and unlinked when the package is removed, so only a system install puts them in place (a `--user` install says so). `utils/apps-packages.mjs` writes these packages from the programs of `@ecmaos/coreutils` and `@ecmaos/coreutils-copyleft` (`build OUT [name...]`), and `index` adds the names to `@ecmaos/package-index`.
+
+A program moves out of the boot catalog when its `programs/manifest.json` entry gains `"package": "@ecmaos-apps/NAME"`: the site stops serving it, and a machine that had it from the catalog loses that copy at the next boot and is told to install the package. Programs not moved are still written to `/bin` at boot.
+
 ## Trust
 
 Every tarball is checked against the registry's `dist.integrity` (SHA-512 where the registry gives it, else the SHA-1 `shasum`) before it is unpacked, the cached copy included.

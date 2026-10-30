@@ -288,10 +288,15 @@ export interface ProgramPackageManifest {
   name: string
   path: string
   dir: string
-  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, runtime?: { file: string, size: number, sha256: string }, sources?: { archive: string }[] }>
+  programs: Record<string, { file: string, size: number, sha256: string, version: string, license: string, description: string, runtime?: { file: string, size: number, sha256: string }, sources?: { archive: string }[], package?: string }>
+  /** The programs left out because they are npm packages now, by package */
+  moved: Record<string, string>
 }
 
-/** Reads the manifests of the program packages that this build includes. */
+/**
+ * Reads the manifests of the program packages that this build includes. A program a manifest marks as moved
+ * (`"package": "@ecmaos-apps/NAME"`) is an npm package now, so the catalog, and the files the site serves, leave it out.
+ */
 export function readProgramPackages(): ProgramPackageManifest[] {
   const require = createRequire(import.meta.url)
   const copyleft = !['0', 'false', 'off', 'no'].includes(String(process.env['ECMAOS_COPYLEFT'] ?? '').toLowerCase())
@@ -303,8 +308,10 @@ export function readProgramPackages(): ProgramPackageManifest[] {
       if (entry.optional) continue
       throw error
     }
-    const { programs } = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8'))
-    found.push({ name: entry.name, path: entry.path, dir, programs })
+    const { programs } = JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as Pick<ProgramPackageManifest, 'programs'>
+    const kept = Object.fromEntries(Object.entries(programs).filter(([, program]) => !program.package))
+    const moved = Object.fromEntries(Object.entries(programs).filter(([, program]) => program.package).map(([name, program]) => [name, program.package as string]))
+    found.push({ name: entry.name, path: entry.path, dir, programs: kept, moved })
   }
   return found
 }
@@ -315,8 +322,9 @@ export function readProgramPackages(): ProgramPackageManifest[] {
 export function programCatalog(packages: ProgramPackageManifest[]) {
   const entry = ({ file, size, sha256, version, license, description, runtime }: ProgramPackageManifest['programs'][string]) => ({ file, size, sha256, version, license, description, ...(runtime ? { runtime } : {}) })
   return {
-    packages: packages.map(({ name, path, programs }) => ({
-      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(value)]))
+    packages: packages.map(({ name, path, programs, moved }) => ({
+      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(value)])),
+      ...(Object.keys(moved).length ? { moved } : {})
     }))
   }
 }

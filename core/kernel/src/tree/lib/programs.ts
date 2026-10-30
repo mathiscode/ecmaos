@@ -25,6 +25,8 @@ export interface ProgramPackage {
   name: string
   path: string
   programs: Record<string, ProgramEntry>
+  /** Programs that left the catalog for npm, by the package that carries each (`jq: '@ecmaos-apps/jq'`) */
+  moved?: Record<string, string>
 }
 
 export interface ProgramCatalog {
@@ -50,6 +52,8 @@ export interface InstallProgramsResult {
   installed: string[]
   current: string[]
   failed: Record<string, string>
+  /** Programs this machine had from the catalog that are npm packages now: `/bin/<name>` was removed, `install` brings them back */
+  moved: Record<string, string>
 }
 
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('')
@@ -127,7 +131,7 @@ export interface StagedPrograms {
  */
 export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { placeholders?: boolean }): Promise<StagedPrograms> {
   const fetcher = options.fetcher ?? ((url, init) => fetch(url, init))
-  const result: InstallProgramsResult = { installed: [], current: [], failed: {} }
+  const result: InstallProgramsResult = { installed: [], current: [], failed: {}, moved: {} }
 
   let catalog: ProgramCatalog
   try {
@@ -152,6 +156,18 @@ export async function stagePrograms(fs: Fs, options: InstallProgramsOptions & { 
     const actual = await sha(bytes)
     if (actual !== undefined && actual !== entry.sha256) throw new Error(`${entry.file} does not match the catalog's sha256`)
     return bytes
+  }
+
+  // A program that moved to npm: the copy an earlier boot wrote goes, so the package's is the one `PATH` finds. One this
+  // machine never had from the catalog (no stamp) is not ours to remove.
+  for (const [name, npmPackage] of catalog.packages.flatMap(pkg => Object.entries(pkg.moved ?? {}))) {
+    if (!(name in stamps)) continue
+    const target = `/bin/${name}`
+    if ((await fs.lstat(target).catch(() => undefined))?.isFile()) await fs.unlink(target).catch(() => {})
+    delete stamps[name]
+    delete stamps[`${name}:runtime`]
+    options.stamps.write(stamps)
+    result.moved[name] = npmPackage
   }
 
   const programs = catalog.packages.flatMap(pkg => Object.entries(pkg.programs).map(([name, entry]) => ({ pkg, name, entry })))

@@ -59,6 +59,10 @@ for (const [name, program] of waliPrograms) {
 for (const [name, program] of Object.entries(manifest.programs)) {
   if (program.toolchain !== undefined && program.toolchain !== 'wali') problems.push(`${name}: toolchain is ${program.toolchain}; a program names one only when it is wali`)
 }
+// A program that moved to npm names its package; it is `@ecmaos-apps/NAME` (see utils/apps-packages.mjs)
+for (const [name, program] of Object.entries(manifest.programs)) {
+  if (program.package !== undefined && program.package !== `@ecmaos-apps/${name}`) problems.push(`${name}: package is ${program.package}, not @ecmaos-apps/${name}`)
+}
 for (const [name, program] of Object.entries(manifest.programs)) {
   const texts = path.join(process.cwd(), 'licenses', name)
   if (!existsSync(texts) || readdirSync(texts).length === 0) problems.push(`${name}: no license text in licenses/${name}/`)

@@ -1,0 +1,155 @@
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+import { Kernel } from '#kernel.ts'
+import { stagePrograms } from '#lib/programs.ts'
+import { programCatalog } from '../../vite-plugin-bin-node'
+import { DefaultFilesystemOptions } from '#filesystem.ts'
+
+import { buildNpmTarballGzip, sha512Sri } from './fixtures/npm-tarball'
+import { TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
+
+// @ts-expect-error - a script, not a module with types
+import { indexEntries, semverOf } from '../../../../utils/apps-packages.mjs'
+
+/**
+ * The WebAssembly programs as npm packages (`@ecmaos-apps/NAME`, written by `utils/apps-packages.mjs`): the package
+ * `figlet` and `lolcat` really become, installed from a registry like any other, linked as bins, with the runtime files a
+ * program needs linked into `/usr`.
+ */
+const script = process.getBuiltinModule('node:path').resolve(process.cwd(), '../../utils/apps-packages.mjs')
+
+describe('wasm programs as packages', () => {
+  let kernel: Kernel
+  let server: Server
+  let registry = ''
+  const routes = new Map<string, Uint8Array | string>()
+  const fs = () => kernel.filesystem.fs
+  const run = async (command: string) => {
+    await fs().unlink('/tmp/wa-out').catch(() => {})
+    await fs().unlink('/tmp/wa-err').catch(() => {})
+    const code = await kernel.shell.execute(`${command} > /tmp/wa-out 2> /tmp/wa-err`)
+    const read = (name: string) => fs().readFile(`/tmp/wa-${name}`, 'utf-8').catch(() => '')
+    return { code, out: await read('out'), err: await read('err') }
+  }
+
+  /** Writes `name`'s package as the generator does and serves it from the registry */
+  const publishProgram = async (name: string) => {
+    const { mkdtempSync, readdirSync, readFileSync, statSync } = process.getBuiltinModule('node:fs')
+    const { join } = process.getBuiltinModule('node:path')
+    const { tmpdir } = process.getBuiltinModule('node:os')
+    const { execFileSync } = process.getBuiltinModule('node:child_process')
+    const out = mkdtempSync(join(tmpdir(), 'wa-'))
+    execFileSync('node', [script, 'build', out, name])
+    const directory = join(out, name)
+    const files: Record<string, Uint8Array | string> = {}
+    const visit = (path: string, prefix: string) => {
+      for (const child of readdirSync(path)) {
+        const full = join(path, child)
+        if (statSync(full).isDirectory()) visit(full, `${prefix}${child}/`)
+        else files[`${prefix}${child}`] = new Uint8Array(readFileSync(full))
+      }
+    }
+    visit(directory, '')
+    const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+    const tarball = await buildNpmTarballGzip(files)
+    const dist = { tarball: `${registry}/${manifest.name}/-/${manifest.version}.tgz`, integrity: await sha512Sri(tarball) }
+    routes.set(`/${manifest.name}/-/${manifest.version}.tgz`, tarball)
+    routes.set(`/${manifest.name}`, JSON.stringify({ name: manifest.name, 'dist-tags': { latest: manifest.version }, versions: { [manifest.version]: { ...manifest, dist } } }))
+    return { manifest, files }
+  }
+
+  beforeAll(async () => {
+    kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
+    await kernel.boot()
+    const { createServer } = process.getBuiltinModule('node:http')
+    server = createServer((req, res) => {
+      const body = routes.get((req.url ?? '').replace(/%40/g, '@').replace(/%2f/gi, '/'))
+      if (body === undefined) { res.statusCode = 404; res.end('not found'); return }
+      res.end(body)
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    kernel.terminal.mount(container)
+  }, 60000)
+
+  afterAll(() => { server?.close() })
+
+  it('names a package for each program, with the upstream version as semver', () => {
+    expect(semverOf('1.22')).toBe('1.22.0')
+    expect(semverOf('3.5a')).toBe('3.5.0')
+    expect(semverOf('20260719')).toBe('20260719.0.0')
+    const listed = process.getBuiltinModule('node:child_process').execFileSync('node', [script, 'list'], { encoding: 'utf8' }).trim().split('\n')
+    expect(listed).toContain('@ecmaos-apps/jq@1.8.2')
+    expect(new Set(listed).size).toBe(listed.length)
+  }, 60_000)
+
+  it('describes a program as a package: its bin, its runtime and where the license texts go', async () => {
+    const { manifest, files } = await publishProgram('figlet')
+    expect(manifest.name).toBe('@ecmaos-apps/figlet')
+    expect(manifest.bin).toEqual({ figlet: 'figlet.wasm' })
+    expect(manifest.ecmaos.runtime).toBe('runtime')
+    expect(Object.keys(files).some(file => file.startsWith('runtime/usr/'))).toBe(true)
+    expect(Object.keys(files).some(file => file.startsWith('share/licenses/figlet/'))).toBe(true)
+  }, 60_000)
+
+  it('installs a program: the bin links the .wasm, the runtime and licenses are linked into /usr, and it runs', async () => {
+    await publishProgram('figlet')
+    const result = await run(`install -g @ecmaos-apps/figlet --registry ${registry} --ignore-signatures`)
+    expect(result.code, result.err).toBe(0)
+    expect(await fs().readlink('/usr/bin/figlet')).toMatch(/\/figlet\/[\d.]+\/figlet\.wasm$/)
+    const manifest = JSON.parse(await fs().readFile('/usr/lib/@ecmaos-apps/figlet/' + (await fs().readdir('/usr/lib/@ecmaos-apps/figlet'))[0] + '/package.json', 'utf-8'))
+    const runtimeFile = Object.keys((await publishProgram('figlet')).files).find(file => file.startsWith('runtime/usr/'))!.slice('runtime'.length)
+    expect((await fs().lstat(runtimeFile)).isSymbolicLink()).toBe(true)
+    expect(manifest.ecmaos.runtime).toBe('runtime')
+    expect((await fs().readdir('/usr/share/licenses/figlet')).length).toBeGreaterThan(0)
+    const ran = await run('/usr/bin/figlet hi')
+    expect(ran.code, ran.err).toBe(0)
+    expect(ran.out).toContain('_')
+  }, 60_000)
+
+  it('removes the bin, the runtime links and the files with the package', async () => {
+    const runtimeFile = Object.keys((await publishProgram('figlet')).files).find(file => file.startsWith('runtime/usr/'))!.slice('runtime'.length)
+    const result = await run('uninstall -g @ecmaos-apps/figlet')
+    expect(result.code, result.err).toBe(0)
+    expect(await fs().exists('/usr/bin/figlet')).toBe(false)
+    expect(await fs().exists(runtimeFile)).toBe(false)
+    expect(await fs().exists('/usr/lib/@ecmaos-apps/figlet')).toBe(false)
+  }, 60_000)
+
+  it('leaves a user install without the /usr runtime, saying why', async () => {
+    await publishProgram('figlet')
+    const result = await run(`install --user @ecmaos-apps/figlet --registry ${registry} --ignore-signatures`)
+    expect(result.err).toContain('needs files under /usr')
+  }, 60_000)
+
+  it('writes index entries only for programs a manifest marks as moved', () => {
+    const entries = indexEntries([
+      { name: 'jq', program: { description: 'jq', package: '@ecmaos-apps/jq' } },
+      { name: 'vim', program: { description: 'vim' } }
+    ])
+    expect(entries).toEqual({ jq: { package: '@ecmaos-apps/jq', description: 'jq' } })
+  }, 60_000)
+
+  it('takes a moved program out of the boot catalog, and removes the copy an earlier boot wrote', async () => {
+    const programEntry = { file: 'x.wasm', size: 1, sha256: 'x', version: '1', license: 'MIT', description: 'x' }
+    const catalog = programCatalog([{ name: 'p', path: 'p', dir: '/nowhere', programs: { kept: programEntry }, moved: { jq: '@ecmaos-apps/jq', ghost: '@ecmaos-apps/ghost' } }])
+    expect(catalog.packages[0]?.programs).not.toHaveProperty('jq')
+    await fs().writeFile('/bin/jq', 'old', { mode: 0o755 })
+    const stamps: Record<string, string> = { jq: 'old', 'jq:runtime': 'old' }
+    const staged = await stagePrograms(fs(), {
+      catalogUrl: 'http://catalog.test/programs/index.json',
+      fetcher: async () => new Response(JSON.stringify(catalog)),
+      stamps: { read: () => stamps, write: () => {} }
+    })
+    const result = await staged.start()
+    expect(result.moved).toEqual({ jq: '@ecmaos-apps/jq' })
+    expect(await fs().exists('/bin/jq')).toBe(false)
+    expect(stamps).toEqual({})
+  }, 60_000)
+})
+

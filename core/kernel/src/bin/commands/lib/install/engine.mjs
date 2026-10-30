@@ -414,9 +414,32 @@ export class Engine {
         this.err(red(`Failed to link share/${share} for ${entry.name}@${entry.version}: ${error}`))
       }
     }
+    this.linkRuntime(entry, manifest, directory)
     entry.linked = true
     this.db.set(entry)
     return true
+  }
+
+  /**
+   * A program that needs files beside it (`vim`'s /usr/share/vim, `python3`'s standard library) ships them in the
+   * package's `"ecmaos": { "runtime": "runtime" }` directory, laid out from `/`. Its `usr/` is linked into `/usr` file by
+   * file, so removing the package takes it away again; only a system install has a `/usr` to put it in.
+   */
+  linkRuntime(entry, manifest, directory) {
+    const runtime = runtimeOf(manifest)
+    if (!runtime) return
+    const source = join(directory, runtime, 'usr')
+    if (!exists(source)) return
+    if (!this.scope.system) {
+      this.err(yellow(`${entry.name}@${entry.version} needs files under /usr, which only a system install puts in place (sudo install -g ${entry.name})`))
+      return
+    }
+    try {
+      const linked = linkTree(source, '/usr')
+      this.out(blue(`Linked ${linked.length} runtime files into /usr`))
+    } catch (error) {
+      this.err(red(`Failed to link the runtime of ${entry.name}@${entry.version}: ${error}`))
+    }
   }
 
   /** In a project, a package asked for by name is the project's own dependency: `node_modules/NAME` points at it */
@@ -459,6 +482,10 @@ export class Engine {
         const source = join(directory, 'share', share)
         if (exists(source)) unlinkTree(source, join(this.scope.share, share))
       } catch { /* nothing to unlink */ }
+    }
+    const runtime = runtimeOf(manifest)
+    if (runtime && this.scope.system) {
+      try { unlinkTree(join(directory, runtime, 'usr'), '/usr') } catch { /* nothing to unlink */ }
     }
     if (this.scope.project) {
       const link = join(this.scope.modules, entry.name)
@@ -612,6 +639,12 @@ export class Engine {
     if (!removed && !quiet) this.out('0 packages to remove.')
     return ok
   }
+}
+
+/** The directory of a package's runtime files (`"ecmaos": { "runtime": "runtime" }`), or `undefined` */
+export function runtimeOf(manifest) {
+  const runtime = manifest?.ecmaos?.runtime
+  return typeof runtime === 'string' && runtime && !runtime.startsWith('/') && !runtime.split('/').includes('..') ? runtime : undefined
 }
 
 export function modulesOf(manifest) {
