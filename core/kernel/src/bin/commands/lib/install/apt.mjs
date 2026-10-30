@@ -313,7 +313,7 @@ async function list(session, o) {
 }
 
 /** A package's `Package:` / `Version:` fields from the registry (or, offline, from what is installed) */
-async function showOne(session, o, text, command) {
+async function showOne(session, o, text) {
   const found = translate(session, 'apt', [text])
   if (found.provided.length) {
     out(`Package: ${found.provided[0].name}\nVersion: (ecmaOS)\nPriority: required\nSection: base\nOrigin: ecmaOS\nDescription: ${found.provided[0].note}\n`)
@@ -346,10 +346,10 @@ async function showOne(session, o, text, command) {
   return true
 }
 
-async function show(session, o, command) {
+async function show(session, o) {
   if (!o.targets.length) throw new Failure(`E: No packages found`, 100)
   let ok = true
-  for (const target of o.targets) ok = (await showOne(session, o, target, command)) && ok
+  for (const target of o.targets) ok = (await showOne(session, o, target)) && ok
   return ok ? 0 : 100
 }
 
@@ -459,7 +459,7 @@ export async function run(command, args) {
       case 'check': reading(o); return 0
       case 'list': return await list(session, o)
       case 'search': return await search(session, o)
-      case 'show': return await show(session, o, command)
+      case 'show': return await show(session, o)
       case 'policy': return await policy(session, o)
       case 'depends': return await depends(session, o)
       case 'rdepends': return await rdepends(session, o)

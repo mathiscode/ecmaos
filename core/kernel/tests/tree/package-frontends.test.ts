@@ -278,7 +278,7 @@ describe('package manager front-ends', () => {
       await publish('typescript', '5.0.0', { description: 'the compiler' })
       expect((await run(`pacman -S --noconfirm typescript --registry ${registry}`)).code).toBe(0)
       let result = await run(`pacman -Ss compiler --registry ${registry}`)
-      expect(result.out).toMatch(/npm\/typescript \S+ \[installed\]\n    TypeScript compiler/)
+      expect(result.out).toMatch(/npm\/typescript \S+ \[installed\]\n {4}TypeScript compiler/)
       result = await run(`pacman -Si typescript --registry ${registry}`)
       expect(result.out).toMatch(/Repository\s+: npm/)
       expect(result.out).toMatch(/Version\s+: 5\.0\.0/)
@@ -299,6 +299,156 @@ describe('package manager front-ends', () => {
       expect((await run('pacman -F foo')).err).toContain('not supported')
       expect((await run('pacman --frobnicate')).err).toContain("error: invalid option '--frobnicate'")
       expect((await run('pacman')).err).toContain('error: no operation specified')
+    })
+  })
+
+  describe('npm, npx, yarn and pnpm', () => {
+    const inDir = async (dir: string, command: string, input = '') => {
+      await fs().mkdir(dir, { recursive: true })
+      return await run(`cd ${dir} && ${command}`, input)
+    }
+    const json = async (path: string) => JSON.parse(await fs().readFile(path, 'utf-8'))
+
+    it('installs into node_modules, keeps package.json up to date, and lists, runs and removes', async () => {
+      await publish('np-b', '1.0.0', { description: 'the dependency' })
+      await publish('np-a', '1.0.0', { dependencies: { 'np-b': '^1.0.0' }, bin: { 'np-a': 'cli.js' } }, { 'cli.js': "#!/usr/bin/env node\nconsole.log('np-a ran', process.argv.slice(2).join(','))\n" })
+      await publish('np-dev', '2.0.0')
+      const dir = '/tmp/np1'
+      let result = await inDir(dir, 'npm init -y')
+      expect(result.code, result.err).toBe(0)
+      expect((await json(`${dir}/package.json`)).name).toBe('np1')
+
+      result = await inDir(dir, `npm install np-a --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toMatch(/added 2 packages in \d+m?s/)
+      expect((await json(`${dir}/package.json`)).dependencies).toEqual({ 'np-a': '^1.0.0' })
+      expect(await fs().readlink(`${dir}/node_modules/np-a`)).toBe('.ecmaos/np-a/1.0.0')
+      expect(await fs().readFile(`${dir}/node_modules/np-a/node_modules/np-b/package.json`, 'utf-8')).toContain('"np-b"')
+      expect(await fs().exists(`${dir}/node_modules/.bin/np-a`)).toBe(true)
+      // the project is its own scope: nothing reaches the system's
+      expect(await fs().exists('/usr/lib/np-a')).toBe(false)
+
+      result = await inDir(dir, `npm install -D np-dev --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect((await json(`${dir}/package.json`)).devDependencies).toEqual({ 'np-dev': '^2.0.0' })
+
+      result = await inDir(dir, 'npm ls')
+      expect(result.out).toContain('np1@1.0.0 /tmp/np1')
+      expect(result.out).toContain('├── np-a@1.0.0\n│   └── np-b@1.0.0')
+      expect(result.out).toContain('└── np-dev@2.0.0')
+
+      // a package's bin runs, found on PATH by npm run and run directly by npx
+      const manifest = await json(`${dir}/package.json`)
+      manifest.scripts = { hello: 'np-a one two', prehello: 'echo before', posthello: 'echo after', fail: 'exit 3', args: 'echo' }
+      await fs().writeFile(`${dir}/package.json`, JSON.stringify(manifest))
+      result = await inDir(dir, 'npm run hello')
+      expect(result.code, result.err + result.out).toBe(0)
+      expect(result.out).toContain('> np1@1.0.0 hello')
+      expect(result.out.indexOf('before')).toBeLessThan(result.out.indexOf('np-a ran one,two'))
+      expect(result.out.indexOf('np-a ran one,two')).toBeLessThan(result.out.indexOf('after'))
+      expect((await inDir(dir, 'npm run args -- x y')).out).toContain('x y')
+      result = await inDir(dir, 'npm run fail')
+      expect(result.code).toBe(3)
+      expect((await inDir(dir, 'npm run nope')).err).toContain('Missing script: "nope"')
+      expect((await inDir(dir, 'npx np-a three')).out).toContain('np-a ran three')
+
+      result = await inDir(dir, 'npm uninstall np-a')
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toMatch(/removed 2 packages/)
+      expect((await json(`${dir}/package.json`)).dependencies ?? {}).toEqual({})
+      expect(await fs().exists(`${dir}/node_modules/np-a`)).toBe(false)
+      expect(await fs().exists(`${dir}/node_modules/.ecmaos/np-b`)).toBe(false)
+      expect(await fs().exists(`${dir}/node_modules/np-dev`)).toBe(true)
+    })
+
+    it('installs what package.json lists, and removes what it no longer lists', async () => {
+      const dir = '/tmp/np2'
+      await fs().mkdir(dir, { recursive: true })
+      await fs().writeFile(`${dir}/package.json`, JSON.stringify({ name: 'np2', version: '0.1.0', dependencies: { 'np-a': '^1.0.0' } }))
+      let result = await inDir(dir, `npm install --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toMatch(/added 2 packages/)
+      expect(await fs().exists(`${dir}/node_modules/np-a`)).toBe(true)
+      result = await inDir(dir, `npm install --registry ${registry}`)
+      expect(result.out).toContain('up to date')
+
+      await fs().writeFile(`${dir}/package.json`, JSON.stringify({ name: 'np2', version: '0.1.0', dependencies: { 'np-dev': '^2.0.0' } }))
+      result = await inDir(dir, `npm install --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(await fs().exists(`${dir}/node_modules/np-a`)).toBe(false)
+      expect(await fs().exists(`${dir}/node_modules/np-dev`)).toBe(true)
+
+      result = await inDir(dir, `npm ci --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(await fs().exists(`${dir}/node_modules/np-dev`)).toBe(true)
+    })
+
+    it('reports and applies updates within the ranges package.json allows', async () => {
+      const dir = '/tmp/np3'
+      await fs().mkdir(dir, { recursive: true })
+      await fs().writeFile(`${dir}/package.json`, JSON.stringify({ name: 'np3', version: '1.0.0', dependencies: { 'np-b': '^1.0.0' } }))
+      expect((await inDir(dir, `npm install --registry ${registry}`)).code).toBe(0)
+      await publish('np-b', '1.1.0')
+      await publish('np-b', '2.0.0')
+      let result = await inDir(dir, `npm outdated --registry ${registry}`)
+      expect(result.code).toBe(1)
+      expect(result.out).toMatch(/Package\s+Current\s+Wanted\s+Latest/)
+      expect(result.out).toMatch(/np-b\s+1\.0\.0\s+1\.1\.0\s+2\.0\.0/)
+      result = await inDir(dir, `npm update --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect((await json(`${dir}/package.json`)).dependencies).toEqual({ 'np-b': '^1.1.0' })
+      expect(await fs().readlink(`${dir}/node_modules/np-b`)).toBe('.ecmaos/np-b/1.1.0')
+    })
+
+    it('installs globally where install does, and views and searches the registry', async () => {
+      await publish('np-glob', '1.0.0', { bin: { 'np-glob': 'cli.js' } }, { 'cli.js': "#!/usr/bin/env node\nconsole.log('glob')\n" })
+      let result = await inDir('/tmp/np4', `npm install -g np-glob --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(await fs().exists('/usr/lib/np-glob/1.0.0')).toBe(true)
+      expect(await fs().exists('/usr/bin/np-glob')).toBe(true)
+      expect((await inDir('/tmp/np4', 'npm ls -g')).out).toContain('np-glob@1.0.0')
+      expect((await inDir('/tmp/np4', 'npm root -g')).out.trim()).toBe('/usr/lib')
+      expect((await inDir('/tmp/np4', 'npm uninstall -g np-glob')).code).toBe(0)
+      expect(await fs().exists('/usr/lib/np-glob')).toBe(false)
+
+      expect((await inDir('/tmp/np4', `npm view np-a version --registry ${registry}`)).out.trim()).toBe('1.0.0')
+      result = await inDir('/tmp/np4', `npm search np-a --registry ${registry}`)
+      expect(result.out).toMatch(/NAME\s+\| DESCRIPTION/)
+      expect(result.out).toContain('np-a')
+      expect((await inDir('/tmp/np4', 'npm --version')).out.trim()).toMatch(/^\d+\.\d+\.\d+$/)
+      expect((await inDir('/tmp/np4', 'npm publish')).err).toContain('is not available on ecmaOS')
+    })
+
+    it('yarn and pnpm do the same in their own words', async () => {
+      const yarnDir = '/tmp/np5'
+      await fs().mkdir(yarnDir, { recursive: true })
+      await fs().writeFile(`${yarnDir}/package.json`, JSON.stringify({ name: 'np5', version: '1.0.0', scripts: { hello: 'echo hello-from-yarn' } }))
+      let result = await inDir(yarnDir, `yarn add np-b --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('[1/4] Resolving packages...')
+      expect(result.out).toContain('success Saved 1 new dependency.')
+      expect(result.out).toContain('└─ np-b@')
+      result = await inDir(yarnDir, 'yarn hello')
+      expect(result.out).toContain('$ echo hello-from-yarn')
+      expect(result.out).toContain('hello-from-yarn')
+      expect((await inDir(yarnDir, 'yarn run hello')).code).toBe(0)
+      result = await inDir(yarnDir, 'yarn remove np-b')
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('success Uninstalled packages.')
+      expect(await fs().exists(`${yarnDir}/node_modules/np-b`)).toBe(false)
+
+      const pnpmDir = '/tmp/np6'
+      await fs().mkdir(pnpmDir, { recursive: true })
+      await fs().writeFile(`${pnpmDir}/package.json`, JSON.stringify({ name: 'np6', version: '1.0.0', scripts: { hello: 'echo hello-from-pnpm' } }))
+      result = await inDir(pnpmDir, `pnpm add np-b --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('Packages: +1')
+      expect(result.out).toMatch(/dependencies:\n\+ np-b \d/)
+      expect((await inDir(pnpmDir, 'pnpm run hello')).out).toContain('hello-from-pnpm')
+      expect((await inDir(pnpmDir, 'pnpm test')).err).toContain('Missing script')
+      result = await inDir(pnpmDir, 'pnpm remove np-b')
+      expect(result.code, result.err).toBe(0)
+      expect(await fs().exists(`${pnpmDir}/node_modules/np-b`)).toBe(false)
     })
   })
 
