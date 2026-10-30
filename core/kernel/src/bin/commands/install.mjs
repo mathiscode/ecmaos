@@ -42,6 +42,7 @@ Options:
   --reinstall          install again a version that is already installed
   --offline            use only the cache
   --no-install-recommends  do not install the packages a package recommends
+  --allow-unsigned     install packages of ecmaOS's own scope that are not in the signed index (a registry of your own)
   --force              install a package even when it needs a newer kernel than this one
   --allow-scripts      run the packages' ecmaos:preinstall and ecmaos:postinstall scripts
   --ignore-signatures  install even when the registry's signature is missing or does not verify
@@ -88,6 +89,7 @@ function parse(args) {
     else if (arg === '--allow-scripts') options.allowScripts = true
     else if (arg === '--no-install-recommends') options.noRecommends = true
     else if (arg === '--force') options.force = true
+    else if (arg === '--allow-unsigned') options.allowUnsigned = true
     else if (arg === '--hold' || arg === '--unhold' || arg === '--rollback') command = arg.slice(2)
     else if (arg === '--ignore-signatures') options.ignoreSignatures = true
     else if (arg === '-n' || arg === '--dry-run') options.dryRun = true

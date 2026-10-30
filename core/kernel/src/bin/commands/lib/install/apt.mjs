@@ -46,10 +46,10 @@ const FLAGS = {
   '-s': 'simulate', '--simulate': 'simulate', '--just-print': 'simulate', '--dry-run': 'simulate', '--recon': 'simulate', '--no-act': 'simulate',
   '--reinstall': 'reinstall', '--purge': 'purge', '--auto-remove': 'autoremove', '--autoremove': 'autoremove',
   '--installed': 'installed', '--upgradable': 'upgradable', '-a': 'all', '--all-versions': 'all', '--user': 'user', '--offline': 'offline',
-  '--no-install-recommends': 'noRecommends', '--force': 'force', '--ignore-signatures': 'ignoreSignatures', '--allow-scripts': 'allowScripts'
+  '--no-install-recommends': 'noRecommends', '--force': 'force', '--allow-unsigned': 'allowUnsigned', '--allow-unauthenticated': 'allowUnsigned', '--ignore-signatures': 'ignoreSignatures', '--allow-scripts': 'allowScripts'
 }
 // accepted, and nothing to do on ecmaOS
-const IGNORED = new Set(['-f', '--fix-broken', '--fix-missing', '-m', '--ignore-missing', '--install-recommends', '--no-install-suggests', '--install-suggests', '-V', '--verbose-versions', '--allow-unauthenticated', '--allow-downgrades', '--allow-change-held-packages', '-d', '--download-only', '--no-upgrade', '--only-upgrade', '--show-progress', '--allow-remove-essential', '--no-remove', '-u', '--show-upgraded', '--no-download', '--trivial-only'])
+const IGNORED = new Set(['-f', '--fix-broken', '--fix-missing', '-m', '--ignore-missing', '--install-recommends', '--no-install-suggests', '--install-suggests', '-V', '--verbose-versions', '--allow-downgrades', '--allow-change-held-packages', '-d', '--download-only', '--no-upgrade', '--only-upgrade', '--show-progress', '--allow-remove-essential', '--no-remove', '-u', '--show-upgraded', '--no-download', '--trivial-only'])
 const WITH_VALUE = new Set(['-o', '--option', '-t', '--target-release', '--default-release', '-c', '--config-file', '-a', '--host-architecture', '-p', '--print-uris'])
 
 function parse(command, args) {
@@ -204,6 +204,8 @@ async function source(session, o) {
       const problem = await verifySignature(registry.url, name, version, dist)
       if (problem) throw new Failure(`E: ${problem}`, 100)
     }
+    const unsigned = await session.engine.unsigned(name, version, dist, !range)
+    if (unsigned) throw new Failure(`E: ${unsigned}`, 100)
     const tarball = await registry.tarball(name, version, dist, bytes => verifyIntegrity(bytes, dist))
     const directory = join(getcwd(), `${asked ?? binary.split('/').pop()}-${version}`)
     if (exists(directory)) throw new Failure(`E: ${directory} already exists`, 100)

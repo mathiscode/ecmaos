@@ -86,7 +86,7 @@ describe('tsc', () => {
   }
 
   it('is installed with its compiler, and only tsc is on the path', async () => {
-    expect((await run(`install @ecmaos-apps/tsc --registry ${registry}`)).code).toBe(0)
+    expect((await run(`install @ecmaos-apps/tsc --registry ${registry} --allow-unsigned`)).code).toBe(0)
     const { fs } = kernel.filesystem
     expect((await fs.stat(`/usr/lib/@tsrs/wasm/${wasmVersion}/tsrs.wasm`)).size).toBeGreaterThan(5_000_000)
     expect(await fs.exists(`/usr/lib/@tsrs/wasm/${wasmVersion}/NOTICE.txt`)).toBe(true)

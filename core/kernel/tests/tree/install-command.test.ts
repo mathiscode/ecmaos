@@ -335,4 +335,82 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       }
     })
   })
+  describe('the signed index', () => {
+    const crypto = process.getBuiltinModule('node:crypto')
+    const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519')
+    const keyId = 'ed25519:test'
+    const key = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64')
+    const sign = (text: string, withKey = privateKey) => crypto.sign(null, Buffer.from(text), withKey).toString('base64')
+    const integrityOf = (name: string, version: string) => JSON.parse(String(routes.get(`/${name}`)!().body)).versions[version].dist.integrity as string
+
+    const trustFiles = async (packages: Record<string, { latest: string, versions: Record<string, string> }>, options: { keyId?: string, notAfter?: string, text?: string, signature?: string } = {}) => {
+      const fs = kernel.filesystem.fs
+      const text = options.text ?? JSON.stringify({ schema: 1, packages })
+      await fs.mkdir('/etc/ecmaos', { recursive: true })
+      await fs.mkdir('/var/lib/install', { recursive: true })
+      await fs.writeFile('/etc/ecmaos/trusted-keys.json', JSON.stringify([{ keyId, key, ...(options.notAfter ? { notAfter: options.notAfter } : {}) }]))
+      await fs.writeFile('/var/lib/install/package-index.json', JSON.stringify({ version: '9.9.9', index: { schema: 2, common: {} }, trust: { text, signature: options.signature ?? sign(text), keyId: options.keyId ?? keyId } }))
+    }
+    const clean = async () => {
+      for (const file of ['/etc/ecmaos/trusted-keys.json', '/var/lib/install/package-index.json']) await kernel.filesystem.fs.unlink(file).catch(() => {})
+    }
+
+    it('installs a package of ecmaOS\'s scope that is in the signed index, and refuses one that is not, changed, or newer than it', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('@ecmaos-apps/sig-ok', '1.0.0', { 'dist/cli.js': '// ok\n' })
+      await publish('@ecmaos-apps/sig-other', '1.0.0', { 'dist/cli.js': '// other\n' })
+      await publish('@ecmaos-apps/sig-tampered', '1.0.0', { 'dist/cli.js': '// t\n' })
+      try {
+        await trustFiles({
+          '@ecmaos-apps/sig-ok': { latest: '1.0.0', versions: { '1.0.0': integrityOf('@ecmaos-apps/sig-ok', '1.0.0') } },
+          '@ecmaos-apps/sig-tampered': { latest: '1.0.0', versions: { '1.0.0': `sha512-${btoa('y'.repeat(64))}` } }
+        })
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-ok --registry ${registry}`)).toBe(0)
+        expect(await fs.exists('/usr/lib/@ecmaos-apps/sig-ok/1.0.0/package.json')).toBe(true)
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-other --registry ${registry} 2> /tmp/sig.err`)).toBe(1)
+        expect(await fs.readFile('/tmp/sig.err', 'utf-8')).toContain('is not in the signed index')
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-tampered --registry ${registry} 2> /tmp/sig.err`)).toBe(1)
+        expect(await fs.readFile('/tmp/sig.err', 'utf-8')).toContain('does not match the signed index')
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-other --allow-unsigned --registry ${registry}`)).toBe(0)
+      } finally { await clean() }
+    })
+
+    it('refuses a latest the signed index does not name', async () => {
+      await publish('@ecmaos-apps/sig-moved', '2.0.0', { 'dist/cli.js': '// 2\n' })
+      try {
+        await trustFiles({ '@ecmaos-apps/sig-moved': { latest: '1.0.0', versions: { '1.0.0': 'sha512-x', '2.0.0': integrityOf('@ecmaos-apps/sig-moved', '2.0.0') } } })
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-moved --registry ${registry} 2> /tmp/sig.err`)).toBe(1)
+        expect(await kernel.filesystem.fs.readFile('/tmp/sig.err', 'utf-8')).toContain('the signed index says 1.0.0')
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-moved@2.0.0 --registry ${registry}`)).toBe(0)
+      } finally { await clean() }
+    })
+
+    it('refuses a signed index with a bad signature, a key it does not trust, an expired key, and no signed index at all', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('@ecmaos-apps/sig-bad', '1.0.0', { 'dist/cli.js': '// b\n' })
+      const packages = { '@ecmaos-apps/sig-bad': { latest: '1.0.0', versions: { '1.0.0': integrityOf('@ecmaos-apps/sig-bad', '1.0.0') } } }
+      const text = JSON.stringify({ schema: 1, packages })
+      const attempts: [Parameters<typeof trustFiles>[1], string][] = [
+        [{ signature: sign(text, crypto.generateKeyPairSync('ed25519').privateKey) }, 'does not verify'],
+        [{ keyId: 'ed25519:other' }, 'does not trust'],
+        [{ notAfter: '2000-01-01T00:00:00Z' }, 'does not trust'],
+        [{ text: text + ' ', signature: sign(text) }, 'does not verify']
+      ]
+      try {
+        for (const [options, message] of attempts) {
+          await trustFiles(packages, options)
+          expect(await kernel.shell.execute(`install @ecmaos-apps/sig-bad --registry ${registry} 2> /tmp/sig.err`)).toBe(1)
+          expect(await fs.readFile('/tmp/sig.err', 'utf-8')).toContain(message)
+        }
+        await clean()
+        expect(await kernel.shell.execute(`install @ecmaos-apps/sig-bad --registry ${registry} 2> /tmp/sig.err`)).toBe(1)
+        expect(await fs.readFile('/tmp/sig.err', 'utf-8')).toContain('there is no signed index')
+      } finally { await clean() }
+    })
+
+    it('does not check a package outside the signed scope', async () => {
+      await publish('sig-free', '1.0.0', { 'dist/cli.js': '// f\n' })
+      expect(await kernel.shell.execute(`install sig-free --registry ${registry}`)).toBe(0)
+    })
+  })
 })

@@ -115,3 +115,52 @@ export function scriptsAllowed(name) {
     : []
   return [...TRUSTED_SCRIPTS, ...listed].some(pattern => matches(pattern, name))
 }
+
+// The signed index (`@ecmaos/package-index`'s `trust.json` and `trust.sig.json`): ecmaOS's own scope is checked against a
+// list of what was published, signed with a project Ed25519 key, so a stolen registry token can neither move `latest` nor
+// swap a tarball. `trust.json` is `{ schema: 1, packages: { NAME: { latest, versions: { VERSION: INTEGRITY } } } }`;
+// `trust.sig.json` is `{ keyId, signature }`, the base64 signature of `trust.json`'s exact bytes.
+
+export const TRUSTED_KEYS_FILE = '/etc/ecmaos/trusted-keys.json'
+
+/** The scopes whose packages must be in the signed index */
+export const SIGNED_SCOPES = ['@ecmaos-apps']
+
+export const isSignedScope = name => SIGNED_SCOPES.some(scope => String(name).startsWith(`${scope}/`))
+
+/** The project keys this system trusts, `[{ keyId, key (base64, 32 raw bytes), notAfter? }]`, minus the ones that have expired */
+export function trustedKeys(now = Date.now()) {
+  const listed = readJson(TRUSTED_KEYS_FILE, [])
+  return (Array.isArray(listed) ? listed : []).filter(item => item && typeof item.keyId === 'string' && typeof item.key === 'string' && !(item.notAfter && Date.parse(item.notAfter) < now))
+}
+
+/**
+ * Checks `trust` (`{ text, signature, keyId }`, the file and its signature) against the keys this system trusts.
+ * Gives `{ data }` when it is good, `{ problem }` otherwise.
+ */
+export async function verifyTrust(trust) {
+  if (!trust?.text || !trust.signature) return { problem: 'the signed index has no signature' }
+  const known = trustedKeys().find(item => item.keyId === trust.keyId)
+  if (!known) return { problem: `the signed index is signed with a key this system does not trust (${trust.keyId ?? 'none'}), or one that has expired` }
+  try {
+    const key = await crypto.subtle.importKey('raw', base64Bytes(known.key), { name: 'Ed25519' }, false, ['verify'])
+    if (!await crypto.subtle.verify({ name: 'Ed25519' }, key, base64Bytes(trust.signature), new TextEncoder().encode(trust.text))) return { problem: 'the signature of the signed index does not verify' }
+    return { data: JSON.parse(trust.text) }
+  } catch (error) {
+    return { problem: `the signed index cannot be checked: ${error instanceof Error ? error.message : error}` }
+  }
+}
+
+/**
+ * Whether `name@version` (with `dist`) is what ecmaOS published: it is in the verified `data`, with that integrity, and a
+ * request for the latest takes the version the signed index says is latest. A reason, or `undefined`.
+ */
+export function signedProblem(data, name, version, dist, { latest = false } = {}) {
+  const entry = data?.packages?.[name]
+  if (!entry) return `${name} is not in the signed index (apt update fetches a newer one; --allow-unsigned skips the check)`
+  const integrity = entry.versions?.[version]
+  if (!integrity) return `${name}@${version} is not in the signed index (apt update fetches a newer one; --allow-unsigned skips the check)`
+  if (dist?.integrity !== integrity) return `${name}@${version} does not match the signed index: the registry has been changed`
+  if (latest && entry.latest !== version) return `${name}: the registry says latest is ${version}, the signed index says ${entry.latest}`
+  return undefined
+}

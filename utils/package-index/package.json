@@ -17,6 +17,8 @@
   "type": "module",
   "files": [
     "index.json",
+    "trust.json",
+    "trust.sig.json",
     "README.md"
   ],
   "exports": {

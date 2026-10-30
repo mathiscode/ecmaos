@@ -139,7 +139,7 @@ describe('wasm programs as packages', () => {
 
   it('installs a program: the bin links the .wasm, the runtime and licenses are linked into /usr, and it runs', async () => {
     await publishProgram('figlet')
-    const result = await run(`install -g @ecmaos-apps/figlet --registry ${registry} --ignore-signatures`)
+    const result = await run(`install -g @ecmaos-apps/figlet --registry ${registry} --ignore-signatures --allow-unsigned`)
     expect(result.code, result.err).toBe(0)
     expect(await fs().readlink('/usr/bin/figlet')).toMatch(/\/figlet\/[\w.-]+\/figlet\.wasm$/)
     const manifest = JSON.parse(await fs().readFile('/usr/lib/@ecmaos-apps/figlet/' + (await fs().readdir('/usr/lib/@ecmaos-apps/figlet'))[0] + '/package.json', 'utf-8'))
@@ -163,7 +163,7 @@ describe('wasm programs as packages', () => {
 
   it('leaves a user install without the /usr runtime, saying why', async () => {
     await publishProgram('figlet')
-    const result = await run(`install --user @ecmaos-apps/figlet --registry ${registry} --ignore-signatures`)
+    const result = await run(`install --user @ecmaos-apps/figlet --registry ${registry} --ignore-signatures --allow-unsigned`)
     expect(result.err).toContain('needs files under /usr')
   }, 60_000)
 
@@ -198,16 +198,16 @@ describe('wasm programs as packages', () => {
     await fs().mkdir('/var/lib/install', { recursive: true })
     const index = { schema: 1, common: { make: { package: '@ecmaos-apps/make', description: 'make' }, lolcat: { package: '@ecmaos-apps/lolcat', description: 'lolcat' } } }
     await fs().writeFile('/var/lib/install/package-index.json', JSON.stringify({ version: '9.9.9', index }))
-    const installed = await run(`install -g @ecmaos-apps/make --registry ${registry} --ignore-signatures`)
+    const installed = await run(`install -g @ecmaos-apps/make --registry ${registry} --ignore-signatures --allow-unsigned`)
     expect(installed.out).toContain('Corresponding source: install @ecmaos-apps/make-src')
     await fs().mkdir('/tmp/work', { recursive: true })
-    const fetched = await run(`cd /tmp/work && apt source make --registry ${registry}`)
+    const fetched = await run(`cd /tmp/work && apt source make --registry ${registry} --allow-unsigned`)
     expect(fetched.code, fetched.err).toBe(0)
     const directory = `/tmp/work/make-${manifest.version}`
     expect(await fs().exists(`${directory}/sources/make-4.4.1.tar.gz`)).toBe(true)
     expect(await fs().exists(`${directory}/build/build.sh`)).toBe(true)
     await publishProgram('lolcat')
-    const none = await run(`cd /tmp/work && apt source lolcat --registry ${registry}`)
+    const none = await run(`cd /tmp/work && apt source lolcat --registry ${registry} --allow-unsigned`)
     expect(none.code).toBe(100)
     expect(none.err).toContain('Unable to find a source package for lolcat')
   }, 60_000)

@@ -13,10 +13,12 @@ import bundled from '@ecmaos/package-index/index.json'
 import bundledManifest from '@ecmaos/package-index/package.json'
 
 import { join } from '../path-utils.mjs'
-import { mkdirp, readBytes, readJson, untar, writeAtomic } from './io.mjs'
+import { mkdirp, readBytes, readJson, readText, untar, writeAtomic } from './io.mjs'
 import { verifyIntegrity, verifySignature } from './trust.mjs'
 
 const { env, rmRecursive, getpid } = globalThis.ecmaosSyscalls
+
+const textOf = path => { try { return readText(path) } catch { return undefined } }
 
 export const INDEX_PACKAGE = '@ecmaos/package-index'
 
@@ -24,6 +26,23 @@ const valid = index => (index?.schema === 1 || index?.schema === 2) && index.com
 
 /** Where a scope keeps the index `apt update` fetched */
 export const indexPath = scope => (scope.system ? '/var/lib/install/package-index.json' : join(env['HOME'] || '/root', '.local/state/install/package-index.json'))
+
+/** Where the index that ships in the system image keeps its signature files, beside `index.json` */
+export const SNAPSHOT_DIRECTORY = '/usr/share/ecmaos/package-index'
+
+/**
+ * The signed index (`{ text, signature, keyId }`) to check `@ecmaos-apps` packages against: the one `apt update` fetched
+ * with the index, else the one in the system image; `undefined` when there is none.
+ */
+export function loadTrust(scope) {
+  for (const path of new Set([indexPath(scope), '/var/lib/install/package-index.json', indexPath({ system: false })])) {
+    const stored = readJson(path)
+    if (stored?.trust?.text) return stored.trust
+  }
+  const text = textOf(join(SNAPSHOT_DIRECTORY, 'trust.json'))
+  const signature = readJson(join(SNAPSHOT_DIRECTORY, 'trust.sig.json'))
+  return text && signature?.signature ? { text, signature: signature.signature, keyId: signature.keyId } : undefined
+}
 
 /** The newest index there is: the system's or the caller's fetched one, else the one built in. Gives `{ index, version, source }` */
 export function loadIndex(scope) {
@@ -53,15 +72,19 @@ export async function refreshIndex(registry, scope, { ignoreSignatures = false }
   const tarball = await registry.tarball(INDEX_PACKAGE, version, dist, bytes => verifyIntegrity(bytes, dist))
   const scratch = join(scope.cache, `.index-${getpid()}`)
   let index
+  let trust
   try {
     mkdirp(scratch)
     if (await untar(tarball.path, scratch) !== 0) throw new Error(`${INDEX_PACKAGE}@${version}: cannot be unpacked`)
     index = readJson(join(scratch, 'package/index.json'))
+    const text = textOf(join(scratch, 'package/trust.json'))
+    const sig = readJson(join(scratch, 'package/trust.sig.json'))
+    if (text && sig?.signature) trust = { text, signature: sig.signature, keyId: sig.keyId }
   } finally {
     try { rmRecursive(scratch) } catch { /* never made */ }
   }
   if (!valid(index)) throw new Error(`${INDEX_PACKAGE}@${version}: has no usable index.json`)
-  writeAtomic(indexPath(scope), JSON.stringify({ version, fetched: Date.now(), registry: registry.url, index }))
+  writeAtomic(indexPath(scope), JSON.stringify({ version, fetched: Date.now(), registry: registry.url, index, ...(trust ? { trust } : {}) }))
   return { version, updated: true, bytes: readBytes(tarball.path).byteLength }
 }
 

@@ -14,7 +14,8 @@ import { unmet, listOf } from './compat.mjs'
 import { binsOf, keyOf, satisfies } from './db.mjs'
 import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, untar, writeBytes } from './io.mjs'
 import { RegistryError } from './registry.mjs'
-import { scriptsAllowed, verifyIntegrity, verifySignature } from './trust.mjs'
+import { loadTrust } from './names.mjs'
+import { isSignedScope, scriptsAllowed, signedProblem, verifyIntegrity, verifySignature, verifyTrust } from './trust.mjs'
 
 const { env, custom, chmod, rename, rmRecursive, rmdir, symlink, unlink, readlink, write } = globalThis.ecmaosSyscalls
 
@@ -182,12 +183,28 @@ export class Engine {
     const manifest = version && document.versions?.[version]
     if (!manifest) throw new RegistryError(`No version of ${request.name} matches ${request.range ?? 'latest'}`)
     if (request.optional && wrongPlatform(manifest)) return undefined
+    const unsigned = await this.unsigned(request.name, version, manifest.dist, !request.range || request.range === 'latest')
+    if (unsigned) throw new RegistryError(unsigned)
     if (manifest.deprecated && request.explicit) this.err(yellow(`${request.name}@${version} is deprecated: ${manifest.deprecated}`))
     const installed = this.db.get(request.name, version)
     if (installed && !(request.explicit && this.options.reinstall)) {
       return { name: request.name, version, existing: true, explicit: Boolean(request.explicit), dependencies: installed.dependencies ?? {} }
     }
     return { name: request.name, version, manifest, dist: manifest.dist, explicit: Boolean(request.explicit), dependencies: {}, aliases: {}, reinstall: Boolean(installed) }
+  }
+
+  /**
+   * Why a package of a signed scope (`@ecmaos-apps`) cannot be trusted, or `undefined`: it must be in the signed index
+   * with the integrity the registry gives, and `latest` must be the version that index names. `--allow-unsigned` skips it.
+   */
+  async unsigned(name, version, dist, latest) {
+    if (this.options.allowUnsigned || !isSignedScope(name)) return undefined
+    if (this.trusted === undefined) {
+      const trust = loadTrust(this.scope)
+      this.trusted = trust ? await verifyTrust(trust) : { problem: 'there is no signed index (apt update fetches one; --allow-unsigned skips the check)' }
+    }
+    if (this.trusted.problem) return `${name}@${version}: ${this.trusted.problem}`
+    return signedProblem(this.trusted.data, name, version, dist, { latest })
   }
 
   /** A local tarball as a plan node: unpacked now, since its manifest is inside it */

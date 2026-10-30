@@ -42,3 +42,7 @@ tmp
 .claude
 .ecmaos
 .registry/
+
+# signed index, made when publishing (utils/apps-sign.mjs)
+utils/package-index/trust.json
+utils/package-index/trust.sig.json
