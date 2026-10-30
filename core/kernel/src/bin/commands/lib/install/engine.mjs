@@ -256,7 +256,7 @@ export class Engine {
     const fetched = await pool(fromRegistry, 4, async node => {
       try {
         if (!this.options.ignoreSignatures) {
-          const problem = await verifySignature(this.registry.url, node.name, node.version, node.dist)
+          const problem = await verifySignature(this.registry.urlFor(node.name), node.name, node.version, node.dist)
           if (problem) throw new RegistryError(problem)
         }
         node.tarball = await this.registry.tarball(node.name, node.version, node.dist, bytes => verifyIntegrity(bytes, node.dist))
@@ -369,7 +369,7 @@ export class Engine {
       explicit: node.explicit,
       dependencies: node.dependencies,
       ...(Object.keys(node.aliases ?? {}).length ? { aliases: node.aliases } : {}),
-      source: node.source ?? this.registry.url,
+      source: node.source ?? this.registry.urlFor(name),
       ...(node.dist?.integrity ? { integrity: node.dist.integrity } : {}),
       installed: new Date().toISOString(),
       linked: false

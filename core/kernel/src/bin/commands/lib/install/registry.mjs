@@ -6,7 +6,7 @@
  */
 
 import { join } from '../path-utils.mjs'
-import { exists, mkdirp, readBytes, readJson, writeAtomic } from './io.mjs'
+import { exists, mkdirp, names, readBytes, readJson, writeAtomic } from './io.mjs'
 
 const { env } = globalThis.ecmaosSyscalls
 
@@ -26,6 +26,8 @@ export class Registry {
     this.offline = offline
     this.seen = new Map()
   }
+
+  urlFor() { return this.url }
 
   metaPath(name) { return join(this.cache, 'meta', `${cacheName(name)}.json`) }
 
@@ -120,4 +122,61 @@ export class Registry {
     writeAtomic(path, bytes)
     return { bytes, path, cached: false }
   }
+}
+
+export const SOURCES_DIR = '/etc/ecmaos/sources.d'
+
+/**
+ * The registries a system lists in `/etc/ecmaos/sources.d/*.json`, each `{ name, registry, scopes: ["@scope"], priority }`,
+ * highest priority first. A file that is not valid JSON, or has no registry, is ignored.
+ */
+export function readSources(directory = SOURCES_DIR) {
+  const sources = []
+  let files = []
+  try { files = names(directory).filter(file => file.endsWith('.json')).sort() } catch { return sources }
+  for (const file of files) {
+    const found = readJson(`${directory}/${file}`)
+    for (const source of Array.isArray(found) ? found : [found]) {
+      if (!source || typeof source.registry !== 'string' || !source.registry) continue
+      sources.push({ name: source.name ?? file.replace(/\.json$/, ''), registry: registryOf(source.registry), scopes: Array.isArray(source.scopes) ? source.scopes.filter(scope => typeof scope === 'string') : [], priority: Number(source.priority) || 0 })
+    }
+  }
+  return sources.sort((a, b) => b.priority - a.priority)
+}
+
+/**
+ * A registry per package: `@scope/name` goes to the highest-priority source that lists its scope, anything else to the
+ * default registry. It answers as one `Registry` does, so what takes a registry takes this.
+ */
+export class Sources {
+  constructor(fallback, sources, cache, { offline = false } = {}) {
+    this.fallback = fallback
+    this.offline = offline
+    this.registries = new Map(sources.map(source => [source.registry, new Registry(source.registry, cache, { offline })]))
+    this.sources = sources
+  }
+
+  get url() { return this.fallback.url }
+
+  /** The registry that serves `name` */
+  for(name) {
+    const scope = String(name).startsWith('@') ? String(name).split('/')[0] : undefined
+    const source = scope && this.sources.find(item => item.scopes.includes(scope))
+    return source ? this.registries.get(source.registry) : this.fallback
+  }
+
+  urlFor(name) { return this.for(name).url }
+  cached(name) { return this.for(name).cached(name) }
+  metadata(name) { return this.for(name).metadata(name) }
+  document(name) { return this.for(name).document(name) }
+  search(text, size) { return this.fallback.search(text, size) }
+  tarball(name, version, dist, check) { return this.for(name).tarball(name, version, dist, check) }
+}
+
+/** The registry a command works with: the one `--registry` names, else the system's sources over the default (`$REGISTRY` or npm) */
+export function openRegistry(options, cache) {
+  const fallback = new Registry(options.registry, cache, { offline: options.offline })
+  if (options.registry) return fallback
+  const sources = readSources()
+  return sources.length ? new Sources(fallback, sources, cache, { offline: options.offline }) : fallback
 }

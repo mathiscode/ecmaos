@@ -10,7 +10,7 @@ import { join, resolve } from './lib/path-utils.mjs'
 import { Database, keyOf, scopeOf } from './lib/install/db.mjs'
 import { Engine, blue, green, parseSpec, pickVersion, red, yellow } from './lib/install/engine.mjs'
 import { exists, size } from './lib/install/io.mjs'
-import { Registry } from './lib/install/registry.mjs'
+import { openRegistry } from './lib/install/registry.mjs'
 import { latestOf as latestAll, rangeOf } from './lib/install/updates.mjs'
 import { hasProvenance, verifySignature } from './lib/install/trust.mjs'
 
@@ -104,7 +104,7 @@ function setup(options) {
   if (options.global && geteuid() !== 0) throw new Error('installing for the whole system needs root (sudo install -g ...)')
   const scope = scopeOf(options)
   const db = new Database(scope)
-  const registry = new Registry(options.registry, scope.cache, { offline: options.offline })
+  const registry = openRegistry(options, scope.cache)
   return { scope, db, registry, engine: new Engine({ scope, db, registry, options }) }
 }
 

@@ -310,4 +310,29 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await kernel.filesystem.fs.exists('/usr/lib/pre-a/1.0.0-ecmaos.1/package.json')).toBe(true)
     })
   })
+  describe('sources', () => {
+    it('sends a scope to the registry /etc/ecmaos/sources.d lists for it, and everything else to the default', async () => {
+      const fs = kernel.filesystem.fs
+      const put = async (base: string, name: string, version: string) => {
+        const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name, version, bin: { [name.split('/').pop()!]: 'cli.js' } }), 'cli.js': `// ${name}\n` })
+        const dist = { tarball: `${registry}${base}/${name}/-/${version}.tgz`, shasum: await sha1Hex(tarball), integrity: await sha512Sri(tarball) }
+        routes.set(`${base}/${name}/-/${version}.tgz`, () => ({ body: tarball }))
+        routes.set(`${base}/${name}`, () => ({ body: JSON.stringify({ name, 'dist-tags': { latest: version }, versions: { [version]: { name, version, bin: { [name.split('/').pop()!]: 'cli.js' }, dist } } }) }))
+      }
+      await put('', 'src-plain', '1.0.0')
+      await put('/alt', '@alt-scope/src-scoped', '1.0.0')
+      await fs.mkdir('/etc/ecmaos/sources.d', { recursive: true })
+      await fs.writeFile('/etc/ecmaos/sources.d/alt.json', JSON.stringify({ name: 'alt', registry: `${registry}/alt`, scopes: ['@alt-scope'], priority: 10 }))
+      try {
+        expect(await kernel.shell.execute(`REGISTRY=${registry} install src-plain @alt-scope/src-scoped`)).toBe(0)
+        expect(await fs.exists('/usr/lib/src-plain/1.0.0/package.json')).toBe(true)
+        expect(await fs.exists('/usr/lib/@alt-scope/src-scoped/1.0.0/package.json')).toBe(true)
+        const db = JSON.parse(await fs.readFile('/var/lib/install/db.json', 'utf-8'))
+        expect(db.packages['@alt-scope/src-scoped@1.0.0'].source).toBe(`${registry}/alt`)
+        expect(db.packages['src-plain@1.0.0'].source).toBe(registry)
+      } finally {
+        await fs.unlink('/etc/ecmaos/sources.d/alt.json')
+      }
+    })
+  })
 })

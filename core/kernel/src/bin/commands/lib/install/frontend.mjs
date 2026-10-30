@@ -9,7 +9,7 @@ import { Database, binsOf, projectScope, scopeOf } from './db.mjs'
 import { Engine } from './engine.mjs'
 import { names, readJson } from './io.mjs'
 import { loadIndex, lookup, nameFor, parseTarget } from './names.mjs'
-import { Registry } from './registry.mjs'
+import { openRegistry } from './registry.mjs'
 
 const { write, read, geteuid, env, isDirectory, readlink } = globalThis.ecmaosSyscalls
 
@@ -33,7 +33,7 @@ export class Failure extends Error {
 export function openSession(options = {}) {
   const scope = options.project ? projectScope(options.project, options) : scopeOf(options)
   const db = new Database(scope)
-  const registry = new Registry(options.registry, scope.cache, { offline: options.offline })
+  const registry = openRegistry(options, scope.cache)
   const engine = new Engine({ scope, db, registry, options: { ...options, quiet: true } })
   const loaded = loadIndex(scope)
   return { scope, db, registry, engine, index: loaded.index, indexVersion: loaded.version, options }
