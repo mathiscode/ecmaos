@@ -175,6 +175,135 @@ describe('package manager front-ends', () => {
       expect((await db())['semver@7.1.0']).toMatchObject({ explicit: true })
     })
 
+    it('rejects an option it does not know the way apt does', async () => {
+      const result = await run('apt install --frobnicate x')
+      expect(result.code).toBe(100)
+      expect(result.err).toContain("E: Command line option '--frobnicate' is not understood in combination with the other options.")
+    })
+  })
+
+  describe('dpkg', () => {
+    it('lists, shows, finds files and owners of what is installed, by Debian name', async () => {
+      await publish('prettier', '3.0.0', { description: 'a formatter', bin: { prettier: 'index.js' }, dependencies: { 'dp-dep': '^1.0.0' } })
+      await publish('dp-dep', '1.0.0')
+      expect((await run(`apt install -y node-prettier --registry ${registry}`)).code).toBe(0)
+
+      let result = await run('dpkg -l')
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('Desired=Unknown/Install/Remove/Purge/Hold')
+      expect(result.out).toMatch(/ii\s+prettier\s+3\.0\.0\s+all\s+a formatter/)
+      expect(result.out).toMatch(/ii\s+dp-dep\s+1\.0\.0/)
+      expect((await run('dpkg -l no-such-thing')).code).toBe(1)
+
+      result = await run('dpkg -s prettier')
+      expect(result.out).toContain('Package: prettier')
+      expect(result.out).toContain('Status: install ok installed')
+      expect(result.out).toContain('Depends: dp-dep (^1.0.0)')
+      expect((await run('dpkg -s dp-dep')).out).toContain('Auto-Installed: yes')
+      result = await run('dpkg -s nothing-here')
+      expect(result.code).toBe(1)
+      expect(result.err).toContain("package 'nothing-here' is not installed and no information is available")
+
+      result = await run('dpkg -L prettier')
+      expect(result.out).toContain('/usr/lib/prettier/3.0.0/package.json')
+      expect(result.out).toContain('/usr/bin/prettier')
+      result = await run('dpkg -S /usr/bin/prettier')
+      expect(result.out.trim()).toBe('prettier: /usr/bin/prettier')
+      expect((await run('dpkg -S /etc/passwd')).code).toBe(1)
+      expect((await run('dpkg -W prettier')).out.trim()).toBe('prettier\t3.0.0')
+      expect((await run('dpkg --get-selections')).out).toMatch(/dp-dep\s+install/)
+    })
+
+    it('installs a local npm tarball and removes a package', async () => {
+      const tarball = await buildNpmTarballGzip({ 'package.json': JSON.stringify({ name: 'dp-local', version: '1.2.3' }), 'index.js': '//\n' })
+      await fs().writeFile('/tmp/dp-local-1.2.3.tgz', tarball)
+      let result = await run('dpkg -i /tmp/dp-local-1.2.3.tgz')
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('Setting up dp-local (1.2.3) ...')
+      result = await run('dpkg -r dp-local')
+      expect(result.code, result.err).toBe(0)
+      expect(await fs().exists('/usr/lib/dp-local')).toBe(false)
+      result = await run('dpkg -i /tmp/x.deb')
+      expect(result.code).toBe(2)
+      expect(result.err).toContain('a .deb cannot be installed here')
+    })
+  })
+
+  describe('pacman', () => {
+    it('syncs, installs with pacman\'s output, queries, and removes', async () => {
+      await publish('pm-tool', '2.0.0', { description: 'a tool', dependencies: { 'pm-lib': '^1.0.0' }, bin: { 'pm-tool': 'index.js' } })
+      await publish('pm-lib', '1.0.0', { description: 'a library' })
+      let result = await run(`pacman -S --noconfirm pm-tool --registry ${registry}`)
+      expect(result.code).toBe(1)
+      expect(result.err).toContain('error: target not found: pm-tool')
+      expect(result.err).toContain('hint: pm-tool 2.0.0 is on npm')
+
+      // the pacman names are npm names unless the index says otherwise: use one it maps
+      await publish('typescript', '5.0.0', { description: 'the compiler', dependencies: { 'pm-lib': '^1.0.0' }, bin: { tsc: 'index.js' } })
+      result = await run(`pacman -S --noconfirm typescript --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('resolving dependencies...')
+      expect(result.out).toContain('Packages (2) pm-lib-1.0.0  typescript-5.0.0')
+      expect(result.out).toContain(':: Proceed with installation? [Y/n]')
+      expect(result.out).toMatch(/\(\d\/2\) installing/)
+      expect(await fs().exists('/usr/bin/tsc')).toBe(true)
+
+      result = await run('pacman -Q')
+      expect(result.out).toContain('typescript 5.0.0')
+      expect(result.out).toContain('pm-lib 1.0.0')
+      expect((await run('pacman -Qe')).out).toContain('typescript 5.0.0')
+      expect((await run('pacman -Qe')).out).not.toContain('pm-lib')
+      expect((await run('pacman -Qd')).out).toContain('pm-lib 1.0.0')
+      expect((await run('pacman -Qdt')).out).not.toContain('pm-lib')
+      result = await run('pacman -Qi typescript')
+      expect(result.out).toMatch(/Name\s+: typescript/)
+      expect(result.out).toMatch(/Install Reason\s+: Explicitly installed/)
+      expect((await run('pacman -Qi pm-lib')).out).toMatch(/Required By\s+: typescript/)
+      expect((await run('pacman -Ql typescript')).out).toContain('typescript /usr/bin/tsc')
+      expect((await run('pacman -Qo /usr/bin/tsc')).out.trim()).toBe('/usr/bin/tsc is owned by typescript 5.0.0')
+      expect((await run('pacman -Qo /etc/passwd')).err).toContain('error: No package owns /etc/passwd')
+      expect((await run('pacman -Qs compiler')).out).toContain('local/typescript 5.0.0')
+
+      result = await run('pacman -R --noconfirm typescript')
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain('Packages (1) typescript-5.0.0')
+      expect(result.out).toContain(':: Do you want to remove these packages? [Y/n]')
+      expect((await run('pacman -Qdt')).out).toContain('pm-lib 1.0.0')
+      expect((await run('pacman -Rs --noconfirm pm-lib')).code).toBe(0)
+      expect(await fs().exists('/usr/lib/pm-lib')).toBe(false)
+      expect((await run('pacman -R nothing')).err).toContain('error: target not found: nothing')
+    })
+
+    it('searches, shows info, refreshes and upgrades', async () => {
+      await publish('typescript', '5.0.0', { description: 'the compiler' })
+      expect((await run(`pacman -S --noconfirm typescript --registry ${registry}`)).code).toBe(0)
+      let result = await run(`pacman -Ss compiler --registry ${registry}`)
+      expect(result.out).toMatch(/npm\/typescript \S+ \[installed\]\n    TypeScript compiler/)
+      result = await run(`pacman -Si typescript --registry ${registry}`)
+      expect(result.out).toMatch(/Repository\s+: npm/)
+      expect(result.out).toMatch(/Version\s+: 5\.0\.0/)
+
+      await publish('typescript', '5.1.0', { description: 'the compiler' })
+      result = await run(`pacman -Sy --registry ${registry}`)
+      expect(result.out).toContain(':: Synchronizing package databases...')
+      expect((await run(`pacman -Qu --registry ${registry}`)).out.trim()).toBe('typescript 5.0.0 -> 5.1.0')
+      result = await run(`pacman -Syu --noconfirm --registry ${registry}`)
+      expect(result.code, result.err).toBe(0)
+      expect(result.out).toContain(':: Starting full system upgrade...')
+      expect(result.out).toContain('typescript-5.1.0')
+      expect((await run('pacman -Q typescript')).out.trim()).toBe('typescript 5.1.0')
+      expect((await run(`pacman -Syu --noconfirm --registry ${registry}`)).out).toContain('there is nothing to do')
+    })
+
+    it('says an operation it does not have, and what it does not understand', async () => {
+      expect((await run('pacman -F foo')).err).toContain('not supported')
+      expect((await run('pacman --frobnicate')).err).toContain("error: invalid option '--frobnicate'")
+      expect((await run('pacman')).err).toContain('error: no operation specified')
+    })
+  })
+
+  // last: the index it fetches replaces the built-in one for the rest of the run
+  describe('package index', () => {
     it('fetches the newest package index on update, and maps the names it adds', async () => {
       await publish('brand-new', '1.0.0')
       const index = JSON.stringify({ schema: 1, common: { 'brand-new-tool': { package: 'brand-new', description: 'a tool' } }, apt: {} })
@@ -186,12 +315,6 @@ describe('package manager front-ends', () => {
       const installed = await run(`apt install -y brand-new-tool --registry ${registry}`)
       expect(installed.code, installed.err).toBe(0)
       expect(await fs().exists('/usr/lib/brand-new/1.0.0')).toBe(true)
-    })
-
-    it('rejects an option it does not know the way apt does', async () => {
-      const result = await run('apt install --frobnicate x')
-      expect(result.code).toBe(100)
-      expect(result.err).toContain("E: Command line option '--frobnicate' is not understood in combination with the other options.")
     })
   })
 })
