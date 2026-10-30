@@ -74,7 +74,8 @@ import { configureQuotas, parseQuotas } from '#lib/quota.ts'
 import { configureStorageLimits, formatBytes } from '#lib/storage-limits.ts'
 import { SessionLog } from '#lib/sessions.ts'
 import { sharesDestination } from '#lib/stream-twins.ts'
-import { inProfile, resolveProfile } from '#lib/profiles.ts'
+import { DEFAULT_PROFILE, type Profile, inProfile, resolveProfile, writeProfile } from '#lib/profiles.ts'
+import { askProfile, profileSizes } from '#lib/profile-chooser.ts'
 import { readExcluded, readOwned, recordProfile } from '#lib/seed-db.ts'
 import { CommandLinks, SupersededPrograms, ensureSetuidPrograms, tightenDirectoryModes } from '#lib/fs-modes.ts'
 import { canRunProgramsAsUser, credentialsFor, setuidCredentials } from '#lib/process-credentials.ts'
@@ -116,7 +117,7 @@ import type { TerminalWindow } from '#lib/terminal-window.ts'
 import migratedCommandSources from 'virtual:bin-commands'
 import migratedKernelCommandSources from 'virtual:bin-kernel-commands'
 import { bootSplash } from '#lib/splash.ts'
-import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms } from '#lib/programs.ts'
+import { installPrograms, PROGRAM_WAITER, programWaiterSource, stagePrograms, type ProgramCatalog } from '#lib/programs.ts'
 import { DEFAULT_VIMRC } from '#lib/vimrc.ts'
 import { isTimeZone, localTimeZone, setSystemTimeZone } from '#lib/time-zone.ts'
 import { init_uts, set_hostname } from '@zenfs/linux/uts'
@@ -1174,6 +1175,7 @@ export class Kernel implements IKernel {
       usersSpan.end()
       spinner?.stop()
       this.dom.topbar()
+      await this.chooseProfile()
 
       // Show login prompt or auto-login
       const authSpan = tracer.startSpan('kernel.boot.authentication', {}, trace.setSpan(context.active(), bootSpan))
@@ -2493,6 +2495,87 @@ export class Kernel implements IKernel {
     return configured || '/programs/index.json'
   }
 
+  /** Links the names scripts and people expect (`/bin/sh`, `unxz`, `ssh`...) to the programs that are here; a link whose program is not here yet waits for a later call */
+  private async linkCommands() {
+    // Names scripts expect to find: `#!/bin/sh` and `#!/usr/bin/env ...`. `/bin/sh` is ecmash; `/bin/bash` is GNU bash
+    // (a program from the catalog) and no longer a link, so a `#!/bin/bash` script gets the shell it was written for.
+    for (const [link, target] of Object.entries(CommandLinks)) {
+      if (!await this.filesystem.fs.exists(target)) continue
+      // `vi` was once its own program (busybox); a file left by that build would hide the link.
+      if (SupersededPrograms.has(link) && (await this.filesystem.fs.lstat(link).catch(() => undefined))?.isFile()) await this.filesystem.fs.unlink(link)
+      await this.filesystem.fs.symlink(target, link).catch(() => {})
+    }
+  }
+
+  /**
+   * On a browser's first boot, asks which programs to install: a menu on the terminal before the login prompt, once, with
+   * what each profile costs in download. Standard is the answer after fifteen seconds. The answer is recorded, and then
+   * the programs are staged as on any other boot.
+   */
+  private async chooseProfile() {
+    const catalogUrl = this._profileQuestion
+    if (!catalogUrl) return
+    this._profileQuestion = undefined
+    let profile: Profile = DEFAULT_PROFILE
+    try {
+      const catalog = await (await (this.host.fetch ?? fetch)(catalogUrl, { cache: 'no-cache' })).json() as ProgramCatalog
+      profile = await askProfile(this.terminal, profileSizes(catalog)) ?? DEFAULT_PROFILE
+    } catch (error) {
+      this.log.warn(`Could not ask which programs to install: ${(error as Error).message}`)
+    }
+    await writeProfile(this.filesystem.fs, profile)
+    await this.stageProgramCatalog(profile, catalogUrl)
+    await this.linkCommands()
+  }
+
+  /** Set when the first boot of a browser is to ask which profile (see {@link chooseProfile}): the catalog's address */
+  private _profileQuestion?: string
+
+  /**
+   * Fetches the catalog, writes a placeholder for each program of `profile` not installed yet, and holds the downloads
+   * until the kernel is running. What the profile leaves out, what was taken out on purpose and what a package owns is
+   * not fetched. See `lib/programs.ts`.
+   */
+  private async stageProgramCatalog(profile: Profile, catalogUrl: string) {
+    const stampKey = this.machineKey('ecmaos:programs')
+    // what was taken out on purpose stays out
+    const excluded = await readExcluded(this.filesystem.fs)
+    // a program installed from its package is the package's, not the catalog's
+    const owned = await readOwned(this.filesystem.fs)
+    const staged = await stagePrograms(this.filesystem.fs, {
+      placeholders: true,
+      catalogUrl,
+      fetcher: this.host.fetch,
+      // A program's runtime (`vim`'s /usr/share/vim) is a tarball rooted at `/`
+      extract: async tarball => {
+        const file = '/tmp/runtime.tar'
+        await this.filesystem.fs.writeFile(file, tarball)
+        try { await this.filesystem.extractTarball(file, '/', 0o644, 0o755) } finally { await this.filesystem.fs.unlink(file).catch(() => {}) }
+      },
+      skip: name => !!this.options.blacklist?.commands?.includes(name),
+      include: (name, entry) => inProfile(entry.profile, profile) && !excluded.has(`@ecmaos-apps/${name}`) && !owned.has(`@ecmaos-apps/${name}`),
+      stamps: {
+        read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
+        write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
+      }
+    })
+    const started = new Promise<void>(resolve => { this._startPrograms = resolve })
+    this._programsReady = started.then(() => staged.start()).then(async programs => {
+      if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
+      // what is here is now in the install database, so install, apt and pacman know it
+      if (staged.catalog) await recordProfile(this.filesystem.fs, { catalog: staged.catalog, profile, programs: staged.programs, landed: new Set([...programs.installed, ...programs.current]) }).catch(error => this.log.warn(`Could not record the profile: ${(error as Error).message}`))
+      // bash is a login shell `chsh` accepts once it is here
+      this.filesystem.fs.exists('/bin/bash').then(async here => {
+        if (!here) return
+        const shells = await this.filesystem.fs.readFile('/etc/shells', 'utf8').catch(() => undefined)
+        if (shells !== undefined && !shells.split('\n').includes('/bin/bash')) await this.filesystem.fs.writeFile('/etc/shells', shells.replace(/\n?$/, '\n') + '/bin/bash\n', { mode: 0o644 })
+      }).catch(() => {})
+      for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
+      for (const [name, npmPackage] of Object.entries(programs.moved)) this.log.info(`${name} is an npm package now: install ${npmPackage}`)
+    })
+    if (this._state === KernelState.RUNNING) this._startPrograms?.()
+  }
+
   /**
    * Registers the terminal commands.
    * @returns {Promise<void>} A promise that resolves when the terminal commands are registered.
@@ -2540,47 +2623,15 @@ export class Kernel implements IKernel {
       const stampKey = this.machineKey('ecmaos:programs')
       await this.filesystem.fs.mkdir(path.dirname(PROGRAM_WAITER), { recursive: true })
       await this.filesystem.fs.writeFile(PROGRAM_WAITER, programWaiterSource, { mode: 0o755 })
-      // Which programs this machine gets: asked for, recorded, or worked out (a machine that has programs keeps them all)
+      // Which programs this machine gets: asked for, recorded, or worked out (a machine that has programs keeps them all);
+      // a person at a browser's first boot is asked once the terminal is free, before the login prompt
       const requested = this.options.profile ?? new URLSearchParams(globalThis.location?.search ?? '').get('profile') ?? (import.meta.env['ECMAOS_PROFILE'] as string | undefined) ?? (this.options.programs ? 'everything' : undefined)
       let hasPrograms = false
       try { hasPrograms = Object.keys(JSON.parse(this.storage.local.getItem(stampKey) ?? '{}')).length > 0 } catch { /* none */ }
-      const { profile } = await resolveProfile(this.filesystem.fs, { requested: requested || undefined, hasPrograms })
-      // what was taken out on purpose stays out
-      const excluded = await readExcluded(this.filesystem.fs)
-      // a program installed from its package is the package's, not the catalog's
-      const owned = await readOwned(this.filesystem.fs)
-      const staged = await stagePrograms(this.filesystem.fs, {
-        placeholders: true,
-        catalogUrl,
-        fetcher: this.host.fetch,
-        // A program's runtime (`vim`'s /usr/share/vim) is a tarball rooted at `/`
-        extract: async tarball => {
-          const file = '/tmp/runtime.tar'
-          await this.filesystem.fs.writeFile(file, tarball)
-          try { await this.filesystem.extractTarball(file, '/', 0o644, 0o755) } finally { await this.filesystem.fs.unlink(file).catch(() => {}) }
-        },
-        skip: name => !!this.options.blacklist?.commands?.includes(name),
-        include: (name, entry) => inProfile(entry.profile, profile) && !excluded.has(`@ecmaos-apps/${name}`) && !owned.has(`@ecmaos-apps/${name}`),
-        stamps: {
-          read: () => { try { return JSON.parse(this.storage.local.getItem(stampKey) ?? '{}') } catch { return {} } },
-          write: stamps => this.storage.local.setItem(stampKey, JSON.stringify(stamps))
-        }
-      })
-      const started = new Promise<void>(resolve => { this._startPrograms = resolve })
-      this._programsReady = started.then(() => staged.start()).then(async programs => {
-        if (programs.installed.length) this.log.info(`Installed programs: ${programs.installed.join(', ')}`)
-        // what is here is now in the install database, so install, apt and pacman know it
-        if (staged.catalog) await recordProfile(this.filesystem.fs, { catalog: staged.catalog, profile, programs: staged.programs, landed: new Set([...programs.installed, ...programs.current]) }).catch(error => this.log.warn(`Could not record the profile: ${(error as Error).message}`))
-        // bash is a login shell `chsh` accepts once it is here
-        this.filesystem.fs.exists('/bin/bash').then(async here => {
-          if (!here) return
-          const shells = await this.filesystem.fs.readFile('/etc/shells', 'utf8').catch(() => undefined)
-          if (shells !== undefined && !shells.split('\n').includes('/bin/bash')) await this.filesystem.fs.writeFile('/etc/shells', shells.replace(/\n?$/, '\n') + '/bin/bash\n', { mode: 0o644 })
-        }).catch(() => {})
-        for (const [name, reason] of Object.entries(programs.failed)) this.log.warn(`Program ${name} was not installed: ${reason}`)
-        for (const [name, npmPackage] of Object.entries(programs.moved)) this.log.info(`${name} is an npm package now: install ${npmPackage}`)
-      })
-      if (this._state === KernelState.RUNNING) this._startPrograms?.()
+      const interactive = this.host.kind === 'browser' && !!globalThis.document && !this.options.credentials && !this.options.programs
+      const chosen = await resolveProfile(this.filesystem.fs, { requested: requested || undefined, hasPrograms, deferAsk: interactive })
+      if (chosen.ask) this._profileQuestion = catalogUrl
+      else await this.stageProgramCatalog(chosen.profile, catalogUrl)
     }
 
     // The dev server's workspace apps (`startx`): `/bin/<name>` follows `apps/<app>/dist`, so a rebuilt app is current
@@ -2604,14 +2655,7 @@ export class Kernel implements IKernel {
     const stubNames = new Set(names.filter(name => !migratedCommandSources[name] && !migratedKernelCommandSources[name]))
     await removeStaleCommandStubs(this.filesystem.fs, stubNames)
 
-    // Names scripts expect to find: `#!/bin/sh` and `#!/usr/bin/env ...`. `/bin/sh` is ecmash; `/bin/bash` is GNU bash
-    // (a program from the catalog) and no longer a link, so a `#!/bin/bash` script gets the shell it was written for.
-    for (const [link, target] of Object.entries(CommandLinks)) {
-      if (!await this.filesystem.fs.exists(target)) continue
-      // `vi` was once its own program (busybox); a file left by that build would hide the link.
-      if (SupersededPrograms.has(link) && (await this.filesystem.fs.lstat(link).catch(() => undefined))?.isFile()) await this.filesystem.fs.unlink(link)
-      await this.filesystem.fs.symlink(target, link).catch(() => {})
-    }
+    await this.linkCommands()
 
     const setuid = await ensureSetuidPrograms(this.filesystem.fs).catch(error => { this.log.warn(`setuid programs: ${(error as Error).message}`); return [] as string[] })
     if (setuid.length) this.log.info(`Set the setuid bit on ${setuid.join(', ')}`)

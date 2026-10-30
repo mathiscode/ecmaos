@@ -1,8 +1,9 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
 import { DEFAULT_PROFILE, PROFILE_FILE, inProfile, readProfile, resolveProfile, writeProfile } from '#lib/profiles.ts'
+import { askProfile, profileSizes } from '#lib/profile-chooser.ts'
 
 import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
@@ -104,4 +105,68 @@ describe('the profile at boot', () => {
     expect(await fs.exists('/usr/lib/@ecmaos-apps/group-compression/1.0.0/package.json')).toBe(true)
     expect(await fs.exists('/bin/zstd')).toBe(true)
   }, 60_000)
+})
+
+describe('the first-boot menu', () => {
+  const terminal = () => {
+    const lines: string[] = []
+    let listener: ((event: { key: string, domEvent: KeyboardEvent }) => void) | undefined
+    let disposed = false
+    return {
+      lines,
+      get disposed() { return disposed },
+      press: (key: string) => listener?.({ key, domEvent: { key } as KeyboardEvent }),
+      api: {
+        writeln: (text: string) => { lines.push(text) },
+        write: (text: string) => { lines.push(text) },
+        onKey: (next: typeof listener) => { listener = next; return { dispose: () => { disposed = true } } }
+      } as unknown as Parameters<typeof askProfile>[0]
+    }
+  }
+
+  it('lists the four profiles with what each downloads, and takes a number', async () => {
+    const t = terminal()
+    const asked = askProfile(t.api, { minimal: 5e6, standard: 18e6, developer: 60e6, everything: 87e6 })
+    const text = t.lines.join('\n')
+    expect(text).toContain('1) Minimal')
+    expect(text).toContain('about 18 MB')
+    expect(text).toContain('[default]')
+    t.press('3')
+    expect(await asked).toBe('developer')
+    expect(t.disposed).toBe(true)
+  })
+
+  it('Enter is Standard, and other keys are ignored', async () => {
+    const t = terminal()
+    const asked = askProfile(t.api, {})
+    t.press('x')
+    t.press('9')
+    t.press('Enter')
+    expect(await asked).toBe('standard')
+  })
+
+  it('is Standard when nobody presses anything', async () => {
+    vi.useFakeTimers()
+    try {
+      const t = terminal()
+      const asked = askProfile(t.api, {}, 15)
+      vi.advanceTimersByTime(15_000)
+      expect(await asked).toBe('standard')
+      expect(t.disposed).toBe(true)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('sums what a profile downloads from the catalog, and leaves out a profile it cannot size', () => {
+    const entry = (profile: string, wire?: number) => ({ file: 'x', size: 1, sha256: 'x', version: '1', license: 'MIT', description: 'x', profile, ...(wire === undefined ? {} : { wire }) })
+    const sized = profileSizes({ packages: [{ name: 'p', path: 'p', programs: { a: entry('minimal', 100), b: entry('standard', 50), c: entry('developer', 25) } }] })
+    expect(sized).toEqual({ minimal: 100, standard: 150, developer: 175, everything: 175 })
+    expect(profileSizes({ packages: [{ name: 'p', path: 'p', programs: { a: entry('minimal', 100), b: entry('standard') } }] })).toEqual({ minimal: 100 })
+  })
+
+  it('a first boot with a person to ask records nothing yet', async () => {
+    const { fs, files } = memory()
+    expect(await resolveProfile(fs, { hasPrograms: false, deferAsk: true })).toEqual({ profile: 'standard', recorded: false, ask: true })
+    expect(files.size).toBe(0)
+    expect((await resolveProfile(fs, { hasPrograms: true, deferAsk: true })).ask).toBeUndefined()
+  })
 })

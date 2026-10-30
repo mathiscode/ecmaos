@@ -16,6 +16,8 @@ export interface ProgramEntry {
   description: string
   /** The version of the program's `@ecmaos-apps` package (`9.1.0-ecmaos.1`) */
   packageVersion?: string
+  /** Bytes sent to download the program (gzip), for the first-boot menu */
+  wire?: number
   /** The smallest profile that has the program (`minimal`, `standard`, `developer`, `everything`); without it, every profile does */
   profile?: string
   /**

@@ -41,6 +41,8 @@ export interface ProfileChoice {
   hasPrograms: boolean
   /** Asks a person, on a first boot in an interactive host; resolves to nothing if nobody answers */
   ask?: () => Promise<Profile | undefined>
+  /** A first boot with a person to ask, who is asked later (the terminal is not ready yet): nothing is recorded and `ask` is set in the answer */
+  deferAsk?: boolean
 }
 
 /**
@@ -48,10 +50,11 @@ export interface ProfileChoice {
  * programs becomes Everything (it keeps all it has, nothing is taken away); else a person chooses if there is one to ask,
  * and Standard is the answer when there is not. What is chosen or inferred is recorded.
  */
-export async function resolveProfile(fs: Fs, choice: ProfileChoice): Promise<{ profile: Profile, recorded: boolean }> {
+export async function resolveProfile(fs: Fs, choice: ProfileChoice): Promise<{ profile: Profile, recorded: boolean, ask?: true }> {
   if (isProfile(choice.requested)) return { profile: choice.requested, recorded: false }
   const recorded = await readProfile(fs)
   if (recorded) return { profile: recorded, recorded: true }
+  if (!choice.hasPrograms && choice.deferAsk) return { profile: DEFAULT_PROFILE, recorded: false, ask: true }
   const profile = choice.hasPrograms ? 'everything' : (await choice.ask?.()) ?? DEFAULT_PROFILE
   await writeProfile(fs, profile)
   return { profile, recorded: true }

@@ -8,6 +8,7 @@ import type { Plugin } from 'vite'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 // @ts-expect-error - a script, not a module with types
@@ -338,13 +339,27 @@ export function programTiers(): Record<string, string> {
   return tiers
 }
 
+/** What a program costs to download, gzipped, which is how the site sends it; asked for once per file, as it needs reading it whole */
+const wireSizes = new Map<string, number>()
+function wireSize(file: string, sha256: string): number | undefined {
+  if (!wireSizes.has(sha256)) {
+    try { wireSizes.set(sha256, gzipSync(readFileSync(file)).length) } catch { return undefined }
+  }
+  return wireSizes.get(sha256)
+}
+
 export function programCatalog(packages: ProgramPackageManifest[]) {
   const tiers = programTiers()
   const groupFile = (() => { try { return JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../utils/package-index/groups.json'), 'utf8')) as { groups: object, profiles: object } } catch { return undefined } })()
-  const entry = (name: string, { file, size, sha256, version, revision, license, description, runtime }: ProgramPackageManifest['programs'][string] & { revision?: number }) => ({ file, size, sha256, version, license, description, packageVersion: versionOf({ version, revision }), ...(tiers[name] ? { profile: tiers[name] } : {}), ...(runtime ? { runtime } : {}) })
+  const entry = (dir: string, name: string, { file, size, sha256, version, revision, license, description, runtime }: ProgramPackageManifest['programs'][string] & { revision?: number }) => {
+    // what the browser downloads: the program gzipped, and its runtime tarball, which is gzip already
+    const program = wireSize(path.join(dir, file), sha256)
+    const wire = program === undefined ? undefined : program + (runtime?.size ?? 0)
+    return { file, size, sha256, version, license, description, packageVersion: versionOf({ version, revision }), ...(wire === undefined ? {} : { wire }), ...(tiers[name] ? { profile: tiers[name] } : {}), ...(runtime ? { runtime } : {}) }
+  }
   return {
-    packages: packages.map(({ name, path, programs, moved }) => ({
-      name, path, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(program, value)])),
+    packages: packages.map(({ name, path: packagePath, dir, programs, moved }) => ({
+      name, path: packagePath, programs: Object.fromEntries(Object.entries(programs).map(([program, value]) => [program, entry(dir, program, value)])),
       ...(Object.keys(moved).length ? { moved } : {})
     })),
     ...(groupFile ? { groups: groupFile.groups, profiles: groupFile.profiles } : {})
