@@ -27,6 +27,7 @@ import { TarReader } from '@gera2ld/tarjs'
 import { ungzip } from 'pako'
 import path from 'path'
 import binNodeSource from 'virtual:bin-node'
+import binNodeBuiltins from 'virtual:bin-node-builtins'
 import binWaliSource from 'virtual:bin-wali'
 
 import type { ConfigMounts, Configuration } from '@zenfs/core'
@@ -383,6 +384,7 @@ export class Filesystem {
     await configureZenFS(options)
     this.registerProcEntries()
     await this.installBinNode()
+    await this.installNodeBuiltins()
     await this.installBinWali()
     const url = this.initfsUrl()
     if (url) await this.installInitfs(url)
@@ -434,6 +436,24 @@ export class Filesystem {
   private async installBinNode() {
     if (!(await this.fs.exists('/bin'))) await this.fs.mkdir('/bin', { recursive: true })
     await this.fs.writeFile('/bin/node', binNodeSource, { mode: 0o755 })
+  }
+
+  /**
+   * Writes the Node built-in modules and the ES module converter that `/bin/node` loads packages with, into
+   * `/usr/lib/node` (`src/bin/node-builtins/`). The build gives them one stamp, kept beside them, and a boot that finds
+   * the same stamp writes nothing.
+   */
+  private async installNodeBuiltins() {
+    const stamp = binNodeBuiltins['.stamp']
+    if (await this.fs.readFile('/usr/lib/node/.stamp', 'utf-8').catch(() => undefined) === stamp) return
+    for (const [name, source] of Object.entries(binNodeBuiltins)) {
+      if (name === '.stamp') continue
+      const path = `/usr/lib/node/${name}`
+      await this.fs.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true })
+      await this.fs.writeFile(path, source, { mode: 0o644 })
+    }
+    // last, so a boot that stopped half way writes them all again
+    await this.fs.writeFile('/usr/lib/node/.stamp', stamp ?? '', { mode: 0o644 })
   }
 
   /**

@@ -9,7 +9,7 @@ import { playwright } from '@vitest/browser-playwright'
 import type { ViteDevServer } from 'vite'
 
 import { devApps } from './vite-plugin-dev-apps.ts'
-import { binCommands, binKernelCommands, binPrograms, binNode, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node.ts'
+import { binCommands, binKernelCommands, binPrograms, binNode, binNodeBuiltins, binPilotPwd, binPilotWindow, binWali } from './vite-plugin-bin-node.ts'
 
 import pkg from './package.json' with { type: 'json' }
 
@@ -116,6 +116,7 @@ export default defineConfig({
   envDir: process.env['VITEST'] ? false : undefined,
   plugins: [
     binNode(),
+    binNodeBuiltins(),
     binWali(),
     binPilotPwd(),
     binPilotWindow(),

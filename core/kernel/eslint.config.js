@@ -26,5 +26,11 @@ export default [
         caughtErrors: 'none'
       }]
     }
+  },
+  {
+    // the Node built-ins are CommonJS files the loader runs: `require`, `module` and `exports` are theirs
+    files: ['src/bin/node-builtins/builtins/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: { ...globals.browser, ...globals.commonjs, process: 'readonly', Buffer: 'readonly' } },
+    rules: { '@typescript-eslint/no-require-imports': 'off', 'no-redeclare': ['error', { builtinGlobals: false }] }
   }
 ]

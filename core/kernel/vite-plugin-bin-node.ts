@@ -7,7 +7,8 @@ import { build } from 'esbuild'
 import type { Plugin } from 'vite'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 function binWorkerPlugin(name: string, entryPoint: string): Plugin {
   const virtualModuleId = `virtual:bin-${name}`
@@ -37,6 +38,75 @@ function binWorkerPlugin(name: string, entryPoint: string): Plugin {
         cached = output.text
       }
 
+      return `export default ${JSON.stringify(cached)}`
+    }
+  }
+}
+
+/**
+ * Bundles the Node built-in modules and the ES module converter (`src/bin/node-builtins/`) into the virtual module
+ * `virtual:bin-node-builtins`: `{ [path under /usr/lib/node]: source }`. Each is one self-contained CommonJS file (the
+ * polyfill packages they are made from bundled in); a reference to another `node:` module is left for the loader to
+ * resolve, so `fs` and `stream` share one `EventEmitter`. The kernel writes them at boot (`installNodeBuiltins`).
+ */
+const NODE_MODULES = [
+  'assert', 'assert/strict', 'async_hooks', 'buffer', 'child_process', 'cluster', 'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'domain',
+  'events', 'fs', 'fs/promises', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'path/posix', 'path/win32', 'perf_hooks', 'process',
+  'punycode', 'querystring', 'readline', 'readline/promises', 'repl', 'stream', 'stream/promises', 'string_decoder', 'timers', 'timers/promises', 'tls',
+  'tty', 'url', 'util', 'util/types', 'v8', 'vm', 'wasi', 'worker_threads', 'zlib'
+]
+
+/** `@polyfill/NAME` to the npm package that stands in for Node's NAME (a bare `NAME` would be the module itself) */
+function polyfills(): Record<string, string> {
+  const require = createRequire(path.join(import.meta.dirname, 'package.json'))
+  return Object.fromEntries(['assert', 'buffer', 'events', 'string_decoder', 'url', 'util'].map(name => [`@polyfill/${name}`, require.resolve(`${name}/`)]))
+}
+
+export function binNodeBuiltins(): Plugin {
+  const virtualModuleId = 'virtual:bin-node-builtins'
+  const resolvedVirtualModuleId = '\0' + virtualModuleId
+  const root = path.join(import.meta.dirname, 'src', 'bin', 'node-builtins')
+  let cached: Record<string, string> | undefined
+
+  const entries = (directory = ''): string[] => readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry => {
+    const relative = path.join(directory, entry.name)
+    return entry.isDirectory() ? entries(relative) : /\.(cjs|mjs)$/.test(entry.name) ? [relative] : []
+  })
+
+  return {
+    name: 'ecmaos:bin-node-builtins',
+    resolveId(id) {
+      if (id === virtualModuleId) return resolvedVirtualModuleId
+    },
+    async load(id) {
+      if (id !== resolvedVirtualModuleId) return
+      if (!cached) {
+        const built: Record<string, string> = {}
+        for (const entry of entries()) {
+          const result = await build({
+            entryPoints: [path.join(root, entry)],
+            bundle: true,
+            format: 'cjs',
+            platform: 'browser',
+            mainFields: ['browser', 'main', 'module'],
+            // a reference to a Node module is the loader's to resolve at run time (so every built-in shares one `Buffer`
+            // and one `EventEmitter`); the shims reach the polyfill packages as `@polyfill/NAME`, which is bundled
+            external: ['node:*', ...NODE_MODULES],
+            alias: polyfills(),
+            target: 'es2022',
+            write: false,
+            absWorkingDir: import.meta.dirname
+          })
+          const output = result.outputFiles[0]
+          if (!output) throw new Error(`bin-node-builtins: esbuild produced no output for ${entry}`)
+          built[entry.replace(/\.mjs$/, '.cjs').split(path.sep).join('/')] = output.text
+        }
+        // one stamp for the lot, so a boot compares one file, not thirty
+        const hash = createHash('sha256')
+        for (const name of Object.keys(built).sort()) hash.update(name).update(built[name]!)
+        built['.stamp'] = hash.digest('hex')
+        cached = built
+      }
       return `export default ${JSON.stringify(cached)}`
     }
   }

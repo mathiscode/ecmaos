@@ -12,9 +12,10 @@ import {
   open as openRaw, read, close, write, getcwd,
   mkdir as mkdirRaw, rmdir, unlink, rename, chmod, chown, stat, lstat, access, getdents,
   link, symlink, readlink, utimes, statfs, chdir, lseek, ioctl, tcgetattr, tcsetattr, winsize, pipe, dup, dup2,
-  getxattr, setxattr, removexattr, listxattr
+  getxattr, setxattr, removexattr, listxattr, fstat, realpath, ftruncate, fsync
 } from '@zenfs/linux/uapi/fs'
 import { parseArgs, installConsole, runSource, readStdin, isTty, startRepl, Usage } from './node-cli.mjs'
+import { createLoader } from './loader/loader.mjs'
 import { syscall, syscall_async, copyOut, on_signal, off_signal, pending as pending_signals } from '@zenfs/linux/uapi/base'
 
 /**
@@ -88,6 +89,7 @@ const O_TRUNC = 0x200
 const O_DIRECTORY = 0x10000
 const S_IFMT = 0xf000
 const S_IFDIR = 0x4000
+const S_IFREG = 0x8000
 const S_IFLNK = 0xa000
 
 /** `readdir`, `copyFile` and recursive `rm`, built once over raw syscalls for the coreutils. */
@@ -106,6 +108,16 @@ function readdir(path) {
       names.push(entry.name)
     }
     return names
+  } finally {
+    close(fd)
+  }
+}
+
+/** Directory listing with each entry's type (`DT_*`, as `linux_dirent64` has it) and inode: `[{ name, type, ino }]` */
+function listdir(path) {
+  const fd = open(path, O_RDONLY | O_DIRECTORY, 0)
+  try {
+    return getdents(fd).filter(entry => entry.name !== '.' && entry.name !== '..')
   } finally {
     close(fd)
   }
@@ -228,11 +240,15 @@ const init = cli?.action === 'file' ? (() => {
 // and the sync path would block the worker with `Atomics.wait`.
 globalThis.ecmaosSyscalls = {
   open, read, write, writeAll, close, getcwd, exit, custom: syscall_async,
+  // `customSync` is `custom` that waits for the answer, which blocks this thread: for a program's own `spawnSync`
+  customSync: (name, ...args) => syscall(name, ...args),
   mkdir, umask, rmdir, unlink, rename, chmod, chown, stat, lstat, access, utimes, statfs,
   readdir, isDirectory, isSymbolicLink, copyFile, rmRecursive,
   link, symlink, readlink,
   // Extended attributes: `getxattr(path, name, noFollow)` gives the value's bytes, `listxattr(path, noFollow)` the names
   getxattr, setxattr, removexattr, listxattr,
+  // `fstat(fd)`, `realpath(path)`, `ftruncate(fd, length)`, `fsync(fd)`, and `listdir(path)`, which keeps each entry's type
+  fstat, realpath, ftruncate, fsync, listdir,
   // TCP: `connect(host, port)` gives a connected socket's descriptor (see `connect` above); `shutdown(fd, how)`
   connect, shutdown: (fd, how) => syscall('sock_shutdown', fd, how),
   // The terminal ioctls a program needs for raw mode and window size: `tcgetattr`/`tcsetattr`
@@ -331,6 +347,33 @@ async function runCommandLine() {
   return isTty(sys, 0) ? repl() : run(readStdin(sys))
 }
 
+/**
+ * A program that `require`s or `import`s files, packages or Node's own modules is run by the loader (`loader/`), which
+ * finds them as Node does and keeps the program alive until its timers and children are done. Any other program is
+ * imported as it always was. Returns `false` for one the loader has nothing to do with, and never returns for one it ran.
+ */
+async function runWithLoader(source) {
+  // most programs are bundles that need nothing: these words are the cheap way to tell before reading them closely
+  const text = new TextDecoder().decode(source)
+  if (!/^#!.*\bnode\b/.test(text) && !/\b(?:import|require|module|exports|__dirname|__filename)\b/.test(text)) return false
+  const decoder = new TextDecoder()
+  const host = {
+    kind: path => { try { const type = stat(path).mode & S_IFMT; return type === S_IFDIR ? 'dir' : type === S_IFREG ? 'file' : null } catch { return null } },
+    readlink: path => { try { return readlink(path) } catch { return null } },
+    readdir,
+    readText: path => decoder.decode(readWholeFile(path))
+  }
+  const home = init.env?.HOME
+  const loader = createLoader({ host, globalLibs: ['/usr/lib', ...(home ? [`${home}/.local/lib`] : [])] })
+  if (!loader.needsLoader(init.exe, text)) return false
+  globalThis[Symbol.for('ecmaos.loader')] = loader
+  const nodeProcess = loader.requireBuiltin('process')
+  nodeProcess.argv = ['/bin/node', init.exe, ...init.argv.slice(1)]
+  await loader.runMain(init.exe)
+  await nodeProcess.__ecmaos.finish()
+  return true
+}
+
 try {
   if (hosted && cli.action !== 'file') exit(await runCommandLine())
 
@@ -341,6 +384,7 @@ try {
     say(`node: ${cli.file}: ${error instanceof Error ? error.message : error}\n`)
     exit(1)
   }
+  if (await runWithLoader(source)) exit(0)
   await import(toDataUrl(source))
   exit(0)
 } catch (error) {
