@@ -119,7 +119,9 @@ export class Engine {
           if (name in wanted || manifest.peerDependenciesMeta?.[name]?.optional) continue
           wanted[name] = range
         }
+        const left = node.manifest.ecmaos?.meta ? this.db.excluded() : new Set()
         for (const [name, range] of Object.entries(wanted)) {
+          if (left.has(name)) continue
           const spec = dependencySpec(name, range)
           if (!spec) { this.err(yellow(`${node.name}@${node.version}: cannot fetch the dependency ${name}@${range}; skipped`)); continue }
           next.push({ ...spec, parent: node, optional: name in optional })
@@ -128,7 +130,7 @@ export class Engine {
         if (!this.options.noRecommends) {
           for (const text of listOf(manifest, 'recommends')) {
             const spec = parseSpec(text)
-            if (spec?.type === 'registry' && !(spec.name in wanted)) next.push({ name: spec.name, range: spec.range, parent: node, optional: true })
+            if (spec?.type === 'registry' && !(spec.name in wanted) && !left.has(spec.name)) next.push({ name: spec.name, range: spec.range, parent: node, optional: true })
           }
         }
         for (const text of listOf(manifest, 'suggests')) this.suggested.add(text)
@@ -275,7 +277,13 @@ export class Engine {
       if (!await this.place(node)) { code = 1; break }
       this.options.placed?.(node)
     }
-    if (!code) { this.retireSuperseded(nodes); this.retireReplaced(nodes) }
+    if (!code) {
+      this.retireSuperseded(nodes)
+      this.retireReplaced(nodes)
+      // asking for a package by name brings back one that was taken out of a group
+      const left = this.db.excluded()
+      for (const node of nodes) if (node.explicit && left.has(node.name)) this.db.exclude(node.name, false)
+    }
     this.db.save()
     if (!code) this.orphanHint()
     return code
@@ -708,7 +716,15 @@ export class Engine {
     }
     const removing = new Set(targets.map(entry => keyOf(entry.name, entry.version)))
     for (const entry of targets) {
-      const keepers = this.db.dependentsOf(entry.name, entry.version).filter(other => !removing.has(keyOf(other.name, other.version)))
+      let keepers = this.db.dependentsOf(entry.name, entry.version).filter(other => !removing.has(keyOf(other.name, other.version)))
+      // a group wants it: taking it out is on purpose, so the group stays installed without it and does not bring it back
+      const groups = keepers.filter(other => readJson(join(this.scope.lib, other.name, other.version, 'package.json'), {}).ecmaos?.meta)
+      if (groups.length && groups.length === keepers.length) {
+        for (const group of groups) { delete group.dependencies[entry.name]; this.db.set(group) }
+        this.db.exclude(entry.name)
+        this.out(`${entry.name} was part of ${groups.map(group => group.name).join(', ')}; it stays out until it is installed by name again`)
+        keepers = []
+      }
       if (keepers.length) {
         this.unlinkEntry(entry)
         entry.explicit = false

@@ -275,4 +275,39 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await fs.readlink('/usr/bin/hold-pkg')).toBe('/usr/lib/hold-pkg/2.0.0/dist/cli.js')
     })
   })
+  describe('groups (ecmaos.meta)', () => {
+    const group = async (name: string, members: string[]) => publish(name, '1.0.0', {}, 'sha512', Object.fromEntries(members.map(member => [member, 'latest'])), { ecmaos: { meta: true } })
+
+    it('removing a member leaves the group installed, keeps the member out, and installing it by name brings it back', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('grp-a', '1.0.0', { 'dist/cli.js': '// a\n' })
+      await publish('grp-b', '1.0.0', { 'dist/cli.js': '// b\n' })
+      await group('grp-all', ['grp-a', 'grp-b'])
+      // the group's members are dependencies; publish() holds one route per name, so the group is last
+      expect(await kernel.shell.execute(`install grp-all --registry ${registry}`)).toBe(0)
+      expect(await fs.exists('/usr/lib/grp-a/1.0.0/package.json')).toBe(true)
+
+      expect(await kernel.shell.execute('install remove grp-a')).toBe(0)
+      expect(await fs.exists('/usr/lib/grp-a')).toBe(false)
+      expect(await fs.exists('/usr/lib/grp-all/1.0.0/package.json')).toBe(true)
+      expect(JSON.parse(await fs.readFile('/etc/ecmaos/profile.d/excluded.json', 'utf-8'))).toEqual(['grp-a'])
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/grp-b/1.0.0/package.json')).toBe(true)
+
+      // reinstalling the group does not bring the member back
+      expect(await kernel.shell.execute(`install grp-all --reinstall --registry ${registry}`)).toBe(0)
+      expect(await fs.exists('/usr/lib/grp-a')).toBe(false)
+
+      expect(await kernel.shell.execute(`install grp-a --registry ${registry}`)).toBe(0)
+      expect(await fs.exists('/usr/lib/grp-a/1.0.0/package.json')).toBe(true)
+      expect(JSON.parse(await fs.readFile('/etc/ecmaos/profile.d/excluded.json', 'utf-8'))).toEqual([])
+    })
+
+    it('a group installs from a registry that holds only prerelease builds, ranged on latest', async () => {
+      await publish('pre-a', '1.0.0-ecmaos.1', { 'dist/cli.js': '// a\n' })
+      await group('pre-all', ['pre-a'])
+      expect(await kernel.shell.execute(`install pre-all --registry ${registry}`)).toBe(0)
+      expect(await kernel.filesystem.fs.exists('/usr/lib/pre-a/1.0.0-ecmaos.1/package.json')).toBe(true)
+    })
+  })
 })

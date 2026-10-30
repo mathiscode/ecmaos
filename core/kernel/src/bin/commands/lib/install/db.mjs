@@ -27,6 +27,7 @@ export function scopeOf(options = {}) {
       bin: '/usr/bin',
       share: '/usr/share',
       db: '/var/lib/install/db.json',
+      excluded: '/etc/ecmaos/profile.d/excluded.json',
       cache: '/var/cache/install'
     }
   }
@@ -37,6 +38,7 @@ export function scopeOf(options = {}) {
     bin: join(home, '.local/bin'),
     share: join(home, '.local/share'),
     db: join(home, '.local/state/install/db.json'),
+    excluded: join(home, '.config/ecmaos/excluded.json'),
     cache: join(home, '.cache/install')
   }
 }
@@ -57,6 +59,7 @@ export function projectScope(directory, options = {}) {
     bin: join(modules, '.bin'),
     share: join(modules, '.ecmaos/.share'),
     db: join(modules, '.ecmaos/db.json'),
+    excluded: join(modules, '.ecmaos/excluded.json'),
     cache: scopeOf(options).cache
   }
 }
@@ -157,6 +160,22 @@ export class Database {
 
   versionsOf(name) {
     return Object.values(this.packages).filter(entry => entry.name === name).sort((a, b) => semver.rcompare(a.version, b.version))
+  }
+
+  /**
+   * The packages taken out on purpose from a group that wants them (`remove vim` while `group-editors` depends on it):
+   * a JSON array of names. A group install or upgrade does not bring them back; asking for one by name does.
+   */
+  excluded() {
+    const list = readJson(this.scope.excluded, [])
+    return new Set(Array.isArray(list) ? list.filter(name => typeof name === 'string') : [])
+  }
+
+  exclude(name, on = true) {
+    const set = this.excluded()
+    if (on === set.has(name)) return
+    if (on) set.add(name); else set.delete(name)
+    writeAtomic(this.scope.excluded, JSON.stringify([...set].sort(), null, 2) + '\n')
   }
 
   /** The highest installed version of `name` that `range` takes */
