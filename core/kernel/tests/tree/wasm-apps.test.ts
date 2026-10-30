@@ -94,6 +94,40 @@ describe('wasm programs as packages', () => {
     expect(new Set(listed).size).toBe(listed.length)
   }, 60_000)
 
+  // the script reads the file system, which the test runner's shim does not serve: run it as a real process
+  const node = (code: string) => JSON.parse(process.getBuiltinModule('node:child_process').execFileSync('node', ['--input-type=module', '-e', `import * as m from ${JSON.stringify(script)}; ${code}`], { encoding: 'utf8' }))
+
+  it('lists the aliases the kernel links as extra bins, and what a program needs of the kernel', () => {
+    const { aliases, manifest } = node(`const xz = m.programs().find(entry => entry.name === 'xz'); console.log(JSON.stringify({ aliases: m.aliasesOf().xz, manifest: m.manifestFor(xz) }))`)
+    expect(aliases).toContain('unxz')
+    expect(manifest.bin).toMatchObject({ xz: 'xz.wasm', unxz: 'xz.wasm', xzcat: 'xz.wasm' })
+    expect(manifest.ecmaos.requires.features).toEqual(['wasm', 'wali'])
+  }, 60_000)
+
+  it('writes a meta-package per group and profile, on latest, with every program in Everything', () => {
+    const result = node(`
+      const { groups, profiles } = m.groupsOf()
+      const fs = await import('node:fs'); const os = await import('node:os')
+      const out = fs.mkdtempSync(os.tmpdir() + '/groups-')
+      const read = name => JSON.parse(fs.readFileSync(out + '/' + name + '/package.json', 'utf8'))
+      const written = m.buildGroups(out)
+      const result = {
+        groups: Object.keys(groups), written: written.length, expected: Object.keys(groups).length + Object.keys(profiles).length,
+        everything: profiles.everything.groups.flatMap(group => groups[group].members).sort(), programs: m.programs().map(entry => entry.name).sort(),
+        editors: read('group-editors'), standard: read('profile-standard'), minimal: read('profile-minimal')
+      }
+      fs.rmSync(out, { recursive: true, force: true })
+      console.log(JSON.stringify(result))`)
+    expect(result.groups).toContain('editors')
+    expect(result.everything).toEqual(result.programs)
+    expect(result.written).toBe(result.expected)
+    expect(result.editors.dependencies).toEqual({ '@ecmaos-apps/vim': 'latest' })
+    expect(result.editors.ecmaos.meta).toBe(true)
+    expect(result.standard.dependencies['@ecmaos-apps/group-editors']).toBe('latest')
+    expect(result.minimal.dependencies['@ecmaos-apps/bash']).toBe('latest')
+    expect(result.minimal.dependencies['@ecmaos-apps/group-shells']).toBeUndefined()
+  }, 60_000)
+
   it('describes a program as a package: its bin, its runtime and where the license texts go', async () => {
     const { manifest, files } = await publishProgram('figlet')
     expect(manifest.name).toBe('@ecmaos-apps/figlet')

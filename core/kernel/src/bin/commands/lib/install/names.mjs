@@ -20,7 +20,7 @@ const { env, rmRecursive, getpid } = globalThis.ecmaosSyscalls
 
 export const INDEX_PACKAGE = '@ecmaos/package-index'
 
-const valid = index => index?.schema === 1 && index.common && typeof index.common === 'object'
+const valid = index => (index?.schema === 1 || index?.schema === 2) && index.common && typeof index.common === 'object'
 
 /** Where a scope keeps the index `apt update` fetched */
 export const indexPath = scope => (scope.system ? '/var/lib/install/package-index.json' : join(env['HOME'] || '/root', '.local/state/install/package-index.json'))

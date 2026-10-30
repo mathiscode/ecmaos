@@ -1,0 +1,25 @@
+{
+  "groups": {
+    "compression": { "description": "bzip2, xz, zstd and lz4", "category": "System", "members": ["bzip2", "xz", "zstd", "lz4"] },
+    "sysutils": { "description": "Process, kernel and hardware inspection: ps, lsof, vmstat, sysctl, lsmod, pidof, netstat, hwclock, microcom, lspci, lsusb", "category": "System", "members": ["ps", "lsof", "vmstat", "sysctl", "lsmod", "pidof", "netstat", "hwclock", "microcom", "lspci", "lsusb"] },
+    "network": { "description": "dropbear: an SSH client and server", "category": "Network", "members": ["dropbear"] },
+    "text": { "description": "Text and build tools: patch, make, bc, ed, tree, nano, lua", "category": "Utilities", "members": ["patch", "make", "bc", "ed", "tree", "nano", "lua"] },
+    "data": { "description": "sqlite3 and jq", "category": "Utilities", "members": ["sqlite3", "jq"] },
+    "terminal": { "description": "tmux and screen", "category": "System", "members": ["tmux", "screen"] },
+    "shells": { "description": "bash and dash", "category": "System", "members": ["bash", "dash"] },
+    "editors": { "description": "vim", "category": "Utilities", "members": ["vim"] },
+    "monitor": { "description": "htop and ncdu", "category": "System", "members": ["htop", "ncdu"] },
+    "hardware": { "description": "Input and camera tools: evtest, hidinfo, v4l2grab", "category": "System", "members": ["evtest", "hidinfo", "v4l2grab"] },
+    "docs": { "description": "mandoc, the manual page formatter", "category": "Utilities", "members": ["mandoc"] },
+    "dev": { "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg", "category": "Development", "members": ["python3", "perl", "rg", "fd", "bat", "qjs", "micropython", "rsync", "brotli", "mg"] },
+    "fun": { "description": "figlet, lolcat, fortune, sl, cmatrix", "category": "Games", "members": ["figlet", "lolcat", "fortune", "sl", "cmatrix"] },
+    "audio": { "description": "ALSA tools: aplay, arecord, amixer, speaker-test", "category": "Multimedia", "members": ["aplay", "arecord", "amixer", "speaker-test"] },
+    "graphics": { "description": "doom, the SDL demos and the Wayland compositor demos", "category": "Games", "members": ["doom", "sdlsnake", "sdlpaint", "sdlclip", "sdlpad", "sdlgl", "sdlgears", "wlcomp", "wldemo"] }
+  },
+  "profiles": {
+    "minimal": { "description": "The kernel's own commands, bash, compression, system utilities and an SSH client", "packages": ["bash"], "groups": ["compression", "sysutils", "network"] },
+    "standard": { "description": "Minimal plus editors, text and data tools, a terminal multiplexer, monitors, hardware tools and manual pages", "groups": ["compression", "sysutils", "network", "shells", "text", "data", "terminal", "editors", "monitor", "hardware", "docs"] },
+    "developer": { "description": "Standard plus the developer tools", "groups": ["compression", "sysutils", "network", "shells", "text", "data", "terminal", "editors", "monitor", "hardware", "docs", "dev"] },
+    "everything": { "description": "Every program ecmaOS ships", "groups": ["compression", "sysutils", "network", "shells", "text", "data", "terminal", "editors", "monitor", "hardware", "docs", "dev", "fun", "audio", "graphics"] }
+  }
+}

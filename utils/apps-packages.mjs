@@ -8,6 +8,8 @@
 //                                                      matching their sha256, and the build recipe
 //   node utils/apps-packages.mjs index                 add an index entry (utils/package-index) for each program a
 //                                                      manifest marks as moved: `"package": "@ecmaos-apps/NAME"`
+//   node utils/apps-packages.mjs groups OUT           write OUT/group-NAME/ and OUT/profile-NAME/: the meta-packages of
+//                                                      utils/package-index/groups.json
 //   node utils/apps-packages.mjs list                  every program, with its package name, version and whether it moved
 //
 // A program moves out of the boot catalog by gaining `"package": "@ecmaos-apps/NAME"` in its `programs/manifest.json`:
@@ -31,6 +33,8 @@ const SOURCES = [
   { dir: path.join(root, 'core/utils-copyleft'), copyleft: true }
 ]
 const INDEX = path.join(root, 'utils/package-index/index.json')
+const GROUPS = path.join(root, 'utils/package-index/groups.json')
+const FS_MODES = path.join(root, 'core/kernel/src/tree/lib/fs-modes.ts')
 export const SCOPE = '@ecmaos-apps'
 
 const read = file => JSON.parse(readFileSync(file, 'utf8'))
@@ -60,6 +64,15 @@ export function semverOf(version) {
 /** A program's package version: the upstream's as semver, then ecmaOS's revision of the build */
 export const versionOf = program => `${semverOf(program.version)}-ecmaos.${program.revision ?? 1}`
 
+/** The names the kernel links to a program (`unxz` to `xz`): `{ NAME: [alias...] }`, read from `CommandLinks` */
+export function aliasesOf() {
+  const source = readFileSync(FS_MODES, 'utf8')
+  const block = source.slice(source.indexOf('export const CommandLinks'), source.indexOf('}', source.indexOf('export const CommandLinks')))
+  const found = {}
+  for (const [, link, target] of block.matchAll(/'\/bin\/([^']+)':\s*'\/bin\/([^']+)'/g)) (found[target] ??= []).push(link)
+  return found
+}
+
 /** `package.json` of a program's package */
 export function manifestFor({ name, program, manifest, copyleft }) {
   const runtime = program.runtime ? 'runtime' : undefined
@@ -72,12 +85,12 @@ export function manifestFor({ name, program, manifest, copyleft }) {
     repository: { type: 'git', url: 'https://github.com/ecmaos/ecmaos', directory: `core/${manifest.package === '@ecmaos/coreutils-copyleft' ? 'utils-copyleft' : 'utils'}` },
     keywords: ['ecmaos', 'wasm', name],
     type: 'module',
-    bin: { [name]: program.file },
+    bin: { [name]: program.file, ...Object.fromEntries((aliasesOf()[name] ?? []).map(alias => [alias, program.file])) },
     files: [program.file, ...(runtime ? [runtime] : []), 'share', 'README.md'],
     os: ['ecmaos'],
     cpu: ['wasm32'],
     publishConfig: { access: 'public' },
-    ecmaos: { ...(runtime ? { runtime } : {}), ...(copyleft ? { source: `${SCOPE}/${name}-src@${versionOf(program)}` } : {}), upstream: program.version, ...(program.toolchain ? { toolchain: program.toolchain } : {}), sha256: program.sha256 }
+    ecmaos: { requires: { features: program.toolchain === 'wali' ? ['wasm', 'wali'] : ['wasm'] }, ...(runtime ? { runtime } : {}), ...(copyleft ? { source: `${SCOPE}/${name}-src@${versionOf(program)}` } : {}), upstream: program.version, ...(program.toolchain ? { toolchain: program.toolchain } : {}), sha256: program.sha256 }
   }
 }
 
@@ -202,10 +215,75 @@ export function indexEntries(found = programs()) {
   return Object.fromEntries(found.filter(({ program }) => program.package).map(({ name, program }) => [name, { package: program.package, description: program.description }]))
 }
 
+/** The groups and profiles of `groups.json`, checked against the programs: every member is a program, and Everything has them all */
+export function groupsOf(found = programs()) {
+  const { groups, profiles } = read(GROUPS)
+  const known = new Set(found.map(entry => entry.name))
+  for (const [name, group] of Object.entries(groups)) for (const member of group.members) if (!known.has(member)) throw new Error(`group ${name}: ${member} is not a program`)
+  for (const [name, profile] of Object.entries(profiles)) {
+    for (const group of profile.groups) if (!groups[group]) throw new Error(`profile ${name}: no group ${group}`)
+    for (const member of profile.packages ?? []) if (!known.has(member)) throw new Error(`profile ${name}: ${member} is not a program`)
+  }
+  const covered = new Set(profiles.everything.groups.flatMap(group => groups[group].members))
+  const missing = [...known].filter(name => !covered.has(name))
+  if (missing.length) throw new Error(`the everything profile leaves out ${missing.join(', ')}`)
+  return { groups, profiles }
+}
+
+/** `package.json` of a group (`group-NAME`) or a profile (`profile-NAME`): a meta-package of dependencies on `latest` */
+export function groupManifest(kind, name, { description, category, members }) {
+  return {
+    name: `${SCOPE}/${kind}-${name}`,
+    version: '1.0.0',
+    description,
+    license: 'MIT OR Apache-2.0',
+    homepage: 'https://ecmaos.sh',
+    repository: { type: 'git', url: 'https://github.com/ecmaos/ecmaos', directory: 'utils/package-index' },
+    keywords: ['ecmaos', 'meta-package', name],
+    files: ['README.md'],
+    publishConfig: { access: 'public' },
+    dependencies: Object.fromEntries(members.map(member => [member.startsWith('@') ? member : `${SCOPE}/${member}`, 'latest'])),
+    ecmaos: { meta: true, ...(category ? { category } : {}) }
+  }
+}
+
+/** Writes `out/group-NAME/` and `out/profile-NAME/` for every group and profile */
+export function buildGroups(out) {
+  const { groups, profiles } = groupsOf()
+  const written = []
+  const write = (kind, name, entry) => {
+    const manifest = groupManifest(kind, name, entry)
+    const directory = path.join(out, `${kind}-${name}`)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(path.join(directory, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
+    writeFileSync(path.join(directory, 'README.md'), [`# ${manifest.name}`, '', `${entry.description}.`, '', 'It installs:', '', ...Object.keys(manifest.dependencies).map(dependency => `- ${dependency}`), '', '```sh', `sudo install -g ${manifest.name}`, '```', ''].join('\n'))
+    written.push(directory)
+  }
+  for (const [name, group] of Object.entries(groups)) write('group', name, group)
+  for (const [name, profile] of Object.entries(profiles)) write('profile', name, { description: profile.description, members: [...(profile.packages ?? []), ...profile.groups.map(group => `${SCOPE}/group-${group}`)] })
+  return written
+}
+
 function updateIndex() {
   const index = read(INDEX)
   const wanted = indexEntries()
   let changed = 0
+  // schema 2 (additive): the command each program's package provides, and the groups and profiles
+  const all = programs()
+  const { groups, profiles } = groupsOf(all)
+  const commands = {}
+  for (const entry of all) {
+    commands[entry.name] = entry.name
+    for (const alias of aliasesOf()[entry.name] ?? []) commands[alias] = entry.name
+  }
+  const extra = { ...Object.fromEntries(Object.entries(groups).map(([name, group]) => [name, { package: `${SCOPE}/group-${name}`, description: group.description, meta: true }])),
+    ...Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [`ecmaos-${name}`, { package: `${SCOPE}/profile-${name}`, description: profile.description, meta: true }])) }
+  for (const [name, entry] of Object.entries(extra)) {
+    if (JSON.stringify(index.common[name]) === JSON.stringify(entry)) continue
+    index.common[name] = entry
+    changed++
+  }
+  if (index.schema !== 2 || JSON.stringify(index.commands) !== JSON.stringify(commands)) { index.schema = 2; index.commands = commands; changed++ }
   for (const [name, entry] of Object.entries(wanted)) {
     if (JSON.stringify(index.common[name]) === JSON.stringify(entry)) continue
     index.common[name] = entry
@@ -225,7 +303,11 @@ const main = () => {
     for (const entry of chosen) console.log(build(entry, path.resolve(out)))
   } else if (command === 'index') {
     console.log(`${updateIndex()} index entries written`)
+  } else if (command === 'groups') {
+    if (!rest[0]) throw new Error('usage: apps-packages.mjs groups OUT')
+    for (const directory of buildGroups(path.resolve(rest[0]))) console.log(directory)
   } else if (command === 'check') {
+    groupsOf()
     let problems = 0
     for (const entry of programs().filter(candidate => candidate.copyleft)) {
       try { sourceFor(entry) } catch (error) { console.error(error.message); problems++ }
@@ -238,7 +320,7 @@ const main = () => {
       if (entry.copyleft) console.log(`${entry.package}-src@${versionOf(entry.program)}`)
     }
   } else {
-    throw new Error('usage: apps-packages.mjs build OUT [name...] | check | index | list')
+    throw new Error('usage: apps-packages.mjs build OUT [name...] | groups OUT | check | index | list')
   }
 }
 
