@@ -7,7 +7,6 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"],
       "env": [
-        "EMSDK",
         "ECMAOS_COPYLEFT",
         "ECMAOS_PORT",
         "ECMAOS_KERNEL_INTERVALS_PROC",
@@ -15,7 +14,6 @@
         "ECMAOS_APP_SHOW_DEFAULT_LOGIN", 
         "ECMAOS_INITFS",
         "TURBO_TEAM",
-        "SKIP_BUILD_BIOS",
         "ECMAOS_BOOT_DISABLE_LOGO_FIGLET",
         "ECMAOS_BOOT_DISABLE_LOGO_CONSOLE",
         "ECMAOS_BOOT_DISABLE_ISSUES",
@@ -24,8 +22,7 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true,
-      "env": ["EMSDK"]
+      "persistent": true
     },
     "lint": {
       "dependsOn": ["^lint"]
