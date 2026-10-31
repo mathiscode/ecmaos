@@ -3,8 +3,8 @@
  * no imports and written to `/bin/wali` at boot, like `bin/node.mjs`.
  * A WALI module imports from a `"wali"` namespace (`SYS_open`, `SYS_read`, ...) and runs on upstream's host; a
  * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes preview1 modules to `runPreview1`
- * (`wasi-preview1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest run on the main
- * thread in `Kernel.executeWasm`.
+ * (`wasi-preview1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest (components and
+ * modules with no WASI imports) run on the main thread in `Kernel.executeWasm`.
  */
 
 import { ready, exit, getpid } from '@zenfs/linux/uapi/process'

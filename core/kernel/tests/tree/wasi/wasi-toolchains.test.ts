@@ -124,13 +124,12 @@ describe('wasm programs from real toolchains', () => {
     })
   })
 
-  // Not routed to the worker (an `env` import it does not implement), so it runs on the main-thread `preview1.ts`, which
-  // tolerates the unknown names and runs it. Phase 1 moves it to the worker and keeps this result.
+  // Imports `env` names the host does not implement; they are stubbed, so it still links and runs in the worker.
   describe('emcc module with the pre-rename syscall names', () => {
-    it('is not routed to the worker today, and runs on the main thread', async () => {
+    it('is routed to the worker and runs', async () => {
       const { readFileSync } = process.getBuiltinModule('node:fs')
       const bytes = await compile(readFileSync(`${fixtures}/wasip1-old-emcc.wat`, 'utf-8'))
-      expect((await kernel.wasm.inspectForWorker(bytes)).inWorker).toBe(false)
+      expect((await kernel.wasm.inspectForWorker(bytes)).inWorker).toBe(true)
       const program = await install('old-emcc.wasm', bytes)
       const { code, stdout } = await run(program)
       expect({ code, stdout }).toEqual({ code: 4, stdout: 'old emcc\n' })

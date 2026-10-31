@@ -3,10 +3,12 @@
  * real `@zenfs/linux` syscalls, so a `wasm32-wasip1` or `emcc` program runs as a worker-hosted process (killable,
  * with pipes and a tty).
  * Covers args/environ, clocks, random, fd and path calls, `poll_oneoff`, `proc_exit`, and the `env.__syscall_*` names
- * in `IMPLEMENTED_SYSCALLS` (`tree/wasm.ts`). Loopback sockets and `epoll` work; WASI `sock_*` answers ENOSYS.
+ * `emcc` 6.x emits. Loopback sockets and `epoll` work; WASI `sock_*` answers ENOSYS. An import the host does not
+ * provide is stubbed: calling it stops the program with `module imports MODULE.NAME, which ecmaOS does not provide`.
  * Exported and imported memory are both supported (`detectMemoryImport`). Preview2 components are not routed here.
+ * Asyncify-instrumented modules run as if uninstrumented.
  * A wasi fd and a real fd share one numbering: 0-2 are stdio and the `/` and `.` preopens are opened for real at
- * startup, so they cannot collide with fds `env.__syscall_openat` returns.
+ * startup (each top-level directory is preopened too, lazily; see `createPreview1`), so they cannot collide with fds `env.__syscall_openat` returns.
  * A program linked with libecmaos (`core/utils/wasm/lib/ecmaos.sh`) also has processes and signals: `__ecmaos_spawn`
  * (`spawn.mjs`, the call WALI programs make), `execve`, `wait4` and `kill` on the kernel's process calls, and the
  * kernel's signals run through its handlers (`enableSignals`).
@@ -665,7 +667,8 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       const pollable = fdSubs.filter(sub => pollFdOf(sub.fd) !== null && pollFdOf(sub.fd) !== undefined)
       if (pollable.length) {
         const revents = pollFds(pollable.map(sub => ({ fd: pollFdOf(sub.fd), events: sub.tag === 1 ? POLLIN : POLLOUT })), soonest)
-        pollable.forEach((sub, i) => { if (revents[i]) ready.push(sub) })
+        // POLLNVAL (0x20): an fd the program does not have is ready at once, with an error
+        pollable.forEach((sub, i) => { if (revents[i]) { sub.bad = Boolean(revents[i] & 0x20); ready.push(sub) } })
       } else if (soonest > 0) {
         sleepMs(soonest)
       }
@@ -677,7 +680,7 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
       events.forEach((sub, i) => {
         const base = outPtr + i * 32
         dv.setBigUint64(base, sub.userdata, true)
-        dv.setUint16(base + 8, ESUCCESS, true)
+        dv.setUint16(base + 8, sub.bad ? EBADF : ESUCCESS, true)
         dv.setUint8(base + 10, sub.tag)
         dv.setBigUint64(base + 16, 0n, true)
         dv.setUint16(base + 24, 0, true)
@@ -2400,6 +2403,11 @@ const CATCHABLE_SIGNALS = [1, 2, 3, 10, 12, 14, 15, 17, 28]
 const IGNORED_BY_DEFAULT = new Set([17, 28])
 const DEFAULT_ACTION = 0, RESTART = 2, INTERRUPT = 3
 
+/** Thrown by the stub standing in for an import the host does not provide; `name` is `module.import`. */
+class MissingImport {
+  constructor(name) { this.name = name }
+}
+
 /** Runs a preview1 or ordinary-`emcc` module to completion and returns its exit code. */
 export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
@@ -2414,6 +2422,15 @@ export async function runPreview1(source) {
       ? { initial: memoryImport.initial, maximum: memoryImport.maximum }
       : { initial: memoryImport.initial })
     imports[memoryImport.module] = { ...(imports[memoryImport.module] ?? {}), [memoryImport.name]: memory }
+  }
+  // An import the host does not provide (an `emcc` syscall it lacks, a newer or vendor WASI function) does not stop the
+  // module linking: it stops the program with a message if the program calls it.
+  for (const entry of WebAssembly.Module.imports(module)) {
+    if (entry.kind !== 'function' || imports[entry.module]?.[entry.name]) continue
+    imports[entry.module] = {
+      ...imports[entry.module],
+      [entry.name]: () => { throw new MissingImport(`${entry.module}.${entry.name}`) }
+    }
   }
   let instance
   instance = await WebAssembly.instantiate(module, imports)
@@ -2449,6 +2466,10 @@ export async function runPreview1(source) {
     return code
   } catch (error) {
     if (error instanceof Exit) return error.code
+    if (error instanceof MissingImport) {
+      write(2, new TextEncoder().encode(`${argv()[0] ?? 'wasm'}: module imports ${error.name}, which ecmaOS does not provide\n`))
+      return 1
+    }
     throw error
   }
 }
