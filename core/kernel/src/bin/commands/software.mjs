@@ -198,9 +198,16 @@ function kindOfInstalled(scope, entry, manifest) {
   return 'package'
 }
 
-async function show(session, options, [name]) {
-  if (!name) throw new Failure('software: show needs a name', 1)
+/** `@ecmaos-apps/vim` is the program `vim`, and `@ecmaos-apps/group-editors` the collection `editors`: the names the window passes */
+function bareName(name) {
+  const bare = name.startsWith(`${SCOPE}/`) ? name.slice(SCOPE.length + 1) : name
+  return bare.startsWith('group-') ? bare.slice('group-'.length) : bare
+}
+
+async function show(session, options, [given]) {
+  if (!given) throw new Failure('software: show needs a name', 1)
   const { index } = session
+  const name = index.groups?.[bareName(given)] && (given.startsWith(`${SCOPE}/group-`) || !programOf(index, given)) ? bareName(given) : (given.startsWith(`${SCOPE}/`) && programOf(index, bareName(given)) ? bareName(given) : given)
   const known = programOf(index, name)
   const packageName = known?.package ?? (index.groups?.[name] ? `${SCOPE}/group-${name}` : name)
   const rows = installedRows(session).filter(row => row.entry.name === packageName).sort((a, b) => (a.entry.version < b.entry.version ? 1 : -1))
@@ -239,7 +246,7 @@ async function show(session, options, [name]) {
   }
   const lines = [
     `${record.name}${record.installed ? ` ${record.installed.version}` : latest ? ` ${latest}` : ''}  (${record.kind})`,
-    ...wrap(record.description.split(/\s+/), '  '),
+    wrap(record.description.split(/\s+/), '  '),
     '',
     `  Installed:    ${record.installed ? `${record.installed.version}, ${record.installed.explicit ? 'asked for by name' : 'as a dependency'}, for ${record.installed.everyone ? 'everyone' : 'you'}${latest && latest !== record.installed.version ? `; ${latest} is available` : ''}` : 'no'}`,
     ...(record.size ? [`  Size:         ${kilobytes(record.size)}`] : []),

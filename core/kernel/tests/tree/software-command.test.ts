@@ -53,6 +53,8 @@ describe('the software command', () => {
     const result = await run('software show vim --offline')
     expect(result.code, result.err).toBe(0)
     expect(result.out).toContain('@ecmaos-apps/vim')
+    // a description is wrapped into lines of words, not spread into characters
+    expect(result.out.split('\n').filter(line => line.length === 1)).toEqual([])
     expect(result.out).toMatch(/License:\s+Vim/)
     expect(result.out).toContain('apt source vim')
     expect(result.out).toContain('everyone only')
@@ -61,6 +63,15 @@ describe('the software command', () => {
     expect(json.kind).toBe('wasm')
     expect(json.installed.version).toMatch(/^9\./)
     expect((await run('software show no-such-thing-here --offline')).code).toBe(1)
+  }, 60_000)
+
+  it('takes the package names the window passes, for a program and for a collection', async () => {
+    const program = JSON.parse((await run('software show @ecmaos-apps/vim --offline --json')).out)
+    expect(program.name).toBe('@ecmaos-apps/vim')
+    expect(program.command).toBe('vim')
+    const collection = JSON.parse((await run('software show @ecmaos-apps/group-editors --offline --json')).out)
+    expect(collection.kind).toBe('collection')
+    expect(collection.name).toBe('@ecmaos-apps/group-editors')
   }, 60_000)
 
   it('lists what is installed split into asked for, collections and dependencies', async () => {
