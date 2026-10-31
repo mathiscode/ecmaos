@@ -233,7 +233,7 @@
     "@xterm/xterm": "^6.0.0",
     "@zenfs/archives": "^1.5.0",
     "@zenfs/cloud": "^0.2.8",
-    "@zenfs/core": "^2.7.7",
+    "@zenfs/core": "^2.8.3",
     "@zenfs/dom": "^1.2.14",
     "@zenfs/emscripten": "^1.0.10",
     "@zenfs/linux": "0.6.1",

@@ -15,7 +15,7 @@
     "@ecmaos/config-typescript": "workspace:^",
     "@ecmaos/types": "workspace:^",
     "@types/node": "22.20.2",
-    "@zenfs/core": "^2.7.7",
+    "@zenfs/core": "^2.8.3",
     "@zenfs/linux": "0.6.1",
     "vite-plugin-node-polyfills": "^0.28.0"
   },
