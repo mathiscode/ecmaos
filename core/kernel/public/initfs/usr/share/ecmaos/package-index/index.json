@@ -309,6 +309,30 @@
     "pip": {
       "package": "@ecmaos-apps/pip",
       "description": "pip, Python's package installer, on PyPI's wheels (pure-Python ones; it installs into python3's site-packages)"
+    },
+    "lua": {
+      "package": "@ecmaos-apps/lua",
+      "description": "The Lua 5.4 interpreter"
+    },
+    "sqlite3": {
+      "package": "@ecmaos-apps/sqlite3",
+      "description": "The SQLite command-line shell, with linenoise for line editing"
+    },
+    "ncdu": {
+      "package": "@ecmaos-apps/ncdu",
+      "description": "ncdu, the disk usage browser, with ncurses"
+    },
+    "mandoc": {
+      "package": "@ecmaos-apps/mandoc",
+      "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)"
+    },
+    "tmux": {
+      "package": "@ecmaos-apps/tmux",
+      "description": "tmux, the terminal multiplexer, with libevent and ncurses; it forks, so it is built with Asyncify"
+    },
+    "dropbear": {
+      "package": "@ecmaos-apps/dropbear",
+      "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify"
     }
   },
   "apt": {
