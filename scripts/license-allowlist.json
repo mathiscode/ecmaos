@@ -15,6 +15,10 @@
       "packages": ["@zenfs/*", "utilium", "memium"],
       "why": "ZenFS and the two libraries it is built on: bundled unmodified, with their texts in /usr/share/licenses and the steps to use your own copy in /usr/share/licenses/@zenfs/README.md (the @zenfs/* packages also carry the web-application exception in COPYING.md)"
     },
+    "GPL-3.0": {
+      "packages": ["@schemastore/package"],
+      "why": "TypeScript definitions of the public package.json schema, a single index.d.ts with no code: a development dependency whose only use is a type (JSONSchemaForNPMPackageJsonFiles) that is erased when the kernel is built, so none of it is bundled, linked or served"
+    },
     "MPL-2.0": {
       "packages": ["lightningcss", "lightningcss-*", "@typhonjs-typedoc/*"],
       "why": "build and documentation tooling, unmodified; MPL-2.0 is file-level and nothing of it is in what ecmaOS ships except the generated docs theme, which REUSE.toml annotates"
