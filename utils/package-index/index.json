@@ -341,6 +341,50 @@
     "jq": {
       "package": "@ecmaos-apps/jq",
       "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa"
+    },
+    "tree": {
+      "package": "@ecmaos-apps/tree",
+      "description": "tree, the directory lister"
+    },
+    "evtest": {
+      "package": "@ecmaos-apps/evtest",
+      "description": "evtest, which lists the input devices and prints what one reports"
+    },
+    "doom": {
+      "package": "@ecmaos-apps/doom",
+      "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)"
+    },
+    "aplay": {
+      "package": "@ecmaos-apps/aplay",
+      "description": "aplay, ALSA's command line player: plays WAV and raw sound to the card behind /dev/snd/pcmC0D0p (aplay -l lists it; -D hw:0,0 is the card as it is, the default converts format, rate and channels), with alsa-lib"
+    },
+    "arecord": {
+      "package": "@ecmaos-apps/arecord",
+      "description": "arecord, ALSA's command line recorder: records the microphone behind /dev/snd/pcmC0D0c to a WAV file (aplay's program, run as arecord), with alsa-lib"
+    },
+    "amixer": {
+      "package": "@ecmaos-apps/amixer",
+      "description": "amixer, ALSA's command line mixer: shows and sets the card's Master and Capture volumes and switches (amixer sset Master 50%), with alsa-lib"
+    },
+    "speaker-test": {
+      "package": "@ecmaos-apps/speaker-test",
+      "description": "speaker-test, ALSA's test tone and noise generator for the speakers (speaker-test -t sine -c 2), with alsa-lib"
+    },
+    "htop": {
+      "package": "@ecmaos-apps/htop",
+      "description": "htop, with ncurses: interactive process viewer"
+    },
+    "perl": {
+      "package": "@ecmaos-apps/perl",
+      "description": "Perl, with fork, system and pipe opens, and the core modules; it forks, so it is built with Asyncify"
+    },
+    "rsync": {
+      "package": "@ecmaos-apps/rsync",
+      "description": "rsync, the fast incremental file copier, locally and over ssh; it forks, so it is built with Asyncify"
+    },
+    "cmatrix": {
+      "package": "@ecmaos-apps/cmatrix",
+      "description": "cmatrix, the falling characters of The Matrix, with ncurses"
     }
   },
   "apt": {
