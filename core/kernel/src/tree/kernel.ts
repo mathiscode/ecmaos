@@ -3772,7 +3772,7 @@ export class Kernel implements IKernel {
     const home = user.home || '/root'
     const cwd = options.cwd ?? home
     const env = { ...this.sessionEnvironment(user, cred, cwd), ...options.env }
-    const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: cwd, umask: 0 }
+    const init: Parameters<typeof bindContext>[0] & { umask?: number } = { root: '/', pwd: cwd, umask: DEFAULT_UMASK }
     if (this._programsRunAsUser && cred.euid !== 0) init.credentials = credentialsFor(cred)
 
     const proc = new ZenFSProcess({

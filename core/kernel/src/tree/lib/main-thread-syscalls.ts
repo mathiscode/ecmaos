@@ -2142,6 +2142,8 @@ export function installMainThreadSyscalls(): void {
   define_syscall('proc_umask', (proc: Process, mask: number) => {
     // the mask lives with the process; a negative argument asks without changing
     if (mask < 0) return umaskOf(proc)
+    // the process's context applies its own copy of the mask (`@zenfs/core` 2.8), bound when the program started
+    proc.context.umask = mask & 0o777
     return setUmask(proc, mask)
   })
 
