@@ -91,7 +91,7 @@ describe('wasm programs as packages', () => {
     expect(versionOf({ version: '3.5a' })).toBe('3.5.0-ecmaos.1')
     expect(versionOf({ version: '9.1.0', revision: 3 })).toBe('9.1.0-ecmaos.3')
     const listed = process.getBuiltinModule('node:child_process').execFileSync('node', [script, 'list'], { encoding: 'utf8' }).trim().split('\n')
-    expect(listed).toContain('@ecmaos-apps/jq@1.8.2-ecmaos.1')
+    expect(listed.map(line => line.replace(' (moved)', ''))).toContain('@ecmaos-apps/jq@1.8.2-ecmaos.1')
     expect(new Set(listed).size).toBe(listed.length)
   }, 60_000)
 
