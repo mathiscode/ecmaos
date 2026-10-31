@@ -333,6 +333,14 @@
     "dropbear": {
       "package": "@ecmaos-apps/dropbear",
       "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify"
+    },
+    "bc": {
+      "package": "@ecmaos-apps/bc",
+      "description": "bc, and dc (the same binary under another name)"
+    },
+    "jq": {
+      "package": "@ecmaos-apps/jq",
+      "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa"
     }
   },
   "apt": {
