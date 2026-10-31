@@ -70,7 +70,7 @@ export function programs() {
 export const SCRIPTS = {
   pip: {
     entry: 'core/kernel/src/bin/commands/lib/pip/main.mjs',
-    version: '25.3.0-ecmaos.2',
+    version: '25.3.0-ecmaos.3',
     description: 'pip, Python\'s package installer, on PyPI\'s wheels (pure-Python ones; it installs into python3\'s site-packages)',
     license: 'MIT OR Apache-2.0',
     homepage: 'https://ecmaos.sh',
@@ -110,7 +110,7 @@ export function buildScript(entry, out) {
   const { buildSync } = createRequire(path.join(root, 'core/kernel/package.json'))('esbuild')
   const directory = path.join(out, entry.name)
   mkdirSync(directory, { recursive: true })
-  buildSync({ entryPoints: [path.join(root, entry.script.entry)], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(directory, `${entry.name}.mjs`), logLevel: 'error' })
+  buildSync({ entryPoints: [path.join(root, entry.script.entry)], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(directory, `${entry.name}.mjs`), banner: { js: '#!/usr/bin/env node' }, logLevel: 'error' })
   const manifest = scriptManifestFor(entry)
   writeFileSync(path.join(directory, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
   writeFileSync(path.join(directory, 'README.md'), [

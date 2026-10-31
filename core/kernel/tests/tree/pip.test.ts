@@ -134,6 +134,12 @@ describe('pip', () => {
 
   const site = '/usr/lib/python3.14/site-packages'
 
+  // ecmash (what su and login shells run) has only the first line to go by: a bundle without a shebang ran as a shell script
+  it('is built with a node shebang, so every shell runs it as a program', async () => {
+    expect(String(await fs().readFile('/usr/lib/pip/pip.mjs', 'utf8')).startsWith('#!/usr/bin/env node\n')).toBe(true)
+    expect(await kernel.readFileHeader('/usr/bin/pip')).toMatchObject({ type: 'bin', namespace: 'node' })
+  })
+
   it('installs a wheel and what it needs for this machine, writes the dist-info records, and lists and shows it', async () => {
     await publish('pp-lib', '1.2.0', { files: { 'pp_lib/data.txt': 'data\n' }, deflated: ['pp_lib/data.txt', 'pp_lib/__init__.py'] })
     await publish('pp-extra', '1.0.0')
