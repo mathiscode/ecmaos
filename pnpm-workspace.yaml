@@ -5,6 +5,8 @@ packages:
   - 'modules/*'
   - 'utils/*'
   - '!utils/opentelemetry'
+  - '!utils/registry'
+  - '!utils/wali'
   - '!utils/wasm'
   - '!utils/webtransport'
 
