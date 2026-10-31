@@ -128,11 +128,11 @@ export function buildScript(entry, out) {
   return directory
 }
 
-/** An upstream version as semver: `1.22` is 1.22.0, `3.5a` is 3.5.0 (the original stays in `ecmaos.upstream`) */
+/** An upstream version as semver: `1.22` is 1.22.0, `3.5a` is 3.5.0, `5.02` is 5.2.0 (the original stays in `ecmaos.upstream`) */
 export function semverOf(version) {
   const match = String(version).match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/)
   if (!match) throw new Error(`${version} has no version number`)
-  return `${match[1]}.${match[2] ?? 0}.${match[3] ?? 0}`
+  return match.slice(1, 4).map(part => Number(part ?? 0)).join('.')
 }
 
 /** A program's package version: the upstream's as semver, then ecmaOS's revision of the build */

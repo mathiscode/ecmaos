@@ -86,6 +86,7 @@ describe('wasm programs as packages', () => {
   it('names a package for each program, with the upstream version as semver', () => {
     expect(semverOf('1.22')).toBe('1.22.0')
     expect(semverOf('3.5a')).toBe('3.5.0')
+    expect(semverOf('5.02')).toBe('5.2.0')
     expect(semverOf('20260719')).toBe('20260719.0.0')
     expect(versionOf({ version: '3.5a' })).toBe('3.5.0-ecmaos.1')
     expect(versionOf({ version: '9.1.0', revision: 3 })).toBe('9.1.0-ecmaos.3')
