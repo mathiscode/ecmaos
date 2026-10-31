@@ -9,7 +9,7 @@ import { environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall, syscall_raw, copyOut, off_signal } from '@zenfs/linux/uapi/base'
 import { canonicalIp, formatIp, isIPv6, isLoopbackIp, parseIp } from '../tree/lib/ip.ts'
 import { environment_of, openDescriptors, spawn } from './spawn.mjs'
-import { ESUCCESS, EBADF, SYSCALL_ERRNO, fromLinux, LINUX_EINTR, O_RDONLY, O_WRONLY, O_DIRECTORY, O_CLOEXEC, S_IFMT, POLLIN, POLLOUT, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLL_CLOEXEC, EPOLL_EVENT_SIZE, ProcExit, pollFds, sleepMs } from './wasi-common.mjs'
+import { ESUCCESS, EBADF, SYSCALL_ERRNO, fromLinux, LINUX_EINTR, O_RDONLY, O_WRONLY, O_DIRECTORY, O_CLOEXEC, S_IFMT, POLLIN, POLLOUT, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EPOLL_CLOEXEC, EPOLL_EVENT_SIZE, ProcExit, pollFds, sleepMs, callMainThread } from './wasi-common.mjs'
 
 /** Builds the `env` import object for one instance. `context` is what `createWasip1` returned; `wasi` is its import table. */
 export function createEmscripten(context, wasi) {
@@ -278,34 +278,6 @@ export function createEmscripten(context, wasi) {
   const SOCK_DGRAM = 2
   const MAX_DATAGRAM = 65507 // the most a UDP datagram can carry over IPv4
 
-
-  /** Calls a `main-thread-syscalls.ts` custom syscall that answers through a scratch file (JSON),
-   * the same bridge `/bin/node`'s `lib/scratch.mjs` gives coreutils - reimplemented locally with
-   * the real fs syscalls this file already imports, since `/bin/wali` runs raw WASM, not JS, and
-   * has no `globalThis.ecmaosSyscalls`. */
-  function callMainThread(name, ...args) {
-    const path = `/tmp/.${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    syscall(name, ...args, path)
-    const fd = open(path, O_RDONLY)
-    const chunks = []
-    try {
-      while (true) {
-        const buf = new Uint8Array(65536)
-        const n = read(fd, buf, -1)
-        if (n <= 0) break
-        chunks.push(buf.subarray(0, n))
-        if (n < 65536) break
-      }
-    } finally {
-      close(fd)
-      unlink(path)
-    }
-    const total = chunks.reduce((sum, c) => sum + c.length, 0)
-    const out = new Uint8Array(total)
-    let offset = 0
-    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length }
-    return JSON.parse(decoder.decode(out))
-  }
 
   /** `struct sockaddr_un`/`struct sockaddr_in` as emcc 6.0.9 lays them out (`offsetof()`, as for
    * `struct stat`): family (u16) at offset 0 for both; `sockaddr_in`'s port (u16, network/big-endian byte order) at 2,

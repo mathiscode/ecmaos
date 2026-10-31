@@ -3,6 +3,7 @@
  * names an `emcc` build adds). Errno numbering and mapping, the Linux open flags, file types, `poll(2)` and sleeping.
  */
 import { syscall, copyOut } from '@zenfs/linux/uapi/base'
+import { stat, getdents, open, read, close, unlink } from '@zenfs/linux/uapi/fs'
 import { Errno } from 'kerium'
 
 export const ESUCCESS = 0
@@ -117,4 +118,52 @@ export function sleepMs(ms) {
 /** Thrown by the stub standing in for an import the host does not provide; `name` is `module.import`. */
 export class MissingImport {
   constructor(name) { this.name = name }
+}
+
+/**
+ * The names of the top-level directories of `/` to preopen under their own name (wasi-libc has no working directory: it
+ * makes a path absolute and takes the longest preopen prefix, so `/` and `.` alone would send `/tmp/x` to `<cwd>/tmp/x`).
+ * One the working directory also has is left out, so `./lib/x` still means the cwd's `lib`. `rootFd` is `/` opened.
+ */
+export function rootPreopenNames(cwd, rootFd) {
+  const names = []
+  for (const { name, type } of getdents(rootFd)) {
+    if (name === '.' || name === '..' || (type !== 4 && type !== 10)) continue
+    if (cwd !== '/') {
+      let shadowed = true
+      try { stat(`${cwd}/${name}`) } catch { shadowed = false }
+      if (shadowed) continue
+    }
+    names.push(name)
+  }
+  return names
+}
+
+/**
+ * Calls a `main-thread-syscalls.ts` custom syscall that answers through a scratch file (JSON), the same bridge
+ * `/bin/node`'s `lib/scratch.mjs` gives coreutils: `/bin/wali` runs raw WASM, not JS, and has no
+ * `globalThis.ecmaosSyscalls`.
+ */
+export function callMainThread(name, ...args) {
+  const path = `/tmp/.${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  syscall(name, ...args, path)
+  const fd = open(path, 0 /* O_RDONLY */)
+  const chunks = []
+  try {
+    while (true) {
+      const buf = new Uint8Array(65536)
+      const n = read(fd, buf, -1)
+      if (n <= 0) break
+      chunks.push(buf.subarray(0, n))
+      if (n < 65536) break
+    }
+  } finally {
+    close(fd)
+    unlink(path)
+  }
+  const total = chunks.reduce((sum, c) => sum + c.length, 0)
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.length }
+  return JSON.parse(new TextDecoder().decode(out))
 }

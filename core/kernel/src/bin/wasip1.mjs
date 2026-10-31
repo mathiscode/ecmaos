@@ -5,7 +5,7 @@
  * A module that imports from `env` is an `emcc` build: `runPreview1` then loads `emscripten.mjs` (the `env.__syscall_*`
  * names, sockets, `epoll`, libecmaos processes and signals) and adds it to the same host. An import the host does not
  * provide is stubbed: calling it stops the program with `module imports MODULE.NAME, which ecmaOS does not provide`.
- * Exported and imported memory are both supported (`detectMemoryImport`). Preview2 components are not routed here.
+ * Exported and imported memory are both supported (`detectMemoryImport`). A Preview 2 component is run by `wasip2.mjs`.
  * Asyncify-instrumented modules run as if uninstrumented.
  * A wasi fd and a real fd share one numbering: 0-2 are stdio and the `/` and `.` preopens are opened for real at
  * startup (each top-level directory is preopened too, lazily; see `createWasip1`), so they cannot collide with fds
@@ -14,7 +14,7 @@
 import { open, read, write, close, lseek, ftruncate, fsync, fdatasync, stat, lstat, fstat, getdents, mkdir, rmdir, unlink, rename, symlink, readlink, getcwd } from '@zenfs/linux/uapi/fs'
 import { argv, environ, getpid } from '@zenfs/linux/uapi/process'
 import { syscall_raw, on_signal, off_signal } from '@zenfs/linux/uapi/base'
-import { ESUCCESS, EBADF, ENOSYS, O_RDONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_DIRECTORY, OFLAGS_CREAT, OFLAGS_DIRECTORY, OFLAGS_EXCL, OFLAGS_TRUNC, FDFLAGS_APPEND, FILETYPE, POLLIN, POLLOUT, ProcExit, MissingImport, errnoOf, filetypeOf, normalize, pollFds, sleepMs } from './wasi-common.mjs'
+import { ESUCCESS, EBADF, ENOSYS, O_RDONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_DIRECTORY, OFLAGS_CREAT, OFLAGS_DIRECTORY, OFLAGS_EXCL, OFLAGS_TRUNC, FDFLAGS_APPEND, FILETYPE, POLLIN, POLLOUT, ProcExit, MissingImport, errnoOf, filetypeOf, normalize, pollFds, sleepMs, rootPreopenNames } from './wasi-common.mjs'
 
 /** Builds the `wasi_snapshot_preview1` import object for one instance. `getMemory` is late-bound. */
 export function createWasip1(getMemory, getTable = () => undefined, getExports = () => undefined, { rootPreopens = true } = {}) {
@@ -38,21 +38,11 @@ export function createWasip1(getMemory, getTable = () => undefined, getExports =
     [4, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
   // wasi-libc has no working directory of its own: it makes every path absolute from `/` and takes the longest preopen
-  // prefix, the last of equally long ones. So `/` and `.` alone would send every path to `.` (an absolute `/tmp/x` would
-  // open `<cwd>/tmp/x`). Each top-level directory is preopened under its own name, which is longer and wins for the
-  // absolute paths into it; one the working directory also has is left out, so `./lib/x` still means the cwd's `lib`.
-  // An emscripten module is left out of this: its `env.__syscall_*` calls hand out real fd numbers from 5 up, the same
-  // numbers, and it has no wasi-libc to need the preopens.
+  // prefix, the last of equally long ones. So `/` and `.` alone would send every path to `.`; each top-level directory is
+  // preopened under its own name too (`rootPreopenNames`). An emscripten module is left out of this: its
+  // `env.__syscall_*` calls hand out real fd numbers from 5 up, the same numbers, and it has no wasi-libc to need them.
   let preopenFd = 5
-  for (const { name, type } of rootPreopens ? getdents(preopenRoot) : []) {
-    if (name === '.' || name === '..' || (type !== 4 && type !== 10)) continue
-    if (cwd !== '/') {
-      let shadowed = true
-      try { stat(`${cwd}/${name}`) } catch { shadowed = false }
-      if (shadowed) continue
-    }
-    fds.set(preopenFd++, { fd: null, path: `/${name}`, dir: true, preopen: `/${name}` })
-  }
+  for (const name of rootPreopens ? rootPreopenNames(cwd, preopenRoot) : []) fds.set(preopenFd++, { fd: null, path: `/${name}`, dir: true, preopen: `/${name}` })
   // The descriptors that close on exec, which the kernel does not keep: a child spawned does not get them, and the
   // preopens are this host's own.
   const cloexec = new Set([preopenRoot, preopenCwd])

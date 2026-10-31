@@ -136,19 +136,33 @@ describe('wasm programs from real toolchains', () => {
     })
   })
 
-  // Runs on the main thread through preview2-shim: arguments, stdout, stderr and an exit status work, but there are no
-  // preopens, so the program's first file call fails (ENOENT) and its panic exits 1. Phase 4 gives it a worker and a filesystem.
+  // A component made from rustc output with jco's preview1 adapter: it reaches the filesystem through wasi:filesystem,
+  // whose preopens follow the same rule as preview1's, and runs as a worker process
   describe('Preview 2 component built from rustc output', () => {
-    it('is a component, runs on the main thread, and has no filesystem today', async () => {
+    it('is a component and runs in the worker', async () => {
       const bytes = fixture('rust-p2.wasm')
       expect(await kernel.wasm.detectWasiVersion(bytes)).toBe('preview2')
-      expect(await kernel.wasm.canRunInWorker(bytes)).toBe(false)
-      const program = await install('rust-p2.wasm', bytes)
-      const { code, stdout, stderr } = await run(`${program} a 6`)
-      expect(stdout).toBe('args=a,6\nhome=/root\n')
-      expect(stderr).toContain('rust-wasip1: stderr\n')
-      expect(stderr).toContain('No such file or directory')
+      expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+    })
+
+    it('runs: arguments, files, directories, clock, stdin and its exit code', async () => {
+      const program = await install('rust-p2.wasm', fixture('rust-p2.wasm'))
+      await kernel.filesystem.fs.writeFile('/tmp/tc.in', 'typed\n')
+      const { code, stdout, stderr } = await run(`cd /tmp && ${program} stdin 6 .`, '/tmp/tc.in')
+      expect(stderr).toBe('rust-wasip1: stderr\n')
       expect(code).toBe(1)
+      expect(stdout).toContain('args=stdin,6,.\n')
+      expect(stdout).toContain('file=made by rust\n')
+      expect(stdout).toContain('dir=a.txt,b.txt,sub\n')
+      expect(stdout).toContain('clock=true\n')
+      expect(stdout).toContain('stdin=typed\n')
+    }, 30_000)
+
+    it('opens absolute paths', async () => {
+      const program = await install('rust-p2.wasm', fixture('rust-p2.wasm'))
+      const { code, stderr } = await run(`${program} - 0 /tmp`)
+      expect({ code, stderr }).toEqual({ code: 0, stderr: 'rust-wasip1: stderr\n' })
+      expect(await kernel.filesystem.fs.readFile('/tmp/rust-wasip1.txt', 'utf-8')).toBe('made by rust\n')
     }, 30_000)
   })
 })

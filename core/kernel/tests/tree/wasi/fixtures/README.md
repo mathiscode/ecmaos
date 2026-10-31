@@ -129,6 +129,7 @@ runtime each reaches, so the WASI cleanup (`.docs/WASI_CLEANUP.md`) can move the
   ```
 
 - `wasip1-old-emcc.wat`: an emcc module importing the pre-rename syscall names (`__syscall_mkdir`, `__syscall_getdents`, `__syscall_rename`), assembled by the test.
+- `rust-p2-native.wasm` (`rust-p2.rs`): a Rust `std` program for `wasm32-wasip2`, so it imports `wasi:*` 0.2 directly (files, directories, a sleep, a TCP connection and a UDP datagram on loopback, a name lookup, stdin, an exit code). Usage: `rust-p2 [EXIT_CODE|stdin] [BASE_DIR]`. Rebuild: `rustc --target wasm32-wasip2 -C opt-level=z -C strip=symbols -C panic=abort rust-p2.rs -o rust-p2-native.wasm` (`rustup target add wasm32-wasip2`).
 - `rust-p2.wasm`: `rust-wasip1.wasm` wrapped in jco's command adapter, a Preview 2 component made from rustc output. Rebuild: `node tests/tree/wasi/fixtures/rust-wasip1.component.build.mjs` from `core/kernel`.
 
 What they show today:
@@ -139,6 +140,7 @@ What they show today:
 | Go wasip1 | worker | passes (relative) |
 | C standalone | worker | passes |
 | old-name emcc | worker | runs (names the host lacks are stubbed) |
-| Rust p2 component | main thread (preview2-shim) | stdio and exit status work, no filesystem |
+| Rust p2 component (adapter-made) | worker (`wasip2.mjs`) | passes, relative and absolute paths |
+| Rust wasm32-wasip2 | worker (`wasip2.mjs`) | passes: files, a sleep, tcp, udp, a name lookup, stdin |
 
 The worker preopens `/` (fd 3), `.` (fd 4) and each top-level directory under its own name, so wasi-libc's longest-prefix match sends an absolute path to the right place.

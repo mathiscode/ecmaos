@@ -3,16 +3,17 @@
  * no imports and written to `/bin/wali` at boot, like `bin/node.mjs`.
  * A WALI module imports from a `"wali"` namespace (`SYS_open`, `SYS_read`, ...) and runs on upstream's host; a
  * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes the others to `runPreview1`
- * (`wasip1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest (components and
- * modules with no WASI imports) run on the main thread in `Kernel.executeWasm`.
+ * (`wasip1.mjs`). A Preview 2 component is transpiled by the kernel (`Wasm.prepareComponent`: jco is too large to
+ * bundle here) and sent ahead of `init`; `runComponent` (`wasip2.mjs`) runs what it sent.
  */
 
 import { ready, exit, getpid } from '@zenfs/linux/uapi/process'
-import { receive } from '@zenfs/linux/uapi/port'
+import { receive, send } from '@zenfs/linux/uapi/port'
 import { syscall_raw } from '@zenfs/linux/uapi/base'
 import { open, read, write, close, stat } from '@zenfs/linux/uapi/fs'
 import { run, wali } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasip1.mjs'
+import { runComponent } from './wasip2.mjs'
 import { install, attach, drive } from './wali-host.mjs'
 
 /**
@@ -59,7 +60,8 @@ receive(message => { if (message.$ === 'wali-thread') threadStart.resolve(messag
  * the memory it imports. The file is then not read, nor compiled again here.
  */
 let provided
-receive(message => { if (message.$ === 'wali-module') provided = message })
+let providedArrived
+receive(message => { if (message.$ === 'wali-module') { provided = message; providedArrived?.() } })
 
 /** Whether `path` is still the file a module was compiled from: a program replaced since is read again, wherever it is run from */
 function sameFile(path, id) {
@@ -145,7 +147,20 @@ const fail = code => start ? syscall_raw('proc_exit_group', code) : exit(code)
 try {
   // a module the kernel sent for this very program is used as it is; the first thing a worker is told is which one it is for
   const preloaded = provided?.exe === init.exe && sameFile(init.exe, provided.id) ? provided : undefined
+  // a Preview 2 component: the kernel transpiled it (`Wasm.prepareComponent`), and `runComponent` runs what it sent
+  if (preloaded?.component) exit(await runComponent(preloaded.component))
   const source = preloaded ? undefined : await readWholeFile(init.exe)
+  if (source && source[4] === 0x0d) {
+    // a component another program exec'd: the kernel has jco, so it is asked to transpile it
+    const answer = new Promise(resolve => { providedArrived = resolve })
+    send({ $: 'wali-need-component', exe: init.exe })
+    await answer
+    if (!provided?.component) {
+      write(2, new TextEncoder().encode(`${init.exe}: could not be prepared as a component\n`), -1)
+      exit(1)
+    }
+    exit(await runComponent(provided.component))
+  }
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
   // `wasip1.mjs`; anything else is WALI.
   const module = preloaded ? preloaded.module : await WebAssembly.compile(source)

@@ -96,7 +96,7 @@ const instantiateCore = (source, imports) => {
 
         // The runner waits on what the init generator yields only when it is `instanceof Promise`; zone.js (OpenTelemetry's
         // context manager) replaces the global Promise, the browser's promises are not instances of it, and jco never
-        // loaded. Any thenable is waited on instead (src/tree/wasi/preview2.ts does the same to the code jco generates).
+        // loaded. Any thenable is waited on instead.
         modified = modified.replace(/while \(!\(value instanceof Promise\) && !done\);/g, `while (!(value && typeof value.then === 'function') && !done);`)
 
         if (modified !== code) {
@@ -163,8 +163,9 @@ export default defineConfig({
       'vite-plugin-node-polyfills/shim/process': 'vite-plugin-node-polyfills/shims/process',
       // Stub node:fs/promises for browser builds (jco library tries to import it)
       'node:fs/promises': path.resolve(import.meta.dirname, 'src/stubs/node-fs-promises.ts'),
-      // preview2-shim's `node` build is WASI on the host's own filesystem and stdio; a component is a guest of the kernel,
-      // so the tests on Node get the browser build the site has (the Node host aliases it the same way)
+      // preview2-shim's `node` build is WASI on the host's own filesystem and stdio; a kernel module (`*.ko.wasm`,
+      // `lib/wasm-module.ts`) is a guest of the kernel, so the tests on Node get the browser build the site has (the Node
+      // host aliases it the same way)
       ...Object.fromEntries(['cli', 'clocks', 'filesystem', 'io', 'random', 'sockets'].map(name => [
         `@bytecodealliance/preview2-shim/${name}`,
         path.join(import.meta.dirname, `node_modules/@bytecodealliance/preview2-shim/dist/browser/${name}.js`)

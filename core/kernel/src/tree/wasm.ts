@@ -1,17 +1,6 @@
-import type { Kernel, WasmOptions, Wasm as IWasm, Shell } from '@ecmaos/types'
+import type { Kernel, WasmOptions, Wasm as IWasm } from '@ecmaos/types'
 
-import createWasiPreview2Bindings from './wasi/preview2'
-
-export interface WasiStreamOptions {
-  stdin: ReadableStream<Uint8Array>
-  stdout: WritableStream<Uint8Array>
-  stderr: WritableStream<Uint8Array>
-}
-
-export interface WasiComponentResult {
-  instance: WebAssembly.Instance
-  exitCode: Promise<number>
-}
+import type { ProgramModule } from './lib/warm-threads'
 
 /** The limits of the first memory a module imports, as `/bin/wali` reads them (`memoryLimits` in `src/bin/wali.mjs`) */
 function memoryImportLimits(bytes: Uint8Array): { initial: number, maximum: number } | undefined {
@@ -134,8 +123,16 @@ export class Wasm implements IWasm {
     return (await this.inspectForWorker(wasmBytes)).inWorker
   }
 
-  async inspectForWorker(wasmBytes: Uint8Array): Promise<{ inWorker: boolean, wali?: { module: WebAssembly.Module, limits?: { initial: number, maximum: number } } }> {
-    // a component (preview2) or anything that is not a core module has no worker to run in
+  async inspectForWorker(wasmBytes: Uint8Array): Promise<{ inWorker: boolean, wali?: ProgramModule }> {
+    // a component (preview2) is transpiled here and run by the worker
+    if (await this.detectWasiVersion(wasmBytes) === 'preview2' && wasmBytes[4] === 0x0d) {
+      try {
+        return { inWorker: true, wali: await this.prepareComponent(wasmBytes) }
+      } catch {
+        return { inWorker: false }
+      }
+    }
+    // anything else that is not a core module has no worker to run in
     if (wasmBytes.length < 8 || wasmBytes[0] !== 0x00 || wasmBytes[1] !== 0x61 || wasmBytes[2] !== 0x73 || wasmBytes[3] !== 0x6d) return { inWorker: false }
     if (wasmBytes[4] !== 0x01 || wasmBytes[5] !== 0x00 || wasmBytes[6] !== 0x00 || wasmBytes[7] !== 0x00) return { inWorker: false }
     try {
@@ -151,34 +148,24 @@ export class Wasm implements IWasm {
   }
 
   /**
-   * Load a WASI component with stream integration
-   * Supports both WASI Preview 1 and Preview 2
+   * Transpiles a Preview 2 component with jco, which is too large for the worker's bundle: the worker is sent the
+   * generated JavaScript and the compiled core modules (`/bin/wali`'s `runComponent`).
    */
-  async loadWasiComponent(path: string, streams: WasiStreamOptions, args: string[] = [], shell?: Shell): Promise<WasiComponentResult> {
-    const wasmBytes = await this._kernel.filesystem.fs.readFile(path)
-    const version = await this.detectWasiVersion(wasmBytes)
-    
-    // a core module runs as a worker process (`inspectForWorker`); only a component gets here
-    if (version !== 'preview2') throw new Error(`${path}: not a WebAssembly component`)
-
-    return this.loadWasiPreview2(path, wasmBytes, streams, args, shell || this._kernel.shell)
-  }
-  /**
-   * Load WASI Preview 2 component
-   * Uses jco to transpile component model to core wasm + JS, then uses preview2-shim
-   */
-  private async loadWasiPreview2(path: string, wasmBytes: Uint8Array, streams: WasiStreamOptions, args: string[], shell: Shell): Promise<WasiComponentResult> {
-    const result = await createWasiPreview2Bindings({
-      kernel: this._kernel,
-      streams,
-      args,
-      shell,
-      wasmBytes
+  async prepareComponent(wasmBytes: Uint8Array): Promise<ProgramModule> {
+    const { generate } = await import('@bytecodealliance/jco/component')
+    const { files, imports, exports } = await generate(wasmBytes, {
+      name: 'component',
+      instantiation: { tag: 'async' },
+      noTypescript: true,
+      asyncMode: { tag: 'sync' }
     })
-    this._modules.set(path, {
-      module: null as unknown as WebAssembly.Module,
-      instance: result.instance
-    })
-    return result
+    const modules: Record<string, WebAssembly.Module> = {}
+    let js = ''
+    for (const [name, bytes] of files) {
+      if (name === 'component.js') js = new TextDecoder().decode(bytes)
+      else if (name.endsWith('.wasm')) modules[name] = await WebAssembly.compile(bytes as Uint8Array<ArrayBuffer>)
+    }
+    if (!js) throw new Error('jco produced no component.js')
+    return { component: { js, modules, exports: exports.map(([name]) => name), imports } }
   }
 }

@@ -32,7 +32,7 @@ import { pipefs } from '@zenfs/linux/fs/pipe'
 import { createPipe } from '#lib/pipe-reaper.ts'
 import { execveWhenFree as zenfsExecve } from '#lib/execve-retry.ts'
 import { captureDom, installEvdevIoctl } from '#lib/evdev.ts'
-import { installWarmThreads, provideProgramModule, type ProgramModule } from '#lib/warm-threads.ts'
+import { installWarmThreads, provideProgramModule, setProgramPreparer, type ProgramModule } from '#lib/warm-threads.ts'
 import { registerGlControl } from '#lib/gl.ts'
 import { Framebuffers } from '#lib/fb.ts'
 import type { BinFmt, FileOperations } from '@zenfs/linux'
@@ -124,8 +124,7 @@ import { init_uts, set_hostname } from '@zenfs/linux/uts'
 
 import {
   KernelEvents,
-  KernelState,
-  TerminalEvents
+  KernelState
 } from '@ecmaos/types'
 
 import type {
@@ -1128,6 +1127,18 @@ export class Kernel implements IKernel {
       registerSysDepth()
       // Programs start on workers made ready ahead of time
       installWarmThreads()
+      // a component another program starts (a script, say) is transpiled here, as one run from the shell is
+      setProgramPreparer(async exe => {
+        const fs = this.filesystem.fs as unknown as IShell['context']['fs']['promises']
+        const handle = await fs.open(exe, 'r')
+        try {
+          const header = new Uint8Array(8)
+          await handle.read(header, 0, 8, 0)
+          if (header[4] === 0x0d) await this.prepareWasm(exe, fs)
+        } finally {
+          await handle.close().catch(() => {})
+        }
+      })
 
       // Registers the xterm and console drivers (`/dev/xterm<n>`, `/dev/tty`, `/dev/console`); without this, reads
       // and writes on those nodes throw ENXIO. Host stdio probing is off.
@@ -1444,15 +1455,17 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * The answer to `canRunInWorker` for programs seen already, by file identity: reading and compiling a program for it is
+   * What `inspectForWorker` said of programs seen already, by file identity: reading and compiling a program for it is
    * most of what a launch costs on the main thread. A WALI program's compiled module is kept too (the newest few) and
    * handed to its worker, which would otherwise read the file and compile it twice.
    */
   private readonly wasmWorkerVerdicts = new Map<string, { inWorker: boolean, wali?: ProgramModule, released?: boolean }>()
 
-  /** Whether a WebAssembly program runs as a worker process; a file that changed on disk is asked again (not by `ctime`, which a read moves along with `atime`) */
-  private async wasmRunsInWorker(command: string, shell: IShell): Promise<boolean> {
-    const fs = shell.context.fs.promises
+  /**
+   * Compiles a WebAssembly program, or transpiles a component, and has the worker it is about to get sent the result; a
+   * file that changed on disk is inspected again (not by `ctime`, which a read moves along with `atime`)
+   */
+  private async prepareWasm(command: string, fs: IShell['context']['fs']['promises']): Promise<void> {
     const stat = await fs.stat(command)
     const id = `${stat.ino}\0${stat.size}\0${stat.mtimeMs}`
     const key = `${command}\0${id}`
@@ -1470,7 +1483,6 @@ export class Kernel implements IKernel {
       for (const entry of [...this.wasmWorkerVerdicts.values()].reverse()) if (entry.wali && ++held > 8) Object.assign(entry, { wali: undefined, released: true })
     }
     provideProgramModule(command, known.wali)
-    return known.inWorker
   }
 
   async execute(options: KernelExecuteOptions): Promise<number> {
@@ -1497,11 +1509,10 @@ export class Kernel implements IKernel {
       let exitCode: number | void = -1
       switch (header.type) {
         case 'wasm': {
-          // A core module runs as a real worker Process under /bin/wali (killable, real pid, real pipes); a
-          // Preview 2 component still needs the main-thread adapter.
-          exitCode = await this.wasmRunsInWorker(options.command, options.shell)
-            ? await this.executeViaExecve(options)
-            : await this.executeWasm(this.withStdinStream(options))
+          // A core module or a component runs as a real worker Process under /bin/wali (killable, real pid, real pipes);
+          // a file that is neither is refused there, with the reason
+          await this.prepareWasm(options.command, options.shell.context.fs.promises)
+          exitCode = await this.executeViaExecve(options)
           break
         }
         case 'js':
@@ -2042,116 +2053,6 @@ export class Kernel implements IKernel {
     })
 
     return { readable, writable, abandon }
-  }
-
-  /**
-   * Executes a Preview 2 component on the main thread (core modules run as worker processes through `executeViaExecve`)
-   * @param options - Execution options containing WASM path and shell
-   * @returns Exit code of the WASM execution
-   */
-  async executeWasm(options: KernelExecuteOptions): Promise<number> {
-    const terminal = options.terminal || this.terminal
-    const stdinIsTTY = options.stdinIsTTY ?? (options.stdin ? false : true)
-    const shouldUnlisten = terminal && stdinIsTTY
-    let keyListener: { dispose: () => void } | null = null
-
-    // A real `ZenFSProcess`, so `ps` and `kill` see it. It does not use the line discipline: a JS stdin/stdout
-    // `Stream` pair feeds the WASM loader, and the WASI adapters key `^C` off `TerminalEvents.INTERRUPT`.
-    const proc = new ZenFSProcess({
-      argv: [options.command, ...(options.args || [])],
-      env: options.shell.envObject,
-      cwd: options.shell.cwd,
-      context: this.processContext(options.shell, options.shell.cwd),
-      tty: terminal?.zfsTty
-    })
-    registerProcessKernel(proc, this, options.shell)
-    this.init.adopt(proc)
-
-    try {
-      let stdin: ReadableStream<Uint8Array>
-      let closeStdin: (() => void) | null = null
-
-      if (options.stdin) {
-        stdin = options.stdin
-      } else if (terminal && shouldUnlisten) {
-        const stdinWithClose = terminal.getInputStreamWithClose()
-        stdin = stdinWithClose.stream
-        closeStdin = stdinWithClose.close
-      } else {
-        stdin = terminal?.getInputStream() || new ReadableStream<Uint8Array>()
-      }
-
-      const stdout = options.stdout || terminal?.stdout || new WritableStream<Uint8Array>()
-      const stderr = options.stderr || terminal?.stderr || new WritableStream<Uint8Array>()
-
-      if (shouldUnlisten) {
-        terminal.clearCommand()
-        terminal.unlisten()
-
-        keyListener = terminal.onKey(({ domEvent }) => {
-          if (domEvent.ctrlKey && domEvent.key === 'c') {
-            domEvent.preventDefault()
-            domEvent.stopPropagation()
-            // `proc` is signalable, but WASM without asyncify has no yield point and is not preempted; only code that
-            // checks for signals, or the adapters watching `INTERRUPT`, reacts.
-            proc.kill(ZenFSSignal.INT)
-            terminal.events.dispatch(TerminalEvents.INTERRUPT, { terminal })
-            return
-          }
-
-          if (domEvent.ctrlKey && domEvent.key === 'd') {
-            domEvent.preventDefault()
-            domEvent.stopPropagation()
-            if (closeStdin) closeStdin()
-            else stdin.cancel().catch(() => {})
-            return
-          }
-
-          domEvent.preventDefault()
-          domEvent.stopPropagation()
-
-          // Echo to terminal and dispatch to stdin
-          if (domEvent.key === 'Enter') {
-            terminal.write('\r\n')
-            // Send newline to stdin (fgets expects \n)
-            terminal.dispatchStdin('\n')
-          } else if (domEvent.key.length === 1) {
-            terminal.write(domEvent.key)
-            terminal.dispatchStdin(domEvent.key)
-          }
-        })
-      }
-
-      let exitCode = 0
-      try {
-        const result = await this.wasm.loadWasiComponent(options.command, {
-          stdin,
-          stdout,
-          stderr
-        }, [options.command, ...(options.args || [])], options.shell || this.shell)
-        exitCode = await result.exitCode
-      } finally {
-        proc.exit(exitCode)
-      }
-
-      return exitCode
-    } catch (error) {
-      this.log.error(`Failed to execute WASM: ${error}`)
-      terminal?.writeln(chalk.red((error as Error).message))
-      if (!proc.zombie) proc.exit(-1)
-      return -1
-    } finally {
-      if (keyListener) {
-        keyListener.dispose()
-      }
-      if (shouldUnlisten) {
-        terminal.listen()
-      }
-      // A stream it was handed (pipe, redirect) is closed so the far end sees EOF and a file redirect writes what it
-      // holds; the terminal's shared streams are left open
-      if (options.stdout && options.stdout !== terminal?.stdout) await options.stdout.close().catch(() => {})
-      if (options.stderr && options.stderr !== terminal?.stderr) await options.stderr.close().catch(() => {})
-    }
   }
 
   /**
