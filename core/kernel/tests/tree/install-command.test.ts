@@ -327,6 +327,23 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await fs.exists('/usr/bin/lnk-a')).toBe(false)
     })
 
+    it('links the commands of a dependency a package lists in ecmaos.link, and autoremove takes it once the package is gone', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('lk-lang', '1.0.0', { 'dist/cli.js': '// lang\n' })
+      await publish('lk-lib', '1.0.0', { 'dist/cli.js': '// lib\n' })
+      await publish('lk-tool', '1.0.0', { 'dist/cli.js': '// tool\n' }, 'sha512', { 'lk-lang': 'latest', 'lk-lib': 'latest' }, { ecmaos: { link: ['lk-lang'] } })
+      expect(await kernel.shell.execute(`install lk-tool --registry ${registry}`)).toBe(0)
+      expect(await fs.readlink('/usr/bin/lk-tool')).toBe('/usr/lib/lk-tool/1.0.0/dist/cli.js')
+      expect(await fs.readlink('/usr/bin/lk-lang')).toBe('/usr/lib/lk-lang/1.0.0/dist/cli.js')
+      // a plain dependency stays a library
+      expect(await fs.exists('/usr/bin/lk-lib')).toBe(false)
+
+      expect(await kernel.shell.execute('install remove lk-tool')).toBe(0)
+      expect(await kernel.shell.execute('install autoremove')).toBe(0)
+      expect(await fs.exists('/usr/lib/lk-lang')).toBe(false)
+      expect(await fs.exists('/usr/bin/lk-lang')).toBe(false)
+    })
+
     it('is marked as a group by list, show and pacman -Qg', async () => {
       await publish('mk-a', '1.0.0', { 'dist/cli.js': '// a\n' })
       await group('mk-all', ['mk-a'])

@@ -16,7 +16,7 @@ import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sig
 import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { SCOPE, groupsOf, programs } from './apps-packages.mjs'
+import { SCOPE, groupsOf, programs, scripts } from './apps-packages.mjs'
 
 const OUT = path.resolve(import.meta.dirname, 'package-index')
 
@@ -25,6 +25,7 @@ export function publishedNames() {
   const found = programs()
   const { groups, profiles } = groupsOf(found)
   return [
+    ...scripts().map(entry => entry.package),
     ...found.flatMap(entry => [entry.package, ...(entry.copyleft ? [`${entry.package}-src`] : [])]),
     ...Object.keys(groups).map(name => `${SCOPE}/group-${name}`),
     ...Object.keys(profiles).map(name => `${SCOPE}/profile-${name}`)

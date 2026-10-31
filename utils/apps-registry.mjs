@@ -105,8 +105,13 @@ async function publish(names) {
       console.log(`published @ecmaos-apps/${directory}`)
     }
     if (!names.length) await signIndex()
-    publishDirectory(path.join(root, 'utils/package-index'))
-    console.log('published @ecmaos/package-index')
+    // the index keeps its version until it is bumped for a release; a registry that already has it is not an error
+    try {
+      publishDirectory(path.join(root, 'utils/package-index'))
+      console.log('published @ecmaos/package-index')
+    } catch {
+      console.log('@ecmaos/package-index: this version is already published (bump utils/package-index/package.json to publish a changed index)')
+    }
   } finally {
     rmSync(out, { recursive: true, force: true })
   }

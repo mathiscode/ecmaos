@@ -25,6 +25,7 @@
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -52,6 +53,74 @@ export function programs() {
     }
   }
   return found
+}
+
+/**
+ * The programs that are JavaScript, not WebAssembly: a kernel command bundled into one file and published as a package
+ * of its own. `pip` is the one: its code is `core/kernel/src/bin/commands/lib/pip/`, and a package that needs Python
+ * depends on `python3`, so installing pip installs Python. `moved` is the same switch a wasm program's manifest has
+ * (`"package"`): while it is false the kernel still carries the command, and the index does not send its name to the
+ * package. It becomes true when the kernel's own copy goes, which happens after the package is published.
+ */
+export const SCRIPTS = {
+  pip: {
+    entry: 'core/kernel/src/bin/commands/lib/pip/main.mjs',
+    version: '25.3.0-ecmaos.2',
+    description: 'pip, Python\'s package installer, on PyPI\'s wheels (pure-Python ones; it installs into python3\'s site-packages)',
+    license: 'MIT OR Apache-2.0',
+    homepage: 'https://ecmaos.sh',
+    aliases: ['pip3'],
+    dependencies: { [`${SCOPE}/python3`]: 'latest' },
+    names: { apt: ['python3-pip'], pacman: ['python-pip'] },
+    moved: false
+  }
+}
+
+/** Every script: `{ name, script, package }` */
+export const scripts = () => Object.entries(SCRIPTS).map(([name, script]) => ({ name, script, package: `${SCOPE}/${name}` }))
+
+/** `package.json` of a script's package */
+export function scriptManifestFor({ name, script }) {
+  return {
+    name: `${SCOPE}/${name}`,
+    version: script.version,
+    description: script.description,
+    license: script.license,
+    homepage: script.homepage,
+    repository: { type: 'git', url: 'https://github.com/ecmaos/ecmaos', directory: 'core/kernel' },
+    keywords: ['ecmaos', name, 'python'],
+    type: 'module',
+    bin: { [name]: `${name}.mjs`, ...Object.fromEntries(script.aliases.map(alias => [alias, `${name}.mjs`])) },
+    files: [`${name}.mjs`, 'README.md'],
+    os: ['ecmaos'],
+    publishConfig: { access: 'public' },
+    dependencies: script.dependencies,
+    // the commands of what it depends on are wanted too: installing pip puts `python3` on the PATH
+    ecmaos: { link: Object.keys(script.dependencies) }
+  }
+}
+
+/** Writes `out/NAME/` for one script: the command and everything it imports, as one file */
+export function buildScript(entry, out) {
+  const { buildSync } = createRequire(path.join(root, 'core/kernel/package.json'))('esbuild')
+  const directory = path.join(out, entry.name)
+  mkdirSync(directory, { recursive: true })
+  buildSync({ entryPoints: [path.join(root, entry.script.entry)], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(directory, `${entry.name}.mjs`), logLevel: 'error' })
+  const manifest = scriptManifestFor(entry)
+  writeFileSync(path.join(directory, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
+  writeFileSync(path.join(directory, 'README.md'), [
+    `# ${manifest.name}`,
+    '',
+    `${entry.script.description}.`,
+    '',
+    `It depends on ${Object.keys(entry.script.dependencies).map(name => `\`${name}\``).join(', ')}, so installing it installs Python.`,
+    '',
+    '```sh',
+    `sudo install -g ${manifest.name}   # or: apt install ${entry.script.names.apt?.[0] ?? entry.name}`,
+    '```',
+    ''
+  ].join('\n'))
+  return directory
 }
 
 /** An upstream version as semver: `1.22` is 1.22.0, `3.5a` is 3.5.0 (the original stays in `ecmaos.upstream`) */
@@ -218,7 +287,7 @@ export function indexEntries(found = programs()) {
 /** The groups and profiles of `groups.json`, checked against the programs: every member is a program, and Everything has them all */
 export function groupsOf(found = programs()) {
   const { groups, profiles } = read(GROUPS)
-  const known = new Set(found.map(entry => entry.name))
+  const known = new Set([...found.map(entry => entry.name), ...Object.keys(SCRIPTS)])
   for (const [name, group] of Object.entries(groups)) for (const member of group.members) if (!known.has(member)) throw new Error(`group ${name}: ${member} is not a program`)
   for (const [name, profile] of Object.entries(profiles)) {
     for (const group of profile.groups) if (!groups[group]) throw new Error(`profile ${name}: no group ${group}`)
@@ -278,6 +347,10 @@ function updateIndex() {
   }
   const extra = { ...Object.fromEntries(Object.entries(groups).map(([name, group]) => [name, { package: `${SCOPE}/group-${name}`, description: group.description, meta: true }])),
     ...Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [`ecmaos-${name}`, { package: `${SCOPE}/profile-${name}`, description: profile.description, meta: true }])) }
+  for (const { name, script } of scripts()) {
+    commands[name] = name
+    for (const alias of script.aliases) commands[alias] = name
+  }
   for (const [name, entry] of Object.entries(extra)) {
     if (JSON.stringify(index.common[name]) === JSON.stringify(entry)) continue
     index.common[name] = entry
@@ -296,6 +369,15 @@ function updateIndex() {
     index.common[name] = entry
     changed++
   }
+  // a script that moved: its name, and the other distributions' names for it, mean the package
+  for (const { name, script, package: packageName } of scripts()) {
+    if (!script.moved) continue
+    const entry = { package: packageName, description: script.description }
+    if (JSON.stringify(index.common[name]) !== JSON.stringify(entry)) { index.common[name] = entry; changed++ }
+    for (const [section, others] of Object.entries(script.names)) {
+      for (const other of others) if (index[section][other] !== name) { index[section][other] = name; changed++ }
+    }
+  }
   if (changed) writeFileSync(INDEX, JSON.stringify(index, null, 2) + '\n')
   return changed
 }
@@ -306,8 +388,9 @@ const main = () => {
     const [out, ...names] = rest
     if (!out) throw new Error('usage: apps-packages.mjs build OUT [name...]')
     const all = programs()
-    const chosen = names.length ? names.map(name => all.find(entry => entry.name === name) ?? (() => { throw new Error(`no program named ${name}`) })()) : all
+    const chosen = names.length ? names.filter(name => !SCRIPTS[name]).map(name => all.find(entry => entry.name === name) ?? (() => { throw new Error(`no program named ${name}`) })()) : all
     for (const entry of chosen) console.log(build(entry, path.resolve(out)))
+    for (const entry of scripts().filter(candidate => !names.length || names.includes(candidate.name))) console.log(buildScript(entry, path.resolve(out)))
   } else if (command === 'index') {
     console.log(`${updateIndex()} index entries written`)
   } else if (command === 'groups') {
@@ -326,6 +409,7 @@ const main = () => {
       console.log(`${entry.package}@${versionOf(entry.program)}${entry.program.package ? ' (moved)' : ''}`)
       if (entry.copyleft) console.log(`${entry.package}-src@${versionOf(entry.program)}`)
     }
+    for (const entry of scripts()) console.log(`${entry.package}@${entry.script.version}${entry.script.moved ? ' (moved)' : ''}`)
   } else {
     throw new Error('usage: apps-packages.mjs build OUT [name...] | groups OUT | check | index | list')
   }

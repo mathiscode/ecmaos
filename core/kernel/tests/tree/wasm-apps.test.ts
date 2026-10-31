@@ -113,7 +113,7 @@ describe('wasm programs as packages', () => {
       const written = m.buildGroups(out)
       const result = {
         groups: Object.keys(groups), written: written.length, expected: Object.keys(groups).length + Object.keys(profiles).length,
-        everything: profiles.everything.groups.flatMap(group => groups[group].members).sort(), programs: m.programs().map(entry => entry.name).sort(),
+        everything: profiles.everything.groups.flatMap(group => groups[group].members).sort(), programs: [...m.programs().map(entry => entry.name), ...m.scripts().map(entry => entry.name)].sort(),
         editors: read('group-editors'), standard: read('profile-standard'), minimal: read('profile-minimal')
       }
       fs.rmSync(out, { recursive: true, force: true })
@@ -126,6 +126,24 @@ describe('wasm programs as packages', () => {
     expect(result.standard.dependencies['@ecmaos-apps/group-editors']).toBe('latest')
     expect(result.minimal.dependencies['@ecmaos-apps/bash']).toBe('latest')
     expect(result.minimal.dependencies['@ecmaos-apps/group-shells']).toBeUndefined()
+  }, 60_000)
+
+  it('packages pip as one file that depends on python3 and links its commands', () => {
+    const result = node(`
+      const fs = await import('node:fs'); const os = await import('node:os')
+      const out = fs.mkdtempSync(os.tmpdir() + '/pip-')
+      m.buildScript(m.scripts()[0], out)
+      const manifest = JSON.parse(fs.readFileSync(out + '/pip/package.json', 'utf8'))
+      const code = fs.readFileSync(out + '/pip/pip.mjs', 'utf8')
+      const files = fs.readdirSync(out + '/pip').sort()
+      fs.rmSync(out, { recursive: true, force: true })
+      console.log(JSON.stringify({ manifest, files, imports: /^import .* from ['"]\\./m.test(code) }))`)
+    expect(result.manifest.name).toBe('@ecmaos-apps/pip')
+    expect(result.manifest.dependencies).toEqual({ '@ecmaos-apps/python3': 'latest' })
+    expect(result.manifest.ecmaos.link).toEqual(['@ecmaos-apps/python3'])
+    expect(result.manifest.bin).toEqual({ pip: 'pip.mjs', pip3: 'pip.mjs' })
+    expect(result.files).toEqual(['README.md', 'package.json', 'pip.mjs'])
+    expect(result.imports).toBe(false)
   }, 60_000)
 
   it('describes a program as a package: its bin, its runtime and where the license texts go', async () => {

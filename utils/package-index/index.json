@@ -192,7 +192,7 @@
     },
     "dev": {
       "package": "@ecmaos-apps/group-dev",
-      "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
+      "description": "Developer tools: python3, pip, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
       "meta": true
     },
     "fun": {
@@ -351,7 +351,9 @@
     "htop": "htop",
     "perl": "perl",
     "rsync": "rsync",
-    "cmatrix": "cmatrix"
+    "cmatrix": "cmatrix",
+    "pip": "pip",
+    "pip3": "pip"
   },
   "groups": {
     "compression": {
@@ -446,9 +448,10 @@
       ]
     },
     "dev": {
-      "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
+      "description": "Developer tools: python3, pip, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
       "members": [
         "python3",
+        "pip",
         "perl",
         "rg",
         "fd",

@@ -116,8 +116,10 @@ export class Engine {
           throw error
         }
         if (!node) continue
-        // a member of a group is linked like a package asked for by name, though it stays an automatic install
-        if (request.parent?.manifest?.ecmaos?.meta) node.viaMeta = true
+        // a member of a group is linked like a package asked for by name, though it stays an automatic install; so is a
+        // dependency a package lists as one it needs the commands of (`"ecmaos": { "link": ["@ecmaos-apps/python3"] }` in pip's)
+        const ecmaos = request.parent?.manifest?.ecmaos
+        if (ecmaos?.meta || (Array.isArray(ecmaos?.link) && ecmaos.link.includes(node.name))) node.viaMeta = true
         if (request.parent) {
           request.parent.dependencies[node.name] = node.version
           if (request.alias && request.alias !== node.name) request.parent.aliases[request.alias] = node.name

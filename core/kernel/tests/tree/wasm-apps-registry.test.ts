@@ -80,4 +80,19 @@ describe.skipIf(!registry)('wasm programs from a local registry', () => {
     expect((await run(`install -g @ecmaos-apps/xz --registry ${registry} --allow-unsigned`)).code).toBe(0)
     expect(await fs().exists('/usr/bin/xz')).toBe(true)
   }, 180_000)
+
+  // node utils/apps-registry.mjs publish python3 pip (slow: python3 is 40 MB to unpack and 1100 files to link, about 8 minutes here)
+  it('installs pip with python3 under it, linked and recorded as an automatic install', async () => {
+    const result = await run(`install -g @ecmaos-apps/pip --registry ${registry} --allow-unsigned`)
+    expect(result.code, result.err).toBe(0)
+    expect(await fs().readlink('/usr/bin/python3')).toMatch(/python3\.wasm$/)
+    expect(await fs().readlink('/usr/bin/pip')).toMatch(/pip\.mjs$/)
+    expect(await fs().readlink('/usr/bin/pip3')).toMatch(/pip\.mjs$/)
+    expect(await fs().exists('/usr/lib/python3.14')).toBe(true)
+
+    const database = JSON.parse(await fs().readFile('/var/lib/install/db.json', 'utf-8').catch(() => '{"packages":{}}'))
+    const entries = Object.values(database.packages) as { name: string, explicit?: boolean }[]
+    expect(entries.find(entry => entry.name === '@ecmaos-apps/pip')?.explicit).toBe(true)
+    expect(entries.find(entry => entry.name === '@ecmaos-apps/python3')?.explicit).toBe(false)
+  }, 900_000)
 })

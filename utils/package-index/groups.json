@@ -11,7 +11,7 @@
     "monitor": { "description": "htop and ncdu", "category": "System", "members": ["htop", "ncdu"] },
     "hardware": { "description": "Input and camera tools: evtest, hidinfo, v4l2grab", "category": "System", "members": ["evtest", "hidinfo", "v4l2grab"] },
     "docs": { "description": "mandoc, the manual page formatter", "category": "Utilities", "members": ["mandoc"] },
-    "dev": { "description": "Developer tools: python3, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg", "category": "Development", "members": ["python3", "perl", "rg", "fd", "bat", "qjs", "micropython", "rsync", "brotli", "mg"] },
+    "dev": { "description": "Developer tools: python3, pip, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg", "category": "Development", "members": ["python3", "pip", "perl", "rg", "fd", "bat", "qjs", "micropython", "rsync", "brotli", "mg"] },
     "fun": { "description": "figlet, lolcat, fortune, sl, cmatrix", "category": "Games", "members": ["figlet", "lolcat", "fortune", "sl", "cmatrix"] },
     "audio": { "description": "ALSA tools: aplay, arecord, amixer, speaker-test", "category": "Multimedia", "members": ["aplay", "arecord", "amixer", "speaker-test"] },
     "graphics": { "description": "doom, the SDL demos and the Wayland compositor demos", "category": "Games", "members": ["doom", "sdlsnake", "sdlpaint", "sdlclip", "sdlpad", "sdlgl", "sdlgears", "wlcomp", "wldemo"] }
