@@ -358,7 +358,12 @@ function updateIndex() {
   }
   if (index.schema !== 2 || JSON.stringify(index.commands) !== JSON.stringify(commands)) { index.schema = 2; index.commands = commands; changed++ }
   // the definitions `profile` works from, without the registry
-  const definitions = { groups: Object.fromEntries(Object.entries(groups).map(([name, group]) => [name, { description: group.description, members: group.members }])), profiles: Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [name, { description: profile.description, groups: profile.groups, ...(profile.packages ? { packages: profile.packages } : {}) }])) }
+  const definitions = { groups: Object.fromEntries(Object.entries(groups).map(([name, group]) => [name, { description: group.description, ...(group.category ? { category: group.category } : {}), members: group.members }])), profiles: Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [name, { description: profile.description, groups: profile.groups, ...(profile.packages ? { packages: profile.packages } : {}) }])) }
+  // what the Software browser shows of each program without asking the registry
+  definitions.programs = Object.fromEntries([
+    ...all.map(entry => [entry.name, { package: entry.package, description: entry.program.description, license: entry.program.license, homepage: entry.program.homepage, size: entry.program.size, kind: 'wasm', ...(entry.copyleft ? { source: `${entry.package}-src` } : {}), ...(entry.program.runtime ? { system: true } : {}) }]),
+    ...scripts().map(({ name, script, package: packageName }) => [name, { package: packageName, description: script.description, license: script.license, homepage: script.homepage, kind: 'script', ...(script.system ? { system: true } : {}) }])
+  ].sort(([a], [b]) => a.localeCompare(b)))
   for (const [key, value] of Object.entries(definitions)) {
     if (JSON.stringify(index[key]) === JSON.stringify(value)) continue
     index[key] = value

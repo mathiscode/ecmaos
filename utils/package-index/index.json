@@ -358,6 +358,7 @@
   "groups": {
     "compression": {
       "description": "bzip2, xz, zstd and lz4",
+      "category": "System",
       "members": [
         "bzip2",
         "xz",
@@ -367,6 +368,7 @@
     },
     "sysutils": {
       "description": "Process, kernel and hardware inspection: ps, lsof, vmstat, sysctl, lsmod, pidof, netstat, hwclock, microcom, lspci, lsusb",
+      "category": "System",
       "members": [
         "ps",
         "lsof",
@@ -383,12 +385,14 @@
     },
     "network": {
       "description": "dropbear: an SSH client and server",
+      "category": "Network",
       "members": [
         "dropbear"
       ]
     },
     "text": {
       "description": "Text and build tools: patch, make, bc, ed, tree, nano, lua",
+      "category": "Utilities",
       "members": [
         "patch",
         "make",
@@ -401,6 +405,7 @@
     },
     "data": {
       "description": "sqlite3 and jq",
+      "category": "Utilities",
       "members": [
         "sqlite3",
         "jq"
@@ -408,6 +413,7 @@
     },
     "terminal": {
       "description": "tmux and screen",
+      "category": "System",
       "members": [
         "tmux",
         "screen"
@@ -415,6 +421,7 @@
     },
     "shells": {
       "description": "bash and dash",
+      "category": "System",
       "members": [
         "bash",
         "dash"
@@ -422,12 +429,14 @@
     },
     "editors": {
       "description": "vim",
+      "category": "Utilities",
       "members": [
         "vim"
       ]
     },
     "monitor": {
       "description": "htop and ncdu",
+      "category": "System",
       "members": [
         "htop",
         "ncdu"
@@ -435,6 +444,7 @@
     },
     "hardware": {
       "description": "Input and camera tools: evtest, hidinfo, v4l2grab",
+      "category": "System",
       "members": [
         "evtest",
         "hidinfo",
@@ -443,12 +453,14 @@
     },
     "docs": {
       "description": "mandoc, the manual page formatter",
+      "category": "Utilities",
       "members": [
         "mandoc"
       ]
     },
     "dev": {
       "description": "Developer tools: python3, pip, perl, rg, fd, bat, qjs, micropython, rsync, brotli, mg",
+      "category": "Development",
       "members": [
         "python3",
         "pip",
@@ -465,6 +477,7 @@
     },
     "fun": {
       "description": "figlet, lolcat, fortune, sl, cmatrix",
+      "category": "Games",
       "members": [
         "figlet",
         "lolcat",
@@ -475,6 +488,7 @@
     },
     "audio": {
       "description": "ALSA tools: aplay, arecord, amixer, speaker-test",
+      "category": "Multimedia",
       "members": [
         "aplay",
         "arecord",
@@ -484,6 +498,7 @@
     },
     "graphics": {
       "description": "doom, the SDL demos and the Wayland compositor demos",
+      "category": "Games",
       "members": [
         "doom",
         "sdlsnake",
@@ -561,6 +576,550 @@
         "audio",
         "graphics"
       ]
+    }
+  },
+  "programs": {
+    "amixer": {
+      "package": "@ecmaos-apps/amixer",
+      "description": "amixer, ALSA's command line mixer: shows and sets the card's Master and Capture volumes and switches (amixer sset Master 50%), with alsa-lib",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "homepage": "https://www.alsa-project.org/",
+      "size": 224318,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/amixer-src"
+    },
+    "aplay": {
+      "package": "@ecmaos-apps/aplay",
+      "description": "aplay, ALSA's command line player: plays WAV and raw sound to the card behind /dev/snd/pcmC0D0p (aplay -l lists it; -D hw:0,0 is the card as it is, the default converts format, rate and channels), with alsa-lib",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "homepage": "https://www.alsa-project.org/",
+      "size": 436884,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/aplay-src"
+    },
+    "arecord": {
+      "package": "@ecmaos-apps/arecord",
+      "description": "arecord, ALSA's command line recorder: records the microphone behind /dev/snd/pcmC0D0c to a WAV file (aplay's program, run as arecord), with alsa-lib",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "homepage": "https://www.alsa-project.org/",
+      "size": 436884,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/arecord-src"
+    },
+    "bash": {
+      "package": "@ecmaos-apps/bash",
+      "description": "GNU Bash; it forks, so it is built with Asyncify",
+      "license": "GPL-3.0-or-later",
+      "homepage": "https://www.gnu.org/software/bash/",
+      "size": 1566913,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/bash-src"
+    },
+    "bat": {
+      "package": "@ecmaos-apps/bat",
+      "description": "bat, cat with syntax highlighting and paging, in Rust, without git markers (its crates' licenses are in licenses/bat); it forks, so it is built with Asyncify",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/sharkdp/bat",
+      "size": 5753207,
+      "kind": "wasm"
+    },
+    "bc": {
+      "package": "@ecmaos-apps/bc",
+      "description": "bc, and dc (the same binary under another name)",
+      "license": "BSD-2-Clause",
+      "homepage": "https://git.gavinhoward.com/gavin/bc",
+      "size": 281041,
+      "kind": "wasm"
+    },
+    "brotli": {
+      "package": "@ecmaos-apps/brotli",
+      "description": "brotli, the compressor and decompressor",
+      "license": "MIT",
+      "homepage": "https://github.com/google/brotli",
+      "size": 838590,
+      "kind": "wasm"
+    },
+    "bzip2": {
+      "package": "@ecmaos-apps/bzip2",
+      "description": "bzip2, and bunzip2 and bzcat (links to it)",
+      "license": "bzip2-1.0.8",
+      "homepage": "https://sourceware.org/bzip2/",
+      "size": 142464,
+      "kind": "wasm"
+    },
+    "cmatrix": {
+      "package": "@ecmaos-apps/cmatrix",
+      "description": "cmatrix, the falling characters of The Matrix, with ncurses",
+      "license": "GPL-3.0-or-later AND X11",
+      "homepage": "https://github.com/abishekvashok/cmatrix",
+      "size": 226953,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/cmatrix-src"
+    },
+    "dash": {
+      "package": "@ecmaos-apps/dash",
+      "description": "dash, the Debian Almquist shell (a POSIX sh); it forks, so it is built with Asyncify",
+      "license": "BSD-3-Clause",
+      "homepage": "http://gondor.apana.org.au/~herbert/dash/",
+      "size": 199788,
+      "kind": "wasm"
+    },
+    "doom": {
+      "package": "@ecmaos-apps/doom",
+      "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)",
+      "license": "GPL-2.0-or-later AND Zlib AND MIT",
+      "homepage": "https://github.com/ozkl/doomgeneric",
+      "size": 2290608,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/doom-src"
+    },
+    "dropbear": {
+      "package": "@ecmaos-apps/dropbear",
+      "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify",
+      "license": "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Public-Domain",
+      "homepage": "https://matt.ucc.asn.au/dropbear/dropbear.html",
+      "size": 829517,
+      "kind": "wasm"
+    },
+    "ed": {
+      "package": "@ecmaos-apps/ed",
+      "description": "GNU ed, the line editor",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://www.gnu.org/software/ed/",
+      "size": 155443,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/ed-src"
+    },
+    "evtest": {
+      "package": "@ecmaos-apps/evtest",
+      "description": "evtest, which lists the input devices and prints what one reports",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://gitlab.freedesktop.org/libevdev/evtest",
+      "size": 96477,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/evtest-src"
+    },
+    "fd": {
+      "package": "@ecmaos-apps/fd",
+      "description": "fd, the friendly alternative to find, in Rust (its crates' licenses are in licenses/fd); it forks, so it is built with Asyncify",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/sharkdp/fd",
+      "size": 4258056,
+      "kind": "wasm"
+    },
+    "figlet": {
+      "package": "@ecmaos-apps/figlet",
+      "description": "FIGlet, large letters out of ordinary text, with its fonts in /usr/share/figlet",
+      "license": "BSD-3-Clause AND MIT",
+      "homepage": "http://www.figlet.org/",
+      "size": 126874,
+      "kind": "wasm",
+      "system": true
+    },
+    "fortune": {
+      "package": "@ecmaos-apps/fortune",
+      "description": "fortune, a random epigram, with fortune-mod's cookies (not the offensive ones) in /usr/share/games/fortunes",
+      "license": "BSD-4-Clause-UC",
+      "homepage": "https://www.shlomifish.org/open-source/projects/fortune-mod/",
+      "size": 66759,
+      "kind": "wasm",
+      "system": true
+    },
+    "hidinfo": {
+      "package": "@ecmaos-apps/hidinfo",
+      "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 47983,
+      "kind": "wasm"
+    },
+    "htop": {
+      "package": "@ecmaos-apps/htop",
+      "description": "htop, with ncurses: interactive process viewer",
+      "license": "GPL-2.0-or-later AND X11",
+      "homepage": "https://htop.dev/",
+      "size": 714604,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/htop-src"
+    },
+    "hwclock": {
+      "package": "@ecmaos-apps/hwclock",
+      "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 84626,
+      "kind": "wasm"
+    },
+    "jq": {
+      "package": "@ecmaos-apps/jq",
+      "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa",
+      "license": "MIT AND BSD-2-Clause AND ICU",
+      "homepage": "https://jqlang.org",
+      "size": 1000971,
+      "kind": "wasm"
+    },
+    "lolcat": {
+      "package": "@ecmaos-apps/lolcat",
+      "description": "lolcat, cat in a rainbow",
+      "license": "WTFPL",
+      "homepage": "https://github.com/jaseg/lolcat",
+      "size": 91866,
+      "kind": "wasm"
+    },
+    "lsmod": {
+      "package": "@ecmaos-apps/lsmod",
+      "description": "lsmod, from toybox: lists the loaded kernel modules",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 56171,
+      "kind": "wasm"
+    },
+    "lsof": {
+      "package": "@ecmaos-apps/lsof",
+      "description": "lsof, from toybox: lists the files, sockets and pipes processes have open",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 104465,
+      "kind": "wasm"
+    },
+    "lspci": {
+      "package": "@ecmaos-apps/lspci",
+      "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 139980,
+      "kind": "wasm"
+    },
+    "lsusb": {
+      "package": "@ecmaos-apps/lsusb",
+      "description": "lsusb, from toybox: lists the USB devices in /sys/bus/usb/devices",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 135294,
+      "kind": "wasm"
+    },
+    "lua": {
+      "package": "@ecmaos-apps/lua",
+      "description": "The Lua 5.4 interpreter",
+      "license": "MIT",
+      "homepage": "https://www.lua.org",
+      "size": 314293,
+      "kind": "wasm"
+    },
+    "lz4": {
+      "package": "@ecmaos-apps/lz4",
+      "description": "lz4, and unlz4 and lz4cat (links to it)",
+      "license": "GPL-2.0-or-later AND BSD-2-Clause",
+      "homepage": "https://lz4.org",
+      "size": 226492,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/lz4-src"
+    },
+    "make": {
+      "package": "@ecmaos-apps/make",
+      "description": "GNU make, with parallel jobs (-j)",
+      "license": "GPL-3.0-or-later",
+      "homepage": "https://www.gnu.org/software/make/",
+      "size": 283285,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/make-src"
+    },
+    "mandoc": {
+      "package": "@ecmaos-apps/mandoc",
+      "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)",
+      "license": "ISC AND Zlib",
+      "homepage": "https://mandoc.bsd.lv",
+      "size": 628001,
+      "kind": "wasm"
+    },
+    "mg": {
+      "package": "@ecmaos-apps/mg",
+      "description": "mg, a small Emacs-style editor, with ncurses",
+      "license": "LicenseRef-PublicDomain AND ISC AND BSD-3-Clause AND BSD-2-Clause AND X11",
+      "homepage": "https://github.com/hboetes/mg",
+      "size": 357978,
+      "kind": "wasm"
+    },
+    "microcom": {
+      "package": "@ecmaos-apps/microcom",
+      "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 74622,
+      "kind": "wasm"
+    },
+    "micropython": {
+      "package": "@ecmaos-apps/micropython",
+      "description": "MicroPython: a lean Python 3 interpreter and REPL",
+      "license": "MIT",
+      "homepage": "https://micropython.org/",
+      "size": 783429,
+      "kind": "wasm"
+    },
+    "nano": {
+      "package": "@ecmaos-apps/nano",
+      "description": "GNU nano, with ncurses",
+      "license": "GPL-3.0-or-later AND X11",
+      "homepage": "https://www.nano-editor.org",
+      "size": 689817,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/nano-src"
+    },
+    "ncdu": {
+      "package": "@ecmaos-apps/ncdu",
+      "description": "ncdu, the disk usage browser, with ncurses",
+      "license": "MIT AND X11",
+      "homepage": "https://dev.yorhel.nl/ncdu",
+      "size": 316985,
+      "kind": "wasm"
+    },
+    "netstat": {
+      "package": "@ecmaos-apps/netstat",
+      "description": "netstat, from toybox: lists listening and open sockets from /proc/net",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 127838,
+      "kind": "wasm"
+    },
+    "patch": {
+      "package": "@ecmaos-apps/patch",
+      "description": "patch, from toybox: applies unified, context and normal diffs",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 122098,
+      "kind": "wasm"
+    },
+    "perl": {
+      "package": "@ecmaos-apps/perl",
+      "description": "Perl, with fork, system and pipe opens, and the core modules; it forks, so it is built with Asyncify",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "homepage": "https://www.perl.org/",
+      "size": 6919943,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/perl-src",
+      "system": true
+    },
+    "pidof": {
+      "package": "@ecmaos-apps/pidof",
+      "description": "pidof, from toybox: finds the process ids of a program by name",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 73921,
+      "kind": "wasm"
+    },
+    "pip": {
+      "package": "@ecmaos-apps/pip",
+      "description": "pip, Python's package installer, on PyPI's wheels (pure-Python ones; it installs into python3's site-packages)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://ecmaos.sh",
+      "kind": "script"
+    },
+    "ps": {
+      "package": "@ecmaos-apps/ps",
+      "description": "ps, from toybox: lists processes (ps -ef, ps aux, -o columns), read from /proc",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 137675,
+      "kind": "wasm"
+    },
+    "python3": {
+      "package": "@ecmaos-apps/python3",
+      "description": "CPython, with os.fork, subprocess and the standard library; it forks, so it is built with Asyncify",
+      "license": "PSF-2.0",
+      "homepage": "https://www.python.org/",
+      "size": 17426726,
+      "kind": "wasm",
+      "system": true
+    },
+    "qjs": {
+      "package": "@ecmaos-apps/qjs",
+      "description": "QuickJS-ng: a small JavaScript interpreter and REPL (qjs)",
+      "license": "MIT",
+      "homepage": "https://quickjs-ng.github.io/quickjs/",
+      "size": 1166757,
+      "kind": "wasm"
+    },
+    "rg": {
+      "package": "@ecmaos-apps/rg",
+      "description": "ripgrep, the fast recursive grep, in Rust (its crates' licenses are in licenses/rg); it forks, so it is built with Asyncify",
+      "license": "Unlicense OR MIT",
+      "homepage": "https://github.com/BurntSushi/ripgrep",
+      "size": 5408935,
+      "kind": "wasm"
+    },
+    "rsync": {
+      "package": "@ecmaos-apps/rsync",
+      "description": "rsync, the fast incremental file copier, locally and over ssh; it forks, so it is built with Asyncify",
+      "license": "GPL-3.0-or-later",
+      "homepage": "https://rsync.samba.org/",
+      "size": 1013178,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/rsync-src"
+    },
+    "screen": {
+      "package": "@ecmaos-apps/screen",
+      "description": "GNU screen, with ncurses: terminal multiplexer, and a serial console (screen /dev/ttyACM0 115200)",
+      "license": "GPL-3.0-or-later AND X11",
+      "homepage": "https://www.gnu.org/software/screen/",
+      "size": 862574,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/screen-src"
+    },
+    "sdlclip": {
+      "package": "@ecmaos-apps/sdlclip",
+      "description": "sdlclip, shows the clipboard and what is dropped on its window, on SDL 3 through its Wayland driver: C copies a line, V reads the clipboard (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1918973,
+      "kind": "wasm"
+    },
+    "sdlgears": {
+      "package": "@ecmaos-apps/sdlgears",
+      "description": "sdlgears, three meshing gears in OpenGL ES on SDL 3, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1925129,
+      "kind": "wasm"
+    },
+    "sdlgl": {
+      "package": "@ecmaos-apps/sdlgl",
+      "description": "sdlgl, an OpenGL ES window on SDL 3 through its Wayland driver, drawn by the browser's WebGL2 through /dev/gl<N> (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1919346,
+      "kind": "wasm"
+    },
+    "sdlpad": {
+      "package": "@ecmaos-apps/sdlpad",
+      "description": "sdlpad, shows a gamepad (buttons and sticks) on SDL 3 through its Wayland driver and its joystick driver, which reads the browser's pads from /dev/input/event<N> (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1919638,
+      "kind": "wasm"
+    },
+    "sdlpaint": {
+      "package": "@ecmaos-apps/sdlpaint",
+      "description": "sdlpaint, a paint program on SDL 3 through its Wayland driver: draw with the mouse, pick colors, a brush-sized ring pointer over the picture (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1919968,
+      "kind": "wasm"
+    },
+    "sdlsnake": {
+      "package": "@ecmaos-apps/sdlsnake",
+      "description": "sdlsnake, Snake with sound on SDL 3 through its Wayland driver: a resizable window, arrows or WASD to steer, M mutes (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 1920814,
+      "kind": "wasm"
+    },
+    "sl": {
+      "package": "@ecmaos-apps/sl",
+      "description": "sl, a steam locomotive for those who type sl for ls, with ncurses",
+      "license": "LicenseRef-sl AND X11",
+      "homepage": "https://github.com/mtoyoda/sl",
+      "size": 221277,
+      "kind": "wasm"
+    },
+    "speaker-test": {
+      "package": "@ecmaos-apps/speaker-test",
+      "description": "speaker-test, ALSA's test tone and noise generator for the speakers (speaker-test -t sine -c 2), with alsa-lib",
+      "license": "GPL-2.0-or-later AND LGPL-2.1-or-later",
+      "homepage": "https://www.alsa-project.org/",
+      "size": 387637,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/speaker-test-src"
+    },
+    "sqlite3": {
+      "package": "@ecmaos-apps/sqlite3",
+      "description": "The SQLite command-line shell, with linenoise for line editing",
+      "license": "blessing AND BSD-2-Clause",
+      "homepage": "https://sqlite.org",
+      "size": 1712573,
+      "kind": "wasm"
+    },
+    "sysctl": {
+      "package": "@ecmaos-apps/sysctl",
+      "description": "sysctl, from toybox: reads and sets kernel parameters in /proc/sys",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 78778,
+      "kind": "wasm"
+    },
+    "tmux": {
+      "package": "@ecmaos-apps/tmux",
+      "description": "tmux, the terminal multiplexer, with libevent and ncurses; it forks, so it is built with Asyncify",
+      "license": "ISC AND BSD-3-Clause AND X11",
+      "homepage": "https://github.com/tmux/tmux",
+      "size": 1660330,
+      "kind": "wasm"
+    },
+    "tree": {
+      "package": "@ecmaos-apps/tree",
+      "description": "tree, the directory lister",
+      "license": "GPL-2.0-or-later",
+      "homepage": "https://oldmanprogrammer.net/source.php?dir=projects/tree",
+      "size": 131039,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/tree-src"
+    },
+    "v4l2grab": {
+      "package": "@ecmaos-apps/v4l2grab",
+      "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 74418,
+      "kind": "wasm"
+    },
+    "vim": {
+      "package": "@ecmaos-apps/vim",
+      "description": "Vim, the modal text editor (the `normal` feature set)",
+      "license": "Vim",
+      "homepage": "https://www.vim.org",
+      "size": 3139596,
+      "kind": "wasm",
+      "source": "@ecmaos-apps/vim-src",
+      "system": true
+    },
+    "vmstat": {
+      "package": "@ecmaos-apps/vmstat",
+      "description": "vmstat, from toybox: reports memory, processes and CPU time from /proc",
+      "license": "0BSD",
+      "homepage": "https://landley.net/toybox/",
+      "size": 93116,
+      "kind": "wasm"
+    },
+    "wlcomp": {
+      "package": "@ecmaos-apps/wlcomp",
+      "description": "wlcomp, a Wayland compositor: wl_compositor, wl_shm, xdg-shell toplevels, wl_output and wl_seat (pointer and keyboard, with a built-in US keymap), each toplevel in a framebuffer window; listens on $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 177013,
+      "kind": "wasm"
+    },
+    "wldemo": {
+      "package": "@ecmaos-apps/wldemo",
+      "description": "wldemo, a demo Wayland client: a resizable window with a bouncing ball, a pointer follower and the last key typed (needs wlcomp running)",
+      "license": "MIT OR Apache-2.0",
+      "homepage": "https://github.com/ecmaos/ecmaos",
+      "size": 375377,
+      "kind": "wasm"
+    },
+    "xz": {
+      "package": "@ecmaos-apps/xz",
+      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)",
+      "license": "0BSD",
+      "homepage": "https://tukaani.org/xz/",
+      "size": 270001,
+      "kind": "wasm"
+    },
+    "zstd": {
+      "package": "@ecmaos-apps/zstd",
+      "description": "zstd, and unzstd and zstdcat (links to it)",
+      "license": "BSD-3-Clause",
+      "homepage": "https://facebook.github.io/zstd/",
+      "size": 773629,
+      "kind": "wasm"
     }
   }
 }
