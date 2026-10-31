@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Software
+Comment=Find, install and remove programs and apps
+Exec=software-gui
+Categories=System;PackageManager;

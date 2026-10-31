@@ -1,0 +1,35 @@
+{
+  "name": "@ecmaos-apps/software",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "description": "Software: find, install and remove programs and apps in a window",
+  "type": "module",
+  "bin": {
+    "software-gui": "dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "share"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc && esbuild src/index.ts --bundle --sourcemap --platform=neutral --format=esm --outfile=dist/index.js --banner:js=#!ecmaos:bin:app:software-gui",
+    "dev": "esbuild src/index.ts --bundle --sourcemap --platform=neutral --format=esm --outfile=dist/index.js --banner:js=#!ecmaos:bin:app:software-gui --watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@ecmaos/config-typescript": "workspace:^",
+    "@ecmaos/types": "workspace:^",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
