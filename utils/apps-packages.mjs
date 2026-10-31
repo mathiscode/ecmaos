@@ -29,7 +29,7 @@
 // manifest entry, 1 when absent): a rebuild with a changed patch is a new version of both packages.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 
@@ -169,6 +169,13 @@ export function manifestFor({ name, program, manifest, copyleft }) {
 }
 
 /** Writes `out/NAME/` for one program */
+/** A file in every empty directory under `directory`: npm leaves an empty one out, and CPython warns when its `lib-dynload` is missing */
+function keepEmptyDirectories(directory) {
+  const entries = readdirSync(directory, { withFileTypes: true })
+  if (!entries.length) { writeFileSync(path.join(directory, '.keep'), ''); return }
+  for (const entry of entries) if (entry.isDirectory()) keepEmptyDirectories(path.join(directory, entry.name))
+}
+
 export function build(entry, out) {
   const directory = path.join(out, entry.name)
   mkdirSync(directory, { recursive: true })
@@ -179,6 +186,7 @@ export function build(entry, out) {
     mkdirSync(runtime, { recursive: true })
     // the tarball is rooted at `/`
     execFileSync('tar', ['-xzf', path.join(entry.dir, entry.program.runtime.file), '-C', runtime])
+    keepEmptyDirectories(runtime)
   }
   // the license texts go where `/usr/share/licenses` is looked in
   const texts = path.join(entry.dir, '..', 'licenses', entry.name)

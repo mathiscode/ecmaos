@@ -156,6 +156,11 @@ describe('wasm programs as packages', () => {
     expect(Object.keys(files).some(file => file.startsWith('share/licenses/figlet/'))).toBe(true)
   }, 60_000)
 
+  it('keeps an empty directory of the runtime, which npm would drop and CPython warns of', async () => {
+    const { files } = await publishProgram('python3')
+    expect(Object.keys(files)).toContain('runtime/usr/lib/python3.14/lib-dynload/.keep')
+  }, 60_000)
+
   it('installs a program: the bin links the .wasm, the runtime and licenses are linked into /usr, and it runs', async () => {
     await publishProgram('figlet')
     const result = await run(`install -g @ecmaos-apps/figlet --registry ${registry} --ignore-signatures --allow-unsigned`)
