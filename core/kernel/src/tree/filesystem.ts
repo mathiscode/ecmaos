@@ -50,6 +50,29 @@ IndexedDBTransaction.prototype.getSync = function (this: IndexedDBTransaction, i
 } as typeof IndexedDBTransaction.prototype.getSync
 
 /**
+ * `@zenfs/dom`'s store opens an IndexedDB read-write transaction every time `transaction()` is called, and `StoreFS` calls
+ * it for every operation: each `statSync` of each component of every path resolved, which the cache answers without
+ * a request. Those empty transactions queue behind the real writes in the browser, so a few hundred files being
+ * installed made hundreds of thousands of them and nothing else (the shell included) got through for minutes. `StoreFS`
+ * never commits the raw transaction (it only carries the requests, and ends when none are left), so it is opened by the
+ * first request that needs it.
+ */
+IndexedDBStore.prototype.transaction = function (this: IndexedDBStore) {
+  const store = this as unknown as { db: IDBDatabase, name: string }
+  const lazy = Object.create(IndexedDBTransaction.prototype) as { store: unknown, asyncDone: Promise<void> }
+  let raw: IDBTransaction | undefined
+  Object.defineProperties(lazy, {
+    store: { value: this, writable: true },
+    asyncDone: { value: Promise.resolve(), writable: true },
+    tx: { get: () => raw ??= store.db.transaction(store.name, 'readwrite') },
+    _idb: { get: () => (raw ??= store.db.transaction(store.name, 'readwrite')).objectStore(store.name) },
+    commit: { value: () => raw ? IndexedDBTransaction.prototype.commit.call(lazy) : lazy.asyncDone },
+    abort: { value: () => raw ? IndexedDBTransaction.prototype.abort.call(lazy) : lazy.asyncDone }
+  })
+  return lazy as unknown as IndexedDBTransaction
+}
+
+/**
  * The size statfs reports for an IndexedDB mount (`df`, `statvfs`): the browser's storage estimate for the origin
  * (`navigator.storage.estimate()`), the limit a write actually runs into, with what the origin already uses taken off.
  * The estimate is asynchronous and statfs is not, so the last answer is kept and a new one asked for at most every

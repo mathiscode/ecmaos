@@ -231,3 +231,37 @@ describe('a storage quota on the IndexedDB root', () => {
     expect((await fs.promises.stat('/q/c')).size).toBe(950_000)
   })
 })
+
+describe('reads the cache answers do not open an IndexedDB transaction', () => {
+  const store = `idb-lazy-${process.pid}`
+  const opened = () => {
+    const original = IDBDatabase.prototype.transaction
+    let count = 0
+    IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase['transaction']>) { count++; return original.apply(this, args) } as typeof original
+    return { count: () => count, restore: () => { IDBDatabase.prototype.transaction = original } }
+  }
+
+  beforeAll(async () => { await mount(store); await fs.promises.mkdir('/a/b/c', { recursive: true }); await fs.promises.writeFile('/a/b/c/file', 'kept') })
+  afterAll(async () => { try { umount('/') } catch { /* nothing mounted */ } })
+
+  it('resolves and stats a path without one, however often (an install does it hundreds of thousands of times)', () => {
+    const spy = opened()
+    try {
+      for (let i = 0; i < 200; i++) { fs.statSync('/a/b/c/file'); fs.existsSync('/a/b/c/missing') }
+      expect(spy.count()).toBe(0)
+    } finally { spy.restore() }
+  })
+
+  it('still opens one for a write, which reaches the store and is there after it is loaded again', async () => {
+    const spy = opened()
+    try {
+      await fs.promises.writeFile('/a/b/c/second', 'written')
+      expect(spy.count()).toBeGreaterThan(0)
+    } finally { spy.restore() }
+    await rootWritesSettled()
+    umount('/')
+    await mount(store)
+    expect(text(await fs.promises.readFile('/a/b/c/second'))).toBe('written')
+    expect(text(await fs.promises.readFile('/a/b/c/file'))).toBe('kept')
+  })
+})
