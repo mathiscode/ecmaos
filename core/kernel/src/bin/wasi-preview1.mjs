@@ -128,7 +128,7 @@ function sleepMs(ms) {
 }
 
 /** Builds the `wasi_snapshot_preview1` import object for one instance. `getMemory` is late-bound. */
-export function createPreview1(getMemory, getTable = () => undefined, getExports = () => undefined) {
+export function createPreview1(getMemory, getTable = () => undefined, getExports = () => undefined, { rootPreopens = true } = {}) {
   const cwd = getcwd()
   const args = argv()
   const env = Object.entries(environ()).map(([key, value]) => `${key}=${value}`)
@@ -148,6 +148,22 @@ export function createPreview1(getMemory, getTable = () => undefined, getExports
     [3, { fd: preopenRoot, path: '/', dir: true, preopen: '/' }],
     [4, { fd: preopenCwd, path: cwd, dir: true, preopen: '.' }],
   ])
+  // wasi-libc has no working directory of its own: it makes every path absolute from `/` and takes the longest preopen
+  // prefix, the last of equally long ones. So `/` and `.` alone would send every path to `.` (an absolute `/tmp/x` would
+  // open `<cwd>/tmp/x`). Each top-level directory is preopened under its own name, which is longer and wins for the
+  // absolute paths into it; one the working directory also has is left out, so `./lib/x` still means the cwd's `lib`.
+  // An emscripten module is left out of this: its `env.__syscall_*` calls hand out real fd numbers from 5 up, the same
+  // numbers, and it has no wasi-libc to need the preopens.
+  let preopenFd = 5
+  for (const { name, type } of rootPreopens ? getdents(preopenRoot) : []) {
+    if (name === '.' || name === '..' || (type !== 4 && type !== 10)) continue
+    if (cwd !== '/') {
+      let shadowed = true
+      try { stat(`${cwd}/${name}`) } catch { shadowed = false }
+      if (shadowed) continue
+    }
+    fds.set(preopenFd++, { fd: null, path: `/${name}`, dir: true, preopen: `/${name}` })
+  }
   // The descriptors that close on exec, which the kernel does not keep: a child spawned does not get them, and the
   // preopens are this host's own.
   const cloexec = new Set([preopenRoot, preopenCwd])
@@ -2389,7 +2405,7 @@ export async function runPreview1(source) {
   const bytes = source instanceof Uint8Array ? source : new Uint8Array(source)
   const module = await WebAssembly.compile(source)
   let memory
-  const { imports, ProcExit: Exit, args, env, enableSignals } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports)
+  const { imports, ProcExit: Exit, args, env, enableSignals } = createPreview1(() => memory, () => instance?.exports.__indirect_function_table, () => instance?.exports, { rootPreopens: !WebAssembly.Module.imports(module).some(entry => entry.module === 'env') })
   const memoryImport = detectMemoryImport(bytes)
   if (memoryImport) {
     // The module wants its memory handed in rather than exported - create it to the module's own

@@ -90,7 +90,7 @@ describe('wasm programs from real toolchains', () => {
     // KNOWN BUG, found by this fixture: the host preopens "/" (fd 3) then "." (fd 4), and for an absolute path wasi-libc's
     // longest-prefix match ties between them and takes ".", stripping the leading slash, so "/tmp/x" is opened as
     // "<cwd>/tmp/x". Fixed in Phase 1 (WASI_CLEANUP.md); then this becomes a plain `it`.
-    it.fails('runs with absolute paths', async () => {
+    it('runs with absolute paths', async () => {
       const program = await install('rust-wasip1.wasm', fixture('rust-wasip1.wasm'))
       const { code, stderr } = await run(`${program} - 0 /tmp`)
       expect({ code, stderr }).toEqual({ code: 0, stderr: 'rust-wasip1: stderr\n' })
