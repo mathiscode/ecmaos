@@ -344,6 +344,22 @@ describe('install command: real tar extraction via shell.execute, not extractTar
       expect(await fs.exists('/usr/bin/lk-lang')).toBe(false)
     })
 
+    it('counts a dependency the system has as met for an install into the user\'s own scope', async () => {
+      const fs = kernel.filesystem.fs
+      await publish('us-lib', '1.0.0', { 'dist/cli.js': '// lib\n' })
+      await publish('us-other', '1.0.0', { 'dist/cli.js': '// other\n' })
+      await publish('us-tool', '1.0.0', { 'dist/cli.js': '// tool\n' }, 'sha512', { 'us-lib': 'latest', 'us-other': 'latest' })
+      expect(await kernel.shell.execute(`install -g us-lib --registry ${registry}`)).toBe(0)
+      const home = kernel.shell.env.get('HOME') ?? '/root'
+      expect(await kernel.shell.execute(`install --user us-tool --registry ${registry}`)).toBe(0)
+      expect(await fs.exists(`${home}/.local/lib/us-tool/1.0.0`)).toBe(true)
+      // the one the system has stays where it is; the other is fetched
+      expect(await fs.exists(`${home}/.local/lib/us-lib`)).toBe(false)
+      expect(await fs.exists(`${home}/.local/lib/us-other/1.0.0`)).toBe(true)
+      await kernel.shell.execute(`install --user remove us-tool us-other`)
+      await kernel.shell.execute('install -g remove us-lib')
+    })
+
     it('is marked as a group by list, show and pacman -Qg', async () => {
       await publish('mk-a', '1.0.0', { 'dist/cli.js': '// a\n' })
       await group('mk-all', ['mk-a'])

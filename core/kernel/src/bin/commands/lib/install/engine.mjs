@@ -11,7 +11,7 @@ import semver from 'semver'
 import { join } from '../path-utils.mjs'
 import { SHARE_DIRS, linkTree, unlinkTree } from '../share-links.mjs'
 import { unmet, listOf } from './compat.mjs'
-import { binsOf, keyOf, satisfies } from './db.mjs'
+import { Database, binsOf, keyOf, satisfies, scopeOf } from './db.mjs'
 import { dirname, exists, mkdirp, names, pool, readBytes, readJson, relative, size, untar, writeBytes } from './io.mjs'
 import { RegistryError } from './registry.mjs'
 import { loadTrust } from './names.mjs'
@@ -179,10 +179,27 @@ export class Engine {
     }
   }
 
+  /**
+   * What the system has installed, for an install into the caller's own scope: a dependency the system already has is met,
+   * and is not fetched again into `~/.local`. Read only; a project keeps all of its own.
+   */
+  get systemDb() {
+    if (this._systemDb === undefined) this._systemDb = this.scope.system || this.scope.project ? null : new Database(scopeOf({ global: true }))
+    return this._systemDb
+  }
+
+  /** The version of a dependency installed in one's own scope, else in the system's (which stays where it is) */
+  installedFor(request) {
+    const own = this.db.best(request.name, request.range)
+    if (own) return { entry: own }
+    const system = this.systemDb?.best(request.name, request.range)
+    return system ? { entry: system, system: true } : undefined
+  }
+
   /** Whether a dependency is met by a version installed or already planned, so its metadata is not needed */
   settled(request, plannedOf) {
     if (request.explicit) return false
-    return plannedOf(request.name).some(node => satisfies(node.version, request.range)) || Boolean(this.db.best(request.name, request.range))
+    return plannedOf(request.name).some(node => satisfies(node.version, request.range)) || Boolean(this.installedFor(request))
   }
 
   async pick(request, plan, plannedOf) {
@@ -195,8 +212,8 @@ export class Engine {
     if (!request.explicit) {
       const planned = plannedOf(request.name).find(node => satisfies(node.version, request.range))
       if (planned) return planned
-      const installed = this.db.best(request.name, request.range)
-      if (installed) return { name: installed.name, version: installed.version, existing: true, explicit: false, dependencies: installed.dependencies ?? {} }
+      const found = this.installedFor(request)
+      if (found) return { name: found.entry.name, version: found.entry.version, existing: true, explicit: false, ...(found.system ? { system: true } : {}), dependencies: found.entry.dependencies ?? {} }
     }
     const document = await this.registry.metadata(request.name)
     const version = pickVersion(document, request.range)
