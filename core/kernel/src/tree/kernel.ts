@@ -1497,8 +1497,8 @@ export class Kernel implements IKernel {
       let exitCode: number | void = -1
       switch (header.type) {
         case 'wasm': {
-          // A plain wasip1 module runs as a real worker Process under /bin/wali (killable, real
-          // pid, real pipes); the rest still need the main-thread adapter.
+          // A core module runs as a real worker Process under /bin/wali (killable, real pid, real pipes); a
+          // Preview 2 component still needs the main-thread adapter.
           exitCode = await this.wasmRunsInWorker(options.command, options.shell)
             ? await this.executeViaExecve(options)
             : await this.executeWasm(this.withStdinStream(options))
@@ -2045,7 +2045,7 @@ export class Kernel implements IKernel {
   }
 
   /**
-   * Executes a WebAssembly file
+   * Executes a Preview 2 component on the main thread (core modules run as worker processes through `executeViaExecve`)
    * @param options - Execution options containing WASM path and shell
    * @returns Exit code of the WASM execution
    */
@@ -2068,9 +2068,6 @@ export class Kernel implements IKernel {
     this.init.adopt(proc)
 
     try {
-      const wasmBytes = await options.shell.context.fs.promises.readFile(options.command)
-      const needsWasi = await this.wasm.detectWasiRequirements(wasmBytes)
-
       let stdin: ReadableStream<Uint8Array>
       let closeStdin: (() => void) | null = null
 
@@ -2127,35 +2124,12 @@ export class Kernel implements IKernel {
 
       let exitCode = 0
       try {
-        if (needsWasi) {
-          const result = await this.wasm.loadWasiComponent(options.command, {
-            stdin,
-            stdout,
-            stderr
-          }, [options.command, ...(options.args || [])], options.shell || this.shell, proc.pid)
-          exitCode = await result.exitCode
-        } else {
-          const { instance } = await this.wasm.loadWasm(options.command)
-          const exports = instance.exports
-
-          if (typeof exports._start === 'function') {
-            try {
-              (exports._start as () => void)()
-              exitCode = 0
-            } catch (error) {
-              this.log.error(`WASM _start failed: ${(error as Error).message}`)
-              exitCode = 1
-            }
-          } else if (typeof exports._initialize === 'function') {
-            try {
-              (exports._initialize as () => void)()
-              exitCode = 0
-            } catch (error) {
-              this.log.error(`WASM _initialize failed: ${(error as Error).message}`)
-              exitCode = 1
-            }
-          }
-        }
+        const result = await this.wasm.loadWasiComponent(options.command, {
+          stdin,
+          stdout,
+          stderr
+        }, [options.command, ...(options.args || [])], options.shell || this.shell)
+        exitCode = await result.exitCode
       } finally {
         proc.exit(exitCode)
       }

@@ -50,9 +50,9 @@ function waliShaped(module: WebAssembly.Module): boolean {
 }
 
 /**
- * WALI, plain `wasm32-wasip1` and `emcc` modules run as worker processes under `/bin/wali` (see `canRunInWorker`).
- * What still runs here (preview2 components and modules with no WASI imports) calls `_start` on the main thread, so
- * an infinite loop freezes the tab and `^C` cannot reach it.
+ * Every core module (WALI, `wasm32-wasip1`, `emcc`, or none of those) runs as a worker process under `/bin/wali` (see
+ * `canRunInWorker`). What still runs here is a Preview 2 component, on the main thread, so an infinite loop freezes
+ * the tab and `^C` cannot reach it; Phase 4 of `.docs/WASI_CLEANUP.md` gives components a worker too.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel
@@ -62,16 +62,6 @@ export class Wasm implements IWasm {
 
   constructor(options: WasmOptions) {
     this._kernel = options.kernel
-  }
-
-  /**
-   * Load an emscripten JS file compiled using -sSINGLE_FILE
-   */
-  async loadEmscripten(path: string) {
-    const contents = await this._kernel.filesystem.fs.readFile(path, 'utf-8')
-    const script = document.createElement('script')
-    script.textContent = contents
-    document.head.appendChild(script)
   }
 
   /**
@@ -136,8 +126,9 @@ export class Wasm implements IWasm {
   }
 
   /**
-   * Whether a module can run as a worker process under `/bin/wali`: a WALI module, or a core module importing
-   * `wasi_snapshot_preview1` (with whatever else an `emcc` build adds) and exporting or importing its memory. Asyncify is fine. The module is compiled once for all of these checks: a launch asks on every run.
+   * Whether a module runs as a worker process under `/bin/wali`: any core module. A WALI module, a WASI one (whatever else
+   * an `emcc` build adds; asyncify is fine) and one with no WASI imports all go; the worker says why a library, or a WASI
+   * module with no memory, is not a program. The module is compiled once for all of these checks: a launch asks on every run.
    */
   async canRunInWorker(wasmBytes: Uint8Array): Promise<boolean> {
     return (await this.inspectForWorker(wasmBytes)).inWorker
@@ -150,26 +141,13 @@ export class Wasm implements IWasm {
     try {
       const module = await WebAssembly.compile(wasmBytes as Uint8Array<ArrayBuffer>)
       if (waliShaped(module)) return { inWorker: true, wali: { module, limits: memoryImportLimits(wasmBytes) } }
-      const imports = WebAssembly.Module.imports(module)
-      if (!imports.some(entry => entry.module === 'wasi_snapshot_preview1')) return { inWorker: false }
       // Imports the host does not implement are stubbed by the worker (`runPreview1`): they stop the program only if called.
-      const hasExportedMemory = WebAssembly.Module.exports(module).some(entry => entry.name === 'memory' && entry.kind === 'memory')
-      const hasImportedMemory = imports.some(entry => entry.kind === 'memory')
-      // An asyncify-instrumented module only unwinds when an import it calls triggers it, which this adapter never
-      // does, so it runs as if uninstrumented.
-      return { inWorker: hasExportedMemory || hasImportedMemory }
+      // An asyncify-instrumented module only unwinds when an import it calls triggers it, which the host never does, so it
+      // runs as if uninstrumented.
+      return { inWorker: true }
     } catch {
       return { inWorker: false }
     }
-  }
-
-  /**
-   * Detect if a WASM module requires WASI bindings
-   * Checks for WASI-related imports in the module
-   */
-  async detectWasiRequirements(wasmBytes: Uint8Array): Promise<boolean> {
-    const version = await this.detectWasiVersion(wasmBytes)
-    return version !== null
   }
 
   /**
@@ -180,9 +158,9 @@ export class Wasm implements IWasm {
     const wasmBytes = await this._kernel.filesystem.fs.readFile(path)
     const version = await this.detectWasiVersion(wasmBytes)
     
-    // A preview1 module runs as a worker process (`inspectForWorker`); one that gets here has no memory to run on.
-    if (version === 'preview1') throw new Error(`${path}: a WASI module must export or import its memory`)
-    
+    // a core module runs as a worker process (`inspectForWorker`); only a component gets here
+    if (version !== 'preview2') throw new Error(`${path}: not a WebAssembly component`)
+
     return this.loadWasiPreview2(path, wasmBytes, streams, args, shell || this._kernel.shell)
   }
   /**
@@ -202,22 +180,5 @@ export class Wasm implements IWasm {
       instance: result.instance
     })
     return result
-  }
-
-  /**
-   * Load a WebAssembly module (non-WASI)
-   */
-  async loadWasm(path: string) {
-    const importObject = {
-      env: {
-        log: console.log
-      }
-    }
-
-    const wasm = await this._kernel.filesystem.fs.readFile(path)
-    const buffer = wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.byteLength) as ArrayBuffer
-    const result = await WebAssembly.instantiate(buffer, importObject)
-    this._modules.set(path, { module: result.module, instance: result.instance })
-    return { module: result.module, instance: result.instance }
   }
 }

@@ -743,7 +743,9 @@ export async function runPreview1(source) {
   instance = await WebAssembly.instantiate(module, imports)
   enableSignals(instance)
   memory = memory ?? instance.exports.memory
-  if (!memory) throw new Error('wasi: the module does not export or import its memory')
+  const fail = message => { write(2, new TextEncoder().encode(`${argv()[0] ?? 'wasm'}: ${message}\n`)); return 1 }
+  // a WASI program needs its memory to pass the host anything; a plain module (no WASI imports) may have none
+  if (!memory && WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')) return fail('a WASI module must export or import its memory')
   // A `-sSTANDALONE_WASM` build exports `__main_argc_argv`; an ordinary one exports plain `main`.
   const { _start, _initialize, __wasm_call_ctors, __funcs_on_exit, fflush } = instance.exports
   const __main_argc_argv = instance.exports.__main_argc_argv ?? instance.exports.main
@@ -768,7 +770,7 @@ export async function runPreview1(source) {
       if (typeof fflush === 'function') fflush(0)
       if (typeof __funcs_on_exit === 'function') __funcs_on_exit()
     } else {
-      throw new Error('wasi: the module exports none of _start, _initialize, __main_argc_argv, main')
+      return fail('not a program: the module exports none of _start, _initialize or main (a library)')
     }
     return code
   } catch (error) {

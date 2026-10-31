@@ -39,27 +39,8 @@ export interface WasiComponentResult {
  */
 export interface Wasm {
   /**
-   * Load an emscripten JS file compiled using -sSINGLE_FILE
-   * @param path - Path to the emscripten JS file
-   */
-  loadEmscripten(path: string): Promise<void>
-
-  /**
-   * Load a WebAssembly module
-   * @param path - Path to the WebAssembly module
-   */
-  loadWasm(path: string): Promise<{ module: WebAssembly.Module; instance: WebAssembly.Instance }>
-
-  /**
-   * Detect if a WASM module requires WASI bindings
-   * @param wasmBytes - The WASM module bytes
-   * @returns True if WASI is required, false otherwise
-   */
-  detectWasiRequirements(wasmBytes: Uint8Array): Promise<boolean>
-
-  /**
-   * Whether a module can run as a real worker-hosted Process under `/bin/wali`'s preview1
-   * translation: a plain wasip1 core module with no asyncify and no imports beyond WASI.
+   * Whether a module runs as a worker-hosted Process under `/bin/wali`: any core module (WALI, wasip1, emcc, or one with no
+   * WASI imports at all). A Preview 2 component is not one yet; it still runs on the main thread.
    */
   canRunInWorker(wasmBytes: Uint8Array): Promise<boolean>
 
@@ -70,13 +51,12 @@ export interface Wasm {
   inspectForWorker(wasmBytes: Uint8Array): Promise<{ inWorker: boolean, wali?: { module: WebAssembly.Module, limits?: { initial: number, maximum: number } } }>
 
   /**
-   * Loads a WASI component with stream integration.
+   * Loads a Preview 2 component with stream integration.
    * @param path - path to the WASM file
    * @param streams - stdin/stdout/stderr stream options
    * @param args - command line arguments
    * @param shell - shell for environment variables
-   * @param pid - process ID for the execution context
    * @returns the WASM instance and exit code promise
    */
-  loadWasiComponent(path: string, streams: WasiStreamOptions, args?: string[], shell?: Shell, pid?: number): Promise<WasiComponentResult>
+  loadWasiComponent(path: string, streams: WasiStreamOptions, args?: string[], shell?: Shell): Promise<WasiComponentResult>
 }

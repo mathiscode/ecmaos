@@ -2,7 +2,7 @@
  * ecmaOS's `/bin/wali` interpreter: the worker-hosted body `binfmt_wasm` points every `.wasm` file at. Bundled with
  * no imports and written to `/bin/wali` at boot, like `bin/node.mjs`.
  * A WALI module imports from a `"wali"` namespace (`SYS_open`, `SYS_read`, ...) and runs on upstream's host; a
- * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes preview1 modules to `runPreview1`
+ * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes the others to `runPreview1`
  * (`wasip1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest (components and
  * modules with no WASI imports) run on the main thread in `Kernel.executeWasm`.
  */
@@ -149,7 +149,10 @@ try {
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
   // `wasip1.mjs`; anything else is WALI.
   const module = preloaded ? preloaded.module : await WebAssembly.compile(source)
-  const isPreview1 = !preloaded && WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
+  // anything that is not WALI is run by `runPreview1`: a `wasi_snapshot_preview1` module, an `emcc` one, or a plain one
+  // with no host calls (it gets none bound)
+  const imports = WebAssembly.Module.imports(module)
+  const isPreview1 = !preloaded && (imports.some(entry => entry.module === 'wasi_snapshot_preview1') || !imports.some(entry => entry.module === 'wali'))
   start = init.env?.__WALI_THREAD__ || init.env?.__WALI_FORK__ ? await threadStart.promise : undefined
   // the imports a handler's fork can unwind at, if the program was built for that (utils/wali/asyncify.sh)
   const unwindAt = WebAssembly.Module.customSections(module, 'ecmaos.asyncify-signals').flatMap(section => new TextDecoder().decode(section).split(',').filter(Boolean))

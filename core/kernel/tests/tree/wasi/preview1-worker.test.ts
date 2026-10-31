@@ -296,10 +296,10 @@ describe('wasi preview1 as a worker Process', () => {
     expect(await kernel.shell.execute('/tmp/socket-nonloopback.wasm')).toBe(0)
   })
 
-  it('is routed to the worker only when it is a plain wasip1 module', async () => {
+  it('routes an emcc module (env imports) to the worker too', async () => {
     expect(await kernel.wasm.canRunInWorker(await compile(HELLO))).toBe(true)
     const emscripten = await compile(`(module (import "env" "emscripten_thing" (func)) (memory (export "memory") 1) (func (export "_start")))`)
-    expect(await kernel.wasm.canRunInWorker(emscripten)).toBe(false)
+    expect(await kernel.wasm.canRunInWorker(emscripten)).toBe(true)
   })
 
   it('runs an asyncify-instrumented module the same as the plain one, unwind/rewind never triggered', async () => {
