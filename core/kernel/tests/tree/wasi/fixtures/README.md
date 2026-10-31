@@ -109,3 +109,37 @@ bash -c 'source ../../../../../utils/wasm/lib/ecmaos.sh && build_ecmaos "$(mktem
 musl's libc-test, its functional and regression tests built on WALI's musl into one program, is in `../libc-test/`
 (`build.sh` rebuilds it from a pinned commit; `expected-failures.txt` lists what fails today and why), and
 `../libc-test.test.ts` runs it.
+
+## Real-toolchain fixtures
+
+`wasi-toolchains.test.ts` runs programs from toolchains other than ours, as a user would bring them. They record which
+runtime each reaches, so the WASI cleanup (`.docs/WASI_CLEANUP.md`) can move the routing without changing results.
+
+- `rust-wasip1.wasm` (`rust-wasip1.rs`): a Rust `std` program for `wasm32-wasip1` (arguments, environment, files, directories, clock, stdin, exit code). Usage: `rust-wasip1 [stdin|-] [EXIT_CODE] [BASE_DIR]`.
+
+  ```sh
+  rustc --target wasm32-wasip1 -C opt-level=z -C strip=symbols -C panic=abort rust-wasip1.rs -o rust-wasip1.wasm
+  ```
+
+- `go-wasip1.go`: the same checks in Go. The binary is 2.7 MB, so it is not committed; the test builds it with `GOOS=wasip1 GOARCH=wasm go build -ldflags='-s -w'` and skips when `go` is missing.
+- `c-wasip1.wasm` (`c-wasip1.c`): plain C on emcc's standalone libc, which imports only `wasi_snapshot_preview1` (the shape wasi-sdk makes; there is no wasi-sdk on the build machine). It has no path calls, which is how emcc's standalone libc is.
+
+  ```sh
+  emcc c-wasip1.c -O1 -sSTANDALONE_WASM -o c-wasip1.wasm
+  ```
+
+- `wasip1-old-emcc.wat`: an emcc module importing the pre-rename syscall names (`__syscall_mkdir`, `__syscall_getdents`, `__syscall_rename`), assembled by the test.
+- `rust-p2.wasm`: `rust-wasip1.wasm` wrapped in jco's command adapter, a Preview 2 component made from rustc output. Rebuild: `node tests/tree/wasi/fixtures/rust-wasip1.component.build.mjs` from `core/kernel`.
+
+What they show today:
+
+| Fixture | Runtime | Result |
+| --- | --- | --- |
+| Rust wasip1 | worker | passes with relative paths; absolute paths fail (known bug below) |
+| Go wasip1 | worker | passes (relative) |
+| C standalone | worker | passes |
+| old-name emcc | main thread (`preview1.ts`) | runs |
+| Rust p2 component | main thread (preview2-shim) | stdio and exit status work, no filesystem |
+
+Known bug: the worker preopens `/` as fd 3 and `.` as fd 4; for an absolute path wasi-libc's longest-prefix match ties between them
+and takes `.`, so `/tmp/x` opens as `<cwd>/tmp/x`. The test is marked `it.fails` until Phase 1 fixes it.
