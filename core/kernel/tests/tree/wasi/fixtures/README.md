@@ -1,3 +1,7 @@
+The `emcc-*.wasm` fixtures below are the compatibility tests for the Emscripten layer (`src/bin/emscripten.mjs`); each is
+kept because it reaches code only that layer has (its errno numbering, `getdents`, `mmap` by copying, the socket syscalls),
+and most have a WALI twin built from the same source that the same test runs. Everything else here runs on WALI.
+
 # WASI fixtures
 
 `emcc-hello.wasm` is a real, ordinary (non-`STANDALONE_WASM`) `emcc` build of `emcc-hello.c`,
@@ -59,9 +63,9 @@ emcc emcc-mmap.c -O1 -sSTANDALONE_WASM=0 -idirafter /usr/include -o emcc-mmap.js
 
 Emscripten has no `memfd_create` (the link fails), so the program uses `mkstemp` and `unlink`, which is also what Wayland's shared-memory helpers fall back to.
 
-`wl-shm.wasm` and `wl-lib.wasm` are two Wayland test clients for `wlcomp` (`../../wayland.test.ts`): `wl-shm.c` speaks the wire protocol by hand, `wl-lib.c` is written against libwayland-client. `wl-lib.build.sh` rebuilds the second (it builds libwayland-client first, through `core/utils/wasm/lib/wayland.sh`, and needs the host `wayland-scanner`).
+`wl-shm.wasm` and `wl-lib.wasm` are two Wayland test clients for `wlcomp` (`../../wayland.test.ts`), built on WALI: `wl-shm.c` speaks the wire protocol by hand (`wl-shm.build.sh`), `wl-lib.c` is written against libwayland-client (`wl-lib.build.sh` builds libwayland-client and libxkbcommon first, through `core/utils/wasm/lib/wayland.sh`, and needs the host `wayland-scanner`).
 
-`sdl-win.wasm` is a small SDL 3 program (`sdl-win.c`) on SDL's Wayland video driver, run against `wlcomp` by the same test: a window surface, pointer, key and text events, resize, close. `sdl-win.build.sh` rebuilds it, and SDL itself first (`core/utils/wasm/lib/sdl.sh`, a few minutes; it needs `cmake`, `ninja`, `pkg-config`, `bison` and the host `wayland-scanner`). The same script is how any SDL 3 program gets built for ecmaOS.
+`sdl-win.wasm` is a small SDL 3 program (`sdl-win.c`) on SDL's Wayland video driver, run against `wlcomp` by the same test: a window surface, pointer, key and text events, resize, close. `sdl-audio.wasm` (`sdl-audio.c`, `../../sdl-audio.test.ts`) plays through SDL's ecmaOS audio driver, and `sdl-clip.wasm` (`sdl-clip.c`) is the clipboard program the same test file runs twice. All three are built on WALI like `sdl-render` below: `sdl-win.build.sh`, `sdl-audio.build.sh` and `sdl-clip.build.sh` rebuild them, and SDL itself first (`core/utils/wasm/lib/sdl.sh`, a few minutes; they need `cmake`, `ninja`, `pkg-config`, `bison` and the host `wayland-scanner`). The same script is how any SDL 3 program gets built for ecmaOS.
 
 `sdl-render.wasm` (`sdl-render.c`, built on WALI by `sdl-render.build.sh` as the SDL demos are) draws with SDL's 2D renderer, `opengles2` by default or `software`: a clear, a filled rectangle, a texture from a surface and a blended one, read back with `SDL_RenderReadPixels` and printed as `ok` or `BAD`. Only a browser has `/dev/gl`, so `../../../e2e/desktop.e2e.ts` runs it.
 
