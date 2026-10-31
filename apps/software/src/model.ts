@@ -42,7 +42,7 @@ export function installCommand(name: string, scope: Scope, root: boolean, passwo
   if (scope === 'me') return root ? `install -g ${target}` : `install ${target}`
   if (root) return `install -g ${target}`
   if (!passwordFile) throw new Error('installing for everyone needs the password')
-  return `sudo -S -p '' install -g ${target} < ${quote(passwordFile)}`
+  return `sudo -S install -g ${target} < ${quote(passwordFile)}`
 }
 
 /** The line that removes `name` from where it is installed */
@@ -51,7 +51,7 @@ export function removeCommand(name: string, everyone: boolean, root: boolean, pa
   if (!everyone) return `install remove ${target}`
   if (root) return `install -g remove ${target}`
   if (!passwordFile) throw new Error('removing for everyone needs the password')
-  return `sudo -S -p '' install -g remove ${target} < ${quote(passwordFile)}`
+  return `sudo -S install -g remove ${target} < ${quote(passwordFile)}`
 }
 
 /** The first line of `err` that says what went wrong, without colours */

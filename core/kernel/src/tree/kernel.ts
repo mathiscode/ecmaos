@@ -583,7 +583,7 @@ export class Kernel implements IKernel {
     // Its output reaches the console through streams of its own: the terminal's are held by TTY 0's shell
     const console0 = this.terminal
     const forward = (wrap: (text: string) => string) => new WritableStream<Uint8Array>({ write: chunk => console0.write(wrap(new TextDecoder().decode(chunk))) })
-    const consoleView = new Proxy(console0, {
+    const consoleView = this._consoleView = new Proxy(console0, {
       get: (target, key) => {
         if (key === 'stdout') return forward(text => text)
         if (key === 'stderr') return forward(text => `\x1b[31m${text}\x1b[39m`)
@@ -3442,6 +3442,34 @@ export class Kernel implements IKernel {
     await shell.loadConfig()
 
     this.updateLocaleFromEnv(shell)
+  }
+
+  /** TTY 0's terminal seen through output streams of its own (set at boot), for a shell that has no terminal of its own */
+  private _consoleView?: Kernel['terminal']
+
+  /**
+   * A shell that acts as the user of `proc`, for a DOM app that process started from a shell of its own (`su`, a login's
+   * child): the app runs its commands through this, so they run as that user and not as the kernel's root shell. It has
+   * no terminal of its own; what it runs writes where the app tells it to.
+   */
+  shellAsProcess(proc: { context: { credentials: Credentials, pwd: string }, env: Record<string, string | undefined> }): Shell {
+    const cred = credentialsFor(proc.context.credentials)
+    const env = Object.fromEntries(Object.entries(proc.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+    const shell = new Shell({
+      context: this.context,
+      createPipeStream: () => this.createPipeStream(),
+      execute: options => this.execute({ ...options, kernel: this }),
+      adoptProcess: process => this.init.adopt(process as InstanceType<typeof ZenFSProcess>),
+      filesystem: this.filesystem,
+      users: this.users,
+      tty: 0,
+      terminal: this._consoleView ?? this.terminal,
+      env: { KERNEL_NAME: this.name, KERNEL_VERSION: this.version, TZ: localTimeZone(), ...env }
+    })
+    shell.credentials = cred
+    this.rebindShell(shell, cred)
+    shell.cwd = proc.context.pwd || env['HOME'] || '/'
+    return shell
   }
 
   /** The shell whose own process is `pid` (what `$$` names), if any. */

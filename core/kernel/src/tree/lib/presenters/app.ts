@@ -9,6 +9,18 @@ import type { Kernel } from '#kernel.ts'
 import type { Presented } from './index.ts'
 
 /**
+ * The shell a DOM app acts through: the user's own. Where programs run as their user, a process of its own (a `su`, a
+ * login's child) has no shell registered, and the kernel's shell is root's: a window opened there would run its
+ * commands as root. So it gets a shell for the process's user.
+ */
+export function appShell(kernel: Pick<Kernel, 'programsRunAsUser' | 'shell' | 'shellAsProcess'>, proc: Pick<Process, 'context' | 'env'>, shell?: Shell): Shell {
+  const { euid } = proc.context.credentials
+  const asRoot = !kernel.programsRunAsUser || euid === 0
+  if (shell && (asRoot || shell.credentials.euid === euid)) return shell
+  return asRoot ? kernel.shell : kernel.shellAsProcess(proc)
+}
+
+/**
  * The main-thread half of a DOM app (`#!ecmaos:bin:app:<name>`: webamp, the Monaco `code` editor, and
  * anything else that builds real DOM). The real process is `/bin/app`, a worker with a pid, signals and an
  * exit code; the app's own `main(params)` still needs `document`, so it runs here, on the main thread,
@@ -38,7 +50,7 @@ export async function presentApp(kernel: Kernel, proc: Process, params: Record<s
     URL.revokeObjectURL(url)
   }
 
-  const owner = shell ?? kernel.shell
+  const owner = appShell(kernel, proc, shell)
 
   // Apps written for the `executeApp` ABI call `instance.open/exit/keepAlive` directly. `exit` and `keepAlive` decide
   // whether the process ends when `main` returns or stays alive until the app calls `exit`; this shim ties them to

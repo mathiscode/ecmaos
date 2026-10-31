@@ -7,7 +7,7 @@ describe('the commands the window runs', () => {
     expect(installCommand('@ecmaos-apps/vim', 'me', false)).toBe(`install '@ecmaos-apps/vim'`)
     expect(installCommand('@ecmaos-apps/vim', 'me', true)).toBe(`install -g '@ecmaos-apps/vim'`)
     expect(installCommand('vim', 'everyone', true)).toBe(`install -g 'vim'`)
-    expect(installCommand('vim', 'everyone', false, '/tmp/.pw')).toBe(`sudo -S -p '' install -g 'vim' < '/tmp/.pw'`)
+    expect(installCommand('vim', 'everyone', false, '/tmp/.pw')).toBe(`sudo -S install -g 'vim' < '/tmp/.pw'`)
     expect(() => installCommand('vim', 'everyone', false)).toThrow(/password/)
   })
 
