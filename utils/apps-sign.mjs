@@ -13,18 +13,31 @@
 // Sign after the packages are published and before `@ecmaos/package-index` is; its tarball carries both files, and
 // `apt update` brings them to every machine. Publishing, and where the private key lives, are the maintainer's.
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto'
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { SCOPE, groupsOf, programs, scripts } from './apps-packages.mjs'
 
 const OUT = path.resolve(import.meta.dirname, 'package-index')
+const APPS = path.resolve(import.meta.dirname, '../apps')
+
+/** The apps of the workspace (`apps/*`) that are published under the signed scope: news, code, webamp, software... */
+export function appNames() {
+  if (!existsSync(APPS)) return []
+  return readdirSync(APPS)
+    .map(directory => path.join(APPS, directory, 'package.json'))
+    .filter(file => existsSync(file))
+    .map(file => JSON.parse(readFileSync(file, 'utf8')))
+    .filter(manifest => !manifest.private && String(manifest.name).startsWith(`${SCOPE}/`))
+    .map(manifest => manifest.name)
+}
 
 /** The names of every package the project publishes in its signed scope */
 export function publishedNames() {
   const found = programs()
   const { groups, profiles } = groupsOf(found)
   return [
+    ...appNames(),
     ...scripts().map(entry => entry.package),
     ...found.flatMap(entry => [entry.package, ...(entry.copyleft ? [`${entry.package}-src`] : [])]),
     ...Object.keys(groups).map(name => `${SCOPE}/group-${name}`),

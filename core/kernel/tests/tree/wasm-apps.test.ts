@@ -227,6 +227,16 @@ describe('wasm programs as packages', () => {
     expect(stamps).toEqual({ jq: 'old', 'jq:runtime': 'old' })
   }, 60_000)
 
+  // @ecmaos-apps is a signed scope: a package the signed index lacks cannot be installed, so news, code and the rest must be in it
+  it('signs the apps of the workspace along with the programs, groups and profiles', () => {
+    const sign = process.getBuiltinModule('node:path').resolve(process.cwd(), '../../utils/apps-sign.mjs')
+    const names = JSON.parse(process.getBuiltinModule('node:child_process').execFileSync('node', ['--input-type=module', '-e', `import { publishedNames } from ${JSON.stringify(sign)}; console.log(JSON.stringify(publishedNames()))`], { encoding: 'utf8' })) as string[]
+    for (const app of ['news', 'code', 'webamp', 'software']) expect(names).toContain(`@ecmaos-apps/${app}`)
+    expect(names).toContain('@ecmaos-apps/python3')
+    expect(names).toContain('@ecmaos-apps/profile-standard')
+    expect(new Set(names).size).toBe(names.length)
+  })
+
   it('names the source package of a copyleft program, and fetches it with apt source', async () => {
     const { manifest } = await publishProgram('make')
     expect(manifest.ecmaos.source).toBe(`@ecmaos-apps/make-src@${manifest.version}`)
