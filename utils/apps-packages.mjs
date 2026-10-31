@@ -11,6 +11,11 @@
 //   node utils/apps-packages.mjs groups OUT           write OUT/group-NAME/ and OUT/profile-NAME/: the meta-packages of
 //                                                      utils/package-index/groups.json
 //   node utils/apps-packages.mjs list                  every program, with its package name, version and whether it moved
+//   node utils/apps-packages.mjs candidates            the permissive programs no Standard machine boots with: the ones to move first
+//   node utils/apps-packages.mjs ready [--registry URL] [name...]
+//                                                      whether each package (and a copyleft program's source package) is on the
+//                                                      registry (npmjs by default) at the version built here, with `latest` on it:
+//                                                      the check before a program is marked moved
 //
 // A program moves out of the boot catalog by gaining `"package": "@ecmaos-apps/NAME"` in its `programs/manifest.json`:
 // the kernel's catalog leaves it out, and `index` makes `apt install NAME` mean the package. Publishing the packages is
@@ -284,6 +289,35 @@ export function indexEntries(found = programs()) {
   return Object.fromEntries(found.filter(({ program }) => program.package).map(({ name, program }) => [name, { package: program.package, description: program.description }]))
 }
 
+/** The programs that are permissive and that Standard does not boot with: moving them leaves Standard whole */
+export function candidates(found = programs()) {
+  const { groups, profiles } = groupsOf(found)
+  const standard = new Set([...profiles.standard.groups.flatMap(group => groups[group].members), ...(profiles.standard.packages ?? [])])
+  return found.filter(entry => !entry.copyleft && !entry.program.package && !standard.has(entry.name)).map(entry => entry.name)
+}
+
+/** Whether each package is on the registry at the version built here and `latest` points at it: `[{ name, version, problem? }]` */
+export async function readiness(registry, names = []) {
+  const wanted = []
+  for (const entry of programs()) {
+    wanted.push({ name: entry.package, version: versionOf(entry.program), program: entry.name })
+    if (entry.copyleft) wanted.push({ name: `${entry.package}-src`, version: versionOf(entry.program), program: entry.name })
+  }
+  for (const entry of scripts()) wanted.push({ name: entry.package, version: entry.script.version, program: entry.name })
+  const chosen = wanted.filter(item => !names.length || names.includes(item.program))
+  return Promise.all(chosen.map(async item => {
+    try {
+      const response = await fetch(`${registry.replace(/\/$/, '')}/${item.name.replace('/', '%2f')}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15000) })
+      if (response.status === 404) return { ...item, problem: 'not published' }
+      if (!response.ok) return { ...item, problem: `HTTP ${response.status}` }
+      const packument = await response.json()
+      if (!packument.versions?.[item.version]) return { ...item, problem: `no version ${item.version}` }
+      if (packument['dist-tags']?.latest !== item.version) return { ...item, problem: `latest is ${packument['dist-tags']?.latest ?? 'unset'}, not ${item.version}` }
+      return item
+    } catch (error) { return { ...item, problem: error.message } }
+  }))
+}
+
 /** The groups and profiles of `groups.json`, checked against the programs: every member is a program, and Everything has them all */
 export function groupsOf(found = programs()) {
   const { groups, profiles } = read(GROUPS)
@@ -387,7 +421,7 @@ function updateIndex() {
   return changed
 }
 
-const main = () => {
+const main = async () => {
   const [command, ...rest] = process.argv.slice(2)
   if (command === 'build') {
     const [out, ...names] = rest
@@ -415,8 +449,18 @@ const main = () => {
       if (entry.copyleft) console.log(`${entry.package}-src@${versionOf(entry.program)}`)
     }
     for (const entry of scripts()) console.log(`${entry.package}@${entry.script.version}${entry.script.moved ? ' (moved)' : ''}`)
+  } else if (command === 'candidates') {
+    console.log(candidates().join('\n'))
+  } else if (command === 'ready') {
+    const at = rest.indexOf('--registry')
+    const registry = at >= 0 ? rest.splice(at, 2)[1] : 'https://registry.npmjs.org'
+    const results = await readiness(registry, rest)
+    for (const item of results) console.log(`${item.problem ? 'no ' : 'ok '} ${item.name}@${item.version}${item.problem ? `: ${item.problem}` : ''}`)
+    const missing = results.filter(item => item.problem)
+    console.log(`${results.length - missing.length} of ${results.length} ready at ${registry}`)
+    if (missing.length) process.exit(1)
   } else {
-    throw new Error('usage: apps-packages.mjs build OUT [name...] | groups OUT | check | index | list')
+    throw new Error('usage: apps-packages.mjs build OUT [name...] | groups OUT | check | index | list | candidates | ready [--registry URL] [name...]')
   }
 }
 

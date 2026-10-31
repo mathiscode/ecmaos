@@ -185,6 +185,21 @@ describe('wasm programs as packages', () => {
     expect(result.err).toContain('needs files under /usr')
   }, 60_000)
 
+  it('offers to move only permissive programs that Standard does not boot with', () => {
+    const names = node('console.log(JSON.stringify(m.candidates()))') as string[]
+    expect(names).toContain('rg')
+    for (const kept of ['jq', 'vim', 'bash', 'tmux', 'xz']) expect(names).not.toContain(kept)
+  })
+
+  it('reports a package that is not on the registry, and one whose latest is another version', () => {
+    const results = node(`globalThis.fetch = async url => String(url).includes('figlet')
+      ? new Response(JSON.stringify({ versions: { '2.2.5-ecmaos.1': {} }, 'dist-tags': { latest: '0.0.1' } }))
+      : new Response('{}', { status: 404 })
+      console.log(JSON.stringify([...await m.readiness('http://registry.test/', ['figlet']), ...await m.readiness('http://registry.test', ['rg'])]))`) as { problem: string }[]
+    expect(results[0].problem).toContain('latest is 0.0.1')
+    expect(results[1].problem).toBe('not published')
+  })
+
   it('writes index entries only for programs a manifest marks as moved', () => {
     const entries = indexEntries([
       { name: 'jq', program: { description: 'jq', package: '@ecmaos-apps/jq' } },
