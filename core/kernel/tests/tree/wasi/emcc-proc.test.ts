@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 /**
  * One program, built with `emcc` and libecmaos (`core/utils/wasm/lib/ecmaos.sh`) and on WALI's musl
  * (`fixtures/wali.build.sh`), spawns, waits, execs and takes signals. Both C libraries make the same spawn call
- * (`src/bin/spawn.mjs`); the signals are each host's (`wasi-preview1.mjs` with libecmaos's `signal.c`, and
+ * (`src/bin/spawn.mjs`); the signals are each host's (`wasip1.mjs` with libecmaos's `signal.c`, and
  * `wali-host.mjs`).
  */
 describe.each(['emcc-proc', 'wali-proc'])('processes and signals in %s', program => {

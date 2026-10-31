@@ -1,7 +1,7 @@
 # WASI fixtures
 
 `emcc-hello.wasm` is a real, ordinary (non-`STANDALONE_WASM`) `emcc` build of `emcc-hello.c`,
-committed so the worker-side `env.__syscall_*` shim (`src/bin/wasi-preview1.mjs`) has something
+committed so the worker-side `env.__syscall_*` shim (`src/bin/emscripten.mjs`) has something
 real to run against without an `emcc` toolchain in every test environment. Rebuild it with:
 
 ```
@@ -135,11 +135,10 @@ What they show today:
 
 | Fixture | Runtime | Result |
 | --- | --- | --- |
-| Rust wasip1 | worker | passes with relative paths; absolute paths fail (known bug below) |
+| Rust wasip1 | worker | passes, relative and absolute paths |
 | Go wasip1 | worker | passes (relative) |
 | C standalone | worker | passes |
-| old-name emcc | main thread (`preview1.ts`) | runs |
+| old-name emcc | worker | runs (names the host lacks are stubbed) |
 | Rust p2 component | main thread (preview2-shim) | stdio and exit status work, no filesystem |
 
-Known bug: the worker preopens `/` as fd 3 and `.` as fd 4; for an absolute path wasi-libc's longest-prefix match ties between them
-and takes `.`, so `/tmp/x` opens as `<cwd>/tmp/x`. The test is marked `it.fails` until Phase 1 fixes it.
+The worker preopens `/` (fd 3), `.` (fd 4) and each top-level directory under its own name, so wasi-libc's longest-prefix match sends an absolute path to the right place.

@@ -769,7 +769,7 @@ function mremap(addr, oldLength, newLength, flags) {
  * from the shadow) are written to the object before them, and, after a call that waits or reads, pages another writer
  * changed (the object differs from the shadow while memory still equals it) are brought in. A program that draws into
  * a mapped framebuffer and makes no call is seen when it next sleeps, polls, writes, reads the clock, or exits. This is
- * what `wasi-preview1.mjs` does for the Emscripten programs.
+ * what `emscripten.mjs` does for the Emscripten programs.
  */
 const PROT_NONE = 0, PROT_WRITE = 2
 const MS_INVALIDATE = 2

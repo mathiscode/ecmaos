@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
  * A plain `wasm32-wasip1` module runs as a real worker-hosted Process under `/bin/wali`'s preview1
- * translation (`src/bin/wasi-preview1.mjs`): real pid, real stdio fds, real exit codes, and, the
+ * translation (`src/bin/wasip1.mjs`): real pid, real stdio fds, real exit codes, and, the
  * point of the change, killable while it spins in a tight loop with no yield point.
  */
 async function compile(wat: string): Promise<Uint8Array> {

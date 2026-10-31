@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 /**
  * One program, built with `emcc` and on WALI's musl (`fixtures/wali.build.sh`), maps an unlinked temp file and a
  * framebuffer. Neither host can share pages with the kernel, so a mapping is a copy kept in step at syscalls
- * (`wasi-preview1.mjs`, "mmap, by copying at syscalls", and `wali-host.mjs`, "shared file mappings").
+ * (`emscripten.mjs`, "mmap, by copying at syscalls", and `wali-host.mjs`, "shared file mappings").
  */
 describe.each(['emcc-mmap', 'wali-mmap'])('mmap in %s', program => {
   let kernel: Kernel

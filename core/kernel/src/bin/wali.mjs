@@ -3,7 +3,7 @@
  * no imports and written to `/bin/wali` at boot, like `bin/node.mjs`.
  * A WALI module imports from a `"wali"` namespace (`SYS_open`, `SYS_read`, ...) and runs on upstream's host; a
  * `wasi_snapshot_preview1` module cannot, so this file tells them apart and routes preview1 modules to `runPreview1`
- * (`wasi-preview1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest (components and
+ * (`wasip1.mjs`). `canRunInWorker` (`tree/wasm.ts`) decides which modules reach here; the rest (components and
  * modules with no WASI imports) run on the main thread in `Kernel.executeWasm`.
  */
 
@@ -12,7 +12,7 @@ import { receive } from '@zenfs/linux/uapi/port'
 import { syscall_raw } from '@zenfs/linux/uapi/base'
 import { open, read, write, close, stat } from '@zenfs/linux/uapi/fs'
 import { run, wali } from '@zenfs/linux/uapi/wali'
-import { runPreview1 } from './wasi-preview1.mjs'
+import { runPreview1 } from './wasip1.mjs'
 import { install, attach, drive } from './wali-host.mjs'
 
 /**
@@ -147,7 +147,7 @@ try {
   const preloaded = provided?.exe === init.exe && sameFile(init.exe, provided.id) ? provided : undefined
   const source = preloaded ? undefined : await readWholeFile(init.exe)
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
-  // `wasi-preview1.mjs`; anything else is WALI.
+  // `wasip1.mjs`; anything else is WALI.
   const module = preloaded ? preloaded.module : await WebAssembly.compile(source)
   const isPreview1 = !preloaded && WebAssembly.Module.imports(module).some(entry => entry.module === 'wasi_snapshot_preview1')
   start = init.env?.__WALI_THREAD__ || init.env?.__WALI_FORK__ ? await threadStart.promise : undefined

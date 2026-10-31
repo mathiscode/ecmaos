@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
  * Signals for Emscripten programs, as Linux has them. Emscripten keeps dispositions and the mask in the program and
  * only ever raises a signal the program sends itself; here the kernel's signals reach the handlers too. The host
- * (core/kernel/src/bin/wasi-preview1.mjs) asks for each one with ecmaos_signal as a call into it returns, the way a
+ * (core/kernel/src/bin/wasip1.mjs) asks for each one with ecmaos_signal as a call into it returns, the way a
  * kernel runs a handler on the way back to user space, and answers the call it interrupted by what happened: resumed
  * when no handler ran, restarted after one with SA_RESTART, EINTR after any other. A default action that ends the
  * program is the kernel's, so a parent sees the child killed by the signal; one that stops it stops it.
