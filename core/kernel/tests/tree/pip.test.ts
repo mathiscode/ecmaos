@@ -102,6 +102,18 @@ describe('pip', () => {
   beforeAll(async () => {
     kernel = new Kernel({ credentials: { username: 'root', password: 'root' }, dom: TestDomOptions, filesystem: DefaultFilesystemOptions, log: TestLogOptions })
     await kernel.boot()
+    // pip is a package, not a kernel command: build it as the registry gets it and link it as an install does
+    const { mkdtempSync, readFileSync, rmSync } = process.getBuiltinModule('node:fs')
+    const { join, resolve } = process.getBuiltinModule('node:path')
+    const { tmpdir } = process.getBuiltinModule('node:os')
+    const { execFileSync } = process.getBuiltinModule('node:child_process')
+    const out = mkdtempSync(join(tmpdir(), 'pip-'))
+    execFileSync('node', [resolve(process.cwd(), '../../utils/apps-packages.mjs'), 'build', out, 'pip'])
+    const code = readFileSync(join(out, 'pip', 'pip.mjs'), 'utf8')
+    rmSync(out, { recursive: true, force: true })
+    await fs().mkdir('/usr/lib/pip', { recursive: true })
+    await fs().writeFile('/usr/lib/pip/pip.mjs', code, { mode: 0o755 })
+    for (const name of ['pip', 'pip3']) await fs().symlink('/usr/lib/pip/pip.mjs', `/usr/bin/${name}`)
     const { createServer } = process.getBuiltinModule('node:http')
     server = createServer((req, res) => {
       requests.push(req)

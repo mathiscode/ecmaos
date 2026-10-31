@@ -65,7 +65,7 @@ export function programs() {
  * of its own. `pip` is the one: its code is `core/kernel/src/bin/commands/lib/pip/`, and a package that needs Python
  * depends on `python3`, so installing pip installs Python. `moved` is the same switch a wasm program's manifest has
  * (`"package"`): while it is false the kernel still carries the command, and the index does not send its name to the
- * package. It becomes true when the kernel's own copy goes, which happens after the package is published.
+ * package. It is true now: the kernel has no `pip` of its own, and the name means this package.
  */
 export const SCRIPTS = {
   pip: {
@@ -77,7 +77,7 @@ export const SCRIPTS = {
     aliases: ['pip3'],
     dependencies: { [`${SCOPE}/python3`]: 'latest' },
     names: { apt: ['python3-pip'], pacman: ['python-pip'] },
-    moved: false
+    moved: true
   }
 }
 

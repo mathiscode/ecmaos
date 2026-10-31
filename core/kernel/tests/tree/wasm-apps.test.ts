@@ -187,7 +187,7 @@ describe('wasm programs as packages', () => {
   }, 60_000)
 
   it('offers to move only permissive programs that Standard does not boot with', () => {
-    const names = node('console.log(JSON.stringify(m.candidates()))') as string[]
+    const names = node('console.log(JSON.stringify(m.candidates(m.programs().map(entry => ({ ...entry, program: { ...entry.program, package: undefined } })))))') as string[]
     expect(names).toContain('rg')
     for (const kept of ['jq', 'vim', 'bash', 'tmux', 'xz']) expect(names).not.toContain(kept)
   })
