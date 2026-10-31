@@ -39,9 +39,9 @@ function waliShaped(module: WebAssembly.Module): boolean {
 }
 
 /**
- * Every core module (WALI, `wasm32-wasip1`, `emcc`, or none of those) runs as a worker process under `/bin/wali` (see
- * `canRunInWorker`). What still runs here is a Preview 2 component, on the main thread, so an infinite loop freezes
- * the tab and `^C` cannot reach it; Phase 4 of `.docs/WASI_CLEANUP.md` gives components a worker too.
+ * Every wasm program (a core module: WALI, `wasm32-wasip1`, `emcc` or none of those; a Preview 2 component) runs as a worker
+ * process under `/bin/wali` (see `canRunInWorker`). What stays here is the work the worker cannot do: compiling a module once
+ * for the checks a launch asks, and transpiling a component with jco, which is too large for the worker's bundle.
  */
 export class Wasm implements IWasm {
   private _kernel: Kernel

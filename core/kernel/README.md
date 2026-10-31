@@ -113,7 +113,7 @@ Every WebAssembly program is a worker process with a pid, signals, a controlling
 
 What does not work: a module that exports none of `_start`, `_initialize` or `main` is a library and is refused with a message; a module that imports something the host lacks fails to start and names it; `fork` (use `posix_spawn`), WASI 0.3, `wasi:http` and `wasi-threads` are not provided.
 
-Run one by path (`./hello.wasm`) or put it in `/bin`; `man wasm` has the details.
+Run one by path (`./hello.wasm`) or put it in `/bin`. `wasm info ./hello.wasm` names its ABI and lists the imports ecmaOS does not provide; `man wasm` has the details.
 
 ### Commands
 

@@ -179,7 +179,7 @@ export const migratedCommands = [
   'crontab', 'at', 'systemd-cat', 'systemctl', 'service', 'journalctl', 'hostnamectl', 'timedatectl', 'localectl', 'locale',
   'truncate', 'sync', 'setsid', 'flock', 'base32', 'numfmt', 'b2sum', 'sha224sum', 'tsort', 'csplit', 'pstree', 'fuser', 'iconv',
   'dos2unix', 'shred', 'fallocate', 'lslocks', 'inotifywait', 'arch', 'users', 'link', 'unlink', 'sum', 'pathchk',
-  'wget', 'gpg', 'cowsay', 'script', 'scriptreplay', 'lsattr', 'chattr', 'getfattr', 'setfattr'
+  'wget', 'gpg', 'cowsay', 'script', 'scriptreplay', 'lsattr', 'chattr', 'getfattr', 'setfattr', 'wasm'
 ] as const
 
 /**

@@ -15,6 +15,7 @@ import { run, wali } from '@zenfs/linux/uapi/wali'
 import { runPreview1 } from './wasip1.mjs'
 import { runComponent } from './wasip2.mjs'
 import { install, attach, drive } from './wali-host.mjs'
+import { describe } from './wasm-info.mjs'
 
 /**
  * The limits of the memory a module imports (`wali.memory`, which the toolchain links it to import so each thread's
@@ -148,7 +149,9 @@ try {
   // a module the kernel sent for this very program is used as it is; the first thing a worker is told is which one it is for
   const preloaded = provided?.exe === init.exe && sameFile(init.exe, provided.id) ? provided : undefined
   // a Preview 2 component: the kernel transpiled it (`Wasm.prepareComponent`), and `runComponent` runs what it sent
-  if (preloaded?.component) exit(await runComponent(preloaded.component))
+  // `wasm info` runs the file with this set: the hosts say what they would do with it (`wasm-info.mjs`) and nothing runs
+  const info = !!init.env?.ECMAOS_WASM_INFO
+  if (preloaded?.component) exit(info ? await describe(init.exe, { component: preloaded.component }) : await runComponent(preloaded.component))
   const source = preloaded ? undefined : await readWholeFile(init.exe)
   if (source && source[4] === 0x0d) {
     // a component another program exec'd: the kernel has jco, so it is asked to transpile it
@@ -159,11 +162,12 @@ try {
       write(2, new TextEncoder().encode(`${init.exe}: could not be prepared as a component\n`), -1)
       exit(1)
     }
-    exit(await runComponent(provided.component))
+    exit(info ? await describe(init.exe, { component: provided.component }) : await runComponent(provided.component))
   }
   // `run()` returns only if the module falls out of `main()`. A `wasi_snapshot_preview1` module is translated by
   // `wasip1.mjs`; anything else is WALI.
   const module = preloaded ? preloaded.module : await WebAssembly.compile(source)
+  if (info) exit(await describe(init.exe, { module }))
   // anything that is not WALI is run by `runPreview1`: a `wasi_snapshot_preview1` module, an `emcc` one, or a plain one
   // with no host calls (it gets none bound)
   const imports = WebAssembly.Module.imports(module)
