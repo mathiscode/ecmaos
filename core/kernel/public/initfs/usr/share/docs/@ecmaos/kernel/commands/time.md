@@ -10,7 +10,7 @@ time COMMAND [ARG]...
 
 ## Description
 
-Run COMMAND and print a summary of the real, user, and system time used.
+Run COMMAND and print a summary of the real, user, and system time used, in bash's form (`real\t0m0.076s`).
 
 ## Options
 

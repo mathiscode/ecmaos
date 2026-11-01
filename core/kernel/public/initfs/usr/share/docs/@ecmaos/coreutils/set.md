@@ -5,7 +5,7 @@
 ## Synopsis
 
 ```
-set [-/+abefCuvx] [-/+o [OPTION]] [--] [ARG ...]
+set [-/+abBefhHkmnpPtTuvxCE] [-/+o [OPTION]] [--] [ARG ...]
 ```
 
 ## Description
@@ -20,8 +20,11 @@ A shell builtin, available in both the shell built into the kernel and `/bin/ecm
 - `-f (noglob)` - turn pathname expansion off
 - `-C (noclobber)` - `>` refuses to overwrite an existing file; `>|` overrides
 - `-v (verbose)` - echo each line of input as it is read
+- `-a (allexport)` - export every variable that is assigned
 - `-o pipefail` - a pipeline's status is that of its last failing stage
-- `-o` - with no name, list every option and its state
+- `-o` - with no name, list every option and its state, as bash does; `+o` prints the `set -o NAME` / `set +o NAME` lines that would restore them
+
+The other options bash lists (`braceexpand`, `emacs`, `errtrace`, `functrace`, `hashall`, `histexpand`, `history`, `ignoreeof`, `interactive-comments`, `keyword`, `monitor`, `noexec`, `nolog`, `notify`, `onecmd`, `physical`, `posix`, `privileged`, `vi`) can be set and read back, so a script that sets them runs, but nothing in the shell reads them. `emacs` and `vi` exclude each other.
 
 ## Examples
 

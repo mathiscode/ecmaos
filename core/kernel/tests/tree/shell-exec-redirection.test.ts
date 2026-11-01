@@ -75,7 +75,7 @@ describe('exec redirections', () => {
       'export -p',
       'exec > /dev/null'
     ].join('\n'))
-    expect(await read(LOG)).toContain('EXEC_MARKER=seen')
+    expect(await read(LOG)).toContain('declare -x EXEC_MARKER="seen"')
   })
 
   it('appends with exec >>', async () => {

@@ -181,6 +181,11 @@ function main() {
     const entries = []
     for (const name of names_) {
       try { entries.push(describe(path, name, options.dereference === 'all')) } catch (e) {
+        // an entry of /proc/N/fd can be the directory handle this very listing used, closed by the time it is looked at
+        if (e?.code === 'ENOENT' && /^\/proc\/(self|\d+)\/fd\/?$/.test(path)) {
+          entries.push({ name, mode: 0o120700, size: 64, mtimeMs: 0, atimeMs: 0, ctimeMs: 0, uid: 0, gid: 0, nlink: 1, ino: 0, rdev: 0, blocks: 0 })
+          continue
+        }
         err(`ls: cannot access '${label.replace(/\/$/, '')}/${name}': ${reason(e)}`)
         status = Math.max(status, top ? 2 : 1)
       }

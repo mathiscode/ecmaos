@@ -12,7 +12,7 @@ tmux [COMMAND [FLAGS]]
 
 tmux 3.5a, the terminal multiplexer, with libevent and ncurses, built to WebAssembly and run as an ordinary program. The first client starts a server, which detaches and keeps a pty and a process for each pane, so sessions go on when you detach.
 
-The usual commands work: `tmux` starts a session, `^B c` makes a window, `^B %` and `^B "` split it, `^B d` detaches, `tmux ls` lists the sessions, `tmux attach` returns to one and `tmux kill-server` ends them. `TERM` is `xterm.js`, which no terminal description knows, so tmux draws as `xterm-256color`.
+The usual commands work: `tmux` starts a session, `^B c` makes a window, `^B %` and `^B "` split it, `^B d` detaches, `tmux ls` lists the sessions, `tmux attach` returns to one and `tmux kill-server` ends them. `TERM` is `xterm-256color`.
 
 ## Examples
 

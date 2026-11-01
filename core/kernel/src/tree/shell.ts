@@ -298,7 +298,7 @@ const DefaultShellOptions = {
   env: {
     PATH: DefaultShellPath,
     SHELL: 'ecmaos',
-    TERM: 'xterm.js',
+    TERM: 'xterm-256color',
     USER: 'root',
     HOME: '/root',
     TZ: localTimeZone(),
@@ -1237,9 +1237,9 @@ export class Shell implements IShell {
         if (!(error instanceof CommandNotFoundError)) throw error
         // From a startup file bash names the file and line: `/etc/ecmashrc: line 2: foo: command not found`.
         const where = this._sourceFile ? `${this._sourceFile}: line ${this.state.lineNumber}: ` : ''
-        await this.shellDiagnostic(where + error.message)
+        await this.shellDiagnostic(where + error.message, false, command.redirections)
         const hint = error.command ? await this.installHint(error.command) : undefined
-        if (hint) await this.shellDiagnostic(hint, true)
+        if (hint) await this.shellDiagnostic(hint, true, command.redirections.map(r => r.type === '>' || r.type === '>|' ? { ...r, type: '>>' as const } : r))
         return commands.map(() => 127)
       }
       const args = resolved.args
@@ -2456,16 +2456,16 @@ export class Shell implements IShell {
    * The shell's own diagnostics (`set -x` traces, refused assignments, command not found). They follow an enclosing
    * `2>file` the way a command's stderr does, and go to the terminal otherwise.
    */
-  private async shellDiagnostic(text: string, raw = false): Promise<void> {
-    const redirects = (level: { redirections: Redirection[] }) => level.redirections.some(r => r.fd === 2)
-    const redirected = (this._execOutputs && redirects(this._execOutputs)) || this._statementOutputs.some(redirects)
+  private async shellDiagnostic(text: string, raw = false, own: readonly Redirection[] = []): Promise<void> {
+    const redirects = (level: { redirections: readonly Redirection[] }) => level.redirections.some(r => r.fd === 2)
+    const redirected = (this._execOutputs && redirects(this._execOutputs)) || this._statementOutputs.some(redirects) || redirects({ redirections: own })
     if (!redirected) {
       const io = this.terminalBuiltinIO()
       if (raw) await io.writeErr(text + '\r\n')
       else await io.writelnErr(text)
       return
     }
-    const wanted = this.inheritedOutputRedirections(false).filter(r => r.fd === 2)
+    const wanted = [...this.inheritedOutputRedirections(false).filter(r => r.fd === 2), ...own.filter(r => r.fd !== 0)]
     const { stderr } = await this.buildOutputStreams(wanted, true, undefined)
     const writer = stderr.getWriter()
     try { await writer.write(new TextEncoder().encode((raw ? '' : this.diagnosticPrefix()) + text + '\n')) } finally {

@@ -23,6 +23,28 @@ export interface ShellOptions {
   noclobber: boolean
   /** `-v`: echo each line as it is read */
   verbose: boolean
+  /** `-a`: a variable assigned is exported */
+  allexport: boolean
+  /** Options `set -o` lists and accepts; nothing in the shell reads them (there is no history, job monitor or POSIX mode to switch) */
+  notify: boolean
+  braceexpand: boolean
+  hashall: boolean
+  histexpand: boolean
+  history: boolean
+  ignoreeof: boolean
+  'interactive-comments': boolean
+  keyword: boolean
+  monitor: boolean
+  noexec: boolean
+  nolog: boolean
+  onecmd: boolean
+  physical: boolean
+  posix: boolean
+  privileged: boolean
+  errtrace: boolean
+  functrace: boolean
+  emacs: boolean
+  vi: boolean
 }
 
 /**
@@ -132,7 +154,12 @@ export class ShellState {
   dirStack: string[] = []
   /** The line whose rest is skipped after a refused assignment: bash drops the remainder of that command list. */
   failedLine?: number
-  options: ShellOptions = { errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false }
+  options: ShellOptions = {
+    errexit: false, nounset: false, pipefail: false, xtrace: false, noglob: false, noclobber: false, verbose: false,
+    allexport: false, notify: false, braceexpand: true, hashall: true, histexpand: false, history: false, ignoreeof: false,
+    'interactive-comments': true, keyword: false, monitor: false, noexec: false, nolog: false, onecmd: false, physical: false,
+    posix: false, privileged: false, errtrace: false, functrace: false, emacs: false, vi: false,
+  }
 
   /** `getopts`' position inside a cluster such as `-abc` */
   getoptsCharIndex = 1
@@ -284,10 +311,16 @@ export class ShellState {
    */
   optionFlags(): string {
     const flags: string[] = []
+    if (this.options.allexport) flags.push('a')
     if (this.options.errexit) flags.push('e')
-    flags.push('h')
+    if (this.options.noglob) flags.push('f')
+    if (this.options.hashall) flags.push('h')
     if (this.options.nounset) flags.push('u')
-    flags.push('B', 'i')
+    if (this.options.verbose) flags.push('v')
+    if (this.options.xtrace) flags.push('x')
+    if (this.options.braceexpand) flags.push('B')
+    if (this.options.noclobber) flags.push('C')
+    flags.push('i')
     return flags.join('')
   }
 
@@ -315,7 +348,7 @@ export class ShellState {
     if (name === 'OPTIND') this.getoptsCharIndex = 1
 
     this.removedDefaults.delete(name)
-    if (!this.vars.has(name)) this.unexported.add(name)
+    if (!this.vars.has(name) && !this.options.allexport) this.unexported.add(name)
     this.vars.set(name, value)
   }
 

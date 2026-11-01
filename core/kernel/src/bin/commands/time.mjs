@@ -20,11 +20,10 @@ Note: This is a simplified version that measures real (wall clock) time.`
 
 function writeStderr(text) { write(2, new TextEncoder().encode(text + '\n')) }
 
+/** bash's `0m0.076s` */
 function formatTime(seconds) {
-  if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`
-  if (seconds < 60) return `${seconds.toFixed(2)}s`
   const mins = Math.floor(seconds / 60)
-  return `${mins}m${(seconds % 60).toFixed(2)}s`
+  return `${mins}m${(seconds - mins * 60).toFixed(3)}s`
 }
 
 function isFile(path) {
@@ -62,9 +61,9 @@ const shellQuote = arg => `'${arg.replace(/'/g, `'\\''`)}'`
 
 function report(startTime) {
   const elapsed = (performance.now() - startTime) / 1000
-  writeStderr(`\nreal    ${formatTime(elapsed)}`)
-  writeStderr(`user    ${formatTime(elapsed)}`)
-  writeStderr(`sys     ${formatTime(0)}`)
+  writeStderr(`\nreal\t${formatTime(elapsed)}`)
+  writeStderr(`user\t${formatTime(elapsed)}`)
+  writeStderr(`sys\t${formatTime(0)}`)
 }
 
 async function main() {

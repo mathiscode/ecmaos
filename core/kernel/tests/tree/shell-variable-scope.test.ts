@@ -73,7 +73,7 @@ describe('variable scoping and the environment boundary', () => {
         '}',
         'f'
       ].join('\n'))
-      expect(output).toContain('SHADOWED=inner')
+      expect(output).toContain('declare -x SHADOWED="inner"')
       expect(output).not.toContain('SHADOWED=outer')
     })
   })
