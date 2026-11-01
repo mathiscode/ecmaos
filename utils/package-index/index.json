@@ -385,6 +385,74 @@
     "cmatrix": {
       "package": "@ecmaos-apps/cmatrix",
       "description": "cmatrix, the falling characters of The Matrix, with ncurses"
+    },
+    "dash": {
+      "package": "@ecmaos-apps/dash",
+      "description": "dash, the Debian Almquist shell (a POSIX sh); it forks, so it is built with Asyncify"
+    },
+    "bzip2": {
+      "package": "@ecmaos-apps/bzip2",
+      "description": "bzip2, and bunzip2 and bzcat (links to it)"
+    },
+    "xz": {
+      "package": "@ecmaos-apps/xz",
+      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)"
+    },
+    "zstd": {
+      "package": "@ecmaos-apps/zstd",
+      "description": "zstd, and unzstd and zstdcat (links to it)"
+    },
+    "patch": {
+      "package": "@ecmaos-apps/patch",
+      "description": "patch, from toybox: applies unified, context and normal diffs"
+    },
+    "microcom": {
+      "package": "@ecmaos-apps/microcom",
+      "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)"
+    },
+    "hwclock": {
+      "package": "@ecmaos-apps/hwclock",
+      "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)"
+    },
+    "lsof": {
+      "package": "@ecmaos-apps/lsof",
+      "description": "lsof, from toybox: lists the files, sockets and pipes processes have open"
+    },
+    "vmstat": {
+      "package": "@ecmaos-apps/vmstat",
+      "description": "vmstat, from toybox: reports memory, processes and CPU time from /proc"
+    },
+    "netstat": {
+      "package": "@ecmaos-apps/netstat",
+      "description": "netstat, from toybox: lists listening and open sockets from /proc/net"
+    },
+    "sysctl": {
+      "package": "@ecmaos-apps/sysctl",
+      "description": "sysctl, from toybox: reads and sets kernel parameters in /proc/sys"
+    },
+    "lsmod": {
+      "package": "@ecmaos-apps/lsmod",
+      "description": "lsmod, from toybox: lists the loaded kernel modules"
+    },
+    "pidof": {
+      "package": "@ecmaos-apps/pidof",
+      "description": "pidof, from toybox: finds the process ids of a program by name"
+    },
+    "hidinfo": {
+      "package": "@ecmaos-apps/hidinfo",
+      "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls"
+    },
+    "v4l2grab": {
+      "package": "@ecmaos-apps/v4l2grab",
+      "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG"
+    },
+    "lsusb": {
+      "package": "@ecmaos-apps/lsusb",
+      "description": "lsusb, from toybox: lists the USB devices in /sys/bus/usb/devices"
+    },
+    "lspci": {
+      "package": "@ecmaos-apps/lspci",
+      "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices"
     }
   },
   "apt": {
