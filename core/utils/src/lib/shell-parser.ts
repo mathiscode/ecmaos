@@ -7,7 +7,7 @@
  * Pipeline    := ['!'] Command ('|' Command)*
  * Command     := Conditional Redirection* | (Word | Redirection)+
  * Conditional := '[[' <expression> ']]'
- * Redirection := [n] ('>' | '>>' | '<' | '>&' | '<<' | '<<<') Word
+ * Redirection := [n] ('>' | '>>' | '<' | '>&' | '<&' | '<>' | '<<' | '<<<') Word
  * ```
  *
  * Each word is a list of {@link WordPart}s, one per run with the same quoting, since expansion depends on it.
@@ -17,7 +17,7 @@
 
 import type { Statement } from './control-flow-parser.js'
 
-export type RedirectionType = '>' | '>>' | '>|' | '<' | '<<' | '<<<' | '>&'
+export type RedirectionType = '>' | '>>' | '>|' | '<' | '<<' | '<<<' | '>&' | '<&' | '<>'
 
 /** How a run of characters inside a word was quoted. */
 export type Quoting = 'unquoted' | 'single' | 'double' | 'escaped'
@@ -460,7 +460,7 @@ export function tokenize(line: string): Token[] {
     // Redirections: [n]<<< [n]<< [n]>> [n]>& [n]>| [n]> [n]<
     // `>|` is `>` with `set -C` (noclobber) explicitly overridden, so it has to be its own operator
     // rather than a `>` followed by a word starting with `|`.
-    const fdMatch = /^(\d*)(<<<|<<|>>|>&|>\||>|<)/.exec(line.slice(i))
+    const fdMatch = /^(\d*)(<<<|<<|<&|<>|>>|>&|>\||>|<)/.exec(line.slice(i))
     if (fdMatch) {
       const [full, fdStr, op] = fdMatch
       tokens.push({ kind: 'redirect', value: op as string, fd: fdStr ? Number(fdStr) : undefined })
@@ -576,13 +576,14 @@ class Parser {
   }
 
   private buildRedirection(token: Token, targetToken: Token): Redirection {
-    const defaultFd = token.value === '<' || token.value === '<<' || token.value === '<<<' ? 0 : 1
+    const defaultFd = token.value === '<' || token.value === '<<' || token.value === '<<<' || token.value === '<&' || token.value === '<>' ? 0 : 1
     const fd = token.fd ?? defaultFd
     const target = targetToken.value
 
-    if (token.value === '>&') {
+    if (token.value === '>&' || token.value === '<&') {
+      const type = token.value
       const targetIsFd = /^\d+$/.test(target)
-      return targetIsFd ? { type: '>&', fd, target, targetIsFd } : { type: '>&', fd, target, targetParts: targetToken.parts, targetIsFd }
+      return targetIsFd ? { type, fd, target, targetIsFd } : { type, fd, target, targetParts: targetToken.parts, targetIsFd }
     }
 
     if (token.value === '<<') {

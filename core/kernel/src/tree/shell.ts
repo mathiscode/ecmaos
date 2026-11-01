@@ -122,6 +122,13 @@ function compoundLabel(statement: Statement): string {
   }
 }
 
+/** A redirection that gives a command input: `<`, a heredoc, a here-string, `<>`, and `<&N` for an open descriptor (`<&-` closes) */
+const isInputRedirection = (r: Redirection): boolean =>
+  r.type === '<' || r.type === '<<' || r.type === '<<<' || r.type === '<>' || (r.type === '<&' && r.targetIsFd === true)
+
+/** `N>&-` and `N<&-`: close the descriptor */
+const isClose = (r: Redirection): boolean => (r.type === '>&' || r.type === '<&') && r.target === '-' && !r.targetIsFd
+
 /** A pipe that buffers everything written, so the writer never waits for the reader. */
 function unboundedPipe(): { readable: ReadableStream<Uint8Array>, writable: WritableStream<Uint8Array> } {
   const queue: Uint8Array[] = []
@@ -952,6 +959,13 @@ export class Shell implements IShell {
     }
 
     for (const redirection of redirections) {
+      if (isClose(redirection)) {
+        // `cmd >&-`: the descriptor is closed, so what the command writes to it goes nowhere
+        fdStreams.set(redirection.fd, new WritableStream<Uint8Array>())
+        fdFiles.delete(redirection.fd)
+        continue
+      }
+
       if (redirection.type === '>&') {
         if (redirection.targetIsFd) {
           const sourceFd = Number(redirection.target)
@@ -961,6 +975,8 @@ export class Shell implements IShell {
             fdStreams.set(redirection.fd, this.createFileWriteStream(sourceFile.path, sourceFile.append, sourceFile.device))
             fdFiles.set(redirection.fd, sourceFile)
           } else {
+            // a numbered descriptor nothing opened (or `exec` closed) is not there to write to
+            if (sourceFd >= 3 && !fdStreams.has(sourceFd)) throw new Error(`${sourceFd}: Bad file descriptor`)
             fdStreams.set(redirection.fd, defaultFor(sourceFd))
             fdFiles.delete(redirection.fd)
           }
@@ -1236,8 +1252,19 @@ export class Shell implements IShell {
       let stdinIsTTY = false
       // Applies to *any* stage, not only the first - `a | b < f` redirects b's stdin, discarding
       // whatever a's stdout would have fed it, exactly like a real shell.
-      const inputRedirect = command.redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
-      if (inputRedirect) {
+      const inputRedirect = command.redirections.findLast(r => r.fd === 0 && isInputRedirection(r))
+      if (inputRedirect?.type === '<&') {
+        // `cmd <&3`: what is left of the descriptor `exec 3< file` opened, which a builtin reads from where it stands and a
+        // program is given as it is, handing back what it did not take
+        const source = this._inputFds.get(Number(inputRedirect.target))
+        if (!source) throw new Error(`${inputRedirect.target}: Bad file descriptor`)
+        stdinSource = inProcess ? source : undefined
+        stdin = inProcess ? undefined : source.chunks()
+        stdinLeftover = inProcess ? undefined : bytes => source.unread(bytes)
+      } else if (!inputRedirect && command.redirections.some(r => r.fd === 0 && isClose(r))) {
+        // `cmd <&-`: standard input is closed, which reads as the end of the input
+        stdin = new ReadableStream({ start: controller => controller.close() })
+      } else if (inputRedirect) {
         // `cmd < file` hands a program the file itself as its stdin, not a pipe that a pump fills
         const direct = !inProcess && inputRedirect.type === '<' ? await this.directInputPath(inputRedirect) : undefined
         if (direct) {
@@ -1950,18 +1977,37 @@ export class Shell implements IShell {
       throw new ExitSignal(code)
     }
 
-    const outputs = command.redirections.filter(r => r.fd !== 0 && (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&'))
-    if (outputs.length > 0) this._execOutputs = { redirections: outputs, truncated: new Set(), after: this._statementOutputs.length }
+    const closed = command.redirections.filter(isClose).map(r => r.fd)
+    const outputs = command.redirections.filter(r => r.fd !== 0 && !isClose(r) && (r.type === '>' || r.type === '>>' || r.type === '>|' || r.type === '>&'))
+    // `exec 3<> file` opens the file for reading and for writing: written at its end, as the output of `>> file` is
+    for (const r of command.redirections) if (r.type === '<>' && r.fd !== 0) outputs.push({ ...r, type: '>>' })
+    // what an earlier `exec` installed stays, except for the descriptors this one names again or closes
+    const previous = this._execOutputs
+    const named = new Set([...outputs.map(r => r.fd), ...closed])
+    const kept = (previous?.redirections ?? []).filter(r => !named.has(r.fd))
+    if (outputs.length > 0 || kept.length !== (previous?.redirections.length ?? 0)) {
+      this._execOutputs = kept.length + outputs.length === 0
+        ? undefined
+        : { redirections: [...kept, ...outputs], truncated: new Set([...(previous?.truncated ?? [])].filter(fd => !named.has(fd))), after: this._statementOutputs.length }
+    }
 
-    // `exec 3<file`: a numbered input stays open on the shell for `read -u 3`.
+    // `exec 3<file`: a numbered input stays open on the shell for `read -u 3`, `cat <&3`; `3<&0` is another name for one
+    // already open, and `3<&-` closes it.
     for (const r of command.redirections) {
-      if (r.fd >= 3 && (r.type === '<' || r.type === '<<' || r.type === '<<<')) {
+      if (isClose(r)) {
+        await this._inputFds.get(r.fd)?.close()
+        this._inputFds.delete(r.fd)
+      } else if (r.fd >= 3 && r.type === '<&' && r.targetIsFd) {
+        const source = this._inputFds.get(Number(r.target))
+        if (!source) throw new Error(`${r.target}: Bad file descriptor`)
+        this._inputFds.set(r.fd, source)
+      } else if (r.fd >= 3 && isInputRedirection(r)) {
         await this._inputFds.get(r.fd)?.close()
         this._inputFds.set(r.fd, new StdinSource(await this.buildInputStream(r)))
       }
     }
 
-    const input = command.redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    const input = command.redirections.findLast(r => r.fd === 0 && isInputRedirection(r))
     if (input) {
       // Installed at the bottom of the stack, so a redirected compound statement still wins while it
       // is running and this is what is left underneath when it finishes.
@@ -2303,7 +2349,17 @@ export class Shell implements IShell {
 
     if (redirection.type === '<<<') return literal(target + '\n')
 
+    if (redirection.type === '<&') {
+      const source = this._inputFds.get(Number(target))
+      if (!source) throw new Error(`${target}: Bad file descriptor`)
+      return source.chunks()
+    }
+
     const sourcePath = path.resolve(this.cwd, target)
+    // `<>` makes the file when it is not there; `<` does not
+    if (redirection.type === '<>' && !await this.context.fs.promises.exists(sourcePath)) {
+      await this.context.fs.promises.writeFile(sourcePath, new Uint8Array(), { mode: 0o666 & ~this._umask })
+    }
     if (!await this.context.fs.promises.exists(sourcePath)) throw new Error(`File not found: ${sourcePath}`)
     return this.createFileReadStream(sourcePath, this.env, this._filesystem)
   }
@@ -2367,7 +2423,7 @@ export class Shell implements IShell {
    * closes it, or `undefined` when there is none.
    */
   private async pushStatementStdin(redirections: readonly Redirection[]): Promise<(() => Promise<void>) | undefined> {
-    const input = redirections.findLast(r => r.fd === 0 && (r.type === '<' || r.type === '<<' || r.type === '<<<'))
+    const input = redirections.findLast(r => r.fd === 0 && isInputRedirection(r))
     if (!input) return undefined
 
     const source = new StdinSource(await this.buildInputStream(input))
