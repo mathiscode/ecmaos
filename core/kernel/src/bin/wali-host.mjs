@@ -2417,6 +2417,7 @@ const calls = {
   SYS_faccessat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode)),
   SYS_faccessat2: (dirfd, path, mode, flags) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode), flags),
   SYS_mkdirat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('mkdir', resolved, mode)),
+  SYS_mknodat: (dirfd, path, mode, dev) => at(dirfd, path, resolved => syscall_raw('mknod', resolved, mode, Number(dev))),
   SYS_unlinkat: (dirfd, path, flags) => at(dirfd, path, resolved => syscall_raw(flags & AT_REMOVEDIR ? 'rmdir' : 'unlink', resolved)),
   SYS_fchmodat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('chmod', resolved, mode)),
   SYS_fchownat: (dirfd, path, uid, gid, flags) => at(dirfd, path, resolved => syscall_raw('chown', resolved, uid, gid), flags),

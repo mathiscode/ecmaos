@@ -21,6 +21,7 @@ import { ThemePresets } from '@ecmaos/types'
 
 import type { ReadLineOptions } from '@ecmaos/coreutils/lib/shell-core/builtins'
 import { printfBytes } from '@ecmaos/coreutils/lib/printf-format'
+import { bindFifoIn, fifoRead, fifoWrite } from './lib/fifo.ts'
 import { ParseError, parseRedirections, stripComments, tokenize, tokenizeConditional } from '@ecmaos/coreutils/lib/shell-parser'
 import type { Command as ParsedCommand, Pipeline, Redirection, WordPart } from '@ecmaos/coreutils/lib/shell-parser'
 import { CONTROL_FLOW_KEYWORDS, ControlFlowParseError, parseRunnable, parseStatements } from '@ecmaos/coreutils/lib/control-flow-parser'
@@ -938,6 +939,7 @@ export class Shell implements IShell {
     const fdFiles = new Map<number, { path: string, append: boolean, device?: boolean }>()
 
 
+    const fileStreams = new Set<WritableStream<Uint8Array>>()
     const defaultFor = (fd: number): WritableStream<Uint8Array> => {
       const existing = fdStreams.get(fd)
       if (existing) return existing
@@ -973,7 +975,13 @@ export class Shell implements IShell {
         // Whether the target is a character device is found out here, not in the stream, so that a regular file is opened and
         // truncated as soon as its stream is made (two streams on one file, `> f 2>&1`, depend on that order)
         const device = await this.isCharacterDevice(targetPath)
-        fdStreams.set(redirection.fd, this.createFileWriteStream(targetPath, append, device))
+        // `> a > b` opens both and writes to b: the stream a redirection replaces is closed, so a named pipe it opened
+        // does not keep a writer on it for good
+        const replaced = fdStreams.get(redirection.fd)
+        if (replaced && fileStreams.has(replaced)) { fileStreams.delete(replaced); void replaced.close().catch(() => {}) }
+        const stream = this.createFileWriteStream(targetPath, append, device)
+        fileStreams.add(stream)
+        fdStreams.set(redirection.fd, stream)
         fdFiles.set(redirection.fd, { path: targetPath, append, device })
       }
     }
@@ -2078,14 +2086,20 @@ export class Shell implements IShell {
       '8192'
     )
 
+    const context = this.context
+    const holder = this.process
     let handle: Awaited<ReturnType<Filesystem['fs']['open']>> | undefined
     let done = false
+    // a named pipe is read through the shell's own descriptor, which the file API does not wait on, so the stream does
+    let fifo = false
 
     const finish = async (): Promise<void> => {
       done = true
       const open = handle
       handle = undefined
-      await open?.close()
+      // the descriptor a named pipe was bound to is not the file handle's any more, so it is closed by number
+      if (fifo && open) context.fs.closeSync((open as unknown as { fd: number }).fd)
+      else await open?.close()
     }
 
     return new ReadableStream({
@@ -2096,7 +2110,11 @@ export class Shell implements IShell {
           done = true
           return
         }
-        handle = await filesystem.fs.open(sourcePath, 'r')
+        if ((stats.mode & 0o170000) === 0o010000) {
+          const opened = await context.fs.promises.open(sourcePath, 'r')
+          fifo = await bindFifoIn(context, opened.fd, holder)
+          handle = opened as unknown as typeof handle
+        } else handle = await filesystem.fs.open(sourcePath, 'r')
       },
 
       async pull(controller) {
@@ -2106,7 +2124,9 @@ export class Shell implements IShell {
         }
 
         const buffer = new Uint8Array(chunkSize)
-        const { bytesRead } = await handle.read(buffer, 0, chunkSize)
+        const { bytesRead } = fifo
+          ? { bytesRead: await fifoRead(context, (handle as unknown as { fd: number }).fd, buffer) }
+          : await handle.read(buffer, 0, chunkSize)
         // Anything that isn't a positive count is end of file, not a short read to retry.
         if (typeof bytesRead !== 'number' || !(bytesRead > 0)) {
           await finish()
@@ -2129,7 +2149,7 @@ export class Shell implements IShell {
    */
   private async isCharacterDevice(targetPath: string): Promise<boolean> {
     const info = await this.context.fs.promises.stat(targetPath).catch(() => undefined)
-    return Boolean(info && (info.mode & 0o170000) === 0o020000)
+    return Boolean(info && ((info.mode & 0o170000) === 0o020000 || (info.mode & 0o170000) === 0o010000))
   }
 
   private createFileWriteStream(targetPath: string, append: boolean, isDevice = false): WritableStream<Uint8Array> {
@@ -2170,7 +2190,13 @@ export class Shell implements IShell {
     // A character device is not rewritten whole: it takes the bytes as they come, through a handle, and a node whose session
     // is still opening answers `EAGAIN` until it has one
     let device: Awaited<ReturnType<typeof context.fs.promises.open>> | undefined
+    let fifo = false
+    const closeDevice = async () => {
+      if (fifo) context.fs.closeSync(device!.fd)
+      else await device!.close()
+    }
     const writeToDevice = async (chunk: Uint8Array) => {
+      if (fifo) return await fifoWrite(context, device!.fd, chunk)
       let done = 0
       const give = Date.now() + 10_000
       while (done < chunk.length) {
@@ -2190,6 +2216,8 @@ export class Shell implements IShell {
       start: async () => {
         if (isDevice) {
           device = await context.fs.promises.open(targetPath, 'w')
+          // a named pipe waits here for a reader, then takes the bytes as they come
+          fifo = await bindFifoIn(context, device.fd, this.process)
           return
         }
         // what open(2) refuses: writing an immutable file, and an append-only one but to append
@@ -2213,8 +2241,8 @@ export class Shell implements IShell {
         dirty = true
         if (Date.now() - lastFlush >= 250) await flush()
       },
-      close: async () => { if (device) await device.close(); else await flush() },
-      abort: async () => { if (device) await device.close().catch(() => {}); else await flush() }
+      close: async () => { if (device) await closeDevice(); else await flush() },
+      abort: async () => { if (device) await closeDevice().catch(() => {}); else await flush() }
     })
   }
 
@@ -2258,7 +2286,7 @@ export class Shell implements IShell {
     const info = await this.context.fs.promises.stat(target).catch(() => undefined)
     if (!info) return undefined
     const type = info.mode & 0o170000
-    return type === 0o100000 || type === 0o020000 ? target : undefined
+    return type === 0o100000 || type === 0o020000 || type === 0o010000 ? target : undefined
   }
 
   private async buildInputStream(redirection: Redirection): Promise<ReadableStream<Uint8Array>> {
@@ -2314,11 +2342,23 @@ export class Shell implements IShell {
     const outputs = redirections.filter(r => r.fd !== 0 && (r.type === '>' || r.type === '>>' || r.type === '>&'))
     if (outputs.length === 0) return await run()
 
+    // A named pipe is opened once for the whole statement, as the shell opens it once for `(a; b) > fifo`, so that its reader
+    // does not see the end of the stream between `a` and `b`; the commands inside open it again for their own output
+    const held: number[] = []
+    for (const redirection of outputs) {
+      if (redirection.type === '>&') continue
+      const target = path.resolve(this.cwd, await this.expandRedirectionTarget(redirection))
+      const info = await this.context.fs.promises.stat(target).catch(() => undefined)
+      if (!info || (info.mode & 0o170000) !== 0o010000) continue
+      const opened = await this.context.fs.promises.open(target, 'w')
+      if (await bindFifoIn(this.context, opened.fd, this.process)) held.push(opened.fd)
+    }
     this._statementOutputs.push({ redirections: outputs, truncated: new Set() })
     try {
       return await run()
     } finally {
       this._statementOutputs.pop()
+      for (const fd of held) { try { this.context.fs.closeSync(fd) } catch { /* closed already */ } }
     }
   }
 
