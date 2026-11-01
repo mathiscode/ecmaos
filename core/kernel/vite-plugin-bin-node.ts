@@ -180,7 +180,9 @@ export const migratedCommands = [
   'truncate', 'sync', 'setsid', 'flock', 'base32', 'numfmt', 'b2sum', 'sha224sum', 'tsort', 'csplit', 'pstree', 'fuser', 'iconv',
   'dos2unix', 'shred', 'fallocate', 'lslocks', 'inotifywait', 'arch', 'users', 'link', 'unlink', 'sum', 'pathchk',
   'wget', 'gpg', 'cowsay', 'script', 'scriptreplay', 'lsattr', 'chattr', 'getfattr', 'setfattr', 'wasm', 'mkfifo', 'mknod',
-  'envsubst', 'stdbuf', 'taskset', 'ionice', 'getopt', 'dircolors', 'reset'
+  'envsubst', 'stdbuf', 'taskset', 'ionice', 'getopt', 'dircolors', 'reset',
+  'ifconfig', 'route', 'arp', 'blkid', 'look', 'dc',
+  'ncal', 'lastlog', 'finger', 'pinky', 'getfacl', 'setfacl', 'units'
 ] as const
 
 /**

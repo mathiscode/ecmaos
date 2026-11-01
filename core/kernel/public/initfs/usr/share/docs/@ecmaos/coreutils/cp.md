@@ -18,7 +18,7 @@ A file or directory that does not exist yet is created with its source's permiss
 
 ```
   -r, -R, --recursive   copy directories recursively
-  -p, --preserve        keep the mode (setuid and sticky bits too), the access and modification times and, for root, the owner
+  -p, --preserve        keep the mode (setuid and sticky bits too), the ACL, the access and modification times and, for root, the owner
   -v, --verbose         explain what is being done
   --help                display this help and exit
 ```

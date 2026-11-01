@@ -33,6 +33,8 @@ Create, extract, or list tar archives.
 The options may be given without a dash as the first word: tar czf out.tgz dir
 ```
 
+`--acls` stores each member's ACLs in `SCHILY.acl.access` and `SCHILY.acl.default` pax records (and uses the pax format) and restores them on extraction; `--no-acls` is the default.
+
 ## Compression
 
 gzip is built in. The others run the program of that name as a filter (`bzip2`, `xz` and `zstd` ship with `@ecmaos/coreutils`), and `-I` runs any program on `PATH` that reads standard input, writes standard output, and decompresses with `-d`. A compressed archive is recognized by its first bytes when it is read, so `tar xf a.tar.xz` needs no option; lzma has no reliable mark, so it is read by the `.lzma` or `.tlz` suffix or with `--lzma`. A compressed archive cannot be appended to, updated or deleted from.

@@ -189,6 +189,9 @@ type Handler = (proc: Process, ...args: never[]) => unknown
 
 function installSyscalls(): void {
   vfs.xattr.allowedRestrictedNames.add(EXTRA_FLAGS)
+  // the ACLs `setfacl` keeps, in Linux's names and format
+  vfs.xattr.allowedRestrictedNames.add('system.posix_acl_access')
+  vfs.xattr.allowedRestrictedNames.add('system.posix_acl_default')
 
   // `open`: an immutable file is not opened for writing, an append-only one only for appending, neither truncated
   const open = syscalls.get('open') as unknown as Handler | undefined

@@ -227,6 +227,8 @@ export function parseLsArguments(args: string[]): LsParseResult {
 
 export interface LsEntry {
   name: string
+  /** The file has an extended ACL, shown as a `+` after the mode */
+  acl?: boolean
   mode: number
   size: number
   mtimeMs: number
@@ -457,7 +459,7 @@ export function longLines(entries: LsEntry[], names: Names, options: LongFormatO
     return {
       inode: String(entry.ino),
       blocks: options.human ? humanSize(blocksOf(entry) * 1024) : String(blocksOf(entry)),
-      mode: modeString(entry.mode),
+      mode: modeString(entry.mode) + (entry.acl ? '+' : ' ').trimEnd(),
       nlink: String(entry.nlink),
       owner: options.numericIds ? String(entry.uid) : names.users.get(entry.uid) ?? String(entry.uid),
       group: options.numericIds ? String(entry.gid) : names.groups.get(entry.gid) ?? String(entry.gid),

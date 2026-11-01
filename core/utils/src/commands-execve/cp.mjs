@@ -66,9 +66,13 @@ function answer() {
 }
 
 /** Keeps what `-p` asks for: the whole mode, and the owner when this caller is allowed to give it. */
-async function preserve(stats, destPath) {
+async function preserve(stats, destPath, srcPath) {
   // the owner first: changing it clears the setuid and setgid bits, which the mode then puts back
   try { await chownOwned(sys, destPath, stats.uid, stats.gid) } catch { /* only root may give a file away */ }
+  // the ACLs, which the mode below then reconciles: its group bits are the mask
+  for (const name of ['system.posix_acl_access', 'system.posix_acl_default']) {
+    try { sys.setxattr(destPath, name, sys.getxattr(srcPath, name, false), false) } catch { /* the source has none, or the destination keeps none */ }
+  }
   await chmodOwned(sys, destPath, stats.mode & 0o7777)
   // last, since writing into a directory changes its times
   // seconds, as Node's `utimes` takes them (the upstream wrapper's comment says milliseconds; it is not)
@@ -185,7 +189,7 @@ async function main() {
       try { names = readdir(src) } catch (error) { fail(`cannot access '${srcName}': ${reasonOf(error)}`); return }
       for (const name of names) await copy(join(src, name), join(dst, name), `${srcName.replace(/\/+$/, '')}/${name}`, `${dstName.replace(/\/+$/, '')}/${name}`, false)
       try {
-        if (keep) await preserve(stats, dst)
+        if (keep) await preserve(stats, dst, src)
         else if (!destExisting && (mode | 0o700) !== mode) await chmodOwned(sys, dst, mode)
       } catch (error) { fail(`failed to preserve attributes for '${dstName}': ${reasonOf(error)}`) }
       return
@@ -228,7 +232,7 @@ async function main() {
           unlink(dst)
           copyFile(src, dst, stats.mode & 0o777)
         }
-        if (keep) await preserve(stats, dst)
+        if (keep) await preserve(stats, dst, src)
       }
     } catch (error) {
       fail(`cannot ${existing ? 'create regular file' : 'create regular file'} '${dstName}': ${reasonOf(error)}`)
