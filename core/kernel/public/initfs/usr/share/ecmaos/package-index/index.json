@@ -453,6 +453,14 @@
     "lspci": {
       "package": "@ecmaos-apps/lspci",
       "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices"
+    },
+    "make": {
+      "package": "@ecmaos-apps/make",
+      "description": "GNU make, with parallel jobs (-j)"
+    },
+    "ed": {
+      "package": "@ecmaos-apps/ed",
+      "description": "GNU ed, the line editor"
     }
   },
   "apt": {
