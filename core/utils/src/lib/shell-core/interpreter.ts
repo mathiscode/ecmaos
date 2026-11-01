@@ -557,6 +557,8 @@ export class Interpreter {
     const restore = this.host.snapshot()
     this.catchers.exit++
     this.subshellDepth++
+    // a subshell starts without its parent's EXIT trap; one it sets itself runs as it ends
+    this.state.setTrap(undefined, 'EXIT')
     let code: number
     try {
       code = await run()
@@ -566,6 +568,11 @@ export class Interpreter {
     } finally {
       this.subshellDepth--
       this.catchers.exit--
+      const exitTrap = this.state.getTrap('EXIT')
+      if (exitTrap) {
+        this.state.setTrap(undefined, 'EXIT')
+        try { await this.runText(exitTrap) } catch { /* a failing trap does not end the shell around it */ }
+      }
       restore()
     }
     this.host.setStatus(code)

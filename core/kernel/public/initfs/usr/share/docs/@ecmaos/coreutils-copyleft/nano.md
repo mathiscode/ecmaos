@@ -25,7 +25,7 @@ formats the buffer, `^T` `^Y` lints the file and steps through what the linter r
 It reads `/etc/nanorc` and `~/.nanorc` when they exist; none is shipped, so there is no syntax highlighting until
 you add `syntax` lines or `include` files of your own. Spell checking (`-s`) and the file browser are not built in.
 
-`TERM` is `xterm.js`, which no terminal description knows, so `nano` draws as `xterm-256color`.
+`TERM` is `xterm-256color`.
 
 ## Examples
 

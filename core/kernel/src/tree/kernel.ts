@@ -3305,6 +3305,10 @@ export class Kernel implements IKernel {
     shell.env.set('SHELL', user.shell || 'ecmaos')
     shell.env.set('HOME', user.home || '/root')
     shell.env.set('USER', user.username)
+    shell.env.set('LOGNAME', user.username)
+    // programs read PATH as it is, so the home in it is spelled out rather than left as `$HOME`
+    const searchPath = shell.env.get('PATH')
+    if (searchPath?.includes('$HOME')) shell.env.set('PATH', searchPath.replaceAll('$HOME', user.home || '/root'))
     shell.publishEnv()
     await shell.recordLogin(user.username)
 

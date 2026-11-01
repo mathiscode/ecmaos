@@ -271,9 +271,23 @@ async function cd(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<num
 /** The `set` flags by the letter and the `-o` name that select them: `set -x` is `set -o xtrace`. */
 const OPTION_LETTERS: ReadonlyMap<string, ShellOptionName> = new Map([
   ['e', 'errexit'], ['u', 'nounset'], ['x', 'xtrace'], ['f', 'noglob'], ['C', 'noclobber'], ['v', 'verbose'],
+  ['a', 'allexport'], ['b', 'notify'], ['B', 'braceexpand'], ['h', 'hashall'], ['H', 'histexpand'], ['k', 'keyword'],
+  ['m', 'monitor'], ['n', 'noexec'], ['p', 'privileged'], ['t', 'onecmd'], ['P', 'physical'], ['T', 'functrace'], ['E', 'errtrace'],
 ])
 
-const OPTION_NAMES: readonly ShellOptionName[] = ['errexit', 'noclobber', 'noglob', 'nounset', 'pipefail', 'verbose', 'xtrace']
+/** Every name `set -o` lists, in bash's order */
+const OPTION_NAMES: readonly ShellOptionName[] = [
+  'allexport', 'braceexpand', 'emacs', 'errexit', 'errtrace', 'functrace', 'hashall', 'histexpand', 'history', 'ignoreeof',
+  'interactive-comments', 'keyword', 'monitor', 'noclobber', 'noexec', 'noglob', 'nolog', 'notify', 'nounset', 'onecmd',
+  'physical', 'pipefail', 'posix', 'privileged', 'verbose', 'vi', 'xtrace',
+]
+
+/** Turns an option on or off; the two line editors exclude each other, as in bash. */
+function switchOption(state: ShellState, name: ShellOptionName, enabled: boolean): void {
+  if (enabled && name === 'vi') state.setOption('emacs', false)
+  if (enabled && name === 'emacs') state.setOption('vi', false)
+  state.setOption(name, enabled)
+}
 
 async function set(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv[0] === '--help' || argv[0] === '-h') {
@@ -287,7 +301,12 @@ async function set(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<nu
       '  -f  noglob     turn pathname expansion off',
       '  -C  noclobber  refuse to let > truncate an existing file (>| overrides)',
       '  -v  verbose    echo each line of input as it is read',
+      '  -a  allexport  export every variable that is assigned',
       '      pipefail   a pipeline reports its last failing stage, -o only',
+      '',
+      'braceexpand, emacs, errtrace, functrace, hashall, histexpand, history, ignoreeof, interactive-comments,',
+      'keyword, monitor, noexec, nolog, notify, onecmd, physical, posix, privileged and vi (and their letters)',
+      'are listed and can be set, but nothing in this shell reads them.',
       '',
       'Use + instead of - to turn an option off. `set -o` with no name lists them all;',
       '`set -- ARG...` replaces the positional parameters.',
@@ -311,12 +330,14 @@ async function set(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<nu
       const name = argv[i + 1]
       // Bare `set -o` lists every option and its state, which is how a script reads them back.
       if (name === undefined || name.startsWith('-') || name.startsWith('+')) {
-        if (arg === '-o') for (const option of OPTION_NAMES) await io.writeln(`${option.padEnd(12)}${state.options[option] ? 'on' : 'off'}`)
+        for (const option of OPTION_NAMES) {
+          await io.writeln(arg === '-o' ? `${option.padEnd(15)}\t${state.options[option] ? 'on' : 'off'}` : `set ${state.options[option] ? '-o' : '+o'} ${option}`)
+        }
         continue
       }
       i++
       if (!(OPTION_NAMES as readonly string[]).includes(name)) { await io.writelnErr(`set: ${name}: invalid option name`); return 2 }
-      state.setOption(name as ShellOptionName, arg === '-o')
+      switchOption(state, name as ShellOptionName, arg === '-o')
       continue
     }
 
@@ -331,12 +352,12 @@ async function set(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<nu
             await io.writelnErr(`set: ${name ?? '-o'}: invalid option name`)
             return 2
           }
-          state.setOption(name as ShellOptionName, enable)
+          switchOption(state, name as ShellOptionName, enable)
           continue
         }
         const option = OPTION_LETTERS.get(letter)
         if (!option) { await io.writelnErr(`set: ${arg}: invalid option`); return 2 }
-        state.setOption(option, enable)
+        switchOption(state, option, enable)
       }
       continue
     }
@@ -386,19 +407,27 @@ async function local(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<
 
 async function exportVariables(host: BuiltinHost, argv: string[], io: BuiltinIO): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
-    await io.writeln('Usage: export [-n] [-p] [NAME=VALUE | NAME]...\nSet environment variables, or print/unset them.')
+    await io.writeln('Usage: export [-fn] [-p] [NAME=VALUE | NAME]...\nSet environment variables, or print/unset them.\n\n  -f  the names are functions; they are accepted, and nothing passes them on to a program')
     return 0
   }
 
   const state = host.state
   const unsetFlag = argv.includes('-n')
-  const operands = argv.filter(a => a !== '-n' && a !== '-p')
+  const functions = argv.includes('-f')
+  const operands = argv.filter(a => a !== '-n' && a !== '-p' && a !== '-f')
+
+  if (functions) {
+    for (const name of operands) {
+      if (!host.state.functions.has(name)) { await io.writelnErr(`export: ${name}: not a function`); return 1 }
+    }
+    return 0
+  }
 
   if (argv.includes('-p') || operands.length === 0) {
     const entries = [...state.visibleVariables()]
       .filter(([key]) => /^[A-Z_][A-Z0-9_]*$/i.test(key) && state.isExported(key))
       .sort(([a], [b]) => a.localeCompare(b))
-    for (const [key, value] of entries) await io.writeln(`${key}=${value}`)
+    for (const [key, value] of entries) await io.writeln(`declare -x ${key}="${value.replace(/([\\"$`])/g, '\\$1')}"`)
     return 0
   }
 

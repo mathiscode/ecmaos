@@ -20,8 +20,7 @@ opens the setup screen, `q` or `F10` quits. Settings are kept in `~/.config/htop
 
 What is shown is what `/proc` says. A browser gives a WebAssembly program no CPU accounting, so the CPU meters and the
 `CPU%` and `TIME+` columns read zero, and there is no swap or paging. Memory comes from what the browser reports.
-Affinity, hwloc, capabilities and sensors are not built in. `TERM` is `xterm.js`, which no terminal description knows,
-so `htop` draws as `xterm-256color`.
+Affinity, hwloc, capabilities and sensors are not built in. `TERM` is `xterm-256color`.
 
 ## Examples
 

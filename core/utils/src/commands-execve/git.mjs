@@ -19,6 +19,7 @@ const CORS_PROXY = 'https://cors.isomorphic-git.org'
 const S_IFMT = 0xf000
 
 const usage = `Usage: git [COMMAND] [OPTIONS] [ARGS...]
+       git --version
 
 Common Git commands:
   init              Initialize a new repository
@@ -473,6 +474,11 @@ async function main() {
 
   if (!subcommand || (args.length === 0 && (subcommand === '--help' || subcommand === '-h'))) {
     err(usage)
+    return 0
+  }
+
+  if (subcommand === '--version' || subcommand === 'version') {
+    out(`git version ${git.version()} (isomorphic-git)`)
     return 0
   }
 

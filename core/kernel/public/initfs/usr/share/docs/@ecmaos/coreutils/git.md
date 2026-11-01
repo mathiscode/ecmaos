@@ -6,6 +6,7 @@
 
 ```
 git [COMMAND] [OPTIONS] [ARGS...]
+git --version
 ```
 
 ## Subcommands
