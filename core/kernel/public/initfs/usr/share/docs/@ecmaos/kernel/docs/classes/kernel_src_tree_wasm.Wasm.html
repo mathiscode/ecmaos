@@ -11,10 +11,9 @@
 <li><a href="" aria-current="page">Wasm</a></li></ul>
 <h1>Class Wasm</h1></div>
 <section class="tsd-panel tsd-comment">
-<div class="tsd-comment tsd-typography"><p>Plain <code>wasm32-wasip1</code> modules and ordinary <code>emcc</code> builds run as worker processes under <code>/bin/wali</code> (see
-<code>canRunInWorker</code>). What still runs here (real internet sockets, an unimplemented <code>__syscall_*</code>, preview2
-components) calls <code>_start</code> on the main thread with no yield point unless built with asyncify, so an infinite loop
-freezes the tab and <code>^C</code> cannot reach it.</p>
+<div class="tsd-comment tsd-typography"><p>Every wasm program (a core module: WALI, <code>wasm32-wasip1</code>, <code>emcc</code> or none of those; a Preview 2 component) runs as a worker
+process under <code>/bin/wali</code> (see <code>canRunInWorker</code>). What stays here is the work the worker cannot do: compiling a module once
+for the checks a launch asks, and transpiling a component with jco, which is too large for the worker's bundle.</p>
 </div></section>
 <section class="tsd-panel-group tsd-hierarchy">
            <details class="tsd-hierarchy tsd-accordion">
@@ -29,7 +28,7 @@ freezes the tab and <code>^C</code> cannot reach it.</p>
            </details>
            </section><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:50</li></ul></aside>
+<li>Defined in core/kernel/src/tree/wasm.ts:46</li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open=""><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -46,14 +45,10 @@ freezes the tab and <code>^C</code> cannot reach it.</p>
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading tsd-anchor-link" id="methods">Methods<a href="#methods" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-index-list"><a href="#canruninworker" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>can<wbr>Run<wbr>In<wbr>Worker</span></a>
-<a href="#detectasyncify" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Asyncify</span></a>
-<a href="#detectmemoryimport" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Memory<wbr>Import</span></a>
-<a href="#detectwasirequirements" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Wasi<wbr>Requirements</span></a>
 <a href="#detectwasiversion" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Wasi<wbr>Version</span></a>
+<a href="#inspectforworker" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>inspect<wbr>For<wbr>Worker</span></a>
 <a href="#iswali" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>is<wbr>Wali</span></a>
-<a href="#loademscripten" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Emscripten</span></a>
-<a href="#loadwasicomponent" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Wasi<wbr>Component</span></a>
-<a href="#loadwasm" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Wasm</span></a>
+<a href="#preparecomponent" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>prepare<wbr>Component</span></a>
 </div></section></div></details></section></section>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Constructors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="constructors-1">Constructors<a href="#constructors-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
@@ -70,7 +65,7 @@ freezes the tab and <code>^C</code> cannot reach it.</p>
 <li><span><span class="tsd-kind-parameter">options</span>: <span class="tsd-signature-type">WasmOptions</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="" class="tsd-signature-type tsd-kind-class">Wasm</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:56</li></ul></aside></div></li></ul></section></section></details>
+<li>Defined in core/kernel/src/tree/wasm.ts:52</li></ul></aside></div></li></ul></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Accessors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="accessors-1">Accessors<a href="#accessors-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -82,7 +77,7 @@ freezes the tab and <code>^C</code> cannot reach it.</p>
 <div class="tsd-description">
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Map.html" class="tsd-signature-type external" target="_blank">Map</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">instance</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Instance.html" class="tsd-signature-type external" target="_blank">Instance</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">module</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Module.html" class="tsd-signature-type external" target="_blank">Module</a> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:54</li></ul></aside></div></li></ul></section></section></details>
+<li>Defined in core/kernel/src/tree/wasm.ts:50</li></ul></aside></div></li></ul></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -92,9 +87,9 @@ freezes the tab and <code>^C</code> cannot reach it.</p>
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="canruninworker-1"><span class="tsd-kind-call-signature">canRunInWorker</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span><a href="#canruninworker-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Whether a module can run as a worker process under <code>/bin/wali</code>: a WALI module, a core module importing only
-<code>wasi_snapshot_preview1</code>, or an <code>emcc</code> build importing only names in <code>IMPLEMENTED_SYSCALLS</code>, with exported or
-imported memory. Asyncify is fine.</p>
+<div class="tsd-comment tsd-typography"><p>Whether a module runs as a worker process under <code>/bin/wali</code>: any core module. A WALI module, a WASI one (whatever else
+an <code>emcc</code> build adds; asyncify is fine) and one with no WASI imports all go; the worker says why a library, or a WASI
+module with no memory, is not a program. The module is compiled once for all of these checks: a launch asks on every run.</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
@@ -103,54 +98,7 @@ imported memory. Asyncify is fine.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IWasm.canRunInWorker</p>
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:141</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="detectasyncify"><span>detect<wbr>Asyncify</span><a href="#detectasyncify" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="detectasyncify-1"><span class="tsd-kind-call-signature">detectAsyncify</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">exportNames</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasAsyncify</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasExports</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasImports</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">importNames</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">&gt;</span><a href="#detectasyncify-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">exportNames</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasAsyncify</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasExports</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">hasImports</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">importNames</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:164</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="detectmemoryimport"><span>detect<wbr>Memory<wbr>Import</span><a href="#detectmemoryimport" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="detectmemoryimport-1"><span class="tsd-kind-call-signature">detectMemoryImport</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">moduleName</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">initial</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">maximum</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">}</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span><a href="#detectmemoryimport-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Detect if a WASM module imports memory from a specific module
-Returns the initial and maximum pages required, or null if not imported</p>
-</div>
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li>
-<li><span><span class="tsd-kind-parameter">moduleName</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">initial</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">maximum</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">}</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:212</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="detectwasirequirements"><span>detect<wbr>Wasi<wbr>Requirements</span><a href="#detectwasirequirements" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="detectwasirequirements-1"><span class="tsd-kind-call-signature">detectWasiRequirements</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span><a href="#detectwasirequirements-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Detect if a WASM module requires WASI bindings
-Checks for WASI-related imports in the module</p>
-</div>
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<p>Implementation of IWasm.detectWasiRequirements</p>
-<ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:203</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/wasm.ts:122</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="detectwasiversion"><span>detect<wbr>Wasi<wbr>Version</span><a href="#detectwasiversion" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -166,7 +114,24 @@ Returns 'preview1', 'preview2', or null</p>
 <li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">"preview1"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"preview2"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:74</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/wasm.ts:60</li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="inspectforworker"><span>inspect<wbr>For<wbr>Worker</span><a href="#inspectforworker" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="inspectforworker-1"><span class="tsd-kind-call-signature">inspectForWorker</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">inWorker</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">wali</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/kernel_src_tree_lib_warm-threads.ProgramModule.html" class="tsd-signature-type tsd-kind-interface">ProgramModule</a> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span><a href="#inspectforworker-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-comment tsd-typography"><p><code>canRunInWorker</code>, and what the worker would otherwise work out for itself: a core module compiled with the limits of
+the memory it imports (WALI), or a component transpiled.</p>
+</div>
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">inWorker</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">wali</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/kernel_src_tree_lib_warm-threads.ProgramModule.html" class="tsd-signature-type tsd-kind-interface">ProgramModule</a> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<p>Implementation of IWasm.inspectForWorker</p>
+<ul>
+<li>Defined in core/kernel/src/tree/wasm.ts:126</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="iswali"><span>is<wbr>Wali</span><a href="#iswali" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -182,60 +147,24 @@ Returns 'preview1', 'preview2', or null</p>
 <li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:120</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/wasm.ts:106</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="loademscripten"><span>load<wbr>Emscripten</span><a href="#loademscripten" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<h3 class="tsd-anchor-link" id="preparecomponent"><span>prepare<wbr>Component</span><a href="#preparecomponent" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
 <li class="">
-<div class="tsd-signature tsd-anchor-link" id="loademscripten-1"><span class="tsd-kind-call-signature">loadEmscripten</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><a href="#loademscripten-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-signature tsd-anchor-link" id="preparecomponent-1"><span class="tsd-kind-call-signature">prepareComponent</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">wasmBytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/kernel_src_tree_lib_warm-threads.ProgramModule.html" class="tsd-signature-type tsd-kind-interface">ProgramModule</a><span class="tsd-signature-symbol">&gt;</span><a href="#preparecomponent-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Load an emscripten JS file compiled using -sSINGLE_FILE</p>
+<div class="tsd-comment tsd-typography"><p>Transpiles a Preview 2 component with jco, which is too large for the worker's bundle: the worker is sent the
+generated JavaScript and the compiled core modules (<code>/bin/wali</code>'s <code>runComponent</code>).</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">path</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<p>Implementation of IWasm.loadEmscripten</p>
+<li><span><span class="tsd-kind-parameter">wasmBytes</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/kernel_src_tree_lib_warm-threads.ProgramModule.html" class="tsd-signature-type tsd-kind-interface">ProgramModule</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<p>Implementation of IWasm.prepareComponent</p>
 <ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:63</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="loadwasicomponent"><span>load<wbr>Wasi<wbr>Component</span><a href="#loadwasicomponent" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="loadwasicomponent-1"><span class="tsd-kind-call-signature">loadWasiComponent</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">streams</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/kernel_src_tree_wasm.WasiStreamOptions.html" class="tsd-signature-type tsd-kind-interface">WasiStreamOptions</a><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">args</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">shell</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">Shell</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">pid</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/kernel_src_tree_wasm.WasiComponentResult.html" class="tsd-signature-type tsd-kind-interface">WasiComponentResult</a><span class="tsd-signature-symbol">&gt;</span><a href="#loadwasicomponent-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Load a WASI component with stream integration
-Supports both WASI Preview 1 and Preview 2</p>
-</div>
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">path</span>: <span class="tsd-signature-type">string</span></span></li>
-<li><span><span class="tsd-kind-parameter">streams</span>: <a href="../interfaces/kernel_src_tree_wasm.WasiStreamOptions.html" class="tsd-signature-type tsd-kind-interface">WasiStreamOptions</a></span></li>
-<li><span><span class="tsd-kind-parameter">args</span>: <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol"> = []</span></span></li>
-<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">shell</span>: <span class="tsd-signature-type">Shell</span></span></li>
-<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">pid</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/kernel_src_tree_wasm.WasiComponentResult.html" class="tsd-signature-type tsd-kind-interface">WasiComponentResult</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<p>Implementation of IWasm.loadWasiComponent</p>
-<ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:398</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="loadwasm"><span>load<wbr>Wasm</span><a href="#loadwasm" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="loadwasm-1"><span class="tsd-kind-call-signature">loadWasm</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">instance</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Instance.html" class="tsd-signature-type external" target="_blank">Instance</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">module</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Module.html" class="tsd-signature-type external" target="_blank">Module</a> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span><a href="#loadwasm-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Load a WebAssembly module (non-WASI)</p>
-</div>
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">path</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">instance</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Instance.html" class="tsd-signature-type external" target="_blank">Instance</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">module</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WebAssembly.Module.html" class="tsd-signature-type external" target="_blank">Module</a> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
-<p>Implementation of IWasm.loadWasm</p>
-<ul>
-<li>Defined in core/kernel/src/tree/wasm.ts:682</li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in core/kernel/src/tree/wasm.ts:154</li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -256,7 +185,7 @@ Supports both WASI Preview 1 and Preview 2</p>
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Accessors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Accessors</summary>
 <div><a href="#modules"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>modules</span></a></div></details>
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Methods</summary>
-<div><a href="#canruninworker"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>can<wbr>Run<wbr>In<wbr>Worker</span></a><a href="#detectasyncify"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Asyncify</span></a><a href="#detectmemoryimport"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Memory<wbr>Import</span></a><a href="#detectwasirequirements"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Wasi<wbr>Requirements</span></a><a href="#detectwasiversion"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Wasi<wbr>Version</span></a><a href="#iswali"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>is<wbr>Wali</span></a><a href="#loademscripten"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Emscripten</span></a><a href="#loadwasicomponent"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Wasi<wbr>Component</span></a><a href="#loadwasm"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Wasm</span></a></div></details></div></details></div>
+<div><a href="#canruninworker"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>can<wbr>Run<wbr>In<wbr>Worker</span></a><a href="#detectwasiversion"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>detect<wbr>Wasi<wbr>Version</span></a><a href="#inspectforworker"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>inspect<wbr>For<wbr>Worker</span></a><a href="#iswali"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>is<wbr>Wali</span></a><a href="#preparecomponent"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>prepare<wbr>Component</span></a></div></details></div></details></div>
 <div class="site-menu" tabindex="-1">
 <nav class="tsd-navigation"><a href="../modules.html">ecmaOS</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">

@@ -23,7 +23,7 @@
            </details>
            </section><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:249</li></ul></aside>
+<li>Defined in core/kernel/src/tree/kernel.ts:255</li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open=""><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -92,7 +92,8 @@
 </div></section>
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading tsd-anchor-link" id="methods">Methods<a href="#methods" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<div class="tsd-index-list"><a href="#attachstream" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>attach<wbr>Stream</span></a>
+<div class="tsd-index-list"><a href="#applytimezone" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>apply<wbr>Time<wbr>Zone</span></a>
+<a href="#attachstream" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>attach<wbr>Stream</span></a>
 <a href="#beginlogin" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>begin<wbr>Login</span></a>
 <a href="#boot" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot</span></a>
 <a href="#configure" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>configure</span></a>
@@ -102,7 +103,6 @@
 <a href="#executecommand" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Command</span></a>
 <a href="#executescript" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Script</span></a>
 <a href="#executeviaexecve" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Via<wbr>Execve</span></a>
-<a href="#executewasm" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Wasm</span></a>
 <a href="#finishlogin" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>finish<wbr>Login</span></a>
 <a href="#getpackagemainexport" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Package<wbr>Main<wbr>Export</span></a>
 <a href="#getshell" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Shell</span></a>
@@ -131,6 +131,7 @@
 <a href="#requestreboot" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>request<wbr>Reboot</span></a>
 <a href="#rundetached" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Detached</span></a>
 <a href="#runinitscript" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Init<wbr>Script</span></a>
+<a href="#shellasprocess" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>As<wbr>Process</span></a>
 <a href="#shellfortty" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>For<wbr>Tty</span></a>
 <a href="#shellofpid" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>Of<wbr>Pid</span></a>
 <a href="#shutdown" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown</span></a>
@@ -158,7 +159,7 @@
 <li><span><span class="tsd-kind-parameter">_options</span>: <span class="tsd-signature-type">KernelOptions</span><span class="tsd-signature-symbol"> = DefaultKernelOptions</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="" class="tsd-signature-type tsd-kind-class">Kernel</a></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:402</li></ul></aside></div></li></ul></section></section></details>
+<li>Defined in core/kernel/src/tree/kernel.ts:422</li></ul></aside></div></li></ul></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="properties-1">Properties<a href="#properties-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -169,7 +170,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.auth</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:258</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:264</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="channel"><code class="tsd-tag">Readonly</code><span>channel</span><a href="#channel" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">channel</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/BroadcastChannel.html" class="tsd-signature-type external" target="_blank">BroadcastChannel</a></div>
@@ -177,7 +178,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.channel</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:260</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:266</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="components"><code class="tsd-tag">Readonly</code><span>components</span><a href="#components" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">components</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_components.Components.html" class="tsd-signature-type tsd-kind-class">Components</a></div>
@@ -185,7 +186,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.components</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:271</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:277</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="devices"><code class="tsd-tag">Readonly</code><span>devices</span><a href="#devices" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">devices</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Map.html" class="tsd-signature-type external" target="_blank">Map</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">device</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">KernelDevice</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">drivers</span><span class="tsd-signature-symbol">?:</span> <a href="../interfaces/types_device.KernelCharDevice.html" class="tsd-signature-type tsd-kind-interface">KernelCharDevice</a><span class="tsd-signature-symbol">[]</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
@@ -193,7 +194,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.devices</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:275</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:281</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="dom"><code class="tsd-tag">Readonly</code><span>dom</span><a href="#dom" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">dom</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_dom.Dom.html" class="tsd-signature-type tsd-kind-class">Dom</a></div>
@@ -201,7 +202,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.dom</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:273</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:279</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="events"><code class="tsd-tag">Readonly</code><span>events</span><a href="#events" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">events</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_events.Events.html" class="tsd-signature-type tsd-kind-class">Events</a></div>
@@ -209,7 +210,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.events</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:319</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:325</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="filesystem"><code class="tsd-tag">Readonly</code><span>filesystem</span><a href="#filesystem" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">filesystem</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_filesystem.Filesystem.html" class="tsd-signature-type tsd-kind-class">Filesystem</a></div>
@@ -217,21 +218,21 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.filesystem</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:323</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:329</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="framebuffers"><code class="tsd-tag">Readonly</code><span>framebuffers</span><a href="#framebuffers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">framebuffers</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_fb.Framebuffers.html" class="tsd-signature-type tsd-kind-class">Framebuffers</a></div>
 <div class="tsd-comment tsd-typography"><p>The framebuffers (<code>/dev/fb&lt;N&gt;</code>), each drawing in a window</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:377</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:383</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="fstypes"><code class="tsd-tag">Readonly</code><span>fstypes</span><a href="#fstypes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">fstypes</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_fs-types.FsTypes.html" class="tsd-signature-type tsd-kind-class">FsTypes</a></div>
 <div class="tsd-comment tsd-typography"><p>The filesystem types <code>mount -t</code> knows: the built-in ones and those modules add</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:342</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:348</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="host"><code class="tsd-tag">Readonly</code><span>host</span><a href="#host" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">host</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Host</span></div>
@@ -239,7 +240,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.host</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:321</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:327</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="i18n"><code class="tsd-tag">Readonly</code><span>i18n</span><a href="#i18n" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">i18n</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_i18n.I18n.html" class="tsd-signature-type tsd-kind-class">I18n</a></div>
@@ -247,7 +248,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.i18n</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:325</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:331</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="id"><code class="tsd-tag">Readonly</code><span>id</span><a href="#id" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">id</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> = ...</span></div>
@@ -255,14 +256,14 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.id</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:251</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:257</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="init"><code class="tsd-tag">Readonly</code><span>init</span><a href="#init" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">init</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_init.Init.html" class="tsd-signature-type tsd-kind-class">Init</a><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>pid 1: <code>/sbin/init</code>, which runs <code>/etc/inittab</code>, supervises its daemons and reaps orphans.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:282</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:288</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="intervals"><code class="tsd-tag">Readonly</code><span>intervals</span><a href="#intervals" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">intervals</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_intervals.Intervals.html" class="tsd-signature-type tsd-kind-class">Intervals</a></div>
@@ -270,7 +271,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.intervals</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:327</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:333</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="keyboard"><code class="tsd-tag">Readonly</code><span>keyboard</span><a href="#keyboard" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">keyboard</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Keyboard</span></div>
@@ -278,14 +279,14 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.keyboard</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:329</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:335</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="kmodules"><code class="tsd-tag">Readonly</code><span>kmodules</span><a href="#kmodules" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">kmodules</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_kmodule.ModuleManager.html" class="tsd-signature-type tsd-kind-class">ModuleManager</a></div>
 <div class="tsd-comment tsd-typography"><p>Loads and unloads modules (<code>insmod</code>, <code>rmmod</code>) and keeps their symbols</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:337</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:343</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="log"><code class="tsd-tag">Readonly</code><span>log</span><a href="#log" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">log</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_log.Log.html" class="tsd-signature-type tsd-kind-class">Log</a></div>
@@ -293,14 +294,14 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.log</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:331</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:337</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="machine"><code class="tsd-tag">Readonly</code><span>machine</span><a href="#machine" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">machine</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></div>
 <div class="tsd-comment tsd-typography"><p>The machine this kernel runs (<code>?machine=NAME</code>); <code>undefined</code> is the default one. See <code>lib/machine.ts</code>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:262</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:268</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="memory"><code class="tsd-tag">Readonly</code><span>memory</span><a href="#memory" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">memory</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_memory.Memory.html" class="tsd-signature-type tsd-kind-class">Memory</a></div>
@@ -308,26 +309,26 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.memory</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:333</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:339</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="modcatalog"><code class="tsd-tag">Optional</code> <code class="tsd-tag">Readonly</code><span>modcatalog</span><a href="#modcatalog" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">modcatalog</span><span class="tsd-signature-symbol">?:</span> <a href="kernel_src_tree_lib_module-catalog.ModuleCatalog.html" class="tsd-signature-type tsd-kind-class">ModuleCatalog</a></div>
 <div class="tsd-comment tsd-typography"><p>The in-tree modules that are fetched when first asked for; undefined when <code>options.modules</code> is <code>false</code></p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:340</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:346</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="modprobe"><code class="tsd-tag">Readonly</code><span>modprobe</span><a href="#modprobe" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">modprobe</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_modprobe.ModProbe.html" class="tsd-signature-type tsd-kind-class">ModProbe</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:338</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:344</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="modulebinfmts"><code class="tsd-tag">Readonly</code><span>module<wbr>Binfmts</span><a href="#modulebinfmts" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">moduleBinfmts</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Set.html" class="tsd-signature-type external" target="_blank">Set</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">BinFmt</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>The program formats modules added, which the shell asks about a file it does not know</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:344</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:350</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="modules"><code class="tsd-tag">Readonly</code><span>modules</span><a href="#modules" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">modules</span><span class="tsd-signature-symbol">:</span> <a href="../types/types_modules.KernelModules.html" class="tsd-signature-type tsd-kind-type-alias">KernelModules</a><span class="tsd-signature-symbol"> = loadedModules</span></div>
@@ -335,7 +336,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.modules</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:335</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:341</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="name"><code class="tsd-tag">Readonly</code><span>name</span><a href="#name" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">name</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> = ...</span></div>
@@ -343,7 +344,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.name</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:253</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:259</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="options"><code class="tsd-tag">Readonly</code><span>options</span><a href="#options" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">options</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">KernelOptions</span></div>
@@ -351,7 +352,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.options</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:346</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:352</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="packages"><code class="tsd-tag">Readonly</code><span>packages</span><a href="#packages" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">packages</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Map.html" class="tsd-signature-type external" target="_blank">Map</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">Module</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol"> = ...</span></div>
@@ -359,7 +360,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.packages</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:348</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:354</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="protocol"><code class="tsd-tag">Readonly</code><span>protocol</span><a href="#protocol" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">protocol</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_protocol.Protocol.html" class="tsd-signature-type tsd-kind-class">Protocol</a></div>
@@ -367,7 +368,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.protocol</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:350</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:356</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="screensavers"><code class="tsd-tag">Readonly</code><span>screensavers</span><a href="#screensavers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">screensavers</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Map.html" class="tsd-signature-type external" target="_blank">Map</a><span class="tsd-signature-symbol">&lt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">default</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">options</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">terminal</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Terminal</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">exit</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">&gt;</span></div>
@@ -375,7 +376,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.screensavers</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:354</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:360</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="service"><code class="tsd-tag">Readonly</code><span>service</span><a href="#service" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">service</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_service.Service.html" class="tsd-signature-type tsd-kind-class">Service</a></div>
@@ -383,7 +384,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.service</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:356</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:362</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shell"><code class="tsd-tag">Readonly</code><span>shell</span><a href="#shell" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">shell</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a></div>
@@ -391,7 +392,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.shell</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:358</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:364</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="sockets"><code class="tsd-tag">Readonly</code><span>sockets</span><a href="#sockets" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">sockets</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_sockets.Sockets.html" class="tsd-signature-type tsd-kind-class">Sockets</a></div>
@@ -399,7 +400,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.sockets</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:352</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:358</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="storage"><code class="tsd-tag">Readonly</code><span>storage</span><a href="#storage" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">storage</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_storage.Storage.html" class="tsd-signature-type tsd-kind-class">Storage</a></div>
@@ -407,7 +408,7 @@
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.storage</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:365</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:371</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="system"><code class="tsd-tag">Readonly</code><span>system</span><a href="#system" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">system</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a></div>
@@ -415,7 +416,7 @@
 No user's session is ever lent to the kernel for these. It shows on the console (TTY 0) but is not its shell.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:363</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:369</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="telemetry"><code class="tsd-tag">Readonly</code><span>telemetry</span><a href="#telemetry" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">telemetry</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_telemetry.Telemetry.html" class="tsd-signature-type tsd-kind-class">Telemetry</a></div>
@@ -423,7 +424,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.telemetry</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:367</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:373</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="terminal"><code class="tsd-tag">Readonly</code><span>terminal</span><a href="#terminal" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">terminal</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Terminal</span></div>
@@ -431,7 +432,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.terminal</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:369</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:375</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="users"><code class="tsd-tag">Readonly</code><span>users</span><a href="#users" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">users</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_users.Users.html" class="tsd-signature-type tsd-kind-class">Users</a></div>
@@ -439,7 +440,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.users</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:371</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:377</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="version"><code class="tsd-tag">Readonly</code><span>version</span><a href="#version" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">version</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol"> = ...</span></div>
@@ -447,7 +448,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.version</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:255</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:261</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="wasm"><code class="tsd-tag">Readonly</code><span>wasm</span><a href="#wasm" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">wasm</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Wasm</span></div>
@@ -455,7 +456,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.wasm</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:373</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:379</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="windows"><code class="tsd-tag">Readonly</code><span>windows</span><a href="#windows" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">windows</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Windows</span></div>
@@ -463,7 +464,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.windows</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:375</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:381</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="workers"><code class="tsd-tag">Readonly</code><span>workers</span><a href="#workers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">workers</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Workers</span></div>
@@ -471,7 +472,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div><aside class="tsd-sources">
 <p>Implementation of IKernel.workers</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:379</li></ul></aside></section></section></details>
+<li>Defined in core/kernel/src/tree/kernel.ts:385</li></ul></aside></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Accessors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="accessors-1">Accessors<a href="#accessors-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -486,7 +487,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">number</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.activeTty</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:389</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:395</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="addeventlistener"><span>add<wbr>Event<wbr>Listener</span><a href="#addeventlistener" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -519,7 +520,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4></li></ul></li></ul><aside class="tsd-sources">
 <p>Implementation of IKernel.addEventListener</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:393</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:413</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="context"><span>context</span><a href="#context" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -530,7 +531,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">KernelContext</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:398</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:418</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="guest"><span>guest</span><a href="#guest" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -541,7 +542,7 @@ No user's session is ever lent to the kernel for these. It shows on the console 
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3027</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3057</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="hotplug"><span>hotplug</span><a href="#hotplug" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -554,7 +555,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-symbol">{}</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2645</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2675</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="pipeprocess"><span>pipe<wbr>Process</span><a href="#pipeprocess" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -565,7 +566,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Process</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:310</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:316</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="programsrunasuser"><span>programs<wbr>Run<wbr>As<wbr>User</span><a href="#programsrunasuser" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -576,7 +577,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:288</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:294</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="ready"><span>ready</span><a href="#ready" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -587,7 +588,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3314</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3372</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="removeeventlistener"><span>remove<wbr>Event<wbr>Listener</span><a href="#removeeventlistener" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -620,7 +621,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4></li></ul></li></ul><aside class="tsd-sources">
 <p>Implementation of IKernel.removeEventListener</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:395</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:415</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shells"><span>shells</span><a href="#shells" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -632,7 +633,7 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Map.html" class="tsd-signature-type external" target="_blank">Map</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">,</span> <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.shells</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:390</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:396</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="state"><span>state</span><a href="#state" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -644,15 +645,31 @@ open on it gets <code>ENODEV</code>, as on Linux, until a device takes the minor
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">KernelState</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.state</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:383</li></ul></aside></div></li></ul></section></section></details>
+<li>Defined in core/kernel/src/tree/kernel.ts:389</li></ul></aside></div></li></ul></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
 <section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="applytimezone"><span>apply<wbr>Time<wbr>Zone</span><a href="#applytimezone" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="applytimezone-1"><span class="tsd-kind-call-signature">applyTimeZone</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">name</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><a href="#applytimezone-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-comment tsd-typography"><p>Makes <code>name</code> (an IANA zone, or undefined for the browser's) the system's zone: the <code>TZ</code> the kernel's shells give
+what they start from now on. A program already running, and a shell that set its own <code>TZ</code>, keep theirs.</p>
+</div>
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">name</span>: <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in core/kernel/src/tree/kernel.ts:402</li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="attachstream"><span>attach<wbr>Stream</span><a href="#attachstream" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
 <li class="">
-<div class="tsd-signature tsd-anchor-link" id="attachstream-1"><span class="tsd-kind-call-signature">attachStream</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">proc</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Process</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">direction</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">"read"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"write"</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">stream</span><span class="tsd-signature-symbol">:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">done</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">fd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">stop</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span> <span class="tsd-signature-symbol">}</span><a href="#attachstream-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-signature tsd-anchor-link" id="attachstream-1"><span class="tsd-kind-call-signature">attachStream</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">proc</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Process</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">direction</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">"write"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"read"</span><span class="tsd-signature-symbol">,</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">stream</span><span class="tsd-signature-symbol">:</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">done</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">fd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">stop</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span> <span class="tsd-signature-symbol">}</span><a href="#attachstream-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
 <div class="tsd-comment tsd-typography"><p>Gives <code>proc</code> a new descriptor (lowest free from 3) that is one end of a pipe pumped against <code>stream</code>, and returns
 its number; <code>'read'</code> yields what <code>stream</code> produces, <code>'write'</code> delivers to it. Used for kernel-side resources such
@@ -662,11 +679,11 @@ as sockets.</p>
 <h4 class="tsd-parameters-title">Parameters</h4>
 <ul class="tsd-parameter-list">
 <li><span><span class="tsd-kind-parameter">proc</span>: <span class="tsd-signature-type">Process</span></span></li>
-<li><span><span class="tsd-kind-parameter">direction</span>: <span class="tsd-signature-type">"read"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"write"</span></span></li>
+<li><span><span class="tsd-kind-parameter">direction</span>: <span class="tsd-signature-type">"write"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"read"</span></span></li>
 <li><span><span class="tsd-kind-parameter">stream</span>: <br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">done</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">fd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">stop</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span> <span class="tsd-signature-symbol">}</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1710</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1815</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="beginlogin"><span>begin<wbr>Login</span><a href="#beginlogin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -683,7 +700,7 @@ already authenticated and no password is needed.</p>
 <li><span><span class="tsd-kind-parameter">username</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3342</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3400</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="boot"><span>boot</span><a href="#boot" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -705,7 +722,7 @@ already authenticated and no password is needed.</p>
 </div></div><aside class="tsd-sources">
 <p>Implementation of IKernel.boot</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:612</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:632</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="configure"><span>configure</span><a href="#configure" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -723,7 +740,7 @@ already authenticated and no password is needed.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.configure</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1261</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1337</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="createshell"><span>create<wbr>Shell</span><a href="#createshell" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -742,7 +759,7 @@ already authenticated and no password is needed.</p>
 <aside class="tsd-sources">
 <p>Implementation of IKernel.createShell</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3402</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3460</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="endlogin"><span>end<wbr>Login</span><a href="#endlogin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -757,7 +774,7 @@ already authenticated and no password is needed.</p>
 <li><span><span class="tsd-kind-parameter">ttyNumber</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3367</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3425</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="execute"><span>execute</span><a href="#execute" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -773,7 +790,7 @@ already authenticated and no password is needed.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.execute</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1381</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1488</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="executecommand"><span>execute<wbr>Command</span><a href="#executecommand" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -791,7 +808,7 @@ already authenticated and no password is needed.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><p>Exit code of the command</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1491</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1596</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="executescript"><span>execute<wbr>Script</span><a href="#executescript" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -809,7 +826,7 @@ already authenticated and no password is needed.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><p>Exit code of the script</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2094</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2063</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="executeviaexecve"><span>execute<wbr>Via<wbr>Execve</span><a href="#executeviaexecve" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -828,25 +845,7 @@ interpreter. Redirected stdio is wired through <code>bridgeStdio</code>. A progr
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><p>the process's exit code</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1532</li></ul></aside></div></li></ul></section>
-<section class="tsd-panel tsd-member">
-<h3 class="tsd-anchor-link" id="executewasm"><span>execute<wbr>Wasm</span><a href="#executewasm" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<ul class="tsd-signatures">
-<li class="">
-<div class="tsd-signature tsd-anchor-link" id="executewasm-1"><span class="tsd-kind-call-signature">executeWasm</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">options</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">KernelExecuteOptions</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><a href="#executewasm-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
-<div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Executes a WebAssembly file</p>
-</div>
-<div class="tsd-parameters">
-<h4 class="tsd-parameters-title">Parameters</h4>
-<ul class="tsd-parameter-list">
-<li><span><span class="tsd-kind-parameter">options</span>: <span class="tsd-signature-type">KernelExecuteOptions</span></span>
-<div class="tsd-comment tsd-typography"><p>Execution options containing WASM path and shell</p>
-</div></li></ul></div>
-<h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><p>Exit code of the WASM execution</p>
-<aside class="tsd-sources">
-<ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1958</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1637</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="finishlogin"><span>finish<wbr>Login</span><a href="#finishlogin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -864,7 +863,7 @@ the tty's shell. Resolves to what getty needs to run the user's shell; rejects w
 <li><span><span class="tsd-kind-parameter">password</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">env</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">gid</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">groups</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">home</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">shell</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">uid</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">username</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3357</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3415</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="getpackagemainexport"><span>get<wbr>Package<wbr>Main<wbr>Export</span><a href="#getpackagemainexport" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -883,7 +882,7 @@ the tty's shell. Resolves to what getty needs to run the user's shell; rejects w
 <aside class="tsd-sources">
 <p>Implementation of IKernel.getPackageMainExport</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1277</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1353</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="getshell"><span>get<wbr>Shell</span><a href="#getshell" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -902,7 +901,7 @@ the tty's shell. Resolves to what getty needs to run the user's shell; rejects w
 <aside class="tsd-sources">
 <p>Implementation of IKernel.getShell</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3393</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3451</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="hasdisplay"><span>has<wbr>Display</span><a href="#hasdisplay" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -917,7 +916,7 @@ the tty's shell. Resolves to what getty needs to run the user's shell; rejects w
 <li><span><span class="tsd-kind-parameter">tty</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">boolean</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3016</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3046</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="linkprocesses"><span>link<wbr>Processes</span><a href="#linkprocesses" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -935,7 +934,7 @@ lowest free fd.</p>
 <li><span><span class="tsd-kind-parameter">toProc</span>: <span class="tsd-signature-type">Process</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">readerFd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">writerFd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">}</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1729</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1834</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="loadfstab"><span>load<wbr>Fstab</span><a href="#loadfstab" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -947,7 +946,7 @@ lowest free fd.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><p>A promise that resolves when fstab is processed.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2813</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2843</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="loadquotas"><span>load<wbr>Quotas</span><a href="#loadquotas" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -959,7 +958,7 @@ found.</p>
 </div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3058</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3088</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="loginshell"><span>login<wbr>Shell</span><a href="#loginshell" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -979,7 +978,7 @@ found.</p>
 </div></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3123</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3153</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="notify"><span>notify</span><a href="#notify" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1001,7 +1000,7 @@ found.</p>
 <aside class="tsd-sources">
 <p>Implementation of IKernel.notify</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2132</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2101</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="off"><span>off</span><a href="#off" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1022,7 +1021,7 @@ found.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.off</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2142</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2111</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="on"><span>on</span><a href="#on" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1043,7 +1042,7 @@ found.</p>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.on</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2152</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2121</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="opensession"><span>open<wbr>Session</span><a href="#opensession" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1064,7 +1063,7 @@ lowest free TTY of 1 to 7, starts the session and runs the built-in shell until 
 <h4 class="tsd-anchor-link" id="throws-1">Throws<a href="#throws-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h4><p>if every TTY is taken or the user may not log in</p>
 </div></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3496</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3554</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="openterminalwindow"><span>open<wbr>Terminal<wbr>Window</span><a href="#openterminalwindow" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1080,7 +1079,7 @@ lowest free TTY of 1 to 7, starts the session and runs the built-in shell until 
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/kernel_src_tree_lib_terminal-window.TerminalWindow.html" class="tsd-signature-type tsd-kind-interface">TerminalWindow</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.openTerminalWindow</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3551</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3609</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="presentondisplay"><span>present<wbr>On<wbr>Display</span><a href="#presentondisplay" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1098,7 +1097,7 @@ lowest free TTY of 1 to 7, starts the session and runs the built-in shell until 
 <li><span><span class="tsd-kind-parameter">params</span>: <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">unknown</span><span class="tsd-signature-symbol">&gt;</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="../interfaces/kernel_src_tree_lib_remote-display.RemoteCall.html" class="tsd-signature-type tsd-kind-interface">RemoteCall</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3022</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3052</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="processcontext"><span>process<wbr>Context</span><a href="#processcontext" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1116,7 +1115,7 @@ or when the installed <code>@zenfs/core</code> cannot run programs as another us
 <li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">program</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">BoundContext</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:294</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:300</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="ptylogin"><span>pty<wbr>Login</span><a href="#ptylogin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1134,7 +1133,7 @@ login shell reads its own.</p>
 <li><span><span class="tsd-kind-parameter">password</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">env</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">gid</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">groups</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">home</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">shell</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">uid</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">username</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3581</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3639</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="readfileheader"><span>read<wbr>File<wbr>Header</span><a href="#readfileheader" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1155,7 +1154,7 @@ login shell reads its own.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="../interfaces/types_filesystem.FileHeader.html" class="tsd-signature-type tsd-kind-interface">FileHeader</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span></h4><p>Parsed header information or null if invalid</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2162</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2131</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="reboot"><span>reboot</span><a href="#reboot" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1167,7 +1166,7 @@ login shell reads its own.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.reboot</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2382</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2351</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="registercommands"><span>register<wbr>Commands</span><a href="#registercommands" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1179,7 +1178,7 @@ login shell reads its own.</p>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><p>A promise that resolves when the terminal commands are registered.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2408</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2458</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="registerdevices"><span>register<wbr>Devices</span><a href="#registerdevices" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1191,7 +1190,7 @@ several <a href="../interfaces/types_device.KernelCharDevice.html" class="tsd-ki
 </div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2513</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2543</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="registerevents"><span>register<wbr>Events</span><a href="#registerevents" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1203,7 +1202,7 @@ several <a href="../interfaces/types_device.KernelCharDevice.html" class="tsd-ki
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><p>A promise that resolves when the events are registered.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2693</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2723</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="registerpackages"><span>register<wbr>Packages</span><a href="#registerpackages" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1215,7 +1214,7 @@ several <a href="../interfaces/types_device.KernelCharDevice.html" class="tsd-ki
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><p>A promise that resolves when the packages are registered.</p>
 <aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2734</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2764</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="registerscreensavers"><span>register<wbr>Screensavers</span><a href="#registerscreensavers" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1227,7 +1226,7 @@ this file, so it cannot move out of <code>Kernel</code> the way <code>startScree
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2770</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2800</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="replaceimports"><span>replace<wbr>Imports</span><a href="#replaceimports" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1245,7 +1244,7 @@ this file, so it cannot move out of <code>Kernel</code> the way <code>startScree
 <li><span><span class="tsd-kind-parameter">packagePath</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2907</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2937</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="requestmodule"><span>request<wbr>Module</span><a href="#requestmodule" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1261,7 +1260,7 @@ this file, so it cannot move out of <code>Kernel</code> the way <code>startScree
 <li><span><span class="tsd-kind-parameter">alias</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:1341</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:1417</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="requestreboot"><span>request<wbr>Reboot</span><a href="#requestreboot" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1274,7 +1273,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2372</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2341</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="rundetached"><span>run<wbr>Detached</span><a href="#rundetached" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1290,7 +1289,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.runDetached</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3556</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3614</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="runinitscript"><span>run<wbr>Init<wbr>Script</span><a href="#runinitscript" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1307,7 +1306,24 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <li><span><span class="tsd-kind-parameter">args</span>: <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol"> = []</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3662</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3720</li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="shellasprocess"><span>shell<wbr>As<wbr>Process</span><a href="#shellasprocess" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="shellasprocess-1"><span class="tsd-kind-call-signature">shellAsProcess</span><span class="tsd-signature-symbol">(</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-parameter">proc</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">context</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">credentials</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Credentials</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">pwd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">env</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">,</span><br><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a><a href="#shellasprocess-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-comment tsd-typography"><p>A shell that acts as the user of <code>proc</code>, for a DOM app that process started from a shell of its own (<code>su</code>, a login's
+child): the app runs its commands through this, so they run as that user and not as the kernel's root shell. It has
+no terminal of its own; what it runs writes where the app tells it to.</p>
+</div>
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">proc</span>: <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">context</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">credentials</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Credentials</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">pwd</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">env</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in core/kernel/src/tree/kernel.ts:3330</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shellfortty"><span>shell<wbr>For<wbr>Tty</span><a href="#shellfortty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1322,7 +1338,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <li><span><span class="tsd-kind-parameter">ttyNumber</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3334</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3392</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shellofpid"><span>shell<wbr>Of<wbr>Pid</span><a href="#shellofpid" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1337,7 +1353,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <li><span><span class="tsd-kind-parameter">pid</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="kernel_src_tree_shell.Shell.html" class="tsd-signature-type tsd-kind-class">Shell</a> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">undefined</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3293</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3351</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shutdown"><span>shutdown</span><a href="#shutdown" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1350,7 +1366,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <aside class="tsd-sources">
 <p>Implementation of IKernel.shutdown</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3090</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3120</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="spawnonpty"><span>spawn<wbr>On<wbr>Pty</span><a href="#spawnonpty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1363,7 +1379,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <li><span><span class="tsd-kind-parameter">options</span>: <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">args</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">command</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">cwd</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">env</span><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/Record.html" class="tsd-signature-type external" target="_blank">Record</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">pty</span><span class="tsd-signature-symbol">:</span> <a href="../interfaces/kernel_src_tree_lib_pty.KernelPty.html" class="tsd-signature-type tsd-kind-interface">KernelPty</a><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<span class="tsd-kind-property">username</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">Process</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3587</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3645</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="startscreensaverdaemon"><span>start<wbr>Screensaver<wbr>Daemon</span><a href="#startscreensaverdaemon" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1378,7 +1394,7 @@ within 15 seconds, so a wedged init cannot make the keyboard shortcut useless.</
 <aside class="tsd-sources">
 <p>Implementation of IKernel.startScreensaverDaemon</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2786</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2816</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="startsession"><span>start<wbr>Session</span><a href="#startsession" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1397,7 +1413,7 @@ shared by the built-in login prompt, auto-login, and <code>/sbin/getty</code> th
 <li><span><span class="tsd-kind-parameter">cred</span>: <span class="tsd-signature-type">Credentials</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3266</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3296</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stop"><span>stop</span><a href="#stop" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1413,7 +1429,7 @@ then tries to close the page (best effort; browsers only close windows a script 
 <li><span><span class="tsd-kind-parameter">mode</span>: <span class="tsd-signature-type">"reboot"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"halt"</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">"poweroff"</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:2353</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:2322</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="switchtty"><span>switch<wbr>Tty</span><a href="#switchtty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1431,7 +1447,7 @@ then tries to close the page (best effort; browsers only close windows a script 
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <p>Implementation of IKernel.switchTty</p>
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3625</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3683</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="trypasskeylogin"><span>try<wbr>Passkey<wbr>Login</span><a href="#trypasskeylogin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1449,7 +1465,7 @@ or the attempt was cancelled or failed, which is said on <code>terminal</code>).
 <li><span><span class="tsd-kind-parameter">username</span>: <span class="tsd-signature-type">string</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">cred</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Credentials</span><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">user</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">User</span> <span class="tsd-signature-symbol">}</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">null</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3211</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3241</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="whenprogramsready"><span>when<wbr>Programs<wbr>Ready</span><a href="#whenprogramsready" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1461,7 +1477,7 @@ program not installed before is a placeholder that waits for it.</p>
 </div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3321</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/kernel.ts:3379</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="whenready"><span>when<wbr>Ready</span><a href="#whenready" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -1472,7 +1488,7 @@ program not installed before is a placeholder that waits for it.</p>
 </div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/kernel.ts:3311</li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in core/kernel/src/tree/kernel.ts:3369</li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -1495,7 +1511,7 @@ program not installed before is a placeholder that waits for it.</p>
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Accessors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Accessors</summary>
 <div><a href="#activetty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>active<wbr>Tty</span></a><a href="#addeventlistener"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>add<wbr>Event<wbr>Listener</span></a><a href="#context"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>context</span></a><a href="#guest"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>guest</span></a><a href="#hotplug"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>hotplug</span></a><a href="#pipeprocess"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>pipe<wbr>Process</span></a><a href="#programsrunasuser"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>programs<wbr>Run<wbr>As<wbr>User</span></a><a href="#ready"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>ready</span></a><a href="#removeeventlistener"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>remove<wbr>Event<wbr>Listener</span></a><a href="#shells"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>shells</span></a><a href="#state"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Accessor"><use href="../assets/icons.svg#icon-262144"></use></svg><span>state</span></a></div></details>
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Methods</summary>
-<div><a href="#attachstream"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>attach<wbr>Stream</span></a><a href="#beginlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>begin<wbr>Login</span></a><a href="#boot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot</span></a><a href="#configure"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>configure</span></a><a href="#createshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>create<wbr>Shell</span></a><a href="#endlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>end<wbr>Login</span></a><a href="#execute"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute</span></a><a href="#executecommand"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Command</span></a><a href="#executescript"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Script</span></a><a href="#executeviaexecve"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Via<wbr>Execve</span></a><a href="#executewasm"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Wasm</span></a><a href="#finishlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>finish<wbr>Login</span></a><a href="#getpackagemainexport"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Package<wbr>Main<wbr>Export</span></a><a href="#getshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Shell</span></a><a href="#hasdisplay"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>has<wbr>Display</span></a><a href="#linkprocesses"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>link<wbr>Processes</span></a><a href="#loadfstab"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Fstab</span></a><a href="#loadquotas"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Quotas</span></a><a href="#loginshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>login<wbr>Shell</span></a><a href="#notify"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>notify</span></a><a href="#off"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>off</span></a><a href="#on"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>on</span></a><a href="#opensession"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>open<wbr>Session</span></a><a href="#openterminalwindow"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>open<wbr>Terminal<wbr>Window</span></a><a href="#presentondisplay"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>present<wbr>On<wbr>Display</span></a><a href="#processcontext"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>process<wbr>Context</span></a><a href="#ptylogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>pty<wbr>Login</span></a><a href="#readfileheader"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>read<wbr>File<wbr>Header</span></a><a href="#reboot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>reboot</span></a><a href="#registercommands"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Commands</span></a><a href="#registerdevices"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Devices</span></a><a href="#registerevents"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Events</span></a><a href="#registerpackages"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Packages</span></a><a href="#registerscreensavers"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Screensavers</span></a><a href="#replaceimports"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>replace<wbr>Imports</span></a><a href="#requestmodule"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>request<wbr>Module</span></a><a href="#requestreboot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>request<wbr>Reboot</span></a><a href="#rundetached"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Detached</span></a><a href="#runinitscript"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Init<wbr>Script</span></a><a href="#shellfortty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>For<wbr>Tty</span></a><a href="#shellofpid"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>Of<wbr>Pid</span></a><a href="#shutdown"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown</span></a><a href="#spawnonpty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>spawn<wbr>On<wbr>Pty</span></a><a href="#startscreensaverdaemon"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>start<wbr>Screensaver<wbr>Daemon</span></a><a href="#startsession"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>start<wbr>Session</span></a><a href="#stop"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>stop</span></a><a href="#switchtty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>switch<wbr>Tty</span></a><a href="#trypasskeylogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>try<wbr>Passkey<wbr>Login</span></a><a href="#whenprogramsready"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>when<wbr>Programs<wbr>Ready</span></a><a href="#whenready"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>when<wbr>Ready</span></a></div></details></div></details></div>
+<div><a href="#applytimezone"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>apply<wbr>Time<wbr>Zone</span></a><a href="#attachstream"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>attach<wbr>Stream</span></a><a href="#beginlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>begin<wbr>Login</span></a><a href="#boot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>boot</span></a><a href="#configure"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>configure</span></a><a href="#createshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>create<wbr>Shell</span></a><a href="#endlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>end<wbr>Login</span></a><a href="#execute"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute</span></a><a href="#executecommand"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Command</span></a><a href="#executescript"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Script</span></a><a href="#executeviaexecve"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>execute<wbr>Via<wbr>Execve</span></a><a href="#finishlogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>finish<wbr>Login</span></a><a href="#getpackagemainexport"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Package<wbr>Main<wbr>Export</span></a><a href="#getshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>get<wbr>Shell</span></a><a href="#hasdisplay"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>has<wbr>Display</span></a><a href="#linkprocesses"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>link<wbr>Processes</span></a><a href="#loadfstab"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Fstab</span></a><a href="#loadquotas"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>load<wbr>Quotas</span></a><a href="#loginshell"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>login<wbr>Shell</span></a><a href="#notify"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>notify</span></a><a href="#off"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>off</span></a><a href="#on"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>on</span></a><a href="#opensession"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>open<wbr>Session</span></a><a href="#openterminalwindow"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>open<wbr>Terminal<wbr>Window</span></a><a href="#presentondisplay"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>present<wbr>On<wbr>Display</span></a><a href="#processcontext"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>process<wbr>Context</span></a><a href="#ptylogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>pty<wbr>Login</span></a><a href="#readfileheader"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>read<wbr>File<wbr>Header</span></a><a href="#reboot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>reboot</span></a><a href="#registercommands"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Commands</span></a><a href="#registerdevices"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Devices</span></a><a href="#registerevents"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Events</span></a><a href="#registerpackages"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Packages</span></a><a href="#registerscreensavers"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>register<wbr>Screensavers</span></a><a href="#replaceimports"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>replace<wbr>Imports</span></a><a href="#requestmodule"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>request<wbr>Module</span></a><a href="#requestreboot"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>request<wbr>Reboot</span></a><a href="#rundetached"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Detached</span></a><a href="#runinitscript"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>run<wbr>Init<wbr>Script</span></a><a href="#shellasprocess"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>As<wbr>Process</span></a><a href="#shellfortty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>For<wbr>Tty</span></a><a href="#shellofpid"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shell<wbr>Of<wbr>Pid</span></a><a href="#shutdown"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>shutdown</span></a><a href="#spawnonpty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>spawn<wbr>On<wbr>Pty</span></a><a href="#startscreensaverdaemon"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>start<wbr>Screensaver<wbr>Daemon</span></a><a href="#startsession"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>start<wbr>Session</span></a><a href="#stop"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>stop</span></a><a href="#switchtty"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>switch<wbr>Tty</span></a><a href="#trypasskeylogin"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>try<wbr>Passkey<wbr>Login</span></a><a href="#whenprogramsready"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>when<wbr>Programs<wbr>Ready</span></a><a href="#whenready"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>when<wbr>Ready</span></a></div></details></div></details></div>
 <div class="site-menu" tabindex="-1">
 <nav class="tsd-navigation"><a href="../modules.html">ecmaOS</a>
 <ul class="tsd-small-nested-navigation" id="tsd-nav-container">

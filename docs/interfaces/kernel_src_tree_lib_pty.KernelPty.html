@@ -15,7 +15,7 @@
 </div></section>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">KernelPty</span> <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#index">index</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#path">path</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#slave">slave</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">TTY</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#close-1">close</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#ondata-1">onData</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">listener</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">data</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#resize-1">resize</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">cols</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">,</span> <span class="tsd-kind-parameter">rows</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#write-1">write</a><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">data</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:180</li></ul></aside>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:201</li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open=""><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -41,21 +41,21 @@
 <h3 class="tsd-anchor-link" id="index"><span>index</span><a href="#index" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">index</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:181</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:202</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="path"><span>path</span><a href="#path" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">path</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>The slave's device path, <code>/dev/pts/&lt;index&gt;</code></p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:183</li></ul></aside></section>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:204</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="slave"><span>slave</span><a href="#slave" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">slave</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">TTY</span></div>
 <div class="tsd-comment tsd-typography"><p>The slave tty (the controlling terminal for what runs on it)</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:185</li></ul></aside></section></section></details>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:206</li></ul></aside></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -69,7 +69,7 @@
 </div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:193</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:214</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="ondata"><span>on<wbr>Data</span><a href="#ondata" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -84,7 +84,7 @@
 <li><span><span class="tsd-kind-parameter">listener</span>: <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">data</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:189</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:210</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="resize"><span>resize</span><a href="#resize" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -100,7 +100,7 @@
 <li><span><span class="tsd-kind-parameter">rows</span>: <span class="tsd-signature-type">number</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:191</li></ul></aside></div></li></ul></section>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:212</li></ul></aside></div></li></ul></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="write"><span>write</span><a href="#write" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <ul class="tsd-signatures">
@@ -115,7 +115,7 @@
 <li><span><span class="tsd-kind-parameter">data</span>: <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span></span></li></ul></div>
 <h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">void</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/pty.ts:187</li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in core/kernel/src/tree/lib/pty.ts:208</li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">

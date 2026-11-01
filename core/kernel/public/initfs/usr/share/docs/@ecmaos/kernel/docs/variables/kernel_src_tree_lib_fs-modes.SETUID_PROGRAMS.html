@@ -12,11 +12,12 @@
 <h1>Variable SETUID_PROGRAMS<code class="tsd-tag">Const</code></h1></div>
 <div class="tsd-signature"><span class="tsd-kind-variable">SETUID_PROGRAMS</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol"> = ...</span></div>
 <div class="tsd-comment tsd-typography"><p>Programs that run with their owner's privileges, which for these is root's: <code>su</code> and <code>sudo</code> check who
-is asking and then start something as someone else, which a user's own program may not do. The kernel
+is asking and then start something as someone else, which a user's own program may not do; <code>crontab</code> and <code>at</code> keep
+their spools under <code>/var/spool/cron</code>, which only root can write. The kernel
 honours the bit when it starts a program (see <code>setuidCredentials</code>), as Linux does.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/fs-modes.ts:80</li></ul></aside></div>
+<li>Defined in core/kernel/src/tree/lib/fs-modes.ts:81</li></ul></aside></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">

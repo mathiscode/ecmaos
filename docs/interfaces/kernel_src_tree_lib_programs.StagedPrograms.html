@@ -10,9 +10,9 @@
 <li><a href="../modules/kernel_src_tree_lib_programs.html">kernel/src/tree/lib/programs</a></li>
 <li><a href="" aria-current="page">StagedPrograms</a></li></ul>
 <h1>Interface StagedPrograms</h1></div>
-<div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">StagedPrograms</span> <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#placeholders">placeholders</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#start-1">start</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="kernel_src_tree_lib_programs.InstallProgramsResult.html" class="tsd-signature-type tsd-kind-interface">InstallProgramsResult</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
+<div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">StagedPrograms</span> <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#catalog">catalog</a><span class="tsd-signature-symbol">?:</span> <a href="kernel_src_tree_lib_programs.ProgramCatalog.html" class="tsd-signature-type tsd-kind-interface">ProgramCatalog</a><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#placeholders">placeholders</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#programs">programs</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">entry</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_programs.ProgramEntry.html" class="tsd-signature-type tsd-kind-interface">ProgramEntry</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">name</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-call-signature" href="#start-1">start</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="kernel_src_tree_lib_programs.InstallProgramsResult.html" class="tsd-signature-type tsd-kind-interface">InstallProgramsResult</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/programs.ts:116</li></ul></aside>
+<li>Defined in core/kernel/src/tree/lib/programs.ts:131</li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open=""><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -20,7 +20,9 @@
 <div class="tsd-accordion-details">
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading tsd-anchor-link" id="properties">Properties<a href="#properties" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
-<div class="tsd-index-list"><a href="#placeholders" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>placeholders</span></a>
+<div class="tsd-index-list"><a href="#catalog" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>catalog?</span></a>
+<a href="#placeholders" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>placeholders</span></a>
+<a href="#programs" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>programs</span></a>
 </div></section>
 <section class="tsd-index-section">
 <h3 class="tsd-index-heading tsd-anchor-link" id="methods">Methods<a href="#methods" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
@@ -30,12 +32,24 @@
 <h2 class="tsd-anchor-link" id="properties-1">Properties<a href="#properties-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
 <section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="catalog"><code class="tsd-tag">Optional</code><span>catalog</span><a href="#catalog" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<div class="tsd-signature"><span class="tsd-kind-property">catalog</span><span class="tsd-signature-symbol">?:</span> <a href="kernel_src_tree_lib_programs.ProgramCatalog.html" class="tsd-signature-type tsd-kind-interface">ProgramCatalog</a></div>
+<div class="tsd-comment tsd-typography"><p>The catalog, and the programs of it this machine is to have (those its profile and exclusions leave)</p>
+</div><aside class="tsd-sources">
+<ul>
+<li>Defined in core/kernel/src/tree/lib/programs.ts:135</li></ul></aside></section>
+<section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="placeholders"><span>placeholders</span><a href="#placeholders" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">placeholders</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div>
 <div class="tsd-comment tsd-typography"><p>Programs that got a placeholder because nothing was installed under their name</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/programs.ts:118</li></ul></aside></section></section></details>
+<li>Defined in core/kernel/src/tree/lib/programs.ts:133</li></ul></aside></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="programs"><span>programs</span><a href="#programs" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<div class="tsd-signature"><span class="tsd-kind-property">programs</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-symbol">{</span> <span class="tsd-kind-property">entry</span><span class="tsd-signature-symbol">:</span> <a href="kernel_src_tree_lib_programs.ProgramEntry.html" class="tsd-signature-type tsd-kind-interface">ProgramEntry</a><span class="tsd-signature-symbol">;</span> <span class="tsd-kind-property">name</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">}</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
+<ul>
+<li>Defined in core/kernel/src/tree/lib/programs.ts:136</li></ul></aside></section></section></details>
 <details class="tsd-panel-group tsd-member-group tsd-accordion" open=""><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
 <h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
 <section>
@@ -49,7 +63,7 @@
 </div>
 <h4 class="tsd-returns-title">Returns <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><a href="kernel_src_tree_lib_programs.InstallProgramsResult.html" class="tsd-signature-type tsd-kind-interface">InstallProgramsResult</a><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
 <ul>
-<li>Defined in core/kernel/src/tree/lib/programs.ts:120</li></ul></aside></div></li></ul></section></section></details></div>
+<li>Defined in core/kernel/src/tree/lib/programs.ts:138</li></ul></aside></div></li></ul></section></section></details></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">
@@ -66,7 +80,7 @@
 <h3>On This Page</h3></summary>
 <div class="tsd-accordion-details" tabindex="-1">
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Properties"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Properties</summary>
-<div><a href="#placeholders"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>placeholders</span></a></div></details>
+<div><a href="#catalog"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>catalog</span></a><a href="#placeholders"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>placeholders</span></a><a href="#programs"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Property"><use href="../assets/icons.svg#icon-1024"></use></svg><span>programs</span></a></div></details>
 <details open="" class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Methods</summary>
 <div><a href="#start"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>start</span></a></div></details></div></details></div>
 <div class="site-menu" tabindex="-1">

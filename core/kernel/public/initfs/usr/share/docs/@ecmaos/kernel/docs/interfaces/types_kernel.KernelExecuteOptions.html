@@ -15,7 +15,7 @@
 </div></section>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">KernelExecuteOptions</span> <span class="tsd-signature-symbol">{</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#args">args</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#command">command</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#drainstdout">drainStdout</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#file">file</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#foreground">foreground</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#invokedas">invokedAs</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#kernel">kernel</a><span class="tsd-signature-symbol">?:</span> <a href="types_kernel.Kernel.html" class="tsd-signature-type tsd-kind-interface">Kernel</a><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#onprocess">onProcess</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">process</span><span class="tsd-signature-symbol">:</span> <a href="types_kernel.JobProcessHandle.html" class="tsd-signature-type tsd-kind-interface">JobProcessHandle</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#openstdin">openStdin</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#shell">shell</a><span class="tsd-signature-symbol">:</span> <a href="types_shell.Shell.html" class="tsd-signature-type tsd-kind-interface">Shell</a><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stderr">stderr</a><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stderristty">stderrIsTTY</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdin">stdin</a><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdinfile">stdinFile</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdinistty">stdinIsTTY</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdinleftover">stdinLeftover</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">bytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdout">stdout</a><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#stdoutistty">stdoutIsTTY</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">;</span><br>&nbsp;&nbsp;&nbsp;&nbsp;<a class="tsd-kind-property" href="#terminal">terminal</a><span class="tsd-signature-symbol">?:</span> <a href="types_terminal.Terminal.html" class="tsd-signature-type tsd-kind-interface">Terminal</a><span class="tsd-signature-symbol">;</span><br><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:351</li></ul></aside>
+<li>Defined in core/types/kernel.ts:353</li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open=""><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -50,12 +50,12 @@
 <h3 class="tsd-anchor-link" id="args"><code class="tsd-tag">Optional</code><span>args</span><a href="#args" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">args</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:356</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:358</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="command"><span>command</span><a href="#command" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">command</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:352</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:354</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="drainstdout"><code class="tsd-tag">Optional</code><span>drain<wbr>Stdout</span><a href="#drainstdout" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">drainStdout</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
@@ -64,12 +64,12 @@ destination (a file or the terminal) so <code>cmd &gt; f</code> leaves every byt
 exiting downstream program would leave the drain waiting forever.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:382</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:384</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="file"><code class="tsd-tag">Optional</code><span>file</span><a href="#file" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">file</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:355</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:357</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="foreground"><code class="tsd-tag">Optional</code><span>foreground</span><a href="#foreground" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">foreground</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
@@ -78,19 +78,19 @@ it does not take the terminal. <code>Kernel.executeViaExecve</code> sets the TTY
 and restores it afterwards.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:399</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:401</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="invokedas"><code class="tsd-tag">Optional</code><span>invoked<wbr>As</span><a href="#invokedas" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">invokedAs</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
 <div class="tsd-comment tsd-typography"><p>The path as typed (<code>./script</code>), which a script reports in its messages and has as <code>$0</code>; <code>command</code> is the resolved one</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:354</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:356</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="kernel"><code class="tsd-tag">Optional</code><span>kernel</span><a href="#kernel" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">kernel</span><span class="tsd-signature-symbol">?:</span> <a href="types_kernel.Kernel.html" class="tsd-signature-type tsd-kind-interface">Kernel</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:357</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:359</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="onprocess"><code class="tsd-tag">Optional</code><span>on<wbr>Process</span><a href="#onprocess" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">onProcess</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">process</span><span class="tsd-signature-symbol">:</span> <a href="types_kernel.JobProcessHandle.html" class="tsd-signature-type tsd-kind-interface">JobProcessHandle</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></div>
@@ -98,24 +98,24 @@ and restores it afterwards.</p>
 completion is awaited, so the shell's job table can signal it for <code>^C</code>, <code>^Z</code>, <code>fg</code> and <code>bg</code>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:393</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:395</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="openstdin"><code class="tsd-tag">Optional</code><span>open<wbr>Stdin</span><a href="#openstdin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">openStdin</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">()</span> <span class="tsd-signature-symbol">=&gt;</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></div>
 <div class="tsd-comment tsd-typography"><p>Makes the stream for <code>stdinFile</code>, for the paths that cannot use a descriptor</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:368</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:370</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="shell"><span>shell</span><a href="#shell" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">shell</span><span class="tsd-signature-symbol">:</span> <a href="types_shell.Shell.html" class="tsd-signature-type tsd-kind-interface">Shell</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:358</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:360</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stderr"><code class="tsd-tag">Optional</code><span>stderr</span><a href="#stderr" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stderr</span><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:383</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:385</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stderristty"><code class="tsd-tag">Optional</code><span>stderr<wbr>Is<wbr>TTY</span><a href="#stderristty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stderrIsTTY</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div>
@@ -123,12 +123,12 @@ completion is awaited, so the shell's job table can signal it for <code>^C</code
 the console and <code>isatty(2)</code> holds, as it does on Linux. <code>stderr</code> is then only for what is not a process.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:388</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:390</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdin"><code class="tsd-tag">Optional</code><span>stdin</span><a href="#stdin" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdin</span><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/ReadableStream.html" class="tsd-signature-type external" target="_blank">ReadableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:360</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:362</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdinfile"><code class="tsd-tag">Optional</code><span>stdin<wbr>File</span><a href="#stdinfile" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdinFile</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span></div>
@@ -137,12 +137,12 @@ seek, rather than a pipe fed from <code>stdin</code>. Only a program run as a pr
 else the stream comes from <code>openStdin</code>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:366</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:368</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdinistty"><code class="tsd-tag">Optional</code><span>stdin<wbr>Is<wbr>TTY</span><a href="#stdinistty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdinIsTTY</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:369</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:371</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdinleftover"><code class="tsd-tag">Optional</code><span>stdin<wbr>Leftover</span><a href="#stdinleftover" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdinLeftover</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">bytes</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">)</span> <span class="tsd-signature-symbol">=&gt;</span> <span class="tsd-signature-type">void</span></div>
@@ -150,22 +150,22 @@ else the stream comes from <code>openStdin</code>.</p>
 later commands</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:374</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:376</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdout"><code class="tsd-tag">Optional</code><span>stdout</span><a href="#stdout" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdout</span><span class="tsd-signature-symbol">?:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/dom/interfaces/WritableStream.html" class="tsd-signature-type external" target="_blank">WritableStream</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Uint8Array.html" class="tsd-signature-type external" target="_blank">Uint8Array</a><span class="tsd-signature-symbol">&lt;</span><a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/types/ArrayBufferLike.html" class="tsd-signature-type external" target="_blank">ArrayBufferLike</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">&gt;</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:375</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:377</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="stdoutistty"><code class="tsd-tag">Optional</code><span>stdout<wbr>Is<wbr>TTY</span><a href="#stdoutistty" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">stdoutIsTTY</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">boolean</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:376</li></ul></aside></section>
+<li>Defined in core/types/kernel.ts:378</li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="terminal"><code class="tsd-tag">Optional</code><span>terminal</span><a href="#terminal" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">terminal</span><span class="tsd-signature-symbol">?:</span> <a href="types_terminal.Terminal.html" class="tsd-signature-type tsd-kind-interface">Terminal</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in core/types/kernel.ts:359</li></ul></aside></section></section></details></div>
+<li>Defined in core/types/kernel.ts:361</li></ul></aside></section></section></details></div>
 <div class="col-sidebar" tabindex="-1">
 <div class="page-menu">
 <div class="tsd-navigation settings">
