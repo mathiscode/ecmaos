@@ -1941,6 +1941,67 @@ function socketpair(domain, type, svPtr) {
   return 0
 }
 
+// --- eventfd and timerfd ---
+
+const EFD_SEMAPHORE = 1, O_NONBLOCK_FLAG = 0x800, EFD_FLAGS = EFD_SEMAPHORE | O_NONBLOCK_FLAG | O_CLOEXEC
+const CLOCK_MONOTONIC = 1, CLOCK_BOOTTIME = 7, CLOCK_BOOTTIME_ALARM = 9
+const TFD_TIMER_ABSTIME = 1, TFD_TIMER_CANCEL_ON_SET = 2
+/** The clock each timer descriptor was made on, which an absolute time is read against */
+const timerClocks = new Map()
+
+/** `eventfd2(2)`: the kernel makes the counter descriptor and keeps its count; here it is recorded like any other */
+function eventfd(initial, flags) {
+  if (flags & ~EFD_FLAGS) return -EINVAL
+  const fd = syscall_raw('counter_create', 0, Number(initial) >>> 0, flags)
+  if (fd < 0) return fd
+  return withinLimit(opened(fd, O_RDWR | flags))
+}
+
+function timerfdCreate(clock, flags) {
+  if (flags & ~(O_NONBLOCK_FLAG | O_CLOEXEC)) return -EINVAL
+  if (![CLOCK_REALTIME, CLOCK_MONOTONIC, CLOCK_BOOTTIME, CLOCK_REALTIME_ALARM, CLOCK_BOOTTIME_ALARM].includes(clock)) return -EINVAL
+  const fd = syscall_raw('counter_create', 1, 0, flags)
+  if (fd < 0) return fd
+  const checked = withinLimit(opened(fd, O_RDWR | flags))
+  if (checked >= 0) timerClocks.set(fd, clock)
+  return checked
+}
+
+/** `struct itimerspec`: the interval, then the first expiration, each a timespec */
+function writeTimerSpec(ptr, remainingMicros, intervalMicros) {
+  writeTimespec(ptr, intervalMicros / 1000)
+  writeTimespec(ptr + 16, remainingMicros / 1000)
+}
+
+function timerfdGettime(fd, ptr) {
+  const remaining = syscall_raw('timerfd_gettime', fd, 0)
+  if (remaining < 0) return remaining
+  const interval = syscall_raw('timerfd_gettime', fd, 1)
+  if (ptr) writeTimerSpec(ptr, remaining, interval)
+  return 0
+}
+
+function timerfdSettime(fd, flags, newPtr, oldPtr) {
+  if (flags & ~(TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET)) return -EINVAL
+  if (!newPtr) return -EFAULT
+  const dv = view()
+  for (const at of [newPtr, newPtr + 16]) {
+    const nanos = dv.getBigInt64(at + 8, true)
+    if (nanos < 0n || nanos >= 1000000000n) return -EINVAL
+  }
+  const interval = readTimespec(newPtr), first = readTimespec(newPtr + 16)
+  if (interval < 0 || first < 0) return -EINVAL
+  if (oldPtr) {
+    const before = timerfdGettime(fd, oldPtr)
+    if (before < 0) return before
+  }
+  let delay = first
+  if (first > 0 && (flags & TFD_TIMER_ABSTIME)) delay = first - now(timerClocks.get(fd) ?? CLOCK_MONOTONIC)
+  // a time already past fires at once; zero would stop the timer
+  const micros = first === 0 ? 0 : Math.max(1, Math.round(delay * 1000))
+  return syscall_raw('timerfd_settime', fd, micros, Math.round(interval * 1000))
+}
+
 // --- epoll ---
 
 const EPOLL_CTL_ADD = 1, EPOLL_CTL_DEL = 2, EPOLL_CTL_MOD = 3
@@ -2322,6 +2383,7 @@ const calls = {
     if (value >= 0) {
       forget(fd)
       epolls.delete(fd)
+      timerClocks.delete(fd)
       unlockFile(key)
     }
     return big(value)
@@ -2417,6 +2479,7 @@ const calls = {
   SYS_faccessat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode)),
   SYS_faccessat2: (dirfd, path, mode, flags) => at(dirfd, path, resolved => syscall_raw('access', resolved, mode), flags),
   SYS_mkdirat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('mkdir', resolved, mode)),
+  SYS_mknodat: (dirfd, path, mode, dev) => at(dirfd, path, resolved => syscall_raw('mknod', resolved, mode, Number(dev))),
   SYS_unlinkat: (dirfd, path, flags) => at(dirfd, path, resolved => syscall_raw(flags & AT_REMOVEDIR ? 'rmdir' : 'unlink', resolved)),
   SYS_fchmodat: (dirfd, path, mode) => at(dirfd, path, resolved => syscall_raw('chmod', resolved, mode)),
   SYS_fchownat: (dirfd, path, uid, gid, flags) => at(dirfd, path, resolved => syscall_raw('chown', resolved, uid, gid), flags),
@@ -2624,6 +2687,11 @@ const calls = {
   SYS_getsockopt: (fd, level, name, value, lengthPtr) => big(getsockopt(fd, level, name, value, lengthPtr)),
   SYS_setsockopt: (fd, level, name, value, length) => big(setsockopt(fd, level, name, value, length)),
 
+  SYS_eventfd: initial => big(eventfd(initial, 0)),
+  SYS_eventfd2: (initial, flags) => big(eventfd(initial, num(flags))),
+  SYS_timerfd_create: (clock, flags) => big(timerfdCreate(num(clock), num(flags))),
+  SYS_timerfd_settime: (fd, flags, newPtr, oldPtr) => big(timerfdSettime(fd, num(flags), newPtr, oldPtr)),
+  SYS_timerfd_gettime: (fd, ptr) => big(timerfdGettime(fd, ptr)),
   SYS_epoll_create: size => big(size <= 0 ? -EINVAL : epollCreate(0)),
   SYS_epoll_create1: flags => big(epollCreate(flags)),
   SYS_epoll_ctl: (epfd, op, fd, event) => big(epollCtl(epfd, op, fd, event)),
@@ -2823,6 +2891,7 @@ function startChild() {
     entry: threadEntry,
     sp: stackPointer.value,
     positions: [...positions],
+    timerClocks: [...timerClocks],
     // an interest's data is 64 bits: text, as for the globals
     epolls: [...epolls].map(([fd, interest]) => [fd, [...interest].map(([watched, entry]) => [watched, entry.events, String(entry.data)])]),
     mappings: [...mappings.values()].map(({ ptr, length, prot, offset, regular, file }) => ({ ptr, length, prot, offset, regular, file: files.indexOf(file) })),
@@ -2842,6 +2911,8 @@ function startChild() {
 function inheritFrom(fork) {
   positions.clear()
   for (const [fd, index] of fork.positions) positions.set(fd, index)
+  timerClocks.clear()
+  for (const [fd, clock] of fork.timerClocks ?? []) timerClocks.set(fd, clock)
   epolls.clear()
   for (const [fd, interest] of fork.epolls) epolls.set(fd, new Map(interest.map(([watched, events, data]) => [watched, { events, data: BigInt(data) }])))
   // the memory is the flushed parent's, so what each mapping holds now is its shadow

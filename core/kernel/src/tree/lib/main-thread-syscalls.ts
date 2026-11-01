@@ -10,6 +10,7 @@
 import { binfmts, define_syscall, kill as zenfsKill, processes, Process as ZenFSProcess, syscalls, thread_of, type BinFmt, type Process } from '@zenfs/linux'
 import { attach, countWritten, createSocket, deliverDatagram, describe, receive, receiveDatagram, receiveRights, rightsFromPeer, send, sendDatagram, sendRights, shutdown, socketAt, sweepSockets, whenPending, type Socket } from './socket-files.ts'
 import { createPipe } from './pipe-reaper.ts'
+import { bindFifo, makeNode } from './fifo.ts'
 import { Errno } from 'kerium'
 
 import { boundContexts, mounts } from '@zenfs/core'
@@ -41,6 +42,7 @@ import { installWaliSignals } from './wali-signals.ts'
 import { installSysvIpc } from './sysv-ipc.ts'
 import { installRecordLocks } from './record-locks.ts'
 import { installFsWatch } from './fs-watch.ts'
+import { installCounterFds } from './counter-fds.ts'
 import { installOpenDirectory } from './open-directory.ts'
 import { installUtimes } from './utimes.ts'
 import { installInodeFlags } from './inode-flags.ts'
@@ -64,6 +66,7 @@ import type { Shell, SocketConnection } from '@ecmaos/types'
 // Declaration merging into `@zenfs/linux`'s `Syscalls` interface, so `define_syscall` accepts these names.
 declare module '@zenfs/linux/uapi/abi' {
   interface Syscalls {
+    mknod(path: string, mode: number, dev?: number): number
     window_create(title: string): number
     fb_create(width: number, height: number, title: string, resizable?: number): number
     window_write(handle: number, text: string): number
@@ -560,6 +563,7 @@ export function installMainThreadSyscalls(): void {
   installWaliSignals()
   installSysvIpc()
   installRecordLocks()
+  installCounterFds()
   installFsWatch((proc, path, text) => writeScratch(kernelOf(proc), proc, path, text))
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined
@@ -1602,6 +1606,8 @@ export function installMainThreadSyscalls(): void {
       if ((error as { code?: string }).code !== 'EISDIR' || (flags & 3) !== 0 || (flags & 0o100) /* O_CREAT */) throw error
       fd = await openSyscall(proc, path, flags | O_DIRECTORY, mode)
     }
+    // a named pipe is a node whose descriptor is swapped for one on its pipe, which may wait for the other end
+    if (await bindFifo(proc, fd, kernelOf(proc).pipeProcess)) return fd
     if ((flags & 0o2000) && (flags & 3) === 2) {
       type Handle = { _position: number, inode: { size: number }, writeSync: Writer, write: Writer }
       type Writer = (this: Handle, buffer: Uint8Array, offset?: number, length?: number, position?: number) => unknown
@@ -1616,6 +1622,8 @@ export function installMainThreadSyscalls(): void {
     }
     return fd
   }) as never)
+  /** `mknod(2)` for a regular file or a named pipe (`mkfifo(3)` is the latter); `dev` is for device nodes, which are refused */
+  define_syscall('mknod', async (proc: Process, path: string, mode: number, _dev?: number) => makeNode(proc, path, mode, umaskOf(proc)))
   define_syscall('fd_getfl', (proc: Process, fd: number) => openFile(proc, fd).flag)
   define_syscall('fd_setfl', (proc: Process, fd: number, flags: number) => {
     const handle = openFile(proc, fd)

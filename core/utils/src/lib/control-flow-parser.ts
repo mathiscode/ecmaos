@@ -323,8 +323,8 @@ export function splitTopLevel(line: string): string[] {
       const pair = line.slice(i, i + 2)
       const length = pair === '&&' || pair === '||' ? 2 : 1
       current += line.slice(i, i + length); i += length
-      // `>&` and `&>` are redirections, not command separators.
-      commandStart = !(char === '&' && (line[i - length - 1] === '>' || line[i] === '>'))
+      // `>&`, `<&` and `&>` are redirections, not command separators.
+      commandStart = !(char === '&' && (line[i - length - 1] === '>' || line[i - length - 1] === '<' || line[i] === '>'))
       continue
     }
 
@@ -555,11 +555,11 @@ function splitCompoundTail(text: string): { redirect: string, rest?: string, bac
     const index = pipes[0] as number
     return { redirect: text.slice(0, index).trim(), rest: text.slice(index + 1).trim(), background: false }
   }
-  // A lone `&`: not `&&`, and not part of `>&`, `&>` or `2>&1`.
+  // A lone `&`: not `&&`, and not part of `>&`, `<&`, `&>` or `2>&1`.
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== '&') continue
     if (text[i + 1] === '&') { i++; continue }
-    if (text[i + 1] === '>' || text[i - 1] === '>') continue
+    if (text[i + 1] === '>' || text[i - 1] === '>' || text[i - 1] === '<') continue
     return { redirect: text.slice(0, i).trim(), background: true, after: text.slice(i + 1).trim() }
   }
   return undefined
