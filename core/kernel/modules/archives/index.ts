@@ -26,7 +26,7 @@ async function gunzipped(data: Uint8Array): Promise<Uint8Array> {
  * The tar backend as zenfs describes it, but for `data`, which is checked as an object, as the zip backend's is. Its
  * own check names `Uint8Array` as a class and, where that is not recognised as one, calls it without `new`, which throws.
  */
-const TarBackend = { ...Tar, options: { ...Tar.options, data: { type: 'object', required: true } } } as typeof Tar
+const TarBackend = { ...Tar, options: { ...Tar.options, data: { type: 'object', required: true } } } as unknown as typeof Tar
 
 // one module for all three: they share the library, and it registers types that a second copy of it could not
 export default {
