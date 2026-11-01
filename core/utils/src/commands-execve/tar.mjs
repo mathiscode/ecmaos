@@ -11,6 +11,7 @@ import { compile as compilePattern } from './lib/fnmatch.mjs'
 import { readFdBytes, readFileBytes, writeFdBytes } from './lib/bytes.mjs'
 import { reasonOf } from './lib/errno.mjs'
 import { chmodOwned, chownOwned, utimesOwned } from './lib/owner-ops.mjs'
+import { ACCESS, DEFAULT, decode as decodeAcl, encode as encodeAcl, fromTarText, toTarText } from './lib/acl.mjs'
 import { resolve } from './lib/path-utils.mjs'
 import { findProgram, readAll, statusOf, waitFor } from './lib/run.mjs'
 
@@ -187,6 +188,7 @@ function parseArchive(bytes) {
       linkname,
       uname: pax.uname ?? readString(block, 265, 32),
       gname: pax.gname ?? readString(block, 297, 32),
+      acl: { access: pax['SCHILY.acl.access'], default: pax['SCHILY.acl.default'] },
       data: hasData ? bytes.subarray(dataStart, dataStart + size) : new Uint8Array(),
       raw: bytes.subarray(rawStart === at ? at : rawStart, Math.min(stop, bytes.length))
     })
@@ -267,7 +269,7 @@ function memberBlocks(entry, format) {
     if (nameBytes > 100) blocks.push(...extensionMember('L', '././@LongLink', encoder.encode(name + '\0'), format))
     if (linkBytes > 100) blocks.push(...extensionMember('K', '././@LongLink', encoder.encode(linkname + '\0'), format))
   } else if (format === 'posix') {
-    const records = (nameBytes > 100 ? paxRecord('path', name) : '') + (linkBytes > 100 ? paxRecord('linkpath', linkname) : '') + (entry.size >= 8 ** 11 ? paxRecord('size', entry.size) : '')
+    const records = (nameBytes > 100 ? paxRecord('path', name) : '') + (linkBytes > 100 ? paxRecord('linkpath', linkname) : '') + (entry.size >= 8 ** 11 ? paxRecord('size', entry.size) : '') + (entry.acl?.access ? paxRecord('SCHILY.acl.access', entry.acl.access) : '') + (entry.acl?.default ? paxRecord('SCHILY.acl.default', entry.acl.default) : '')
     if (records) blocks.push(...extensionMember('x', `./PaxHeaders.0/${name.split('/').pop()}`.slice(0, 100), encoder.encode(records), format))
   } else if (format === 'ustar' && nameBytes > 100) {
     // the name splits at a slash into a prefix of at most 155 and a name of at most 100
@@ -301,6 +303,14 @@ function memberBlocks(entry, format) {
     blocks.push(padded)
   }
   return blocks
+}
+
+/** Puts the ACLs an archive member carried on the extracted file; the mode that follows sets the mask's bits */
+function restoreAcl(target, entry) {
+  for (const [name, text] of [[ACCESS, entry.acl?.access], [DEFAULT, entry.acl?.default]]) {
+    const entries = text ? fromTarText(text) : undefined
+    if (entries) { try { sys.setxattr(target, name, encodeAcl(entries), false) } catch { /* no xattrs here */ } }
+  }
 }
 
 const concat = chunks => {
@@ -355,7 +365,7 @@ const LONG = {
   directory: ['C', 1], exclude: ['exclude', 1], 'exclude-from': ['X', 1], 'files-from': ['T', 1], 'strip-components': ['strip', 1], 'to-stdout': ['O'],
   'keep-old-files': ['k'], 'skip-old-files': ['skip-old'], 'keep-newer-files': ['keep-newer'], overwrite: ['overwrite'], 'no-overwrite-dir': ['no-overwrite-dir'],
   'preserve-permissions': ['p'], 'same-permissions': ['p'], 'no-same-permissions': ['no-p'], 'same-owner': ['same-owner'], 'no-same-owner': ['no-same-owner'],
-  touch: ['m'], 'numeric-owner': ['numeric-owner'], owner: ['owner', 1], group: ['group', 1], mtime: ['mtime', 1], mode: ['mode', 1], format: ['format', 1],
+  acls: ['acls'], 'no-acls': ['no-acls'], touch: ['m'], 'numeric-owner': ['numeric-owner'], owner: ['owner', 1], group: ['group', 1], mtime: ['mtime', 1], mode: ['mode', 1], format: ['format', 1],
   dereference: ['h'], 'absolute-names': ['P'], 'one-top-level': ['one-top-level', 'optional'], transform: ['transform', 1], xform: ['transform', 1], wildcards: ['wildcards'],
   'no-wildcards': ['no-wildcards'], anchored: ['anchored'], 'no-anchored': ['no-anchored'], 'ignore-case': ['ignore-case'], null: ['null'], recursion: ['recursion'], 'no-recursion': ['no-recursion'],
   'remove-files': ['remove-files'], totals: ['totals', 'optional'], 'blocking-factor': ['b', 1], 'ignore-zeros': ['i'], checkpoint: ['checkpoint', 'optional'], sort: ['sort', 1],
@@ -374,7 +384,7 @@ const MODES = new Set(['c', 'x', 't', 'r', 'u', 'A', 'delete', 'd'])
 function parseCommandLine(args) {
   const o = {
     mode: undefined, file: undefined, verbose: 0, gzip: false, auto: false, strip: 0, toStdout: false, keepOld: false, skipOld: false, keepNewer: false,
-    preserve: undefined, sameOwner: undefined, touch: false, numericOwner: false, owner: undefined, group: undefined, mtime: undefined, mode_: undefined,
+    acls: false, preserve: undefined, sameOwner: undefined, touch: false, numericOwner: false, owner: undefined, group: undefined, mtime: undefined, mode_: undefined,
     format: 'gnu', dereference: false, absolute: false, topLevel: undefined, wildcards: false, anchored: false, ignoreCase: false, nullSep: false, recursion: true,
     removeFiles: false, totals: false, blocking: 20, ignoreZeros: false, filesFrom: [], excludeFrom: [], newer: undefined, sort: 'name', compress: undefined, compressProgram: undefined, transforms: []
   }
@@ -422,6 +432,8 @@ function parseCommandLine(args) {
       case 'same-owner': o.sameOwner = true; break
       case 'no-same-owner': o.sameOwner = false; break
       case 'm': o.touch = true; break
+      case 'acls': o.acls = true; break
+      case 'no-acls': o.acls = false; break
       case 'numeric-owner': o.numericOwner = true; break
       case 'owner': o.owner = value; break
       case 'group': o.group = value; break
@@ -726,6 +738,10 @@ async function createEntries(o, items, ctx) {
       gname: groupNameValue ?? (o.numericOwner ? '' : groupName(s.gid)),
       data: new Uint8Array()
     }
+    if (o.acls && !isLink) {
+      const text = name => { try { return toTarText(decodeAcl(sys.getxattr(base, name, false))) } catch { return undefined } }
+      entry.acl = { access: text(ACCESS), default: isDir ? text(DEFAULT) : undefined }
+    }
     if (isLink) { try { entry.linkname = readlink(base) } catch { entry.linkname = '' } }
     if (isFile && (s.nlink ?? 1) > 1 && s.ino !== undefined) {
       const key = `${s.dev ?? 0}:${s.ino}`
@@ -736,7 +752,7 @@ async function createEntries(o, items, ctx) {
       try { entry.data = readFileBytes(base) } catch (error) { fail(`${name}: Cannot open: ${reasonOf(error)}`); return }
       entry.size = entry.data.length
     }
-    try { chunks.push(...memberBlocks(entry, o.format)) } catch (error) { if (error instanceof Fatal) { fail(error.message); return } throw error }
+    try { chunks.push(...memberBlocks(entry, o.acls && o.format === 'gnu' ? 'posix' : o.format)) } catch (error) { if (error instanceof Fatal) { fail(error.message); return } throw error }
     if (verbose) {
       if (verbose > 1) listing(`${verboseLine(entry, o)}\n`)
       else listing(`${shown}\n`)
@@ -917,6 +933,7 @@ async function listOrExtract(o, items) {
       if (entry.type !== '2' && entry.type !== '1') {
         let mode = entry.mode & 0o7777
         if (!(o.preserve ?? false)) mode &= ~umask & 0o777
+        if (o.acls) restoreAcl(target, entry)
         try { await chmodOwned(sys, target, mode) } catch { /* the mode stays as created */ }
         if (!o.touch) { try { await utimesOwned(sys, target, entry.mtime, entry.mtime) } catch { /* times stay */ } }
         if (sameOwner) { try { await chownOwned(sys, target, entry.uid, entry.gid) } catch { /* not allowed */ } }
@@ -932,6 +949,7 @@ async function listOrExtract(o, items) {
   for (const { target, entry } of deferred.reverse()) {
     let mode = entry.mode & 0o7777
     if (!(o.preserve ?? false)) mode &= ~umask & 0o777
+    if (o.acls) restoreAcl(target, entry)
     try { await chmodOwned(sys, target, mode) } catch { /* left */ }
     if (!o.touch) { try { await utimesOwned(sys, target, entry.mtime, entry.mtime) } catch { /* left */ } }
     if (sameOwner) { try { await chownOwned(sys, target, entry.uid, entry.gid) } catch { /* left */ } }

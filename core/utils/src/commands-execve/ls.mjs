@@ -12,7 +12,10 @@ import { isTty, terminalSize } from './lib/tty.mjs'
 import { compile } from './lib/fnmatch.mjs'
 import { strftime } from './lib/strftime.mjs'
 
-const { argv, env, exit, writeAll, getcwd, stat, lstat, isDirectory, readdir, readlink } = globalThis.ecmaosSyscalls
+const { argv, env, exit, writeAll, getcwd, stat, lstat, isDirectory, readdir, readlink, listxattr } = globalThis.ecmaosSyscalls
+
+/** Set for a long listing, where a file with an extended ACL gets a `+` after its mode */
+let markAcl = false
 
 const encoder = new TextEncoder()
 const out = text => writeAll(1, encoder.encode(text))
@@ -84,6 +87,9 @@ function describe(dir, name, follow = false) {
     try { entry.linkTarget = readlink(path) } catch { /* shown without a target */ }
   }
   void isLink
+  if (markAcl && !isLink) {
+    try { if (listxattr(path, false).some(attr => attr === 'system.posix_acl_access' || attr === 'system.posix_acl_default')) entry.acl = true } catch { /* no xattrs here */ }
+  }
   return entry
 }
 
@@ -125,6 +131,7 @@ function main() {
   const lineWidth = options.width !== undefined ? options.width : tty ? terminalSize(1).cols : Number.isInteger(columns) && columns > 0 ? columns : 80
   const format = options.format ?? (tty ? 'columns' : 'single')
   const long = format === 'long'
+  markAcl = long
   const names = long ? loadNames() : { users: new Map(), groups: new Map() }
   const now = Date.now()
   const colors = options.color === 'always' || (options.color === 'auto' && tty && env?.TERM !== 'dumb') ? parseLsColors(env?.LS_COLORS) : undefined

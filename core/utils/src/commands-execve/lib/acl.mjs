@@ -130,3 +130,30 @@ export function parseSpec(spec, { remove = false } = {}) {
   } else if (qualifier) return { error: `Invalid entry: ${spec}` }
   return { def, tag, id: id ?? NO_ID, perm }
 }
+
+/** The pax form of an ACL (`SCHILY.acl.access`): `user::rw-,user:alice:rwx:1000,group::r-x,mask::rwx,other::---` */
+export function toTarText(entries) {
+  const kinds = { [USER_OBJ]: 'user', [USER]: 'user', [GROUP_OBJ]: 'group', [GROUP]: 'group', [MASK]: 'mask', [OTHER]: 'other' }
+  return sorted(entries).map(entry => {
+    const named = entry.tag === USER ? `${userName(entry.id)}` : entry.tag === GROUP ? `${groupName(entry.id)}` : ''
+    return `${kinds[entry.tag]}:${named}:${permText(entry.perm)}${entry.tag === USER || entry.tag === GROUP ? `:${entry.id}` : ''}`
+  }).join(',')
+}
+
+/** The entries of a `SCHILY.acl.*` value; a name that no account has falls back to the id at the end of the entry */
+export function fromTarText(text) {
+  const entries = []
+  for (const part of text.split(',')) {
+    const [kind, name, perms, id] = part.split(':')
+    const tag = { user: name ? USER : USER_OBJ, group: name ? GROUP : GROUP_OBJ, mask: MASK, other: OTHER }[kind]
+    const perm = parsePerm(perms ?? '')
+    if (tag === undefined || perm === undefined) return undefined
+    let number = NO_ID
+    if (tag === USER || tag === GROUP) {
+      number = (tag === USER ? userId : groupId)(name) ?? Number(id)
+      if (Number.isNaN(number)) return undefined
+    }
+    entries.push({ tag, perm, id: number })
+  }
+  return entries
+}

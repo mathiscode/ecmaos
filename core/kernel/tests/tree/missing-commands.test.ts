@@ -164,6 +164,34 @@ describe('network listings, blkid, look, dc, ncal, lastlog and finger', () => {
     expect((await run('units foo m')).err).toBe("Unknown unit 'foo'\n")
   })
 
+  it('ls -l marks a file with an extended ACL', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/marked.txt', 'x')
+    await kernel.filesystem.fs.writeFile('/tmp/unmarked.txt', 'x')
+    await run('setfacl -m u:root:r /tmp/marked.txt')
+    const listing = (await run('ls -l /tmp/marked.txt /tmp/unmarked.txt')).out
+    expect(listing).toMatch(/^\S{10}\+ .*marked\.txt$/m)
+    expect(listing).toMatch(/^\S{10} \d.*unmarked\.txt$/m)
+  })
+
+  it('cp -p and tar --acls carry an ACL', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/aclcopy', { recursive: true })
+    await kernel.filesystem.fs.writeFile('/tmp/aclcopy/a.txt', 'x')
+    await run('setfacl -m u:root:r /tmp/aclcopy/a.txt')
+
+    expect((await run('cp -p /tmp/aclcopy/a.txt /tmp/aclcopy/b.txt')).code).toBe(0)
+    expect((await run('getfacl -c /tmp/aclcopy/b.txt')).out).toContain('user:root:r--')
+    await run('cp /tmp/aclcopy/a.txt /tmp/aclcopy/c.txt')
+    expect((await run('getfacl -c /tmp/aclcopy/c.txt')).out).not.toContain('user:root')
+
+    expect((await run('tar --acls -cf /tmp/aclcopy/t.tar -C /tmp/aclcopy a.txt')).code).toBe(0)
+    await kernel.filesystem.fs.mkdir('/tmp/aclout1')
+    await kernel.filesystem.fs.mkdir('/tmp/aclout2')
+    expect((await run('tar --acls -xf /tmp/aclcopy/t.tar -C /tmp/aclout1')).code).toBe(0)
+    expect((await run('getfacl -c /tmp/aclout1/a.txt')).out).toContain('user:root:r--')
+    await run('tar -xf /tmp/aclcopy/t.tar -C /tmp/aclout2')
+    expect((await run('getfacl -c /tmp/aclout2/a.txt')).out).not.toContain('user:root')
+  })
+
   it('dc reports an empty stack and goes on', async () => {
     const result = await run("dc -e '+ 7 p'")
     expect(result.err).toContain('dc: stack empty')
