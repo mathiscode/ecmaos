@@ -83,6 +83,9 @@
       "@types/node": "22.20.2",
       "memium": "^1.0.4",
       "@zenfs/core": "^2.8.3"
+    },
+    "patchedDependencies": {
+      "@zenfs/core@2.8.3": "patches/@zenfs__core@2.8.3.patch"
     }
   }
 }

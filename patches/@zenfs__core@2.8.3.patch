@@ -1,0 +1,297 @@
+diff --git a/dist/internal/acl.js b/dist/internal/acl.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..27a3bf6f0c385a3ee301c2de2b7a18bc89b34f25
+--- /dev/null
++++ b/dist/internal/acl.js
+@@ -0,0 +1,124 @@
++/**
++ * POSIX ACLs as Linux keeps them: the `system.posix_acl_access` and `system.posix_acl_default` extended attributes, a 4-byte
++ * little-endian version (2) and 8-byte entries of tag, permissions and id. The permission check (`aclAllows`) and the rule for
++ * the ACL a new file or directory starts with (`creationAcl`) live here. Added to @zenfs/core for ecmaOS.
++ * @internal
++ */
++export const ACL_ACCESS = 'system.posix_acl_access';
++export const ACL_DEFAULT = 'system.posix_acl_default';
++const USER_OBJ = 0x01;
++const USER = 0x02;
++const GROUP_OBJ = 0x04;
++const GROUP = 0x08;
++const MASK = 0x10;
++const OTHER = 0x20;
++const NO_ID = 0xffffffff;
++export function decodeAcl(bytes) {
++    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
++    if (bytes.length < 4 || view.getUint32(0, true) !== 2)
++        return;
++    const entries = [];
++    for (let at = 4; at + 8 <= bytes.length; at += 8) {
++        entries.push({ tag: view.getUint16(at, true), perm: view.getUint16(at + 2, true), id: view.getUint32(at + 4, true) });
++    }
++    return entries;
++}
++export function encodeAcl(entries) {
++    const bytes = new Uint8Array(4 + entries.length * 8);
++    const view = new DataView(bytes.buffer);
++    view.setUint32(0, 2, true);
++    entries.forEach((entry, index) => {
++        const at = 4 + index * 8;
++        view.setUint16(at, entry.tag, true);
++        view.setUint16(at + 2, entry.perm, true);
++        view.setUint32(at + 4, entry.tag === USER || entry.tag === GROUP ? entry.id : NO_ID, true);
++    });
++    return bytes;
++}
++/** The entries of an inode's ACL (`system.posix_acl_access` unless `name` says otherwise), or undefined when it has none */
++export function aclOf(inode, name = ACL_ACCESS) {
++    const attributes = inode.attributes;
++    if (!attributes || !attributes.size)
++        return;
++    const raw = attributes.get(name);
++    return raw ? decodeAcl(raw) : undefined;
++}
++const isExtended = entries => entries.some(entry => entry.tag === USER || entry.tag === GROUP);
++/**
++ * Linux's rule for an inode with an ACL. The owner is judged by `user::` (the mode's owner bits); a named user by its entry and
++ * the mask; the group class (the owning group and the named groups) by whether any of the process's matching entries, limited by
++ * the mask, grants everything wanted, and a process in the class that none grants is refused; everyone else by `other::`.
++ * The mask is the mode's group bits, which is where `chmod` and `setfacl` keep it.
++ */
++export function aclAllows(credentials, inode, entries, access) {
++    const wanted = access & 7;
++    const mode = Number(inode.mode);
++    const { euid, egid, groups } = credentials;
++    if (euid === inode.uid)
++        return ((mode >> 6) & wanted) === wanted;
++    const mask = (mode >> 3) & 7;
++    const named = entries.find(entry => entry.tag === USER && entry.id === euid);
++    if (named)
++        return (named.perm & mask & wanted) === wanted;
++    const inGroup = id => egid === id || groups.includes(id);
++    let matched = false;
++    if (inGroup(Number(inode.gid))) {
++        matched = true;
++        const owner = entries.find(entry => entry.tag === GROUP_OBJ);
++        if (((owner ? owner.perm : mask) & mask & wanted) === wanted)
++            return true;
++    }
++    for (const entry of entries) {
++        if (entry.tag !== GROUP || !inGroup(entry.id))
++            continue;
++        matched = true;
++        if ((entry.perm & mask & wanted) === wanted)
++            return true;
++    }
++    if (matched)
++        return false;
++    return (mode & wanted) === wanted;
++}
++/**
++ * What a new entry in a directory starts with. Without a default ACL on the parent it is the requested mode less the umask. With
++ * one, the umask is not applied: the default entries become the new entry's ACL, limited by the requested mode, and a directory
++ * also keeps the default ACL itself. Returns the creation `mode`, and the `access` and `def` attribute values to put on the new
++ * inode when there are any.
++ */
++export function creationAcl(umask, requested, parent, isDirectory) {
++    const raw = parent.attributes && parent.attributes.size ? parent.attributes.get(ACL_DEFAULT) : undefined;
++    const defaults = raw ? decodeAcl(raw) : undefined;
++    if (!defaults)
++        return { mode: requested & ~(umask & 0o777) };
++    const entries = defaults.map(entry => ({ ...entry }));
++    const find = tag => entries.find(entry => entry.tag === tag);
++    const user = find(USER_OBJ);
++    const group = find(GROUP_OBJ);
++    const mask = find(MASK);
++    const other = find(OTHER);
++    if (user)
++        user.perm &= (requested >> 6) & 7;
++    if (other)
++        other.perm &= requested & 7;
++    if (mask)
++        mask.perm &= (requested >> 3) & 7;
++    else if (group)
++        group.perm &= (requested >> 3) & 7;
++    const perm = ((user?.perm ?? (requested >> 6) & 7) << 6) | (((mask ?? group)?.perm ?? (requested >> 3) & 7) << 3) | (other?.perm ?? requested & 7);
++    return {
++        mode: (requested & ~0o777) | perm,
++        access: isExtended(entries) ? encodeAcl(entries) : undefined,
++        def: isDirectory ? raw : undefined,
++    };
++}
++/** Puts the attributes `creationAcl` returned on a new inode; true when there were any to put */
++export function applyCreationAcl(inode, created, Attributes) {
++    if (!created.access && !created.def)
++        return false;
++    inode.attributes ??= new Attributes();
++    if (created.access)
++        inode.attributes.set(ACL_ACCESS, created.access);
++    if (created.def)
++        inode.attributes.set(ACL_DEFAULT, created.def);
++    return true;
++}
+diff --git a/dist/internal/inode.js b/dist/internal/inode.js
+index 075fa244a8a2ce2713586e4ad63e4950c0fa05c7..13b0f10edfbd7f2e79b77a1cb3c19dab533c30b2 100644
+--- a/dist/internal/inode.js
++++ b/dist/internal/inode.js
+@@ -33,6 +33,7 @@ var __runInitializers = (this && this.__runInitializers) || function (thisArg, i
+     return useValue ? value : void 0;
+ };
+ // SPDX-License-Identifier: LGPL-3.0-or-later
++import { aclAllows, aclOf } from './acl.js';
+ import { UV, withErrno } from 'kerium';
+ import { crit, warn } from 'kerium/log';
+ import { sizeof } from 'memium';
+@@ -657,6 +658,9 @@ export function hasAccess($, inode, access) {
+         return true;
+     if (credentials.euid === 0)
+         return !(access & c.X_OK) || isDirectory(inode) || !!(inode.mode & (c.S_IXUSR | c.S_IXGRP | c.S_IXOTH));
++    const acl = aclOf(inode);
++    if (acl)
++        return aclAllows(credentials, inode, acl, access);
+     let perm = 0;
+     if (credentials.euid === inode.uid) {
+         if (inode.mode & c.S_IRUSR)
+diff --git a/dist/node/promises.js b/dist/node/promises.js
+index 940354915ff09209232e93d68ec28882916ed662..b915dc6b2484e1f65b785a09c7dbbdb68401f622 100644
+--- a/dist/node/promises.js
++++ b/dist/node/promises.js
+@@ -866,8 +866,8 @@ watch;
+ export async function access(path, mode = constants.F_OK) {
+     if (!checkAccess)
+         return;
+-    const stats = await stat.call(this, path);
+-    if (!stats.hasAccess(mode, this))
++    const inode = await _async.stat.call(this, path, false);
++    if (!hasAccess(this, inode, mode))
+         throw UV('EACCES', 'access', path.toString());
+ }
+ access;
+diff --git a/dist/node/sync.js b/dist/node/sync.js
+index 9c548de567bb8660e0781b30199899be97172a0c..02ae7c917263c5d9979a76722cf3b3a00014fcd6 100644
+--- a/dist/node/sync.js
++++ b/dist/node/sync.js
+@@ -497,7 +497,7 @@ realpathSync;
+ export function accessSync(path, mode = 0o600) {
+     if (!checkAccess)
+         return;
+-    if (!hasAccess(this, statSync.call(this, path), mode)) {
++    if (!hasAccess(this, _sync.stat.call(this, path, false), mode)) {
+         throw new Exception(Errno.EACCES);
+     }
+ }
+diff --git a/dist/vfs/async.js b/dist/vfs/async.js
+index 1087f2903a1bfbb17f21206c052e0d4af4e57879..27c811d103709d636450956d6cf9dd9178dc58c5 100644
+--- a/dist/vfs/async.js
++++ b/dist/vfs/async.js
+@@ -53,8 +53,9 @@ var __disposeResources = (this && this.__disposeResources) || (function (Suppres
+ import { rethrow, setUVMessage, UV } from 'kerium';
+ import { decodeUTF8 } from 'utilium';
+ import * as constants from '../constants.js';
+-import { applyUmask, contextOf } from '../internal/contexts.js';
+-import { assertRemovable, assertSearchable, hasAccess, isDirectory, isSymbolicLink } from '../internal/inode.js';
++import { contextOf } from '../internal/contexts.js';
++import { applyCreationAcl, creationAcl } from '../internal/acl.js';
++import { assertRemovable, assertSearchable, Attributes, hasAccess, isDirectory, isSymbolicLink } from '../internal/inode.js';
+ import { basename, dirname, join, parse, resolve as resolvePath } from '../path.js';
+ import { normalizeMode, normalizePath, normalizeTime } from '../utils.js';
+ import { checkAccess, resolveFullWalk } from './config.js';
+@@ -143,11 +144,14 @@ export async function open($, path, opt) {
+             stats = await cache.stat(resolved).catch(() => undefined);
+             if (!stats) {
+                 const { euid: uid, egid: gid } = contextOf($).credentials;
++                const created = creationAcl(contextOf($).umask, mode, parentStats, false);
+                 const inode = await fs.createFile(resolved, {
+-                    mode: applyUmask($, mode),
++                    mode: created.mode,
+                     uid: parentStats.mode & constants.S_ISUID ? parentStats.uid : uid,
+                     gid: parentStats.mode & constants.S_ISGID ? parentStats.gid : gid,
+                 });
++                if (applyCreationAcl(inode, created, Attributes))
++                    await fs.touch(resolved, inode);
+                 emitChange($, 'rename', path);
+                 return new Handle($, path, resolved, flag, cache.ref(resolved, inode));
+             }
+@@ -190,7 +194,7 @@ export async function mkdir(path, options = {}) {
+     const original = normalizePath.call(this, path);
+     const { euid: uid, egid: gid } = contextOf(this).credentials;
+     const { recursive } = options;
+-    const mode = applyUmask(this, options.mode ?? 0o777);
++    const requestedMode = options.mode ?? 0o777;
+     const $ex = { syscall: 'mkdir', path: original };
+     const { fullPath: realParent } = await resolve(this, dirname(original), false, $ex);
+     const { fs, cache, path: target } = resolveMount(join(realParent, basename(original)), this, $ex);
+@@ -218,13 +222,16 @@ export async function mkdir(path, options = {}) {
+             }
+             if (checkAccess && !hasAccess(this, parent, constants.W_OK | constants.X_OK))
+                 throw UV('EACCES', 'mkdir', path);
++            const created = creationAcl(contextOf(this).umask, requestedMode, parent, true);
+             const inode = await fs
+                 .mkdir(resolved, {
+-                mode,
++                mode: created.mode,
+                 uid: parent.mode & constants.S_ISUID ? parent.uid : uid,
+                 gid: parent.mode & constants.S_ISGID ? parent.gid : gid,
+             })
+                 .catch(rethrow({ syscall: 'mkdir', path }));
++            if (applyCreationAcl(inode, created, Attributes))
++                await fs.touch(resolved, inode).catch(rethrow({ syscall: 'mkdir', path }));
+             if (recursive)
+                 firstCreated ??= path;
+             emitChange(this, 'rename', path);
+diff --git a/dist/vfs/sync.js b/dist/vfs/sync.js
+index 4acfd60e97f305d4f751f8e5b1fa8d7263b7707f..6ee6d4241068cc02f8656a2491114c38512bed18 100644
+--- a/dist/vfs/sync.js
++++ b/dist/vfs/sync.js
+@@ -53,9 +53,10 @@ var __disposeResources = (this && this.__disposeResources) || (function (Suppres
+ import { setUVMessage, UV } from 'kerium';
+ import { decodeUTF8 } from 'utilium';
+ import * as constants from '../constants.js';
+-import { applyUmask, contextOf } from '../internal/contexts.js';
++import { contextOf } from '../internal/contexts.js';
++import { applyCreationAcl, creationAcl } from '../internal/acl.js';
+ import { wrap } from '../internal/error.js';
+-import { assertRemovable, assertSearchable, hasAccess, isDirectory, isSymbolicLink } from '../internal/inode.js';
++import { assertRemovable, assertSearchable, Attributes, hasAccess, isDirectory, isSymbolicLink } from '../internal/inode.js';
+ import { basename, dirname, join, parse, resolve as resolvePath } from '../path.js';
+ import { normalizeMode, normalizePath, normalizeTime } from '../utils.js';
+ import { cacheOf } from './vcache.js';
+@@ -155,11 +156,14 @@ export function open($, path, opt) {
+             // Serialize entry creation with other operations on the parent directory
+             const _ = __addDisposableResource(env_1, cache.lockSync(parentPath, 'rw', parentStats), false);
+             const { euid: uid, egid: gid } = contextOf($).credentials;
++            const created = creationAcl(contextOf($).umask, mode, parentStats, false);
+             const inode = fs.createFileSync(resolved, {
+-                mode: applyUmask($, mode),
++                mode: created.mode,
+                 uid: parentStats.mode & constants.S_ISUID ? parentStats.uid : uid,
+                 gid: parentStats.mode & constants.S_ISGID ? parentStats.gid : gid,
+             });
++            if (applyCreationAcl(inode, created, Attributes))
++                fs.touchSync(resolved, inode);
+             // A new entry in the parent directory, which is a 'rename' event
+             emitChange($, 'rename', path);
+             return new Handle($, path, resolved, flag, cache.ref(resolved, inode));
+@@ -206,7 +210,7 @@ export function mkdir(path, options = {}) {
+     const followed = realParent != dirname(original);
+     const { euid: uid, egid: gid } = contextOf(this).credentials;
+     const { recursive } = options;
+-    const mode = applyUmask(this, options.mode ?? 0o777);
++    const requestedMode = options.mode ?? 0o777;
+     let firstCreated;
+     const __create = (path, resolved) => {
+         const env_2 = { stack: [], error: void 0, hasError: false };
+@@ -235,11 +239,14 @@ export function mkdir(path, options = {}) {
+             if (checkAccess && !hasAccess(this, parent, constants.W_OK | constants.X_OK))
+                 throw UV('EACCES', 'mkdir', path);
+             const _ = __addDisposableResource(env_2, cache.lockSync(parentPath, 'rw', parent), false);
++            const created = creationAcl(contextOf(this).umask, requestedMode, parent, true);
+             const inode = wrap(fs, 'mkdirSync', { path, syscall: 'mkdir' })(resolved, {
+-                mode,
++                mode: created.mode,
+                 uid: parent.mode & constants.S_ISUID ? parent.uid : uid,
+                 gid: parent.mode & constants.S_ISGID ? parent.gid : gid,
+             });
++            if (applyCreationAcl(inode, created, Attributes))
++                fs.touchSync(resolved, inode);
+             if (recursive)
+                 firstCreated ??= path;
+             emitChange(this, 'rename', path);
