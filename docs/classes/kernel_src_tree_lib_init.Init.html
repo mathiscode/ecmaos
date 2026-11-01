@@ -168,8 +168,8 @@ init reaps it and waits for it like any other entry. It has no thread and no pro
 <li class="">
 <div class="tsd-signature tsd-anchor-link" id="wait-1"><span class="tsd-kind-call-signature">wait</span><span class="tsd-signature-symbol">(</span><span class="tsd-kind-parameter">timeoutMs</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <a href="https://typhonjs-typedoc.github.io/ts-lib-docs/2024/es/interfaces/Promise.html" class="tsd-signature-type external" target="_blank">Promise</a><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">number</span><span class="tsd-signature-symbol">&gt;</span><a href="#wait-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
 <div class="tsd-description">
-<div class="tsd-comment tsd-typography"><p>Resolves to the pid of a child that has exited, which is reaped, or to 0 once <code>timeoutMs</code> passes
-(a negative number waits for ever).</p>
+<div class="tsd-comment tsd-typography"><p>Resolves to the pid of a child that has exited, which is reaped, times 65536, plus its wait status (as <code>waitpid</code>
+packs it), or to 0 once <code>timeoutMs</code> passes (a negative number waits for ever).</p>
 </div>
 <div class="tsd-parameters">
 <h4 class="tsd-parameters-title">Parameters</h4>

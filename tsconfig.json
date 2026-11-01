@@ -6,7 +6,6 @@
     "**/dist/**/*",
     "**/tests/**/*",
     "core/swapi",
-    "core/bios",
     "core/jaffa",
     "core/kernel/src/ui.ts",
     "**/vite.config.ts",

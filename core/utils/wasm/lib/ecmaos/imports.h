@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT OR Apache-2.0
- * The calls libecmaos makes to the host that runs Emscripten programs (core/kernel/src/bin/wasi-preview1.mjs). Each
+ * The calls libecmaos makes to the host that runs Emscripten programs (core/kernel/src/bin/emscripten.mjs). Each
  * returns what the kernel answered: a negative value is -errno in Emscripten's numbering. */
 #ifndef ECMAOS_IMPORTS_H
 #define ECMAOS_IMPORTS_H

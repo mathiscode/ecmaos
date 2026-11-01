@@ -1,6 +1,6 @@
 /**
  * `posix_spawn` for both C libraries: WALI's musl (`wali-host.mjs`, through the sysroot's musl patch) and Emscripten's
- * with libecmaos (`wasi-preview1.mjs`, through `core/utils/wasm/lib/ecmaos/process.c`) make the same call,
+ * with libecmaos (`emscripten.mjs`, through `core/utils/wasm/lib/ecmaos/process.c`) make the same call,
  * `__ecmaos_spawn(path, argv, envp, actions, count, flags, pgrp, sigdefault, sigmask)`, with the same layout: 32-bit
  * pointers, a 24-byte file action and 8 bytes read from each sigset.
  *

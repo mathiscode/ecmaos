@@ -50,7 +50,7 @@
     "@zenfs/linux": "0.6.1",
     "@zip.js/zip.js": "^2.24.0",
     "ansi-escape-sequences": "^6.2.4",
-    "buffer": "^6.0.3",
+    "buffer": "6.0.3",
     "chalk": "^6.0.1",
     "columnify": "^1.6.0",
     "command-line-args": "^6.0.2",

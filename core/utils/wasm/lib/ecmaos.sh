@@ -10,7 +10,7 @@
 #    sleeps, pause and sigsuspend wait in the kernel (ecmaos/signal.c)
 #  - extended attribute calls that answer ENOTSUP (ecmaos/gaps.c)
 #  - libecmaos-termcap.a, a termcap with no terminal database, for a program that asks for it (ecmaos/termcap.c)
-# The host side is core/kernel/src/bin/wasi-preview1.mjs. fork stays unavailable (ENOSYS).
+# The host side is core/kernel/src/bin/emscripten.mjs. fork stays unavailable (ENOSYS).
 #
 # build_ecmaos WORK builds into "$WORK/ecmaos" and sets, for the caller's link:
 #   ECMAOS_LIB     the object to link (`emcc ... $ECMAOS_LIB`): it replaces libc's definitions, so it is an object,

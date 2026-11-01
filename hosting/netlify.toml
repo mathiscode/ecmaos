@@ -1,0 +1,22 @@
+# ecmaOS on Netlify. In the site settings, leave the base directory empty (the repository root) and set the configuration
+# file path to hosting/netlify.toml. The headers are the same as _headers.
+
+[build]
+  command = "pnpm install --frozen-lockfile && pnpm build --filter @ecmaos/kernel"
+  publish = "core/kernel/dist"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+
+[[headers]]
+  for = "/*.gz"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+
+[[headers]]
+  for = "/*.wasm"
+  [headers.values]
+    Content-Type = "application/wasm"

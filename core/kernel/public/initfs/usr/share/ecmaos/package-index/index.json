@@ -309,6 +309,158 @@
     "pip": {
       "package": "@ecmaos-apps/pip",
       "description": "pip, Python's package installer, on PyPI's wheels (pure-Python ones; it installs into python3's site-packages)"
+    },
+    "lua": {
+      "package": "@ecmaos-apps/lua",
+      "description": "The Lua 5.4 interpreter"
+    },
+    "sqlite3": {
+      "package": "@ecmaos-apps/sqlite3",
+      "description": "The SQLite command-line shell, with linenoise for line editing"
+    },
+    "ncdu": {
+      "package": "@ecmaos-apps/ncdu",
+      "description": "ncdu, the disk usage browser, with ncurses"
+    },
+    "mandoc": {
+      "package": "@ecmaos-apps/mandoc",
+      "description": "mandoc, the man(7) and mdoc(7) formatter (terminal, HTML, Markdown and lint output; no page database)"
+    },
+    "tmux": {
+      "package": "@ecmaos-apps/tmux",
+      "description": "tmux, the terminal multiplexer, with libevent and ncurses; it forks, so it is built with Asyncify"
+    },
+    "dropbear": {
+      "package": "@ecmaos-apps/dropbear",
+      "description": "Dropbear: the ssh server, and ssh (also dbclient), scp and dropbearkey (links to it); it forks, so it is built with Asyncify"
+    },
+    "bc": {
+      "package": "@ecmaos-apps/bc",
+      "description": "bc, and dc (the same binary under another name)"
+    },
+    "jq": {
+      "package": "@ecmaos-apps/jq",
+      "description": "jq, the JSON processor, with oniguruma, decNumber and David Gay's dtoa"
+    },
+    "tree": {
+      "package": "@ecmaos-apps/tree",
+      "description": "tree, the directory lister"
+    },
+    "evtest": {
+      "package": "@ecmaos-apps/evtest",
+      "description": "evtest, which lists the input devices and prints what one reports"
+    },
+    "doom": {
+      "package": "@ecmaos-apps/doom",
+      "description": "doom, id Software's Doom (doomgeneric) in a window on SDL 3; bring your own WAD, e.g. Freedoom (needs wlcomp running)"
+    },
+    "aplay": {
+      "package": "@ecmaos-apps/aplay",
+      "description": "aplay, ALSA's command line player: plays WAV and raw sound to the card behind /dev/snd/pcmC0D0p (aplay -l lists it; -D hw:0,0 is the card as it is, the default converts format, rate and channels), with alsa-lib"
+    },
+    "arecord": {
+      "package": "@ecmaos-apps/arecord",
+      "description": "arecord, ALSA's command line recorder: records the microphone behind /dev/snd/pcmC0D0c to a WAV file (aplay's program, run as arecord), with alsa-lib"
+    },
+    "amixer": {
+      "package": "@ecmaos-apps/amixer",
+      "description": "amixer, ALSA's command line mixer: shows and sets the card's Master and Capture volumes and switches (amixer sset Master 50%), with alsa-lib"
+    },
+    "speaker-test": {
+      "package": "@ecmaos-apps/speaker-test",
+      "description": "speaker-test, ALSA's test tone and noise generator for the speakers (speaker-test -t sine -c 2), with alsa-lib"
+    },
+    "htop": {
+      "package": "@ecmaos-apps/htop",
+      "description": "htop, with ncurses: interactive process viewer"
+    },
+    "perl": {
+      "package": "@ecmaos-apps/perl",
+      "description": "Perl, with fork, system and pipe opens, and the core modules; it forks, so it is built with Asyncify"
+    },
+    "rsync": {
+      "package": "@ecmaos-apps/rsync",
+      "description": "rsync, the fast incremental file copier, locally and over ssh; it forks, so it is built with Asyncify"
+    },
+    "cmatrix": {
+      "package": "@ecmaos-apps/cmatrix",
+      "description": "cmatrix, the falling characters of The Matrix, with ncurses"
+    },
+    "dash": {
+      "package": "@ecmaos-apps/dash",
+      "description": "dash, the Debian Almquist shell (a POSIX sh); it forks, so it is built with Asyncify"
+    },
+    "bzip2": {
+      "package": "@ecmaos-apps/bzip2",
+      "description": "bzip2, and bunzip2 and bzcat (links to it)"
+    },
+    "xz": {
+      "package": "@ecmaos-apps/xz",
+      "description": "xz, and unxz, xzcat, lzma, unlzma and lzcat (links to it)"
+    },
+    "zstd": {
+      "package": "@ecmaos-apps/zstd",
+      "description": "zstd, and unzstd and zstdcat (links to it)"
+    },
+    "patch": {
+      "package": "@ecmaos-apps/patch",
+      "description": "patch, from toybox: applies unified, context and normal diffs"
+    },
+    "microcom": {
+      "package": "@ecmaos-apps/microcom",
+      "description": "microcom, from toybox: a serial console (microcom -s 115200 /dev/ttyACM0)"
+    },
+    "hwclock": {
+      "package": "@ecmaos-apps/hwclock",
+      "description": "hwclock, from toybox: reads the real-time clock (/dev/rtc0)"
+    },
+    "lsof": {
+      "package": "@ecmaos-apps/lsof",
+      "description": "lsof, from toybox: lists the files, sockets and pipes processes have open"
+    },
+    "vmstat": {
+      "package": "@ecmaos-apps/vmstat",
+      "description": "vmstat, from toybox: reports memory, processes and CPU time from /proc"
+    },
+    "netstat": {
+      "package": "@ecmaos-apps/netstat",
+      "description": "netstat, from toybox: lists listening and open sockets from /proc/net"
+    },
+    "sysctl": {
+      "package": "@ecmaos-apps/sysctl",
+      "description": "sysctl, from toybox: reads and sets kernel parameters in /proc/sys"
+    },
+    "lsmod": {
+      "package": "@ecmaos-apps/lsmod",
+      "description": "lsmod, from toybox: lists the loaded kernel modules"
+    },
+    "pidof": {
+      "package": "@ecmaos-apps/pidof",
+      "description": "pidof, from toybox: finds the process ids of a program by name"
+    },
+    "hidinfo": {
+      "package": "@ecmaos-apps/hidinfo",
+      "description": "hidinfo, lists the HID devices of /dev/hidraw* with their names, ids and report descriptors, through the hidraw ioctls"
+    },
+    "v4l2grab": {
+      "package": "@ecmaos-apps/v4l2grab",
+      "description": "v4l2grab, takes a picture from a /dev/video camera with the V4L2 read I/O method and writes it as a PPM or a JPEG"
+    },
+    "lsusb": {
+      "package": "@ecmaos-apps/lsusb",
+      "description": "lsusb, from toybox: lists the USB devices in /sys/bus/usb/devices"
+    },
+    "lspci": {
+      "package": "@ecmaos-apps/lspci",
+      "description": "lspci, from toybox: lists the PCI devices in /sys/bus/pci/devices"
+    },
+    "make": {
+      "package": "@ecmaos-apps/make",
+      "description": "GNU make, with parallel jobs (-j)"
+    },
+    "ed": {
+      "package": "@ecmaos-apps/ed",
+      "description": "GNU ed, the line editor"
     }
   },
   "apt": {

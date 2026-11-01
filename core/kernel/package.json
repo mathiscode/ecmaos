@@ -209,7 +209,6 @@
     "@ecmaos-devices/tty": "workspace:^",
     "@ecmaos-devices/usb": "workspace:^",
     "@ecmaos-devices/webgl": "workspace:^",
-    "@ecmaos/bios": "workspace:^",
     "@ecmaos/coreutils": "workspace:^",
     "@ecmaos/peer": "workspace:^",
     "@gera2ld/tarjs": "^0.3.1",

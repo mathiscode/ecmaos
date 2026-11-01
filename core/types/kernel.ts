@@ -3,7 +3,6 @@
  */
 
 import type { Host } from './host.ts'
-import type { BIOSModule } from '@ecmaos/bios'
 import type { InitOptions } from 'i18next'
 import type Module from 'node:module'
 import type { JSONSchemaForNPMPackageJsonFiles } from '@schemastore/package'
@@ -128,9 +127,6 @@ export interface Kernel {
 
   /** Authentication and authorization service */
   readonly auth: Auth
-
-  /** BIOS module providing low-level functionality */
-  bios?: BIOSModule
 
   /** Broadcast channel for inter-kernel communication */
   readonly channel: BroadcastChannel

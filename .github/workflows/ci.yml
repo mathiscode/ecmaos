@@ -43,6 +43,9 @@ jobs:
         run: pnpm check:initfs
 
       # Package manifests: one version of each dependency across the workspace, dependencies sorted (pnpm fix:repo fixes it)
+      - name: Hosting configs send the isolation headers
+        run: node hosting/check.mjs
+
       - name: Workspace manifests
         run: pnpm lint:repo
 

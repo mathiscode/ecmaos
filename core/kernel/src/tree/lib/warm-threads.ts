@@ -34,7 +34,10 @@ const nodeWorkerThreads = 'node:' + 'worker_threads'
 
 /** A program the kernel has compiled already: what `/bin/wali` would otherwise read from the file and compile itself */
 export interface ProgramModule {
-  module: WebAssembly.Module
+  /** Absent for a component, which has its transpiled `component` instead */
+  module?: WebAssembly.Module
+  /** A Preview 2 component as jco generated it (`Wasm.prepareComponent`): `/bin/wali` loads and runs it */
+  component?: { js: string, modules: Record<string, WebAssembly.Module>, exports: string[], imports: string[] }
   limits?: { initial: number, maximum: number }
   /** The file it was compiled from (inode, size, mtime): a worker whose `exe` is another file now reads that one */
   id?: string
@@ -54,6 +57,15 @@ export function provideProgramModule(exe: string, program: ProgramModule | undef
   programs.set(exe, program)
   for (const old of [...programs.keys()].slice(0, Math.max(0, programs.size - MAX_PROGRAMS))) programs.delete(old)
 }
+
+/**
+ * Prepares a program the kernel did not launch itself (one a script or another program `execve`s): a component is
+ * transpiled here, since the worker has no jco. Asked by a worker that finds a component the kernel did not provide; it
+ * `provideProgramModule`s what it makes.
+ */
+type ProgramPreparer = (exe: string) => Promise<void>
+let preparer: ProgramPreparer | undefined
+export function setProgramPreparer(next: ProgramPreparer | undefined): void { preparer = next }
 
 const interpreters: Interpreter[] = []
 let installed = false
@@ -170,6 +182,18 @@ async function warmThread(bytes: Uint8Array): Promise<HostThread> {
     if (exe !== undefined && program) post({ $: 'wali-module', exe, ...program } as never)
     post(message)
   }
+  // A worker that finds its program is a component nobody prepared (another program exec'd it) asks for one
+  const onMessage = host.onMessage.bind(host)
+  host.onMessage = handler => onMessage(message => {
+    const request = message as unknown as { $?: string, exe?: string }
+    if (request.$ !== 'wali-need-component' || request.exe === undefined) return handler(message)
+    const exe = request.exe
+    void (async () => {
+      await preparer?.(exe).catch(() => undefined)
+      const prepared = programs.get(exe)
+      post({ $: 'wali-module', exe, ...(prepared ?? {}) } as never)
+    })()
+  })
   return host
 }
 

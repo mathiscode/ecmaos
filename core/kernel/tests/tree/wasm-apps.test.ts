@@ -91,7 +91,7 @@ describe('wasm programs as packages', () => {
     expect(versionOf({ version: '3.5a' })).toBe('3.5.0-ecmaos.1')
     expect(versionOf({ version: '9.1.0', revision: 3 })).toBe('9.1.0-ecmaos.3')
     const listed = process.getBuiltinModule('node:child_process').execFileSync('node', [script, 'list'], { encoding: 'utf8' }).trim().split('\n')
-    expect(listed).toContain('@ecmaos-apps/jq@1.8.2-ecmaos.1')
+    expect(listed.map(line => line.replace(' (moved)', ''))).toContain('@ecmaos-apps/jq@1.8.2-ecmaos.1')
     expect(new Set(listed).size).toBe(listed.length)
   }, 60_000)
 
@@ -154,6 +154,11 @@ describe('wasm programs as packages', () => {
     expect(manifest.ecmaos.runtime).toBe('runtime')
     expect(Object.keys(files).some(file => file.startsWith('runtime/usr/'))).toBe(true)
     expect(Object.keys(files).some(file => file.startsWith('share/licenses/figlet/'))).toBe(true)
+  }, 60_000)
+
+  it('keeps an empty directory of the runtime, which npm would drop and CPython warns of', async () => {
+    const { files } = await publishProgram('python3')
+    expect(Object.keys(files)).toContain('runtime/usr/lib/python3.14/lib-dynload/.keep')
   }, 60_000)
 
   it('installs a program: the bin links the .wasm, the runtime and licenses are linked into /usr, and it runs', async () => {

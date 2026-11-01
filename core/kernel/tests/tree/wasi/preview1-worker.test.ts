@@ -8,7 +8,7 @@ import { TestDomOptions, TestLogOptions } from '../fixtures/kernel.fixtures'
 
 /**
  * A plain `wasm32-wasip1` module runs as a real worker-hosted Process under `/bin/wali`'s preview1
- * translation (`src/bin/wasi-preview1.mjs`): real pid, real stdio fds, real exit codes, and, the
+ * translation (`src/bin/wasip1.mjs`): real pid, real stdio fds, real exit codes, and, the
  * point of the change, killable while it spins in a tight loop with no yield point.
  */
 async function compile(wat: string): Promise<Uint8Array> {
@@ -171,6 +171,43 @@ const SOCKET_CLIENT = `(module
     (drop (call $fd_write (i32.const 1) (i32.const 8) (i32.const 1) (i32.const 104)))
     (call $proc_exit (i32.const 0))))`
 
+// poll_oneoff with a 1 ms clock subscription (userdata 42) and an fd_read subscription on an unopened fd (userdata 7):
+// exits nevents * 100 + the error of the event whose userdata is 7 (EBADF is 8): 1 * 100 + 8 = 108 (the unopened fd is ready at
+// once, with the error, so the clock is not reported), so a wrong layout shows in the code.
+const POLL = `(module
+  (import "wasi_snapshot_preview1" "poll_oneoff" (func $poll_oneoff (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (memory (export "memory") 1)
+  (func (export "_start") (local $n i32) (local $i i32) (local $err i32)
+    (i64.store (i32.const 0) (i64.const 42))
+    (i32.store8 (i32.const 8) (i32.const 0))
+    (i64.store (i32.const 24) (i64.const 1000000))
+    (i64.store (i32.const 48) (i64.const 7))
+    (i32.store8 (i32.const 56) (i32.const 1))
+    (i32.store (i32.const 64) (i32.const 99))
+    (if (call $poll_oneoff (i32.const 0) (i32.const 256) (i32.const 2) (i32.const 512)) (then (call $proc_exit (i32.const 1))))
+    (local.set $n (i32.load (i32.const 512)))
+    (loop $each
+      (if (i64.eq (i64.load (i32.add (i32.const 256) (i32.mul (local.get $i) (i32.const 32)))) (i64.const 7))
+        (then (local.set $err (i32.load16_u (i32.add (i32.const 264) (i32.mul (local.get $i) (i32.const 32)))))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br_if $each (i32.lt_u (local.get $i) (local.get $n))))
+    (call $proc_exit (i32.add (i32.mul (local.get $n) (i32.const 100)) (local.get $err)))))`
+
+// imports a function the host does not have; `call` is what _start does with it after printing "ran"
+const MISSING = (call: string) => `(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "env" "not_a_real_import" (func $missing (param i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 8) "ran\\n")
+  (func (export "_start")
+    (i32.store (i32.const 0) (i32.const 8))
+    (i32.store (i32.const 4) (i32.const 4))
+    (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 100)))
+    ${call}
+    (call $proc_exit (i32.const 0))))`
+
 describe('wasi preview1 as a worker Process', () => {
   let kernel: Kernel
 
@@ -202,7 +239,7 @@ describe('wasi preview1 as a worker Process', () => {
       log: TestLogOptions
     })
     await kernel.boot()
-    for (const [name, wat] of Object.entries({ hello: HELLO, cat: CAT, spin: SPIN, writefile: WRITE_FILE })) {
+    for (const [name, wat] of Object.entries({ hello: HELLO, cat: CAT, spin: SPIN, writefile: WRITE_FILE, poll: POLL, 'missing-unused': MISSING(''), 'missing-called': MISSING('(drop (call $missing (i32.const 1)))') })) {
       await kernel.filesystem.fs.writeFile(`/tmp/${name}.wasm`, await compile(wat), { mode: 0o755 })
     }
   })
@@ -259,10 +296,10 @@ describe('wasi preview1 as a worker Process', () => {
     expect(await kernel.shell.execute('/tmp/socket-nonloopback.wasm')).toBe(0)
   })
 
-  it('is routed to the worker only when it is a plain wasip1 module', async () => {
+  it('routes an emcc module (env imports) to the worker too', async () => {
     expect(await kernel.wasm.canRunInWorker(await compile(HELLO))).toBe(true)
     const emscripten = await compile(`(module (import "env" "emscripten_thing" (func)) (memory (export "memory") 1) (func (export "_start")))`)
-    expect(await kernel.wasm.canRunInWorker(emscripten)).toBe(false)
+    expect(await kernel.wasm.canRunInWorker(emscripten)).toBe(true)
   })
 
   it('runs an asyncify-instrumented module the same as the plain one, unwind/rewind never triggered', async () => {
@@ -308,5 +345,22 @@ describe('wasi preview1 as a worker Process', () => {
     expect(await kernel.shell.execute(`kill -9 ${entry!.pid}`)).toBe(0)
     const code = await Promise.race([running, new Promise<string>(resolve => setTimeout(() => resolve('hung'), 5000))])
     expect(code).not.toBe('hung')
+  })
+
+  it('implements poll_oneoff: an unopened fd is ready at once with EBADF in its event', async () => {
+    expect(await kernel.shell.execute('/tmp/poll.wasm')).toBe(108)
+  })
+
+  it('links a module that imports something the host lacks, and runs it until the import is called', async () => {
+    const bytes = await compile(MISSING(''))
+    expect(await kernel.wasm.canRunInWorker(bytes)).toBe(true)
+    expect(await kernel.shell.execute('/tmp/missing-unused.wasm > /tmp/missing.out 2> /tmp/missing.err')).toBe(0)
+    expect(await kernel.filesystem.fs.readFile('/tmp/missing.out', 'utf-8')).toBe('ran\n')
+  })
+
+  it('stops a program that calls an import the host lacks, saying which, without hanging', async () => {
+    expect(await kernel.shell.execute('/tmp/missing-called.wasm > /tmp/missing.out 2> /tmp/missing.err')).toBe(1)
+    expect(await kernel.filesystem.fs.readFile('/tmp/missing.out', 'utf-8')).toBe('ran\n')
+    expect(await kernel.filesystem.fs.readFile('/tmp/missing.err', 'utf-8')).toContain('module imports env.not_a_real_import, which ecmaOS does not provide')
   })
 })
