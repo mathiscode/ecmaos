@@ -182,7 +182,7 @@ export const migratedCommands = [
   'wget', 'gpg', 'cowsay', 'script', 'scriptreplay', 'lsattr', 'chattr', 'getfattr', 'setfattr', 'wasm', 'mkfifo', 'mknod',
   'envsubst', 'stdbuf', 'taskset', 'ionice', 'getopt', 'dircolors', 'reset',
   'ifconfig', 'route', 'arp', 'blkid', 'look', 'dc',
-  'ncal', 'lastlog', 'finger', 'pinky'
+  'ncal', 'lastlog', 'finger', 'pinky', 'getfacl', 'setfacl', 'units'
 ] as const
 
 /**

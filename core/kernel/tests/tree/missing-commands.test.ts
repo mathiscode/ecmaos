@@ -111,6 +111,59 @@ describe('network listings, blkid, look, dc, ncal, lastlog and finger', () => {
     expect((await run('pinky -f')).out).toMatch(/^root .+tty1 /)
   })
 
+  it('getfacl and setfacl keep ACLs in the files', async () => {
+    await kernel.filesystem.fs.writeFile('/tmp/acl.txt', 'x')
+    await kernel.filesystem.fs.chmod('/tmp/acl.txt', 0o640)
+
+    expect((await run('getfacl /tmp/acl.txt')).out).toBe('# file: tmp/acl.txt\n# owner: root\n# group: root\nuser::rw-\ngroup::r--\nother::---\n\n')
+
+    const set = await run('setfacl -m u:root:rwx,g::r-x /tmp/acl.txt')
+    expect(set).toEqual({ code: 0, out: '', err: '' })
+    const shown = await run('getfacl -c /tmp/acl.txt')
+    expect(shown.out).toBe('user::rw-\nuser:root:rwx\ngroup::r-x\nmask::rwx\nother::---\n\n')
+    expect((await kernel.filesystem.fs.stat('/tmp/acl.txt')).mode & 0o777).toBe(0o670)
+
+    await run('setfacl -m m::r-- /tmp/acl.txt')
+    expect((await run('getfacl -c /tmp/acl.txt')).out).toContain('user:root:rwx                   #effective:r--')
+
+    await run('setfacl -x u:root /tmp/acl.txt')
+    expect((await run('getfacl -c /tmp/acl.txt')).out).not.toContain('user:root')
+
+    await run('setfacl -b /tmp/acl.txt')
+    expect((await run('getfacl -c /tmp/acl.txt')).out).toBe('user::rw-\ngroup::r-x\nother::---\n\n')
+    expect((await run('setfacl -m u:nosuchuser:r /tmp/acl.txt')).err).toContain('nosuchuser')
+  })
+
+  it('default ACLs belong to directories', async () => {
+    await kernel.filesystem.fs.mkdir('/tmp/acl-dir')
+    expect((await run('setfacl -d -m u:root:rx /tmp/acl-dir')).code).toBe(0)
+    const shown = (await run('getfacl -c /tmp/acl-dir')).out
+    expect(shown).toContain('default:user:root:r-x')
+    expect(shown).toContain('default:mask::rwx')
+    expect((await run('setfacl -d -m u:root:rx /tmp/acl.txt')).err).toContain('Only directories can have default ACLs')
+    await run('setfacl -k /tmp/acl-dir')
+    expect((await run('getfacl -c /tmp/acl-dir')).out).not.toContain('default:')
+  })
+
+  it('units converts between units', async () => {
+    expect(await run('units ft m')).toEqual({ code: 0, out: '\t* 0.3048\n\t/ 3.2808399\n', err: '' })
+    const terse = async (have: string, want: string) => (await run(`units -t '${have}' '${want}'`)).out
+    expect(await terse('tempF(212)', 'tempC')).toBe('100\n')
+    expect(await terse('tempC(0)', 'tempF')).toBe('32\n')
+    expect(await terse('2 hours', 'min')).toBe('120\n')
+    expect(await terse('mi/hr', 'km/hr')).toBe('1.609344\n')
+    expect(await terse('1|2 m', 'cm')).toBe('50\n')
+    expect(await terse('1 kibibyte', 'bytes')).toBe('1024\n')
+    expect(await terse('1 m^2', 'ft^2')).toBe('10.76391\n')
+    expect(await terse('1 lightyear', 'km')).toBe('9.4607305e+12\n')
+    expect(await terse('1 gallon', 'liters')).toBe('3.7854118\n')
+    expect(await terse('1 atm', 'psi')).toBe('14.695949\n')
+    const mismatch = await run('units m kg')
+    expect(mismatch.code).toBe(1)
+    expect(mismatch.err).toContain('conformability error')
+    expect((await run('units foo m')).err).toBe("Unknown unit 'foo'\n")
+  })
+
   it('dc reports an empty stack and goes on', async () => {
     const result = await run("dc -e '+ 7 p'")
     expect(result.err).toContain('dc: stack empty')
