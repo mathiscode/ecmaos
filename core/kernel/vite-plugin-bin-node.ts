@@ -181,7 +181,8 @@ export const migratedCommands = [
   'dos2unix', 'shred', 'fallocate', 'lslocks', 'inotifywait', 'arch', 'users', 'link', 'unlink', 'sum', 'pathchk',
   'wget', 'gpg', 'cowsay', 'script', 'scriptreplay', 'lsattr', 'chattr', 'getfattr', 'setfattr', 'wasm', 'mkfifo', 'mknod',
   'envsubst', 'stdbuf', 'taskset', 'ionice', 'getopt', 'dircolors', 'reset',
-  'ifconfig', 'route', 'arp', 'blkid', 'look', 'dc'
+  'ifconfig', 'route', 'arp', 'blkid', 'look', 'dc',
+  'ncal', 'lastlog', 'finger', 'pinky'
 ] as const
 
 /**

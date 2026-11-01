@@ -5,8 +5,8 @@ import { DefaultFilesystemOptions } from '#filesystem.ts'
 
 import { PROGRAMS_ALL, TestDomOptions, TestLogOptions } from './fixtures/kernel.fixtures'
 
-/** `ifconfig`, `route`, `arp`, `blkid`, `look` and `dc`, commands of `@ecmaos/coreutils` */
-describe('network listings, blkid, look and dc', () => {
+/** `ifconfig`, `route`, `arp`, `blkid`, `look`, `dc`, `ncal`, `lastlog`, `finger` and `pinky`, commands of `@ecmaos/coreutils` */
+describe('network listings, blkid, look, dc, ncal, lastlog and finger', () => {
   let kernel: Kernel
 
   beforeAll(async () => {
@@ -80,6 +80,35 @@ describe('network listings, blkid, look and dc', () => {
     expect(await dc('[1+ d 5 >a]sa 0 lax p')).toBe('5\n')
     expect(await dc('4 5 1:a 9 2:a 1;a 2;a + p')).toBe('14\n')
     expect(await dc('1p q 2p')).toBe('1\n')
+  })
+
+  it('ncal is cal laid out vertically', async () => {
+    const ncal = await run('ncal 2 2026')
+    expect(ncal.code).toBe(0)
+    expect(ncal.out).toBe((await run('cal -v 2 2026')).out)
+    expect(ncal.out).toContain('Su')
+    expect((await run('ncal -M 2 2026')).out).toBe((await run('cal -v -m 2 2026')).out)
+  })
+
+  it('lastlog, finger and pinky read the login records', async () => {
+    const now = Date.now()
+    await kernel.filesystem.fs.writeFile('/var/log/wtmp', `boot\t\t\t${now - 90000}\nlogin\troot\ttty1\t${now - 60000}\n`)
+    await kernel.filesystem.fs.writeFile('/run/utmp', `root\ttty1\t${now - 60000}\n`)
+
+    const lastlog = await run('lastlog -u root')
+    expect(lastlog.code).toBe(0)
+    expect(lastlog.out).toMatch(/^Username {9}Port {5}From {13}Latest\nroot {13}tty1 {22}\w{3} \w{3} \d\d \d\d:\d\d:\d\d [+-]\d{4} \d{4}\n$/)
+    expect((await run('lastlog -u nosuch')).code).toBe(1)
+    expect((await run('lastlog -S -u root')).code).toBe(1)
+
+    const finger = await run('finger root')
+    expect(finger.out).toMatch(/^Login: root +Name: .*\nDirectory: .+Shell: .*\nOn since .+ on tty1\nNo mail\.\nNo Plan\.\n$/)
+    expect((await run('finger')).out).toMatch(/^Login +Name +Tty +Idle +Login Time +Office +Office Phone\nroot .+tty1 .+\n$/)
+    expect((await run('finger nosuch')).out).toBe('finger: nosuch: no such user.\n')
+
+    const pinky = await run('pinky')
+    expect(pinky.out).toMatch(/^Login +Name +TTY +Idle +When\nroot .+tty1 .+\n$/)
+    expect((await run('pinky -f')).out).toMatch(/^root .+tty1 /)
   })
 
   it('dc reports an empty stack and goes on', async () => {
