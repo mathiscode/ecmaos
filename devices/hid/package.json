@@ -21,7 +21,7 @@
     "@types/ansi-escape-sequences": "^4.0.4",
     "@types/node": "22.20.2",
     "@types/w3c-web-hid": "^1.0.7",
-    "@zenfs/core": "^2.7.7",
+    "@zenfs/core": "^2.8.3",
     "@zenfs/linux": "0.6.1",
     "typescript": "^7.0.2",
     "vite-plugin-node-polyfills": "^0.28.0"

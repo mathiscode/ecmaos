@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { bindContext } from '@zenfs/core'
-import { processes } from '@zenfs/linux'
+import { processes, syscalls } from '@zenfs/linux'
 
 import { Kernel } from '#kernel.ts'
 import { DefaultFilesystemOptions } from '#filesystem.ts'
@@ -90,6 +90,23 @@ describe('umask', () => {
     kernel.shell.context = bindContext({ root: '/', pwd: '/', credentials: kernel.shell.credentials })
     expect(kernel.shell.umask).toBe(0o077)
     expect((await out('umask')).out).toBe('0077\n')
+  })
+
+  it.skipIf(typeof (bindContext({}) as { umask?: number }).umask !== 'number')('umask(2) from a program reaches the mask its context applies, not only the kernel\'s copy', async () => {
+    const proc = kernel.init.process as unknown as { context: { umask: number } }
+    const umask = syscalls.get('proc_umask') as unknown as (proc: unknown, mask: number) => Promise<number>
+    const before = proc.context.umask
+    try {
+      expect(await umask(proc, 0)).toBe(before)
+      expect(proc.context.umask).toBe(0)
+      expect(await umask(proc, 0o077)).toBe(0)
+      expect(proc.context.umask).toBe(0o077)
+      // asking leaves it as it is
+      expect(await umask(proc, -1)).toBe(0o077)
+      expect(proc.context.umask).toBe(0o077)
+    } finally {
+      await umask(proc, before)
+    }
   })
 
   it('ecmash has its own umask, which what it starts inherits and which does not reach the shell that ran it', async () => {

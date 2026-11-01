@@ -62,10 +62,14 @@ describe('mount, passkey and screensaver-daemon as execve programs', () => {
     })
 
     it('mounts a singlebuffer with a size option and rejects a bad size', async () => {
-      const sb = await run('mount -t singlebuffer /mnt/tc-buf -o size=65536'); expect(sb.code).toBe(0)
+      const sb = await run('mount -t singlebuffer /mnt/tc-buf -o size=131072'); expect(sb.code).toBe(0)
       const bad = await run('mount -t singlebuffer /mnt/tc-buf2 -o size=abc')
       expect(bad.code).toBe(1)
       expect(bad.err).toContain('mount: invalid buffer size for singlebuffer type')
+      // the v2 layout (@zenfs/core 2.8) needs about 82 KiB for its own structures
+      const small = await run('mount -t singlebuffer /mnt/tc-buf3 -o size=65536')
+      expect(small.code).toBe(1)
+      expect(small.err).toContain('too small')
     })
 
     it('mounts a zip from a local file and reads it back', async () => {

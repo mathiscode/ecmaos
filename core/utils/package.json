@@ -46,7 +46,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1156.0",
     "@ecmaos/types": "workspace:^",
-    "@zenfs/core": "^2.7.7",
+    "@zenfs/core": "^2.8.3",
     "@zenfs/linux": "0.6.1",
     "@zip.js/zip.js": "^2.24.0",
     "ansi-escape-sequences": "^6.2.4",

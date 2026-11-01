@@ -8,7 +8,7 @@ overrides:
   canvas: Automattic/node-canvas#master
   '@types/node': 22.20.2
   memium: ^1.0.4
-  '@zenfs/core': ^2.7.7
+  '@zenfs/core': ^2.8.3
 
 pnpmfileChecksum: sha256-2hGgCVIM97qm1SYj0uKb+Dkq66veP79smXwIOrLf4fI=
 
@@ -390,22 +390,22 @@ importers:
         version: 6.0.0
       '@zenfs/archives':
         specifier: ^1.5.0
-        version: 1.5.0(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 1.5.0(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       '@zenfs/cloud':
         specifier: ^0.2.8
-        version: 0.2.8(@zenfs/core@2.7.7)(kerium@1.5.0)(utilium@3.10.0)
+        version: 0.2.8(@zenfs/core@2.8.3)(kerium@1.5.0)(utilium@3.10.0)
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/dom':
         specifier: ^1.2.14
-        version: 1.2.14(@zenfs/core@2.7.7)(kerium@1.5.0)(utilium@3.10.0)
+        version: 1.2.14(@zenfs/core@2.8.3)(kerium@1.5.0)(utilium@3.10.0)
       '@zenfs/emscripten':
         specifier: ^1.0.10
-        version: 1.0.10(@zenfs/core@2.7.7)(kerium@1.5.0)
+        version: 1.0.10(@zenfs/core@2.8.3)(kerium@1.5.0)
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       '@zip.js/zip.js':
         specifier: ^2.24.0
         version: 2.24.0
@@ -718,11 +718,11 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       eslint:
         specifier: ^10.13.0
         version: 10.13.0
@@ -801,19 +801,19 @@ importers:
         version: 6.0.0
       '@zenfs/archives':
         specifier: ^1.5.0
-        version: 1.5.0(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 1.5.0(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/dom':
         specifier: ^1.2.14
-        version: 1.2.14(@zenfs/core@2.7.7)(kerium@1.5.0)(utilium@3.10.0)
+        version: 1.2.14(@zenfs/core@2.8.3)(kerium@1.5.0)(utilium@3.10.0)
       '@zenfs/emscripten':
         specifier: ^1.0.10
-        version: 1.0.10(@zenfs/core@2.7.7)(kerium@1.5.0)
+        version: 1.0.10(@zenfs/core@2.8.3)(kerium@1.5.0)
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       chalk:
         specifier: ^6.0.1
         version: 6.0.1
@@ -870,11 +870,11 @@ importers:
         specifier: workspace:^
         version: link:../types
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       '@zip.js/zip.js':
         specifier: ^2.24.0
         version: 2.24.0
@@ -964,11 +964,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -998,11 +998,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1038,11 +1038,11 @@ importers:
         specifier: ^0.0.22
         version: 0.0.22
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1069,11 +1069,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1093,11 +1093,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
@@ -1127,11 +1127,11 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1161,11 +1161,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1195,11 +1195,11 @@ importers:
         specifier: ^0.1.74
         version: 0.1.74
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1235,11 +1235,11 @@ importers:
         specifier: ^1.0.7
         version: 1.0.7
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1269,11 +1269,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1300,11 +1300,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1337,11 +1337,11 @@ importers:
         specifier: ^1.0.11
         version: 1.0.11
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1377,11 +1377,11 @@ importers:
         specifier: ^1.0.9
         version: 1.0.9
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1402,11 +1402,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1423,11 +1423,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       vite-plugin-node-polyfills:
         specifier: ^0.28.0
         version: 0.28.0(rollup@4.63.1)(vite@8.3.5(@types/node@22.20.2)(esbuild@0.28.2)(sass-embedded@1.106.1)(sass@1.106.1)(tsx@4.23.13)(yaml@2.9.1))
@@ -1460,11 +1460,11 @@ importers:
         specifier: ^1.0.14
         version: 1.0.14
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1491,11 +1491,11 @@ importers:
         specifier: 22.20.2
         version: 22.20.2
       '@zenfs/core':
-        specifier: ^2.7.7
-        version: 2.7.7
+        specifier: ^2.8.3
+        version: 2.8.3
       '@zenfs/linux':
         specifier: 0.6.1
-        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
+        version: 0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -3940,7 +3940,7 @@ packages:
     resolution: {integrity: sha512-va+kHPhQ1EVQAv838BAh+APxyfhOxqJ/KlbIMVANEFxxBKtqB6TWExbGyLI67NpuCGZJLC7l8xvlpVvYKYNWRg==}
     engines: {node: '>= 20'}
     peerDependencies:
-      '@zenfs/core': ^2.7.7
+      '@zenfs/core': ^2.8.3
       kerium: ^1.4.2
       memium: ^1.0.4
       utilium: ^3.0.0
@@ -3949,12 +3949,12 @@ packages:
     resolution: {integrity: sha512-7WxFLAvO1Ep+QkqTXv8+GHN/HzXuZcB2R7rI8is4/ErXvm+qKeSRwKQr4qmYtAQC2fR+LdWp6CdhIJcrJyfaDg==}
     engines: {node: '>= 18'}
     peerDependencies:
-      '@zenfs/core': ^2.7.7
+      '@zenfs/core': ^2.8.3
       kerium: ^1.3.4
       utilium: ^3.0.0
 
-  '@zenfs/core@2.7.7':
-    resolution: {integrity: sha512-Gysejo5UqcxUPdyrP2orP4ah6fSCfFbX88mAVvwxq3lGRjGUsMC/gsofcZt5LEezDj4berm2d0oSjOungOVFNA==}
+  '@zenfs/core@2.8.3':
+    resolution: {integrity: sha512-7QD/vnjV/Oat7g5XmTTfk9gTAQ3p4JVbRtLHbPaVhS6o0yhUwHnhI+VDBxFQuMAgAfhy9Zc5nmekDbcaseA9LQ==}
     engines: {node: '>= 18'}
     hasBin: true
 
@@ -3962,7 +3962,7 @@ packages:
     resolution: {integrity: sha512-Uc6pUuE/kAc9X3VCgRHmEpusBludbllU4BA/yKED3OwtZzyx8kDPU1QqnJBREB+dfgT1TfIXvxf4pA16WotB5w==}
     engines: {node: '>= 22'}
     peerDependencies:
-      '@zenfs/core': ^2.7.7
+      '@zenfs/core': ^2.8.3
       kerium: ^1.5.0
       utilium: ^3.0.0
 
@@ -3970,7 +3970,7 @@ packages:
     resolution: {integrity: sha512-OnS6z8Ciw+owy/c9DDzHotuKFo6/HEiVtNKN8YmAOFaHW966nv/P2zgFGi4BD+e0Pd36V0zwUw9n9qfW+QRHTQ==}
     engines: {node: '>= 18'}
     peerDependencies:
-      '@zenfs/core': ^2.7.7
+      '@zenfs/core': ^2.8.3
       kerium: ^1.4.4
 
   '@zenfs/linux@0.6.1':
@@ -3978,13 +3978,13 @@ packages:
     engines: {node: '>= 22'}
     peerDependencies:
       '@types/node': 22.20.2
-      '@zenfs/core': ^2.7.7
+      '@zenfs/core': ^2.8.3
       kerium: ^1.4.0
       memium: ^1.0.4
       utilium: ^3.0.0
 
-  '@zenfs/streams@1.0.1':
-    resolution: {integrity: sha512-MJ//6rMWQtonDB8ESvWcFAnm+J4HHvL4ERWthPteKTYRmzh5LUosEoRNEdzGdmzilj4cg31+vrTKpQB69FA7gg==}
+  '@zenfs/streams@1.0.2':
+    resolution: {integrity: sha512-qSq9tgDe7kG6i5L6IA9yVgKXjggO2tJb1SehQsSRnA7vP3VQqnyo7wNFK+DthEetM2dK+YXkqmgjrE67lQkoqg==}
     engines: {node: '>= 22'}
 
   '@zip.js/zip.js@2.24.0':
@@ -9070,17 +9070,17 @@ snapshots:
 
   '@zeit/schemas@2.36.0': {}
 
-  '@zenfs/archives@1.5.0(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)':
+  '@zenfs/archives@1.5.0(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)':
     dependencies:
-      '@zenfs/core': 2.7.7
+      '@zenfs/core': 2.8.3
       fflate: 0.8.3
       kerium: 1.5.0
       memium: 1.1.1
       utilium: 3.10.0
 
-  '@zenfs/cloud@0.2.8(@zenfs/core@2.7.7)(kerium@1.5.0)(utilium@3.10.0)':
+  '@zenfs/cloud@0.2.8(@zenfs/core@2.8.3)(kerium@1.5.0)(utilium@3.10.0)':
     dependencies:
-      '@zenfs/core': 2.7.7
+      '@zenfs/core': 2.8.3
       kerium: 1.5.0
       utilium: 3.10.0
     optionalDependencies:
@@ -9089,36 +9089,36 @@ snapshots:
       '@types/gapi.client.drive-v3': 0.0.5
       dropbox: 10.47.0
 
-  '@zenfs/core@2.7.7':
+  '@zenfs/core@2.8.3':
     dependencies:
       '@types/node': 22.20.2
-      '@zenfs/streams': 1.0.1
+      '@zenfs/streams': 1.0.2
       buffer: 6.0.3
       eventemitter3: 5.0.4
       kerium: 1.5.0
       memium: 1.1.1
       utilium: 3.10.0
 
-  '@zenfs/dom@1.2.14(@zenfs/core@2.7.7)(kerium@1.5.0)(utilium@3.10.0)':
+  '@zenfs/dom@1.2.14(@zenfs/core@2.8.3)(kerium@1.5.0)(utilium@3.10.0)':
     dependencies:
-      '@zenfs/core': 2.7.7
+      '@zenfs/core': 2.8.3
       kerium: 1.5.0
       utilium: 3.10.0
 
-  '@zenfs/emscripten@1.0.10(@zenfs/core@2.7.7)(kerium@1.5.0)':
+  '@zenfs/emscripten@1.0.10(@zenfs/core@2.8.3)(kerium@1.5.0)':
     dependencies:
-      '@zenfs/core': 2.7.7
+      '@zenfs/core': 2.8.3
       kerium: 1.5.0
 
-  '@zenfs/linux@0.6.1(@types/node@22.20.2)(@zenfs/core@2.7.7)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)':
+  '@zenfs/linux@0.6.1(@types/node@22.20.2)(@zenfs/core@2.8.3)(kerium@1.5.0)(memium@1.1.1)(utilium@3.10.0)':
     dependencies:
       '@types/node': 22.20.2
-      '@zenfs/core': 2.7.7
+      '@zenfs/core': 2.8.3
       kerium: 1.5.0
       memium: 1.1.1
       utilium: 3.10.0
 
-  '@zenfs/streams@1.0.1':
+  '@zenfs/streams@1.0.2':
     dependencies:
       '@types/node': 22.20.2
       buffer: 6.0.3
