@@ -271,6 +271,33 @@ describe('WALI programs', () => {
     })
   }, 30_000)
 
+  it('has event counters and timers as descriptors (eventfd, timerfd) that poll and epoll see', async () => {
+    expect(await run('wali-counterfd')).toEqual({
+      code: 0,
+      err: '',
+      out: [
+        'eventfd sum: 7',
+        'empty: EAGAIN',
+        'bad value: EINVAL',
+        'short read: EINVAL',
+        'semaphore: 1 1 empty',
+        'poll idle: in=0 out=1',
+        'poll counted: in=1 out=1',
+        'armed: left>0=1 left<=30ms=1',
+        'not yet: EAGAIN',
+        'epoll timer: ready=1 tag=7 count=1',
+        'one shot spent: 1',
+        'interval: ticks>=5=1',
+        'disarmed: silent',
+        'child wakes epoll: ready=1 tag=9 count=7',
+        'child exit=0',
+        'bad clock: EINVAL',
+        'bad fd: EINVAL',
+        ''
+      ].join('\n')
+    })
+  }, 30_000)
+
   it('makes a file with no name (memfd_create), grows it with fallocate, and hands it on mapped', async () => {
     expect(await run('wali-memfd')).toEqual({
       code: 0,

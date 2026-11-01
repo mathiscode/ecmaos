@@ -42,6 +42,7 @@ import { installWaliSignals } from './wali-signals.ts'
 import { installSysvIpc } from './sysv-ipc.ts'
 import { installRecordLocks } from './record-locks.ts'
 import { installFsWatch } from './fs-watch.ts'
+import { installCounterFds } from './counter-fds.ts'
 import { installOpenDirectory } from './open-directory.ts'
 import { installUtimes } from './utimes.ts'
 import { installInodeFlags } from './inode-flags.ts'
@@ -562,6 +563,7 @@ export function installMainThreadSyscalls(): void {
   installWaliSignals()
   installSysvIpc()
   installRecordLocks()
+  installCounterFds()
   installFsWatch((proc, path, text) => writeScratch(kernelOf(proc), proc, path, text))
   installFbSeek((proc, fd) => {
     const handle = proc.context.descriptors.get(fd) as { inode?: { mode: number, rdev?: number | bigint } } | undefined

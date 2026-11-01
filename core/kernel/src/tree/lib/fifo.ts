@@ -11,7 +11,7 @@ import { O_NONBLOCK, O_RDWR, O_WRONLY, S_IFBLK, S_IFCHR, S_IFIFO, S_IFMT, S_IFRE
 import { Handle } from '@zenfs/core/vfs/file'
 import { resolveMount } from '@zenfs/core/vfs/shared'
 import { cacheOf } from '@zenfs/core/vfs/vcache'
-import { processes, type Process } from '@zenfs/linux'
+import { processes, type Process, type WaitQueue } from '@zenfs/linux'
 import { EPOLLIN, EPOLLOUT } from '@zenfs/linux/fs/devtmpfs'
 import { pipefs } from '@zenfs/linux/fs/pipe'
 import { withErrno } from 'kerium'
@@ -102,26 +102,40 @@ const bothHandle = (context: Context, fifo: Fifo, flag: number) => {
 }
 
 type Pipe = Created['pipe']
-type Device = { path: string, inode: unknown, devt: { major: number, minor: number }, ops: typeof duplexOps }
-const pipeOfPath = (path: string): Pipe | undefined => {
+interface Ops {
+  read(file: Device, buffer: Uint8Array, start: number, end: number): number
+  write(file: Device, buffer: Uint8Array): number
+  poll(file: Device): number
+  poll_wait(file: Device): unknown
+}
+type Device = { path: string, inode: unknown, devt: { major: number, minor: number }, ops: Ops, duplex?: true }
+const idOfPath = (path: string): number | undefined => {
   const id = /^\/(\d+)\.rw$/.exec(path)?.[1]
-  return id === undefined ? undefined : (pipefs as unknown as { pipes: Map<number, Pipe> }).pipes.get(Number(id))
+  return id === undefined ? undefined : Number(id)
+}
+const pipeOfPath = (path: string): Pipe | undefined => {
+  const id = idOfPath(path)
+  return id === undefined ? undefined : (pipefs as unknown as { pipes: Map<number, Pipe> }).pipes.get(id)
 }
 
 /** What a descriptor open for both reading and writing does: it reads and writes the one pipe, and is ready for either */
-const duplexOps = {
-  read: (file: Device, buffer: Uint8Array, start: number, end: number) => pipeOfPath(file.path)?.take(buffer.subarray(start, end)) ?? 0,
-  write: (file: Device, buffer: Uint8Array) => pipeOfPath(file.path)?.put(buffer) ?? 0,
-  poll: (file: Device) => {
+const duplexOps: Ops = {
+  read: (file, buffer, start, end) => pipeOfPath(file.path)?.take(buffer.subarray(start, end)) ?? 0,
+  write: (file, buffer) => pipeOfPath(file.path)?.put(buffer) ?? 0,
+  poll: file => {
     const pipe = pipeOfPath(file.path)
     return pipe ? (pipe.readable ? EPOLLIN : 0) | (pipe.writable ? EPOLLOUT : 0) : 0
   },
-  poll_wait: (file: Device) => pipeOfPath(file.path)?.wait
+  poll_wait: file => pipeOfPath(file.path)?.wait
 }
+
+/** The operations of pipes that are not plain ones (an event counter, a timer), by the pipe's number */
+const special = new Map<number, Ops>()
+const opsOf = (path: string): Ops => special.get(idOfPath(path) ?? -1) ?? duplexOps
 
 let duplexInstalled = false
 /** Teaches the pipe file system the `/N.rw` descriptors above, whose operations are not the pipe ends' */
-function installDuplex(): void {
+export function installDuplex(): void {
   if (duplexInstalled) return
   duplexInstalled = true
   const target = pipefs as unknown as Record<string, (this: unknown, ...args: never[]) => unknown>
@@ -131,21 +145,49 @@ function installDuplex(): void {
   const readSync = target['readSync']!
   const writeSync = target['writeSync']!
   target['_device'] = function (this: unknown, path: string, inode?: unknown) {
-    if (!pipeOfPath(path)) return device.call(this, path as never, inode as never)
-    return { path, inode, devt: { major: 0, minor: Number(/^\/(\d+)/.exec(path)![1]) }, ops: duplexOps }
+    const id = idOfPath(path)
+    if (id === undefined || !pipeOfPath(path)) return device.call(this, path as never, inode as never)
+    return { path, inode, devt: { major: 0, minor: id }, ops: opsOf(path), duplex: true }
   } as never
   target['read_device'] = function (this: unknown, file: Device, ...rest: unknown[]) {
-    return file.ops === duplexOps ? duplexOps.read(file, ...(rest as [Uint8Array, number, number])) : readDevice.call(this, file as never, ...rest as never[])
+    return file.duplex ? file.ops.read(file, ...(rest as [Uint8Array, number, number])) : readDevice.call(this, file as never, ...rest as never[])
   } as never
   target['write_device'] = function (this: unknown, file: Device, ...rest: unknown[]) {
-    return file.ops === duplexOps ? duplexOps.write(file, ...(rest as [Uint8Array])) : writeDevice.call(this, file as never, ...rest as never[])
+    return file.duplex ? file.ops.write(file, ...(rest as [Uint8Array])) : writeDevice.call(this, file as never, ...rest as never[])
   } as never
   target['readSync'] = function (this: unknown, path: string, ...rest: unknown[]) {
-    return pipeOfPath(path) ? duplexOps.read({ path } as Device, ...(rest as [Uint8Array, number, number])) : readSync.call(this, path as never, ...rest as never[])
+    return pipeOfPath(path) ? opsOf(path).read({ path } as Device, ...(rest as [Uint8Array, number, number])) : readSync.call(this, path as never, ...rest as never[])
   } as never
   target['writeSync'] = function (this: unknown, path: string, ...rest: unknown[]) {
-    return pipeOfPath(path) ? void duplexOps.write({ path } as Device, ...(rest as [Uint8Array])) : writeSync.call(this, path as never, ...rest as never[])
+    return pipeOfPath(path) ? void opsOf(path).write({ path } as Device, ...(rest as [Uint8Array])) : writeSync.call(this, path as never, ...rest as never[])
   } as never
+}
+
+/**
+ * A descriptor on a new pipe of its own, open for reading and writing, whose operations are `ops` (made from the
+ * pipe's number and the queue its sleepers wait on): the event counters and timers of `eventfd(2)` and `timerfd_create(2)`.
+ * `release` runs when the last descriptor for it closes.
+ */
+export function makeSpecialFd(proc: Process, flags: number, make: (id: number, queue: WaitQueue) => Ops, release: (id: number) => void): number {
+  installDuplex()
+  const fifo: Fifo = { ...pipefs.create(), readWrite: 0 }
+  const id = fifo.pipe.id
+  special.set(id, make(id, fifo.pipe.wait))
+  const context = proc.context as unknown as Context & { descriptors: Map<number, Handle> }
+  const handle = bothHandle(context, fifo, O_RDWR | (flags & O_NONBLOCK)) as Descriptor
+  whenClosed(handle, () => { special.delete(id); release(id) })
+  const table = context.descriptors
+  let fd = 0
+  while (table.has(fd)) fd++
+  table.set(fd, handle)
+  return fd
+}
+
+/** The pipe number of a special descriptor, or nothing when `fd` is not one */
+export function specialIdOf(proc: Process, fd: number): number | undefined {
+  const handle = proc.context.descriptors.get(fd) as unknown as Handle | undefined
+  const id = handle && handle.fs === pipefs ? idOfPath(handle.internalPath) : undefined
+  return id !== undefined && special.has(id) ? id : undefined
 }
 
 /**
